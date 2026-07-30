@@ -32,7 +32,23 @@ fn facets_json_is_the_enum() {
     };
     assert_eq!(listed("unreadable"), names(Facet::UNREADABLE));
     assert_eq!(listed("snapshotSource"), names(Facet::SNAPSHOT_SOURCE));
+    assert_eq!(
+        listed("socketHoldersSource"),
+        names(Facet::SOCKET_HOLDERS_SOURCE)
+    );
     assert_eq!(listed("hostSource"), names(Facet::HOST_SOURCE));
+}
+
+/// Each verb owns its own `E` vocabulary, so a consumer cannot match a facet
+/// name across verbs by accident. `socket_holders` is the one facet only the
+/// third verb can name; `proc` is deliberately shared, because a `--procs`
+/// facet means the same thing in both documents.
+#[test]
+fn each_verb_owns_its_source_facet_vocabulary() {
+    assert!(Facet::SOCKET_HOLDERS_SOURCE.contains(&Facet::SocketHolders));
+    assert!(!Facet::SNAPSHOT_SOURCE.contains(&Facet::SocketHolders));
+    assert!(!Facet::HOST_SOURCE.contains(&Facet::SocketHolders));
+    assert!(Facet::SOCKET_HOLDERS_SOURCE.contains(&Facet::Proc));
 }
 
 /// The one darwin source that feeds four facets must name the facet the ASK

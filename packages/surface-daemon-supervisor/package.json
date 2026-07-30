@@ -19,6 +19,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
+    "osfacts-client": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

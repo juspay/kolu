@@ -60,7 +60,11 @@ import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { registerEndpointPrivate } from "./endpoint.private.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
-import { type SocketHolder, socketHolders } from "./socketHolder.ts";
+import type {
+  ReadSocketHolders,
+  SocketHolder,
+  SocketHolderReading,
+} from "./socketHolder.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
@@ -376,6 +380,14 @@ export interface EndpointSpec<
    * `processIdentityFromEnvAsync` over the sync twin).
    */
   readProcessIdentity: ReadProcessIdentityAsync;
+  /**
+   * Ask the OS which processes hold a unix socket PATH — the gate-less-squatter
+   * recovery's only witness once the gate file is gone. Required, and injected
+   * for the same reason as `readProcessIdentity`: the endpoint performs no
+   * platform traversal itself, and the osfacts binary's path is baked under a
+   * name only the composing program knows (`osfactsSocketHolders(bakedOsFactsBin(…))`).
+   */
+  readSocketHolders: ReadSocketHolders;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -489,14 +501,26 @@ function waitForSocket(
   });
 }
 
-/** The OS holders of `socketPath`, EXCLUDING the supervisor's own process. The
- *  supervisor spawns its daemon as a SEPARATE process (the survivable-spawn model),
- *  so its OWN pid holding the rendezvous is never a squatter — only an in-process
- *  serve (a test's in-process daemon) would be — and must never be a kill target.
- *  Single source for that self-exclusion safety invariant, so it can't drift across
- *  the recovery's read sites. */
-async function externalHolders(socketPath: string): Promise<SocketHolder[]> {
-  return (await socketHolders(socketPath)).filter((h) => h.pid !== process.pid);
+/** The named OS holders of `socketPath`, EXCLUDING the supervisor's own process.
+ *  The supervisor spawns its daemon as a SEPARATE process (the survivable-spawn
+ *  model), so its OWN pid holding the rendezvous is never a squatter — only an
+ *  in-process serve (a test's in-process daemon) would be — and must never be a
+ *  kill target. Single source for that self-exclusion safety invariant, so it
+ *  can't drift across the recovery's read sites.
+ *
+ *  The unnamed arms of the reading (`none`, `unattributed`) flatten to an empty
+ *  list HERE and only here, at the two sites that ask "is this specific pid
+ *  still among the holders" — a question all three answers say *no* to. The
+ *  site that must keep them apart (`recoverGatelessSquatter`) folds the reading
+ *  itself and never calls this. */
+async function namedExternalHolders(
+  read: ReadSocketHolders,
+  socketPath: string,
+): Promise<SocketHolder[]> {
+  const reading = await read(socketPath);
+  return reading.kind === "holders"
+    ? reading.holders.filter((h) => h.pid !== process.pid)
+    : [];
 }
 
 export function createEndpoint<
@@ -831,7 +855,10 @@ export function createEndpoint<
       case "indeterminate":
         throw new SocketProbeIndeterminateError(rv);
       case "serving": {
-        const held = await externalHolders(rv.socketPath);
+        const held = await namedExternalHolders(
+          spec.readSocketHolders,
+          rv.socketPath,
+        );
         spec.log.error(
           {
             hostId: spec.hostId,
@@ -911,13 +938,40 @@ export function createEndpoint<
         }
       }
 
+      // Exhaustive fold of the reading's three answers — the site that must NOT
+      // flatten them. Only a NAMED holder set is actionable; `none` (nothing
+      // holds it) and `unattributed` (something might, unnameably) both mean we
+      // cannot pick a kill target, and both resolve through `freeOrFailLoud`.
+      const reading: SocketHolderReading = await spec.readSocketHolders(
+        rv.socketPath,
+      );
+      if (reading.kind === "unattributed") {
+        // Accepting, and the OS would not name who holds it. NOT proof of
+        // freedom — do not let the caller spawn onto it. Re-probe: only a
+        // not-accepting socket is `free`; still-accepting fails loud (F5).
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            detail: reading.detail,
+          },
+          "the OS would not name the rendezvous socket's holder — resolving the socket safely rather than guessing",
+        );
+        return await freeOrFailLoud(rv);
+      }
+      if (reading.kind === "none") {
+        // The OS proves nothing holds it, yet the probe above said it was
+        // serving: a race (the holder closed in between). Still not a licence
+        // to spawn on this pass — `freeOrFailLoud` re-probes and only a socket
+        // proven not-accepting comes back `free`.
+        return await freeOrFailLoud(rv);
+      }
       // Exclude OUR OWN process from the holder set: the supervisor spawns its
       // daemon as a SEPARATE process (the survivable-spawn model), so a real
       // squatter is never us — but an in-process serve (a test's in-process daemon)
       // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const rawHolders = await socketHolders(rv.socketPath);
-      const heldByUs = rawHolders.some((h) => h.pid === process.pid);
-      const holders = rawHolders.filter((h) => h.pid !== process.pid);
+      const heldByUs = reading.holders.some((h) => h.pid === process.pid);
+      const holders = reading.holders.filter((h) => h.pid !== process.pid);
       if (holders.length === 0) {
         if (heldByUs) {
           // The socket is held by OUR OWN process (an in-process serve) — never a
@@ -928,10 +982,6 @@ export function createEndpoint<
           );
           return "free";
         }
-        // Accepting, yet the OS names NO holder at all: a race (it just closed) or a
-        // holder we cannot attribute. That is NOT proof of freedom — do not let the
-        // caller spawn onto it. Re-probe: only a not-accepting socket is `free`;
-        // still-accepting fails loud (F5). Never guess a kill.
         return await freeOrFailLoud(rv);
       }
       const holderPids = holders.map((h) => h.pid);
@@ -1060,7 +1110,10 @@ export function createEndpoint<
       }
       // OS corroboration AFTER the fresh handshake (F3 order): the just-attested pid
       // must still be a live holder of THIS socket right now.
-      const finalHolders = await externalHolders(rv.socketPath);
+      const finalHolders = await namedExternalHolders(
+        spec.readSocketHolders,
+        rv.socketPath,
+      );
       if (!finalHolders.some((h) => h.pid === reportedPid)) {
         spec.log.warn(
           { hostId: spec.hostId, socketPath: rv.socketPath, pid: reportedPid },

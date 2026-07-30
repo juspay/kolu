@@ -24,11 +24,14 @@ Every tool we measured answered a *different* question. We wrote this one.
 osfacts snapshot --roots 4242 --procs --ports      # subtree: procs + listeners
 osfacts snapshot --pids 991 --mem --start-time --cpu-time
 osfacts snapshot --uid --cwd --status --argv       # host-wide identity facets
+osfacts socket-holders /run/user/1000/kaval.sock --procs   # who holds this socket
 osfacts host --load --mem --cpu --net --disk       # machine gauges + counters
 osfacts snapshot --procs --json | jq               # same facts, readable
 ```
 
-One verb. Composable facets. You pay for the ask, not the host.
+Composable facets. You pay for the ask, not the host. Three verbs, because
+three questions: a **pid set** (`snapshot`), a **socket path**
+(`socket-holders`), the **machine** (`host`).
 
 | shape (Linux ~450 procs) | cost |
 | --- | ---: |
@@ -109,6 +112,7 @@ Blindness is **output**, not absence.
 U <pid> <facet> <errno>     # per-pid unreadable
 E <source> <facet> <code>   # source-level blindness
 L ... unclaimed ...         # socket seen; owner out of scope / unreadable
+H unclaimed -               # unix socket bound; holder out of scope / unreadable
 ```
 
 - `unreadable` section cannot be disabled.
@@ -128,6 +132,35 @@ L ... unclaimed ...         # socket seen; owner out of scope / unreadable
 
 Failed facet ≠ erase sibling facets. Unreadable cwd never nukes a good uid.
 
+### Socket holders
+
+`socket-holders PATH [--procs]` — who holds one unix socket. A **path**, not a
+pid set, so it is its own verb. `--procs` is the one facet: it costs holder
+*names*, never the holder set.
+
+```
+H claimed 991               # this pid holds it
+H unclaimed -               # bound; no readable pid claims it
+P 991 1 kaval               # --procs
+```
+
+Three answers, kept apart — a reader that spells all three `[]` is the defect
+this verb exists to delete:
+
+| answer | rows | exit |
+| --- | --- | ---: |
+| nobody holds it | none | 0 |
+| held, unnameable | `H unclaimed -` | 0 |
+| could not look | `E … socket_holders …` | 1 |
+
+Linux proves absence (`/proc/net/unix` lists every bound unix socket).
+**Darwin cannot** — no such table, and Apple gates another user's descriptors —
+so a walk that named nobody says `E darwin_proc_fds socket_holders
+BLIND_OR_EMPTY` rather than claiming linux's proof.
+
+Path match is **exact bytes**. No canonicalization, no symlink resolution: the
+kernel bound what `bind(2)` was handed, and a path may contain spaces.
+
 ### Host facets
 
 - CPU model nonempty; MHz nullable (Apple Silicon: `null` / `-`, never fake 0).
@@ -139,7 +172,15 @@ Failed facet ≠ erase sibling facets. Unreadable cwd never nukes a good uid.
 | result | exit |
 | --- | --- |
 | some facts + some `E`/`U` | 0 (policy is the consumer's) |
-| `E`-only / usage / I/O fail | nonzero |
+| no facts, no `E` (an honest empty answer) | 0 |
+| `E`-only / I/O fail | 1 |
+| usage — unknown verb, bad flag, missing arg | 2 |
+
+The version line is written on the **usage** path too, so exit status is what
+separates a refusal from an answer: **only exit 1 carries a document.** A
+consumer that parsed an exit-2 document would read *"this binary has no such
+verb"* as *"nothing found"* — which is what an older binary on a caller's PATH
+produces every time.
 
 `facet` vocabulary lives once: `Facet` in `src/schema.rs` + `facets.json` → TS client. Both sides pinned by tests.
 
@@ -154,7 +195,8 @@ Same binary. Same questions. Kernel draws different lines.
 | | Linux | Darwin |
 | --- | --- | --- |
 | always visible | name, real uid, RSS, CPU time, start (`/proc`) | pid/ppid/uid/state/nice/start/cmd (`kern.proc`); path via `proc_pidpath` |
-| needs same-uid or root | cwd, fd targets (port attribution) | full view: RSS, CPU, cwd, argv, fd attribution |
+| needs same-uid or root | cwd, fd targets (port + socket-holder attribution) | full view: RSS, CPU, cwd, argv, fd attribution |
+| bound unix sockets | `/proc/net/unix`, world-readable → absence is proof | no table at all → `BLIND_OR_EMPTY`, never a claim of absence |
 | listeners if owner hidden | TCP table world-readable → unclaimed `L` | same-uid fd walk still claims; macOS 27+ gates host-wide PCB list without Apple platform signing |
 
 **Darwin extras we refuse to paper over:**

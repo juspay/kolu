@@ -11,10 +11,11 @@
  * `snapshotSubtree`, `snapshotPids`, and `snapshotHost` are the three scopes of
  * the `snapshot` verb — processes and sockets — and differ only in which pids
  * they ask about; `snapshotHost` is therefore "every process on this host", not
- * "how the host is doing". `host` is the scopeless `host` verb: machine
- * telemetry, no pids at all. They return different types (`SnapshotReading` vs
- * `HostReading`), so reaching for the wrong one is a type error rather than an
- * empty array.
+ * "how the host is doing". `socketHolders` is the `socket-holders` verb, whose
+ * scope is a socket PATH rather than a pid set. `host` is the scopeless `host`
+ * verb: machine telemetry, no pids at all. They return different types
+ * (`SnapshotReading` vs `SocketHoldersReading` vs `HostReading`), so reaching
+ * for the wrong one is a type error rather than an empty array.
  */
 
 export {
@@ -36,6 +37,11 @@ export {
   SNAPSHOT_SOURCE_FACETS,
   type SnapshotSourceFacet,
   type SnapshotSourceErrorRow,
+  SOCKET_HOLDERS_SOURCE_FACETS,
+  type SocketHoldersSourceFacet,
+  type SocketHoldersSourceErrorRow,
+  type SocketHolderRow,
+  type SocketHoldersReading,
   HOST_SOURCE_FACETS,
   type HostSourceFacet,
   type HostSourceErrorRow,
@@ -52,6 +58,7 @@ export {
   emptySnapshotReading,
   snapshotFacetNames,
   parseSnapshotOutput,
+  parseSocketHoldersOutput,
   parseHostOutput,
   snapshotSubtree,
   snapshotHost,
@@ -62,5 +69,6 @@ export {
   processIdentityAsync,
   processIdentityFromEnv,
   processIdentityFromEnvAsync,
+  socketHolders,
   host,
 } from "./client.ts";

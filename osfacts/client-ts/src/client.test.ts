@@ -11,8 +11,10 @@ import {
   OsfactsClientError,
   parseHostOutput,
   parseSnapshotOutput,
+  parseSocketHoldersOutput,
   OSFACTS_FORMAT_VERSION,
   snapshotHost,
+  socketHolders,
 } from "./client.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
@@ -33,6 +35,16 @@ const SNAPSHOT_SAMPLE = [
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
   "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
+  "",
+].join("\n");
+
+const HOLDERS_SAMPLE = [
+  "V\t2",
+  "H\tclaimed\t4242",
+  "H\tunclaimed\t-",
+  "P\t4242\t4200\tkaval",
+  "U\t4243\tproc\tESRCH",
+  "E\tdarwin_proc_fds\tsocket_holders\tBLIND_OR_EMPTY",
   "",
 ].join("\n");
 
@@ -234,5 +246,151 @@ describe("parseHostOutput", () => {
     expect(() =>
       parseHostOutput("V\t2\nE\tdarwin_tcp_pcblist\tports_unclaimed\tX\n"),
     ).toThrow(OsfactsClientError);
+  });
+});
+
+describe("parseSocketHoldersOutput", () => {
+  it("reads the v2 H/P/U/E contract", () => {
+    const r = parseSocketHoldersOutput(HOLDERS_SAMPLE);
+    expect(r.holders).toEqual([
+      { status: "claimed", pid: 4242 },
+      { status: "unclaimed" },
+    ]);
+    expect(r.procs).toEqual([{ pid: 4242, ppid: 4200, name: "kaval" }]);
+    expect(r.unreadable).toEqual([
+      { pid: 4243, facet: "proc", errno: "ESRCH" },
+    ]);
+    expect(r.errors).toEqual([
+      {
+        source: "darwin_proc_fds",
+        facet: "socket_holders",
+        code: "BLIND_OR_EMPTY",
+      },
+    ]);
+  });
+
+  /** The three answers a consumer must never collapse into one another. */
+  it("keeps nobody-holds-it, cannot-name-it, and could-not-look apart", () => {
+    expect(parseSocketHoldersOutput("V\t2\n")).toEqual({
+      holders: [],
+      procs: [],
+      unreadable: [],
+      errors: [],
+    });
+    expect(parseSocketHoldersOutput("V\t2\nH\tunclaimed\t-\n").holders).toEqual(
+      [{ status: "unclaimed" }],
+    );
+    expect(
+      parseSocketHoldersOutput(
+        "V\t2\nE\tproc_net_unix\tsocket_holders\tEACCES\n",
+      ),
+    ).toMatchObject({ holders: [], errors: [{ facet: "socket_holders" }] });
+  });
+
+  it("fails loudly on every row it cannot read", () => {
+    const bad = [
+      "V\t2\nH\tclaimed\t-\n",
+      "V\t2\nH\tunclaimed\t4242\n",
+      "V\t2\nH\theld\t4242\n",
+      "V\t2\nH\tclaimed\t0\n",
+      "V\t2\nH\tclaimed\tnotapid\n",
+      "V\t2\nH\tclaimed\n",
+      "V\t2\nH\tclaimed\t4242\textra\n",
+      "V\t2\nU\t1\tunknown\tEACCES\n",
+      // A snapshot's own facet vocabulary — the verbs are separate contracts.
+      "V\t2\nE\tproc_net_tcp\tports\tEACCES\n",
+    ];
+    for (const body of bad) {
+      expect(() => parseSocketHoldersOutput(body)).toThrow(OsfactsClientError);
+    }
+  });
+
+  it("refuses the other verbs' documents", () => {
+    expect(() => parseSocketHoldersOutput(SNAPSHOT_SAMPLE)).toThrow(
+      OsfactsClientError,
+    );
+    expect(() => parseSocketHoldersOutput(HOST_SAMPLE)).toThrow(
+      OsfactsClientError,
+    );
+  });
+});
+
+describe("socketHolders", () => {
+  it("spawns the verb with the path, and pays for --procs only when asked", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-holders");
+    try {
+      // Echoes its own argv back as the holder's NAME, so the assertion below
+      // is about the real command line, not a mock's idea of it.
+      await writeFile(
+        bin,
+        '#!/bin/sh\nprintf "V\\t2\\nH\\tclaimed\\t7\\nP\\t7\\t1\\t%s\\n" "$*"\n',
+      );
+      await chmod(bin, 0o755);
+      await expect(
+        socketHolders(bin, "/run/user/1000/kaval.sock"),
+      ).resolves.toMatchObject({
+        holders: [{ status: "claimed", pid: 7 }],
+        procs: [{ name: "socket-holders /run/user/1000/kaval.sock" }],
+      });
+      await expect(
+        socketHolders(bin, "/run/user/1000/kaval.sock", { procs: true }),
+      ).resolves.toMatchObject({
+        procs: [{ name: "socket-holders /run/user/1000/kaval.sock --procs" }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty path rather than asking about some other socket", () => {
+    expect(() => socketHolders("/bin/true", "")).toThrow(OsfactsClientError);
+  });
+
+  it("keeps the E rows of a blind walk that exited non-zero", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-blind-holders");
+    try {
+      await writeFile(
+        bin,
+        '#!/bin/sh\nprintf "V\\t2\\nE\\tdarwin_proc_fds\\tsocket_holders\\tBLIND_OR_EMPTY\\n"\nexit 1\n',
+      );
+      await chmod(bin, 0o755);
+      await expect(socketHolders(bin, "/run/a.sock")).resolves.toMatchObject({
+        holders: [],
+        errors: [{ facet: "socket_holders", code: "BLIND_OR_EMPTY" }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("a refused ask is never an empty answer", () => {
+  /**
+   * The binary writes its version line on the USAGE path too, so a document
+   * shape alone cannot tell an answer from a refusal. An older binary that
+   * does not have the verb the caller asked for exits 2 after that version
+   * line — and reading it as a well-formed "nothing found" is how a supervisor
+   * would conclude a live socket is free.
+   */
+  it("refuses a usage-error document (exit 2) rather than parsing it as nothing-found", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-older");
+    try {
+      await writeFile(
+        bin,
+        '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command \'socket-holders\'" >&2\nexit 2\n',
+      );
+      await chmod(bin, 0o755);
+      await expect(socketHolders(bin, "/run/a.sock")).rejects.toThrow(
+        /unknown command/,
+      );
+      await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+        OsfactsClientError,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

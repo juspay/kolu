@@ -73,6 +73,7 @@ import {
   createEndpoint,
   type DaemonDriver,
   isDownEndpointState,
+  osfactsSocketHolders,
   outcomeAnomaly,
   probeDaemonIdentity,
   scrubDaemonNodeOptions,
@@ -88,7 +89,7 @@ import {
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
-import { processIdentityFromEnvAsync } from "osfacts-client";
+import { bakedOsFactsBin, processIdentityFromEnvAsync } from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -640,6 +641,12 @@ export function ensurePadiBindingWith(
     home,
     readProcessIdentity: (pid) =>
       processIdentityFromEnvAsync("KOLU_OSFACTS_BIN", pid),
+    // Resolved once, at composition: a missing bake is a loud boot failure,
+    // never a surprise during a squatter recovery that is already coping with
+    // a wedged endpoint.
+    readSocketHolders: osfactsSocketHolders(
+      bakedOsFactsBin("KOLU_OSFACTS_BIN"),
+    ),
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
     // `converge(ep)`; boot methods are internal.
     policy: deps.policy,

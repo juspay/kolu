@@ -25,12 +25,13 @@ import {
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
+  osfactsSocketHolders,
   recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
-import { processIdentityFromEnvAsync } from "osfacts-client";
+import { bakedOsFactsBin, processIdentityFromEnvAsync } from "osfacts-client";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -279,6 +280,12 @@ export async function ensureLocalEndpoint(opts: {
     home,
     readProcessIdentity: (pid) =>
       processIdentityFromEnvAsync("KOLU_OSFACTS_BIN", pid),
+    // Resolved once, at composition: a missing bake is a loud boot failure,
+    // never a surprise during a squatter recovery that is already coping with
+    // a wedged endpoint.
+    readSocketHolders: osfactsSocketHolders(
+      bakedOsFactsBin("KOLU_OSFACTS_BIN"),
+    ),
     policy: kavalConvergencePolicy(),
     probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),

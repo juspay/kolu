@@ -24,5 +24,6 @@
     "status",
     "argv"
   ],
+  "socketHoldersSource": ["socket_holders", "proc"],
   "hostSource": ["uptime", "load", "mem", "cpu", "net", "disk"]
 }

@@ -46,6 +46,7 @@ import {
   testAcquireReadIdentity,
   testReadProcessIdentity,
   testSelfIdentity,
+  testReadSocketHolders,
   testStartUnixUs,
 } from "./createEndpoint.testlib.ts";
 
@@ -421,6 +422,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     let spawned = false;
     const endpoint = createEndpointCore({
       hostId: "local",
+      readSocketHolders: testReadSocketHolders,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -502,6 +504,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
+      readSocketHolders: testReadSocketHolders,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -574,6 +577,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
+      readSocketHolders: testReadSocketHolders,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -637,6 +641,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
+      readSocketHolders: testReadSocketHolders,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -698,6 +703,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
+      readSocketHolders: testReadSocketHolders,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,

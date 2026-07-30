@@ -1568,6 +1568,9 @@ importers:
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon
+      osfacts-client:
+        specifier: workspace:*
+        version: link:../../osfacts/client-ts
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0

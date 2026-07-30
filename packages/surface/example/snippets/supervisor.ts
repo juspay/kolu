@@ -96,6 +96,7 @@ async function connectTop(
 
 export async function bootSupervisor(
   readProcessIdentity: import("@kolu/surface-daemon").ReadProcessIdentity,
+  readSocketHolders: import("@kolu/surface-daemon-supervisor").ReadSocketHolders,
 ): Promise<void> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {
@@ -109,6 +110,7 @@ export async function bootSupervisor(
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
     readProcessIdentity,
+    readSocketHolders, // osfactsSocketHolders(bakedOsFactsBin(<your var>))
     policy,
     probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({

@@ -29,6 +29,7 @@ pub enum Facet {
     Status,
     StatusThreads,
     Argv,
+    SocketHolders,
     Uptime,
     Load,
     Cpu,
@@ -53,6 +54,7 @@ impl Facet {
             Self::Status => "status",
             Self::StatusThreads => "status_threads",
             Self::Argv => "argv",
+            Self::SocketHolders => "socket_holders",
             Self::Uptime => "uptime",
             Self::Load => "load",
             Self::Cpu => "cpu",
@@ -90,6 +92,14 @@ impl Facet {
         Self::Status,
         Self::Argv,
     ];
+
+    /// Facets an `E` row of the `socket-holders` verb can name.
+    ///
+    /// `socket_holders` is the holder set itself — the source that answers
+    /// *who holds this path*. `proc` is the optional `--procs` facet, which
+    /// costs the holders' names but never the holder set: a snapshot that
+    /// names the holders and fails to name their commands is still an answer.
+    pub const SOCKET_HOLDERS_SOURCE: &'static [Self] = &[Self::SocketHolders, Self::Proc];
 
     /// Facets an `E` row of the `host` verb can name. A separate projection
     /// because the two verbs are separate contracts: `mem` here is host RAM,
@@ -345,9 +355,7 @@ impl Snapshot {
 
     pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "V\t{}", self.version)?;
-        for p in &self.procs {
-            writeln!(out, "P\t{}\t{}\t{}", p.pid, p.ppid, p.name)?;
-        }
+        write_procs(out, &self.procs)?;
         for m in &self.memory {
             writeln!(out, "M\t{}\t{}", m.pid, m.rss_bytes)?;
         }
@@ -380,9 +388,7 @@ impl Snapshot {
             let uid = l.uid.map_or_else(|| "-".into(), |uid| uid.to_string());
             writeln!(out, "L\t{status}\t{pid}\t{uid}\t{}\t{}", l.port, l.address)?;
         }
-        for u in &self.unreadable {
-            writeln!(out, "U\t{}\t{}\t{}", u.pid, u.facet.as_str(), u.errno)?;
-        }
+        write_unreadable(out, &self.unreadable)?;
         write_source_errors(out, &self.errors)?;
         out.flush()
     }
@@ -392,7 +398,24 @@ impl Snapshot {
     }
 }
 
-/// The `E` row block. One writer, shared by both documents — the two copies it
+/// The `P` row block. One writer for every document that names a process, for
+/// the same reason as [`write_source_errors`].
+fn write_procs(out: &mut dyn Write, procs: &[Proc]) -> io::Result<()> {
+    for p in procs {
+        writeln!(out, "P\t{}\t{}\t{}", p.pid, p.ppid, p.name)?;
+    }
+    Ok(())
+}
+
+/// The `U` row block — one writer, shared for the same reason.
+fn write_unreadable(out: &mut dyn Write, unreadable: &[Unreadable]) -> io::Result<()> {
+    for u in unreadable {
+        writeln!(out, "U\t{}\t{}\t{}", u.pid, u.facet.as_str(), u.errno)?;
+    }
+    Ok(())
+}
+
+/// The `E` row block. One writer, shared by every document — the copies it
 /// replaces had to be edited in lockstep for every field the row gained.
 fn write_source_errors(out: &mut dyn Write, errors: &[SourceError]) -> io::Result<()> {
     for e in errors {
@@ -404,6 +427,108 @@ fn write_source_errors(out: &mut dyn Write, errors: &[SourceError]) -> io::Resul
 fn write_json<T: Serialize>(value: &T, out: &mut dyn Write) -> io::Result<()> {
     serde_json::to_writer(&mut *out, value).map_err(io::Error::other)?;
     writeln!(out)
+}
+
+/// What the `socket-holders` verb returns: who holds one unix socket PATH.
+///
+/// A third document rather than a shape inside `Snapshot`, because the ask is
+/// a *path* and the answer is a *set of holders* — including the affirmative
+/// answer "nobody holds it", which an empty facet document could never state.
+///
+/// `holders` reuses [`Attribution`] for the reason the listener rows do: a
+/// bound socket no readable pid claims is a real, reportable state
+/// (`unclaimed`), distinct both from "nobody holds it" (no row at all) and
+/// from "the source went blind" (an `E` row). Collapsing those three into an
+/// empty list is exactly the defect this verb exists to delete.
+#[derive(Debug, Default, Serialize)]
+pub struct SocketHolders {
+    pub version: u32,
+    pub holders: Vec<Attribution>,
+    /// Holder identity, only when `--procs` was asked.
+    pub procs: Vec<Proc>,
+    pub unreadable: Vec<Unreadable>,
+    pub errors: Vec<SourceError>,
+}
+
+impl SocketHolders {
+    pub fn new() -> Self {
+        Self {
+            version: SCHEMA_VERSION,
+            ..Self::default()
+        }
+    }
+
+    /// Record that one holder's facet could not be read. Duplicates collapse
+    /// in `normalize`, for the same reason as [`Snapshot::push_unreadable`].
+    pub fn push_unreadable(&mut self, pid: u32, facet: Facet, err: i32) {
+        self.unreadable.push(Unreadable {
+            pid,
+            facet,
+            errno: errno_name(err),
+        });
+    }
+
+    /// Did this reading carry any fact? Exhaustive destructure for the same
+    /// reason as [`Snapshot::has_facts`].
+    ///
+    /// Note what is NOT a fact: an empty `holders` with no `errors` is the
+    /// affirmative answer *nobody holds this path*, and it exits successfully
+    /// through the `errors.is_empty()` arm rather than this one.
+    pub fn has_facts(&self) -> bool {
+        let Self {
+            version: _,
+            holders,
+            procs,
+            unreadable,
+            errors: _,
+        } = self;
+        !holders.is_empty() || !procs.is_empty() || !unreadable.is_empty()
+    }
+
+    /// Total, platform-independent row order — same law as [`Snapshot::normalize`].
+    pub fn normalize(&mut self) {
+        let Self {
+            version: _,
+            holders,
+            procs,
+            unreadable,
+            errors: _,
+        } = self;
+        // Claimed rows by pid, `unclaimed` last: a pid is a total order, and
+        // the unattributed row is one-per-blind-socket with nothing to sort by.
+        holders.sort_by_key(|row| match row {
+            Attribution::Claimed { pid } => (0, *pid),
+            Attribution::Unclaimed => (1, 0),
+        });
+        // One row per holder. A pid holding the bound socket on several fds
+        // (an inherited descriptor, a `dup`) is ONE holder, not N.
+        holders.dedup_by_key(|row| match row {
+            Attribution::Claimed { pid } => (0, *pid),
+            Attribution::Unclaimed => (1, 0),
+        });
+        procs.sort_by_key(|row| row.pid);
+        unreadable.sort_by_key(|row| (row.pid, row.facet));
+        unreadable.dedup_by_key(|row| (row.pid, row.facet));
+    }
+
+    pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
+        writeln!(out, "V\t{}", self.version)?;
+        for h in &self.holders {
+            let (status, pid) = match h {
+                Attribution::Claimed { pid } => ("claimed", pid.to_string()),
+                Attribution::Unclaimed => ("unclaimed", "-".into()),
+            };
+            writeln!(out, "H\t{status}\t{pid}")?;
+        }
+        write_procs(out, &self.procs)?;
+        write_unreadable(out, &self.unreadable)?;
+        write_source_errors(out, &self.errors)?;
+        out.flush()
+    }
+
+    pub fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
+        write_json(self, out)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

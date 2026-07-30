@@ -127,6 +127,25 @@ export const SNAPSHOT_SOURCE_FACETS = [
 export type SnapshotSourceFacet = (typeof SNAPSHOT_SOURCE_FACETS)[number];
 
 /**
+ * Facets an `E` row of the `socket-holders` verb can name.
+ *
+ * `socket_holders` is the holder set itself going blind — on darwin, the
+ * descriptor walk that named nobody and could not tell that from being denied
+ * another user's descriptors. `proc` is the optional `--procs` facet: it costs
+ * the holders' *names*, never the holder set, so a reading carrying holders
+ * and a `proc` error is still an answer.
+ */
+export const SOCKET_HOLDERS_SOURCE_FACETS = ["socket_holders", "proc"] as const;
+export type SocketHoldersSourceFacet =
+  (typeof SOCKET_HOLDERS_SOURCE_FACETS)[number];
+export interface SocketHoldersSourceErrorRow {
+  source: string;
+  /** Which facet this source's silence costs. */
+  facet: SocketHoldersSourceFacet;
+  code: string;
+}
+
+/**
  * Facets an `E` row of the `host` verb can name.
  *
  * A separate list from `SNAPSHOT_SOURCE_FACETS` because the two verbs are
@@ -212,6 +231,35 @@ export interface SnapshotReading {
   unreadable: UnreadableRow[];
   /** Requested sources that were blind. Partial output still exits successfully. */
   errors: SnapshotSourceErrorRow[];
+}
+
+/**
+ * One process the OS says holds the socket path, or the bound socket itself
+ * when no readable pid claims it.
+ *
+ * The discriminated shape is the contract's point. `claimed` names a pid;
+ * `unclaimed` says *something holds this path and I could not name it* —
+ * which is neither "nobody holds it" (no row at all) nor "the source went
+ * blind" (an `E` row). A consumer that flattened this to `number[]` would
+ * spell all three as an empty array.
+ */
+export type SocketHolderRow =
+  | { status: "claimed"; pid: number }
+  | { status: "unclaimed" };
+
+/**
+ * What the `socket-holders` verb returns. Mirrors Rust's `SocketHolders`.
+ *
+ * An empty `holders` with an empty `errors` is the affirmative answer *nobody
+ * holds this path* — the one reading with no facts that a caller may act on.
+ */
+export interface SocketHoldersReading {
+  holders: SocketHolderRow[];
+  /** Holder identity, only when `procs` was asked for. */
+  procs: ProcessRow[];
+  unreadable: UnreadableRow[];
+  /** Requested sources that were blind. Partial output still exits successfully. */
+  errors: SocketHoldersSourceErrorRow[];
 }
 
 /** What the `host` verb returns. Mirrors Rust's `HostSnapshot`. */
@@ -615,6 +663,85 @@ export function parseSnapshotOutput(body: string): SnapshotReading {
   return out;
 }
 
+export function parseSocketHoldersOutput(body: string): SocketHoldersReading {
+  const out: SocketHoldersReading = {
+    holders: [],
+    procs: [],
+    unreadable: [],
+    errors: [],
+  };
+  for (const line of bodyRows(body)) {
+    if (line === "") continue;
+    const f = line.split("\t");
+    switch (f[0]) {
+      case "H": {
+        arity(f, 3, line);
+        const status = f[1];
+        const pidRaw = f[2];
+        if (status === "claimed") {
+          if (pidRaw === "-")
+            throw new OsfactsClientError(
+              "parse",
+              `claimed holder has no pid: ${line}`,
+            );
+          out.holders.push({
+            status,
+            pid: positiveInteger(pidRaw, "holder pid"),
+          });
+        } else if (status === "unclaimed") {
+          if (pidRaw !== "-")
+            throw new OsfactsClientError(
+              "parse",
+              `unclaimed holder carries a pid: ${line}`,
+            );
+          out.holders.push({ status });
+        } else
+          throw new OsfactsClientError(
+            "parse",
+            `unknown holder status: ${line}`,
+          );
+        break;
+      }
+      case "P":
+        arity(f, 4, line);
+        out.procs.push({
+          pid: integer(f[1], "pid"),
+          ppid: integer(f[2], "ppid"),
+          name: f[3]!,
+        });
+        break;
+      case "U": {
+        arity(f, 4, line);
+        const facet = f[2];
+        if (!(UNREADABLE_FACETS as readonly string[]).includes(facet!))
+          throw new OsfactsClientError(
+            "parse",
+            `unknown unreadable facet: ${line}`,
+          );
+        if (!f[3])
+          throw new OsfactsClientError(
+            "parse",
+            `empty unreadable errno: ${line}`,
+          );
+        out.unreadable.push({
+          pid: integer(f[1], "unreadable pid"),
+          facet: facet as UnreadableFacet,
+          errno: f[3],
+        });
+        break;
+      }
+      case "E":
+        out.errors.push(sourceErrorRow(f, line, SOCKET_HOLDERS_SOURCE_FACETS));
+        break;
+      // An `L` or `HMEM` tag here means the caller matched the wrong verb to
+      // the wrong parser. Loud, rather than a silently-empty field.
+      default:
+        unknownTag(f, line);
+    }
+  }
+  return out;
+}
+
 export function parseHostOutput(body: string): HostReading {
   const out: HostReading = {
     cpus: [],
@@ -722,7 +849,7 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
     if (document !== undefined) return document;
     throw new OsfactsClientError(
       "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})${failureDetail(err)}`,
       { cause: err },
     );
   }
@@ -746,26 +873,51 @@ function runOsfactsSync(bin: string, args: string[]): string {
     if (document !== undefined) return document;
     throw new OsfactsClientError(
       "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})`,
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})${failureDetail(err)}`,
       { cause: err },
     );
   }
 }
 
+/** The ONE exit status that still carries a document — the binary's documented
+ *  total-failure path, "write the V line and its E rows, then exit 1". */
+const DOCUMENT_BEARING_EXIT = 1;
+
 /**
  * The child's stdout when a non-zero exit still produced a V2 document.
  *
- * A killed child is excluded: on timeout or SIGKILL the output is whatever had
- * been flushed, so a `V` prefix there means a truncated document, not a
+ * Two exclusions, and both are load-bearing:
+ *
+ * A **killed** child is excluded: on timeout or SIGKILL the output is whatever
+ * had been flushed, so a `V` prefix there means a truncated document, not a
  * complete one — and a truncated document must surface as the spawn failure it
  * is rather than as a parse error about some arbitrary row.
+ *
+ * Any status **other than 1** is excluded, because the binary writes its
+ * version line on the usage path too (deliberately — a consumer built against
+ * another revision must see the version before anything else). Exit 2 is the
+ * CLI *refusing the ask*: an unknown verb, an unknown flag, a missing
+ * argument. Accepting that document turned "this binary does not have the verb
+ * you asked for" into a perfectly well-formed answer of *nothing found* — the
+ * exact collapse-to-empty the wire format exists to refuse, and the one an
+ * older binary on a caller's `PATH` produces every single time.
  */
 function failureDocument(err: unknown): string | undefined {
-  const failure = err as { stdout?: unknown; killed?: boolean };
+  const failure = err as { stdout?: unknown; killed?: boolean; code?: unknown };
   if (failure?.killed) return undefined;
+  if (failure?.code !== DOCUMENT_BEARING_EXIT) return undefined;
   const stdout = failure?.stdout;
   if (typeof stdout !== "string" || !stdout.startsWith("V\t")) return undefined;
   return stdout;
+}
+
+/** The child's stderr, trimmed to one line — the only place the binary says
+ *  WHY it refused an ask, so a spawn failure that discards it leaves the
+ *  caller an opaque status code. */
+function failureDetail(err: unknown): string {
+  const stderr = (err as { stderr?: unknown })?.stderr;
+  const text = typeof stderr === "string" ? stderr.trim() : "";
+  return text === "" ? "" : ` — ${text.split("\n")[0]}`;
 }
 function appendSnapshotFacets(
   args: string[],
@@ -918,6 +1070,33 @@ export async function processIdentityFromEnvAsync(
   pid: number,
 ): Promise<{ pid: number; startUnixUs: number } | undefined> {
   return processIdentityAsync(bakedOsFactsBin(envVar), pid);
+}
+
+/**
+ * Ask which processes hold the unix socket at `socketPath`.
+ *
+ * The one verb whose scope is a path rather than a pid set. `procs` names the
+ * holders as well as counting them — a facet, so a caller that only needs to
+ * know *whether* the socket is held does not pay for the identity read.
+ *
+ * The three answers a caller must keep apart, and never collapse:
+ * `holders: []` with `errors: []` is *nobody holds it*; a `{status:
+ * "unclaimed"}` row is *something holds it that I could not name*; a
+ * `socket_holders` error row is *I could not look*.
+ */
+export function socketHolders(
+  bin: string,
+  socketPath: string,
+  facets: { procs?: boolean } = {},
+): Promise<SocketHoldersReading> {
+  if (!socketPath)
+    throw new OsfactsClientError(
+      "spawn",
+      "osfacts socket-holders needs a socket path",
+    );
+  const args = ["socket-holders", socketPath];
+  if (facets.procs) args.push("--procs");
+  return runOsfacts(bin, args).then(parseSocketHoldersOutput);
 }
 
 export async function host(

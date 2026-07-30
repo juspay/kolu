@@ -1,7 +1,8 @@
 /**
- * Test helper: {@link createEndpoint} with an isHolderLive-backed
- * `readProcessIdentity` inject so suites need not repeat the UW4 field at
- * every call site. Production never imports this module.
+ * Test helper: {@link createEndpoint} with the OS-fact injects suites would
+ * otherwise repeat at every call site — an isHolderLive-backed
+ * `readProcessIdentity` (UW4) and the real osfacts-backed `readSocketHolders`
+ * (OSF4). Production never imports this module.
  */
 
 import {
@@ -9,10 +10,15 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "@kolu/surface-daemon";
+import { bakedOsFactsBin } from "osfacts-client";
 import {
   createEndpoint as createEndpointCore,
   type EndpointSpec,
 } from "./endpoint.ts";
+import {
+  osfactsSocketHolders,
+  type ReadSocketHolders,
+} from "./socketHolder.ts";
 
 /** Deterministic fake start times for live pids in unit tests. */
 export function testStartUnixUs(pid: number): number {
@@ -37,10 +43,24 @@ export const testSelfIdentity: ProcessIdentity = {
 export const testAcquireReadIdentity: ReadProcessIdentity = (pid) =>
   pid === process.pid ? testSelfIdentity : testReadProcessIdentity(pid);
 
+/** The REAL osfacts-backed holder reader — the squatter suites bind real unix
+ *  sockets in real child processes, so a fake here would prove nothing about
+ *  the path that actually runs. `bakedOsFactsBin` is loud when the nix wrapper
+ *  did not bake the binary, which is the honest failure for a suite that
+ *  cannot run without it. Resolved lazily so a suite that never recovers a
+ *  squatter is not blocked by an unbaked environment. */
+export const testReadSocketHolders: ReadSocketHolders = (socketPath) =>
+  osfactsSocketHolders(bakedOsFactsBin("KOLU_OSFACTS_BIN"))(socketPath);
+
 export function createEndpointForTest<C, I, M = undefined>(
-  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
+  spec: Omit<
+    EndpointSpec<C, I, M>,
+    "readProcessIdentity" | "readSocketHolders"
+  > &
+    Partial<Pick<EndpointSpec<C, I, M>, "readSocketHolders">>,
 ) {
   return createEndpointCore({
+    readSocketHolders: testReadSocketHolders,
     ...spec,
     readProcessIdentity: testReadProcessIdentity,
   });

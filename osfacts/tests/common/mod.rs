@@ -11,7 +11,9 @@
 
 use assert_cmd::Command;
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
+use tempfile::{tempdir, TempDir};
 
 /// Result of a hermetic bind+snapshot.
 pub struct Hermetic {
@@ -87,6 +89,123 @@ impl Drop for Listener {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+/// A spawned helper holding a bound UNIX socket at a path this test owns.
+///
+/// The path lives in a `TempDir` the fixture keeps alive, so nothing outside
+/// this test can hold it and no assertion depends on host inventory.
+pub struct UnixHolder {
+    child: Child,
+    pub pid: u32,
+    _dir: TempDir,
+    pub path: PathBuf,
+}
+
+impl UnixHolder {
+    /// Bind `name` inside a fresh temp dir and wait for the child to say so.
+    pub fn spawn(name: &str) -> Self {
+        let dir = tempdir().expect("temp dir");
+        let path = dir.path().join(name);
+        let bin = env!("CARGO_BIN_EXE_osfacts-listener");
+        let mut child = StdCommand::new(bin)
+            .arg("--unix")
+            .arg(&path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("spawn osfacts-listener --unix: {e}"));
+        let pid = child.id();
+        let stdout = child.stdout.take().expect("listener stdout");
+        let mut line = String::new();
+        BufReader::new(stdout)
+            .read_line(&mut line)
+            .expect("read bind confirmation");
+        assert_eq!(
+            line.trim(),
+            "bound",
+            "listener did not confirm the unix bind"
+        );
+        Self {
+            child,
+            pid,
+            _dir: dir,
+            path,
+        }
+    }
+
+    /// Kill the holder and wait for it to be reaped, so the socket is
+    /// genuinely unbound before the caller asks about the path again. The
+    /// FILE survives — that is the point of the stale-socket fixture.
+    pub fn kill(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for UnixHolder {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+/// `osfacts socket-holders <path> [--procs]` — stdout and exit status, both.
+/// The status is part of the contract (a document with no facts and a blind
+/// source exits 1), so no helper may `assert().success()` it away.
+pub fn socket_holders(path: &Path, procs: bool) -> (String, bool) {
+    let mut cmd = osfacts();
+    cmd.arg("socket-holders").arg(path);
+    if procs {
+        cmd.arg("--procs");
+    }
+    let out = cmd.output().expect("run osfacts socket-holders");
+    (
+        String::from_utf8(out.stdout).expect("utf8"),
+        out.status.success(),
+    )
+}
+
+/// The rows of a `socket-holders` document, by tag.
+pub struct HolderRows {
+    pub holders: Vec<String>,
+    pub procs: Vec<String>,
+    pub unreadable: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+pub fn parse_holders_tsv(stdout: &str) -> HolderRows {
+    let mut lines = stdout.lines();
+    let first = lines.next().expect("stdout must have a version line");
+    assert_eq!(first, "V\t2", "socket-holders must carry the schema version");
+    let mut out = HolderRows {
+        holders: Vec::new(),
+        procs: Vec::new(),
+        unreadable: Vec::new(),
+        errors: Vec::new(),
+    };
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        match line.split('\t').next() {
+            Some("H") => out.holders.push(line.to_string()),
+            Some("P") => out.procs.push(line.to_string()),
+            Some("U") => out.unreadable.push(line.to_string()),
+            Some("E") => out.errors.push(line.to_string()),
+            other => panic!("unexpected row tag {other:?} in {line}"),
+        }
+    }
+    out
+}
+
+/// Darwin has no world-readable table of bound unix sockets, so a walk that
+/// claimed nobody may simply have been denied another user's descriptors. A
+/// linux run never carries this row; a darwin run carries it exactly when it
+/// named no holder.
+pub fn darwin_holder_walk_is_blind(errors: &[String]) -> bool {
+    errors
+        .iter()
+        .any(|row| row == "E\tdarwin_proc_fds\tsocket_holders\tBLIND_OR_EMPTY")
 }
 
 pub fn osfacts() -> Command {

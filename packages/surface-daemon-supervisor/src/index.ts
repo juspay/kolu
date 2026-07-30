@@ -40,7 +40,13 @@ export {
 } from "./endpoint.ts";
 // EndpointSpec re-exported for consumers and for `./createEndpoint.testlib`
 // (suites inject identity once via that helper).
-export { type SocketHolder, socketHolders } from "./socketHolder.ts";
+export {
+  foldSocketHoldersReading,
+  osfactsSocketHolders,
+  type ReadSocketHolders,
+  type SocketHolder,
+  type SocketHolderReading,
+} from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for
 // Node-side supervisor consumers.

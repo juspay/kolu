@@ -1,8 +1,17 @@
 /**
- * `socketHolders` — the OS socket-holder lookup leaf. The linux `/proc/net/unix`
- * + `/proc/<pid>/fd` parse is exercised here against a REAL child process holding
- * a REAL unix socket (the only faithful test); the darwin `lsof` path is verified
- * on a real mac in acceptance. Linux-only — skipped elsewhere.
+ * The socket-holder leaf, in two halves.
+ *
+ * **The fold** (ungated, both platforms) pins the part this package still owns
+ * after OSF4: turning osfacts' document into the three answers the recovery
+ * acts on, and never collapsing them into one another. The OS reading itself
+ * belongs to the binary now and is pinned by its own two-platform suite, so
+ * there is nothing left here to fake.
+ *
+ * **The end-to-end pins** (gated, real child, real socket) prove the fold sits
+ * on the REAL binary the composition roots inject — that osfacts, this fold,
+ * and the pid the OS actually reports agree. A suite that only exercised the
+ * fold against hand-written documents would prove the parse and nothing about
+ * the path that runs.
  */
 
 import { spawn } from "node:child_process";
@@ -14,7 +23,97 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { socketHolders } from "./socketHolder.ts";
+import type { SocketHoldersReading } from "osfacts-client";
+import { foldSocketHoldersReading } from "./socketHolder.ts";
+import { testReadSocketHolders } from "./createEndpoint.testlib.ts";
+
+function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
+  return { holders: [], procs: [], unreadable: [], errors: [], ...over };
+}
+
+describe("foldSocketHoldersReading — three answers, never one", () => {
+  it("names every claimed holder, with its command", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [
+            { status: "claimed", pid: 4242 },
+            { status: "claimed", pid: 4243 },
+          ],
+          procs: [{ pid: 4242, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({
+      kind: "holders",
+      holders: [
+        { pid: 4242, command: "kaval" },
+        // Named by the OS, but its identity read lost the race — still a
+        // holder, and still a kill candidate the handshake may confirm.
+        { pid: 4243, command: "?" },
+      ],
+    });
+  });
+
+  it("reports a proven-empty document as `none`, the ONLY proof of freedom", () => {
+    expect(foldSocketHoldersReading(reading({}))).toEqual({ kind: "none" });
+  });
+
+  /** The linux shape: the socket IS bound, and no pid we may inspect holds it. */
+  it("keeps a bound-but-unnameable holder out of `none`", () => {
+    const folded = foldSocketHoldersReading(
+      reading({ holders: [{ status: "unclaimed" }] }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).not.toEqual({ kind: "none" });
+  });
+
+  /** The darwin shape: the search itself could not complete. */
+  it("keeps a blind search out of `none`", () => {
+    const folded = foldSocketHoldersReading(
+      reading({
+        errors: [
+          {
+            source: "darwin_proc_fds",
+            facet: "socket_holders",
+            code: "BLIND_OR_EMPTY",
+          },
+        ],
+      }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).toMatchObject({
+      detail: expect.stringContaining("darwin_proc_fds"),
+    });
+  });
+
+  /** A named holder is an answer even when the NAME source went blind — the
+   *  `--procs` facet costs commands, never the holder set. */
+  it("still names holders when only the identity source went blind", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [{ status: "claimed", pid: 7 }],
+          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+        }),
+      ),
+    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: "?" }] });
+  });
+
+  /** An unclaimed row beside a claimed one does not weaken the claim: the
+   *  recovery has a pid to handshake, which is what it needs. */
+  it("prefers a named holder over an unattributed sibling row", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [{ status: "unclaimed" }, { status: "claimed", pid: 9 }],
+          procs: [{ pid: 9, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({ kind: "holders", holders: [{ pid: 9, command: "kaval" }] });
+  });
+});
 
 const children: number[] = [];
 afterEach(async () => {
@@ -53,56 +152,61 @@ function spawnHolder(socketPath: string): Promise<number> {
   });
 }
 
-const onLinux = process.platform === "linux";
+/** Every pid the reading names, or `[]` on an arm that names nobody. */
+async function heldPids(socketPath: string): Promise<number[]> {
+  const reading = await testReadSocketHolders(socketPath);
+  return reading.kind === "holders" ? reading.holders.map((h) => h.pid) : [];
+}
 
-(onLinux ? describeDaemon : describe.skip)(
-  "socketHolders (linux /proc)",
-  () => {
-    it("names the exact pid + command holding a bound socket path", async () => {
-      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-      const socketPath = join(d, "held.sock");
-      const pid = await spawnHolder(socketPath);
+describeDaemon("the injected reader, against the real binary", () => {
+  it("names the exact pid + command holding a bound socket path", async () => {
+    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+    const socketPath = join(d, "held.sock");
+    const pid = await spawnHolder(socketPath);
 
-      const holders = await socketHolders(socketPath);
-      expect(holders.map((h) => h.pid)).toContain(pid);
-      const holder = holders.find((h) => h.pid === pid);
-      // The command label is read from /proc/<pid>/cmdline — a node invocation here.
-      expect(holder?.command).toMatch(/node|-e/i);
-    });
+    const reading = await testReadSocketHolders(socketPath);
 
-    it("returns empty for a path nobody holds", async () => {
-      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-      expect(await socketHolders(join(d, "nobody.sock"))).toEqual([]);
-    });
+    expect(reading.kind).toBe("holders");
+    if (reading.kind !== "holders") return;
+    const holder = reading.holders.find((h) => h.pid === pid);
+    expect(holder).toBeDefined();
+    // osfacts' short display name — the executable's basename, the same fact
+    // on both platforms (the old reader said `cmdline` on linux and `lsof`'s
+    // command name on darwin, so the two never agreed).
+    expect(holder?.command).toMatch(/node/i);
+  });
 
-    it("finds a holder whose socket PATH CONTAINS A SPACE (parses the /proc path column, not a truncated split)", async () => {
-      // A caller-supplied `--pty-host-socket` path may contain spaces; the /proc/net/unix
-      // parse must take the whole trailing path column, not `split(/\s+/)[7]`.
-      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-      const spaced = join(d, "with space");
-      mkdirSync(spaced);
-      const socketPath = join(spaced, "held.sock");
-      const pid = await spawnHolder(socketPath);
-      expect((await socketHolders(socketPath)).map((h) => h.pid)).toContain(
-        pid,
-      );
-    });
+  it("names nobody for a path nobody ever bound", async () => {
+    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
 
-    it("stops naming the holder once it exits (no stale pid)", async () => {
-      const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
-      const socketPath = join(d, "held.sock");
-      const pid = await spawnHolder(socketPath);
-      expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
-        true,
-      );
+    expect(await heldPids(join(d, "nobody.sock"))).toEqual([]);
+  });
 
-      process.kill(pid, "SIGKILL");
-      children.splice(children.indexOf(pid), 1);
-      // Wait for the kernel to drop the socket binding.
-      await new Promise((r) => setTimeout(r, 80));
-      expect((await socketHolders(socketPath)).some((h) => h.pid === pid)).toBe(
-        false,
-      );
-    });
-  },
-);
+  it("finds a holder whose socket PATH CONTAINS A SPACE", async () => {
+    // A caller-supplied `--pty-host-socket` path may contain spaces, and the
+    // linux table emits that column unquoted — the parse rule a whitespace
+    // split gets wrong, end to end through the real binary.
+    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+    const spaced = join(d, "with space");
+    mkdirSync(spaced);
+    const socketPath = join(spaced, "held.sock");
+    const pid = await spawnHolder(socketPath);
+
+    expect(await heldPids(socketPath)).toContain(pid);
+  });
+
+  it("stops naming the holder once it exits (no stale pid)", async () => {
+    const d = mkdtempSync(join(tmpdir(), "sds-holder-"));
+    const socketPath = join(d, "held.sock");
+    const pid = await spawnHolder(socketPath);
+    expect(await heldPids(socketPath)).toContain(pid);
+
+    process.kill(pid, "SIGKILL");
+    children.splice(children.indexOf(pid), 1);
+    // Wait for the kernel to drop the socket binding. The FILE survives — a
+    // reader answering from the filesystem would still name the dead pid.
+    await new Promise((r) => setTimeout(r, 80));
+
+    expect(await heldPids(socketPath)).not.toContain(pid);
+  });
+});

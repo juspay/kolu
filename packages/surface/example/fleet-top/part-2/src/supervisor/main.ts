@@ -27,9 +27,11 @@ import { stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
   createEndpoint,
+  osfactsSocketHolders,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { bakedOsFactsBin } from "osfacts-client";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
 import { readProcessIdentity } from "../common/processIdentity";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
@@ -54,6 +56,12 @@ async function main(): Promise<void> {
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
     readProcessIdentity,
+    // The second OS-fact inject: who holds the rendezvous socket, for the
+    // recovery that runs when the gate no longer names the daemon. Resolved
+    // once here, so a missing bake is a loud boot failure.
+    readSocketHolders: osfactsSocketHolders(
+      bakedOsFactsBin("KOLU_OSFACTS_BIN"),
+    ),
     policy: {
       capability: "not-drainable",
       baked: {
