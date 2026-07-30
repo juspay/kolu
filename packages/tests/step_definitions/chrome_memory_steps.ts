@@ -92,9 +92,9 @@ When("I open the Kaval details dialog", async function (this: KoluWorld) {
 Then(
   "the Kaval details show kaval memory usage",
   async function (this: KoluWorld) {
-    // The daemon's RSS lands once padi's first `system.processMemory` poll is
-    // folded into the rail cell, so poll the dialog row until a real MB figure
-    // replaces "unavailable".
+    // The daemon's RSS lands once padi's osfacts-backed `processMemory` sampler
+    // publishes its first snapshot, so poll the dialog row until a real MB
+    // figure replaces "unavailable".
     const memory = this.page.locator('[data-testid="kaval-dialog-memory"]');
     await memory.waitFor({ state: "visible", timeout: 15_000 });
     await this.page.waitForFunction(

@@ -693,12 +693,12 @@ export type DaemonState = DaemonStatus["state"];
 export { type ProcessRss, ProcessRssSchema };
 
 /** padi's process-memory readout — its OWN RSS plus its kaval daemon's, each the
- *  honest {@link ProcessRssSchema} three-way. padi owns kaval now (it supervises
- *  the kaval process), so padi is the source of this pair; it publishes it every
- *  sampler tick and kolu-server folds it into the rail's cell. `padi` is `ok` once
- *  padi has measured itself; `kaval` is `ok` when a connected daemon answered
- *  `system.processMemory`, `absent` when there is no connected daemon, `error` when
- *  a believed-connected daemon's poll threw. */
+ *  honest {@link ProcessRssSchema} three-way. One baked osfacts `--mem` snapshot
+ *  reads both exact pids; kaval's pid and generation come from padi's one
+ *  endpoint-owned connection target, verified again after the async read.
+ *  `absent` means no connected kaval, one that exited during the read, or a
+ *  superseded generation; an unreadable requested RSS is the explicit `error`
+ *  arm. */
 export const PadiProcessMemorySchema = z.object({
   padi: ProcessRssSchema,
   kaval: ProcessRssSchema,

@@ -4,19 +4,19 @@
  * `kaval` owns **only** the PTY: the node-pty children, the
  * `@xterm/headless` screen mirror, and the raw VT-derived taps. It knows
  * nothing of git / PR / agent-detection — that volatile, most-edited code
- * (the provider DAG) runs in kolu-server, which consumes these raw taps and
- * runs detection fresh. This contract is the `PtyHost` interface projected
+ * runs in padi, which consumes these raw taps and runs detection fresh. This
+ * contract is the `PtyHost` interface projected
  * onto a wire: control RPCs (spawn / kill / write / resize / list / screen)
  * plus the raw tap streams (attach bytes · cwd · title · command-run ·
  * foreground · exit).
  *
- * In-process today, kolu-server consumes this contract through the identity
- * link (`directLink` over `servePtyHost`'s router — `implementSurface` with no
- * wire). The point of stating it as a *contract* now
- * is that the consumer is written against `ContractRouterClient<contract>`,
- * so a later step can serve the same shape over a unix socket (a surviving
- * daemon) or ssh stdio (a remote pty-host) by swapping only which morphism
- * builds the client — the consumer is invariant. See
+ * Today the surviving kaval daemon serves this contract over its unix socket;
+ * padi is its supervisor and primary client. `kaval-tui` reaches the same
+ * surface locally, while its ssh stdio front reaches the daemon remotely. The
+ * transport-independent `ContractRouterClient<contract>` keeps those consumers
+ * invariant. The frozen control identity/drain fragment is served beside this
+ * versioned surface, so connection identity is established before this wire is
+ * judged for compatibility. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
@@ -25,8 +25,8 @@
  * from `@kolu/surface/define`; an incompatible skew is the (rare, accepted)
  * forced restart. The *build
  * identity* — a finer per-build key for an "update pending" nudge on a
- * wire-compatible but stale survivor — is a separate concern layered onto
- * `system.version` later; this module defines only the wire shape.
+ * wire-compatible but stale survivor — remains a separate frozen-control
+ * concern; this module defines only the versioned wire shape.
  *
  * Layering note. Co-locating the contract here gives `kaval` a
  * **contract-definition-only** dependency on `@kolu/surface` (just
@@ -180,8 +180,16 @@ import { z } from "zod";
  *  degrades to the status quo), there is no graceful degradation for an absent
  *  stream live-activity cutover depends on — so the minor bump correctly
  *  force-recycles a surviving old kaval (its session parks + restores) rather than
- *  leave a consumer talking to a stream that isn't there. */
-export const PTY_HOST_CONTRACT_VERSION = "5.3";
+ *  leave a consumer talking to a stream that isn't there.
+ *
+ *  Bumped to 6.0 (BREAKING · major): `system.processMemory` is REMOVED after padi
+ *  moved both its own and kaval's RSS reads to one baked osfacts `--mem` call. A
+ *  5.3 client meeting a 6.0 daemon would call a missing procedure; a 6.0 client
+ *  meeting a 5.3 daemon simply leaves a dead member unused. Only a major rejects
+ *  both directions, so rollback never waves the missing-procedure direction
+ *  through. `system.version` is byte-for-byte unchanged — its exact schema pin
+ *  remains the frozen handshake used before compatibility is judged. */
+export const PTY_HOST_CONTRACT_VERSION = "6.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -383,15 +391,6 @@ const SystemHeartbeatOutputSchema = z.object({
   ts: z.number(),
 });
 
-/** The daemon's resident-set size (`process.memoryUsage().rss`, bytes) at reply
- *  time — its own atomic verb so it changes for its own reason (what
- *  process-memory facts the rail wants), independent of `system.heartbeat`'s
- *  pure liveness round-trip. The server folds `rss` onto the rail's kaval memory
- *  readout. */
-const SystemProcessMemoryOutputSchema = z.object({
-  rss: z.number(),
-});
-
 /** Host facts a client reads once per connection to compose spawn policy for
  *  *this* host — including one it isn't running on (the R-2 remote enabler).
  *  `shell`/`home` are the host's login shell and `$HOME`; `platform` is its
@@ -584,12 +583,6 @@ export const ptyHostSurface = defineSurface({
     system: {
       version: { input: z.object({}), output: SystemVersionOutputSchema },
       heartbeat: { input: z.object({}), output: SystemHeartbeatOutputSchema },
-      /** The daemon's own process RSS — its own atomic verb so liveness and
-       *  process-memory observability change for unrelated reasons (3.2). */
-      processMemory: {
-        input: z.object({}),
-        output: SystemProcessMemoryOutputSchema,
-      },
       /** Host facts for client-side spawn-policy composition (B0). */
       info: { input: z.object({}), output: SystemInfoOutputSchema },
     },

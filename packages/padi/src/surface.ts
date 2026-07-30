@@ -875,8 +875,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       client: { onError: { kind: "toast", label: "Host inventory" } },
     },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
-     *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
-     *  the source of this pair; its periodic sampler (wired into daemon boot) is the
+     *  honest three-way {@link ProcessRssSchema}. One baked osfacts `--mem` snapshot
+     *  reads both exact pids; padi's periodic sampler (wired into daemon boot) is the
      *  sole writer. Read-only on the client; kolu-server folds it into the rail's
      *  `processMemory` cell. */
     processMemory: {

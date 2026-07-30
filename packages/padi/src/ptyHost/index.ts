@@ -1,8 +1,8 @@
 /**
- * kolu-server's pty-host endpoint — the composition root for **the door** (B2).
+ * padi's pty-host endpoint — the composition root for **the door** (B2).
  *
  * Before B2 this module constructed the pty-host IN-PROCESS at import time and
- * served it on a socket. Now the server is a *client* of a `kaval` daemon it
+ * served it on a socket. Now padi is a *client* of a `kaval` daemon it
  * spawns: `ensureLocalEndpoint()` runs the always-recycle boot (kill any
  * survivor, spawn fresh, connect + handshake) through the supervisor spine
  * (`@kolu/surface-daemon-supervisor`), and `ptyHostClient` is a **stable
@@ -116,6 +116,28 @@ let endpoint:
   | Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>
   | undefined;
 
+/** Immutable identity of the kaval connection the endpoint owns right now.
+ * Both fields come from that ONE connection: `pid` from its validated
+ * `system.version` handshake and `startedAt` from the endpoint's own instance
+ * identity. This metadata stays process-internal — never a padi/kaval wire
+ * field. */
+export type KavalProcessTarget = Readonly<{
+  pid: number;
+  startedAt: number;
+}>;
+
+/** The current endpoint-owned process target, or honest absence while kaval is
+ * disconnected. Consumers capture this value before an async process read. */
+export function currentKavalProcessTarget(): KavalProcessTarget | undefined {
+  const connection = endpoint?.current();
+  return connection === undefined
+    ? undefined
+    : Object.freeze({
+        pid: connection.metadata.pid,
+        startedAt: connection.startedAt,
+      });
+}
+
 /** The serialized, emit-guarded restart trigger, bound to the live endpoint by
  *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
  *  state is shared: concurrent restart requests ride one in-flight recycle. The
@@ -183,9 +205,15 @@ export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
  *  without a live kaval — the same wiring `ensureLocalEndpoint` sets at boot. */
 export function __setEndpointForTest(
   ep: Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>,
-): void {
+): () => void {
+  const previousEndpoint = endpoint;
+  const previousTriggerRestart = triggerRestart;
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
+  return () => {
+    endpoint = previousEndpoint;
+    triggerRestart = previousTriggerRestart;
+  };
 }
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.

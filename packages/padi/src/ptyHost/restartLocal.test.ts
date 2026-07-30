@@ -218,7 +218,7 @@ async function realEndpoint(recycleMs: number) {
       client: makeClient(),
       identity: { staleKey: "", navigableCommit: "" },
       startedAt: Date.now(),
-      metadata: { contractVersion: "test" },
+      metadata: { contractVersion: "test", pid: 4242 },
       dispose: () => {},
       onClose: () => {},
     }),
