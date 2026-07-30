@@ -381,14 +381,38 @@ describe("cleanEnv — composes from the allowlist; identity/leaked/arbitrary en
     expect(env.PTY_TEST_USER_VAR).toBeUndefined();
     expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
 
-    // the allowlisted base is kept.
+    // the allowlisted base is kept (PATH modulo the empty-entry strip below).
     expect(env.HOME).toBe("/home/x");
-    expect(env.PATH).toBe(process.env.PATH);
+    expect(env.PATH).toBe(
+      (process.env.PATH ?? "")
+        .split(":")
+        .filter((e) => e !== "")
+        .join(":"),
+    );
 
     // every surviving key is on the allowlist (or the SHELL fallback) — no leak.
     for (const k of Object.keys(env)) {
       expect(SPAWN_ENV_ALLOWLIST as readonly string[]).toContain(k);
     }
+  });
+
+  it("drops empty PATH entries — the implicit current-directory hazard, killed once", () => {
+    // POSIX reads an empty PATH entry as "the current directory", so a daemon that
+    // inherited one would hand every hosted shell a PATH that resolves commands out
+    // of whatever tree the user cd'd into. This is the single place that fixes it:
+    // sanitizing at the env boundary means it happens once, over the composed
+    // value, instead of being re-implemented by every downstream transform — and
+    // notably NOT by prependPathEntries / PATH_REASSERT, whose contract is just
+    // "prepend these dirs, skipping any already present".
+    process.env.PATH = ":/usr/bin::/bin:";
+
+    expect(cleanEnv().PATH).toBe("/usr/bin:/bin");
+  });
+
+  it("leaves a PATH with no empty entries byte-identical", () => {
+    process.env.PATH = "/usr/bin:/bin";
+
+    expect(cleanEnv().PATH).toBe("/usr/bin:/bin");
   });
 });
 
@@ -809,16 +833,14 @@ describe("prependPathEntries", () => {
     expect(prependPathEntries(undefined, ["/a"])).toBe("/a");
   });
 
-  it("drops empty entries from the caller's PATH", () => {
-    // An empty entry in PATH means "the current directory" to a POSIX shell —
-    // a real (and exploitable) difference, not a cosmetic one.
-    //
-    // NOT in PATH_PREPEND_CASES: the shell half leaves `$PATH` byte-identical
-    // apart from the prepend, so this row would fail there. Whether the rule
-    // should sanitize at all — and if so in which layer — is an open call (see
-    // the lens review); until it is made, the divergence is stated here rather
-    // than hidden inside a shared table that only one half satisfies.
-    expect(prependPathEntries("/usr/bin::/bin", ["/a"])).toBe(
+  it("never introduces an empty entry from the dirs it was asked to add", () => {
+    // An empty entry in PATH means "the current directory" to a POSIX shell, so
+    // this function must not create one. Filtering the INCOMING dirs is the whole
+    // of that duty — the caller's own PATH is passed through untouched (pinned by
+    // the "/usr/bin::/bin" row of the shared oracle above), because sanitizing
+    // somebody else's PATH belongs to cleanEnv, which does it once for everyone.
+    // The shell half filters the incoming dirs the same way.
+    expect(prependPathEntries("/usr/bin:/bin", ["", "/a", ""])).toBe(
       "/a:/usr/bin:/bin",
     );
   });

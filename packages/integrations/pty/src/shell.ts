@@ -226,10 +226,13 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
  * SHELL with the user's login shell from /etc/passwd. The whitelist widens the
  * base, it does not replace it — so dev never gets a narrower env than production.
  *
- * Either way, a single shared post-step strips kolu's own internal env
- * (the `KOLU_*` namespace plus the wrapper-baked kaval identity vars — see
- * `isKoluInternalEnvKey` and the inline note above the strip) so the invariant
- * holds independent of how env was built.
+ * Either way, shared post-steps run for both branches, so their invariants hold
+ * independent of how env was built: strip kolu's own internal env (the `KOLU_*`
+ * namespace plus the wrapper-baked kaval identity vars — see
+ * `isKoluInternalEnvKey`), then drop empty `PATH` entries, which POSIX reads as
+ * "the current directory". This is the ONE place that sanitizes a PATH; the
+ * prepend rule (`prependPathEntries` / `PATH_REASSERT`) deliberately does not.
+ * See the inline notes above each step.
  *
  * Scope note: this layer only filters what the parent process exposes.
  * Restoring user env that the parent doesn't carry (e.g. PATH from
@@ -286,6 +289,24 @@ export function cleanEnv(): Record<string, string> {
   env = Object.fromEntries(
     Object.entries(env).filter(([k]) => !isKoluInternalEnvKey(k)),
   );
+  // Drop empty entries from PATH. An empty entry ("/usr/bin::/bin", a leading or
+  // trailing ":") is not cosmetic — POSIX reads it as "the current directory", so
+  // every hosted shell would resolve commands out of whatever tree the user
+  // happens to have cd'd into. For a terminal we host and hand to an agent that is
+  // a real hazard, and the daemon's own inherited PATH is the one place we can fix
+  // it for everyone downstream.
+  //
+  // It lives HERE because this is the env-sanitization boundary: it happens once,
+  // on the way in, over the composed value. The alternative is every downstream
+  // transform re-implementing it — specifically `prependPathEntries` and
+  // `PATH_REASSERT`, the same rule in two languages, which is exactly the drift
+  // those two are otherwise built to avoid. Their contract is narrower on purpose
+  // (prepend + dedupe, caller's PATH verbatim); see the notes there.
+  if (env.PATH != null) {
+    env.PATH = env.PATH.split(":")
+      .filter((e) => e !== "")
+      .join(":");
+  }
   return env;
 }
 
@@ -480,7 +501,14 @@ export function readAgentToolsBake(
  *  half (`PATH_REASSERT`) cannot drift. Co-location in one file is not
  *  unification: the rule is written twice, in two languages, and only a shared
  *  table makes a change to either red until the other follows. Add a row and
- *  both halves are asserted against it. */
+ *  both halves are asserted against it.
+ *
+ *  Every row is behaviour both halves genuinely share, because that is the only
+ *  thing a shared oracle can be. The rule is deliberately minimal — prepend,
+ *  skip what is already there, leave the caller's `PATH` otherwise verbatim
+ *  (the `"/usr/bin::/bin"` row pins that: an empty entry the caller had is still
+ *  there afterwards). Sanitizing a caller's `PATH` is a DIFFERENT job and lives
+ *  in exactly one place, `cleanEnv` — see the empty-entry note there. */
 export const PATH_PREPEND_CASES: ReadonlyArray<{
   path: string;
   dirs: readonly string[];
@@ -490,6 +518,8 @@ export const PATH_PREPEND_CASES: ReadonlyArray<{
   { path: "/usr/bin:/a", dirs: ["/a"], expect: "/usr/bin:/a" },
   { path: "", dirs: ["/a"], expect: "/a" },
   { path: "/usr/bin:/bin", dirs: [], expect: "/usr/bin:/bin" },
+  // The caller's PATH is passed through unedited, empty entry and all.
+  { path: "/usr/bin::/bin", dirs: ["/a"], expect: "/a:/usr/bin::/bin" },
 ];
 
 /** Prepend `dirs` to a `PATH` value, preserving `dirs` order and dropping any
@@ -497,12 +527,24 @@ export const PATH_PREPEND_CASES: ReadonlyArray<{
  *  without bound). Pure string algebra — the TS half of the two-context
  *  guarantee whose shell half is `PATH_REASSERT`. Both are driven from
  *  `PATH_PREPEND_CASES` so the "prepend without duplicating" rule has one
- *  oracle, not one address. */
+ *  oracle, not one address.
+ *
+ *  The contract is exactly that and nothing more: the caller's existing `PATH`
+ *  comes out verbatim, including any empty entry it carried. This function does
+ *  NOT sanitize somebody else's `PATH` — that hardening happens once, at the
+ *  `cleanEnv` boundary, so it isn't re-implemented here and again in POSIX shell
+ *  in `PATH_REASSERT`. What IS filtered here is the `dirs` we were asked to add:
+ *  an empty string among them would mean "put the current directory on PATH",
+ *  which this function must never introduce on its own. */
 export function prependPathEntries(
   currentPath: string | undefined,
   dirs: readonly string[],
 ): string {
-  const existing = (currentPath ?? "").split(":").filter((e) => e !== "");
+  const current = currentPath ?? "";
+  // A wholly empty (or absent) PATH is ZERO entries, not one empty entry — the
+  // same reading the shell half takes with `${PATH:+:$PATH}`, which appends
+  // nothing at all when `$PATH` is empty.
+  const existing = current === "" ? [] : current.split(":");
   const fresh = dirs.filter((d) => d !== "" && !existing.includes(d));
   return [...fresh, ...existing].join(":");
 }
@@ -523,6 +565,14 @@ export function prependPathEntries(
  *  caller data in it, so no shell-quoting question arises at all (a path with a
  *  space or a metacharacter is data in a variable, never source to re-parse).
  *  POSIX-only syntax — one text for both the bash and zsh wrappers.
+ *
+ *  Same minimal contract as the TS half: prepend, skip a dir already on `$PATH`,
+ *  and otherwise leave `$PATH` byte-identical — it does not rewrite the inherited
+ *  value, so an empty entry a dotfile left there survives. That is deliberate:
+ *  empty-entry hardening happens once at the `cleanEnv` boundary rather than
+ *  being re-implemented here in POSIX shell, which is what would let the two
+ *  halves drift. The `[ -z "$__kolu_dir" ] && continue` above filters the dirs
+ *  we were ASKED to add, so this block never introduces one itself.
  *
  *  Exported so `PATH_PREPEND_CASES` can be asserted against THIS text under a
  *  real bash and zsh, not against a paraphrase of it. */
