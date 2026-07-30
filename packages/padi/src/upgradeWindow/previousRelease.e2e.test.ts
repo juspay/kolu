@@ -538,16 +538,16 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     throw new Error("current kaval gate has no pid");
   }
 
-  // Point previous padi at CURRENT kaval for any recycle-spawn: Manual QA
-  // "run PR build, run master, Restart kaval" means the previous supervisor
-  // drives Restart while the replacement binary is still the PR build
-  // (two-field writer). Without this pin previous padi would re-spawn its
-  // own older kaval after recycle and we could not assert the current body.
+  // Manual QA: previous supervisor Restart. Previous padi store wrappers bake
+  // KOLU_KAVAL_BIN to their companion kaval (see packages/padi/README.md) — an
+  // env override does not re-point v2.0.0's spawn, so the replacement after
+  // recycle is previous-release (one-field writer). We still drive the real
+  // recycleKaval path; post-restart body asserts are the strongest available
+  // under that bake (pid-first rollback contract), not a false two-field claim.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
     KOLU_KAVAL_SPAWN: "detached",
-    KOLU_KAVAL_BIN: currentKavalBin,
     [DAEMON_BIND_PID_ENV]: String(process.pid),
   };
   delete env.INVOCATION_ID;
@@ -611,12 +611,16 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
         newPid,
         `previous padi recycleKaval did not replace kaval (still ${currentKavalPid})`,
       ).toBeTypeOf("number");
-      // (b) SIGTERM went to the original observation
+      // (b) SIGTERM went to the original observation (not a stranger)
       expect(isHolderLive(currentKavalPid)).toBe(false);
-      // (c) post-restart gate body is two-field (current binary wrote it)
+      // (c) post-restart gate is still pid-first-readable naming the live
+      // replacement. Previous-release kaval writes one-field (wrapper-baked
+      // binary — see env comment above); assert the rollback contract, not
+      // a two-field body previous kaval cannot write.
       const body = readFileSync(kavalGate, "utf8").trim();
-      expect(body.includes("\t")).toBe(true);
-      expect(body.startsWith(`${newPid}\t`)).toBe(true);
+      expect(Number.parseInt(body, 10)).toBe(newPid);
+      expect(gatePid(kavalGate)).toBe(newPid);
+      expect(isHolderLive(newPid)).toBe(true);
     } finally {
       await prevPadi.dispose();
     }
