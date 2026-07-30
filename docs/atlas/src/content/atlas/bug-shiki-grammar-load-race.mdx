@@ -11,8 +11,8 @@ import Callout from "../../components/Callout.astro";
 import PrLink from "../../components/PrLink.astro";
 import Footnote from "../../components/Footnote.astro";
 
-The flaky-test tracker's `release-workflow.html` byte-shrink row (see
-[flaky-test-tracker](./flaky-test-tracker.html)) recurred **twice** after
+The `release-workflow.html` byte-shrink flake — the committed page losing bytes
+under load, turning `ci::atlas-sync` red — recurred **twice** after
 <PrLink pr={1853} /> disabled shiki's tokenization time budget — because the
 time budget was the wrong mechanism. This note pins the real one, verified
 from scratch against the installed sources, and the fix — implemented in

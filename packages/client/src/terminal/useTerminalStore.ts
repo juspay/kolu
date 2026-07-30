@@ -103,8 +103,8 @@ export const useTerminalStore = createSharedRoot(() => {
   // as two separate sources — the activeId signal and the activeMeta memo — they
   // can tear on a terminal switch (the new active id paired with the PREVIOUS
   // terminal's metadata for a propagation step), which makes CodeTab's repo-
-  // change reset wipe the new terminal's Code-tab history (a darwin-only flake;
-  // see the Flaky Test Tracker). Reading getMetadata(id) for the bundled id is
+  // change reset wipe the new terminal's Code-tab history (a darwin-only flake
+  // under parallel-worker load). Reading getMetadata(id) for the bundled id is
   // glitch-free.
   const active = createMemo(() => {
     const id = view.activeId();

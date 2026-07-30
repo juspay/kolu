@@ -20,8 +20,8 @@ const DEV_PORT = 4331;
 // `mdx` grammar embeds yaml/tsx/… LAZILY, and a mid-build load re-resolves
 // every lazy embedder, so with per-block lazy loading the rendered bytes of
 // an ```mdx block depended on whether some other file's ```yaml block was
-// highlighted first (vite transform order → the flaky-test tracker's
-// release-workflow.html byte-shrink row). Deriving the list from the content
+// highlighted first (vite transform order → the release-workflow.html
+// byte-shrink flake). Deriving the list from the content
 // makes staleness unrepresentable; the paired guard turns any fence the scan
 // might miss into a loud build error instead of silent nondeterminism. The
 // factory fuses list+guard so they can never be wired against different
@@ -62,8 +62,8 @@ export default defineConfig({
         fencePreload.guard,
         // dist/ is committed, so shiki's silent over-budget tokenization bail
         // (mechanism in scripts/fence-langs.mjs) surfaces here as
-        // non-deterministic ci::atlas-sync byte-drift (the flaky-test
-        // tracker's "release-workflow.html byte-shrinks under load" row).
+        // non-deterministic ci::atlas-sync byte-drift ("release-workflow.html
+        // byte-shrinks under load").
         noTokenizeBail,
       ],
     },
