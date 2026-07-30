@@ -1,6 +1,6 @@
 ---
 title: Terminal Tree — the Tree Is the Tiling
-description: "One tree of first-class terminals; canvas layout, Dock rows and focus all derive from it. The redesign that makes #2059-class invisibility unrepresentable — in four phases, TR1–TR4."
+description: "One tree of first-class terminals; canvas layout, Dock rows and focus all derive from it. The redesign that makes #2059-class invisibility unrepresentable — in three phases, TR1–TR3."
 parents: [feature, padi]
 status: proposed
 maturity: seedling
@@ -29,27 +29,51 @@ import phases from "../../diagrams/terminal-tree-phases.svg?raw";
 
 [#2059](https://github.com/juspay/kolu/issues/2059): a terminal created over MCP with a `parentId` that is itself a split child is fully alive in padi but **never renders** — the client derives tiles by filtering (`!parentId` → tile, one level of children per tile) and a grandchild matches no rule, so it silently has zero render sites.<Footnote>The mechanism: `useTerminalMetadata.ts` keeps records with no `parentId` as tiles; children are looked up only per-tile in `TerminalContent.tsx`. A depth-2 record is excluded from both. Session restore has a second latent instance of the same class — its two-level partition drops a grandchild whose parent appears later in the saved array (`sessionRestore.ts`).</Footnote> The class of bug: **when visibility is derived by filtering, anything that matches no rule disappears without an error.**
 
-This design deletes the class instead of the instance: placement is a total function (every node gets coordinates), rendering is a full tree walk (never a filter), and TR3 adds the belt-and-braces **totality assert** — every active, non-parked terminal has exactly one render site, else a loud error. The stopgap guard (<PrLink pr={2060} />) closes the hole today by *rejecting* nested `parentId` at create; TR3 lifts it once depth is renderable.
+This design deletes the class instead of the instance: placement is a total function (every node gets coordinates), rendering is a full tree walk (never a filter), and TR2 adds the belt-and-braces **totality assert** — every active, non-parked terminal has exactly one render site, else a loud error.<Footnote>A stopgap guard (<PrLink pr={2060} />) that *rejects* nested `parentId` at create is in flight independently of this plan. The plan assumes nothing about it: if it lands first, TR2 deletes the guard; if it doesn't, there is nothing to delete. Either way depth becomes legal input only at TR2.</Footnote>
 
-## The phase tree — TR1‥TR4
+## The phase tree — TR1‥TR3
 
-<Svg svg={phases} caption="TR1 (stopgap, in flight) and TR2 (the rendering rewrite) both gate TR3, which legalizes depth. TR4 is independent; scheduled after TR2 only to avoid touching the canvas twice." />
+<Svg svg={phases} caption="TR1 (the rendering rewrite) gates TR2, which legalizes depth. TR3 is independent; scheduled after TR1 only to avoid touching the canvas twice." />
 
-### TR1 — total create (stopgap; in flight)
+### TR1 — every terminal a tile
 
-padi's create (and `chrome.setParent`) rejects a `parentId` whose target itself has a parent, with a typed error naming the root ancestor. **User-visible delta:** an orchestrating agent gets an actionable refusal instead of an invisible terminal. **Acceptance:** over MCP, `lifecycle_create { parentId: <split id> }` → typed error naming the root tile; a one-level parent still works. **Why separate:** it stops live observability loss *today* with a two-line guard — it cannot wait for a canvas rewrite. Ships as <PrLink pr={2060} /> (full /be run, in flight).
+The rendering rewrite: retire the in-tile split/sub-panel UI; existing `parentId` children become their own (compact) tiles, auto-placed beside their parent with edges drawn; dragging a tile pins it manually.<Footnote>The split button's behavior is unchanged from the user's view: it still creates a child terminal; the child now appears as an adjacent tile rather than a pane.</Footnote> **User-visible delta:** sub-terminals appear as adjacent connected tiles instead of panes inside the parent. **Acceptance:** create a sub-terminal from a tile → it renders as its own tile beside the parent with an arrow; drag it → it stays where dropped; reload → both facts survive. **Why separate:** this must land before depth is legal input (TR2) — legalizing nested `parentId` while the split UI is still the renderer would recreate #2059's unrenderable records.
 
-### TR2 — every terminal a tile
+The types already carry the design — TR1 is mostly *deleting* schema, not adding it. The one semantic change: **`canvasLayout` present ⇔ manually placed**; absent means the position is derived. No `layoutMode` enum, no override knob.
 
-The rendering rewrite: retire the in-tile split/sub-panel UI; existing `parentId` children become their own (compact) tiles, auto-placed beside their parent with edges drawn; drag sets the per-tile manual flag.<Footnote>No data migration: `parentId` already is the tree, and placement is derived at render, so existing sessions and saved layouts load as-is — a saved `canvasLayout` counts as `manual`. The split button's behavior is unchanged from the user's view: it still creates a child terminal; the child now appears as an adjacent tile rather than a pane.</Footnote> **User-visible delta:** sub-terminals appear as adjacent connected tiles instead of panes inside the parent. **Acceptance:** create a sub-terminal from a tile → it renders as its own tile beside the parent with an arrow; drag it → it stays where dropped; reload → both facts survive. **Why separate:** this must land before depth is legal input (TR3) — legalizing nested `parentId` while the split UI is still the renderer would recreate #2059's unrenderable records.
+```ts
+// padi/src/chromeVocab.ts — shape unchanged; meaning sharpened:
+// stored only once a human drags the tile. Absent ⇒ position = f(tree).
+export const CanvasLayoutSchema = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
 
-### TR3 — depth legalized
+export const SubPanelStateSchema = z.object({ collapsed: z.boolean(), panelSize: z.number() });
+// ⟵ DELETED in TR2, with its `subPanel` field below — the sub-panel UI it describes is retired.
 
-Lift the TR1 guard; make the Dock recursive (arbitrary-depth indented rows, relation chip); fix session restore's order-dependent two-level partition by restoring via tree walk; add the **totality assert** (every active terminal has exactly one render site — loud error, per the fail-fast rule). **User-visible delta:** an agent can parent a terminal under any terminal; the chain renders as cascading tiles and nested Dock rows. **Acceptance:** over MCP, create a depth-2 chain (the #2059 repro) → both terminals render as tiles, the Dock shows depth-2 indentation, no error anywhere; restart kolu → the chain survives. **Why separate:** it is sequenced on TR2 (rendering must be total first) and on TR1 (the guard it removes); Dock recursion and the restore fix ride along because they are the same tree walk.
+// padi/src/vocab.ts · ClientPersistedTerminalFieldsSchema — the fields TR1 touches:
+{
+  parentId: z.string().optional(),                //  THE tree — already on the wire, unchanged
+  canvasLayout: CanvasLayoutSchema.optional(),    //  present ⇔ manual pin (was: always written)
+  subPanel: SubPanelStateSchema.optional(),       //  ⟵ DELETED (and from SavedTerminal/restore)
+}
 
-### TR4 — focus = camera
+// padi/src/surface.ts — creation input is already sufficient; TR1 changes nothing here.
+export const PadiCreateInputSchema = z.object({ cwd: z.string().optional(), parentId: TerminalIdSchema.optional() })
+  .merge(CreateTerminalInputSchema);
 
-Replace maximized mode with zoom-to-tile: double-click / shortcut flies the camera to fit the tile; Esc flies back; Dock click teleports; `useViewPosture`, covered-tile rendering and the dock-posture split are deleted; xterm re-renders at native pixels when the camera settles. **User-visible delta:** maximize becomes a smooth zoom that keeps the fleet one gesture away; behavior is otherwise equivalent. **Acceptance:** double-click a tile → it fills the viewport crisply; Esc → back to the fleet at the previous camera; click a Dock row while zoomed → camera flies to that tile; grep confirms the posture module is gone. **Why separate:** it is a self-contained deletion of a whole mode, independent of TR3; the dashed edge in the diagram is an ordering preference — landing it after TR2 avoids reworking the canvas containers twice — not a dependency.
+// client — the new piece is one pure function, no wire type at all:
+//   total: every active record gets a box; manual pins pass through, the rest derive.
+layoutTree(records: TerminalMetadata[]): Map<TerminalId, { x; y; w; h }>
+```
+
+Migration falls out of the semantics: legacy top-level tiles all have a saved `canvasLayout`, so they load as manual pins (nobody's hand layout moves); today's splits have none, so they auto-tile on first render. Saved `subPanel` state is dropped on load — the UI it configured no longer exists.
+
+### TR2 — depth legalized
+
+Make nested `parentId` legal input end to end: delete the create-time nesting guard if the stopgap (<PrLink pr={2060} />) landed; make the Dock recursive (arbitrary-depth indented rows, relation chip); fix session restore's order-dependent two-level partition by restoring via tree walk; add the **totality assert** (every active terminal has exactly one render site — loud error, per the fail-fast rule). **User-visible delta:** an agent can parent a terminal under any terminal; the chain renders as cascading tiles and nested Dock rows. **Acceptance:** over MCP, create a depth-2 chain (the #2059 repro) → both terminals render as tiles, the Dock shows depth-2 indentation, no error anywhere; restart kolu → the chain survives. **Why separate:** it is sequenced on TR1 — rendering must be total before depth becomes legal input; Dock recursion and the restore fix ride along because they are the same tree walk.
+
+### TR3 — focus = camera
+
+Replace maximized mode with zoom-to-tile: double-click / shortcut flies the camera to fit the tile; Esc flies back; Dock click teleports; `useViewPosture`, covered-tile rendering and the dock-posture split are deleted; xterm re-renders at native pixels when the camera settles. **User-visible delta:** maximize becomes a smooth zoom that keeps the fleet one gesture away; behavior is otherwise equivalent. **Acceptance:** double-click a tile → it fills the viewport crisply; Esc → back to the fleet at the previous camera; click a Dock row while zoomed → camera flies to that tile; grep confirms the posture module is gone. **Why separate:** it is a self-contained deletion of a whole mode, independent of TR2; the dashed edge in the diagram is an ordering preference — landing it after TR1 avoids reworking the canvas containers twice — not a dependency.
 
 ## Composing with terminal-teams
 
