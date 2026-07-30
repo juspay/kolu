@@ -202,9 +202,9 @@ export function setTerminalParent(
 ): void {
   // Same one-level fence as createTerminal (#2059) — the other generative
   // write of a non-null parent edge. Clearing (null) is always legal.
-  // Self-parent would invent a cycle with no top-level tile (invisible on
-  // canvas) — rejectNestedParent alone can't see it, because the proposed
-  // parent is currently top-level until the write lands.
+  // Self-parent invents a cycle; re-parenting a non-leaf under another tile
+  // invents depth ≥ 2 (OTHER → ROOT → CHILD) which the canvas never paints.
+  // rejectNestedParent alone can't see either hole.
   if (parentId !== null) {
     if (parentId === id) {
       throw new ORPCError("BAD_REQUEST", {
@@ -212,6 +212,15 @@ export function setTerminalParent(
       });
     }
     rejectNestedParent(parentId);
+    for (const [childId, child] of terminalEntries()) {
+      if (child.meta.parentId === id) {
+        throw new ORPCError("BAD_REQUEST", {
+          message:
+            `Cannot re-parent ${id}: it still has split children (e.g. ${childId}). ` +
+            `Clear or re-parent those children first.`,
+        });
+      }
+    }
   }
   const entry = getTerminal(id);
   if (entry) {

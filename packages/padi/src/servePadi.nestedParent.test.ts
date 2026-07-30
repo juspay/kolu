@@ -172,4 +172,17 @@ describe("chrome.setParent — nested parentId refused (#2059)", () => {
     expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
     expect(getTerminal(SIBLING)?.meta.parentId).toBeUndefined();
   });
+
+  it("rejects re-parenting a non-leaf (would invent depth-2 under the new parent)", () => {
+    // ROOT has CHILD; sliding ROOT under SIBLING would leave CHILD nested.
+    const setParent = setParentHandler();
+    const err = caught(() =>
+      setParent({ input: { id: ROOT, parentId: SIBLING } }),
+    );
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
+    expect((err as ORPCError<string, unknown>).message).toContain(CHILD);
+    expect(getTerminal(ROOT)?.meta.parentId).toBeUndefined();
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ROOT);
+  });
 });
