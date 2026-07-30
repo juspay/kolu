@@ -952,6 +952,40 @@ Feature: Code tab (review + browse)
   # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
   # for them); `<script>`/`align=center`/`javascript:` carry none.
 
+  Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
+    When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
+    And I run "printf '# Doc Title\n\n| Col A | Col B |\n|:------|------:|\n| 1 | 2 |\n\n- [x] shipped\n- [ ] pending\n\nPress <kbd>Ctrl</kbd> to go.\n\n<p align=center>centered note</p>\n\n<img src=docs/logo.png alt=brand-logo />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "h1" element
+    And the markdown preview should contain "Doc Title"
+    And the markdown preview should render a "table" element
+    And the markdown preview should contain "Col A"
+    And the markdown preview should render a "input[type=checkbox]" element
+    And the markdown preview should render a "kbd" element
+    And the markdown preview should render a "[align=center]" element
+    And the markdown preview should contain "centered note"
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+
+  Scenario: Markdown preview renders YAML front-matter as a metadata table
+    When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
+    And I run "printf -- '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "table[data-md-frontmatter]" element
+    And the markdown preview should contain "Release Notes"
+    And the markdown preview should contain "Jane Roe"
+    And the markdown preview should contain "markdown, preview"
+    And the markdown preview should render a "h1" element
+    And the markdown preview should contain "Body Heading"
+    And the markdown preview should not render a "hr" element
+
   Scenario: Markdown preview strips script-capable HTML and links
     When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
     And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"

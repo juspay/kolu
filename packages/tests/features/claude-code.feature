@@ -41,6 +41,15 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Claude Code state cycles waiting → thinking → waiting
+    When a Claude Code session is mocked with state "waiting"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    When the Claude Code session state changes to "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When the Claude Code session state changes to "waiting"
+    Then the tile chrome should show an agent indicator with state "waiting"
+    And there should be no page errors
+
   Scenario: Previous-session JSONL in the project dir doesn't confuse detection
     When a Claude Code session is mocked with state "thinking"
     And a newer stale previous-session JSONL exists in the same project dir

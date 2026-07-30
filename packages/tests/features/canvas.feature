@@ -122,6 +122,14 @@ Feature: Canvas workspace
     Then there should be 1 canvas tile
     And the active canvas tile should be centered in the viewport
 
+  Scenario: Closing the active terminal pans the canvas to the auto-switched tile
+    Given I create a terminal
+    And I create a terminal
+    Then there should be 3 canvas tiles
+    When I close terminal 2 via tile close button
+    Then there should be 2 canvas tiles
+    And the active canvas tile should be centered in the viewport
+
   Scenario: Scroll on terminal does not pan the canvas
     # Settle the freshly-created tile's centering animation before recording the
     # baseline — otherwise the centering pan races the assert and the transform

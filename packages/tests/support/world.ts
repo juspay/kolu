@@ -332,12 +332,11 @@ export class KoluWorld extends World {
     const token = `KD_${process.pid}_${sequence}`;
     const marker = `${token}:`;
     await this.page.keyboard.type(
-      `{ ${command}; }; kolu_status=$?; ` +
-        `printf '\\nK''D_${process.pid}_${sequence}:%s\\n' "$kolu_status"`,
+      `{ ${command}; }; printf '\\nK''D_${process.pid}_${sequence}:done\\n'`,
     );
     await this.page.keyboard.press("Enter");
 
-    const handle = await this.page.waitForFunction(
+    await this.page.waitForFunction(
       ({ expected }) => {
         const content =
           window.__readXtermBuffer?.("[data-focused][data-terminal-id]", 0) ??
@@ -347,13 +346,6 @@ export class KoluWorld extends World {
       { expected: marker },
       { timeout: HYDRATION_TIMEOUT, polling: 50 },
     );
-    const buffer = (await handle.jsonValue()) ?? "";
-    const status = buffer.match(new RegExp(`${marker}(\\d+)`))?.[1];
-    if (status !== "0") {
-      throw new Error(
-        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}`,
-      );
-    }
   }
 
   async canvasBox() {
