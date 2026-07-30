@@ -43,7 +43,9 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     id: "kaval-state-root-manifest",
     pathShape: "$XDG_RUNTIME_DIR/kaval-<digest>/state-root",
     role: "manifest",
-    coveredByTest: "padi/yesterdayDaemon.test.ts",
+    // The manifest runs in required ci::upgrade-window; it soft-skips only in
+    // ordinary local/unit runs where the previous-release binaries are absent.
+    coveredByTest: "padi/previousRelease.e2e.test.ts",
     versionField: null,
     diskBasenames: ["state-root"],
     diskBasenamePatterns: [],

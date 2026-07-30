@@ -17,7 +17,7 @@
  * pin is the bite.
  */
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -65,15 +65,26 @@ function previousShapeSession() {
 
 describe("old session file under new padi (upgrade-window)", () => {
   it("openPadiStateStores keeps a previous-shape session present (never silently empty)", async () => {
+    const previous = previousShapeSession();
     const d = await plantYesterdayDaemon(
       padiYesterdayDaemonOptions({
-        session: previousShapeSession(),
+        session: previous,
         withSocket: false,
         gate: { kind: "absent" },
       }),
     );
     try {
       if (d.state.kind !== "planted") throw new Error("expected planted state");
+      // The framework-advertised path and padi's Conf writer must name the same
+      // file. Reading the bytes through that path pins the cross-package seam;
+      // reopening through padi below separately pins its production reader.
+      const raw = JSON.parse(readFileSync(d.state.confPath, "utf8")) as {
+        session: typeof previous;
+      };
+      expect(raw.session.terminals[0]?.cwd).toBe("/home/user/project");
+      expect(raw.session.terminals[0]).not.toHaveProperty("state");
+      expect(raw.session.terminals[0]).not.toHaveProperty("location");
+
       const stores = openPadiStateStores(d.state.stateRoot);
       const session = stores.session.get();
       // PRESENT — conf does not wipe unknown shapes. A silent-empty regression
