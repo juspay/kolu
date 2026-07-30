@@ -55,9 +55,15 @@ async function pickPorts(): Promise<{ server: number; client: number }> {
   return { server, client };
 }
 
-/** Resolve once the port accepts a TCP connection AND serves a 200 — Vite binds
- *  before it can serve, so a bare connect check races the first request. */
-async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
+/** Resolve once the URL answers 200. Vite binds before it can serve, so a bare
+ *  TCP connect check races the first request. `canProbe` additionally lets a
+ *  child prove it owns the destination before HTTP readiness can satisfy us. */
+async function waitForHttp(
+  url: string,
+  canProbe: () => boolean,
+  timeoutMs: number,
+  proc: ChildProcess,
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (proc.exitCode !== null) {
@@ -65,11 +71,19 @@ async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
         `dev server exited with code ${proc.exitCode} before serving ${url}`,
       );
     }
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    if (canProbe()) {
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      } catch {
+        // Not up yet — the deadline above is the real bound.
+        await sleep(500);
+        continue;
+      }
       if (res.ok) return;
-    } catch {
-      // Not up yet — the deadline above is the real bound.
+      if (res.status >= 400 && res.status < 500) {
+        throw new Error(`${url} answered ${res.status}; the endpoint is gone`);
+      }
     }
     await sleep(500);
   }
@@ -118,16 +132,47 @@ async function main() {
 
   const dev = startDevServer(ports);
   const devLog: string[] = [];
-  dev.stdout?.on("data", (d) => devLog.push(String(d)));
-  dev.stderr?.on("data", (d) => devLog.push(String(d)));
+  let startupLog = "";
+  let serverOwnsPort = false;
+  const recordDevOutput = (data: Buffer) => {
+    const text = data.toString();
+    devLog.push(text);
+    if (serverOwnsPort) return;
+    startupLog += text;
+    if (
+      startupLog.includes("kolu listening") &&
+      startupLog.includes(`:${ports.server}`)
+    ) {
+      serverOwnsPort = true;
+    }
+    if (startupLog.length > 16_384) startupLog = startupLog.slice(-4_096);
+  };
+  dev.stdout?.on("data", recordDevOutput);
+  dev.stderr?.on("data", recordDevOutput);
 
   const failures: string[] = [];
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
   try {
-    const url = `http://localhost:${ports.client}/`;
-    await waitForHttp(url, DEV_READY_TIMEOUT_MS, dev);
-    console.log(`dev-smoke: dev server serving ${url}`);
+    const clientUrl = `http://localhost:${ports.client}/`;
+    const proxiedHealthUrl = `http://localhost:${ports.client}/api/health`;
+    // `just dev` starts Vite and kolu-server concurrently. Vite can serve its
+    // HTML several seconds before the server accepts the proxied WebSocket, so
+    // client readiness alone makes a clean boot look like a browser failure.
+    // Require our child to claim the server port before probing through the
+    // same Vite proxy path the browser uses; a stale listener cannot satisfy it.
+    await Promise.all([
+      waitForHttp(clientUrl, () => true, DEV_READY_TIMEOUT_MS, dev),
+      waitForHttp(
+        proxiedHealthUrl,
+        () => serverOwnsPort,
+        DEV_READY_TIMEOUT_MS,
+        dev,
+      ),
+    ]);
+    console.log(
+      `dev-smoke: dev stack ready (client=${clientUrl} proxy-health=${proxiedHealthUrl})`,
+    );
 
     browser = await chromium.launch();
     const page = await browser.newPage();
@@ -138,7 +183,7 @@ async function main() {
     // A module-load crash arrives as an uncaught exception, not a console call.
     page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
 
     // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
     // page with an empty body, which a status-code check would have called
