@@ -21,7 +21,7 @@ const revision: ScenarioRevision = {
 };
 const inventory: ScenarioInventory = { schemaVersion: 1, records: [revision] };
 const validRetirement: CoverageLedger = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   retirements: [
     {
       id: "one-promise",
@@ -38,10 +38,10 @@ const validRetirement: CoverageLedger = {
           lane: "unit",
           platforms: ["linux", "darwin"],
           realism: ["real-fs"],
-          counterfactual: {
+          reviewEvidence: {
             file: "packages/example/src/example.mutation.test.ts",
             test: "fails when the watcher is disconnected",
-            breaks: "disconnect the real watcher before the write",
+            note: "review confirmed this test crosses the real watcher seam",
           },
         },
       ],
@@ -52,19 +52,19 @@ const validRetirement: CoverageLedger = {
 
 test("a disappearing scenario requires a landed ledger row", () => {
   assert.throws(
-    () => validateLedger(inventory, [], { schemaVersion: 1, retirements: [] }),
+    () => validateLedger(inventory, [], { schemaVersion: 2, retirements: [] }),
     /disappeared without a landed ledger row/,
   );
   assert.doesNotThrow(() => validateLedger(inventory, [], validRetirement));
 });
 
-test("a landed replacement requires counterfactual evidence", () => {
-  const withoutCounterfactual = structuredClone(validRetirement);
-  const proof = withoutCounterfactual.retirements[0]?.replacements[0];
-  if (proof) proof.counterfactual.breaks = "";
+test("a landed replacement requires human review evidence", () => {
+  const withoutReviewEvidence = structuredClone(validRetirement);
+  const proof = withoutReviewEvidence.retirements[0]?.replacements[0];
+  if (proof) proof.reviewEvidence.note = "";
   assert.throws(
-    () => validateLedger(inventory, [], withoutCounterfactual),
-    /counterfactual.breaks is empty/,
+    () => validateLedger(inventory, [], withoutReviewEvidence),
+    /reviewEvidence.note is empty/,
   );
 });
 
@@ -81,7 +81,7 @@ test("a survivor must still be a current immutable revision", () => {
   );
 });
 
-test("replacement and counterfactual names must resolve as collected tests", () => {
+test("replacement and review evidence names must resolve as collected tests", () => {
   const collected = new Map([
     [
       "packages/example/src/example.test.ts",

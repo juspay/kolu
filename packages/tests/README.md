@@ -4,7 +4,7 @@ End-to-end tests using [Cucumber.js](https://github.com/cucumber/cucumber-js) wi
 
 ## E2E governance and timing
 
-Wave 0 makes E2E removal auditable before any scenario is deleted:
+E2E graduation is auditable before any scenario is deleted:
 
 - `scenario-inventory.json` is an append-only history of executable scenario
   revisions. A revision fingerprints backgrounds, steps, tags, expanded
@@ -12,10 +12,11 @@ Wave 0 makes E2E removal auditable before any scenario is deleted:
   row count.
 - `coverage-ledger.yaml` must contain a landed row for every revision that
   disappears. A landed replacement names its real defect surface, retained
-  user journey, destination lane, and a counterfactual test explaining how the
-  replacement is proven to fail when that behavior breaks.
-- `just test-e2e-governance` compares inventory records with the parent commit,
-  so deleting or editing history in a later commit fails even in detached CI.
+  user journey, destination lane, collected replacement, and the human review
+  note that accepted it as equivalent at the declared defect surface.
+- `just test-e2e-governance` compares inventory records with every committed
+  version of the inventory reachable from `HEAD`, so deleting or editing
+  history in a later commit fails even in detached CI.
   New or intentionally
   revised scenarios are appended with `cd packages/tests && pnpm
   inventory:update` and then reviewed.
@@ -29,9 +30,12 @@ Wave 0 makes E2E removal auditable before any scenario is deleted:
   reducer refuses fewer samples and reports medians and IQRs for E2E, unit,
   daemon, whole-pipeline critical path, attempts, and retries.
 
-The ledger is a guardrail, not an equivalence oracle. Replacement coverage
-lands before deletion, and reviewers still verify that its counterfactual test
-breaks the promised behavior through the declared real defect surface.
+The ledger is a guardrail, not an equivalence oracle. CI proves immutable
+history, complete ledger rows, current browser survivors, declared platform
+coverage, and collection of every named test. Human review decides whether a
+replacement preserves the same user promise through the same defect surface;
+`reviewEvidence.note` records that non-executable decision without pretending
+CI proved semantic equivalence.
 
 ## Structure
 

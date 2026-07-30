@@ -1,73 +1,55 @@
 ---
-title: E2E Graduation — Measure and Prove Before Deleting
-description: "Kolu's 58 feature files currently expand to 546 browser executions. Wave 0 makes that suite measurable and gives every future retirement an immutable identity, a coverage ledger, a real replacement, and a retained user journey; no retirement is authorized until the evidence exists."
+title: E2E Graduation — Faster Without Losing User Journeys
+description: "How Kolu moved redundant browser assertions to lower layers while retaining every distinct user-level journey and making future removals auditable."
 parents: [analysis, padi]
-status: proposed
-maturity: budding
-updated: 2026-07-29
+status: implemented
+maturity: evergreen
+updated: 2026-07-30
 ---
 
 import Svg from "../../components/Svg.astro";
+import PrLink from "../../components/PrLink.astro";
 import governance from "../../diagrams/e2e-graduation-layers.svg?raw";
 
-**The principle is still that a test lives at the lowest layer that can honestly assert it. The correction is that “a lower test exists” does not prove it asserts the same thing.** Kolu currently has **58 feature files, 530 Gherkin declarations, and 546 expanded executions**: 541 in default Linux CI and 540 on Darwin. This note no longer promises a retirement count. It first makes the suite measurable and makes silent coverage loss detectable; candidate retirements are re-audited afterward, one exact scenario revision at a time.
+**A test should live at the lowest layer that can honestly assert its promise, but “a lower test exists” is not proof that it asserts the same thing.** <PrLink pr={2064} /> applied that rule to all 58 feature files. The suite moved from **530 Gherkin declarations and 546 expanded executions** to **488 declarations and 502 executions**. Default CI moved from 541 to 497 Linux executions and from 540 to 496 Darwin executions: 44 browser executions removed without removing a distinct user journey.
 
-<Svg svg={governance} caption="The Wave 0 gate. The live Gherkin suite produces immutable scenario revisions and attempt-level timing. A future deletion is legal only when its historical revision has a landed ledger row with a real replacement, counterfactual proof, and a retained browser journey." />
+<Svg svg={governance} caption="The graduation gate. CI preserves scenario history, checks complete ledger rows, collects named replacement tests, and requires current browser survivors. Human review—not the schema—decides whether the replacement covers the same defect surface." />
 
-## Why classification alone was not enough
+## What was safe to graduate
 
-The earlier review grouped scenarios by prose and nearby unit tests. A perfection pass found four ways that could delete unique coverage:
+The removed scenarios repeated assertions already owned more directly by pure logic, component, or fork-free integration tests. Each retirement names its historical scenario revision, user promise, defect surface, lower-layer replacement, declared platforms, and an independent browser survivor. The lower tests include production reducers and state machines, real temporary files and watchers, real SQLite, short-lived Git repositories, and render-from-state component tests.
 
-- The Code-tab `local` / `branch` / `browse` Outline matrix drives different data sources and view-versus-diff dispatch. Sampling each mode once does not prove every behavior across all three paths.
-- The Markdown “rich render” scenarios check computed list-marker CSS, the real per-terminal image route, asynchronous Shiki loading, repaint, and generated copy-button DOM. Parser tests do not own those browser facts.
-- `fileSearch.test.ts` proves path projection, while the hollow-directory regression lives later in Pierre tree reconciliation. The easier lower test can stay green while the actual defect returns.
-- A test title in a ledger proves presence, not effect. A replacement can be collected yet use the wrong fixture, swallow the relevant failure, or never cross the declared defect surface.
+The perfection review restored candidates whenever the browser contributed a fact the lower test did not own. That kept the full Code-tab `local` / `branch` / `browse` behavior matrix, Markdown sanitization and rich-render composition, real agent-token lifecycle paint, terminal switcher dismissal and split exclusion, subterminal resize, intent slot selection, file-drop size and media boundaries, canvas close-pan, theme shuffling, recent-agent filtering, Kaval PID behavior, and the other distinct composition seams found during the sweep.
 
-These are one defect shape: **evidence attached to a nearby behavior instead of to the seam that failed**. The repair is an executable chain from scenario identity to replacement and survivor, plus a counterfactual test that demonstrates what breaks.
+The result is deliberately conservative. A scenario stayed in E2E if its promise emerged from browser or system composition: deep links, printed URLs, mobile gestures and the soft keyboard, reconnect, xterm behavior, canvas geometry/WebGL, focus and chord journeys, worktree composition, or any boundary for which the lower test could remain green while the user path broke.
 
-## EG0 — the non-destructive foundation
+## What the guardrail actually proves
 
-EG is the E2E-graduation track. EG0 changes no feature and retires no browser execution.
-
-| Mechanism | Source of truth | Enforced property |
+| Mechanism | Source of truth | Mechanical guarantee |
 |---|---|---|
-| Scenario inventory | `packages/tests/scenario-inventory.json` | Each revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. New revisions append; CI compares historical records with the parent commit, so an old record cannot be edited or removed in the next change—even from a detached checkout. |
-| Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming the promise, real defect surface, destination layer, replacement, and current survivor. |
-| Replacement proof | `packages/tests/governance/ledger.ts` | Replacement and counterfactual test names must resolve through Vitest collection. The counterfactual names the break it introduces; review still verifies that it crosses the declared real seam. |
-| Attempt timing | Cucumber message stream → `reports/e2e-timing.json` | Every attempt is retained with status, wall duration, step duration, retry verdict, final-attempt totals, and per-feature totals. A passing retry cannot erase the failed attempt's cost. |
-| Baseline report | `governance/baseline.ts` | At least five samples on both Linux and Darwin; median and IQR for E2E, unit, daemon, pipeline critical path, attempts, and retries. |
+| Scenario inventory | `packages/tests/scenario-inventory.json` | Every revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. CI compares the current file with every committed version reachable from `HEAD`, so historical records cannot be edited or removed. |
+| Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming its promise, defect surface, destination, replacements, and current browser survivors. |
+| Test collection | `packages/tests/governance/ledger.ts` | Every named replacement and review-evidence test is currently collected, with at least one declared platform and a stated realism boundary. |
+| Attempt timing | Cucumber message stream → `reports/e2e-timing.json` | Every attempt is retained with status, duration, retry verdict, final-attempt totals, and per-feature totals. A passing retry cannot erase the failed attempt's cost. |
+| Starting census | `packages/tests/baseline-census.json` | The original 58 / 530 / 546 suite and its 541 Linux / 540 Darwin default counts remain pinned. |
 
-The initial census is pinned in `packages/tests/baseline-census.json`. The inventory contains 530 current immutable revisions. `ci::e2e-governance` runs on both platforms beside the browser lane.
+The ledger is an audit index, not an equivalence oracle. CI proves immutable history, ledger completeness, active test collection, declared platform coverage, and retained current scenario identities. Human review verifies that each replacement exercises the same promise and defect surface; `reviewEvidence.note` records that judgment explicitly as non-executable evidence. This is more honest than a generic “counterfactual” sentence that no tool actually ran.
 
-**User-visible delta:** none. This is test infrastructure.
+## The runtime lesson
 
-**Manual acceptance:** run `just test-e2e-governance`, then `just test-quick features/smoke.feature:4`; the first prints 58/530/546/541/540, and the second leaves `packages/tests/reports/e2e-timing.json` containing one real execution and every attempt. Change an Examples value without appending the new revision, or remove an inventory record, and the governance check must fail.
+The exact macOS CI host exposed a harness defect before it supplied a useful baseline. Its interactive shell resolved `/usr/bin/git`, an Xcode command-line-tools stub, so strict commands failed and retried for more than an hour. The E2E dev shell now carries Nix's Git, and the fixture shell restores the inherited Nix `PATH` after macOS `/etc/zprofile`. Command helpers again fail on nonzero status; intentionally interactive or failing commands use an explicit start-only step. This changed no product behavior, but made false-green setup failures impossible in the test harness.
 
-**Why EG0 is separate:** replacement tests must land before their E2E deletion so bisection can distinguish “coverage added” from “browser proof removed.” EG0 is the prerequisite that makes that sequence enforceable; it cannot itself authorize a deletion.
+The campaign therefore has a censored baseline—**the original strict Petit suite did not settle within one hour**—rather than a fabricated five-sample median. The final suite's settled measurements live in `docs/e2e-runtime-ralph-report.md`.
 
-## The honest destination layers
+## The durable decision rule
 
-| Layer | CI lane | Owns | Does not replace |
-|---|---|---|---|
-| L1 pure | `unit` | Parsers, reducers, projections, policy, state machines | I/O or rendered behavior |
-| L2 component | `unit` with happy-dom | Render-from-state, attributes, ARIA, synthetic-trigger paint | Layout, real focus, xterm, or real wire delivery |
-| L3 fork-free integration | `unit` and the daemon rerun | Real temp directories, SQLite, watchers, short-lived Git, in-process channels | Long-lived PTYs/processes |
-| L4 real-process integration | serial `daemon` | Real PTYs, daemons, process lifetime, SSH | Browser composition |
-| L5 browser E2E | parallel `e2e` | The whole user-visible path | Nothing |
-
-An L2 test replaces an E2E only when the original stimulus was already synthetic or the promise is purely render-from-props. An L3/L4 test keeps the named defect surface real: a fake adapter cannot replace a watcher/adapter/sensor regression.
-
-## Re-audit after EG0
-
-There is no target count. For each proposed retirement:
+For a future retirement:
 
 1. Name the exact immutable revision and user promise.
-2. Reproduce the historical defect or a faithful counterfactual at the lowest honest layer.
-3. Land that replacement first and prove Vitest collects it on every declared platform/lane.
-4. Name an independent current L5 survivor that still walks the user path.
-5. Delete the E2E only in a later change with a landed ledger row.
-6. Measure the whole pipeline critical path, not merely the E2E lane; restore the browser proof if coverage or runtime evidence fails.
+2. Add the lowest-layer test that crosses the same real defect surface.
+3. Retain an independent browser scenario that still walks the user path.
+4. Record the human equivalence review without claiming CI performed it.
+5. Land a complete ledger row and remove only that revision.
+6. Measure the whole pipeline, and restore the browser proof if either coverage review or runtime evidence fails.
 
-The hard-keep boundary remains deep links, ports, printed URLs, mobile gestures and soft keyboard, reconnect, xterm behavior, canvas geometry/WebGL, canonical focus and chord journeys, worktree composition, and any other path whose promise emerges only from real browser/system composition. A known flake is fixed separately, never laundered as a graduation.
-
-The next plan may contain a conservative core and conditional candidates, but its count is an output of ledger-complete proofs—not an input and never a quota.
+There is no target retirement count. The count is an output of evidence, never a quota.

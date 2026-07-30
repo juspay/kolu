@@ -9,10 +9,10 @@ export interface TestProof {
   lane: TestLane;
   platforms: Array<"linux" | "darwin">;
   realism: string[];
-  counterfactual: {
+  reviewEvidence: {
     file: string;
     test: string;
-    breaks: string;
+    note: string;
   };
 }
 
@@ -39,7 +39,7 @@ export interface Retirement {
 }
 
 export interface CoverageLedger {
-  schemaVersion: 1;
+  schemaVersion: 2;
   retirements: Retirement[];
 }
 
@@ -58,7 +58,7 @@ export function validateLedger(
   current: ScenarioRevision[],
   ledger: CoverageLedger,
 ): void {
-  if (ledger.schemaVersion !== 1) throw new Error("unsupported ledger schema");
+  if (ledger.schemaVersion !== 2) throw new Error("unsupported ledger schema");
   const inventoryIds = new Set(
     inventory.records.map((record) => record.revisionId),
   );
@@ -87,9 +87,9 @@ export function validateLedger(
       if (proof.realism.length === 0) {
         throw new Error(`${entry.id}: replacement realism is empty`);
       }
-      nonEmpty(proof.counterfactual.file, "counterfactual.file", entry.id);
-      nonEmpty(proof.counterfactual.test, "counterfactual.test", entry.id);
-      nonEmpty(proof.counterfactual.breaks, "counterfactual.breaks", entry.id);
+      nonEmpty(proof.reviewEvidence.file, "reviewEvidence.file", entry.id);
+      nonEmpty(proof.reviewEvidence.test, "reviewEvidence.test", entry.id);
+      nonEmpty(proof.reviewEvidence.note, "reviewEvidence.note", entry.id);
     }
     if (
       entry.status === "landed" &&
@@ -132,8 +132,8 @@ export function referencedTests(ledger: CoverageLedger): TestReference[] {
     entry.replacements.flatMap((proof) => [
       { file: proof.file, test: proof.test, owner: entry.id },
       {
-        file: proof.counterfactual.file,
-        test: proof.counterfactual.test,
+        file: proof.reviewEvidence.file,
+        test: proof.reviewEvidence.test,
         owner: entry.id,
       },
     ]),

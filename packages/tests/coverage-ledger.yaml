@@ -1,6 +1,6 @@
-# Every landed row names the immutable scenario revision, its lower-layer proof where applicable, and a retained browser journey.
-# The counterfactual states the production mutation that makes the proof fail.
-schemaVersion: 1
+# CI checks that every removed immutable revision has a complete row and that every named test is collected.
+# reviewEvidence.note records the human equivalence audit; it is deliberately not an executable proof.
+schemaVersion: 2
 retirements:
   - id: retire-d83d64e74c664adbf0d3
     revisionId: revision-d83d64e74c664adbf0d3
@@ -22,10 +22,10 @@ retirements:
         realism:
           - production-state-machine
           - transition-sequence
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/attention/attentionCore.test.ts
           test: "attentionCore — detect→fire (the path e2e/simulate skips) > REPRO: a background terminal that finishes fires an alert"
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-23b29949c044d2c2d8c0
     sameCodePathEvidence:
@@ -68,10 +68,10 @@ retirements:
           - darwin
         realism:
           - production-camera-model
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/perHostCanvasCamera.test.ts
           test: "cameraSwap pure core > switchInNeedsCenter: seed on first visit, re-center only when the tile is out of view"
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-9cb8d7f6e6a3a9b2c109
     sameCodePathEvidence:
@@ -147,10 +147,10 @@ retirements:
         realism:
           - real-jsonl-lines
           - workflow-journal
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: deriveState > does not promote a backgrounded Bash command (no observable journal)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -177,10 +177,10 @@ retirements:
           - real-filesystem
           - real-jsonl-lines
           - watcher-events
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/fork-detection.test.ts
           test: createSessionWatcher — /fork lifecycle (eventing path) > promotes a waiting main to running_background when fork artifacts land late, then demotes on completion
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -205,10 +205,10 @@ retirements:
           - darwin
         realism:
           - captured-screen-text
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/screen.test.ts
           test: screenHasClaudePrompt — permission gates > detects other gates via the 'don't ask again for' option
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -233,10 +233,10 @@ retirements:
           - darwin
         realism:
           - real-jsonl-lines
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: deriveState > walks past the full /compact tail (summary + slash-command bookkeeping)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -261,10 +261,10 @@ retirements:
           - darwin
         realism:
           - captured-screen-text
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/screen.test.ts
           test: screenHasClaudePrompt — AskUserQuestion > detects the footer with the 'n to add notes' segment (v2.1.173)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -290,10 +290,10 @@ retirements:
         realism:
           - real-filesystem
           - workflow-journal
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: liveOutstandingTasks > demotes an unobservable workflow immediately, at any `now` (phantom guard)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -319,10 +319,10 @@ retirements:
         realism:
           - real-filesystem
           - workflow-journal
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: liveOutstandingTasks > drops a workflow whose journal has gone stale (orphaned by a restart)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -347,10 +347,10 @@ retirements:
           - darwin
         realism:
           - real-jsonl-lines
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: deriveState > returns waiting when the newest user entry is a mid-turn interrupt marker
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -375,10 +375,10 @@ retirements:
           - darwin
         realism:
           - real-jsonl-lines
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/claude-code/src/index.test.ts
           test: deriveState > returns waiting when interrupted during a tool call
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
     sameCodePathEvidence:
@@ -403,10 +403,10 @@ retirements:
           - darwin
         realism:
           - production-projection
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/right-panel/fileSearch.test.ts
           test: projectFileTreeSearch > matches whitespace-separated path tokens in order
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-4c154ab35e3bdfa459fb
     sameCodePathEvidence:
@@ -431,10 +431,10 @@ retirements:
           - darwin
         realism:
           - real-rollout-lines
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/codex/src/index.test.ts
           test: parseRolloutState > returns thinking after task_started with no tool calls
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-859b051a535e7635d886
     sameCodePathEvidence:
@@ -459,10 +459,10 @@ retirements:
           - darwin
         realism:
           - real-rollout-lines
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/codex/src/index.test.ts
           test: parseRolloutState > returns tool_use when a function_call has no matching output
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-859b051a535e7635d886
     sameCodePathEvidence:
@@ -504,10 +504,10 @@ retirements:
         realism:
           - happy-dom
           - production-row-attributes
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/canvas/dock/dockRowActive.test.tsx
           test: data-active across the dock's row states > lights the parent while focus is in the main pane
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-b4cf7c5a1a21a208576f
     sameCodePathEvidence:
@@ -532,10 +532,10 @@ retirements:
           - darwin
         realism:
           - production-parser
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/ui/lineRef.test.ts
           test: parseLineRefs > does not absorb a trailing sentence period into a slash-path
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-e352bb2814c8786cc769
     sameCodePathEvidence:
@@ -560,10 +560,10 @@ retirements:
           - darwin
         realism:
           - production-resolver
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/ui/lineRef.test.ts
           test: resolveRef > resolves a bare filename whose basename is unique in the repo
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-e352bb2814c8786cc769
     sameCodePathEvidence:
@@ -588,10 +588,10 @@ retirements:
           - darwin
         realism:
           - production-parser
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/ui/lineRef.test.ts
           test: parseLineRefs > matches a line range
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-e352bb2814c8786cc769
     sameCodePathEvidence:
@@ -616,10 +616,10 @@ retirements:
           - darwin
         realism:
           - production-parser
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/ui/lineRef.test.ts
           test: "parseLineRefs > matches the deeply-nested Haskell path from #861"
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-e352bb2814c8786cc769
     sameCodePathEvidence:
@@ -645,10 +645,10 @@ retirements:
         realism:
           - real-git-repository
           - real-filesystem
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/git/src/index.test.ts
           test: resolveGitInfo > resolves a sibling of a `.git` bare repo (project-layout)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-91a3d7635d1db558e652
     sameCodePathEvidence:
@@ -674,10 +674,10 @@ retirements:
         realism:
           - happy-dom
           - production-component
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/canvas/dock/PrPip.test.tsx
           test: PrPip > renders no PR affordance for a absent observation
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-91a3d7635d1db558e652
     sameCodePathEvidence:
@@ -702,10 +702,10 @@ retirements:
           - darwin
         realism:
           - real-event-records
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/grok/src/core.test.ts
           test: foldEventsState > maps permission_prompt → awaiting_user
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-72ae7e36fb95bd61349e
     sameCodePathEvidence:
@@ -730,10 +730,10 @@ retirements:
           - darwin
         realism:
           - real-event-records
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/grok/src/core.test.ts
           test: foldEventsState > maps streaming phases → thinking
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-72ae7e36fb95bd61349e
     sameCodePathEvidence:
@@ -758,10 +758,10 @@ retirements:
           - darwin
         realism:
           - real-event-records
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/grok/src/core.test.ts
           test: foldEventsState > maps tool_execution → tool_use
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-72ae7e36fb95bd61349e
     sameCodePathEvidence:
@@ -786,10 +786,10 @@ retirements:
           - darwin
         realism:
           - real-event-records
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/grok/src/core.test.ts
           test: foldEventsState > maps turn_ended → waiting
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-72ae7e36fb95bd61349e
     sameCodePathEvidence:
@@ -831,10 +831,10 @@ retirements:
         realism:
           - solid-reactivity
           - production-reconciler
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/terminal/useActiveReconcile.test.ts
           test: useActiveReconcile — FULL cleanup driven off the list > (c) kill path does the full cleanup once — the list-drop reconcile is a no-op
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-3174330d2fbd19eb138d
     sameCodePathEvidence:
@@ -860,10 +860,10 @@ retirements:
         realism:
           - solid-reactivity
           - production-reconciler
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/terminal/useActiveReconcile.test.ts
           test: useActiveReconcile — FULL cleanup driven off the list > (a) natural PARENT exit promotes the sub AND evicts the parent's panels
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-3174330d2fbd19eb138d
     sameCodePathEvidence:
@@ -888,10 +888,10 @@ retirements:
           - darwin
         realism:
           - real-message-json
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/opencode/src/index.test.ts
           test: parseMessageState > returns thinking for a user message
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-1775fff168ca239afcc0
     sameCodePathEvidence:
@@ -916,10 +916,10 @@ retirements:
           - darwin
         realism:
           - real-part-records
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/opencode/src/index.test.ts
           test: runningToolsBucket > returns tool_use for a running shell tool
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-1775fff168ca239afcc0
     sameCodePathEvidence:
@@ -944,10 +944,10 @@ retirements:
           - darwin
         realism:
           - real-message-json
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/opencode/src/index.test.ts
           test: parseMessageState > returns waiting for a completed assistant message with finish=stop
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-1775fff168ca239afcc0
     sameCodePathEvidence:
@@ -973,10 +973,10 @@ retirements:
         realism:
           - solid-reactivity
           - server-snapshot
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/terminal/useSessionRestore.test.ts
           test: useSessionRestore — multi-terminal restore seeds the server-active tile > activates the server-active terminal (B), not the first-listed (A)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-29bca12779e9c7206802
     sameCodePathEvidence:
@@ -1002,10 +1002,10 @@ retirements:
         realism:
           - real-schema
           - terminal-registry
-        counterfactual:
+        reviewEvidence:
           file: packages/padi/src/terminalEndpoint/sleepWake.test.ts
           test: seedSleepingTerminal — boot seed with per-record tolerance > DROPS a malformed record (missing sleptAt) without throwing or polluting the set
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-77a2ef84329daba3c9d6
     sameCodePathEvidence:
@@ -1031,10 +1031,10 @@ retirements:
         realism:
           - real-session-store
           - property-sequence
-        counterfactual:
+        reviewEvidence:
           file: packages/padi/src/session/session.test.ts
           test: session autosave — the PATH-B session-clobber guard > (vi) autosave while parked entries exist NEVER shrinks the saved blob (property over dirty events)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-77a2ef84329daba3c9d6
     sameCodePathEvidence:
@@ -1059,10 +1059,10 @@ retirements:
           - darwin
         realism:
           - real-adapter-input
-        counterfactual:
+        reviewEvidence:
           file: packages/integrations/opencode/src/agent-adapter.test.ts
           test: opencodeAdapter.resolveSession > matches when only lastAgentCommandName is 'opencode' (npm shim)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-b9ee2834259995f5d09a
     sameCodePathEvidence:
@@ -1104,10 +1104,10 @@ retirements:
         realism:
           - solid-callbacks
           - palette-lifecycle
-        counterfactual:
+        reviewEvidence:
           file: packages/client/src/themePalette.test.ts
           test: themePaletteGroup > restores the committed theme when leaving the group or highlighted leaf
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
+          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-bb18559398f0bd0e2e8d
     sameCodePathEvidence:
