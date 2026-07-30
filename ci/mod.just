@@ -144,12 +144,16 @@ odu-nix: nix
 # Build the separate home-manager example flake after the root Nix gate has
 # warmed kolu's store paths. Darwin checks the activation package and launchd
 # configuration. Linux checks the NixOS configuration and runs the service,
-# adoption, and upgrade VM tests.
+# adoption, and upgrade VM tests. Keep the Linux Nix builder serial: each check
+# boots a QEMU guest, and letting Nix fan all of them out together has starved
+# guest udev/backdoor startup until the test driver gives up with "Shell did not
+# start in time". One VM at a time costs no more than the failed fan-out's long
+# tail and makes sibling guests cease to be an input to boot correctness.
 home-manager: nix
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \
     else \
-      bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .; \
+      bash ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --max-jobs 1 --override-input kolu .; \
     fi
 
 # Boot the packaged Kolu and verify /api/health — runtime smoke that catches
