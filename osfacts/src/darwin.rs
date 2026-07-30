@@ -444,23 +444,30 @@ pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
         Ok(rows) => rows,
     };
     let path = args.path.as_encoded_bytes();
-    let mut gated = false;
     let mut claimed: Vec<u32> = Vec::new();
     for &pid in process_table.keys() {
-        match holds_unix_socket(pid, path) {
-            Ok(true) => claimed.push(pid),
-            Ok(false) => {}
-            // Not "no" — see the header. One flag, not one `U` row per pid:
-            // the ask names a path, so the pid set searched is the whole host
-            // and a per-pid row would repeat one fact hundreds of times.
-            Err(_) => gated = true,
+        // An `Err` here (a denied fd list) is not "no" — see the header. It is
+        // not counted, either: the row below is emitted whenever the walk named
+        // nobody, denial or not, because on this platform a walk that found
+        // nothing is never proof. One source row, never one `U` row per pid:
+        // the ask names a path, so the pid set searched is the whole host and a
+        // per-pid row would repeat one fact hundreds of times.
+        if matches!(holds_unix_socket(pid, path), Ok(true)) {
+            claimed.push(pid);
         }
     }
     if claimed.is_empty() {
-        if gated {
-            out.errors
-                .push(blind_or_empty("darwin_proc_fds", Facet::SocketHolders));
-        }
+        // UNCONDITIONAL, and that is the platform contract rather than a
+        // conservative default: darwin has no readable table of bound unix
+        // sockets, so nothing this walk can observe distinguishes "nobody
+        // holds it" from "the holder is one of the processes I may not read".
+        // Emitting the row only when some pid happened to deny us would make
+        // the answer depend on whether an unrelated inaccessible process
+        // existed — and on a host where every process is readable it would
+        // manufacture linux's proof of absence out of a walk that cannot have
+        // it.
+        out.errors
+            .push(blind_or_empty("darwin_proc_fds", Facet::SocketHolders));
         return out;
     }
     out.holders

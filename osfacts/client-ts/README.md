@@ -32,8 +32,16 @@ if (reading.errors.length > 0) {
 No `@kolu` imports. No npm runtime dependencies — only `node:child_process`
 and friends — so a second consumer can pin this package without dragging
 kolu's monorepo graph. kolu (via padi and its daemon supervisor) and drishti
-both ship it. Policy about what a bind *means* (scope, fold, blindness) lives
-with the consumer, not here.
+both ship it.
+
+Policy about what a fact *means* — which blindness matters, whether to reject
+or render a partial reading, what to do about a holder — is the consumer's,
+not this package's. The one deliberate exception: where a verb's reading has a
+single honest domain answer every consumer would otherwise hand-write the same
+way, the FOLD ships here beside the parser (`processIdentity*` over the
+start-time reading, `socketHolders`/`foldSocketOccupancy` over the holder
+reading). Both keep an "absent" arm that must never collapse into the others,
+which is exactly the mistake a per-consumer copy makes.
 
 ## What it does
 

@@ -17,7 +17,6 @@ import {
   snapshotPidsSync,
   socketHolders,
   foldSocketOccupancy,
-  failureDocument,
   type SocketHoldersReading,
 } from "./client.ts";
 
@@ -564,48 +563,28 @@ describe("foldSocketOccupancy — three answers, never one", () => {
   });
 });
 
-/**
- * The document-bearing-failure rule, at the one point two rules disagreed.
- *
- * The binary's total-failure path is "write the V line and its E rows, then
- * exit 1", and that document is the only place the answer to *which source
- * went blind* exists. It must survive the non-zero exit — and it must NOT
- * survive a child that a signal cut off mid-write, whose stdout is a fragment.
- */
-describe("failureDocument", () => {
-  const document = "V\t2\nE\tproc_readdir\tproc\tEACCES\n";
-
-  it("keeps a COMPLETE exit-1 document that the timeout also flagged as killed", () => {
-    // The race: the command timeout fires and calls `kill()`, but the child had
-    // ALREADY exited 1 on its own. Node then reports `killed: true` with
-    // `signal: null` and a whole document on stdout. A `killed` rule discards
-    // it — losing exactly the E rows this function exists to preserve.
-    expect(
-      failureDocument({
-        code: 1,
-        killed: true,
-        signal: null,
-        stdout: document,
-      }),
-    ).toBe(document);
+describe("foldSocketOccupancy refuses a contradictory document", () => {
+  /**
+   * `none` is the most dangerous answer this fold can give, so it is given
+   * only for a document that says nothing at all. A `P` or `U` row names the
+   * identity of a holder — both exist only for a pid an `H` row already
+   * claimed — so a document carrying one while carrying neither an `H` row nor
+   * a blind source is a contradiction, and reading it as an unheld socket
+   * would assert absence out of a shape the binary cannot emit.
+   */
+  it("throws rather than folding a holder-identity-without-a-holder to `none`", () => {
+    for (const body of [
+      "V\t2\nP\t7\t1\tkaval\n",
+      "V\t2\nU\t7\tproc\tEACCES\n",
+    ]) {
+      const reading = parseSocketHoldersOutput(body);
+      expect(() => foldSocketOccupancy(reading)).toThrow(OsfactsClientError);
+    }
   });
 
-  it("discards a document from a child a SIGNAL ended — it may be truncated", () => {
-    expect(
-      failureDocument({
-        code: null,
-        killed: true,
-        signal: "SIGKILL",
-        stdout: document,
-      }),
-    ).toBeUndefined();
-    // The sync twin's spelling of the same fact.
-    expect(
-      failureDocument({ status: null, signal: "SIGKILL", stdout: document }),
-    ).toBeUndefined();
-  });
-
-  it("refuses a usage-error document (exit 2), which is the CLI refusing the ask", () => {
-    expect(failureDocument({ code: 2, stdout: "V\t2\n" })).toBeUndefined();
+  it("still folds a genuinely empty document to `none`", () => {
+    expect(foldSocketOccupancy(parseSocketHoldersOutput("V\t2\n"))).toEqual({
+      kind: "none",
+    });
   });
 });

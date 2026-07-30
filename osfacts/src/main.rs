@@ -29,10 +29,18 @@ use darwin as platform;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use unsupported as platform;
 
-/// The empty-document platform. Not a fallback: a host osfacts has no sensors
-/// for cannot answer, and an empty document with no `E` rows is the honest
-/// shape for "this build was never taught to look" — it exits 0 with nothing,
-/// exactly as the three `#[cfg(not(...))]` arms it replaces did.
+/// The no-sensor platform.
+///
+/// An empty document is NOT the honest shape here, and that distinction is the
+/// whole point of the `socket-holders` verb: an empty holder document is the
+/// affirmative answer *nobody holds this path*, so a build with no sensor
+/// would tell a supervisor that a live rendezvous socket is free. It reports
+/// the only true thing instead — this build cannot look — as the same
+/// `socket_holders` source error a blind darwin walk emits, which the client
+/// folds to `unattributed`, never `none`.
+///
+/// The other two verbs have no such affirmative-empty arm (an empty snapshot
+/// means "no facts", which is what it says), so they keep the empty document.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 mod unsupported {
     use crate::cli::{HostArgs, SnapshotArgs, SocketHoldersArgs};
@@ -42,7 +50,7 @@ mod unsupported {
         Snapshot::new()
     }
     pub fn socket_holders(_args: &SocketHoldersArgs) -> SocketHolders {
-        SocketHolders::new()
+        SocketHolders::unsupported_platform("unsupported_platform")
     }
     pub fn host(_args: &HostArgs) -> HostSnapshot {
         HostSnapshot::new()
@@ -185,6 +193,21 @@ mod tests {
 
         assert!(!holders.has_facts());
         assert_eq!(exit_code(&holders), ExitCode::SUCCESS);
+    }
+
+    /// A build with no sensor must never say "nobody holds it": that is the
+    /// affirmative answer, and it would send a supervisor to spawn onto a live
+    /// rendezvous socket. It reports blindness, and exits non-zero.
+    #[test]
+    fn a_sensorless_build_reports_blindness_not_absence() {
+        let holders = SocketHolders::unsupported_platform("unsupported_platform");
+
+        assert!(!holders.has_facts());
+        assert!(holders
+            .errors
+            .iter()
+            .any(|row| row.facet == Facet::SocketHolders));
+        assert_eq!(exit_code(&holders), ExitCode::from(1));
     }
 
     #[test]

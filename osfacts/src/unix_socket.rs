@@ -52,9 +52,27 @@ const DARWIN_SUN_PATH_LEN: usize = 104;
 ///   `String` therefore lets one such process fail the read outright and blind
 ///   this verb for *every* path on the host. A row this parser cannot make
 ///   sense of costs that row alone.
-pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Vec<u64> {
+/// - **One delimiter before the path, not a run.** The byte after the inode
+///   column ends the column; every byte after THAT is the name. Skipping a
+///   whitespace *run* there eats the leading space of a path that begins with
+///   one, and a socket whose name starts with a space then reads as unheld —
+///   the affirmative answer, manufactured out of a parse rule.
+///
+/// `Err` when the document is not a `/proc/net/unix` table at all: an empty
+/// read, a truncated one, a kernel whose format drifted. That distinction is
+/// the whole point — "no row matched a real table" is proof of absence, while
+/// "this is not a table" is blindness, and a decoder that returned an empty
+/// vec for both would hand the caller the dangerous one.
+pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Result<Vec<u64>, ()> {
+    let mut lines = table.split(|&b| b == b'\n');
+    // The kernel's own header, and the only evidence available that what was
+    // read IS the table. `parse_proc_net` applies the same rule to
+    // `/proc/net/tcp` for the same reason.
+    if !lines.next().is_some_and(|header| contains(header, b"Inode")) {
+        return Err(());
+    }
     let mut out = Vec::new();
-    for line in table.split(|&b| b == b'\n') {
+    for line in lines {
         let Some((inode, row_path)) = split_unix_row(line) else {
             continue;
         };
@@ -62,19 +80,23 @@ pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Vec<u64> {
             out.push(inode);
         }
     }
-    out
+    Ok(out)
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 /// One table row → `(inode, path)`, or `None` for a row that carries neither
-/// (the header, a peer with no bound name, an undisclosed inode).
+/// (a peer with no bound name, an undisclosed inode).
 fn split_unix_row(line: &[u8]) -> Option<(u64, &[u8])> {
     const FIXED_FIELDS: usize = 7;
     const INODE_FIELD: usize = 6;
     let is_space = |b: u8| b == b' ' || b == b'\t';
 
-    // A `\r` would otherwise be the last byte of the path. Nothing else is
-    // trimmed: a trailing SPACE is part of a name the kernel really bound.
-    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    // Nothing is trimmed off the END of the line: `/proc/net/unix` is
+    // LF-framed, so a trailing `\r` — like a trailing space — is a byte of the
+    // name the kernel really bound, not framing to strip.
     let mut rest = &line[line.iter().position(|&b| !is_space(b))?..];
     let mut inode = None;
     for field in 0..FIXED_FIELDS {
@@ -84,6 +106,9 @@ fn split_unix_row(line: &[u8]) -> Option<(u64, &[u8])> {
             inode = std::str::from_utf8(&rest[..end])
                 .ok()
                 .and_then(|digits| digits.parse::<u64>().ok());
+            // Exactly ONE delimiter, then the name verbatim — see the header.
+            rest = rest.get(end + 1..)?;
+            break;
         }
         rest = &rest[end..];
         rest = &rest[rest.iter().position(|&b| !is_space(b))?..];
@@ -178,12 +203,21 @@ Num       RefCount Protocol Flags    Type St Inode Path
 ffff9a0000000000: 00000002 00000000 00010000 0001 01 41231 /run/user/1000/padi.sock
 ffff9a0000000001: 00000003 00000000 00000000 0001 03 41232
 ffff9a0000000002: 00000002 00000000 00010000 0001 01 41233 /tmp/my state/pty-host.sock
-ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
+ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing\x20
+ffff9a0000000004: 00000002 00000000 00010000 0001 01 41235  /tmp/leading
+ffff9a0000000005: 00000002 00000000 00010000 0001 01 41236 /tmp/carriage\r\n";
+
+    /// A body with the kernel's header, for a case that needs its own rows.
+    fn table(body: &str) -> Vec<u8> {
+        let mut out = Vec::from(&b"Num       RefCount Protocol Flags    Type St Inode Path\n"[..]);
+        out.extend_from_slice(body.as_bytes());
+        out
+    }
 
     #[test]
     fn a_bound_path_resolves_to_its_inode() {
         assert_eq!(
-            unix_socket_inodes(TABLE, b"/run/user/1000/padi.sock"),
+            unix_socket_inodes(TABLE, b"/run/user/1000/padi.sock").expect("a real table"),
             vec![41231]
         );
     }
@@ -194,18 +228,66 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     #[test]
     fn a_path_containing_a_space_is_matched_whole() {
         assert_eq!(
-            unix_socket_inodes(TABLE, b"/tmp/my state/pty-host.sock"),
+            unix_socket_inodes(TABLE, b"/tmp/my state/pty-host.sock").expect("a real table"),
             vec![41233]
         );
-        assert!(unix_socket_inodes(TABLE, b"/tmp/my").is_empty());
+        assert!(unix_socket_inodes(TABLE, b"/tmp/my").expect("a real table").is_empty());
     }
 
     /// The mirror defect a `trim()` ships. A trailing space is part of the
     /// name the kernel bound.
     #[test]
     fn a_path_ending_in_a_space_keeps_it() {
-        assert_eq!(unix_socket_inodes(TABLE, b"/tmp/trailing "), vec![41234]);
-        assert!(unix_socket_inodes(TABLE, b"/tmp/trailing").is_empty());
+        assert_eq!(unix_socket_inodes(TABLE, b"/tmp/trailing ").expect("a real table"), vec![41234]);
+        assert!(unix_socket_inodes(TABLE, b"/tmp/trailing").expect("a real table").is_empty());
+    }
+
+    /// The byte after the inode column ENDS that column; every byte after it is
+    /// the name. Skipping a whitespace RUN there ate the leading space of a
+    /// path that begins with one — and a socket whose name starts with a space
+    /// then read as unheld, which is the affirmative answer manufactured out of
+    /// a parse rule. Reproduced against the shipped binary by the review peer.
+    #[test]
+    fn a_path_beginning_with_a_space_keeps_it() {
+        assert_eq!(
+            unix_socket_inodes(TABLE, b" /tmp/leading").expect("a real table"),
+            vec![41235]
+        );
+        assert!(unix_socket_inodes(TABLE, b"/tmp/leading")
+            .expect("a real table")
+            .is_empty());
+    }
+
+    /// The mirror rule at the other end. `/proc/net/unix` is LF-framed, so a
+    /// trailing `\r` is a byte of the name, not framing to strip.
+    #[test]
+    fn a_path_ending_in_a_carriage_return_keeps_it() {
+        assert_eq!(
+            unix_socket_inodes(TABLE, b"/tmp/carriage\r").expect("a real table"),
+            vec![41236]
+        );
+        assert!(unix_socket_inodes(TABLE, b"/tmp/carriage")
+            .expect("a real table")
+            .is_empty());
+    }
+
+    /// "No row matched a real table" is proof of absence; "this is not a table"
+    /// is blindness. A decoder that returned an empty vec for both would hand
+    /// linux the dangerous one — an empty read or a drifted kernel format would
+    /// become the affirmative *nobody holds it*.
+    #[test]
+    fn a_document_that_is_not_the_table_is_refused_not_read_as_empty() {
+        for not_a_table in [&b""[..], b"\n", b"garbage\n", b"Num RefCount Protocol\n"] {
+            assert!(
+                unix_socket_inodes(not_a_table, b"/run/a.sock").is_err(),
+                "{not_a_table:?} must not read as a table with no matching row"
+            );
+        }
+        // And the real thing, with no matching row, IS absence.
+        assert_eq!(
+            unix_socket_inodes(TABLE, b"/run/nobody.sock").expect("a real table"),
+            Vec::<u64>::new()
+        );
     }
 
     #[test]
@@ -214,7 +296,7 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
         // query can ever resolve to the path-less peer's 41232.
         for path in ["", "Path", "41232"] {
             assert!(
-                unix_socket_inodes(TABLE, path.as_bytes()).is_empty(),
+                unix_socket_inodes(TABLE, path.as_bytes()).expect("a real table").is_empty(),
                 "{path:?} must not match a row"
             );
         }
@@ -224,9 +306,11 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     /// attribute every fd whose inode we equally cannot read.
     #[test]
     fn an_undisclosed_inode_is_not_a_socket_identity() {
-        let table = b"ffff: 00000002 00000000 00010000 0001 01 0 /run/gated.sock\n";
+        let body = table("ffff: 00000002 00000000 00010000 0001 01 0 /run/gated.sock\n");
 
-        assert!(unix_socket_inodes(table.as_slice(), b"/run/gated.sock").is_empty());
+        assert!(unix_socket_inodes(&body, b"/run/gated.sock")
+            .expect("a real table")
+            .is_empty());
     }
 
     /// The host-wide table names sockets this binary did not create, so one
@@ -235,18 +319,18 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     /// process could blind the verb for the entire host by binding one bad byte.
     #[test]
     fn a_non_utf8_row_costs_only_itself() {
-        let mut table = Vec::new();
-        table.extend_from_slice(b"ffff: 00000002 00000000 00010000 0001 01 10 /run/");
-        table.push(0xff); // a byte no UTF-8 decode accepts
-        table.extend_from_slice(b".sock\n");
-        table.extend_from_slice(
-            b"ffff: 00000002 00000000 00010000 0001 01 11 /run/kaval.sock\n",
-        );
+        let mut body = table("ffff: 00000002 00000000 00010000 0001 01 10 /run/");
+        body.push(0xff); // a byte no UTF-8 decode accepts
+        body.extend_from_slice(b".sock\n");
+        body.extend_from_slice(b"ffff: 00000002 00000000 00010000 0001 01 11 /run/kaval.sock\n");
 
-        assert_eq!(unix_socket_inodes(&table, b"/run/kaval.sock"), vec![11]);
+        assert_eq!(
+            unix_socket_inodes(&body, b"/run/kaval.sock").expect("a real table"),
+            vec![11]
+        );
         // And the bad row is still matchable, by the bytes it really carries.
         assert_eq!(
-            unix_socket_inodes(&table, b"/run/\xff.sock"),
+            unix_socket_inodes(&body, b"/run/\xff.sock").expect("a real table"),
             vec![10],
             "the row's own bytes must still resolve"
         );
@@ -257,11 +341,15 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     /// inode listed twice is one socket.
     #[test]
     fn one_path_can_carry_several_distinct_inodes_but_no_repeats() {
-        let table = b"\
-ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock
-ffff: 00000002 00000000 00010000 0001 01 11 /run/a.sock
-ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock\n";
+        let body = table(
+            "ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock\n\
+ffff: 00000002 00000000 00010000 0001 01 11 /run/a.sock\n\
+ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock\n",
+        );
 
-        assert_eq!(unix_socket_inodes(table.as_slice(), b"/run/a.sock"), vec![10, 11]);
+        assert_eq!(
+            unix_socket_inodes(&body, b"/run/a.sock").expect("a real table"),
+            vec![10, 11]
+        );
     }
 }

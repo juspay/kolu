@@ -489,6 +489,23 @@ impl SocketHolders {
         }
     }
 
+    /// The answer a build with no sensor for this host must give.
+    ///
+    /// NOT an empty document, and that is the whole reason this constructor
+    /// exists: an empty holder document is the affirmative *nobody holds this
+    /// path*, so a sensorless build would tell a supervisor that a live
+    /// rendezvous socket is free to bind. It reports the one true thing —
+    /// this build cannot look — through the same `socket_holders` source row a
+    /// blind darwin walk emits, so a consumer needs no platform rule to fold
+    /// it. Lives here, compiled on every platform, so the shape is pinned by a
+    /// test rather than only by the `cfg` arm that uses it.
+    pub fn unsupported_platform(source: &str) -> Self {
+        let mut out = Self::new();
+        out.errors
+            .push(source_error(source, Facet::SocketHolders, libc::ENOTSUP));
+        out
+    }
+
     /// Record that one holder's facet could not be read. Duplicates collapse
     /// in `normalize`, for the same reason as [`Snapshot::push_unreadable`].
     pub fn push_unreadable(&mut self, pid: u32, facet: Facet, err: i32) {

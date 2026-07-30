@@ -251,7 +251,22 @@ pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
             return out;
         }
     };
-    let inodes = unix_socket_inodes(&table, args.path.as_encoded_bytes());
+    let inodes = match unix_socket_inodes(&table, args.path.as_encoded_bytes()) {
+        Ok(inodes) => inodes,
+        // The read succeeded but what came back is not the table — an empty
+        // file, a truncated one, a kernel whose format drifted. Absence is
+        // only provable against a document we recognize, so this is blindness,
+        // reported the same way the listener reader reports a `/proc/net/tcp`
+        // it cannot frame.
+        Err(()) => {
+            out.errors.push(source_error(
+                "proc_net_unix",
+                Facet::SocketHolders,
+                libc::EINVAL,
+            ));
+            return out;
+        }
+    };
     if inodes.is_empty() {
         return out; // proof of absence: the table lists every bound socket
     }

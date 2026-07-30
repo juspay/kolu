@@ -254,7 +254,8 @@ export class SocketSquatterForeignError extends Error {
 /** True iff `err` is a {@link SocketSquatterForeignError}. Brand-checked (not
  *  `instanceof`) so it holds across module-instance / realm boundaries — and, like
  *  {@link isContractSkewError}, it attests EVERY field its narrowed type promises
- *  (`socketPath`, and `holders` as `{ pid, command }` records), so a foreign
+ *  (`socketPath`, the optional `detail`, and `holders` as `{ pid, command }`
+ *  records), so a foreign
  *  brand-carrier without the payload cannot narrow to a type whose fields a
  *  consumer would then dereference. */
 export function isSocketSquatterForeignError(
@@ -264,12 +265,16 @@ export function isSocketSquatterForeignError(
     isSocketSquatterForeign?: unknown;
     socketPath?: unknown;
     holders?: unknown;
+    detail?: unknown;
   };
   return (
     typeof err === "object" &&
     err !== null &&
     e.isSocketSquatterForeign === true &&
     typeof e.socketPath === "string" &&
+    // `detail` is optional but attested: the narrowed type promises a string
+    // when present, and a consumer renders it into an operator-facing message.
+    ["string", "undefined"].includes(typeof e.detail) &&
     Array.isArray(e.holders) &&
     e.holders.every(
       (h) =>
@@ -878,9 +883,18 @@ export function createEndpoint<
         throw new SocketProbeIndeterminateError(rv);
       case "serving": {
         const reading = await spec.readSocketHolders(rv.socketPath);
-        const held = externalHolders(reading);
+        // EVERY holder the OS named, ourselves included. This is a REFUSAL
+        // message, not a kill decision, so excluding our own pid here would
+        // only rob an operator of the one name the OS actually gave — the
+        // in-process-serve case would read as "an unidentifiable process"
+        // while the holder was known all along.
+        const held = reading.kind === "held" ? [...reading.holders] : [];
         const detail =
-          reading.kind === "unattributed" ? reading.detail : undefined;
+          reading.kind === "unattributed"
+            ? reading.detail
+            : held.some((h) => h.pid === process.pid)
+              ? "the socket is served by this very process"
+              : undefined;
         spec.log.error(
           {
             hostId: spec.hostId,
@@ -889,7 +903,7 @@ export function createEndpoint<
             detail,
           },
           // The `holders` field carries whatever the OS now names — a set (a holder
-          // that reappeared after a flap) or empty (unidentifiable) — so the message
+          // that reappeared after a flap) or empty (nothing nameable) — so the message
           // doesn't assert which; either way an accepting socket is not proven free.
           "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
         );
@@ -990,23 +1004,15 @@ export function createEndpoint<
         // proven not-accepting comes back `free`.
         return await freeOrFailLoud(rv);
       }
-      // Exclude OUR OWN process from the holder set: the supervisor spawns its
-      // daemon as a SEPARATE process (the survivable-spawn model), so a real
-      // squatter is never us — but an in-process serve (a test's in-process daemon)
-      // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const holders = externalHolders(reading);
-      if (holders.length === 0) {
-        // The `holders` arm is non-empty BY TYPE, so an empty exclusion result
-        // means every named holder is us: an in-process serve — never a
-        // squatter, never a kill. Safe to treat as free. (There is no third
-        // case to fall through to; a `heldByUs` flag guarding it would be
-        // guarding a branch that cannot be reached.)
-        spec.log.warn(
-          { hostId: spec.hostId, socketPath: rv.socketPath },
-          "rendezvous socket is held by our own process — nothing to recover",
-        );
-        return "free";
-      }
+      // EVERY holder the OS named, ourselves included. Self-exclusion belongs to
+      // the KILL decision, not to identification: a socket our own process
+      // serves (an in-process daemon) is still a holder to be identified, and
+      // the handshake below is what says whether it is a daemon we can serve
+      // through. Excluding ourselves HERE meant an in-process serve produced an
+      // empty holder set, which was then reported as `free` — and `free` sends
+      // the caller to spawn a second daemon onto a socket that is live and
+      // serving. The kill site refuses our own pid explicitly instead.
+      const holders = reading.holders;
       const holderPids = holders.map((h) => h.pid);
 
       // Prove what the holder is, reusing the adopt path's three-way handshake
@@ -1087,6 +1093,31 @@ export function createEndpoint<
       // corroborated by the OS as a holder of THIS exact socket (attestation 2). A skew
       // that carries no pid, or a pid the OS does not name, is not a verified daemon of
       // this rendezvous — refuse rather than kill.
+      // The ONE holder identity a recycle policy may never act on: ourselves.
+      // The supervisor spawns its daemon as a separate process, so a real
+      // squatter is never us — but an in-process serve is, and "recycling" it
+      // means SIGTERMing the supervisor. It is a REFUSAL, taking the same arm
+      // a refuse-policy skew takes: left standing, reported `incompatible`.
+      // Not `free` (the caller would spawn a second daemon onto a live socket)
+      // and not foreign (the handshake completed and proved a skew).
+      if (!holders.some((h) => h.pid !== process.pid)) {
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: holderPids,
+            daemonVersion: verdict.err.daemonVersion,
+            requiredVersion: verdict.err.requiredVersion,
+          },
+          "the gate-less skew is served by THIS process — never recycling ourselves; leaving it standing and reporting incompatible",
+        );
+        emit({
+          state: "incompatible",
+          daemonVersion: verdict.err.daemonVersion,
+          requiredVersion: verdict.err.requiredVersion,
+        });
+        return "refused";
+      }
       const reportedPid = verdict.err.pid;
       if (reportedPid === undefined || !holderPids.includes(reportedPid)) {
         // The skew's self-reported pid is absent, or not (yet) among the OS holders —
