@@ -189,6 +189,11 @@ describe("parseSnapshotOutput", () => {
       "V\t2\nL\towned\t1\t-\t8080\t00000000\n",
       "V\t2\nL\tclaimed\t-\t-\t8080\t00000000\n",
       "V\t2\nL\tunclaimed\t1\t-\t8080\t00000000\n",
+      // pid 0 is the kernel's swapper, never a userspace listener. The `H`
+      // row refused it from the start; the `L` row let it through, because
+      // the same rule was written twice and the copies drifted. One
+      // `attribution` reader now states it once.
+      "V\t2\nL\tclaimed\t0\t-\t8080\t00000000\n",
       "V\t2\nL\tclaimed\t1\t-\t70000\t00000000\n",
       "V\t2\nL\tclaimed\t1\t-\t8080\tzz000000\n",
       "V\t2\nU\tnotapid\tports\tEACCES\n",

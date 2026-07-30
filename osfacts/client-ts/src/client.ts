@@ -521,6 +521,67 @@ function sourceErrorRow<F extends string>(
   return { source: f[1], facet: facet as F, code: f[3] };
 }
 
+/** The `P` row — identical in the `snapshot` and `socket-holders` documents,
+ *  because the Rust side writes both through one `write_procs`. */
+function procRow(f: string[], line: string): ProcessRow {
+  arity(f, 4, line);
+  return {
+    pid: integer(f[1], "pid"),
+    ppid: integer(f[2], "ppid"),
+    name: f[3]!,
+  };
+}
+
+/** The `U` row — one unreadable pid facet, same shape in both documents
+ *  (Rust's shared `write_unreadable`). */
+function unreadableRow(f: string[], line: string): UnreadableRow {
+  arity(f, 4, line);
+  const facet = f[2];
+  if (!(UNREADABLE_FACETS as readonly string[]).includes(facet!))
+    throw new OsfactsClientError("parse", `unknown unreadable facet: ${line}`);
+  if (!f[3])
+    throw new OsfactsClientError("parse", `empty unreadable errno: ${line}`);
+  return {
+    pid: integer(f[1], "unreadable pid"),
+    facet: facet as UnreadableFacet,
+    errno: f[3],
+  };
+}
+
+/**
+ * The claimed/unclaimed discrimination the `L` and `H` rows both carry —
+ * Rust's `Attribution`, read once.
+ *
+ * `claimed` implies a pid and `unclaimed` implies none: the ONE rule, stated
+ * here only. A pid is `positiveInteger` on both rows — pid 0 is the kernel's
+ * swapper, never a userspace listener or socket holder, so a row claiming it
+ * is a corrupt document rather than a fact.
+ */
+function attribution(
+  status: string | undefined,
+  pidRaw: string | undefined,
+  line: string,
+  what: string,
+): { status: "claimed"; pid: number } | { status: "unclaimed" } {
+  if (status === "claimed") {
+    if (pidRaw === "-")
+      throw new OsfactsClientError(
+        "parse",
+        `claimed ${what} has no pid: ${line}`,
+      );
+    return { status, pid: positiveInteger(pidRaw, `${what} pid`) };
+  }
+  if (status === "unclaimed") {
+    if (pidRaw !== "-")
+      throw new OsfactsClientError(
+        "parse",
+        `unclaimed ${what} carries a pid: ${line}`,
+      );
+    return { status };
+  }
+  throw new OsfactsClientError("parse", `unknown ${what} status: ${line}`);
+}
+
 export function emptySnapshotReading(): SnapshotReading {
   return {
     procs: [],
@@ -544,12 +605,7 @@ export function parseSnapshotOutput(body: string): SnapshotReading {
     const f = line.split("\t");
     switch (f[0]) {
       case "P":
-        arity(f, 4, line);
-        out.procs.push({
-          pid: integer(f[1], "pid"),
-          ppid: integer(f[2], "ppid"),
-          name: f[3]!,
-        });
+        out.procs.push(procRow(f, line));
         break;
       case "M":
         arity(f, 3, line);
@@ -611,8 +667,6 @@ export function parseSnapshotOutput(body: string): SnapshotReading {
         break;
       case "L": {
         arity(f, 6, line);
-        const status = f[1];
-        const pidRaw = f[2];
         const uid = f[3] === "-" ? undefined : integer(f[3], "listener uid");
         const port = integer(f[4], "listener port");
         if (!isTcpPort(port))
@@ -626,53 +680,17 @@ export function parseSnapshotOutput(body: string): SnapshotReading {
             "parse",
             `osfacts listener row has a bad bind address: ${line}`,
           );
-        if (status === "claimed") {
-          if (pidRaw === "-")
-            throw new OsfactsClientError(
-              "parse",
-              `claimed listener has no pid: ${line}`,
-            );
-          out.ports.push({
-            status,
-            pid: integer(pidRaw, "listener pid"),
-            uid,
-            port,
-            address,
-          });
-        } else if (status === "unclaimed") {
-          if (pidRaw !== "-")
-            throw new OsfactsClientError(
-              "parse",
-              `unclaimed listener carries a pid: ${line}`,
-            );
-          out.ports.push({ status, uid, port, address });
-        } else
-          throw new OsfactsClientError(
-            "parse",
-            `unknown listener status: ${line}`,
-          );
-        break;
-      }
-      case "U": {
-        arity(f, 4, line);
-        const facet = f[2];
-        if (!(UNREADABLE_FACETS as readonly string[]).includes(facet!))
-          throw new OsfactsClientError(
-            "parse",
-            `unknown unreadable facet: ${line}`,
-          );
-        if (!f[3])
-          throw new OsfactsClientError(
-            "parse",
-            `empty unreadable errno: ${line}`,
-          );
-        out.unreadable.push({
-          pid: integer(f[1], "unreadable pid"),
-          facet: facet as UnreadableFacet,
-          errno: f[3],
+        out.ports.push({
+          ...attribution(f[1], f[2], line, "listener"),
+          uid,
+          port,
+          address,
         });
         break;
       }
+      case "U":
+        out.unreadable.push(unreadableRow(f, line));
+        break;
       case "E":
         out.errors.push(sourceErrorRow(f, line, SNAPSHOT_SOURCE_FACETS));
         break;
@@ -696,62 +714,16 @@ export function parseSocketHoldersOutput(body: string): SocketHoldersReading {
     if (line === "") continue;
     const f = line.split("\t");
     switch (f[0]) {
-      case "H": {
+      case "H":
         arity(f, 3, line);
-        const status = f[1];
-        const pidRaw = f[2];
-        if (status === "claimed") {
-          if (pidRaw === "-")
-            throw new OsfactsClientError(
-              "parse",
-              `claimed holder has no pid: ${line}`,
-            );
-          out.holders.push({
-            status,
-            pid: positiveInteger(pidRaw, "holder pid"),
-          });
-        } else if (status === "unclaimed") {
-          if (pidRaw !== "-")
-            throw new OsfactsClientError(
-              "parse",
-              `unclaimed holder carries a pid: ${line}`,
-            );
-          out.holders.push({ status });
-        } else
-          throw new OsfactsClientError(
-            "parse",
-            `unknown holder status: ${line}`,
-          );
+        out.holders.push(attribution(f[1], f[2], line, "holder"));
         break;
-      }
       case "P":
-        arity(f, 4, line);
-        out.procs.push({
-          pid: integer(f[1], "pid"),
-          ppid: integer(f[2], "ppid"),
-          name: f[3]!,
-        });
+        out.procs.push(procRow(f, line));
         break;
-      case "U": {
-        arity(f, 4, line);
-        const facet = f[2];
-        if (!(UNREADABLE_FACETS as readonly string[]).includes(facet!))
-          throw new OsfactsClientError(
-            "parse",
-            `unknown unreadable facet: ${line}`,
-          );
-        if (!f[3])
-          throw new OsfactsClientError(
-            "parse",
-            `empty unreadable errno: ${line}`,
-          );
-        out.unreadable.push({
-          pid: integer(f[1], "unreadable pid"),
-          facet: facet as UnreadableFacet,
-          errno: f[3],
-        });
+      case "U":
+        out.unreadable.push(unreadableRow(f, line));
         break;
-      }
       case "E":
         out.errors.push(sourceErrorRow(f, line, SOCKET_HOLDERS_SOURCE_FACETS));
         break;
