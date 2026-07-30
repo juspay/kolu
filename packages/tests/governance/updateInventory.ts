@@ -1,10 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   appendCurrentRevisions,
-  INVENTORY_SCHEMA_VERSION,
   readCurrentSuite,
   type ScenarioInventory,
 } from "./inventory";
@@ -16,9 +15,9 @@ const head = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: repoRoot,
   encoding: "utf8",
 }).trim();
-const existing: ScenarioInventory = existsSync(inventoryPath)
-  ? (JSON.parse(readFileSync(inventoryPath, "utf8")) as ScenarioInventory)
-  : { schemaVersion: INVENTORY_SCHEMA_VERSION, records: [] };
+const existing = JSON.parse(
+  readFileSync(inventoryPath, "utf8"),
+) as ScenarioInventory;
 const current = readCurrentSuite(packageRoot, head);
 const next = appendCurrentRevisions(existing, current.records);
 writeFileSync(inventoryPath, `${JSON.stringify(next, null, 2)}\n`);
