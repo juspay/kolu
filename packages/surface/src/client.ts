@@ -156,7 +156,19 @@ export type StreamingProcedure<I, O> = (
  *  When `onRetry` is supplied, it merges into the retry context so the
  *  plugin invokes the callback before each re-subscribe. Used by xterm's
  *  attach loop to clear the buffer before the new iterator's first
- *  snapshot lands. */
+ *  snapshot lands.
+ *
+ *  CAPTURED INPUT — the one hazard this helper hides. `input` is read ONCE.
+ *  `STREAM_RETRY` re-subscribes by REPLAYING that captured value, so a stream
+ *  whose input carries a LIVE fact (a size, a cursor, a viewport) re-sends a
+ *  STALE one after any transport drop — and if the server acts on that input
+ *  (kolu's terminal attach resizes the PTY to it), the replay actively moves
+ *  shared state backwards. Invisible and harmless while every input is a stable
+ *  key, which is why it is recorded here rather than only at the consumer that
+ *  first hit it. Either keep the input a stable key, or have the consumer
+ *  re-state the live fact on its own authoritative channel once each fresh
+ *  snapshot lands (`client/src/terminal/Terminal.tsx`'s `reassertGrid` is the
+ *  worked example). */
 export function unenrolledStreamCall<I, O>(
   procedure: StreamingProcedure<I, O>,
   input: I,
