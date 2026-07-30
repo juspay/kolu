@@ -2068,3 +2068,16 @@ retirements:
       file: packages/tests/features/terminal.feature
       symbol: "Scenario: Zoom only affects the focused canvas tile"
       test: The browser journey and focused-versus-unfocused font-size comparison are unchanged; the precondition now waits until both xterms are mounted and initialized.
+  - id: revise-d319468feca66757e84d
+    revisionId: revision-d319468feca66757e84d
+    action: revised
+    status: landed
+    promise: A split terminal's agent resumes on session restore
+    defectSurface: [session-restore, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b074b311b7b021ea8293]
+    sameCodePathEvidence:
+      file: packages/tests/features/session-restore.feature
+      symbol: "Scenario: A split terminal's agent resumes on session restore"
+      test: The revised scenario drops the tile-chrome indicator gate (split agents do not paint the main titlebar) and keeps the restore+resume-invocation payoff.

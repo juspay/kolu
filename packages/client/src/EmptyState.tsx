@@ -8,7 +8,6 @@ import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { showsWelcome } from "./capabilities";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import { resumableTerminalIds } from "./restoreModel";
 import { assignColors } from "./terminal/terminalDisplay";
 import DocLink from "./ui/DocLink";
 import Kbd from "./ui/Kbd";
@@ -41,11 +40,12 @@ interface RepoGroup {
   terminals: SavedTerminal[];
 }
 
-/** Group top-level terminals by `terminalKey().group`. Groups are sorted
- *  by the minimum `canvasLayout.x` of their members so the restore card's
- *  left-to-right order matches the canvas the user saw. Within-group order
- *  preserves the array order of the saved session — the same Map insertion
- *  order the server stamps. */
+/** Group EVERY saved terminal by `terminalKey().group` — flat walk, no
+ *  parented filter. Splits / tree children are first-class rows (the tree is
+ *  the tiling; layout-shaped split chrome is not invested here). Groups are
+ *  sorted by the minimum `canvasLayout.x` of their members so the restore
+ *  card's left-to-right order matches the canvas the user saw. Within-group
+ *  order preserves the array order of the saved session. */
 function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
   const minX = (ts: readonly SavedTerminal[]) =>
     ts.reduce(
@@ -54,7 +54,6 @@ function groupSavedTerminals(terminals: readonly SavedTerminal[]): RepoGroup[] {
     );
   const groups = new Map<string, RepoGroup>();
   for (const t of terminals) {
-    if (t.parentId) continue;
     const key = terminalKey(t).group;
     const existing = groups.get(key);
     if (existing) existing.terminals.push(t);
@@ -74,7 +73,10 @@ interface EmptyStateProps {
    *  so the click target doesn't detach between click and canvas
    *  reveal. */
   isRestoring?: boolean;
-  onRestore?: (options: { resumeIds: ReadonlySet<string> }) => void;
+  onRestore?: (options: {
+    resumeAgents: boolean;
+    optOutIds: readonly string[];
+  }) => void;
   /** Explicit "start fresh" — discard the saved session (server-side forfeit).
    *  Rendered as a secondary action below Restore, only while there IS a
    *  `savedSession` to forfeit. Creating a terminal no longer forfeits
@@ -92,21 +94,26 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   // Default on — users almost always want their agents back.
   const [resumeAgents, setResumeAgents] = createSignal(true);
 
+  // Host-served resumable set — the client never constructs membership; it only
+  // renders this list and may subtract (opt-out). A live host always stamps;
+  // absence is a hard error (never soft-empty to "no agents").
   const resumableIds = createMemo(() => {
     const session = props.savedSession;
     if (!session) return [] as string[];
-    // Sleeping records are excluded — they restore DORMANT (no agent resumed),
-    // so they must not inflate the "resume N agents" count or the resume set.
-    return resumableTerminalIds(session.terminals);
+    if (session.resumableIds === undefined) {
+      throw new Error(
+        "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+      );
+    }
+    return session.resumableIds;
   });
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
 
   // Lifted to component scope: the restore list (scroll region) and the pinned
   // action bar are now separate flex children of the card, so these derivations
-  // are read outside a single render-prop — the list reads groups/subCount, the
-  // footer reads hasAnyAgent. Memo the two that do real work per read (groups
-  // sorts; subCount filters and is read 3× per render); hasAnyAgent is a trivial
+  // are read outside a single render-prop — the list reads groups, the
+  // footer reads hasAnyAgent. Memo the group sort; hasAnyAgent is a trivial
   // single-consumer length check over the resumableIds memo.
   const groups = createMemo(() => {
     const session = props.savedSession;
@@ -117,16 +124,16 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   const groupColors = createMemo(() =>
     assignColors(groups().map((g) => g.key)),
   );
-  const subCount = createMemo(
-    () => props.savedSession?.terminals.filter((t) => t.parentId).length ?? 0,
-  );
   const hasAnyAgent = () => resumableIds().length > 0;
+  const resumableSet = createMemo(() => new Set(resumableIds()));
 
   const handleRestore = () => {
-    const resumeIds = resumeAgents()
-      ? new Set(resumableIds())
-      : new Set<string>();
-    props.onRestore?.({ resumeIds });
+    // Intent only: host owns the resumable set; client may only opt out.
+    // Global toggle off → resumeAgents false (no opt-outs needed).
+    props.onRestore?.({
+      resumeAgents: resumeAgents(),
+      optOutIds: [],
+    });
   };
 
   return (
@@ -235,7 +242,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                         <div class="ml-1 space-y-2.5">
                           <For each={group.terminals}>
                             {(t) => (
-                              <div title={t.cwd}>
+                              <div
+                                title={t.cwd}
+                                data-testid="restore-terminal-row"
+                                data-terminal-id={t.id}
+                              >
                                 <div
                                   class="text-sm text-fg-2 truncate leading-snug"
                                   classList={{
@@ -260,7 +271,8 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                                   fallback={
                                     <Show
                                       when={
-                                        resumeAgents()
+                                        resumeAgents() &&
+                                        resumableSet().has(t.id)
                                           ? resumableCommand(t.restoreTarget)
                                           : undefined
                                       }
@@ -294,11 +306,6 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
                     );
                   }}
                 </For>
-                <Show when={subCount() > 0}>
-                  <div class="text-xs text-fg-3/50 ml-1">
-                    +{subCount()} split{subCount() > 1 ? "s" : ""}
-                  </div>
-                </Show>
               </div>
             </div>
           </Show>

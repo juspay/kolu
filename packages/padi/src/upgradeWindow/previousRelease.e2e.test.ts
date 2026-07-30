@@ -538,12 +538,13 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     throw new Error("current kaval gate has no pid");
   }
 
-  // Manual QA: previous supervisor Restart. Previous padi store wrappers bake
-  // KOLU_KAVAL_BIN to their companion kaval (see packages/padi/README.md) — an
-  // env override does not re-point v2.0.0's spawn, so the replacement after
-  // recycle is previous-release (one-field writer). We still drive the real
-  // recycleKaval path; post-restart body asserts are the strongest available
-  // under that bake (pid-first rollback contract), not a false two-field claim.
+  // Manual QA: previous supervisor Restart. Contract 6.0 deliberately rejects
+  // the previous padi's 5.3 expectation in this direction, so boot first
+  // recycles the current daemon to the previous wrapper-baked companion kaval.
+  // An env override does not re-point v2.0.0's spawn. We then drive the real
+  // recycleKaval path again; post-restart body asserts are the strongest
+  // available under that bake (pid-first rollback contract), not a false
+  // two-field claim.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
@@ -581,10 +582,16 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       },
       90_000,
     );
-    // The previous padi reached and adopted the already-running current kaval:
-    // the gate still names the same newer daemon instead of spawning its own.
-    expect(gatePid(kavalGate)).toBe(currentKavalPid);
-    expect(isHolderLive(currentKavalPid)).toBe(true);
+    // The previous padi proved the 6.0/5.3 major skew and replaced the current
+    // daemon with its companion 5.3 kaval. Rollback never adopts a peer whose
+    // removed procedure its client can still call.
+    const previousKavalPid = gatePid(kavalGate);
+    expect(previousKavalPid).toBeTypeOf("number");
+    expect(previousKavalPid).not.toBe(currentKavalPid);
+    expect(isHolderLive(currentKavalPid)).toBe(false);
+    if (previousKavalPid === undefined) {
+      throw new Error("previous padi replacement kaval gate has no pid");
+    }
 
     // A1-6: drive the PREVIOUS supervisor's Restart path (literal Manual QA
     // "Restart kaval. Still works"). recycleKaval has been on padi's lifecycle
@@ -600,7 +607,7 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       let newPid: number | undefined;
       while (Date.now() < recycleDeadline) {
         const p = gatePid(kavalGate);
-        if (p !== undefined && isHolderLive(p) && p !== currentKavalPid) {
+        if (p !== undefined && isHolderLive(p) && p !== previousKavalPid) {
           newPid = p;
           break;
         }
@@ -609,13 +616,13 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       // (a) restart completed — a live replacement holds the gate
       expect(
         newPid,
-        `previous padi recycleKaval did not replace kaval (still ${currentKavalPid})`,
+        `previous padi recycleKaval did not replace kaval (still ${previousKavalPid})`,
       ).toBeTypeOf("number");
       if (newPid === undefined) {
         throw new Error("unreachable: newPid typed after toBeTypeOf number");
       }
       // (b) SIGTERM went to the original observation (not a stranger)
-      expect(isHolderLive(currentKavalPid)).toBe(false);
+      expect(isHolderLive(previousKavalPid)).toBe(false);
       // (c) post-restart gate is still pid-first-readable naming the live
       // replacement. Previous-release kaval writes one-field (wrapper-baked
       // binary — see env comment above); assert the rollback contract, not

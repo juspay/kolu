@@ -234,6 +234,7 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
       // stays green because the field is optional.
       expect(conn.metadata.lifetime).toEqual({ kind: "boundToPid", pid: 4242 });
       expect(conn.metadata.contractVersion).toBeTypeOf("string");
+      expect(conn.metadata.pid).toBe(process.pid);
       expect(conn.identity).toEqual({
         staleKey: "fragment-build",
         navigableCommit: "fragment-commit",

@@ -130,6 +130,12 @@ Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
 verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
 makes normal invocation structurally impossible.
 
+The pty-host wire is now contract 6.0: padi reads both daemon RSS figures in one
+baked osfacts `--mem` snapshot, so kaval no longer exposes the old
+`system.processMemory` procedure. Removing a procedure is breaking in the
+old-client/new-daemon direction, hence the major bump; the frozen
+`system.version` handshake and its exact fields are unchanged.
+
 ### Compose the daemon wire
 
 `serveKavalDaemonSurface` is the supported composition boundary for embedding

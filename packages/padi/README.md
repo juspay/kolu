@@ -5,11 +5,11 @@ stand a koḷu is arranged on) owns everything about one host's terminals —
 registry, fold, lifecycle, fs/git, bytes, persistence, kaval supervision — and
 serves it as **one complete surface**, `padiSurface`.
 
-**The package is born in W1; the process at W2.2** (the padi plan of record,
+**The package was born in W1 and became a process at W2.2** (the padi plan of record,
 [`docs/atlas/.../padi.mdx`](../../docs/atlas/src/content/atlas/padi.mdx), PR
-#1649). Location is structure: code destined for the daemon must not camp in
-`packages/server`, or the W1.R seal would fight gravity and W2.2 would be a
-double move. So the package exists from day one, even though no process does yet.
+#1649). Location is structure: daemon code lives here rather than camping in
+`packages/server`; W1 moved the domain once, and W2.2 made that package the
+durable authority without a second relocation.
 
 ## W1 is ONE PR, in three commit stages (C → M → R)
 
@@ -150,18 +150,20 @@ padi domain modules, and any test that doesn't boot the daemon never run it and 
 To debug a remote box: `ssh <host> tail -f ~/.local/state/padi/padi.log.*` (the pino-roll
 generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detached crash.
 
-## The export map (the `@kolu/terminal-workspace` split)
+## The export map
 
-- **`@kolu/padi/surface`** — BROWSER-SAFE. The `padiSurface` 1.0 zod contract,
+- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` 4.4 Zod contract,
   the per-member **forwarding-policy** annotations (`value` = hold-open vs
-  `delta` = fail-through), and the frozen **control-core** types (hello ·
-  version · drain · clock.now). Imports only `@kolu/surface/define` + zod-only
-  schema modules — no `node:` runtime, so a browser consumer imports it freely.
+  `delta` = fail-through), and the padi control types (version · drain ·
+  clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
+  the honest `ok | absent | error` three-way: one osfacts snapshot samples the
+  endpoint-owned process target and rejects a result from a superseded kaval
+  generation. The browser-safe entry imports no `node:` runtime.
 
-The node-only side (the daemon runtime kolu-server serves through) lands beside
-it in W1.M, once the terminal domain moves in. **No backings adapter ever
-exists** — the code moves into the package *before* anything serves it, so there
-is never a `packages/server` shim standing in for a not-yet-moved backing.
+- **Node-only entries** — the daemon main, dial/binding, state-root, endpoint,
+  log, transcript, and upload modules compose and serve that contract. Padi is
+  the native authority; kolu-server binds or mirrors it rather than supplying a
+  backing shim.
 
 ## What padi knows nothing about
 
@@ -185,11 +187,11 @@ reach for as by what it owns:
 
 ## Status
 
-- **W1.C** (this contract): a contract test pins the member list, the
-  set-equality of members ↔ forwarding-policy annotations (no unannotated member,
-  no orphan), the delta set = exactly `{activity, terminalAttach}`, the
-  serve-dir-shaped range-capable `preview.read`, and version `1.0`. Zero client
-  consumers.
-- **W1.M / W1.R**: the terminal domain relocates here, then serves natively while
-  the client migrates member-by-member; W1.R seals the boundary.
-- **W2.2**: the package gets a process entry — `package = process = staleKey`.
+- **W1.C / W1.M / W1.R — shipped:** the contract, terminal-domain move, native
+  serving, and client migration sealed the package boundary.
+- **W2.2 — shipped:** the package became the durable process —
+  `package = process = staleKey` — and owns its kaval.
+- **W3.1 — shipped:** local and remote binders consume the same complete surface;
+  the PWA, kolu-server, kolu CLI/MCP, and padi-tui are live consumers.
+- **Current contract:** `padiSurface` 4.4; exact member/policy coverage and
+  version pins live in `src/surface.test.ts`.

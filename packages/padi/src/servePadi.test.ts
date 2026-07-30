@@ -416,11 +416,15 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
   afterEach(() => __resetPadiSurfaceCtxForTest());
 
   it("get() reads the injected store DIRECTLY (returns, no recursion) + normalizes empty→null", () => {
-    // A non-empty session round-trips untouched. That the call RETURNS at all is
-    // the proof the backing is non-recursive — a `getSavedSession`-delegating get
-    // would recurse into this same cell and blow the stack.
+    // A non-empty session is returned with host-stamped resumableIds. That the
+    // call RETURNS at all is the proof the backing is non-recursive — a
+    // `getSavedSession`-delegating get would recurse into this same cell and
+    // blow the stack.
     setPadiSessionStore(inMemoryStore<SavedSession | null>(oneTerminal));
-    expect(sessionBacking().get()).toEqual(oneTerminal);
+    expect(sessionBacking().get()).toEqual({
+      ...oneTerminal,
+      resumableIds: [],
+    });
 
     // An empty-terminals blob normalizes to null (legacy "nothing to restore").
     setPadiSessionStore(
@@ -456,7 +460,10 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
       }),
       events: new Proxy({} as never, { get: () => ({ publish: () => {} }) }),
     } as never);
-    expect(getSavedSession()).toEqual(oneTerminal);
+    expect(getSavedSession()).toEqual({
+      ...oneTerminal,
+      resumableIds: [],
+    });
   });
 });
 

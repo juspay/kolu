@@ -30,7 +30,11 @@ lose, because it isn't lost.
   agents — running across it (see [Kaval](/kaval)); the only sign is a brief "N
   terminals reattached" note.
 - Even an **unclean crash** of the terminal daemon brings your agents back
-  **resumed on their exact prior conversation**, not as bare shells.
+  **resumed on their exact prior conversation**, not as bare shells — including
+  agents that were running in a **split** (or any parented terminal). The restore
+  card lists every saved terminal as its own row and offers to resume every agent
+  the host knows how to resume; turning **Resume agent sessions** off wakes bare
+  shells instead.
 
 ## Sleep a terminal
 
