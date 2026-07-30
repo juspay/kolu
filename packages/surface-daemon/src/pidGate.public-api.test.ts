@@ -9,9 +9,7 @@ import { setSocketProbeDepsForTests } from "./pidGate.testlib.ts";
 
 describe("pid-gate production root does not export test seams (R5-1)", () => {
   it("setSocketProbeDepsForTests is absent from the production root", () => {
-    expect(
-      Object.prototype.hasOwnProperty.call(root, "setSocketProbeDepsForTests"),
-    ).toBe(false);
+    expect(Object.hasOwn(root, "setSocketProbeDepsForTests")).toBe(false);
     // And not present as a value either (covers accidental namespace spread).
     expect(
       (root as { setSocketProbeDepsForTests?: unknown })
