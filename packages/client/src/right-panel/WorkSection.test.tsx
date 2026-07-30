@@ -19,27 +19,10 @@
  */
 
 import { LOCAL_LOCATION, type TerminalMetadata } from "@kolu/padi/surface";
-import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-/** Per-terminal fleet paint the section reads through the store. Mutable so a
- *  test can give two terminals different hues; `undefined` drops the section
- *  onto its `assignColors` fallback, which is the path with no store at all. */
-const displayInfo = new Map<
-  string,
-  { repoColor: string; annotationColor: string }
->();
-
-vi.mock("../terminal/useTerminalStore", () => ({
-  useTerminalStore: () => ({
-    getDisplayInfo: (id: TerminalId) =>
-      displayInfo.get(id as unknown as string),
-  }),
-}));
-
-const { default: WorkSection } = await import("./WorkSection");
+import { afterEach, describe, expect, it } from "vitest";
+import WorkSection from "./WorkSection";
 
 let dispose: (() => void) | undefined;
 let host: HTMLElement | undefined;
@@ -49,7 +32,6 @@ afterEach(() => {
   host?.remove();
   dispose = undefined;
   host = undefined;
-  displayInfo.clear();
 });
 
 function terminal(git: {
@@ -93,13 +75,12 @@ const PI = terminal({
   cwd: "/home/srid/code/AI/.worktrees/pi",
 });
 
-function mount(initial: TerminalMetadata, terminalId: TerminalId | null) {
+function mount(initial: TerminalMetadata) {
   const [meta, setMeta] = createSignal(initial);
   host = document.createElement("div");
   document.body.append(host);
-  const [id, setId] = createSignal(terminalId);
-  dispose = render(() => <WorkSection meta={meta()} terminalId={id()} />, host);
-  return { setMeta, setId };
+  dispose = render(() => <WorkSection meta={meta()} />, host);
+  return { setMeta };
 }
 
 const text = (testid: string) =>
@@ -108,15 +89,16 @@ const text = (testid: string) =>
 const el = (testid: string) =>
   host?.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
 
-/** `--chip-hue` sits on the CHIP. For the branch that is the testid'd element
- *  itself; for the repo the testid is on the inner name span (the monogram
- *  glyph must stay out of its textContent), so climb to the chip frame. */
-const hue = (chip: HTMLElement | null | undefined) =>
-  chip?.style.getPropertyValue("--chip-hue");
+/** `--chip-hue` sits on the CHIP FRAME — `inspector-branch` is the frame, and
+ *  the repo frame carries `inspector-repo-chip` (its `inspector-repo` testid is
+ *  on the inner name span, so the monogram glyph stays out of the textContent
+ *  a reader asking "what repo?" gets). Both are queried directly. */
+const hue = (testid: string) =>
+  el(testid)?.style.getPropertyValue("--chip-hue");
 
 describe("WorkSection identity chips", () => {
   it("repaints branch, repo, and directory when the terminal switches", () => {
-    const { setMeta } = mount(RESIZE_BUG, null);
+    const { setMeta } = mount(RESIZE_BUG);
 
     expect(text("inspector-branch")).toBe("resize-bug");
     expect(text("inspector-repo")).toBe("kolu");
@@ -137,7 +119,7 @@ describe("WorkSection identity chips", () => {
   });
 
   it("drops the worktree glyph when switching to a non-worktree terminal", () => {
-    const { setMeta } = mount(RESIZE_BUG, null);
+    const { setMeta } = mount(RESIZE_BUG);
     const branch = () =>
       host?.querySelector('[data-testid="inspector-branch"]');
 
@@ -150,29 +132,41 @@ describe("WorkSection identity chips", () => {
     expect(branch()?.querySelector("svg")).toBeNull();
   });
 
-  it("repaints the fleet hues when the terminal switches", () => {
-    const a = "resize" as unknown as TerminalId;
-    const b = "pi" as unknown as TerminalId;
-    displayInfo.set(a as unknown as string, {
-      repoColor: "oklch(0.7 0.1 20)",
-      annotationColor: "oklch(0.7 0.1 40)",
-    });
-    displayInfo.set(b as unknown as string, {
-      repoColor: "oklch(0.7 0.1 200)",
-      annotationColor: "oklch(0.7 0.1 240)",
-    });
+  /** Paint is derived from the git NAMES alone (`assignColors`, a pure
+   *  function of the key string) — the same derivation the dock's fleet-wide
+   *  projection feeds on, so the chips and the dock agree by construction and
+   *  there is no store to stub. Asserting against real hues rather than
+   *  hand-written strings is the point: a mocked `getDisplayInfo` proved
+   *  forwarding, not paint. */
+  it("repaints BOTH fleet hues from the git names when the terminal switches", () => {
+    const { setMeta } = mount(RESIZE_BUG);
 
-    const { setMeta, setId } = mount(RESIZE_BUG, a);
-    const branchChip = () => el("inspector-branch");
-    const repoChip = () => el("inspector-repo")?.parentElement;
+    const first = {
+      branch: hue("inspector-branch"),
+      repo: hue("inspector-repo-chip"),
+    };
+    expect(first.branch).toMatch(/^oklch\(/);
+    expect(first.repo).toMatch(/^oklch\(/);
 
-    expect(hue(branchChip())).toBe("oklch(0.7 0.1 40)");
-    expect(hue(repoChip())).toBe("oklch(0.7 0.1 20)");
-
-    setId(b);
     setMeta(PI);
 
-    expect(hue(branchChip())).toBe("oklch(0.7 0.1 240)");
-    expect(hue(repoChip())).toBe("oklch(0.7 0.1 200)");
+    const second = {
+      branch: hue("inspector-branch"),
+      repo: hue("inspector-repo-chip"),
+    };
+    expect(second.branch).toMatch(/^oklch\(/);
+    expect(second.repo).toMatch(/^oklch\(/);
+    // BOTH must move. The bug pinned the first terminal's pair for the life of
+    // the panel, so a single-hue assertion would not have caught it.
+    expect(second.branch).not.toBe(first.branch);
+    expect(second.repo).not.toBe(first.repo);
+
+    // And the hue is a STABLE function of the name, not of the co-set: a fresh
+    // mount of the first terminal repaints the original pair exactly.
+    dispose?.();
+    host?.remove();
+    mount(RESIZE_BUG);
+    expect(hue("inspector-branch")).toBe(first.branch);
+    expect(hue("inspector-repo-chip")).toBe(first.repo);
   });
 });

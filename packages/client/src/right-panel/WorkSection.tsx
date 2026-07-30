@@ -12,15 +12,11 @@
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
-import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
+import { prUnavailableSource } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
-import {
-  assignColors,
-  type TerminalDisplayInfo,
-} from "../terminal/terminalDisplay";
-import { useTerminalStore } from "../terminal/useTerminalStore";
+import { assignColors } from "../terminal/terminalDisplay";
 import Chip from "../ui/Chip";
 import Disclosure from "../ui/Disclosure";
 import { PrStateIcon, WorktreeIcon } from "../ui/Icons";
@@ -82,8 +78,8 @@ const checksSummary = (counts: Record<CheckStatus, number>): string =>
     .join(" · ");
 
 /** Repo identity chip — monogram + name in the shared repo-colour frame.
- *  Colour is the live terminal's `repoColor` (fleet-wide assignColors), so the
- *  chip matches the dock monogram for the same terminal. Not a status chip. */
+ *  Colour is the fleet hue for the repo name, the same `assignColors` key the
+ *  dock monogram paints from. Not a status chip. */
 const RepoIdentityChip: Component<{ name: string; color: string }> = (
   props,
 ) => (
@@ -91,13 +87,14 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
     class="fleet-hue-chip fleet-hue-chip--with-mono"
     style={{ "--chip-hue": props.color }}
     title={props.name}
+    data-testid="inspector-repo-chip"
   >
     <RepoMonogram group={props.name} color={props.color} size="xs" />
     {/* testid on the NAME alone — the monogram is decorative (aria-hidden)
      *  and would otherwise prepend its glyph to the element's textContent, so
-     *  a reader asking "what repo?" gets "Kkolu" instead of "kolu". Same rule
-     *  the restore band's `repo-heading` states, and the same reason
-     *  `inspector-branch` sits on the branch chip rather than a wrapper. */}
+     *  a reader asking "what repo?" gets "Kkolu" instead of "kolu". The FRAME
+     *  carries its own `inspector-repo-chip` testid, so paint is readable
+     *  without climbing out of the name span. */}
     <span class="truncate" data-testid="inspector-repo">
       {props.name}
     </span>
@@ -106,44 +103,18 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
 
 const WorkSection: Component<{
   meta: TerminalMetadata;
-  /** Active tile id — used only to read the fleet-wide `repoColor`. */
-  terminalId: TerminalId | null;
 }> = (props) => {
-  const store = useTerminalStore();
-  /** The git facts AND their paint, as ONE value.
+  /** The git facts AND their paint, as ONE value. Paint is a pure function of
+   *  the SAME `git` the chips render — `assignColors` hues by key string alone,
+   *  which is exactly what the fleet-wide projection feeds the dock — so a torn
+   *  pair (this terminal's branch wearing the last one's hue) is unspellable
+   *  rather than merely avoided.
    *
-   *  Bundled deliberately, for the same reason `useTerminalStore.active()`
-   *  bundles `(id, meta)`: the chips render git facts and the colours derived
-   *  from them together, so handing the body one value from one reactive read
-   *  makes a torn pair — this terminal's branch wearing the last one's hue —
-   *  unrepresentable.
-   *
-   *  It also deletes the shape that froze the chips (shipped in #2037). The
-   *  old code gated on `Show when={git && identityColors()}` and RE-READ git
-   *  inside the body; a non-keyed `<Show>` runs its body EXACTLY ONCE and
-   *  keeps it mounted while the condition stays truthy, so that re-read
-   *  snapshotted the first terminal's `branch`/`repoName` into a `const` that
-   *  never changed again. Every terminal has git context, so the condition
-   *  never went falsy and nothing ever rebuilt the body. With a single value
-   *  behind a single accessor there is no second thing left to snapshot.
-   *
-   *  Paint prefers the fleet display projection and falls back to stable
-   *  `assignColors` on the live git names, so chips never soft-degrade to
-   *  neutral chrome. */
+   *  `WorkSection.test.tsx` is the executable form of that claim and carries
+   *  the #2037 regression narrative. */
   const identity = createMemo(() => {
     const git = props.meta.git;
     if (!git) return null;
-    const id = props.terminalId;
-    const display: TerminalDisplayInfo | undefined = id
-      ? store.getDisplayInfo(id)
-      : undefined;
-    if (display) {
-      return {
-        git,
-        repoColor: display.repoColor,
-        annotationColor: display.annotationColor,
-      };
-    }
     const colors = assignColors([git.repoName, git.branch]);
     const repoColor = colors.get(git.repoName);
     const annotationColor = colors.get(git.branch);
@@ -154,31 +125,40 @@ const WorkSection: Component<{
     }
     return { git, repoColor, annotationColor };
   });
-  const active = () => activeArm(props.meta);
-  // PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
-  // resolution (same gate the old Pull Request section used).
-  const pr = () => {
-    const arm = active();
-    return arm ? prValue(arm.pr) : undefined;
-  };
-  const prUnavailable = () => {
-    const arm = active();
-    return arm ? prUnavailableSource(arm.pr) : undefined;
-  };
-  const counts = createMemo(() => countChecks(pr()?.checkRuns ?? []));
-  const sortedRuns = createMemo(() =>
-    [...(pr()?.checkRuns ?? [])].sort(
-      (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
-    ),
-  );
-  /** Anything but a clean pass is an exception, and an exception opens the list
-   *  on its own. Read off the server's fold — the same verdict the chip wears.
-   *  `null` is "no checks configured", which is not an exception (and renders no
-   *  list at all), so it is folded in with "no PR" rather than read as not-pass. */
-  const hasException = () => {
-    const verdict = pr()?.checks ?? null;
-    return verdict !== null && verdict !== "pass";
-  };
+  /** The PR facts AND everything folded off them, as ONE value — same reason
+   *  `identity()` bundles git with its paint. The rollup's verdict and its
+   *  tally now come out of a single read, so they cannot describe two
+   *  different PRs, and each `<Show>` body below has one accessor to reach
+   *  through instead of five that must agree.
+   *
+   *  PR facts are live only on the ACTIVE arm; a sleeping terminal has no PR
+   *  resolution (same gate the old Pull Request section used). */
+  const work = createMemo(() => {
+    const arm = activeArm(props.meta);
+    if (!arm) return null;
+    const pr = prValue(arm.pr);
+    const counts = pr ? countChecks(pr.checkRuns) : null;
+    return {
+      unavailable: prUnavailableSource(arm.pr),
+      pr:
+        pr && counts
+          ? {
+              ...pr,
+              counts,
+              summary: checksSummary(counts),
+              runs: [...pr.checkRuns].sort(
+                (a, b) => TRIAGE.indexOf(a.outcome) - TRIAGE.indexOf(b.outcome),
+              ),
+              /** Anything but a clean pass is an exception, and an exception
+               *  opens the list on its own. Read off the server's fold — the
+               *  same verdict the chip wears. `null` is "no checks
+               *  configured", which is not an exception (and renders no list
+               *  at all), so it is not read as not-pass. */
+              hasException: pr.checks !== null && pr.checks !== "pass",
+            }
+          : null,
+    };
+  });
   return (
     <Section title="Work" accent="border-accent">
       <div class="space-y-1.5">
@@ -213,7 +193,7 @@ const WorkSection: Component<{
               </>
             )}
           </Show>
-          <Show when={pr()}>
+          <Show when={work()?.pr}>
             {(p) => (
               <>
                 <a
@@ -229,7 +209,7 @@ const WorkSection: Component<{
                 </a>
                 <Show when={p().checks}>
                   {(checks) => {
-                    const rollup = () => ciRollup(checks(), counts());
+                    const rollup = () => ciRollup(checks(), p().counts);
                     return (
                       <Chip tone={rollup().tone} data-testid="inspector-ci">
                         {rollup().label}
@@ -242,7 +222,7 @@ const WorkSection: Component<{
           </Show>
         </div>
 
-        <Show when={pr()}>
+        <Show when={work()?.pr}>
           {(p) => (
             <div class="text-[11.5px] leading-snug text-fg">{p().title}</div>
           )}
@@ -260,18 +240,15 @@ const WorkSection: Component<{
         {/* Per-check breakdown — reference tier. Expansion follows exceptions:
          *  all-green folds to the summary line, a fail/pending run auto-expands
          *  with the exceptions sorted first. */}
-        <Show when={pr()}>
+        <Show when={work()?.pr}>
           {(p) => (
             <Show when={p().checkRuns.length > 0}>
-              <Disclosure
-                summary={checksSummary(counts())}
-                open={hasException()}
-              >
+              <Disclosure summary={p().summary} open={p().hasException}>
                 <ul
                   data-testid="inspector-pr-checks"
                   class="flex flex-col gap-0.5 text-[11px]"
                 >
-                  <For each={sortedRuns()}>
+                  <For each={p().runs}>
                     {(c) => (
                       <li class="flex min-w-0 items-center gap-1.5">
                         <ChecksIndicator status={c.outcome} />
@@ -307,7 +284,7 @@ const WorkSection: Component<{
           )}
         </Show>
 
-        <Show when={prUnavailable()}>
+        <Show when={work()?.unavailable}>
           {(source) => (
             <div
               data-testid="inspector-pr-unavailable"

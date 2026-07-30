@@ -72,7 +72,7 @@ const MetadataInspector: Component<{
           </Show>
 
           {/* Work — directory + git + PR as one identity cluster. */}
-          <WorkSection meta={meta()} terminalId={props.terminalId} />
+          <WorkSection meta={meta()} />
 
           {/* Ports — what this TILE is serving, its splits included (a dev server
               usually runs in a split, so a main-pane-only reading shows nothing in
