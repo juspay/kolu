@@ -1,7 +1,7 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
-import { resumableCommand, type TerminalId } from "kolu-common/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
@@ -201,7 +201,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   });
 
   async function handleRestoreSession(
-    options: { resumeIds?: ReadonlySet<string> } = {},
+    options: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
   ) {
     if (isRestoring()) return;
     const session = savedSession();
@@ -243,22 +243,23 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // restored terminals arrive on the `terminals` collection, exactly as a
       // browser reload hydrates.
       //
-      // `resumeIds` is the per-terminal opt-in the restore card builds off its
-      // global toggle: the SET of ids to resume (empty when the toggle is off).
+      // Intent only: host owns the resumable set (`session.resumableIds`); the
+      // client may only say resume yes/no + opt-outs of that set.
+      const resumeAgents = options.resumeAgents ?? true;
+      const optOutIds = options.optOutIds ? [...options.optOutIds] : [];
       await activePadiRpc.session.restore({
-        resumeIds: options.resumeIds ? [...options.resumeIds] : undefined,
+        resumeAgents,
+        optOutIds: optOutIds.length > 0 ? optOutIds : undefined,
       });
       setSavedSession(null);
-      // Faithful pre-W1 summary — "Restored N terminals, resumed M agents". The
-      // restore card's `resumeIds` is the RESUMABLE opt-in set (EmptyState filters
-      // to terminals with a resumable `restoreTarget`), so its size IS the resume
-      // count; an absent set (the import path resumes all) counts the session's
-      // resumable terminals directly.
-      const resumed = options.resumeIds
-        ? options.resumeIds.size
-        : session.terminals.filter(
-            (t) => resumableCommand(t.restoreTarget) !== null,
-          ).length;
+      // Faithful summary — "Restored N terminals, resumed M agents". M is the
+      // host-served resumable set minus opt-outs when resume is on; 0 when off.
+      // Counts EVERY host-resumable terminal (including parented/splits).
+      const hostResumable = session.resumableIds ?? [];
+      const optOut = new Set(optOutIds);
+      const resumed = resumeAgents
+        ? hostResumable.filter((tid) => !optOut.has(tid)).length
+        : 0;
       toast.success(
         resumed > 0
           ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${

@@ -496,6 +496,13 @@ export const SavedSessionSchema = z.object({
    *  never `undefined`. */
   activeTerminalId: z.string().nullable().default(null),
   savedAt: z.number(),
+  /**
+   * Host-stamped: ids of terminals that will resume an agent on restore.
+   * Wire-only enrichment — never trusted from disk; the session cell recomputes
+   * and stamps this on every serve. Optional so conf blobs and e2e fixtures
+   * parse without it; the live host always stamps before the client reads.
+   */
+  resumableIds: z.array(z.string()).optional(),
 });
 
 export type TerminalClientMetadata = z.infer<

@@ -121,6 +121,8 @@ import {
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
+/** Host-owned resumability fold — also the pure source for the wire stamp. */
+export { resumableTerminalIds } from "./session/resumable.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
@@ -787,20 +789,27 @@ export const PadiPreviewReadOutputSchema = z.object({
 });
 
 /** `session.restore` — restore the persisted session server-side (padi's boot
- *  reconcile + restore, replacing the client respawn loop in W1.R). `resumeIds`
- *  is the per-terminal agent-resume opt-in set; a terminal absent from it wakes
- *  to a bare shell. */
+ *  reconcile + restore, replacing the client respawn loop in W1.R).
+ *
+ *  The wire carries INTENT, not a client-built id list: the host owns the
+ *  resumable set (stamped on the saved session as `resumableIds`) and the client
+ *  may only subtract from it (opt-outs). Resume yes/no + opt-outs of the
+ *  host-served set — never a client-filtered membership list. */
 export const PadiSessionRestoreInputSchema = z.object({
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** When true, resume every host-resumable agent except those in `optOutIds`.
+   *  Default true so import / bare restore resume all. */
+  resumeAgents: z.boolean().default(true),
+  /** Subset of the host-served resumable set the user opted out of. */
+  optOutIds: z.array(z.string()).optional(),
 });
 
 /** `session.import` — replace the persisted session with an imported blob (the
  *  diagnostic "Import session" flow, moved host-side), then restore it. */
 export const PadiSessionImportInputSchema = z.object({
   session: SavedSessionSchema,
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
+  resumeAgents: z.boolean().default(true),
+  optOutIds: z.array(z.string()).optional(),
 });
 
 // ── The surface ───────────────────────────────────────────────────────────

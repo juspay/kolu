@@ -89,7 +89,17 @@ const subRecord: SavedActiveTerminal = {
   cwd: "/sub",
   parentId: PARENT_ID,
   lastActivityAt: 200,
-  restoreTarget: { kind: "none" },
+  // Default fixture: a parented terminal running an agent — the class of
+  // record the client used to drop from the resume set.
+  lastAgentCommand: "claude --permission-mode auto",
+  restoreTarget: {
+    kind: "exact",
+    command: "claude --permission-mode auto",
+    agent: {
+      kind: "claude-code",
+      sessionId: "12341234-1234-1234-1234-123412341234",
+    },
+  },
 };
 const sleeperRecord: SavedTerminal = {
   ...base,
@@ -249,9 +259,12 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     seedParkedTerminal(parentRecord);
     seedParkedTerminal(subRecord);
 
-    // Opt OUT of resuming the parent (empty-ish set that excludes it). The
-    // terminal must still come back — opt-out only skips the agent replay.
-    const done = restoreSession({ resumeIds: [SUB_ID] });
+    // Opt OUT of resuming the parent. The terminal must still come back —
+    // opt-out only skips the agent replay.
+    const done = restoreSession({
+      resumeAgents: true,
+      optOutIds: [PARENT_ID],
+    });
     expect(activeByCwd("/parent")).toBeDefined();
     expect(activeByCwd("/sub")).toBeDefined();
     await done;
@@ -260,10 +273,15 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
   // Shared fixtures for the two W12 restore-respawn tests: one saved ACTIVE record
   // carrying an EXACT resume target, seeded as BOTH the saved session and a parked
   // entry (restore's idempotency token). The tests differ only in the resume opt-in.
+  // Session id must pass the shell-safe UUID gate so the host-owned
+  // resumable fold counts this terminal (matches wake / resumeFormFor).
   const W12_EXACT = {
     kind: "exact",
     command: "claude --model sonnet",
-    agent: { kind: "claude-code", sessionId: "S1" },
+    agent: {
+      kind: "claude-code",
+      sessionId: "12341234-1234-1234-1234-123412341234",
+    },
   } as const;
   const w12AgentRecord: SavedActiveTerminal = {
     ...base,
@@ -312,8 +330,8 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     // can't replay the agent by construction.
     seedW12Agent();
 
-    // Opt OUT of resuming this terminal (empty resume set).
-    const done = restoreSession({ resumeIds: [] });
+    // Opt OUT of resuming this terminal entirely.
+    const done = restoreSession({ resumeAgents: false });
 
     const restored = restoredW12Agent();
     expect(restored).toBeDefined();

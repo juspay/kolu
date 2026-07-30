@@ -47,6 +47,7 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
   importSession,
@@ -276,9 +277,30 @@ export function buildPadiSurfaceDeps(deps: {
         store: {
           get: () => {
             const s = requirePadiSessionStore().get();
-            return s && s.terminals.length > 0 ? s : null;
+            if (!s || s.terminals.length === 0) return null;
+            // Host stamps the resumable set on every serve — the client renders
+            // this list and may only subtract (opt-out); it never constructs it.
+            return {
+              ...s,
+              resumableIds: resumableTerminalIds(s.terminals),
+            };
           },
-          set: (v) => requirePadiSessionStore().set(v),
+          set: (v) => {
+            if (v === null) {
+              requirePadiSessionStore().set(null);
+              return;
+            }
+            // Stamp on the same object the cell bus will publish (applyAndPublish
+            // publishes `next`, not a post-set get) so every wire push carries
+            // host-owned membership. Persist only the disk shape — resumableIds
+            // is wire-only and recomputed on every get.
+            v.resumableIds = resumableTerminalIds(v.terminals);
+            requirePadiSessionStore().set({
+              terminals: v.terminals,
+              activeTerminalId: v.activeTerminalId,
+              savedAt: v.savedAt,
+            });
+          },
         },
         equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
         onWrite: () => cancelPendingAutosave(),
