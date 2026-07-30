@@ -51,8 +51,8 @@
  * both consumers — no separate single-file watcher.
  */
 
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { lstat } from "node:fs/promises";
 import {
   type AsyncSubscription,
   type BackendType,
@@ -163,79 +163,125 @@ interface SharedWorkingTreeWatcher {
 }
 
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
+const retiringWorkingTreeWatchers = new Map<string, Promise<void>>();
+
+/** A trailing debounce must still make progress under a sustained event
+ * stream. This ceiling is deliberately much larger than the normal editor-save
+ * window, but finite so a checkout/build burst cannot postpone the Code tab
+ * forever. */
+const WATCHER_MAX_WAIT_MS = 1_000;
+
+/** Directory repair is structural and expensive (a new recursive tree walk),
+ * so collect a whole mkdir burst before doing it. The ceiling covers a command
+ * that creates directories continuously without rebuilding once per mkdir. */
+const DIRECTORY_REPAIR_DEBOUNCE_MS = WATCHER_DEBOUNCE_MS * 2;
+const DIRECTORY_REPAIR_MAX_WAIT_MS = 2_000;
 
 function installSharedWorkingTreeWatcher(
   repoRoot: string,
-  onLast: () => void,
+  onLast: (retirement: Promise<void>) => void,
   log?: Logger,
 ): SharedWorkingTreeWatcher {
   const listeners = new Set<Listener>();
   const pending = new Set<Listener>();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let pendingSince: number | undefined;
+  let repairTimer: ReturnType<typeof setTimeout> | undefined;
+  let repairSince: number | undefined;
   let subscription: AsyncSubscription | null = null;
-  let subscribeInFlight = false;
+  let installTask: Promise<void> | null = null;
   let resubscribeRequested = false;
   let cancelled = false;
 
-  /** Fire all current listeners after a debounce. Both real events and the
-   *  post-install reconciliation share this dispatch path. */
+  const firePending = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+    pendingSince = undefined;
+    const fired = [...pending];
+    pending.clear();
+    for (const listener of fired) {
+      try {
+        listener.onChange();
+      } catch (e) {
+        log?.error(
+          { err: e instanceof Error ? e.message : String(e), repoRoot },
+          "git: working-tree listener threw",
+        );
+      }
+    }
+  };
+
+  /** Fire on the normal trailing edge, but no later than one second after the
+   *  first pending event. A real sustained burst therefore refreshes the Code
+   *  tab periodically instead of resetting the debounce forever. */
   const scheduleFire = (): void => {
     if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = undefined;
-      const fired = [...pending];
-      pending.clear();
-      for (const listener of fired) {
-        try {
-          listener.onChange();
-        } catch (e) {
-          log?.error(
-            { err: e instanceof Error ? e.message : String(e), repoRoot },
-            "git: working-tree listener threw",
-          );
-        }
-      }
-    }, WATCHER_DEBOUNCE_MS);
+    const now = Date.now();
+    pendingSince ??= now;
+    const untilCeiling = WATCHER_MAX_WAIT_MS - (now - pendingSince);
+    timer = setTimeout(
+      firePending,
+      Math.max(0, Math.min(WATCHER_DEBOUNCE_MS, untilCeiling)),
+    );
+  };
+
+  const scheduleDirectoryRepair = (): void => {
+    if (cancelled) return;
+    if (repairTimer) clearTimeout(repairTimer);
+    const now = Date.now();
+    repairSince ??= now;
+    const untilCeiling = DIRECTORY_REPAIR_MAX_WAIT_MS - (now - repairSince);
+    repairTimer = setTimeout(
+      () => {
+        repairTimer = undefined;
+        repairSince = undefined;
+        requestSubscribe();
+      },
+      Math.max(0, Math.min(DIRECTORY_REPAIR_DEBOUNCE_MS, untilCeiling)),
+    );
   };
 
   /** Linux inotify has a structural race when a whole nested subtree is made in
    *  one burst after subscription: it can observe `mkdir src`, add a watch for
    *  `src`, but miss `mkdir src/feature`, which happened before that new watch
    *  existed. Parcel then watches the parent forever while edits below the
-   *  missed descendant are silent. Replacing the root subscription after any
-   *  observed directory creation rebuilds the recursive watch set from the
-   *  settled tree. Parcel shares a native watch for overlapping subscriptions,
-   *  so rebuilding must retire the old root first; the post-install
-   *  reconciliation below re-reads authoritative state and covers every
-   *  mutation in that brief replacement window. */
+   *  missed descendant are silent. A non-empty created directory (or a create
+   *  that moved before inspection) schedules one bounded, trailing repair for
+   *  the whole mkdir burst. Replacing the root subscription rebuilds the
+   *  recursive watch set from the settled tree. Parcel shares a native watch
+   *  for overlapping subscriptions, so rebuilding must retire the old root
+   *  first; the post-install reconciliation below re-reads authoritative state
+   *  and covers every mutation in that brief replacement window. */
   function repairCreatedDirectories(
     events: ReadonlyArray<{ path: string; type: string }>,
   ): void {
     const creates = events.filter((event) => event.type === "create");
     if (creates.length === 0) return;
-    void (async () => {
-      for (const event of creates) {
+    void Promise.all(
+      creates.map(async (event): Promise<boolean> => {
         try {
-          if ((await lstat(event.path)).isDirectory()) {
-            requestSubscribe();
-            return;
-          }
+          if (!(await lstat(event.path)).isDirectory()) return false;
+          // An empty directory has no missed descendant to repair. If it gains
+          // children later, the newly attached directory watch observes them.
+          return (await readdir(event.path)).length > 0;
         } catch (e) {
-          // A create immediately followed by a delete is ordinary watcher
-          // traffic. Anything else is an observation failure and must be loud.
-          if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
-            log?.error(
-              {
-                err: e instanceof Error ? e.message : String(e),
-                path: event.path,
-                repoRoot,
-              },
-              "git: working-tree directory-create inspection failed",
-            );
-          }
+          // A create that vanished before inspection may have been renamed;
+          // the settled tree is then the only authority, so repair it too.
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") return true;
+          log?.error(
+            {
+              err: e instanceof Error ? e.message : String(e),
+              path: event.path,
+              repoRoot,
+            },
+            "git: working-tree directory-create inspection failed",
+          );
+          return false;
         }
-      }
-    })();
+      }),
+    ).then((needsRepair) => {
+      if (needsRepair.some(Boolean)) scheduleDirectoryRepair();
+    });
   }
 
   function onParcelEvents(
@@ -272,18 +318,22 @@ function installSharedWorkingTreeWatcher(
   }
 
   /** Install the first root subscription, or atomically replace it to repair
-   *  recursive coverage. Requests coalesce to one in-flight + one trailing
-   *  replacement so a large checkout cannot create an install storm. */
+   *  recursive coverage. Directory events first pass through the bounded
+   *  trailing repair debounce above; requests arriving during installation
+   *  further coalesce to one trailing replacement. */
   function requestSubscribe(): void {
     if (cancelled) return;
-    if (subscribeInFlight) {
+    if (installTask) {
       resubscribeRequested = true;
       return;
     }
-    subscribeInFlight = true;
-    void (async () => {
+    installTask = (async () => {
       try {
         const ignore = await _computeIgnore(repoRoot, log);
+        if (cancelled) return;
+        // A watcher reopened immediately after its final listener left must not
+        // overlap Parcel's asynchronous native teardown for the same root.
+        await retiringWorkingTreeWatchers.get(repoRoot);
         if (cancelled) return;
         const replacing = subscription !== null;
         if (subscription) {
@@ -302,7 +352,7 @@ function installSharedWorkingTreeWatcher(
         });
 
         if (cancelled) {
-          void next.unsubscribe().catch((e: Error) => {
+          await next.unsubscribe().catch((e: Error) => {
             log?.error(
               { err: e.message, repoRoot },
               "git: working-tree late-unsubscribe failed",
@@ -312,33 +362,35 @@ function installSharedWorkingTreeWatcher(
         }
 
         subscription = next;
+        // Reconcile mutations from both the initial install window and a
+        // replacement's restart window. The filter is irrelevant here: every
+        // listener must re-derive its state against the settled tree. Dispatch
+        // this reconciliation immediately: putting it through the trailing
+        // event debounce would let repeated repairs starve the same refresh.
+        if (listeners.size > 0) {
+          for (const listener of listeners) pending.add(listener);
+          firePending();
+        }
         log?.info(
           { repoRoot },
           replacing
             ? "git: working-tree watcher rebuilt"
             : "git: working-tree watcher installed",
         );
-
-        // Reconcile mutations from both the initial install window and a
-        // replacement's restart window. The filter is irrelevant here: every
-        // listener must re-derive its state against the settled tree.
-        if (listeners.size > 0) {
-          for (const listener of listeners) pending.add(listener);
-          scheduleFire();
-        }
       } catch (e) {
         log?.error(
           { err: e instanceof Error ? e.message : String(e), repoRoot },
           "git: working-tree watcher install failed",
         );
-      } finally {
-        subscribeInFlight = false;
-        if (!cancelled && resubscribeRequested) {
-          resubscribeRequested = false;
-          requestSubscribe();
-        }
       }
     })();
+    void installTask.finally(() => {
+      installTask = null;
+      if (!cancelled && resubscribeRequested) {
+        resubscribeRequested = false;
+        requestSubscribe();
+      }
+    });
   }
 
   requestSubscribe();
@@ -352,20 +404,38 @@ function installSharedWorkingTreeWatcher(
         pending.delete(listener);
         if (listeners.size === 0) {
           if (timer) clearTimeout(timer);
+          if (repairTimer) clearTimeout(repairTimer);
+          timer = undefined;
+          pendingSince = undefined;
+          repairTimer = undefined;
+          repairSince = undefined;
           cancelled = true;
           resubscribeRequested = false;
-          if (subscription) {
-            const current = subscription;
-            subscription = null;
-            void current.unsubscribe().catch((e: Error) => {
-              log?.error(
-                { err: e.message, repoRoot },
-                "git: working-tree unsubscribe failed",
-              );
-            });
-            subscription = null;
-          }
-          onLast();
+          const current = subscription;
+          subscription = null;
+          const retirement = (async () => {
+            if (current) {
+              await current.unsubscribe().catch((e: Error) => {
+                log?.error(
+                  { err: e.message, repoRoot },
+                  "git: working-tree unsubscribe failed",
+                );
+              });
+            }
+            // An initial install or replacement may still be between computing
+            // ignores and receiving its Parcel subscription. Its cancelled path
+            // retires that late handle before this promise settles.
+            await installTask;
+          })();
+          onLast(retirement);
+          void retirement.catch((e: unknown) => {
+            // Every native unsubscribe above is already caught; this is a
+            // fail-loud fence for an unexpected lifecycle rejection.
+            log?.error(
+              { err: e instanceof Error ? e.message : String(e), repoRoot },
+              "git: working-tree retirement failed",
+            );
+          });
           log?.info({ repoRoot }, "git: working-tree watcher retired");
         }
       };
@@ -404,12 +474,24 @@ export function watchWorkingTree(
         path.resolve(repoRoot, options.filePath).normalize("NFC");
   let entry = sharedWorkingTreeWatchers.get(repoRoot);
   if (!entry) {
-    entry = installSharedWorkingTreeWatcher(
+    let installed!: SharedWorkingTreeWatcher;
+    installed = installSharedWorkingTreeWatcher(
       repoRoot,
-      () => sharedWorkingTreeWatchers.delete(repoRoot),
+      (retirement) => {
+        if (sharedWorkingTreeWatchers.get(repoRoot) === installed) {
+          sharedWorkingTreeWatchers.delete(repoRoot);
+        }
+        retiringWorkingTreeWatchers.set(repoRoot, retirement);
+        void retirement.finally(() => {
+          if (retiringWorkingTreeWatchers.get(repoRoot) === retirement) {
+            retiringWorkingTreeWatchers.delete(repoRoot);
+          }
+        });
+      },
       log,
     );
-    sharedWorkingTreeWatchers.set(repoRoot, entry);
+    entry = installed;
+    sharedWorkingTreeWatchers.set(repoRoot, installed);
   }
   return entry.subscribe(matchAbs, onChange);
 }
@@ -418,4 +500,13 @@ export function watchWorkingTree(
  *  working-tree watchers. Mirrors `_sharedHeadWatcherCount`. */
 export function _sharedWorkingTreeWatcherCount(): number {
   return sharedWorkingTreeWatchers.size;
+}
+
+/** Test-only retirement barrier. The public cleanup stays synchronous for
+ * Solid/onCleanup consumers; real-watcher tests await this before deleting the
+ * watched temporary tree. */
+export async function _waitForWorkingTreeWatcherRetirement(
+  repoRoot: string,
+): Promise<void> {
+  await retiringWorkingTreeWatchers.get(repoRoot);
 }

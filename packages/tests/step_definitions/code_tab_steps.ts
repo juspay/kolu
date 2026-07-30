@@ -1871,10 +1871,23 @@ Then(
     const marked = this.page
       .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
       .first();
-    await pollFor({
-      observe: async () => ({
-        visible: await marked.isVisible().catch(() => false),
-        gitStatus: await this.page
+    try {
+      await pollFor({
+        observe: () => marked.isVisible().catch(() => false),
+        isDone: (visible) => visible,
+        onTimeout: (_last, elapsedMs) =>
+          new Error(
+            `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms`,
+          ),
+        intervalMs: 500,
+        timeoutMs: HYDRATION_TIMEOUT,
+      });
+    } catch (error) {
+      // Diagnostics are useful only on failure. Gathering them on every poll
+      // added two full-tree CDP round trips per tick and amplified the very
+      // loaded-run timing problem this wait diagnoses.
+      const [gitStatus, changedDirectories] = await Promise.all([
+        this.page
           .locator(`${TREE} [data-item-git-status]`)
           .evaluateAll((rows) =>
             rows.map((row) => ({
@@ -1882,20 +1895,17 @@ Then(
               status: row.getAttribute("data-item-git-status"),
             })),
           ),
-        changedDirectories: await this.page
+        this.page
           .locator(`${TREE} [data-item-contains-git-change="true"]`)
           .evaluateAll((rows) =>
             rows.map((row) => row.getAttribute("data-item-path")),
           ),
-      }),
-      isDone: ({ visible }) => visible,
-      onTimeout: (last, elapsedMs) =>
-        new Error(
-          `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms; final tree state: ${JSON.stringify(last)}`,
-        ),
-      intervalMs: 500,
-      timeoutMs: HYDRATION_TIMEOUT,
-    });
+      ]);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; final tree state: ${JSON.stringify({ gitStatus, changedDirectories })}`,
+        { cause: error },
+      );
+    }
   },
 );
 

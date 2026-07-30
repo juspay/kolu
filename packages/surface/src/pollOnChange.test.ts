@@ -111,6 +111,72 @@ describe("pollOnChange", () => {
     lifetime.abort();
   });
 
+  it("does nothing when its lifetime was already aborted", async () => {
+    const pulse = controllablePulse<number>();
+    const queries = queryHarness();
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    const onComplete = vi.fn();
+    const lifetime = new AbortController();
+    lifetime.abort();
+
+    pollOnChange({
+      pulse: pulse.procedure,
+      pulseInput: undefined,
+      query: queries.query,
+      onResult,
+      onError,
+      onComplete,
+      signal: lifetime.signal,
+    });
+
+    await Promise.resolve();
+    expect(queries.calls).toHaveLength(0);
+    expect(pulse.delivered).toBe(0);
+    expect(onResult).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("fails a wedged query loudly and runs its queued refresh", async () => {
+    vi.useFakeTimers();
+    try {
+      const pulse = controllablePulse<number>();
+      const queries = queryHarness();
+      const onError = vi.fn();
+      const lifetime = new AbortController();
+
+      pollOnChange({
+        pulse: pulse.procedure,
+        pulseInput: undefined,
+        query: queries.query,
+        onResult: () => {},
+        onError,
+        onComplete: () => {},
+        signal: lifetime.signal,
+      });
+
+      pulse.emit(0);
+      for (let i = 0; i < 10 && pulse.delivered === 0; i += 1) {
+        await Promise.resolve();
+      }
+      expect(pulse.delivered).toBe(1);
+      expect(queries.calls).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(queries.calls[0]!.signal.aborted).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: "pollOnChange query did not settle within 60000ms",
+        }),
+      );
+      expect(queries.calls).toHaveLength(2);
+      lifetime.abort();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("coalesces a pulse burst without aborting or starving the in-flight query", async () => {
     const pulse = controllablePulse<number>();
     const queries = queryHarness();

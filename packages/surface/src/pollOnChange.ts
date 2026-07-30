@@ -2,9 +2,9 @@
  * `pollOnChange` — the CLIENT dual of `pollOnEvent` (the server poll-on-event-tick
  * stream source). Where `pollOnEvent` reads on an event tick and yields
  * snapshot-then-deltas, `pollOnChange` subscribes a value-bearing PULSE stream (a
- * `{seq}` distinguisher), reads once immediately, and then re-runs a
- * request/response PROCEDURE on every pulse frame — the framework-free core of
- * the Code tab's
+ * `{seq}` distinguisher), reads once immediately, and then requests a refresh
+ * on every pulse frame. Reads stay single-flight and a burst coalesces to one
+ * trailing refresh — the framework-free core of the Code tab's
  * pulse-then-requery (W1.R4: push → pulse-then-requery, UX byte-identical bar
  * imperceptible extra latency).
  *
@@ -16,6 +16,12 @@
 
 import { type StreamingProcedure, unenrolledStreamCall } from "./client";
 
+/** A request/response procedure is expected to settle or reject when its
+ * transport dies. This final ceiling also covers a live transport whose handler
+ * wedges: the poll fails loudly and a pulse queued behind the stuck read gets a
+ * fresh attempt instead of remaining silent forever. */
+const QUERY_DEADLINE_MS = 60_000;
+
 export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
   /** The value-bearing PULSE stream — a `{seq}` distinguisher. `unenrolledStreamCall`
    *  re-subscribes it transparently on reconnect (STREAM_RETRY re-yields its snapshot
@@ -23,13 +29,14 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
    *  value stream's reconnect-refresh, preserved. */
   pulse: StreamingProcedure<PulseInput, Pulse>;
   pulseInput: PulseInput;
-  /** Read immediately, then re-run on every pulse frame (the initial snapshot +
-   *  each on-disk change + each post-reconnect snapshot). The direct read keeps
-   *  initial hydration independent of watcher setup; the pulse snapshot closes
-   *  the race between that read and watcher installation. Reads are single-flight:
-   *  pulses that arrive while a read is running coalesce into one trailing refresh.
-   *  `signal` is aborted only when the poll ends, so a sustained pulse burst cannot
-   *  starve every read. */
+  /** Read immediately, then request a refresh on every pulse frame (the initial
+   *  snapshot + each on-disk change + each post-reconnect snapshot). The direct
+   *  read keeps initial hydration independent of watcher setup; the pulse snapshot
+   *  closes the race between that read and watcher installation, deliberately
+   *  producing a second initial read. Reads are single-flight: pulses that arrive
+   *  while a read is running coalesce into one trailing refresh. `signal` is
+   *  aborted on teardown; a wedged read hits the fixed deadline above, fails loud,
+   *  and releases a queued refresh. */
   query: (signal: AbortSignal) => Promise<Result>;
   /** A fresh result landed (from a read that was not aborted by teardown). */
   onResult: (result: Result) => void;
@@ -45,13 +52,19 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
   signal: AbortSignal;
 }
 
-/** Query once, then subscribe to the pulse and requery per frame. Returns
- *  immediately; the loop runs until the pulse ends (`onComplete`) or `signal`
- *  aborts. */
+/** Query once, then subscribe to the pulse and request a refresh per frame.
+ *  Returns immediately; the loop runs until the pulse ends (`onComplete`) or
+ *  `signal` aborts. */
 export function pollOnChange<PulseInput, Pulse, Result>(
   opts: PollOnChangeOpts<PulseInput, Pulse, Result>,
 ): void {
+  // addEventListener does not replay an abort that already happened. A poll
+  // whose owner is dead on arrival must issue neither the eager read nor the
+  // pulse subscription.
+  if (opts.signal.aborted) return;
+
   let queryCtl: AbortController | null = null;
+  let queryDeadline: ReturnType<typeof setTimeout> | undefined;
   let refreshRequested = false;
   let stopped = false;
 
@@ -68,6 +81,22 @@ export function pollOnChange<PulseInput, Pulse, Result>(
 
     const ctl = new AbortController();
     queryCtl = ctl;
+    const deadline = setTimeout(() => {
+      if (stopped || queryCtl !== ctl) return;
+      queryCtl = null;
+      queryDeadline = undefined;
+      ctl.abort();
+      opts.onError(
+        new Error(
+          `pollOnChange query did not settle within ${QUERY_DEADLINE_MS}ms`,
+        ),
+      );
+      if (refreshRequested) {
+        refreshRequested = false;
+        runQuery();
+      }
+    }, QUERY_DEADLINE_MS);
+    queryDeadline = deadline;
     void (async () => {
       try {
         const result = await opts.query(ctl.signal);
@@ -77,10 +106,14 @@ export function pollOnChange<PulseInput, Pulse, Result>(
         if (ctl.signal.aborted || stopped) return;
         opts.onError(err);
       } finally {
-        if (queryCtl === ctl) queryCtl = null;
-        if (!stopped && refreshRequested) {
-          refreshRequested = false;
-          runQuery();
+        clearTimeout(deadline);
+        if (queryCtl === ctl) {
+          queryCtl = null;
+          if (queryDeadline === deadline) queryDeadline = undefined;
+          if (!stopped && refreshRequested) {
+            refreshRequested = false;
+            runQuery();
+          }
         }
       }
     })();
@@ -89,6 +122,8 @@ export function pollOnChange<PulseInput, Pulse, Result>(
   const stop = (): void => {
     stopped = true;
     refreshRequested = false;
+    clearTimeout(queryDeadline);
+    queryDeadline = undefined;
     queryCtl?.abort();
     queryCtl = null;
   };

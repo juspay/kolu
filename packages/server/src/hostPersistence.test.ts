@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { buildRemotePool } from "@kolu/surface-remote";
 import Conf from "conf";
 import { encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { store } from "./state.ts";
 
@@ -14,10 +14,21 @@ const NO_SEEDS: ReadonlySet<string> = new Set();
 // hostPersistence reads/writes the `hosts` field of the module conf `store` (state.ts),
 // opened at the harness's ephemeral KOLU_STATE_DIR. Reset a MUTATED field after each test
 // so cases don't bleed into one another (and so an invalid value a throw-case wrote doesn't
-// linger on disk for the next test / file). Avoid writing an already-empty value: Conf's
+// linger on disk for the next case). Avoid writing an already-empty value: Conf's
 // synchronous atomic write includes fsync, which is both real work and load-sensitive.
-afterEach(() => {
-  if (store.get("hosts").length > 0) store.set("hosts", []);
+function resetHostsIfNeeded(): void {
+  const hosts: unknown = store.get("hosts");
+  if (!Array.isArray(hosts) || hosts.length > 0) store.set("hosts", []);
+}
+afterEach(resetHostsIfNeeded);
+
+describe("fixture cleanup", () => {
+  it("does not rewrite an already-empty store", () => {
+    const set = vi.spyOn(store, "set");
+    resetHostsIfNeeded();
+    expect(set).not.toHaveBeenCalled();
+    set.mockRestore();
+  });
 });
 
 describe("getPersistedHosts", () => {

@@ -435,9 +435,14 @@ live here.
 
 The framework-free CLIENT dual of the server's `pollOnEvent`: subscribe a
 value-bearing `{seq}` PULSE stream (over `unenrolledStreamCall`, so it carries
-`STREAM_RETRY`), re-run a request/response procedure on every frame (initial
-snapshot + each change + each post-reconnect snapshot), abort-supersede a slow
-read, and emit through `onResult` / `onError` / `onComplete`. Zero Solid/kolu
+`STREAM_RETRY`), query once immediately, then request a refresh for every frame
+(initial snapshot + each change + each post-reconnect snapshot), and emit through
+`onResult` / `onError` / `onComplete`. Reads stay single-flight: frames arriving
+during a read coalesce into one trailing refresh, while a fixed deadline makes a
+wedged read fail loudly and releases that refresh. Teardown aborts both the pulse
+and its current read. The eager hydration read deliberately precedes the initial
+pulse-frame refresh: the second read closes the mutation window between the first
+read and watcher installation. Zero Solid/kolu
 imports — the loop only. The SolidJS ergonomics (a reconciled store, `.pending()`,
 the #818 selection-stability guard) wrap it in `packages/client`'s
 `createPolledQuery`; a consumer needing the same pattern reaches for the wrapper,

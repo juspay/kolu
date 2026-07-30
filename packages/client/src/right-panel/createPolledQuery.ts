@@ -16,9 +16,9 @@
  *   - subscribe the padi pulse stream keyed off the query input (idle — no
  *     subscription, no query — when the input is `null`, exactly like
  *     `.use(() => cond ? input : null)`);
- *   - REQUERY the procedure on EVERY pulse frame the stream yields. `rawStream`
- *     calls `onItem` per frame with NO reconcile dedup, so this covers the
- *     initial snapshot frame (the first read), each on-disk change, AND the
+ *   - request a procedure refresh on EVERY pulse frame the stream yields.
+ *     Reads stay single-flight, so frames arriving during one read coalesce into
+ *     one trailing refresh. This covers the initial snapshot frame, each on-disk change, AND the
  *     fresh snapshot frame a `STREAM_RETRY` reconnect re-subscribe yields — even
  *     when its `{seq}` restarts at a value the last frame already had (which a
  *     reconciled `.use()` would silently swallow). That is the value stream's
@@ -84,8 +84,9 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
   pulseInput: (input: Input) => PulseInput;
-  /** (Re)invoke the padi procedure on each pulse frame. The `signal` aborts a
-   *  superseded in-flight read (input change / a newer pulse). */
+  /** (Re)invoke the padi procedure for pulse invalidations. The `signal` aborts
+   *  the in-flight read when the input changes or the poll is torn down; newer
+   *  pulses coalesce behind that read instead of aborting it. */
   query: (input: Input, signal: AbortSignal) => Promise<Result>;
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
@@ -172,8 +173,8 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     shownKey = null;
   }
 
-  // The requery-per-pulse-frame loop (subscribe pulse → requery → emit, with
-  // abort-supersede) is the framework-free `pollOnChange` core in `@kolu/surface`;
+  // The pulse-refresh loop (subscribe pulse → single-flight leading/trailing
+  // requery → emit) is the framework-free `pollOnChange` core in `@kolu/surface`;
   // this file keeps only the Solid ergonomics that wrap it — the reconciled store
   // write, the `pending`/`error` signals, `shownKey`, and the #818/#1714 guard.
   // The core's in-flight requery is torn down through the pulse `signal` below
@@ -243,7 +244,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       // the pulse below on its first frame (the immediate refresh on activation).
       if (activeKey !== shownKey) blank();
       // The pulse: an UNENROLLED STREAM_RETRY stream over the active host's link
-      // (`activePadiStreams.<pulse>.unenrolled`). Each frame requeries; the
+      // (`activePadiStreams.<pulse>.unenrolled`). Each frame requests a refresh; the
       // stream re-subscribes transparently on reconnect (STREAM_RETRY) and re-yields its
       // snapshot frame, so `runQuery` fires per frame INCLUDING each post-reconnect
       // snapshot — the value stream's reconnect-refresh, preserved. It aborts on the next
@@ -255,7 +256,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       const pulseCtl = new AbortController();
       onCleanup(() => pulseCtl.abort());
       // The framework-free `pollOnChange` core owns the loop (subscribe pulse →
-      // requery per frame → abort-supersede → emit); this file supplies the query
+      // single-flight leading/trailing requery → emit); this file supplies the query
       // and the Solid landing. The `pulseCtl` signal owns the whole poll's lifetime
       // — the effect's `onCleanup` aborts it on every re-run and on owner dispose,
       // tearing down the pulse AND the in-flight requery.

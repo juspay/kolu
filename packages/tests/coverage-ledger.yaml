@@ -1942,7 +1942,7 @@ retirements:
     revisionId: revision-da857ad10356f22ef965
     action: revised
     status: landed
-    promise: Bursty repo-change pulses cannot starve the status read that paints initial and live folder roll-up
+    promise: A burst of delivered repo-change pulses cannot abort-starve the client status read that paints initial and live folder roll-up
     defectSurface:
       - browse-folder-status-rollup
       - pulse-refresh-starvation
@@ -1964,7 +1964,7 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
-      test: The current browser revision preserves the same initial and live assertions using one real edit; the unit replacement proves a burst is coalesced without abort-starving the status read.
+      test: The current browser revision preserves the same initial and live assertions using one real edit; the unit replacement proves delivered pulse frames are coalesced without abort-starving the client read, while the working-tree watcher separately caps its server-side trailing debounce.
   - id: revise-016186bf023516c77263
     revisionId: revision-016186bf023516c77263
     action: revised
