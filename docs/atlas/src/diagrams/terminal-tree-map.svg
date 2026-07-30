@@ -106,7 +106,7 @@
 
   <!-- ===== bottom strip: the other two projections ===== -->
   <line x1="560" y1="330" x2="1170" y2="330" stroke="#232936" stroke-width="1"/>
-  <text x="560" y="360" fill="#7fe3c3" font-size="11" font-weight="600">⌖ focus = the camera zooms to a tile</text>
+  <text x="560" y="360" fill="#7fe3c3" font-size="11" font-weight="600">⌖ focus = the camera zooms to a tile — or its subtree</text>
   <text x="560" y="376" fill="#8b95a7" font-size="10">maximized mode deleted — one scene, one renderer</text>
   <text x="880" y="360" fill="#7fe3c3" font-size="11" font-weight="600">☰ Dock = the same tree, walked as rows</text>
   <text x="880" y="376" fill="#8b95a7" font-size="10">recursive indent · click a row → camera flies there</text>
