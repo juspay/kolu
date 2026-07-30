@@ -7370,6 +7370,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a442170cddaf07b81dc2b7559ba62c53c6422fc4"
+    },
+    {
+      "revisionId": "revision-5706294068f00c45d3da",
+      "scenarioKey": "scenario-5a982f5e712fcdc6b434",
+      "feature": "features/session-restore.feature",
+      "scenario": "A split terminal's agent resumes on session restore",
+      "kind": "scenario",
+      "tags": ["@codex-mock", "@kaval-restart"],
+      "bodyHash": "7f38112bd517a07bebd79931a14040ed66ad7a318fa7adcdba609e69a9d2b60a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "24c346570291232c3965eda50112ab747b772438"
     }
   ]
 }

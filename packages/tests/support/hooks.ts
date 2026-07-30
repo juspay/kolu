@@ -256,8 +256,16 @@ const koluStateDir = mkSubDir("state");
  *  shared padi. Passed to the server as `KOLU_PADI_STATE_DIR` (which padiBinding
  *  forwards verbatim to padi via `--state-root`), so the digest — and thus the
  *  socket/gate paths the reapers below compute — is this worker's alone. Nested
- *  under `testBaseDir` so it's wiped with the rest of the run. */
-const padiStateDir = mkSubDir("padi-state");
+ *  under `testBaseDir` so it's wiped with the rest of the run.
+ *
+ *  EXPORTED because it is also where padi PERSISTS the saved session
+ *  (`<stateRoot>/config.json`, `padi/src/session/stateStore.ts`) — the blob a
+ *  restore-card scenario is actually asserting against. A step that must not
+ *  race the 500 ms-debounced autosave reads it here (see
+ *  `session_restore_steps.ts` → "the saved session should list N resumable
+ *  agents"); it is the ONLY ground truth for "is the session on disk restorable
+ *  yet", since nothing renders it while live terminals exist. */
+export const padiStateDir = mkSubDir("padi-state");
 
 /** Per-worker `XDG_RUNTIME_DIR` so each worker's padi (and the kaval padi spawns)
  *  land at ISOLATED sockets + gates. Both are anchored under this dir but keyed by

@@ -44,6 +44,15 @@
  * live-update; the overlay refreshes when any watched change pulses or when
  * the toggle re-queries.
  *
+ * TWO parcel hazards this file has to work around, both of which end in the
+ * same silent symptom — a subscription that looks installed and delivers
+ * nothing (juspay/kolu#2065):
+ *   - its per-`(dir, ignore)` bookkeeping is only coherent when its calls don't
+ *     overlap, so every call for a repo is serialized (`parcelCallChains`);
+ *   - it watches a newly created directory but never SCANS it, so anything
+ *     already inside is invisible forever, and the subscription is rebuilt to
+ *     re-cover it (`scheduleRebuild`).
+ *
  * Subscribers can pass a `filePath` to receive only events for that exact file
  * (the `BrowseFileView` case — one selected file, not the whole tree) or omit
  * it to receive every event (the `subscribeRepoChange` case). The filter
@@ -51,6 +60,7 @@
  * both consumers — no separate single-file watcher.
  */
 
+import fs from "node:fs";
 import path from "node:path";
 import {
   type AsyncSubscription,
@@ -163,6 +173,71 @@ interface SharedWorkingTreeWatcher {
 
 const sharedWorkingTreeWatchers = new Map<string, SharedWorkingTreeWatcher>();
 
+/** Per-repoRoot serialization chain for EVERY parcel call — subscribe and
+ *  unsubscribe alike. A repo's parcel calls run one at a time, in the order
+ *  they were issued (juspay/kolu#2065).
+ *
+ *  Parcel keys BOTH its process-global `Watcher` registry and its backend
+ *  subscription set on `(dir, ignorePaths, ignoreGlobs)`, and does each call's
+ *  backend half on a libuv threadpool thread. Two overlapping calls for the
+ *  same key therefore complete in arbitrary order, and one of those orders is
+ *  silently lossy: the rebuild's `subscribe` finds the retiring watcher still
+ *  registered (equal by key) and installs NO OS watches, then the retirement
+ *  tears the existing ones down. The rebuilt subscription resolves, holds
+ *  callbacks, and receives nothing — forever. That is a Code tab frozen on
+ *  whatever `git status` said when its stream opened.
+ *
+ *  On an idle process the teardown wins that race on its own, which is why this
+ *  only ever bit under a loaded suite: when every pool thread is busy, both
+ *  calls queue and then start together. Serializing is a fix rather than a
+ *  mitigation — parcel's per-key bookkeeping is only coherent when its calls
+ *  don't overlap, so issuing overlapping ones is the defect.
+ *
+ *  A CHAIN, not a retirement barrier, deliberately: an install can be cancelled
+ *  while its own `subscribe` is still in flight, and a "wait for pending
+ *  teardowns" barrier would not yet know about the unsubscribe that install is
+ *  about to need. Routing every call through one queue makes an overlap
+ *  unexpressible rather than merely unlikely.
+ *
+ *  Failures are absorbed into the chain (each site logs its own): one bad call
+ *  must not wedge every future watcher for the repo. */
+const parcelCallChains = new Map<string, Promise<void>>();
+
+/** Run `call` after every parcel call already queued for `repoRoot`, and
+ *  resolve when it finishes. The entry clears itself once it is the settled
+ *  tail, so an idle repo holds nothing. */
+function sequenceParcelCall(
+  repoRoot: string,
+  call: () => Promise<void>,
+): Promise<void> {
+  const prior = parcelCallChains.get(repoRoot) ?? Promise.resolve();
+  const queued: Promise<void> = prior.then(call).finally(() => {
+    if (parcelCallChains.get(repoRoot) === queued) {
+      parcelCallChains.delete(repoRoot);
+    }
+  });
+  parcelCallChains.set(repoRoot, queued);
+  return queued;
+}
+
+/** Queue a live parcel subscription's teardown onto its repo's chain. Fire and
+ *  forget by design — callers unsubscribe synchronously — but the chain keeps
+ *  the next install behind it. */
+function retireWorkingTreeSubscription(
+  repoRoot: string,
+  sub: AsyncSubscription,
+  log?: Logger,
+): void {
+  void sequenceParcelCall(repoRoot, () =>
+    sub.unsubscribe().catch((e: Error) => {
+      log?.error(
+        { err: e.message, repoRoot },
+        "git: working-tree unsubscribe failed",
+      );
+    }),
+  );
+}
+
 function installSharedWorkingTreeWatcher(
   repoRoot: string,
   onLast: () => void,
@@ -195,89 +270,183 @@ function installSharedWorkingTreeWatcher(
     }, WATCHER_DEBOUNCE_MS);
   };
 
-  // Async install: derive the ignore set from git, then subscribe. Filesystem
-  // mutations between this call and parcel's resolve are invisible to parcel —
-  // the streaming endpoint already yielded its initial snapshot before this
-  // ran, so any change landing in that window leaves the client with a stale
-  // view that no future event would correct on its own. Fire a synthetic tick
-  // once parcel is ready so consumers re-read state and reconcile.
-  void (async () => {
+  /** True when `eventPath` is a directory that ALREADY has an entry in it.
+   *
+   *  Parcel hands us the create event only after it has added the new
+   *  directory's watch, so anything created AFTER that point is covered. What
+   *  is not covered is anything that was already inside when the watch went on
+   *  — parcel's `watchDir` adds the inotify watch and never scans, so those
+   *  entries are invisible to it forever. "Empty right now" is therefore a
+   *  sound, conservative all-clear, and it is the common case (`mkdir foo`)
+   *  that this keeps off the rebuild path entirely.
+   *
+   *  Reads ONE entry via `opendir`, not a full `readdir`: a directory that
+   *  appeared by rename can hold an arbitrary number of children, and all we
+   *  ever ask is "any?". A non-directory throws ENOTDIR, which is the same
+   *  answer — nothing to re-cover. */
+  const hasPreexistingEntries = (eventPath: string): boolean => {
+    let dir: fs.Dir | undefined;
+    try {
+      dir = fs.opendirSync(eventPath);
+      return dir.readSync() !== null;
+    } catch {
+      // Not a directory, or already gone — either way nothing was missed.
+      return false;
+    } finally {
+      try {
+        dir?.closeSync();
+      } catch {
+        // Already closed by the failing read above; nothing to report.
+      }
+    }
+  };
+
+  /** Rebuild the parcel subscription so its recursive walk re-establishes
+   *  watches over a subtree parcel is blind to (see `scheduleRebuild`).
+   *  Trailing-edge debounced on the same window as the event dispatch, so
+   *  `mkdir -p a/b/c` — or a `git checkout` that lands a whole tree — costs
+   *  ONE rebuild rather than one per directory. */
+  let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleRebuild = (): void => {
+    if (rebuildTimer) clearTimeout(rebuildTimer);
+    rebuildTimer = setTimeout(() => {
+      rebuildTimer = undefined;
+      if (cancelled) return;
+      log?.info({ repoRoot }, "git: working-tree watcher re-covering new dirs");
+      void attach();
+    }, WATCHER_DEBOUNCE_MS);
+  };
+
+  /** Parcel's event sink. Buckets events to the listeners they match, and
+   *  notices when parcel has gone blind to a freshly created subtree. */
+  const onParcelEvents: Parameters<typeof parcelSubscribe>[1] = (
+    err,
+    events,
+  ) => {
+    if (cancelled) return;
+    if (err) {
+      log?.error(
+        { err: err.message, repoRoot },
+        "git: working-tree watcher callback error",
+      );
+      return;
+    }
+
+    // Bucket events into the listeners they match. A single batch can
+    // hit several listeners (different filePaths) or none (all-ignored
+    // paths slipped through somehow).
+    let sawBlindSubtree = false;
+    for (const event of events) {
+      // Normalize to NFC before comparing: macOS FSEvents reports
+      // filenames in the filesystem's native form (often NFD —
+      // `e` + combining acute), while `matchAbs` is derived from a
+      // git/client path that's usually NFC (`é`). A raw `===` would
+      // silently miss every event for a unicode-named file, breaking
+      // the single-file watcher's live-reload. `matchAbs` is already
+      // NFC-normalized at creation, so only the event path needs it here.
+      const eventPath = event.path.normalize("NFC");
+      if (
+        !sawBlindSubtree &&
+        event.type === "create" &&
+        hasPreexistingEntries(event.path)
+      ) {
+        sawBlindSubtree = true;
+      }
+      for (const listener of listeners) {
+        if (listener.matchAbs === null || listener.matchAbs === eventPath) {
+          pending.add(listener);
+        }
+      }
+    }
+
+    if (sawBlindSubtree) scheduleRebuild();
+    if (pending.size === 0) return;
+
+    // Trailing-edge debounce — a burst of events fires the listeners
+    // exactly once, after the burst settles. Reset on every new batch.
+    scheduleFire();
+  };
+
+  /** (Re)install parcel's subscription for this repo, replacing whatever is
+   *  currently attached. The teardown and the fresh subscribe run as ONE
+   *  queued call on the repo's parcel chain, so they can neither overlap each
+   *  other nor a sibling entry's calls (see `parcelCallChains`).
+   *
+   *  Called once at construction, and again whenever `scheduleRebuild` finds
+   *  parcel blind to a new subtree. The ignore set is re-derived each time, so
+   *  a rebuild also picks up a `.gitignore` written since the last attach.
+   *
+   *  Filesystem mutations between this call and parcel's resolve are invisible
+   *  to parcel — the streaming endpoint already yielded its initial snapshot
+   *  before this ran, so any change landing in that window leaves the client
+   *  with a stale view that no future event would correct on its own. The
+   *  reconciliation tick at the end is what closes that window: consumers
+   *  re-read state and converge. */
+  async function attach(): Promise<void> {
     const ignore = await _computeIgnore(repoRoot, log);
     if (cancelled) return;
-    try {
-      const sub = await parcelSubscribe(
-        repoRoot,
-        (err, events) => {
-          if (cancelled) return;
-          if (err) {
-            log?.error(
-              { err: err.message, repoRoot },
-              "git: working-tree watcher callback error",
-            );
-            return;
-          }
-
-          // Bucket events into the listeners they match. A single batch can
-          // hit several listeners (different filePaths) or none (all-ignored
-          // paths slipped through somehow).
-          for (const event of events) {
-            // Normalize to NFC before comparing: macOS FSEvents reports
-            // filenames in the filesystem's native form (often NFD —
-            // `e` + combining acute), while `matchAbs` is derived from a
-            // git/client path that's usually NFC (`é`). A raw `===` would
-            // silently miss every event for a unicode-named file, breaking
-            // the single-file watcher's live-reload. `matchAbs` is already
-            // NFC-normalized at creation, so only the event path needs it here.
-            const eventPath = event.path.normalize("NFC");
-            for (const listener of listeners) {
-              if (
-                listener.matchAbs === null ||
-                listener.matchAbs === eventPath
-              ) {
-                pending.add(listener);
-              }
-            }
-          }
-
-          if (pending.size === 0) return;
-
-          // Trailing-edge debounce — a burst of events fires the listeners
-          // exactly once, after the burst settles. Reset on every new batch.
-          scheduleFire();
-        },
-        // `backend` pins the OS-native watcher and skips parcel's leaking
-        // per-subscribe watchman probe — see PARCEL_BACKEND above.
-        { ignore, backend: PARCEL_BACKEND },
-      );
-
-      if (cancelled) {
-        void sub.unsubscribe().catch((e: Error) => {
+    await sequenceParcelCall(repoRoot, async () => {
+      if (cancelled) return;
+      // Retire the outgoing subscription first, in this same queued call —
+      // parcel's per-key bookkeeping only stays coherent when its calls don't
+      // overlap, and a rebuild is exactly the overlap that would otherwise
+      // leave the replacement holding no watches at all.
+      const outgoing = subscription;
+      subscription = null;
+      if (outgoing) {
+        await outgoing.unsubscribe().catch((e: Error) => {
           log?.error(
             { err: e.message, repoRoot },
-            "git: working-tree late-unsubscribe failed",
+            "git: working-tree unsubscribe failed",
           );
         });
-        return;
       }
-      subscription = sub;
-      log?.info({ repoRoot }, "git: working-tree watcher installed");
+      try {
+        const sub = await parcelSubscribe(repoRoot, onParcelEvents, {
+          // `backend` pins the OS-native watcher and skips parcel's leaking
+          // per-subscribe watchman probe — see PARCEL_BACKEND above.
+          ignore,
+          backend: PARCEL_BACKEND,
+        });
 
-      // Reconcile any mutations that landed in the install window — parcel
-      // didn't see them, but the listener's own re-read will. Add every
-      // current listener to `pending` (the filter doesn't matter here;
-      // reconciliation is a "re-derive your state" signal, not a path-specific
-      // event) and schedule one debounced fire.
-      if (listeners.size > 0) {
-        for (const listener of listeners) pending.add(listener);
-        scheduleFire();
+        if (cancelled) {
+          // Retired while parcel was subscribing. Unsubscribe INLINE rather
+          // than re-queueing: we are already this repo's queued call, so
+          // awaiting here keeps the teardown ordered, while re-queueing would
+          // deadlock behind ourselves. Its own catch keeps a failed teardown
+          // reported as one, not miscast as an install failure below.
+          await sub.unsubscribe().catch((e: Error) => {
+            log?.error(
+              { err: e.message, repoRoot },
+              "git: working-tree late-unsubscribe failed",
+            );
+          });
+          return;
+        }
+        subscription = sub;
+        log?.info({ repoRoot }, "git: working-tree watcher installed");
+
+        // Reconcile any mutations that landed in the (re)install window —
+        // parcel didn't see them, but the listener's own re-read will. Add
+        // every current listener to `pending` (the filter doesn't matter here;
+        // reconciliation is a "re-derive your state" signal, not a
+        // path-specific event) and schedule one debounced fire. After a
+        // rebuild this is also what surfaces whatever the blind subtree was
+        // hiding, without waiting for its next edit.
+        if (listeners.size > 0) {
+          for (const listener of listeners) pending.add(listener);
+          scheduleFire();
+        }
+      } catch (e) {
+        log?.error(
+          { err: e instanceof Error ? e.message : String(e), repoRoot },
+          "git: working-tree watcher install failed",
+        );
       }
-    } catch (e) {
-      log?.error(
-        { err: e instanceof Error ? e.message : String(e), repoRoot },
-        "git: working-tree watcher install failed",
-      );
-    }
-  })();
+    });
+  }
+
+  void attach();
 
   return {
     subscribe(matchAbs, onChange) {
@@ -288,14 +457,14 @@ function installSharedWorkingTreeWatcher(
         pending.delete(listener);
         if (listeners.size === 0) {
           if (timer) clearTimeout(timer);
+          if (rebuildTimer) clearTimeout(rebuildTimer);
           cancelled = true;
           if (subscription) {
-            void subscription.unsubscribe().catch((e: Error) => {
-              log?.error(
-                { err: e.message, repoRoot },
-                "git: working-tree unsubscribe failed",
-              );
-            });
+            // Queue the teardown BEFORE `onLast()` drops the registry entry:
+            // the very next `watchWorkingTree` for this repo builds a fresh
+            // entry, and its install must find this call already on the chain
+            // to queue behind (juspay/kolu#2065).
+            retireWorkingTreeSubscription(repoRoot, subscription, log);
             subscription = null;
           }
           onLast();
