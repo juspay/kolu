@@ -1351,7 +1351,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
-    grid?: TerminalGrid,
+    resizeTo?: TerminalGrid,
   ): Promise<TerminalAttachment> {
     // Wait for the PTY to actually exist before opening the attach stream —
     // otherwise a tile attaching off the sync shadow races the in-flight
@@ -1365,26 +1365,25 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // then deltas; a first frame that isn't a snapshot is a contract violation —
     // throw rather than silently paint a blank terminal (the same fail-loud
     // stance as `getScreenState`'s NOT_FOUND).
-    // The grid sizes the terminal ONCE, on the initial attach — it is not
-    // re-asserted by the overflow-driven re-attaches below.
+    // The resize is consumed by the FIRST open only — it is not replayed by the
+    // overflow-driven re-attaches below.
     //
-    // `grid` is a VALUE captured when this attach was requested, but the
+    // `resizeTo` is a VALUE captured when this attach was requested, but the
     // consumer's real grid is a live fact: after any resize it travels on
     // `lifecycle.resize`, which this closure never hears about. Replaying the
     // captured value on a re-attach would therefore drag the PTY BACK to a size
-    // the consumer no longer has — and because `attach` now performs a real
-    // resize, that lands a SIGWINCH and a snapshot laid out for the stale grid,
-    // recreating the exact defect this change closes. Re-attaching WITHOUT a
-    // grid is correct precisely because the initial attach already sized the
-    // terminal and `lifecycle.resize` has owned every change since, so the PTY
-    // is already at the consumer's current size and the fresh snapshot
-    // serializes there.
-    let sized = false;
+    // the consumer no longer has — and because `attach` performs a real resize,
+    // that lands a SIGWINCH and a snapshot laid out for the stale grid,
+    // recreating the exact defect this change closes. Re-attaching WITHOUT it is
+    // correct precisely because the initial attach already sized the terminal
+    // and `lifecycle.resize` has owned every change since, so the PTY is already
+    // at the consumer's current size and the fresh snapshot serializes there.
+    let pendingResize = resizeTo;
     const open = async (): Promise<OpenedAttach> => {
-      const initialGrid = sized ? undefined : grid;
-      sized = true;
+      const initialResize = pendingResize;
+      pendingResize = undefined;
       const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id, grid: initialGrid },
+        { id, resizeTo: initialResize },
         { signal },
       );
       const iter = stream[Symbol.asyncIterator]();

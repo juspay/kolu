@@ -248,16 +248,17 @@ export async function runAttach(
       const abort = new AbortController();
       currentAbort = abort;
       try {
-        // The grid rides ON the attach: the host resizes to it and serializes
-        // as one act, so the snapshot is always laid out for THIS tty's
-        // dimensions. This replaces the old resize-then-attach pairing, which
-        // was two calls a caller had to remember to order correctly and which
-        // raced whenever it didn't — the same defect that made a hidden browser
-        // split render at a grid it never had. Cross-client policy is unchanged
-        // (last-attach-wins): a concurrently-attached browser tile may show wrap
-        // artifacts until its own next attach or resize.
+        // The grid rides ON the attach: `resizeTo` makes the host resize the
+        // PTY and serialize as one act, so the snapshot is always laid out for
+        // THIS tty's dimensions. This replaces the old resize-then-attach
+        // pairing, which was two calls a caller had to remember to order
+        // correctly and which raced whenever it didn't — the same defect that
+        // made a hidden browser split render at a grid it never had. Note the
+        // name is honest about the cost: this is a real resize of a SHARED PTY
+        // (last-attach-wins), so a concurrently-attached browser tile may show
+        // wrap artifacts until its own next attach or resize.
         const stream = await client.surface.terminalAttach.get(
-          { id, grid: tty.size() },
+          { id, resizeTo: tty.size() },
           { signal: abort.signal },
         );
         const iter = stream[Symbol.asyncIterator]();

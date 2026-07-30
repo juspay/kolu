@@ -194,7 +194,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
             onOverflow: () => {
               overflow = true;
             },
-            grid: input.grid,
+            resizeTo: input.resizeTo,
           });
           yield {
             kind: "snapshot" as const,

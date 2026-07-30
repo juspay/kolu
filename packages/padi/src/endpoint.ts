@@ -225,16 +225,19 @@ export interface TerminalEndpoint {
    *  is opened through the pty-host contract (over the wire for a socket/ssh
    *  endpoint).
    *
-   *  `grid` is the cols×rows the CALLER will render the snapshot into. The host
-   *  resizes to it before serializing, so the returned bytes are always laid out
-   *  for the grid that will paint them — the size travels WITH the request
-   *  instead of racing it through a separate resize. Omitted means "serialize at
-   *  whatever size the PTY currently has", which is only correct for a caller
-   *  that has no grid of its own (a CLI dumping the screen). */
+   *  `resizeTo` RESIZES the terminal before serializing — a real resize, with a
+   *  SIGWINCH to the child and a reflow of the mirror every other attached
+   *  client shares, so this "read" is a WRITE whenever it is present and differs
+   *  from the terminal's current grid (policy: last-attach-wins). Fused on
+   *  purpose: the returned bytes are laid out for a specific cols×rows, so the
+   *  size must travel WITH the request instead of racing it through a separate
+   *  resize. Omitted means "serialize at whatever size the PTY currently has",
+   *  which is only correct for a caller that has no grid of its own (a CLI
+   *  dumping the screen). */
   attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
-    grid?: TerminalGrid,
+    resizeTo?: TerminalGrid,
   ): Promise<TerminalAttachment>;
 
   readonly fs: TerminalEndpointFs;

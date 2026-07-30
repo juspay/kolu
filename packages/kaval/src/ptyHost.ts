@@ -36,6 +36,7 @@ import {
 } from "@kolu/xterm-kit";
 import * as pty from "node-pty";
 import { Channel } from "./channel.ts";
+import type { PtyGrid } from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -345,11 +346,10 @@ export interface PtyHostOptions {
   dataMaxQueue?: number;
 }
 
-/** A PTY grid — cols × rows. */
-export interface PtyGrid {
-  cols: number;
-  rows: number;
-}
+/** A PTY grid — cols × rows. Inferred from the surface's one grid schema (the
+ *  file's convention for every other wire shape), so the type and the validation
+ *  rule are one statement rather than two independently-editable ones. */
+export type { PtyGrid };
 
 /** The optional halves of an {@link PtyHost.attach}. */
 export interface PtyAttachOpts {
@@ -357,19 +357,30 @@ export interface PtyAttachOpts {
    *  past the bound — the serving layer turns it into an `overflow` frame so the
    *  consumer re-attaches rather than mistaking the drop for a PTY exit. */
   onOverflow?: () => void;
-  /** The cols×rows the CONSUMER will render the snapshot into. The PTY is
-   *  resized to it before the serialize, so the snapshot is always laid out for
-   *  the grid that will paint it. Omit it only when the caller has no grid of its
-   *  own (a CLI dumping the screen), which reads the PTY at its current size. */
-  grid?: PtyGrid;
+  /** RESIZES the PTY to this grid before serializing — a real `resize()`:
+   *  SIGWINCH to the child, a reflow of the SHARED mirror, snapshot-memo
+   *  invalidation, an activity mute, and (on a width change) a reflow-epoch bump
+   *  that stales EVERY OTHER attached client's backfill cursor. Attaching is
+   *  therefore a WRITE to shared state whenever this is present and differs from
+   *  the PTY's current grid; the policy is last-attach-wins, so a second viewer
+   *  at a different size moves the first one's layout.
+   *
+   *  The fusion is deliberate — a snapshot is bytes laid out for a specific
+   *  cols×rows, so resize-and-serialize must be one act — and this name is what
+   *  makes the write visible at the call site. Omit it only when the caller has
+   *  no grid of its own (a CLI dumping the screen), which reads the PTY at its
+   *  current size. */
+  resizeTo?: PtyGrid;
 }
 
 /** The multi-client PTY-owner primitive. */
 export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
   spawn(opts: PtySpawnOpts): PtySpawnResult;
-  /** Subscribe-before-serialize: returns a race-free snapshot + delta
-   *  stream for a late-joining client.
+  /** **Resizes the PTY to `opts.resizeTo` first** (a real `resize()` — see
+   *  {@link PtyAttachOpts.resizeTo}, which mutates state every other attached
+   *  client can see), then subscribe-before-serialize: returns a race-free
+   *  snapshot + delta stream for a late-joining client.
    *
    *  The two optional behaviours ride in ONE bag rather than trailing
    *  positionals, so a caller that wants only the later one never has to write a
@@ -1039,7 +1050,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     signal?: AbortSignal,
     opts?: PtyAttachOpts,
   ): PtyAttachment {
-    const { onOverflow, grid } = opts ?? {};
+    const { onOverflow, resizeTo } = opts ?? {};
     const entry = requireEntry(id);
     // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
     // bytes laid out for the grid that will paint them. This is the whole point
@@ -1050,8 +1061,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // the same size costs nothing and staleness the reflow epoch guards is not
     // spuriously bumped), and a genuine change reflows the mirror, invalidates
     // the snapshot memo, and SIGWINCHes the process exactly as a user resize
-    // does — which is what makes the process repaint into the new grid.
-    if (grid) resize(id, grid.cols, grid.rows);
+    // does — which is what makes the process repaint into the new grid. This is
+    // the WRITE the `resizeTo` name advertises: it is visible to every other
+    // client attached to this PTY, not private to this attachment.
+    if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
     // Subscribe BEFORE serializing, both synchronously: no headless parse
     // (and thus no post-parse publish) can interleave between the two, so
     // every chunk lands in exactly one of snapshot / deltas.

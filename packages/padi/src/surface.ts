@@ -642,24 +642,32 @@ export const PadiCreateInputSchema = z
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 
-/** A terminal grid — cols AND rows, together or not at all. */
+/** A terminal grid — cols AND rows, together or not at all. The ONE grid rule
+ *  on this surface: every member carrying a grid reuses it, so tightening the
+ *  rule is one edit instead of a re-derivation per member. */
 export const TerminalGridSchema = z.object({
   cols: z.number().int().positive(),
   rows: z.number().int().positive(),
 });
 
-/** Attach input: the terminal, plus the grid the CALLER will render the
- *  snapshot into.
+/** Attach input: the terminal, plus — optionally — a grid to RESIZE it to
+ *  first.
  *
- *  The snapshot is bytes laid out for a specific cols×rows — cursor moves and
- *  wraps only mean anything at the width they were serialized for. Carrying the
- *  grid on the attach REQUEST is what makes "a snapshot for a size the consumer
- *  isn't" unrepresentable: the host resizes to this grid and serializes as one
- *  act, so the bytes and the grid can never be two facts that raced. Without it
- *  the consumer had to publish its size through a SEPARATE `lifecycle.resize`
- *  and hope it landed first — and when it didn't, nothing repaired the screen,
- *  because a same-dimensions resize is (correctly) a no-op, so no SIGWINCH ever
- *  reached the process.
+ *  `resizeTo` is a command, not a description of the caller: the host runs its
+ *  full resize before serializing (SIGWINCH to the child, a reflow of the
+ *  shared mirror, and on a width change a reflow-epoch bump that stales every
+ *  other attached client's backfill cursor). Attaching is a WRITE to shared
+ *  state whenever it is present and differs from the terminal's current grid;
+ *  the policy is last-attach-wins.
+ *
+ *  The fusion is the point. The snapshot is bytes laid out for a specific
+ *  cols×rows — cursor moves and wraps only mean anything at the width they were
+ *  serialized for. Carrying the grid on the attach REQUEST means the resize and
+ *  the serialize are one act, so the bytes and the grid can never be two facts
+ *  that raced. Without it the consumer had to publish its size through a
+ *  SEPARATE `lifecycle.resize` and hope it landed first — and when it didn't,
+ *  nothing repaired the screen, because a same-dimensions resize is (correctly)
+ *  a no-op, so no SIGWINCH ever reached the process.
  *
  *  OPTIONAL, and deliberately un-versioned. Absence degrades to exactly the
  *  previous reading in BOTH skew directions — a newer client's grid is stripped
@@ -676,15 +684,20 @@ export const PadiTerminalAttachInputSchema = z.object({
   // both-or-neither rule out into hand-written guards at every reader — the very
   // class of "valid-looking value nobody can act on" this change exists to
   // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
-  // here is strict, so an older peer strips an unknown `grid` exactly as it would
-  // strip unknown `cols`/`rows`.
-  grid: TerminalGridSchema.optional(),
+  // here is strict, so an older peer strips an unknown `resizeTo` exactly as it
+  // would strip unknown `cols`/`rows`.
+  resizeTo: TerminalGridSchema.optional(),
 });
 
-export const PadiResizeInputSchema = z.object({
+// The SAME grid rule the attach carries. `resize` and `attach` describe one
+// value with one meaning, reaching the same mutator, so they must not derive it
+// twice — a bare `z.number()` here accepted a float or a negative that kaval
+// rejected one hop later, leaving the boundary that KNOWS what a grid is as the
+// one that didn't enforce it. Tightening rejects only values kaval already
+// refused, so no working call changes behaviour; the loud failure just moves to
+// the boundary that owns the concept.
+export const PadiResizeInputSchema = TerminalGridSchema.extend({
   id: TerminalIdSchema,
-  cols: z.number(),
-  rows: z.number(),
 });
 
 export const PadiSendInputSchema = z.object({

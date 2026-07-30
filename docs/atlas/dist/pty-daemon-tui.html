@@ -140,7 +140,7 @@
 </tr>
 <tr>
 <td><code>kaval-tui attach &lt;id&gt;</code></td>
-<td><code>terminalAttach.get({id, grid})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code> + <code>exit.get({id})</code></td>
+<td><code>terminalAttach.get({id, resizeTo})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code> + <code>exit.get({id})</code></td>
 <td>Put the local tty in raw mode. First yield is the <strong>scrollback snapshot</strong> → paint to stdout; deltas stream after. Forward stdin via <code>write</code>; <code>SIGWINCH</code> → <code>resize({id, cols, rows})</code>. A line-start <code>~.</code> escape detaches — the CLI exits, kolu-server keeps the PTY. When the deltas end, the <code>exit</code> stream discriminates “PTY died” (report the real code, quit with it) from “stream dropped” (re-attach; the fresh snapshot repaints). <em>The full client-side loop — reply filter, deterministic restore, sizing — shipped with Phase 2 below.</em></td>
 </tr>
 <tr>
@@ -387,8 +387,8 @@
 </tr>
 <tr>
 <td><strong>Sizing</strong></td>
-<td>the grid rides ON the attach; last-attach-wins across clients</td>
-<td>A serialized screen is bytes laid out <em>for a specific cols×rows</em>, so the attach request carries the local tty’s grid and the host resizes-and-serializes as one act — the snapshot always arrives laid out for the terminal that will paint it. This supersedes the original resize-then-attach pairing, which was two calls a caller had to order correctly and which raced whenever it didn’t; the grid is now part of the request, so the mismatch is unrepresentable rather than merely avoided by discipline. The contract still has no size-change tap, so a concurrently-attached browser tile may show wrap artifacts until its own next attach or resize — accepted and documented.</td>
+<td>the grid rides ON the attach as <code>resizeTo</code>; last-attach-wins across clients</td>
+<td>A serialized screen is bytes laid out <em>for a specific cols×rows</em>, so the attach request carries the local tty’s grid and the host resizes-and-serializes as one act — the snapshot always arrives laid out for the terminal that will paint it. This supersedes the original resize-then-attach pairing, which was two calls a caller had to order correctly and which raced whenever it didn’t; being one request, the mismatch can no longer be produced by two calls landing out of order. It is still expressible by <em>omitting</em> <code>resizeTo</code>, which only a caller with no grid of its own (a screen-dumping CLI) may do. The field is named for what it does: a real resize of a shared PTY, so a <strong>re-attach is now a resize</strong> — with two differently-sized viewers any stream re-subscribe, not only a user resize, moves the PTY. The contract still has no size-change tap, so a concurrently-attached browser tile may show wrap artifacts until its own next attach or resize — accepted and documented.</td>
 </tr>
 <tr>
 <td><strong>Status lines</strong></td>

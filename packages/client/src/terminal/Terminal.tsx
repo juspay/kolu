@@ -516,7 +516,9 @@ const Terminal: Component<{
           }
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
-            { id: props.terminalId, grid: measured },
+            // `resizeTo`, not a description of this pane: the host resizes the
+            // shared PTY to it before serializing.
+            { id: props.terminalId, resizeTo: measured },
             { signal, onRetry: resetForFreshSnapshot },
           );
         },
