@@ -91,14 +91,16 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
     });
   });
 
-  /** A named holder is an answer even when the NAME source went blind — the
-   *  `--procs` facet costs commands, never the holder set. */
-  it("still names holders when only the identity source went blind", () => {
+  /** A named holder is an answer even when its NAME could not be read. That
+   *  loss is the shape the verb really emits — a per-pid `U` row, not an
+   *  `E … proc …` source error (which `SOCKET_HOLDERS_SOURCE_FACETS` no
+   *  longer promises, because no reader can write one). */
+  it("still names holders when the identity read lost one pid", () => {
     expect(
       foldSocketHoldersReading(
         reading({
           holders: [{ status: "claimed", pid: 7 }],
-          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+          unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
         }),
       ),
     ).toEqual({ kind: "holders", holders: [{ pid: 7, command: "?" }] });

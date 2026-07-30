@@ -129,13 +129,17 @@ export type SnapshotSourceFacet = (typeof SNAPSHOT_SOURCE_FACETS)[number];
 /**
  * Facets an `E` row of the `socket-holders` verb can name.
  *
- * `socket_holders` is the holder set itself going blind — on darwin, the
- * descriptor walk that named nobody and could not tell that from being denied
- * another user's descriptors. `proc` is the optional `--procs` facet: it costs
- * the holders' *names*, never the holder set, so a reading carrying holders
- * and a `proc` error is still an answer.
+ * Exactly one: `socket_holders`, the holder set itself going blind — on
+ * darwin, the descriptor walk that named nobody and could not tell that from
+ * being denied another user's descriptors.
+ *
+ * The `--procs` facet is deliberately NOT here. It names an already-known pid
+ * set, so a name the tool cannot read costs that one holder and arrives as
+ * that pid's `U` row (`facet: "proc"` in `unreadable`), never as a blind
+ * source. A reading can therefore carry holders and lose a name, but it never
+ * carries an `E … proc …` row on this verb.
  */
-export const SOCKET_HOLDERS_SOURCE_FACETS = ["socket_holders", "proc"] as const;
+export const SOCKET_HOLDERS_SOURCE_FACETS = ["socket_holders"] as const;
 export type SocketHoldersSourceFacet =
   (typeof SOCKET_HOLDERS_SOURCE_FACETS)[number];
 export interface SocketHoldersSourceErrorRow {

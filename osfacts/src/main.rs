@@ -240,14 +240,18 @@ mod tests {
     /// A bound socket no readable pid claims is a fact — so a `--procs` ask
     /// that also lost holder *names* still succeeds, carrying both.
     #[test]
-    fn an_unclaimed_holder_survives_a_blind_name_source() {
+    fn a_holder_whose_name_is_unreadable_is_still_an_answer() {
         let mut holders = SocketHolders::new();
-        holders.holders.push(Attribution::Unclaimed);
-        holders
-            .errors
-            .push(source_error("proc_readdir", Facet::Proc, libc::EACCES));
+        holders.holders.push(Attribution::Claimed { pid: 7 });
+        // The `--procs` failure this verb really has: the pid set is already
+        // known, so a name it cannot read costs THAT holder and nothing else.
+        // It is a `U` row, never an `E … proc …` one — which is why
+        // `SOCKET_HOLDERS_SOURCE` names only `socket_holders`.
+        holders.push_unreadable(7, Facet::Proc, libc::EACCES);
 
         assert_eq!(exit_code(&holders), ExitCode::SUCCESS);
+        assert!(holders.errors.is_empty());
+        assert!(!Facet::SOCKET_HOLDERS_SOURCE.contains(&Facet::Proc));
     }
 
     #[test]

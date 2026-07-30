@@ -95,11 +95,14 @@ impl Facet {
 
     /// Facets an `E` row of the `socket-holders` verb can name.
     ///
-    /// `socket_holders` is the holder set itself — the source that answers
-    /// *who holds this path*. `proc` is the optional `--procs` facet, which
-    /// costs the holders' names but never the holder set: a snapshot that
-    /// names the holders and fails to name their commands is still an answer.
-    pub const SOCKET_HOLDERS_SOURCE: &'static [Self] = &[Self::SocketHolders, Self::Proc];
+    /// Exactly one: `socket_holders`, the holder set itself — the source that
+    /// answers *who holds this path*. The `--procs` facet has no source-level
+    /// failure on this verb: it names an already-known pid set, so a name it
+    /// cannot read costs that ONE holder and is reported as that pid's `U`
+    /// row (`Facet::Proc`), never as a blind source. A projection wider than
+    /// the code can emit would tell a consumer to expect an `E … proc …` row
+    /// nothing writes.
+    pub const SOCKET_HOLDERS_SOURCE: &'static [Self] = &[Self::SocketHolders];
 
     /// Facets an `E` row of the `host` verb can name. A separate projection
     /// because the two verbs are separate contracts: `mem` here is host RAM,

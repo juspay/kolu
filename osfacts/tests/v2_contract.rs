@@ -41,14 +41,16 @@ fn facets_json_is_the_enum() {
 
 /// Each verb owns its own `E` vocabulary, so a consumer cannot match a facet
 /// name across verbs by accident. `socket_holders` is the one facet only the
-/// third verb can name; `proc` is deliberately shared, because a `--procs`
-/// facet means the same thing in both documents.
+/// third verb can name — and it is the ONLY one that verb can name: its
+/// `--procs` failures are per-pid `U` rows, so an `E … proc …` row on this
+/// verb is a shape nothing writes and the projection must not promise it.
 #[test]
 fn each_verb_owns_its_source_facet_vocabulary() {
     assert!(Facet::SOCKET_HOLDERS_SOURCE.contains(&Facet::SocketHolders));
     assert!(!Facet::SNAPSHOT_SOURCE.contains(&Facet::SocketHolders));
     assert!(!Facet::HOST_SOURCE.contains(&Facet::SocketHolders));
-    assert!(Facet::SOCKET_HOLDERS_SOURCE.contains(&Facet::Proc));
+    assert_eq!(Facet::SOCKET_HOLDERS_SOURCE, &[Facet::SocketHolders]);
+    assert!(Facet::UNREADABLE.contains(&Facet::Proc));
 }
 
 /// The one darwin source that feeds four facets must name the facet the ASK
