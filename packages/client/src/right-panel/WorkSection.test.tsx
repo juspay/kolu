@@ -229,10 +229,13 @@ describe("WorkSection PR and CI", () => {
         state: "open",
         url: "https://github.test/pull/2072",
         checks: "fail",
+        // Deliberately NOT in triage order — a fixture authored as
+        // fail/pending/pass would make the ordering assertion below echo its
+        // own input and stay green with the production sort deleted.
         checkRuns: [
+          { name: "ci::biome", outcome: "pass" },
           { name: "ci::typecheck", outcome: "fail" },
           { name: "ci::e2e", outcome: "pending" },
-          { name: "ci::biome", outcome: "pass" },
         ],
       },
     },
