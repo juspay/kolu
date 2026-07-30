@@ -30,7 +30,9 @@ export function exportSession(session: SavedSession | null): void {
     toast.warning("No saved session to export");
     return;
   }
-  const blob = new Blob([JSON.stringify(session, null, 2)], {
+  // Disk shape only — strip wire-only host stamp so the backup matches conf.
+  const { resumableIds: _wireOnly, ...disk } = session;
+  const blob = new Blob([JSON.stringify(disk, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
