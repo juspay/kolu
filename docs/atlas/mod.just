@@ -39,6 +39,7 @@ _static: install
 #
 # The build lands in a throwaway dir OUTSIDE the worktree and is discarded: only
 # `atlas::build` may write the committed dist/. See `check-sync` for why.
+[doc('Types + a real build + the build-helper unit tests (writes nothing)')]
 check: _static
     #!/usr/bin/env bash
     set -euo pipefail
@@ -81,6 +82,7 @@ build: install
 # a build-based "add a note, diff the rest" probe is vacuous (Astro's chunking
 # doesn't reliably reshuffle on a synthetic note), so it would sail green and
 # hide the regression rather than catch it.
+[doc('CI gate: fail if the committed dist/ is stale or host-dependent (writes nothing)')]
 check-sync: _static
     #!/usr/bin/env bash
     set -euo pipefail
