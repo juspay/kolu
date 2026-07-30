@@ -1335,3 +1335,42 @@ retirements:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario Outline: Selected file survives switching to another terminal and back [<mode>]"
       test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: revise-35bf81ee0057bbf14600
+    revisionId: revision-35bf81ee0057bbf14600
+    action: revised
+    status: landed
+    promise: A quoted flag value survives intact in the Recent-agents list
+    defectSurface: [recent-agents, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d693ae151dd9f4c5c1ca]
+    sameCodePathEvidence:
+      file: packages/tests/features/recent-agents.feature
+      symbol: "Scenario: A quoted flag value survives intact in the list (#1407)"
+      test: The revised scenario explicitly starts the intentionally absent Claude binary after its preexec event.
+  - id: revise-89489c0700fe4ccb9a43
+    revisionId: revision-89489c0700fe4ccb9a43
+    action: revised
+    status: landed
+    promise: Prompt flag values are stripped before Recent-agents storage
+    defectSurface: [recent-agents, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-14a54fc0cd3d6c282483]
+    sameCodePathEvidence:
+      file: packages/tests/features/recent-agents.feature
+      symbol: "Scenario: Prompt flag values are stripped before storage"
+      test: The revised scenario explicitly starts the intentionally absent Claude binary after its preexec event.
+  - id: revise-5d80e2b7f4f44c94576d
+    revisionId: revision-5d80e2b7f4f44c94576d
+    action: revised
+    status: landed
+    promise: A Git worktree shows its branch, main-repo name, and worktree indicator
+    defectSurface: [git-context, e2e-isolation]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-0451f827a9fb275835ac]
+    sameCodePathEvidence:
+      file: packages/tests/features/git-context.feature
+      symbol: "Scenario: Git worktree shows its own branch and main repo name"
+      test: The revised scenario removes its exact scratch repositories before recreating the real worktree.

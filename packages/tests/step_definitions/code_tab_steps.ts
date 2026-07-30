@@ -1619,13 +1619,6 @@ async function setupCodeTabFixture(
     // The marker is split across a shell string-concat (`SET""TLED`) so the
     // search text matches only the command's OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
-    await runShell(world, `git init --bare -b master ${origin}`);
-    await runShell(
-      world,
-      `(git init -b master ${seed} && cd ${seed} && ` +
-        `git remote add origin ${origin} && ` +
-        `git commit --allow-empty -m init && git push -u origin master)`,
-    );
     // Keep the marker shorter than the narrowest e2e terminal. The xterm
     // buffer inserts a newline at a wrapped cell boundary, so embedding the
     // full worktree path made a successful marker unreadable as one string
@@ -1634,7 +1627,11 @@ async function setupCodeTabFixture(
     const settledMarker = `KOLU_SETTLED_${token}`;
     const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
     await world.terminalRun(
-      `(git clone ${origin} ${work} && cd ${work} && ` +
+      `(git init --bare -b master ${origin} && ` +
+        `(git init -b master ${seed} && cd ${seed} && ` +
+        `git remote add origin ${origin} && ` +
+        `git commit --allow-empty -m init && git push -u origin master) && ` +
+        `git clone ${origin} ${work} && cd ${work} && ` +
         `git checkout -b feature && ${writeFiles} && git add . && ` +
         `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
         `&& cd ${work}; kolu_fixture_status=$?; ` +
@@ -1656,8 +1653,9 @@ async function setupCodeTabFixture(
       const failure = outcome.buffer
         .split("\n")
         .find((line) => line.includes(failedMarker));
+      const tail = outcome.buffer.split("\n").slice(-20).join("\n");
       throw new Error(
-        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}`,
+        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}\n${tail}`,
       );
     }
   } else if (mode === "browse") {

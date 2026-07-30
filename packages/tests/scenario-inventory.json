@@ -6698,6 +6698,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-d693ae151dd9f4c5c1ca",
+      "scenarioKey": "scenario-5c6023294bfe5d30d74b",
+      "feature": "features/recent-agents.feature",
+      "scenario": "A quoted flag value survives intact in the list (#1407)",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9e18ace366daf2832fe5d164a2e6fca7c5e93b691b45787b16f17d2968635633",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ae10d2a8469ab2d58dea2a0d3c8790876331eb54"
+    },
+    {
+      "revisionId": "revision-14a54fc0cd3d6c282483",
+      "scenarioKey": "scenario-7b1c5b1b9ff7f14f63b6",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Prompt flag values are stripped before storage",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "89d72dccfbe02a641afd64e73fb710c3cda51766a3a6d81adf609962dc070c2d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ae10d2a8469ab2d58dea2a0d3c8790876331eb54"
+    },
+    {
+      "revisionId": "revision-0451f827a9fb275835ac",
+      "scenarioKey": "scenario-af557d74e2753ca91cdd",
+      "feature": "features/git-context.feature",
+      "scenario": "Git worktree shows its own branch and main repo name",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d50d15a456df47b18b5cc3b32f4921741ae6c3c4e53c4579fc72006614e03819",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ae10d2a8469ab2d58dea2a0d3c8790876331eb54"
     }
   ]
 }

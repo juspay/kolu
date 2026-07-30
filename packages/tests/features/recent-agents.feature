@@ -39,7 +39,7 @@ Feature: Recent agents in command palette
     And there should be no page errors
 
   Scenario: Prompt flag values are stripped before storage
-    When I run "claude --model sonnet -p mysecret"
+    When I start "claude --model sonnet -p mysecret"
     And I open the command palette
     And I select "Recent agents" in the palette
     Then palette item "claude --model sonnet" should be visible
@@ -57,7 +57,7 @@ Feature: Recent agents in command palette
     # RE-QUOTE a value carrying JSON/spaces, or re-running the recent agent
     # word-splits it (the original symptom was `Error: Settings file not found:
     # {ultracode:`). The list must show the value still single-quoted.
-    When I run "claude --dangerously-skip-permissions --settings '{\"ultracode\": true}'"
+    When I start "claude --dangerously-skip-permissions --settings '{\"ultracode\": true}'"
     And I open the command palette
     And I select "Recent agents" in the palette
     Then the palette breadcrumb should show "Recent agents"

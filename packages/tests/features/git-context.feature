@@ -26,7 +26,7 @@ Feature: Git context in header and workspace switcher
     And there should be no page errors
 
   Scenario: Git worktree shows its own branch and main repo name
-    When I run "git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
+    When I run "rm -rf /tmp/kolu-wt-main /tmp/kolu-wt-feature && git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
     And I run "cd /tmp/kolu-wt-main"
     Then the header should show a branch name
     And the workspace switcher label should show "kolu-wt-main"

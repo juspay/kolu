@@ -125,18 +125,25 @@ try {
   rmSync(collectionRoot, { recursive: true, force: true });
 }
 
-try {
-  const baseText = git("show", `HEAD^:packages/tests/scenario-inventory.json`);
-  assertAppendOnly(readInventory(baseText, "parent inventory"), inventory);
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    !/does not exist|exists on disk, but not in|invalid object name/i.test(
-      message,
-    )
-  ) {
-    throw error;
-  }
+const inventoryHistory = git(
+  "log",
+  "--format=%H",
+  "--diff-filter=AM",
+  "HEAD^",
+  "--",
+  "packages/tests/scenario-inventory.json",
+)
+  .split("\n")
+  .filter(Boolean);
+for (const revision of inventoryHistory) {
+  const historical = git(
+    "show",
+    `${revision}:packages/tests/scenario-inventory.json`,
+  );
+  assertAppendOnly(
+    readInventory(historical, `inventory at ${revision}`),
+    inventory,
+  );
 }
 
 const counts = census(current);
