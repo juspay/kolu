@@ -304,48 +304,6 @@ impl Snapshot {
         push_unreadable_row(&mut self.unreadable, pid, facet, err);
     }
 
-    /// Total, platform-independent row order.
-    ///
-    /// Row order is a property of the schema, not of an OS — two platforms
-    /// whose only visible contract is "the same TSV" must sort identically.
-    /// Called once, by `main`, through [`Document::normalize`].
-    pub fn normalize(&mut self) {
-        let Self {
-            version: _,
-            procs,
-            memory,
-            start_times,
-            cpu_times,
-            uids,
-            cwds,
-            statuses,
-            argv,
-            ports,
-            unreadable,
-            errors: _,
-        } = self;
-        procs.sort_by_key(|row| row.pid);
-        memory.sort_by_key(|row| row.pid);
-        start_times.sort_by_key(|row| row.pid);
-        cpu_times.sort_by_key(|row| row.pid);
-        uids.sort_by_key(|row| row.pid);
-        cwds.sort_by_key(|row| row.pid);
-        statuses.sort_by_key(|row| row.pid);
-        argv.sort_by_key(|row| row.pid);
-        // `(port, pid)` is total: `SO_REUSEPORT` and wildcard/loopback pairs
-        // put several rows on one port, and sorting by port alone leaves their
-        // order unspecified on whichever platform emits them second.
-        ports.sort_by(|a, b| {
-            let claim = |row: &Port| match row.attribution {
-                Attribution::Claimed { pid } => pid,
-                Attribution::Unclaimed => u32::MAX,
-            };
-            (a.port, claim(a))
-                .cmp(&(b.port, claim(b)))
-                .then_with(|| a.address.cmp(&b.address))
-        });
-        normalize_unreadable(unreadable);
-    }
 }
 
 impl Document for Snapshot {
@@ -424,8 +382,47 @@ impl Document for Snapshot {
         &self.errors
     }
 
+    /// Total, platform-independent row order.
+    ///
+    /// Row order is a property of the schema, not of an OS — two platforms
+    /// whose only visible contract is "the same TSV" must sort identically.
+    /// Called once, by `main`, through [`Document::normalize`].
     fn normalize(&mut self) {
-        Snapshot::normalize(self);
+        let Self {
+            version: _,
+            procs,
+            memory,
+            start_times,
+            cpu_times,
+            uids,
+            cwds,
+            statuses,
+            argv,
+            ports,
+            unreadable,
+            errors: _,
+        } = self;
+        procs.sort_by_key(|row| row.pid);
+        memory.sort_by_key(|row| row.pid);
+        start_times.sort_by_key(|row| row.pid);
+        cpu_times.sort_by_key(|row| row.pid);
+        uids.sort_by_key(|row| row.pid);
+        cwds.sort_by_key(|row| row.pid);
+        statuses.sort_by_key(|row| row.pid);
+        argv.sort_by_key(|row| row.pid);
+        // `(port, pid)` is total: `SO_REUSEPORT` and wildcard/loopback pairs
+        // put several rows on one port, and sorting by port alone leaves their
+        // order unspecified on whichever platform emits them second.
+        ports.sort_by(|a, b| {
+            let claim = |row: &Port| match row.attribution {
+                Attribution::Claimed { pid } => pid,
+                Attribution::Unclaimed => u32::MAX,
+            };
+            (a.port, claim(a))
+                .cmp(&(b.port, claim(b)))
+                .then_with(|| a.address.cmp(&b.address))
+        });
+        normalize_unreadable(unreadable);
     }
 }
 
@@ -554,35 +551,6 @@ impl SocketHolders {
         push_unreadable_row(&mut self.unreadable, pid, facet, err);
     }
 
-    /// Total, platform-independent row order — same law as [`Snapshot::normalize`].
-    pub fn normalize(&mut self) {
-        let Self {
-            version: _,
-            holders,
-            procs,
-            unreadable,
-            errors: _,
-        } = self;
-        // Claimed rows by pid, `unclaimed` last: a pid is a total order, and
-        // the unattributed row is one-per-blind-socket with nothing to sort by.
-        //
-        // The sort and the dedup MUST read the same key — one spelling, used
-        // twice — because a dedup keyed differently from the sort would leave
-        // duplicate holders standing while every row still looked ordered.
-        //
-        // One row per holder: a pid holding the bound socket on several fds
-        // (an inherited descriptor, a `dup`) is ONE holder, not N.
-        fn holder_key(row: &Attribution) -> (u8, u32) {
-            match row {
-                Attribution::Claimed { pid } => (0, *pid),
-                Attribution::Unclaimed => (1, 0),
-            }
-        }
-        holders.sort_by_key(|row| holder_key(row));
-        holders.dedup_by_key(|row| holder_key(row));
-        procs.sort_by_key(|row| row.pid);
-        normalize_unreadable(unreadable);
-    }
 }
 
 impl Document for SocketHolders {
@@ -623,8 +591,34 @@ impl Document for SocketHolders {
         &self.errors
     }
 
+    /// Total, platform-independent row order — same law as [`Snapshot::normalize`].
     fn normalize(&mut self) {
-        SocketHolders::normalize(self);
+        let Self {
+            version: _,
+            holders,
+            procs,
+            unreadable,
+            errors: _,
+        } = self;
+        // Claimed rows by pid, `unclaimed` last: a pid is a total order, and
+        // the unattributed row is one-per-blind-socket with nothing to sort by.
+        //
+        // The sort and the dedup MUST read the same key — one spelling, used
+        // twice — because a dedup keyed differently from the sort would leave
+        // duplicate holders standing while every row still looked ordered.
+        //
+        // One row per holder: a pid holding the bound socket on several fds
+        // (an inherited descriptor, a `dup`) is ONE holder, not N.
+        fn holder_key(row: &Attribution) -> (u8, u32) {
+            match row {
+                Attribution::Claimed { pid } => (0, *pid),
+                Attribution::Unclaimed => (1, 0),
+            }
+        }
+        holders.sort_by_key(|row| holder_key(row));
+        holders.dedup_by_key(|row| holder_key(row));
+        procs.sort_by_key(|row| row.pid);
+        normalize_unreadable(unreadable);
     }
 }
 
