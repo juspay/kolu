@@ -46,16 +46,19 @@ The package graduated to a **process**: `package = process = restart-hash`.
   `buildId.closure.test.ts`) and `PADI_COMMIT_HASH` navigable source identity.
   The pair is both-or-neither: both values are non-empty or both variables are
   absent; a half-baked or explicitly empty baked identity crashes at boot.
-- **The toolchain it hands its terminals** (`./ptyHost/agentTools`). Every
-  terminal padi spawns gets kolu's own CLIs (`kaval-tui`, `padi-tui`, `kolu`) on
-  `PATH` plus `KOLU_AGENT_TOOLS_PATH`, so an agent inside can drive its siblings
-  and reach the MCP face. The dirs are a fact padi is **told**
+- **The toolchain it hands its terminals** (kolu-pty's `readAgentToolsBake`).
+  Every terminal padi spawns gets kolu's own CLIs (`kaval-tui`, `padi-tui`,
+  `kolu`) on `PATH` plus `KOLU_TERMINAL_TOOLS_PATH`, so an agent inside can drive
+  its siblings and reach the MCP face. The dirs are a fact padi is **told**
   (`KOLU_AGENT_TOOLS_PATH`, baked by the agent closure's own wrapper on a remote
   host, forwarded by kolu-server locally), never one it derives — deriving from
   `execPath`/`argv` would resolve to the tsx loader or to whatever build happens
   to be installed, reintroducing exactly the daemon/tool skew the staleKey above
   exists to prevent. Unbaked (from-source dev/e2e) → no toolchain, injected
-  nothing, stated rather than guessed.
+  nothing, stated rather than guessed. The **bake** name (what a wrapper tells a
+  daemon) and the **stamp** name (what a daemon tells a terminal) are deliberately
+  two variables: nothing writes the bake into a terminal, so a kolu launched
+  inside one cannot inherit a foreign build's tools.
 - **Identity IS the state-root** (`./stateRoot`). Binding requires an explicit
   root (`--state-root` or `KOLU_PADI_STATE_DIR`) — there is no silent default
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not

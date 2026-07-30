@@ -21,7 +21,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
-  AGENT_TOOLS_PATH_ENV,
+  AGENT_TOOLS_BAKE_ENV,
   cleanEnv,
   composeSpawnEnv,
   koluIdentityEnv,
@@ -30,12 +30,16 @@ import {
   OSC2_PREEXEC_BASH_GUARD,
   OSC2_PREEXEC_FN,
   OSC7_FN,
+  PATH_PREPEND_CASES,
+  PATH_REASSERT,
   prepareShellInit,
   prependPathEntries,
+  readAgentToolsBake,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,
   SPAWN_ENV_PRESENTATION,
+  TERMINAL_TOOLS_PATH_ENV,
 } from "./shell.ts";
 
 const shellSubprocessHome = mkdtempSync(
@@ -754,23 +758,66 @@ describeDaemon("prepareShellInit zsh wrapper", () => {
   });
 });
 
+describe("readAgentToolsBake", () => {
+  // Where a daemon's client toolchain comes from — the fact it is TOLD, never
+  // derives. These pin the parsing AND the deliberate absence: a daemon with no
+  // baked toolchain must report `[]` (and so inject nothing) rather than guess a
+  // path from `process.execPath` / `argv[1]` / a PATH search. A guess would
+  // resolve to the tsx loader or to whatever build happens to be installed on
+  // the host, which is exactly the skew this indirection makes unspellable.
+  it("splits the colon-joined bake, preserving priority order", () => {
+    expect(
+      readAgentToolsBake({
+        [AGENT_TOOLS_BAKE_ENV]: "/nix/store/aaa/bin:/nix/store/bbb/bin",
+      }),
+    ).toEqual(["/nix/store/aaa/bin", "/nix/store/bbb/bin"]);
+  });
+
+  it("reports NO toolchain when unset or empty — never a guessed default", () => {
+    // The from-source (`just dev` / e2e) daemon: no wrapper, so nothing baked.
+    expect(readAgentToolsBake({})).toEqual([]);
+    expect(readAgentToolsBake({ [AGENT_TOOLS_BAKE_ENV]: "" })).toEqual([]);
+  });
+
+  it("drops empty segments so no entry can mean 'the current directory'", () => {
+    // An empty PATH entry is CWD to a POSIX shell — a real hazard, not cosmetic.
+    expect(readAgentToolsBake({ [AGENT_TOOLS_BAKE_ENV]: "/a::/b:" })).toEqual([
+      "/a",
+      "/b",
+    ]);
+  });
+
+  it("reads the BAKE name and never the terminal STAMP", () => {
+    // The whole point of two names: a daemon started inside a kolu terminal sees
+    // that terminal's stamp and must NOT mistake it for its own build's tools.
+    expect(
+      readAgentToolsBake({ [TERMINAL_TOOLS_PATH_ENV]: "/foreign/bin" }),
+    ).toEqual([]);
+  });
+});
+
 describe("prependPathEntries", () => {
-  it("prepends in order so the first dir wins a name collision", () => {
-    expect(prependPathEntries("/usr/bin:/bin", ["/a", "/b"])).toBe(
-      "/a:/b:/usr/bin:/bin",
-    );
+  // Driven from the shared oracle, which the real-shell block below asserts the
+  // SHELL half against — so the rule cannot be changed in one language only.
+  for (const c of PATH_PREPEND_CASES) {
+    it(`PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}] → ${c.expect}`, () => {
+      expect(prependPathEntries(c.path, c.dirs)).toBe(c.expect);
+    });
+  }
+
+  it("treats an absent PATH as empty", () => {
+    expect(prependPathEntries(undefined, ["/a"])).toBe("/a");
   });
 
-  it("drops a dir already present rather than adding a second copy", () => {
-    // Terminals nest and re-spawn; without this, PATH grows without bound.
-    expect(prependPathEntries("/usr/bin:/a", ["/a"])).toBe("/usr/bin:/a");
-  });
-
-  it("handles an absent or empty PATH without leaving empty entries", () => {
+  it("drops empty entries from the caller's PATH", () => {
     // An empty entry in PATH means "the current directory" to a POSIX shell —
     // a real (and exploitable) difference, not a cosmetic one.
-    expect(prependPathEntries(undefined, ["/a"])).toBe("/a");
-    expect(prependPathEntries("", ["/a"])).toBe("/a");
+    //
+    // NOT in PATH_PREPEND_CASES: the shell half leaves `$PATH` byte-identical
+    // apart from the prepend, so this row would fail there. Whether the rule
+    // should sanitize at all — and if so in which layer — is an open call (see
+    // the lens review); until it is made, the divergence is stated here rather
+    // than hidden inside a shared table that only one half satisfies.
     expect(prependPathEntries("/usr/bin::/bin", ["/a"])).toBe(
       "/a:/usr/bin:/bin",
     );
@@ -789,9 +836,9 @@ describe("prepareShellInit — PATH re-assert", () => {
       rcDir: "/r",
     });
     const content = onlyInitFile(init).content;
-    expect(content).toContain(AGENT_TOOLS_PATH_ENV);
+    expect(content).toContain(TERMINAL_TOOLS_PATH_ENV);
     expect(content.indexOf("/home/x/.bashrc")).toBeLessThan(
-      content.indexOf(AGENT_TOOLS_PATH_ENV),
+      content.indexOf(TERMINAL_TOOLS_PATH_ENV),
     );
   });
 
@@ -846,7 +893,7 @@ describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
         shell === "/bin/zsh"
           ? join(init.env.ZDOTDIR as string, ".zshrc")
           : join(rcDir, init.initFiles[0]?.name as string);
-      const script = `export ${AGENT_TOOLS_PATH_ENV}=${shQuote(TOOLS)}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`;
+      const script = `export ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(TOOLS)}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`;
       return shell === "/bin/zsh"
         ? await runZsh(script)
         : await runBash(script);
@@ -887,7 +934,7 @@ describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
       materialise(rcDir, init);
       const rcPath = join(rcDir, init.initFiles[0]?.name as string);
       const out = await runBash(
-        `unset ${AGENT_TOOLS_PATH_ENV}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`,
+        `unset ${TERMINAL_TOOLS_PATH_ENV}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`,
       );
       expect(out).toBe("/usr/bin:/bin");
     } finally {
@@ -895,6 +942,34 @@ describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
       rmSync(rcDir, { recursive: true, force: true });
     }
   });
+});
+
+describeDaemon("PATH_PREPEND_CASES — one oracle, both implementations", () => {
+  // The rule "prepend without duplicating" is written twice, in two languages:
+  // `prependPathEntries` (TS, the spawn env) and `PATH_REASSERT` (POSIX shell,
+  // the rcfile — the only carrier for a `fish` user, who gets no wrapper rc from
+  // selectShellInit). Co-locating them in one file does not keep them equal; one
+  // shared table does. The TS half is asserted against these same rows above, so
+  // adding a row here is asserted against BOTH halves, and editing either
+  // implementation alone goes red.
+  for (const c of PATH_PREPEND_CASES) {
+    const label = `PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}]`;
+
+    it(`bash: ${label}`, async () => {
+      const out = await runBash(
+        `PATH=${shQuote(c.path)}; ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(c.dirs.join(":"))}\n${PATH_REASSERT}\nprintf '%s' "$PATH"`,
+      );
+      expect(out).toBe(c.expect);
+    });
+
+    it(`zsh: ${label}`, async () => {
+      const out = await runZsh(
+        `PATH=${shQuote(c.path)}; ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(c.dirs.join(":"))}\n${PATH_REASSERT}\nprintf '%s' "$PATH"`,
+      );
+      if (out === null) return; // zsh unavailable — skip
+      expect(out).toBe(c.expect);
+    });
+  }
 });
 
 describeDaemon("OSC2_PRECMD_ZSH", () => {

@@ -2,11 +2,16 @@
  * Boot-order fail-fast for the injected kolu app version (a W1.M severing).
  *
  * `setSpawnServerVersion` throws on an EMPTY value WHEN CALLED, but nothing
- * crashed if boot never called it at all — `composeSpawnInput` then stamped a
- * spawned PTY's `TERM_PROGRAM_VERSION` with a blank version. These pin the READ
- * as loud instead: composing a spawn before the version is injected throws a
- * named error; after a set the version reaches `TERM_PROGRAM_VERSION` unchanged
- * (the happy path stays byte-identical).
+ * crashed if boot never called it at all — a spawn then stamped a PTY's
+ * `TERM_PROGRAM_VERSION` with a blank version. These pin the READ as loud
+ * instead: reading the version before it is injected throws a named error; after
+ * a set the version reaches `TERM_PROGRAM_VERSION` unchanged (the happy path
+ * stays byte-identical).
+ *
+ * The read now lives in `buildTerminalSpawnInput`, the one place the daemon's own
+ * facts are gathered — `composeSpawnInput` takes the version as spec DATA and
+ * reads no globals. So the guard is pinned on `requireSpawnServerVersion`
+ * directly, and the stamping is pinned on the composer.
  *
  * A fresh (default-isolated) module graph starts with the version unset, so the
  * read-before-set case runs first, before any set. (Reverting the read to a
@@ -19,7 +24,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PtyHostSystemInfo } from "kaval";
 import { describe, expect, it } from "vitest";
-import { composeSpawnInput, setSpawnServerVersion } from "./index.ts";
+import {
+  composeSpawnInput,
+  requireSpawnServerVersion,
+  setSpawnServerVersion,
+} from "./index.ts";
 
 const RC_DIR = mkdtempSync(join(tmpdir(), "spawn-version-rc-"));
 
@@ -38,10 +47,8 @@ function info(): PtyHostSystemInfo {
 }
 
 describe("spawnServerVersion boot-order fail-fast", () => {
-  it("throws a named error when a spawn is composed before the setter runs", () => {
-    expect(() =>
-      composeSpawnInput({ id: "T-unset" }, info(), { kavalSocket: KAVAL_SOCK }),
-    ).toThrow(
+  it("throws a named error when the version is read before the setter runs", () => {
+    expect(() => requireSpawnServerVersion()).toThrow(
       "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
     );
   });
@@ -50,6 +57,8 @@ describe("spawnServerVersion boot-order fail-fast", () => {
     setSpawnServerVersion("1.2.3");
     const input = composeSpawnInput({ id: "T-set" }, info(), {
       kavalSocket: KAVAL_SOCK,
+      toolsPath: [],
+      serverVersion: requireSpawnServerVersion(),
     });
     expect(input.env.TERM_PROGRAM_VERSION).toBe("1.2.3");
   });
