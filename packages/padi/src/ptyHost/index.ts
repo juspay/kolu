@@ -205,9 +205,15 @@ export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
  *  without a live kaval — the same wiring `ensureLocalEndpoint` sets at boot. */
 export function __setEndpointForTest(
   ep: Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>,
-): void {
+): () => void {
+  const previousEndpoint = endpoint;
+  const previousTriggerRestart = triggerRestart;
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
+  return () => {
+    endpoint = previousEndpoint;
+    triggerRestart = previousTriggerRestart;
+  };
 }
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
