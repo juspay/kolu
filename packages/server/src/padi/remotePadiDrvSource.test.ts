@@ -187,8 +187,13 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
+    // `padi-agent`, NOT `padi` — the attr names the CLOSURE shipped to the host
+    // (daemon + the client CLIs a terminal there needs); `binary: "padi"` names
+    // what runs inside it. Reverting this to "padi" would still connect and pass
+    // every other test in this file, while silently giving every remote terminal
+    // no toolchain — so the name is pinned here on purpose.
     expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith(
-      "padi",
+      "padi-agent",
       resolverContext,
     );
   });
