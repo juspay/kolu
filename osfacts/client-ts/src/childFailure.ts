@@ -1,6 +1,7 @@
 /**
- * How a FAILED child process is read — a pure classifier over the error object
- * Node throws. It spawns nothing itself.
+ * Everything the two spawn twins must agree on — how a child is LAUNCHED and
+ * how a FAILED one is READ. It spawns nothing itself: `CHILD_OPTIONS` is the
+ * options object, not the call.
  *
  * Its own module because the two spawn twins disagree about how they spell a
  * child's fate, and one reader has to reconcile them: `promisify(execFile)`
@@ -10,12 +11,68 @@
  * twin, which is exactly how the exit-1 document rule below came to be
  * enforced on the async path and not the sync one.
  *
- * Being a pure function of that object is what lets it be pinned without
- * manufacturing a real child that exits mid-write. The module is INTERNAL —
- * absent from the package `exports`, and nothing here is re-exported by
- * `index.ts` — so this is a unit with its own contract, not a test seam
+ * That same failure mode lives one level UP, at the call: a timeout, a kill
+ * signal, or a buffer cap bumped on one twin and not the other would leave the
+ * sync gate path quietly running the old policy. So the options and the
+ * failure composition are stated ONCE here and applied by both twins, and the
+ * only line the twins may still spell differently is `execFileAsync` versus
+ * `execFileSync`.
+ *
+ * Being a pure function of the error object is what lets the classifier be
+ * pinned without manufacturing a real child that exits mid-write. The module
+ * is INTERNAL — absent from the package `exports`, and the only name of its
+ * own that reaches `index.ts` is the timeout below, re-exported through
+ * `client.ts` — so this is a unit with its own contract, not a test seam
  * punched through the client's production root.
  */
+
+// From the zero-dependency leaf, not from `client.ts`: `client.ts` imports this
+// module, so taking the class from there would make the pair a cycle.
+import { OsfactsClientError } from "./clientError.ts";
+
+/** How long a child may run before it is killed. Public (re-exported by
+ *  `client.ts`, and consumed as `PORT_SCAN_COMMAND_TIMEOUT_MS` by padi), and
+ *  defined HERE because it is a property of the child, not of the parser. */
+export const OSFACTS_COMMAND_TIMEOUT_MS = 5_000;
+
+/**
+ * The spawn policy both twins run under, in one object.
+ *
+ * `killSignal: "SIGKILL"` because the timeout's job is to END the child, and a
+ * SIGTERM a wedged osfacts ignores would leave the caller waiting forever on
+ * the very deadline that was supposed to bound it. `maxBuffer` is 8 MiB — a
+ * host-wide snapshot of a busy machine is the largest document the binary
+ * writes, and truncating it would surface as a parse error about an arbitrary
+ * row rather than as "the answer did not fit".
+ */
+export const CHILD_OPTIONS = {
+  timeout: OSFACTS_COMMAND_TIMEOUT_MS,
+  killSignal: "SIGKILL",
+  maxBuffer: 8 * 1024 * 1024,
+} as const;
+
+/** The one guard every spawn entry point runs first. An empty path is the
+ *  caller failing to resolve its bake, and `execFile("")` would report it as a
+ *  confusing ENOENT rather than as the missing bake it is. */
+export function assertBinPath(bin: string): void {
+  if (!bin)
+    throw new OsfactsClientError(
+      "spawn",
+      "osfacts binary path is empty — the caller must supply an absolute path",
+    );
+}
+
+/** How a child's failure becomes the client's error — one composition, so the
+ *  two twins cannot drift on what an operator is told. `errnoOf` first because
+ *  a spawn errno (ENOENT/EACCES) names the cause better than any exit status
+ *  the runtime may also have attached. */
+export function spawnFailure(bin: string, err: unknown): OsfactsClientError {
+  return new OsfactsClientError(
+    "spawn",
+    `osfacts \`${bin}\` failed (${errnoOf(err) ?? exitDescription(err)})${failureDetail(err)}`,
+    { cause: err },
+  );
+}
 
 /**
  * The child's exit status, however the runtime spelled it.

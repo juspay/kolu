@@ -77,7 +77,6 @@ export {
   processIdentity,
   processIdentityAsync,
   processIdentityFromEnv,
-  processIdentityFromEnvAsync,
   socketHolders,
   foldSocketOccupancy,
   osfactsSocketHolders,

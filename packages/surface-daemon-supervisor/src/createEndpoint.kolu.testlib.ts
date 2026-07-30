@@ -29,22 +29,24 @@ export const readSocketHoldersForKoluTests =
 /**
  * {@link createEndpointForTest} with kolu's holder reader already supplied.
  *
- * A suite that wants a different one (a fake `unattributed` reading, say) still
- * passes its own. The choice is read with `??` rather than resolved by spread
- * order on purpose: `Partial` permits an EXPLICIT `readSocketHolders: undefined`
- * (no `exactOptionalPropertyTypes` in this repo), and a `{ default, ...spec }`
- * spread would let that undefined win — turning the miss into
- * `spec.readSocketHolders is not a function`, deep inside a recovery.
+ * It SUPPLIES the reader, it does not default one: the inject is unspellable
+ * here, so this helper cannot be handed an explicit `undefined` and cannot
+ * defer a missing inject to first use. That is the same rule
+ * `createEndpointForTest` states for `readSocketHolders` one file over — a
+ * helper that made it optional-with-default would have been arguing against it.
+ * A suite that wants a DIFFERENT reader (a fake `unattributed` reading, say)
+ * reaches past this adapter for the general `createEndpointForTest` and passes
+ * its own, which is also the honest signal that it is not exercising kolu's
+ * bake.
  */
 export function createEndpointForKoluTest<C, I, M = undefined>(
   spec: Omit<
     EndpointSpec<C, I, M>,
     "readProcessIdentity" | "readSocketHolders"
-  > &
-    Partial<Pick<EndpointSpec<C, I, M>, "readSocketHolders">>,
+  >,
 ) {
   return createEndpointForTest<C, I, M>({
     ...spec,
-    readSocketHolders: spec.readSocketHolders ?? readSocketHoldersForKoluTests,
+    readSocketHolders: readSocketHoldersForKoluTests,
   });
 }

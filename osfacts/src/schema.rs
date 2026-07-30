@@ -274,6 +274,15 @@ pub trait Document {
     fn has_facts(&self) -> bool;
     /// The sources that went blind — what the exit code is decided against.
     fn errors(&self) -> &[SourceError];
+    /// Total, platform-independent row order. Called once by `main`, after the
+    /// platform sensor returns and before anything is written.
+    ///
+    /// Row order is a property of the DOCUMENT, so it belongs on this trait
+    /// rather than as an inherent method two of the three types happened to
+    /// have — that shape made `main` carry a bespoke wrapper per verb, one of
+    /// which existed only to explain that it did nothing. The default is the
+    /// do-nothing one, for a document with no per-pid row vectors to order.
+    fn normalize(&mut self) {}
 }
 
 impl Snapshot {
@@ -292,18 +301,14 @@ impl Snapshot {
     /// rows. `normalize` already sorts on exactly the `(pid, facet)` key the
     /// dedup needs, so doing it there costs nothing.
     pub fn push_unreadable(&mut self, pid: u32, facet: Facet, err: i32) {
-        self.unreadable.push(Unreadable {
-            pid,
-            facet,
-            errno: errno_name(err),
-        });
+        push_unreadable_row(&mut self.unreadable, pid, facet, err);
     }
 
     /// Total, platform-independent row order.
     ///
     /// Row order is a property of the schema, not of an OS — two platforms
     /// whose only visible contract is "the same TSV" must sort identically.
-    /// Called once, by `main`, after the platform sensor returns.
+    /// Called once, by `main`, through [`Document::normalize`].
     pub fn normalize(&mut self) {
         let Self {
             version: _,
@@ -339,13 +344,7 @@ impl Snapshot {
                 .cmp(&(b.port, claim(b)))
                 .then_with(|| a.address.cmp(&b.address))
         });
-        // One row per (pid, facet). Several readers share a proc file, so a
-        // shared failure is one fact, not N — and a duplicate pid in `--pids`
-        // would otherwise report the same blindness twice. The sort above is
-        // stable and already keys on exactly this pair, so the first row of
-        // each run survives, which is the row the reader saw first.
-        unreadable.sort_by_key(|row| (row.pid, row.facet));
-        unreadable.dedup_by_key(|row| (row.pid, row.facet));
+        normalize_unreadable(unreadable);
     }
 }
 
@@ -408,10 +407,7 @@ impl Document for Snapshot {
             writeln!(out, "ARGV\t{}\t{}", a.pid, encode_tsv_strings(&a.argv))?;
         }
         for l in &self.ports {
-            let (status, pid) = match l.attribution {
-                Attribution::Claimed { pid } => ("claimed", pid.to_string()),
-                Attribution::Unclaimed => ("unclaimed", "-".into()),
-            };
+            let (status, pid) = attribution_columns(&l.attribution);
             let uid = l.uid.map_or_else(|| "-".into(), |uid| uid.to_string());
             writeln!(out, "L\t{status}\t{pid}\t{uid}\t{}\t{}", l.port, l.address)?;
         }
@@ -427,6 +423,52 @@ impl Document for Snapshot {
     fn errors(&self) -> &[SourceError] {
         &self.errors
     }
+
+    fn normalize(&mut self) {
+        Snapshot::normalize(self);
+    }
+}
+
+/// The TSV columns an [`Attribution`] occupies: the status word, and the pid
+/// (or `-` when nobody claimed it).
+///
+/// One writer because the `L` row and the `H` row spell the SAME rule — how a
+/// claim is rendered — and two copies of it could disagree about the sentinel
+/// or the status word while every test still passed on each row in isolation.
+/// The TypeScript client folded this same rule into one `attribution()` reader
+/// for the same reason; this is that deduplication on the producer side.
+fn attribution_columns(a: &Attribution) -> (&'static str, String) {
+    match a {
+        Attribution::Claimed { pid } => ("claimed", pid.to_string()),
+        Attribution::Unclaimed => ("unclaimed", "-".into()),
+    }
+}
+
+/// Record that one pid's facet could not be read. One pusher, shared by every
+/// document that carries `U` rows.
+///
+/// Duplicates are collapsed by [`normalize_unreadable`], not here: scanning the
+/// whole accumulated vector on every push made this quadratic in the row count,
+/// and a host-wide all-facets snapshot on a busy box produces thousands of
+/// rows. The normalize already sorts on exactly the `(pid, facet)` key the
+/// dedup needs, so doing it there costs nothing.
+fn push_unreadable_row(rows: &mut Vec<Unreadable>, pid: u32, facet: Facet, err: i32) {
+    rows.push(Unreadable {
+        pid,
+        facet,
+        errno: errno_name(err),
+    });
+}
+
+/// Order and collapse a document's `U` rows — one row per (pid, facet).
+///
+/// Several readers share a proc file, so a shared failure is one fact, not N —
+/// and a duplicate pid in `--pids` would otherwise report the same blindness
+/// twice. The sort is stable and keys on exactly the pair the dedup uses, so
+/// the first row of each run survives, which is the row the reader saw first.
+fn normalize_unreadable(rows: &mut Vec<Unreadable>) {
+    rows.sort_by_key(|row| (row.pid, row.facet));
+    rows.dedup_by_key(|row| (row.pid, row.facet));
 }
 
 /// The `P` row block. One writer for every document that names a process, for
@@ -509,11 +551,7 @@ impl SocketHolders {
     /// Record that one holder's facet could not be read. Duplicates collapse
     /// in `normalize`, for the same reason as [`Snapshot::push_unreadable`].
     pub fn push_unreadable(&mut self, pid: u32, facet: Facet, err: i32) {
-        self.unreadable.push(Unreadable {
-            pid,
-            facet,
-            errno: errno_name(err),
-        });
+        push_unreadable_row(&mut self.unreadable, pid, facet, err);
     }
 
     /// Total, platform-independent row order — same law as [`Snapshot::normalize`].
@@ -527,19 +565,23 @@ impl SocketHolders {
         } = self;
         // Claimed rows by pid, `unclaimed` last: a pid is a total order, and
         // the unattributed row is one-per-blind-socket with nothing to sort by.
-        holders.sort_by_key(|row| match row {
-            Attribution::Claimed { pid } => (0, *pid),
-            Attribution::Unclaimed => (1, 0),
-        });
-        // One row per holder. A pid holding the bound socket on several fds
+        //
+        // The sort and the dedup MUST read the same key — one spelling, used
+        // twice — because a dedup keyed differently from the sort would leave
+        // duplicate holders standing while every row still looked ordered.
+        //
+        // One row per holder: a pid holding the bound socket on several fds
         // (an inherited descriptor, a `dup`) is ONE holder, not N.
-        holders.dedup_by_key(|row| match row {
-            Attribution::Claimed { pid } => (0, *pid),
-            Attribution::Unclaimed => (1, 0),
-        });
+        fn holder_key(row: &Attribution) -> (u8, u32) {
+            match row {
+                Attribution::Claimed { pid } => (0, *pid),
+                Attribution::Unclaimed => (1, 0),
+            }
+        }
+        holders.sort_by_key(|row| holder_key(row));
+        holders.dedup_by_key(|row| holder_key(row));
         procs.sort_by_key(|row| row.pid);
-        unreadable.sort_by_key(|row| (row.pid, row.facet));
-        unreadable.dedup_by_key(|row| (row.pid, row.facet));
+        normalize_unreadable(unreadable);
     }
 }
 
@@ -564,10 +606,7 @@ impl Document for SocketHolders {
     fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "V\t{}", self.version)?;
         for h in &self.holders {
-            let (status, pid) = match h {
-                Attribution::Claimed { pid } => ("claimed", pid.to_string()),
-                Attribution::Unclaimed => ("unclaimed", "-".into()),
-            };
+            let (status, pid) = attribution_columns(h);
             writeln!(out, "H\t{status}\t{pid}")?;
         }
         write_procs(out, &self.procs)?;
@@ -582,6 +621,10 @@ impl Document for SocketHolders {
 
     fn errors(&self) -> &[SourceError] {
         &self.errors
+    }
+
+    fn normalize(&mut self) {
+        SocketHolders::normalize(self);
     }
 }
 
@@ -671,6 +714,11 @@ impl HostSnapshot {
     }
 }
 
+/// This document INHERITS `Document::normalize`'s do-nothing default, and that
+/// is a decision rather than an omission: a `HostSnapshot` carries no per-pid
+/// row vectors to order — its facts are scalars plus cpu/net/disk lists the
+/// sensors already emit in the host's own enumeration order, which is the order
+/// to report them in.
 impl Document for HostSnapshot {
     /// Did this host reading carry any fact at all? Exhaustive destructure for
     /// the same reason as [`Document::has_facts`].

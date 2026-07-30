@@ -77,8 +77,9 @@ export { ENDPOINT_STATES, type EndpointState };
 /**
  * Supervisor inject for start-qualified process identity. May be async so an
  * osfacts-backed reader does not block the serving event loop (prefer
- * `processIdentityFromEnvAsync`). Lives here — beside {@link EndpointSpec} —
- * not in `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
+ * `processIdentityAsync(bin)`, with `bin` resolved once at the composition
+ * root). Lives here — beside {@link EndpointSpec} — not in
+ * `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
  * Canonical {@link ProcessIdentity} still comes from the daemon package.
  */
 export type ReadProcessIdentityAsync = (
@@ -274,7 +275,7 @@ export function isSocketSquatterForeignError(
     typeof e.socketPath === "string" &&
     // `detail` is optional but attested: the narrowed type promises a string
     // when present, and a consumer renders it into an operator-facing message.
-    ["string", "undefined"].includes(typeof e.detail) &&
+    (typeof e.detail === "string" || e.detail === undefined) &&
     Array.isArray(e.holders) &&
     e.holders.every(
       (h) =>
@@ -284,9 +285,8 @@ export function isSocketSquatterForeignError(
         // `command` is OPTIONAL — absent when the identity read lost the race.
         // The brand attests the shape it promises, and an absent name is part
         // of that shape rather than a violation of it.
-        ["string", "undefined"].includes(
-          typeof (h as { command?: unknown }).command,
-        ),
+        (typeof (h as { command?: unknown }).command === "string" ||
+          (h as { command?: unknown }).command === undefined),
     )
   );
 }
@@ -402,8 +402,9 @@ export interface EndpointSpec<
   /**
    * Resolve a PID to its current start-qualified identity. Required — the
    * endpoint never performs platform process traversal itself. May be async so
-   * an osfacts-backed reader does not block the serving event loop (prefer
-   * `processIdentityFromEnvAsync` over the sync twin).
+   * an osfacts-backed reader does not block the serving event loop: prefer
+   * `processIdentityAsync(bin)` over the sync twin, with `bin` resolved ONCE at
+   * the composition root (`bakedOsFactsBin(…)`) rather than per call.
    */
   readProcessIdentity: ReadProcessIdentityAsync;
   /**
@@ -527,6 +528,13 @@ function waitForSocket(
   });
 }
 
+/** Is this holder the supervising process itself? The ONE definition of "our own
+ *  process" in the recovery — every site that asks the question asks it here, so
+ *  if the answer ever needs a second component (a pid AND a start time, as the
+ *  daemon-identity gate already qualifies it) that is one edit rather than a hunt.
+ *  Deliberately NOT applied at identification: see {@link externalHolders}. */
+const isSelf = (h: SocketHolder): boolean => h.pid === process.pid;
+
 /** The named holders of a reading, EXCLUDING the supervisor's own process.
  *  The supervisor spawns its daemon as a SEPARATE process (the survivable-spawn
  *  model), so its OWN pid holding the rendezvous is never a squatter — only an
@@ -534,23 +542,20 @@ function waitForSocket(
  *  kill target.
  *
  *  This is the KILL-corroboration filter specifically, and that is the whole of
- *  its remit. Self-detection is legitimate elsewhere and the recovery does spell
- *  it elsewhere — to REFUSE a skew served by this process, and to NAME us in a
- *  refusal message — because those are not kill decisions. Applying this filter
- *  at identification is precisely the bug that let an in-process serve read as
- *  an empty holder set, and be reported `free`.
- *
- *  Keeping the KILL filter in one place is still the point: if "our own
- *  process" ever gains a second component (a pid AND a start time, as the
- *  daemon-identity gate already qualifies it), that is one edit here rather
- *  than a hunt across the recovery's corroboration sites.
+ *  its remit. The PREDICATE it applies is {@link isSelf}, one definition shared
+ *  with the recovery's other self-checks; this helper is the KILL-SIDE
+ *  application of it. Self-detection is legitimate elsewhere and the recovery
+ *  does spell it elsewhere — to REFUSE a skew served by this process, and to
+ *  NAME us in a refusal message — because those are not kill decisions.
+ *  Applying this FILTER at identification is precisely the bug that let an
+ *  in-process serve read as an empty holder set, and be reported `free`.
  *
  *  It takes the READING, not the reader, so the caller that must keep the three
  *  answers apart (`recoverGatelessSquatter`, and the squatter error's `detail`)
  *  still holds them: this only drops the pids, never the arm. */
 function externalHolders(reading: SocketOccupancy): SocketHolder[] {
   return reading.kind === "held"
-    ? reading.holders.filter((h) => h.pid !== process.pid)
+    ? reading.holders.filter((h) => !isSelf(h))
     : [];
 }
 
@@ -875,10 +880,18 @@ export function createEndpoint<
   // refusal says WHY it could not (a bound-but-uninspectable holder, or a search that
   // went blind) instead of "an unidentifiable process" — which on darwin, where a
   // denied descriptor walk is the normal result, would be the normal message.
-  const freeOrFailLoud = async (rv: {
-    gatePath: string;
-    socketPath: string;
-  }): Promise<"free"> => {
+  //
+  // `taken` is an ALREADY-TAKEN reading of this same socket, passed by a caller
+  // that read one microseconds ago; absent, we take our own. It only ever fills
+  // the operator-facing `held` / `detail` — the free-vs-throw decision comes
+  // from `socketServeState` and nothing else.
+  const freeOrFailLoud = async (
+    rv: {
+      gatePath: string;
+      socketPath: string;
+    },
+    taken?: SocketOccupancy,
+  ): Promise<"free"> => {
     // Exhaustive SocketServeState fold — never collapse indeterminate to free
     // (that boolean collapse is the R4-1 defect).
     const state: SocketServeState = await socketServeState(rv.socketPath);
@@ -889,17 +902,18 @@ export function createEndpoint<
       case "indeterminate":
         throw new SocketProbeIndeterminateError(rv);
       case "serving": {
-        const reading = await spec.readSocketHolders(rv.socketPath);
+        const reading = taken ?? (await spec.readSocketHolders(rv.socketPath));
         // EVERY holder the OS named, ourselves included. This is a REFUSAL
         // message, not a kill decision, so excluding our own pid here would
         // only rob an operator of the one name the OS actually gave — the
         // in-process-serve case would read as "an unidentifiable process"
         // while the holder was known all along.
-        const held = reading.kind === "held" ? [...reading.holders] : [];
+        const held: readonly SocketHolder[] =
+          reading.kind === "held" ? reading.holders : [];
         const detail =
           reading.kind === "unattributed"
             ? reading.detail
-            : held.some((h) => h.pid === process.pid)
+            : held.some(isSelf)
               ? "the socket is served by this very process"
               : undefined;
         spec.log.error(
@@ -1004,14 +1018,19 @@ export function createEndpoint<
           },
           "the OS would not name the rendezvous socket's holder — resolving the socket safely rather than guessing",
         );
-        return await freeOrFailLoud(rv);
+        // Hand over the reading we just took — it is what the refusal reports,
+        // and re-spawning osfacts to recompute the very `detail` logged on the
+        // line above would buy nothing.
+        return await freeOrFailLoud(rv, reading);
       }
       if (reading.kind === "none") {
         // The OS proves nothing holds it, yet the probe above said it was
         // serving: a race (the holder closed in between). Still not a licence
         // to spawn on this pass — `freeOrFailLoud` re-probes and only a socket
-        // proven not-accepting comes back `free`.
-        return await freeOrFailLoud(rv);
+        // proven not-accepting comes back `free`. It gets the reading we just
+        // took: no holder to name, and no reason to spawn osfacts again to
+        // re-learn that.
+        return await freeOrFailLoud(rv, reading);
       }
       // EVERY holder the OS named, ourselves included. Self-exclusion belongs to
       // the KILL decision, not to identification: a socket our own process
@@ -1109,7 +1128,7 @@ export function createEndpoint<
       // a refuse-policy skew takes: left standing, reported `incompatible`.
       // Not `free` (the caller would spawn a second daemon onto a live socket)
       // and not foreign (the handshake completed and proved a skew).
-      if (!holders.some((h) => h.pid !== process.pid)) {
+      if (holders.every(isSelf)) {
         spec.log.error(
           {
             hostId: spec.hostId,
@@ -1211,6 +1230,9 @@ export function createEndpoint<
       { hostId: spec.hostId, socketPath: rv.socketPath },
       "gate-less squatter kept changing across every recovery attempt — resolving the socket safely",
     );
+    // No reading handed over here, deliberately: reaching this line means the
+    // holder changed under us on every pass, so the last reading we took is by
+    // construction STALE. `freeOrFailLoud` takes a fresh one.
     return await freeOrFailLoud(rv);
   };
 

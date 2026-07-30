@@ -10,10 +10,52 @@
 //! isolated network namespace.
 
 use assert_cmd::Command;
+use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
 use tempfile::{tempdir, TempDir};
+
+/// A parked `osfacts-listener` child, and the ONE line it announced.
+///
+/// Both fixtures below stand on this: the binary lookup, the piped stdio, and
+/// the handshake are one shape, because they are one fact — the child prints
+/// exactly one line once it is ready, so a test never races the bind. Each
+/// fixture then interprets only its OWN announce line: a port on one, the word
+/// `bound` on the other.
+struct Announced {
+    child: Child,
+    pid: u32,
+    line: String,
+}
+
+fn spawn_listener<I, S>(args: I) -> Announced
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let bin = env!("CARGO_BIN_EXE_osfacts-listener");
+    let mut child = StdCommand::new(bin)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("spawn osfacts-listener: {e}"));
+    let pid = child.id();
+    let stdout = child.stdout.take().expect("listener stdout");
+    let mut line = String::new();
+    BufReader::new(stdout)
+        .read_line(&mut line)
+        .expect("read listener announce line");
+    Announced { child, pid, line }
+}
+
+/// Kill a fixture's child and WAIT for it, so the resource it held (a port, a
+/// bound socket) is genuinely released before the test asks about it again.
+fn reap(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
 
 /// Result of a hermetic bind+snapshot.
 pub struct Hermetic {
@@ -62,32 +104,23 @@ impl Listener {
     }
 
     fn spawn_with_args(bind: &str, extra: &[&str]) -> Self {
-        let bin = env!("CARGO_BIN_EXE_osfacts-listener");
-        let mut child = StdCommand::new(bin)
-            .arg(bind)
-            .args(extra)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|e| panic!("spawn osfacts-listener: {e}"));
-        let pid = child.id();
-        let stdout = child.stdout.take().expect("listener stdout");
-        let mut line = String::new();
-        BufReader::new(stdout)
-            .read_line(&mut line)
-            .expect("read listener port");
-        let port: u16 = line
-            .trim()
-            .parse()
-            .unwrap_or_else(|_| panic!("listener did not print a port; got {line:?}"));
-        Self { child, pid, port }
+        let announced = spawn_listener([&[bind], extra].concat());
+        // This fixture's announce line is the kernel-chosen port.
+        let port: u16 =
+            announced.line.trim().parse().unwrap_or_else(|_| {
+                panic!("listener did not print a port; got {:?}", announced.line)
+            });
+        Self {
+            child: announced.child,
+            pid: announced.pid,
+            port,
+        }
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        reap(&mut self.child);
     }
 }
 
@@ -107,28 +140,16 @@ impl UnixHolder {
     pub fn spawn(name: &str) -> Self {
         let dir = tempdir().expect("temp dir");
         let path = dir.path().join(name);
-        let bin = env!("CARGO_BIN_EXE_osfacts-listener");
-        let mut child = StdCommand::new(bin)
-            .arg("--unix")
-            .arg(&path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap_or_else(|e| panic!("spawn osfacts-listener --unix: {e}"));
-        let pid = child.id();
-        let stdout = child.stdout.take().expect("listener stdout");
-        let mut line = String::new();
-        BufReader::new(stdout)
-            .read_line(&mut line)
-            .expect("read bind confirmation");
+        let announced = spawn_listener([OsStr::new("--unix"), path.as_os_str()]);
+        // This fixture's announce line is the bind confirmation.
         assert_eq!(
-            line.trim(),
+            announced.line.trim(),
             "bound",
             "listener did not confirm the unix bind"
         );
         Self {
-            child,
-            pid,
+            child: announced.child,
+            pid: announced.pid,
             _dir: dir,
             path,
         }
@@ -138,8 +159,7 @@ impl UnixHolder {
     /// genuinely unbound before the caller asks about the path again. The
     /// FILE survives — that is the point of the stale-socket fixture.
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        reap(&mut self.child);
     }
 }
 
@@ -173,29 +193,43 @@ pub struct HolderRows {
     pub errors: Vec<String>,
 }
 
-pub fn parse_holders_tsv(stdout: &str) -> HolderRows {
+/// The version line, then every row bucketed by its tag in the order `tags`
+/// names them. One loop for every document shape, so the two parsers below
+/// cannot drift on what a version line is or on what an unexpected tag does.
+/// A tag not in `tags` panics: a document row no test classified is a contract
+/// change, not something to silently drop.
+fn split_tsv<const N: usize>(stdout: &str, tags: [&str; N]) -> (u32, [Vec<String>; N]) {
     let mut lines = stdout.lines();
     let first = lines.next().expect("stdout must have a version line");
-    assert_eq!(first, "V\t2", "socket-holders must carry the schema version");
-    let mut out = HolderRows {
-        holders: Vec::new(),
-        procs: Vec::new(),
-        unreadable: Vec::new(),
-        errors: Vec::new(),
-    };
+    let version = first
+        .strip_prefix("V\t")
+        .expect("first line must be V\\tN")
+        .parse::<u32>()
+        .expect("version number");
+    let mut out: [Vec<String>; N] = std::array::from_fn(|_| Vec::new());
     for line in lines {
         if line.is_empty() {
             continue;
         }
-        match line.split('\t').next() {
-            Some("H") => out.holders.push(line.to_string()),
-            Some("P") => out.procs.push(line.to_string()),
-            Some("U") => out.unreadable.push(line.to_string()),
-            Some("E") => out.errors.push(line.to_string()),
-            other => panic!("unexpected row tag {other:?} in {line}"),
-        }
+        let tag = line.split('\t').next().unwrap_or_default();
+        let slot = tags
+            .iter()
+            .position(|want| *want == tag)
+            .unwrap_or_else(|| panic!("unexpected row tag {tag:?} in {line}"));
+        out[slot].push(line.to_string());
     }
-    out
+    (version, out)
+}
+
+pub fn parse_holders_tsv(stdout: &str) -> HolderRows {
+    let (version, [holders, procs, unreadable, errors]) = split_tsv(stdout, ["H", "P", "U", "E"]);
+    assert_eq!(version, 2, "socket-holders must carry the schema version");
+    HolderRows {
+        holders,
+        procs,
+        unreadable,
+        errors,
+    }
 }
 
 /// Darwin has no world-readable table of bound unix sockets, so a walk that
@@ -279,30 +313,10 @@ pub fn redact_tsv(tsv: &str) -> String {
     out
 }
 
+/// The rows of a `--procs --ports` snapshot: `(version, procs, ports,
+/// unreadable, errors)`.
 pub fn parse_tsv(stdout: &str) -> (u32, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
-    let mut lines = stdout.lines();
-    let first = lines.next().expect("stdout must have a version line");
-    let version = first
-        .strip_prefix("V\t")
-        .expect("first line must be V\\tN")
-        .parse::<u32>()
-        .expect("version number");
-    let mut procs = Vec::new();
-    let mut ports = Vec::new();
-    let mut unreadable = Vec::new();
-    let mut errors = Vec::new();
-    for line in lines {
-        if line.is_empty() {
-            continue;
-        }
-        match line.as_bytes().first() {
-            Some(b'P') => procs.push(line.to_string()),
-            Some(b'L') => ports.push(line.to_string()),
-            Some(b'U') => unreadable.push(line.to_string()),
-            Some(b'E') => errors.push(line.to_string()),
-            other => panic!("unexpected row tag {other:?} in {line}"),
-        }
-    }
+    let (version, [procs, ports, unreadable, errors]) = split_tsv(stdout, ["P", "L", "U", "E"]);
     (version, procs, ports, unreadable, errors)
 }
 

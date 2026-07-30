@@ -3,15 +3,23 @@
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import {
-  errnoOf,
-  exitDescription,
-  failureDetail,
+  assertBinPath,
+  CHILD_OPTIONS,
   failureDocument,
+  spawnFailure,
 } from "./childFailure.ts";
+import { OsfactsClientError } from "./clientError.ts";
+
+// Two names this module does not define but is the public face of: the error
+// every entry point raises, and the child deadline. They live one level down —
+// in leaves both this module and `childFailure.ts` can stand on without either
+// importing the other — and are re-exported here so the package keeps exactly
+// one production root.
+export { OsfactsClientError };
+export { OSFACTS_COMMAND_TIMEOUT_MS } from "./childFailure.ts";
 
 const execFileAsync = promisify(execFile);
 export const OSFACTS_FORMAT_VERSION = 2;
-export const OSFACTS_COMMAND_TIMEOUT_MS = 5_000;
 const TCP_PORT_MIN = 1;
 const TCP_PORT_MAX = 65_535;
 
@@ -20,17 +28,6 @@ const TCP_PORT_MAX = 65_535;
  * checking something unreachable. */
 function isTcpPort(port: number): boolean {
   return Number.isInteger(port) && port >= TCP_PORT_MIN && port <= TCP_PORT_MAX;
-}
-
-export class OsfactsClientError extends Error {
-  constructor(
-    readonly kind: "spawn" | "version" | "parse",
-    message: string,
-    options?: { cause?: unknown },
-  ) {
-    super(message, options);
-    this.name = "OsfactsClientError";
-  }
 }
 
 export interface ProcessRow {
@@ -800,18 +797,16 @@ export function parseHostOutput(body: string): HostReading {
   return out;
 }
 
+// The two spawn twins. Everything they share — the empty-`bin` guard, the child
+// options, the failure-document short-circuit, and how a failure is composed —
+// lives in `childFailure.ts` and is applied identically here, so the ONE line
+// that may differ between them is `execFileAsync` versus `execFileSync`. That
+// is the module's own stated failure mode (a rule applied to one twin and not
+// the other) refused at the call site as well as in the classifier.
 async function runOsfacts(bin: string, args: string[]): Promise<string> {
-  if (!bin)
-    throw new OsfactsClientError(
-      "spawn",
-      "osfacts binary path is empty — the caller must supply an absolute path",
-    );
+  assertBinPath(bin);
   try {
-    const { stdout } = await execFileAsync(bin, args, {
-      timeout: OSFACTS_COMMAND_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const { stdout } = await execFileAsync(bin, args, CHILD_OPTIONS);
     return stdout;
   } catch (err) {
     // A non-zero exit is not the same as no answer. The binary's documented
@@ -824,35 +819,18 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
     // snapshot that exited 0.
     const document = failureDocument(err);
     if (document !== undefined) return document;
-    throw new OsfactsClientError(
-      "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? exitDescription(err)})${failureDetail(err)}`,
-      { cause: err },
-    );
+    throw spawnFailure(bin, err);
   }
 }
 
 function runOsfactsSync(bin: string, args: string[]): string {
-  if (!bin)
-    throw new OsfactsClientError(
-      "spawn",
-      "osfacts binary path is empty — the caller must supply an absolute path",
-    );
+  assertBinPath(bin);
   try {
-    return execFileSync(bin, args, {
-      timeout: OSFACTS_COMMAND_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-      maxBuffer: 8 * 1024 * 1024,
-      encoding: "utf8",
-    });
+    return execFileSync(bin, args, { ...CHILD_OPTIONS, encoding: "utf8" });
   } catch (err) {
     const document = failureDocument(err);
     if (document !== undefined) return document;
-    throw new OsfactsClientError(
-      "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? exitDescription(err)})${failureDetail(err)}`,
-      { cause: err },
-    );
+    throw spawnFailure(bin, err);
   }
 }
 
@@ -993,20 +971,18 @@ export async function processIdentityAsync(
   );
 }
 
-/** Sync: `processIdentity(bakedOsFactsBin(envVar), pid)`. */
+/** Sync: `processIdentity(bakedOsFactsBin(envVar), pid)`. The convenience is
+ *  worth it only on a genuinely SYNC gate path, where the caller has no place
+ *  to hold a resolved bake. There is deliberately no async twin: an async
+ *  caller is a composition root, and a composition root resolves
+ *  `bakedOsFactsBin` ONCE and passes the path to
+ *  {@link processIdentityAsync} — re-reading the env on every call is the
+ *  per-call resolution this client stopped doing. */
 export function processIdentityFromEnv(
   envVar: string,
   pid: number,
 ): { pid: number; startUnixUs: number } | undefined {
   return processIdentity(bakedOsFactsBin(envVar), pid);
-}
-
-/** Async: for supervisor / endpoint injects (non-blocking event loop). */
-export async function processIdentityFromEnvAsync(
-  envVar: string,
-  pid: number,
-): Promise<{ pid: number; startUnixUs: number } | undefined> {
-  return processIdentityAsync(bakedOsFactsBin(envVar), pid);
 }
 
 /**

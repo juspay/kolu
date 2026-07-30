@@ -102,11 +102,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 .as_deref()
                 .map_err(|err| *err);
             match stat.and_then(|stat| read_proc(pid, stat, cmdline)) {
-                Ok(row) => snap.procs.push(Proc {
-                    pid,
-                    ppid: row.ppid,
-                    name: row.name,
-                }),
+                Ok(row) => snap.procs.push(row),
                 Err(err) => snap.push_unreadable(pid, Facet::Proc, err),
             }
         }
@@ -307,11 +303,7 @@ pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
                 .map_err(|err| *err)
                 .and_then(|stat| read_proc(pid, stat, cmdline.as_deref().map_err(|err| *err)))
             {
-                Ok(row) => out.procs.push(Proc {
-                    pid,
-                    ppid: row.ppid,
-                    name: row.name,
-                }),
+                Ok(row) => out.procs.push(row),
                 Err(err) => out.push_unreadable(pid, Facet::Proc, err),
             }
         }
@@ -455,14 +447,13 @@ fn children_of(pid: u32) -> Result<Vec<u32>, i32> {
     Ok(out)
 }
 
-struct ProcRow {
-    ppid: u32,
-    name: String,
-}
-fn read_proc(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> Result<ProcRow, i32> {
+/// One `P` row. It is handed the pid, so it returns the finished [`Proc`]
+/// rather than a pid-less half of one every caller would have to restate.
+fn read_proc(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> Result<Proc, i32> {
     let ppid =
         parse_stat_field(stat, 1).and_then(|value| value.parse().map_err(|_| libc::EINVAL))?;
-    Ok(ProcRow {
+    Ok(Proc {
+        pid,
         ppid,
         name: process_name(pid, stat, cmdline),
     })

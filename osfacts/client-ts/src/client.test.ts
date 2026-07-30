@@ -22,6 +22,29 @@ import {
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
 
+/**
+ * Run `run` against a throwaway executable whose whole body is `body`, and
+ * delete it afterwards however `run` ends.
+ *
+ * A REAL child, not a mock: every rule these pins are about — the exit status,
+ * the stderr line, the document written before a non-zero exit — is something
+ * only an actual process produces, and a stubbed `execFile` would let the
+ * client agree with a fiction. One helper because the mkdtemp → write → chmod →
+ * run → `finally` rm dance was written out at every such site, and a site that
+ * forgot the `finally` leaks a temp dir per run.
+ */
+async function withStub<T>(body: string, run: (bin: string) => T): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+  const bin = join(dir, "osfacts-stub");
+  try {
+    await writeFile(bin, body);
+    await chmod(bin, 0o755);
+    return await run(bin);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 const SNAPSHOT_SAMPLE = [
   "V\t2",
   "P\t1\t0\tlaunchd",
@@ -113,20 +136,13 @@ describe("parseSnapshotOutput", () => {
   });
 
   it("offers a host-wide process snapshot without a fake pid scope", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-fixture");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = snapshot ] && [ "$2" = --uid ] || exit 9\nprintf "V\\t2\\nUID\\t1\\t0\\n"\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { uid: true })).resolves.toMatchObject({
-        uids: [{ pid: 1, uid: 0 }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = snapshot ] && [ "$2" = --uid ] || exit 9\nprintf "V\\t2\\nUID\\t1\\t0\\n"\n',
+      (bin) =>
+        expect(snapshotHost(bin, { uid: true })).resolves.toMatchObject({
+          uids: [{ pid: 1, uid: 0 }],
+        }),
+    );
   });
 
   it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
@@ -134,35 +150,22 @@ describe("parseSnapshotOutput", () => {
     // E rows, then exit 1". That document is the only place the answer to
     // *which source went blind* exists; discarding it for the exit status left
     // every consumer an opaque "non-zero exit".
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-blind");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { procs: true })).resolves.toMatchObject({
-        procs: [],
-        errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
+      (bin) =>
+        expect(snapshotHost(bin, { procs: true })).resolves.toMatchObject({
+          procs: [],
+          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+        }),
+    );
   });
 
   it("still fails loudly when a non-zero exit produced no document", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-broken");
-    try {
-      await writeFile(bin, '#!/bin/sh\necho "boom" >&2\nexit 3\n');
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+    await withStub('#!/bin/sh\necho "boom" >&2\nexit 3\n', (bin) =>
+      expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
         OsfactsClientError,
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+      ),
+    );
   });
 
   it("refuses a version it does not speak", () => {
@@ -325,30 +328,24 @@ describe("parseSocketHoldersOutput", () => {
 
 describe("socketHolders", () => {
   it("spawns the verb with the path, and pays for --procs only when asked", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-holders");
-    try {
-      // Echoes its own argv back as the holder's NAME, so the assertion below
-      // is about the real command line, not a mock's idea of it.
-      await writeFile(
-        bin,
-        '#!/bin/sh\nprintf "V\\t2\\nH\\tclaimed\\t7\\nP\\t7\\t1\\t%s\\n" "$*"\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(
-        socketHolders(bin, "/run/user/1000/kaval.sock"),
-      ).resolves.toMatchObject({
-        holders: [{ status: "claimed", pid: 7 }],
-        procs: [{ name: "socket-holders /run/user/1000/kaval.sock" }],
-      });
-      await expect(
-        socketHolders(bin, "/run/user/1000/kaval.sock", { procs: true }),
-      ).resolves.toMatchObject({
-        procs: [{ name: "socket-holders /run/user/1000/kaval.sock --procs" }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    // The stub echoes its own argv back as the holder's NAME, so the
+    // assertions below are about the real command line, not a mock's idea of it.
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nH\\tclaimed\\t7\\nP\\t7\\t1\\t%s\\n" "$*"\n',
+      async (bin) => {
+        await expect(
+          socketHolders(bin, "/run/user/1000/kaval.sock"),
+        ).resolves.toMatchObject({
+          holders: [{ status: "claimed", pid: 7 }],
+          procs: [{ name: "socket-holders /run/user/1000/kaval.sock" }],
+        });
+        await expect(
+          socketHolders(bin, "/run/user/1000/kaval.sock", { procs: true }),
+        ).resolves.toMatchObject({
+          procs: [{ name: "socket-holders /run/user/1000/kaval.sock --procs" }],
+        });
+      },
+    );
   });
 
   it("refuses an empty path rather than asking about some other socket", async () => {
@@ -358,21 +355,14 @@ describe("socketHolders", () => {
   });
 
   it("keeps the E rows of a blind walk that exited non-zero", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-blind-holders");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\nprintf "V\\t2\\nE\\tdarwin_proc_fds\\tsocket_holders\\tBLIND_OR_EMPTY\\n"\nexit 1\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(socketHolders(bin, "/run/a.sock")).resolves.toMatchObject({
-        holders: [],
-        errors: [{ facet: "socket_holders", code: "BLIND_OR_EMPTY" }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tdarwin_proc_fds\\tsocket_holders\\tBLIND_OR_EMPTY\\n"\nexit 1\n',
+      (bin) =>
+        expect(socketHolders(bin, "/run/a.sock")).resolves.toMatchObject({
+          holders: [],
+          errors: [{ facet: "socket_holders", code: "BLIND_OR_EMPTY" }],
+        }),
+    );
   });
 });
 
@@ -385,23 +375,17 @@ describe("a refused ask is never an empty answer", () => {
    * would conclude a live socket is free.
    */
   it("refuses a usage-error document (exit 2) rather than parsing it as nothing-found", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-older");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command \'socket-holders\'" >&2\nexit 2\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(socketHolders(bin, "/run/a.sock")).rejects.toThrow(
-        /unknown command/,
-      );
-      await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
-        OsfactsClientError,
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command \'socket-holders\'" >&2\nexit 2\n',
+      async (bin) => {
+        await expect(socketHolders(bin, "/run/a.sock")).rejects.toThrow(
+          /unknown command/,
+        );
+        await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+          OsfactsClientError,
+        );
+      },
+    );
   });
 });
 
@@ -417,21 +401,6 @@ describe("a refused ask is never an empty answer", () => {
  * exist so the twins cannot drift apart again.
  */
 describe("the sync twin obeys the same exit-status rule", () => {
-  async function withStub<T>(
-    body: string,
-    run: (bin: string) => T,
-  ): Promise<T> {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-stub");
-    try {
-      await writeFile(bin, body);
-      await chmod(bin, 0o755);
-      return run(bin);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  }
-
   it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
     await withStub(
       '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',

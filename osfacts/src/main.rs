@@ -18,10 +18,11 @@ mod darwin;
 
 /// The one place the host platform is named.
 ///
-/// Each verb below is then three lines with no `#[cfg]` of its own — the same
+/// Each verb below is then ONE line with no `#[cfg]` of its own — the same
 /// five-branch dispatch written once instead of once per verb, which is what a
-/// doc comment reading "same law as `take_snapshot`" was standing in for. A
-/// fourth verb inherits the dispatch for free.
+/// per-verb doc comment reading "same law as the one above" was standing in
+/// for. A fourth verb inherits the dispatch for free, and — through [`take`]
+/// and `Document::normalize` — the row-ordering step with it.
 #[cfg(target_os = "linux")]
 use linux as platform;
 #[cfg(target_os = "macos")]
@@ -57,8 +58,8 @@ mod unsupported {
     }
 }
 
-use cli::{Command, HostArgs, SnapshotArgs, SocketHoldersArgs};
-use osfacts::{Document, HostSnapshot, Snapshot, SocketHolders};
+use cli::Command;
+use osfacts::{Document, Snapshot};
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -66,9 +67,9 @@ fn main() -> ExitCode {
     // Version line is mandatory even on error paths: a consumer built against
     // another revision fails loudly instead of parsing a half-shape into zero.
     match cli::parse(std::env::args_os().skip(1)) {
-        Ok(Command::Snapshot(args)) => emit(&take_snapshot(&args), args.json),
-        Ok(Command::SocketHolders(args)) => emit(&take_socket_holders(&args), args.json),
-        Ok(Command::Host(args)) => emit(&take_host(&args), args.json),
+        Ok(Command::Snapshot(args)) => emit(&take(platform::snapshot(&args)), args.json),
+        Ok(Command::SocketHolders(args)) => emit(&take(platform::socket_holders(&args)), args.json),
+        Ok(Command::Host(args)) => emit(&take(platform::host(&args)), args.json),
         // The discards below are the end of the line: stderr is the only place
         // left to report anything, so a failure to write there has no channel
         // of its own. The exit code still carries the outcome.
@@ -112,26 +113,16 @@ fn exit_code(doc: &dyn Document) -> ExitCode {
     }
 }
 
-fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
-    // Row order belongs to the schema, not to a sensor: normalize here, once,
-    // so both platforms emit the same TSV for the same facts.
-    let mut snap = platform::snapshot(args);
-    snap.normalize();
-    snap
-}
-
-fn take_socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
-    let mut holders = platform::socket_holders(args);
-    holders.normalize();
-    holders
-}
-
-/// No `normalize` here, and that is a decision rather than an omission: a
-/// `HostSnapshot` carries no per-pid row vectors to order — its facts are
-/// scalars plus cpu/net/disk lists the sensors already emit in the host's own
-/// enumeration order, which is the order to report them in.
-fn take_host(args: &HostArgs) -> HostSnapshot {
-    platform::host(args)
+/// Take a sensor's reading and put it in document order.
+///
+/// One taker for every verb, because row order belongs to the SCHEMA, not to a
+/// sensor: normalize here, once, so both platforms emit the same TSV for the
+/// same facts. Each document says for itself what its order is (a
+/// `HostSnapshot` inherits the do-nothing default), so a fourth verb genuinely
+/// inherits this dispatch instead of arriving with a wrapper of its own.
+fn take<D: Document>(mut doc: D) -> D {
+    doc.normalize();
+    doc
 }
 
 fn write_version_only() -> io::Result<()> {
@@ -145,7 +136,9 @@ fn write_version_only() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use osfacts::{blind_or_empty, source_error, Attribution, Facet, Proc};
+    use osfacts::{
+        blind_or_empty, source_error, Attribution, Facet, HostSnapshot, Proc, SocketHolders,
+    };
 
     #[test]
     fn partial_source_failure_does_not_discard_good_facts() {

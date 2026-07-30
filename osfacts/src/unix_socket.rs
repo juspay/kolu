@@ -105,33 +105,39 @@ fn is_unix_table_header(header: &[u8]) -> bool {
 /// One table row → `(inode, path)`, or `None` for a row that carries neither
 /// (a peer with no bound name, an undisclosed inode).
 fn split_unix_row(line: &[u8]) -> Option<(u64, &[u8])> {
-    const FIXED_FIELDS: usize = 7;
-    const INODE_FIELD: usize = 6;
+    /// `Num RefCount Protocol Flags Type St` — the columns standing between the
+    /// start of a row and its inode.
+    const FIELDS_BEFORE_INODE: usize = 6;
     let is_space = |b: u8| b == b' ' || b == b'\t';
 
+    // Whitespace at the START of a row is the kernel's structural padding.
     // Nothing is trimmed off the END of the line: `/proc/net/unix` is
     // LF-framed, so a trailing `\r` — like a trailing space — is a byte of the
     // name the kernel really bound, not framing to strip.
     let mut rest = &line[line.iter().position(|&b| !is_space(b))?..];
-    let mut inode = None;
-    for field in 0..FIXED_FIELDS {
+
+    // Skip past the columns before the inode. A RUN of whitespace between two
+    // fixed columns is alignment padding, so it is skipped whole — a rule that
+    // holds only HERE, between columns, and never at the boundary before the
+    // path, where a single delimiter is all that separates the last column from
+    // a name that may itself begin with a space.
+    for _ in 0..FIELDS_BEFORE_INODE {
         let end = rest.iter().position(|&b| is_space(b))?;
-        if field == INODE_FIELD {
-            // Only the inode column is ever decoded, and only as ASCII digits.
-            inode = std::str::from_utf8(&rest[..end])
-                .ok()
-                .and_then(|digits| digits.parse::<u64>().ok());
-            // Exactly ONE delimiter, then the name verbatim — see the header.
-            rest = rest.get(end + 1..)?;
-            break;
-        }
         rest = &rest[end..];
         rest = &rest[rest.iter().position(|&b| !is_space(b))?..];
     }
-    match (inode, rest) {
-        (Some(inode), path) if inode > 0 && !path.is_empty() => Some((inode, path)),
-        _ => None,
-    }
+
+    // The inode column — the only column ever decoded, and only as ASCII digits.
+    let end = rest.iter().position(|&b| is_space(b))?;
+    let inode = std::str::from_utf8(&rest[..end])
+        .ok()
+        .and_then(|digits| digits.parse::<u64>().ok())?;
+    // Exactly ONE delimiter, then the name verbatim — see the header.
+    let path = rest.get(end + 1..)?;
+
+    // Inode 0 is the table's "not disclosed" marker, and nobody can hold a
+    // socket at the empty path: both are absences, not rows.
+    (inode > 0 && !path.is_empty()).then_some((inode, path))
 }
 
 /// The `sun_path` bytes of a darwin `un_sockinfo` address slot, or `None` when
