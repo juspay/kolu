@@ -11,6 +11,7 @@ paths:
 
 - Use `/be` to take a task end-to-end. It owns its own phase list and review gauntlet — don't restate them here.
 - Run `just fmt` (formatting) before declaring done.
+- **Every Bash command starts back at the repo root — write paths absolutely, or lead with the `cd`.** The shell's cwd is reset between calls (the tool result says so: *"Shell cwd was reset to …"*), so a `cd packages/foo` in one command does not carry into the next, and a campaign that touches sibling repos (`drishti`, `odu`) drifts constantly. A relative path that assumed the previous `cd` fails as `No such file or directory` — cheap to retry, but it happened six times in one run. Same rule for a backgrounded command: it cannot change the session's cwd at all.
 - **Prefer external libraries over hand-rolled code**: Use well-maintained SolidJS-native libraries (Corvu, solid-sonner, @solid-primitives, etc.) to reduce custom code surface area. Less code to maintain = fewer bugs.
 
 ## Design philosophy
