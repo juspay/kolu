@@ -754,6 +754,12 @@ const E2E_SERVER_ENV_KEYS = [
   "KOLU_TEST_VERBOSE",
   // Which kaval the server spawns (nix-built vs from-source) — the spawn-deciding var.
   "KOLU_KAVAL_BIN",
+  // The baked osfacts binary, same class as KOLU_KAVAL_BIN: a nix-provided
+  // absolute path with NO PATH fallback by design, so a stripped var is a hard
+  // boot failure rather than a degraded mode. `claimLocalSupervisor` reads it on
+  // every boot, so without it here the server child dies before it binds its
+  // port and the whole suite reports as "could not start a server".
+  "KOLU_OSFACTS_BIN",
   "KOLU_COMMIT_HASH",
   "TZ",
   "TERMINFO",
@@ -1228,15 +1234,24 @@ Before(
     // Single definition avoids the buffer-read loop being duplicated across files.
     // Always injected (independent of the motion gate above).
     await this.page.addInitScript(`
-    window.__readXtermBuffer = function(sel, idx) {
+    window.__readXtermBuffer = function(sel, idx, opts) {
       var containers = document.querySelectorAll(sel);
       var container = containers[idx];
       if (!container) return "";
       var term = container.__xterm;
       if (!term) return "";
       var buf = term.buffer.active;
+      // Whole buffer (scrollback included) by default; opts.viewport narrows to
+      // the rows on SCREEN. Reading the buffer answers "did the bytes arrive",
+      // reading the viewport answers "does the user see them" — a terminal
+      // showing the wrong window onto correct bytes fails only the latter.
+      var start = 0, end = buf.length;
+      if (opts && opts.viewport) {
+        start = buf.viewportY;
+        end = Math.min(buf.length, buf.viewportY + term.rows);
+      }
       var lines = [];
-      for (var i = 0; i < buf.length; i++) {
+      for (var i = start; i < end; i++) {
         var line = buf.getLine(i);
         if (!line) { lines.push(""); continue; }
         // A single logical line longer than the grid width hard-wraps across
@@ -1248,7 +1263,7 @@ Before(
         // screen-state flake). translateToString(trimRight) is applied only at
         // the logical-line END: a mid-line (continued) row fills the full width,
         // so trimming it would drop a real space sitting on the wrap boundary.
-        var next = i + 1 < buf.length ? buf.getLine(i + 1) : null;
+        var next = i + 1 < end ? buf.getLine(i + 1) : null;
         var continued = !!(next && next.isWrapped);
         var s = line.translateToString(!continued);
         if (line.isWrapped && lines.length) lines[lines.length - 1] += s;
