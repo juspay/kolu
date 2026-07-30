@@ -4,8 +4,15 @@
  * Zero kolu imports. Zero npm runtime dependencies. The binary's contract
  * only: spawn at a path you supply, refuse a schema version you do not speak,
  * parse typed process, listener, unreadable, and source-error rows, and name
- * the facets a given ask can be answered with. Classification, fold, and
- * blindness policy are the consumer's (kolu/padi today; drishti next).
+ * the facets a given ask can be answered with. Classification and blindness
+ * policy are the consumer's (kolu/padi today; drishti next).
+ *
+ * The exception, and it is a deliberate one: where a verb's reading has ONE
+ * honest domain answer that every consumer would otherwise hand-write the same
+ * way, the fold ships here beside the parser — `processIdentity*` over the
+ * start-time reading, `osfactsSocketHolders` / `foldSocketHoldersReading` over
+ * the holder reading. Both keep an "absent" arm that must never collapse into
+ * the others, which is exactly the mistake a per-consumer copy makes.
  *
  * The spawn functions are named `<verb><Scope>`, after the binary's own verbs.
  * `snapshotSubtree`, `snapshotPids`, and `snapshotHost` are the three scopes of
@@ -42,6 +49,8 @@ export {
   type SocketHoldersSourceErrorRow,
   type SocketHolderRow,
   type SocketHoldersReading,
+  type SocketHolder,
+  type SocketHolderReading,
   HOST_SOURCE_FACETS,
   type HostSourceFacet,
   type HostSourceErrorRow,
@@ -70,5 +79,7 @@ export {
   processIdentityFromEnv,
   processIdentityFromEnvAsync,
   socketHolders,
+  foldSocketHoldersReading,
+  osfactsSocketHolders,
   host,
 } from "./client.ts";

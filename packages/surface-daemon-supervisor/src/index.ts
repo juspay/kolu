@@ -40,12 +40,16 @@ export {
 } from "./endpoint.ts";
 // EndpointSpec re-exported for consumers and for `./createEndpoint.testlib`
 // (suites inject identity once via that helper).
-export {
-  foldSocketHoldersReading,
-  osfactsSocketHolders,
-  type ReadSocketHolders,
-  type SocketHolder,
-  type SocketHolderReading,
+// The socket-holder ASK. The reader that answers it (`osfactsSocketHolders`)
+// and the fold behind it (`foldSocketHoldersReading`) live in `osfacts-client`
+// beside the parser and `processIdentityAsync`, so a composition root binds
+// both OS facts to ONE resolved binary path. What this package owns is the
+// shape of the ask, and the two answer types are re-exported here so a
+// consumer wiring `EndpointSpec` never has to reach past it.
+export type {
+  ReadSocketHolders,
+  SocketHolder,
+  SocketHolderReading,
 } from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for

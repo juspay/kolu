@@ -25,13 +25,16 @@ import {
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
-  osfactsSocketHolders,
   recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
-import { bakedOsFactsBin, processIdentityFromEnvAsync } from "osfacts-client";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityFromEnvAsync,
+} from "osfacts-client";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,

@@ -1,124 +1,27 @@
 /**
- * The socket-holder leaf, in two halves.
+ * The socket-holder inject, end to end against the REAL binary.
  *
- * **The fold** (ungated, both platforms) pins the part this package still owns
- * after OSF4: turning osfacts' document into the three answers the recovery
- * acts on, and never collapsing them into one another. The OS reading itself
- * belongs to the binary now and is pinned by its own two-platform suite, so
- * there is nothing left here to fake.
- *
- * **The end-to-end pins** (gated, real child, real socket) prove the fold sits
- * on the REAL binary the composition roots inject — that osfacts, this fold,
- * and the pid the OS actually reports agree. A suite that only exercised the
- * fold against hand-written documents would prove the parse and nothing about
- * the path that runs.
+ * These pins (gated, real child, real socket) prove the injected reader sits
+ * on the binary the composition roots resolve — that osfacts, the fold in
+ * `osfacts-client`, and the pid the OS actually reports agree. The fold's own
+ * unit pins live beside it, in `osfacts/client-ts/src/client.test.ts`: a suite
+ * that only exercised hand-written documents would prove the parse and nothing
+ * about the path that runs, which is what this file is for.
  */
 
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import type { SocketHoldersReading } from "osfacts-client";
-import { foldSocketHoldersReading } from "./socketHolder.ts";
 import { testReadSocketHolders } from "./createEndpoint.testlib.ts";
 
 /** kolu's own bake — this repo's suites, so this repo's env var. */
 const readHolders = testReadSocketHolders("KOLU_OSFACTS_BIN");
-
-function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
-  return { holders: [], procs: [], unreadable: [], errors: [], ...over };
-}
-
-describe("foldSocketHoldersReading — three answers, never one", () => {
-  it("names every claimed holder, with its command", () => {
-    expect(
-      foldSocketHoldersReading(
-        reading({
-          holders: [
-            { status: "claimed", pid: 4242 },
-            { status: "claimed", pid: 4243 },
-          ],
-          procs: [{ pid: 4242, ppid: 1, name: "kaval" }],
-        }),
-      ),
-    ).toEqual({
-      kind: "holders",
-      holders: [
-        { pid: 4242, command: "kaval" },
-        // Named by the OS, but its identity read lost the race — still a
-        // holder, and still a kill candidate the handshake may confirm.
-        { pid: 4243, command: "?" },
-      ],
-    });
-  });
-
-  it("reports a proven-empty document as `none`, the ONLY proof of freedom", () => {
-    expect(foldSocketHoldersReading(reading({}))).toEqual({ kind: "none" });
-  });
-
-  /** The linux shape: the socket IS bound, and no pid we may inspect holds it. */
-  it("keeps a bound-but-unnameable holder out of `none`", () => {
-    const folded = foldSocketHoldersReading(
-      reading({ holders: [{ status: "unclaimed" }] }),
-    );
-
-    expect(folded.kind).toBe("unattributed");
-    expect(folded).not.toEqual({ kind: "none" });
-  });
-
-  /** The darwin shape: the search itself could not complete. */
-  it("keeps a blind search out of `none`", () => {
-    const folded = foldSocketHoldersReading(
-      reading({
-        errors: [
-          {
-            source: "darwin_proc_fds",
-            facet: "socket_holders",
-            code: "BLIND_OR_EMPTY",
-          },
-        ],
-      }),
-    );
-
-    expect(folded.kind).toBe("unattributed");
-    expect(folded).toMatchObject({
-      detail: expect.stringContaining("darwin_proc_fds"),
-    });
-  });
-
-  /** A named holder is an answer even when its NAME could not be read. That
-   *  loss is the shape the verb really emits — a per-pid `U` row, not an
-   *  `E … proc …` source error (which `SOCKET_HOLDERS_SOURCE_FACETS` no
-   *  longer promises, because no reader can write one). */
-  it("still names holders when the identity read lost one pid", () => {
-    expect(
-      foldSocketHoldersReading(
-        reading({
-          holders: [{ status: "claimed", pid: 7 }],
-          unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
-        }),
-      ),
-    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: "?" }] });
-  });
-
-  /** An unclaimed row beside a claimed one does not weaken the claim: the
-   *  recovery has a pid to handshake, which is what it needs. */
-  it("prefers a named holder over an unattributed sibling row", () => {
-    expect(
-      foldSocketHoldersReading(
-        reading({
-          holders: [{ status: "unclaimed" }, { status: "claimed", pid: 9 }],
-          procs: [{ pid: 9, ppid: 1, name: "kaval" }],
-        }),
-      ),
-    ).toEqual({ kind: "holders", holders: [{ pid: 9, command: "kaval" }] });
-  });
-});
 
 const children: number[] = [];
 afterEach(async () => {

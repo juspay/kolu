@@ -73,7 +73,6 @@ import {
   createEndpoint,
   type DaemonDriver,
   isDownEndpointState,
-  osfactsSocketHolders,
   outcomeAnomaly,
   probeDaemonIdentity,
   scrubDaemonNodeOptions,
@@ -89,7 +88,11 @@ import {
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
-import { bakedOsFactsBin, processIdentityFromEnvAsync } from "osfacts-client";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityFromEnvAsync,
+} from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the

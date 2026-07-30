@@ -1109,6 +1109,103 @@ export function socketHolders(
   return runOsfacts(bin, args).then(parseSocketHoldersOutput);
 }
 
+/** A process the OS reports as holding a socket path — its pid and a human
+ *  command label (for a caller's operator-facing message). */
+export interface SocketHolder {
+  pid: number;
+  /** A readable command for the pid — osfacts' short display name (the
+   *  executable's basename), the same fact on both platforms. `"?"` when the
+   *  holder could not be named: it may have exited between the holder lookup
+   *  and the identity read. Diagnostic only, never a decision input. */
+  command: string;
+}
+
+/**
+ * What the OS said about who holds a socket path — the honest domain answer,
+ * as opposed to the wire-faithful {@link SocketHoldersReading}.
+ *
+ * The three arms are the whole point. Folding them into one possibly-empty
+ * list is the defect this fold exists to refuse, because `[]` then means
+ * "free", "occupied by someone I may not name", and "the read failed" at once
+ * — and a supervisor that reads the first meaning while the third is true
+ * spawns a second daemon onto a live rendezvous socket.
+ */
+export type SocketHolderReading =
+  /** At least one process the OS named. Never empty. */
+  | { readonly kind: "holders"; readonly holders: readonly SocketHolder[] }
+  /** Proven: nothing holds this path. Only linux can prove this — its
+   *  `/proc/net/unix` table lists every bound unix socket, so absence from it
+   *  is evidence rather than silence. */
+  | { readonly kind: "none" }
+  /** Something may hold the path and the OS would not say what. `detail` names
+   *  which of the two shapes it was, for the operator-facing message only —
+   *  both decide identically, because neither is proof of freedom. */
+  | { readonly kind: "unattributed"; readonly detail: string };
+
+/**
+ * The `socket-holders` document → the honest domain answer.
+ *
+ * The twin of {@link foldStartTimeReading}, and it lives here for the same
+ * reason: folding a wire-faithful reading into the answer a consumer acts on
+ * is this package's kind of work, and a fold written once here is a fold kolu
+ * and drishti cannot write differently. Exported for its own unit pins — this
+ * is where the three answers are kept apart, so it is where a regression would
+ * collapse them.
+ */
+export function foldSocketHoldersReading(
+  reading: SocketHoldersReading,
+): SocketHolderReading {
+  const named = reading.holders.flatMap((holder) =>
+    holder.status === "claimed"
+      ? [
+          {
+            pid: holder.pid,
+            command:
+              reading.procs.find((row) => row.pid === holder.pid)?.name ?? "?",
+          },
+        ]
+      : [],
+  );
+  if (named.length > 0) return { kind: "holders", holders: named };
+  // A bound socket the tool could not attribute to any readable pid. Linux
+  // emits this when the path IS in its table but no pid it may inspect holds
+  // the inode — a foreign-uid holder, and emphatically not a free socket.
+  if (reading.holders.length > 0)
+    return {
+      kind: "unattributed",
+      detail: "the socket is bound, but its holder is not ours to inspect",
+    };
+  // The tool could not complete the search. Darwin has no readable table of
+  // bound unix sockets, so a descriptor walk denied another user's processes
+  // reports this rather than pretending to linux's proof of absence.
+  const blind = reading.errors.find((row) => row.facet === "socket_holders");
+  if (blind !== undefined)
+    return {
+      kind: "unattributed",
+      detail: `the holder search could not complete (${blind.source}: ${blind.code})`,
+    };
+  return { kind: "none" };
+}
+
+/**
+ * `socketHolders` + {@link foldSocketHoldersReading}, bound to an
+ * already-resolved binary path — the shape a supervisor injects.
+ *
+ * `bin` is resolved ONCE at the composition root rather than per call, so a
+ * missing bake fails at boot — the loud moment — instead of during a recovery
+ * that is already handling a wedged endpoint. Pair it with
+ * {@link processIdentityAsync} bound to the SAME resolved path, so one root
+ * spells its env var once for both OS facts.
+ */
+export function osfactsSocketHolders(
+  bin: string,
+): (socketPath: string) => Promise<SocketHolderReading> {
+  return async (socketPath) =>
+    foldSocketHoldersReading(
+      await socketHolders(bin, socketPath, { procs: true }),
+    );
+}
+
 export async function host(
   bin: string,
   facets: HostFacets,

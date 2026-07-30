@@ -27,11 +27,10 @@ import { stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
   createEndpoint,
-  osfactsSocketHolders,
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { bakedOsFactsBin } from "osfacts-client";
+import { bakedOsFactsBin, osfactsSocketHolders } from "osfacts-client";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
 import { readProcessIdentity } from "../common/processIdentity";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";

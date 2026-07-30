@@ -10,15 +10,12 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "@kolu/surface-daemon";
-import { bakedOsFactsBin } from "osfacts-client";
+import { bakedOsFactsBin, osfactsSocketHolders } from "osfacts-client";
 import {
   createEndpoint as createEndpointCore,
   type EndpointSpec,
 } from "./endpoint.ts";
-import {
-  osfactsSocketHolders,
-  type ReadSocketHolders,
-} from "./socketHolder.ts";
+import type { ReadSocketHolders } from "./socketHolder.ts";
 
 /** Deterministic fake start times for live pids in unit tests. */
 export function testStartUnixUs(pid: number): number {

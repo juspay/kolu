@@ -16,6 +16,8 @@ import {
   snapshotHost,
   snapshotPidsSync,
   socketHolders,
+  foldSocketHoldersReading,
+  type SocketHoldersReading,
 } from "./client.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
@@ -463,5 +465,96 @@ describe("the sync twin obeys the same exit-status rule", () => {
         OsfactsClientError,
       ),
     );
+  });
+});
+
+/** A wire-faithful `socket-holders` document, one field at a time. */
+function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
+  return { holders: [], procs: [], unreadable: [], errors: [], ...over };
+}
+
+describe("foldSocketHoldersReading — three answers, never one", () => {
+  it("names every claimed holder, with its command", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [
+            { status: "claimed", pid: 4242 },
+            { status: "claimed", pid: 4243 },
+          ],
+          procs: [{ pid: 4242, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({
+      kind: "holders",
+      holders: [
+        { pid: 4242, command: "kaval" },
+        // Named by the OS, but its identity read lost the race — still a
+        // holder, and still a kill candidate the handshake may confirm.
+        { pid: 4243, command: "?" },
+      ],
+    });
+  });
+
+  it("reports a proven-empty document as `none`, the ONLY proof of freedom", () => {
+    expect(foldSocketHoldersReading(reading({}))).toEqual({ kind: "none" });
+  });
+
+  /** The linux shape: the socket IS bound, and no pid we may inspect holds it. */
+  it("keeps a bound-but-unnameable holder out of `none`", () => {
+    const folded = foldSocketHoldersReading(
+      reading({ holders: [{ status: "unclaimed" }] }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).not.toEqual({ kind: "none" });
+  });
+
+  /** The darwin shape: the search itself could not complete. */
+  it("keeps a blind search out of `none`", () => {
+    const folded = foldSocketHoldersReading(
+      reading({
+        errors: [
+          {
+            source: "darwin_proc_fds",
+            facet: "socket_holders",
+            code: "BLIND_OR_EMPTY",
+          },
+        ],
+      }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).toMatchObject({
+      detail: expect.stringContaining("darwin_proc_fds"),
+    });
+  });
+
+  /** A named holder is an answer even when its NAME could not be read. That
+   *  loss is the shape the verb really emits — a per-pid `U` row, not an
+   *  `E … proc …` source error (which `SOCKET_HOLDERS_SOURCE_FACETS` no
+   *  longer promises, because no reader can write one). */
+  it("still names holders when the identity read lost one pid", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [{ status: "claimed", pid: 7 }],
+          unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
+        }),
+      ),
+    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: "?" }] });
+  });
+
+  /** An unclaimed row beside a claimed one does not weaken the claim: the
+   *  recovery has a pid to handshake, which is what it needs. */
+  it("prefers a named holder over an unattributed sibling row", () => {
+    expect(
+      foldSocketHoldersReading(
+        reading({
+          holders: [{ status: "unclaimed" }, { status: "claimed", pid: 9 }],
+          procs: [{ pid: 9, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({ kind: "holders", holders: [{ pid: 9, command: "kaval" }] });
   });
 });
