@@ -611,6 +611,9 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
         newPid,
         `previous padi recycleKaval did not replace kaval (still ${currentKavalPid})`,
       ).toBeTypeOf("number");
+      if (newPid === undefined) {
+        throw new Error("unreachable: newPid typed after toBeTypeOf number");
+      }
       // (b) SIGTERM went to the original observation (not a stranger)
       expect(isHolderLive(currentKavalPid)).toBe(false);
       // (c) post-restart gate is still pid-first-readable naming the live
