@@ -27,6 +27,9 @@ import type { SocketHoldersReading } from "osfacts-client";
 import { foldSocketHoldersReading } from "./socketHolder.ts";
 import { testReadSocketHolders } from "./createEndpoint.testlib.ts";
 
+/** kolu's own bake — this repo's suites, so this repo's env var. */
+const readHolders = testReadSocketHolders("KOLU_OSFACTS_BIN");
+
 function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
   return { holders: [], procs: [], unreadable: [], errors: [], ...over };
 }
@@ -154,7 +157,7 @@ function spawnHolder(socketPath: string): Promise<number> {
 
 /** Every pid the reading names, or `[]` on an arm that names nobody. */
 async function heldPids(socketPath: string): Promise<number[]> {
-  const reading = await testReadSocketHolders(socketPath);
+  const reading = await readHolders(socketPath);
   return reading.kind === "holders" ? reading.holders.map((h) => h.pid) : [];
 }
 
@@ -164,7 +167,7 @@ describeDaemon("the injected reader, against the real binary", () => {
     const socketPath = join(d, "held.sock");
     const pid = await spawnHolder(socketPath);
 
-    const reading = await testReadSocketHolders(socketPath);
+    const reading = await readHolders(socketPath);
 
     expect(reading.kind).toBe("holders");
     if (reading.kind !== "holders") return;

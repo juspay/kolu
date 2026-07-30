@@ -237,7 +237,11 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
 /// emits `unclaimed`, exactly as an unattributed listener does under OSF6.
 pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
     let mut out = SocketHolders::new();
-    let table = match read_string("/proc/net/unix") {
+    // BYTES, not a `String`: the table is host-wide and a socket path is
+    // whatever some process handed `bind(2)`, so a strict UTF-8 decode would
+    // let one process with a non-UTF-8 socket name blind this verb for every
+    // path on the host. See `unix_socket_inodes`.
+    let table = match read_bytes("/proc/net/unix") {
         Ok(body) => body,
         // The only source of the bound-socket table on linux; its silence
         // costs the whole answer.

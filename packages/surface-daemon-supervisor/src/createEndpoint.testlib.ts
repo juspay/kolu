@@ -43,14 +43,34 @@ export const testSelfIdentity: ProcessIdentity = {
 export const testAcquireReadIdentity: ReadProcessIdentity = (pid) =>
   pid === process.pid ? testSelfIdentity : testReadProcessIdentity(pid);
 
-/** The REAL osfacts-backed holder reader — the squatter suites bind real unix
- *  sockets in real child processes, so a fake here would prove nothing about
- *  the path that actually runs. `bakedOsFactsBin` is loud when the nix wrapper
- *  did not bake the binary, which is the honest failure for a suite that
- *  cannot run without it. Resolved lazily so a suite that never recovers a
- *  squatter is not blocked by an unbaked environment. */
-export const testReadSocketHolders: ReadSocketHolders = (socketPath) =>
-  osfactsSocketHolders(bakedOsFactsBin("KOLU_OSFACTS_BIN"))(socketPath);
+/**
+ * The REAL osfacts-backed holder reader, for a suite that exercises the
+ * squatter recovery — those bind real unix sockets in real child processes, so
+ * a fake would prove nothing about the path that actually runs.
+ *
+ * It takes the ENV VAR NAME rather than baking one, for the same reason
+ * `readSocketHolders` is injected on `EndpointSpec` at all: this package is
+ * shared spine, and a helper that spelled `KOLU_OSFACTS_BIN` would put a
+ * consumer's name inside it — one file over from the production code that
+ * carefully does not. Each consumer's suite passes its own.
+ *
+ * Resolution is lazy (per call, not per construction) so a suite that never
+ * reaches a holder read is not blocked by an unbaked environment.
+ */
+export function testReadSocketHolders(envVar: string): ReadSocketHolders {
+  return (socketPath) =>
+    osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath);
+}
+
+/** The default `readSocketHolders` for a suite that did not name one: a loud
+ *  refusal rather than a silent kolu-specific assumption. A suite that reaches
+ *  it is a suite whose endpoint really does read socket holders, and it must
+ *  say which binary to read them with. */
+const unInjectedSocketHolders: ReadSocketHolders = async (socketPath) => {
+  throw new Error(
+    `createEndpointForTest: this suite reached a socket-holder read for ${socketPath} without injecting \`readSocketHolders\` — pass testReadSocketHolders(<your osfacts env var>)`,
+  );
+};
 
 export function createEndpointForTest<C, I, M = undefined>(
   spec: Omit<
@@ -60,7 +80,7 @@ export function createEndpointForTest<C, I, M = undefined>(
     Partial<Pick<EndpointSpec<C, I, M>, "readSocketHolders">>,
 ) {
   return createEndpointCore({
-    readSocketHolders: testReadSocketHolders,
+    readSocketHolders: unInjectedSocketHolders,
     ...spec,
     readProcessIdentity: testReadProcessIdentity,
   });

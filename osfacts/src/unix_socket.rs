@@ -37,13 +37,19 @@ pub const SUN_PATH_LEN: usize = 104;
 /// - **Inode 0 is not a socket identity** — it is what the table prints for a
 ///   row whose inode it will not disclose, and attributing fds to it would
 ///   claim every such row at once.
-pub fn unix_socket_inodes(table: &str, path: &[u8]) -> Vec<u64> {
+/// - **BYTES, not text.** The table is host-wide, and a socket path is whatever
+///   bytes some process handed `bind(2)` — any unprivileged process on the box
+///   can bind a name that is not valid UTF-8. Decoding the whole file as a
+///   `String` therefore lets one such process fail the read outright and blind
+///   this verb for *every* path on the host. A row this parser cannot make
+///   sense of costs that row alone.
+pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Vec<u64> {
     let mut out = Vec::new();
-    for line in table.lines() {
+    for line in table.split(|&b| b == b'\n') {
         let Some((inode, row_path)) = split_unix_row(line) else {
             continue;
         };
-        if row_path.as_bytes() == path && !out.contains(&inode) {
+        if row_path == path && !out.contains(&inode) {
             out.push(inode);
         }
     }
@@ -52,18 +58,26 @@ pub fn unix_socket_inodes(table: &str, path: &[u8]) -> Vec<u64> {
 
 /// One table row → `(inode, path)`, or `None` for a row that carries neither
 /// (the header, a peer with no bound name, an undisclosed inode).
-fn split_unix_row(line: &str) -> Option<(u64, &str)> {
+fn split_unix_row(line: &[u8]) -> Option<(u64, &[u8])> {
     const FIXED_FIELDS: usize = 7;
     const INODE_FIELD: usize = 6;
+    let is_space = |b: u8| b == b' ' || b == b'\t';
 
-    let mut rest = line.trim_start();
+    // A `\r` would otherwise be the last byte of the path. Nothing else is
+    // trimmed: a trailing SPACE is part of a name the kernel really bound.
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let mut rest = &line[line.iter().position(|&b| !is_space(b))?..];
     let mut inode = None;
     for field in 0..FIXED_FIELDS {
-        let end = rest.find([' ', '\t'])?;
+        let end = rest.iter().position(|&b| is_space(b))?;
         if field == INODE_FIELD {
-            inode = rest[..end].parse::<u64>().ok();
+            // Only the inode column is ever decoded, and only as ASCII digits.
+            inode = std::str::from_utf8(&rest[..end])
+                .ok()
+                .and_then(|digits| digits.parse::<u64>().ok());
         }
-        rest = rest[end..].trim_start_matches([' ', '\t']);
+        rest = &rest[end..];
+        rest = &rest[rest.iter().position(|&b| !is_space(b))?..];
     }
     match (inode, rest) {
         (Some(inode), path) if inode > 0 && !path.is_empty() => Some((inode, path)),
@@ -150,7 +164,7 @@ mod tests {
     }
 
     /// The real column layout, as the kernel prints it.
-    const TABLE: &str = "\
+    const TABLE: &[u8] = b"\
 Num       RefCount Protocol Flags    Type St Inode Path
 ffff9a0000000000: 00000002 00000000 00010000 0001 01 41231 /run/user/1000/padi.sock
 ffff9a0000000001: 00000003 00000000 00000000 0001 03 41232
@@ -201,9 +215,32 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     /// attribute every fd whose inode we equally cannot read.
     #[test]
     fn an_undisclosed_inode_is_not_a_socket_identity() {
-        let table = "ffff: 00000002 00000000 00010000 0001 01 0 /run/gated.sock\n";
+        let table = b"ffff: 00000002 00000000 00010000 0001 01 0 /run/gated.sock\n";
 
-        assert!(unix_socket_inodes(table, b"/run/gated.sock").is_empty());
+        assert!(unix_socket_inodes(table.as_slice(), b"/run/gated.sock").is_empty());
+    }
+
+    /// The host-wide table names sockets this binary did not create, so one
+    /// process binding a non-UTF-8 name must not cost every OTHER row. A
+    /// whole-file `String` decode is what made that possible: any unprivileged
+    /// process could blind the verb for the entire host by binding one bad byte.
+    #[test]
+    fn a_non_utf8_row_costs_only_itself() {
+        let mut table = Vec::new();
+        table.extend_from_slice(b"ffff: 00000002 00000000 00010000 0001 01 10 /run/");
+        table.push(0xff); // a byte no UTF-8 decode accepts
+        table.extend_from_slice(b".sock\n");
+        table.extend_from_slice(
+            b"ffff: 00000002 00000000 00010000 0001 01 11 /run/kaval.sock\n",
+        );
+
+        assert_eq!(unix_socket_inodes(&table, b"/run/kaval.sock"), vec![11]);
+        // And the bad row is still matchable, by the bytes it really carries.
+        assert_eq!(
+            unix_socket_inodes(&table, b"/run/\xff.sock"),
+            vec![10],
+            "the row's own bytes must still resolve"
+        );
     }
 
     /// `SO_REUSEPORT`-style duplication and a moving row can both put the same
@@ -211,11 +248,11 @@ ffff9a0000000003: 00000002 00000000 00010000 0001 01 41234 /tmp/trailing \n";
     /// inode listed twice is one socket.
     #[test]
     fn one_path_can_carry_several_distinct_inodes_but_no_repeats() {
-        let table = "\
+        let table = b"\
 ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock
 ffff: 00000002 00000000 00010000 0001 01 11 /run/a.sock
 ffff: 00000002 00000000 00010000 0001 01 10 /run/a.sock\n";
 
-        assert_eq!(unix_socket_inodes(table, b"/run/a.sock"), vec![10, 11]);
+        assert_eq!(unix_socket_inodes(table.as_slice(), b"/run/a.sock"), vec![10, 11]);
     }
 }

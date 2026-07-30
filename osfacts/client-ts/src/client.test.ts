@@ -14,6 +14,7 @@ import {
   parseSocketHoldersOutput,
   OSFACTS_FORMAT_VERSION,
   snapshotHost,
+  snapshotPidsSync,
   socketHolders,
 } from "./client.ts";
 
@@ -392,5 +393,70 @@ describe("a refused ask is never an empty answer", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The sync twin must obey the SAME exit-status rule as the async one.
+ *
+ * It nearly did not: `promisify(execFile)` reports the exit status on `.code`,
+ * but `execFileSync` throws the raw spawnSync result, whose status is
+ * `.status` and which carries no `.code` at all. A guard reading only `.code`
+ * is therefore silently inert here — it discards the binary's documented
+ * exit-1 document (losing the `E` rows that name which source went blind) and
+ * would equally have failed to refuse an exit-2 usage document. These pins
+ * exist so the twins cannot drift apart again.
+ */
+describe("the sync twin obeys the same exit-status rule", () => {
+  async function withStub<T>(
+    body: string,
+    run: (bin: string) => T,
+  ): Promise<T> {
+    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+    const bin = join(dir, "osfacts-stub");
+    try {
+      await writeFile(bin, body);
+      await chmod(bin, 0o755);
+      return run(bin);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
+      (bin) =>
+        expect(snapshotPidsSync(bin, [1], { startTime: true })).toMatchObject({
+          startTimes: [],
+          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+        }),
+    );
+  });
+
+  it("refuses a usage-error document (exit 2) rather than parsing it as nothing-found", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command" >&2\nexit 2\n',
+      (bin) =>
+        expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+          /unknown command/,
+        ),
+    );
+  });
+
+  it("names the exit status when the failure is not a spawn errno", async () => {
+    await withStub("#!/bin/sh\nexit 2\n", (bin) =>
+      expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+        /exit 2/,
+      ),
+    );
+  });
+
+  it("still fails loudly when a non-zero exit produced no document", async () => {
+    await withStub("#!/bin/sh\necho boom >&2\nexit 3\n", (bin) =>
+      expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+        OsfactsClientError,
+      ),
+    );
   });
 });

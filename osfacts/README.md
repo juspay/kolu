@@ -214,12 +214,12 @@ One source can cost several facets; it says so **once per facet** (e.g. dead `ke
 
 | consumer | shipped use |
 | --- | --- |
-| [kolu](https://github.com/juspay/kolu) | terminal-subtree port sensor, padi/kaval memory sampler, start-qualified daemon identity |
+| [kolu](https://github.com/juspay/kolu) | terminal-subtree port sensor, padi/kaval memory sampler, start-qualified daemon identity, daemon socket-holder lookup |
+| [drishti](https://github.com/srid/drishti) | host process inspection + host telemetry (its own native readers retired) |
 | you | `--json` or the TS client |
 
-Planned consumers remain explicit rather than aspirationally present-tense:
-kolu's socket-holder lookup, then Drishti's process inspection and host
-telemetry as part of extraction.
+What remains is stated as remaining, not as present-tense: this directory has
+not yet graduated to its own repo.
 
 TS client: `client-ts/` → package `osfacts-client` (no `@kolu` scope, zero npm runtime deps). Path in: `KOLU_OSFACTS_BIN` (kolu store).
 
@@ -253,9 +253,11 @@ Two lanes. Two questions. Both block merge.
 
 | in | out (later) |
 | --- | --- |
-| OSF1–3, OSF6–8: procs, listeners, RSS, start, CPU µs, uid, cwd, status, argv, host telemetry; kolu port, memory, and start-qualified identity consumers | socket-holder lookup; further consumer migrations |
-| TSV + `--json`; mandatory `U`/`E` rows | drishti adoption + extraction |
-| incubates in kolu monorepo (this dir = future repo root) | extract when second external consumer (drishti) pins it |
+| OSF1–4, OSF6–8: procs, listeners, socket holders, RSS, start, CPU µs, uid, cwd, status, argv, host telemetry | extraction to its own repo (OSF5's remaining half) |
+| every kolu consumer: port sensor, memory sampler, start-qualified daemon identity, socket-holder lookup | |
+| drishti adoption: process inspection + host telemetry | |
+| TSV + `--json`; mandatory `U`/`E` rows | |
+| incubates in kolu monorepo (this dir = future repo root) | |
 
 Plan of record (every claim + number measured):  
 [os-facts-tool](https://kolu.dev/atlas/os-facts-tool.html)

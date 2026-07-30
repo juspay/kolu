@@ -354,10 +354,28 @@ export function snapshotFacetNames(facets: SnapshotFacets): {
   return { unreadable, source };
 }
 
+/**
+ * The child's exit status, however the runtime spelled it.
+ *
+ * `promisify(execFile)` puts it on `.code`; `execFileSync` throws the raw
+ * spawnSync result, whose status is `.status` and which has no `.code` at all.
+ * One reader for both, because the async and sync twins must not be able to
+ * disagree about what "the binary exited 1" means — a guard that reads only
+ * `.code` is silently inert on the sync path, which is exactly how the exit-1
+ * document rule below came to be enforced on one twin and not the other.
+ */
+function exitStatusOf(err: unknown): number | undefined {
+  const failure = err as { code?: unknown; status?: unknown };
+  if (typeof failure?.code === "number") return failure.code;
+  if (typeof failure?.status === "number") return failure.status;
+  return undefined;
+}
+
 function errnoOf(err: unknown): string | undefined {
-  return typeof err === "object" && err !== null && "code" in err
-    ? String((err as { code: unknown }).code)
-    : undefined;
+  // A spawn failure (ENOENT, EACCES) puts an errno STRING on `.code`; an exit
+  // status puts a number there. Only the string is an errno.
+  const code = (err as { code?: unknown })?.code;
+  return typeof code === "string" ? code : undefined;
 }
 /**
  * Parse one numeric TSV field, or fail loudly.
@@ -849,7 +867,7 @@ async function runOsfacts(bin: string, args: string[]): Promise<string> {
     if (document !== undefined) return document;
     throw new OsfactsClientError(
       "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})${failureDetail(err)}`,
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? exitDescription(err)})${failureDetail(err)}`,
       { cause: err },
     );
   }
@@ -873,7 +891,7 @@ function runOsfactsSync(bin: string, args: string[]): string {
     if (document !== undefined) return document;
     throw new OsfactsClientError(
       "spawn",
-      `osfacts \`${bin}\` failed (${errnoOf(err) ?? "non-zero exit"})${failureDetail(err)}`,
+      `osfacts \`${bin}\` failed (${errnoOf(err) ?? exitDescription(err)})${failureDetail(err)}`,
       { cause: err },
     );
   }
@@ -903,12 +921,28 @@ const DOCUMENT_BEARING_EXIT = 1;
  * older binary on a caller's `PATH` produces every single time.
  */
 function failureDocument(err: unknown): string | undefined {
-  const failure = err as { stdout?: unknown; killed?: boolean; code?: unknown };
-  if (failure?.killed) return undefined;
-  if (failure?.code !== DOCUMENT_BEARING_EXIT) return undefined;
+  const failure = err as {
+    stdout?: unknown;
+    killed?: boolean;
+    signal?: unknown;
+  };
+  // `killed` is the async spelling of "we SIGKILLed it"; `signal` is the sync
+  // one. Both twins must exclude a killed child, so both spellings are read —
+  // and the status check below independently rejects a killed child anyway
+  // (spawnSync reports `status: null` when a signal ended it).
+  if (failure?.killed || failure?.signal) return undefined;
+  if (exitStatusOf(err) !== DOCUMENT_BEARING_EXIT) return undefined;
   const stdout = failure?.stdout;
   if (typeof stdout !== "string" || !stdout.startsWith("V\t")) return undefined;
   return stdout;
+}
+
+/** How the child failed when it was not a spawn errno: the exit status if the
+ *  runtime reported one, so a caller can tell a refused ask (2) from a blind
+ *  read (1) without re-deriving it from the message. */
+function exitDescription(err: unknown): string {
+  const status = exitStatusOf(err);
+  return status === undefined ? "non-zero exit" : `exit ${status}`;
 }
 
 /** The child's stderr, trimmed to one line — the only place the binary says
