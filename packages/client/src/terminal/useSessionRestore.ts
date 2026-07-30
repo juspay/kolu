@@ -230,6 +230,15 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // re-seeds the view. (A named `reseedForRestore()` rather than an out-of-band
     // raw phase write, which is exactly the hand-rolled-state-machine smell L18 named.)
     latch?.reseedForRestore();
+    // Host stamp is required for the toast count and the card's membership —
+    // require it BEFORE the RPC so a missing stamp cannot be misreported as a
+    // restore failure after the host already applied the session.
+    if (session.resumableIds === undefined) {
+      setIsRestoring(false);
+      throw new Error(
+        "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+      );
+    }
     const id = toast.loading(
       `Restoring ${session.terminals.length} terminals…`,
     );
@@ -255,11 +264,6 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // Faithful summary — "Restored N terminals, resumed M agents". M is the
       // host-served resumable set minus opt-outs when resume is on; 0 when off.
       // Counts EVERY host-resumable terminal (including parented/splits).
-      if (session.resumableIds === undefined) {
-        throw new Error(
-          "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
-        );
-      }
       const hostResumable = session.resumableIds;
       const optOut = new Set(optOutIds);
       const resumed = resumeAgents
