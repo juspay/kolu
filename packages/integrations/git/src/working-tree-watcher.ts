@@ -52,6 +52,7 @@
  */
 
 import path from "node:path";
+import { lstat } from "node:fs/promises";
 import {
   type AsyncSubscription,
   type BackendType,
@@ -172,6 +173,8 @@ function installSharedWorkingTreeWatcher(
   const pending = new Set<Listener>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let subscription: AsyncSubscription | null = null;
+  let subscribeInFlight = false;
+  let resubscribeRequested = false;
   let cancelled = false;
 
   /** Fire all current listeners after a debounce. Both real events and the
@@ -195,89 +198,150 @@ function installSharedWorkingTreeWatcher(
     }, WATCHER_DEBOUNCE_MS);
   };
 
-  // Async install: derive the ignore set from git, then subscribe. Filesystem
-  // mutations between this call and parcel's resolve are invisible to parcel —
-  // the streaming endpoint already yielded its initial snapshot before this
-  // ran, so any change landing in that window leaves the client with a stale
-  // view that no future event would correct on its own. Fire a synthetic tick
-  // once parcel is ready so consumers re-read state and reconcile.
-  void (async () => {
-    const ignore = await _computeIgnore(repoRoot, log);
-    if (cancelled) return;
-    try {
-      const sub = await parcelSubscribe(
-        repoRoot,
-        (err, events) => {
-          if (cancelled) return;
-          if (err) {
-            log?.error(
-              { err: err.message, repoRoot },
-              "git: working-tree watcher callback error",
-            );
+  /** Linux inotify has a structural race when a whole nested subtree is made in
+   *  one burst after subscription: it can observe `mkdir src`, add a watch for
+   *  `src`, but miss `mkdir src/feature`, which happened before that new watch
+   *  existed. Parcel then watches the parent forever while edits below the
+   *  missed descendant are silent. Replacing the root subscription after any
+   *  observed directory creation rebuilds the recursive watch set from the
+   *  settled tree. Parcel shares a native watch for overlapping subscriptions,
+   *  so rebuilding must retire the old root first; the post-install
+   *  reconciliation below re-reads authoritative state and covers every
+   *  mutation in that brief replacement window. */
+  function repairCreatedDirectories(
+    events: ReadonlyArray<{ path: string; type: string }>,
+  ): void {
+    const creates = events.filter((event) => event.type === "create");
+    if (creates.length === 0) return;
+    void (async () => {
+      for (const event of creates) {
+        try {
+          if ((await lstat(event.path)).isDirectory()) {
+            requestSubscribe();
             return;
           }
-
-          // Bucket events into the listeners they match. A single batch can
-          // hit several listeners (different filePaths) or none (all-ignored
-          // paths slipped through somehow).
-          for (const event of events) {
-            // Normalize to NFC before comparing: macOS FSEvents reports
-            // filenames in the filesystem's native form (often NFD —
-            // `e` + combining acute), while `matchAbs` is derived from a
-            // git/client path that's usually NFC (`é`). A raw `===` would
-            // silently miss every event for a unicode-named file, breaking
-            // the single-file watcher's live-reload. `matchAbs` is already
-            // NFC-normalized at creation, so only the event path needs it here.
-            const eventPath = event.path.normalize("NFC");
-            for (const listener of listeners) {
-              if (
-                listener.matchAbs === null ||
-                listener.matchAbs === eventPath
-              ) {
-                pending.add(listener);
-              }
-            }
+        } catch (e) {
+          // A create immediately followed by a delete is ordinary watcher
+          // traffic. Anything else is an observation failure and must be loud.
+          if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+            log?.error(
+              {
+                err: e instanceof Error ? e.message : String(e),
+                path: event.path,
+                repoRoot,
+              },
+              "git: working-tree directory-create inspection failed",
+            );
           }
-
-          if (pending.size === 0) return;
-
-          // Trailing-edge debounce — a burst of events fires the listeners
-          // exactly once, after the burst settles. Reset on every new batch.
-          scheduleFire();
-        },
-        // `backend` pins the OS-native watcher and skips parcel's leaking
-        // per-subscribe watchman probe — see PARCEL_BACKEND above.
-        { ignore, backend: PARCEL_BACKEND },
-      );
-
-      if (cancelled) {
-        void sub.unsubscribe().catch((e: Error) => {
-          log?.error(
-            { err: e.message, repoRoot },
-            "git: working-tree late-unsubscribe failed",
-          );
-        });
-        return;
+        }
       }
-      subscription = sub;
-      log?.info({ repoRoot }, "git: working-tree watcher installed");
+    })();
+  }
 
-      // Reconcile any mutations that landed in the install window — parcel
-      // didn't see them, but the listener's own re-read will. Add every
-      // current listener to `pending` (the filter doesn't matter here;
-      // reconciliation is a "re-derive your state" signal, not a path-specific
-      // event) and schedule one debounced fire.
-      if (listeners.size > 0) {
-        for (const listener of listeners) pending.add(listener);
-        scheduleFire();
-      }
-    } catch (e) {
+  function onParcelEvents(
+    err: Error | null,
+    events: Array<{ path: string; type: "create" | "update" | "delete" }>,
+  ): void {
+    if (cancelled) return;
+    if (err) {
       log?.error(
-        { err: e instanceof Error ? e.message : String(e), repoRoot },
-        "git: working-tree watcher install failed",
+        { err: err.message, repoRoot },
+        "git: working-tree watcher callback error",
       );
+      return;
     }
-  })();
+
+    repairCreatedDirectories(events);
+
+    // Bucket events into the listeners they match. A single batch can hit
+    // several listeners (different filePaths) or none (all-ignored paths
+    // slipped through somehow).
+    for (const event of events) {
+      // Normalize to NFC before comparing: macOS FSEvents reports filenames in
+      // the filesystem's native form (often NFD — `e` + combining acute), while
+      // `matchAbs` is derived from a git/client path that's usually NFC (`é`).
+      const eventPath = event.path.normalize("NFC");
+      for (const listener of listeners) {
+        if (listener.matchAbs === null || listener.matchAbs === eventPath) {
+          pending.add(listener);
+        }
+      }
+    }
+
+    if (pending.size > 0) scheduleFire();
+  }
+
+  /** Install the first root subscription, or atomically replace it to repair
+   *  recursive coverage. Requests coalesce to one in-flight + one trailing
+   *  replacement so a large checkout cannot create an install storm. */
+  function requestSubscribe(): void {
+    if (cancelled) return;
+    if (subscribeInFlight) {
+      resubscribeRequested = true;
+      return;
+    }
+    subscribeInFlight = true;
+    void (async () => {
+      try {
+        const ignore = await _computeIgnore(repoRoot, log);
+        if (cancelled) return;
+        const replacing = subscription !== null;
+        if (subscription) {
+          // Parcel reuses the same native backend for two concurrent root
+          // subscriptions, including its stale recursive watch set. Retire the
+          // old one first so `subscribe` performs a real tree walk.
+          const previous = subscription;
+          subscription = null;
+          await previous.unsubscribe();
+        }
+        if (cancelled) return;
+        const next = await parcelSubscribe(repoRoot, onParcelEvents, {
+          ignore,
+          // Pin the OS-native watcher and skip parcel's leaking watchman probe.
+          backend: PARCEL_BACKEND,
+        });
+
+        if (cancelled) {
+          void next.unsubscribe().catch((e: Error) => {
+            log?.error(
+              { err: e.message, repoRoot },
+              "git: working-tree late-unsubscribe failed",
+            );
+          });
+          return;
+        }
+
+        subscription = next;
+        log?.info(
+          { repoRoot },
+          replacing
+            ? "git: working-tree watcher rebuilt"
+            : "git: working-tree watcher installed",
+        );
+
+        // Reconcile mutations from both the initial install window and a
+        // replacement's restart window. The filter is irrelevant here: every
+        // listener must re-derive its state against the settled tree.
+        if (listeners.size > 0) {
+          for (const listener of listeners) pending.add(listener);
+          scheduleFire();
+        }
+      } catch (e) {
+        log?.error(
+          { err: e instanceof Error ? e.message : String(e), repoRoot },
+          "git: working-tree watcher install failed",
+        );
+      } finally {
+        subscribeInFlight = false;
+        if (!cancelled && resubscribeRequested) {
+          resubscribeRequested = false;
+          requestSubscribe();
+        }
+      }
+    })();
+  }
+
+  requestSubscribe();
 
   return {
     subscribe(matchAbs, onChange) {
@@ -289,8 +353,11 @@ function installSharedWorkingTreeWatcher(
         if (listeners.size === 0) {
           if (timer) clearTimeout(timer);
           cancelled = true;
+          resubscribeRequested = false;
           if (subscription) {
-            void subscription.unsubscribe().catch((e: Error) => {
+            const current = subscription;
+            subscription = null;
+            void current.unsubscribe().catch((e: Error) => {
               log?.error(
                 { err: e.message, repoRoot },
                 "git: working-tree unsubscribe failed",
