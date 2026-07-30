@@ -73,6 +73,7 @@ const bag = vi.hoisted(() => ({
   selected: (() => null) as () => string | null,
   // getStatus poll count, keyed by mode, so a "refresh" is observable per query.
   counts: {} as Record<string, number>,
+  statusGate: null as Promise<void> | null,
   previewTagInputs: [] as Array<{ repoPath: string; filePath: string }>,
 }));
 
@@ -83,6 +84,7 @@ vi.mock("../wire", async () => {
     git: {
       getStatus: async (i: { repoPath: string; mode: string }) => {
         bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
+        if (bag.statusGate) await bag.statusGate;
         return {
           files: [],
           label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
@@ -180,6 +182,7 @@ beforeEach(() => {
   resetHosts();
   setDriveHost(HOST_A);
   bag.counts = {};
+  bag.statusGate = null;
   bag.previewTagInputs = [];
   bag.mode = () => "browse";
   bag.selected = () => null;
@@ -197,23 +200,44 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(label()).toBe("local:local"); // A's local-status instance loaded
     const aLoads = read()?.n ?? 0;
 
-    // Switch AWAY to B: A pauses (value held), B builds + blanks until its pulse.
+    // Switch AWAY to B: A pauses (value held), while B's fresh eager read is held
+    // in flight so the new member's blank/pending state is observable.
+    let releaseB!: () => void;
+    bag.statusGate = new Promise<void>((resolve) => {
+      releaseB = resolve;
+    });
     switchTo(HOST_B);
     await flush();
     expect(codeLocalStatus.pending()).toBe(true); // B is fresh — blank
+    expect(label()).toBeUndefined();
+    releaseB();
+    bag.statusGate = null;
+    await flush();
+    expect(label()).toBe("remote:B:local"); // eager read loaded without a pulse
+    const bLoads = read()?.n ?? 0;
     pulse();
     await flush();
-    expect(label()).toBe("remote:B:local"); // B loaded
+    expect(read()?.n ?? 0).toBeGreaterThan(bLoads); // snapshot closed the setup race
 
     // Switch BACK to A: its instance was RETAINED, so A's held value shows with NO blank
-    // (not pending) — the instant switch-back — then the pulse refreshes it.
+    // (not pending) while its resume read is held in flight. This distinguishes true
+    // retention from a fast blank-then-refill; then the pulse refreshes it independently.
+    let releaseAResume!: () => void;
+    bag.statusGate = new Promise<void>((resolve) => {
+      releaseAResume = resolve;
+    });
     switchTo(HOST_A);
     await flush();
     expect(codeLocalStatus.pending()).toBe(false); // resumed from held value, no blank
     expect(label()).toBe("local:local"); // A's retained value, instantly
+    releaseAResume();
+    bag.statusGate = null;
+    await flush();
+    const aResumeLoads = read()?.n ?? 0;
+    expect(aResumeLoads).toBeGreaterThan(aLoads); // eager resume refresh landed
     pulse();
     await flush();
-    expect(read()?.n ?? 0).toBeGreaterThan(aLoads); // refreshed on activation
+    expect(read()?.n ?? 0).toBeGreaterThan(aResumeLoads); // pulse refresh is independent
   });
 
   it("disposes a host's Code-tab query when it leaves the pool (a re-add rebuilds fresh)", async () => {
@@ -232,11 +256,20 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
 
     // Re-add + re-visit A: scopedByEntry treats it as a FRESH member (its prior instance
-    // was disposed on exit), so it rebuilds and blanks — the held value did NOT survive
-    // membership exit (ownership: dropped when gone).
+    // was disposed on exit). Hold its eager read so the rebuilt blank is observable —
+    // the held value did NOT survive membership exit (ownership: dropped when gone).
+    let releaseA!: () => void;
+    bag.statusGate = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
     switchTo(HOST_A);
     await flush();
     expect(codeLocalStatus.pending()).toBe(true); // rebuilt fresh, not resurrected
+    expect(label()).toBeUndefined();
+    releaseA();
+    bag.statusGate = null;
+    await flush();
+    expect(label()).toBe("local:local");
   });
 
   it("retains the value across a CONSUMER unmount/remount — the app-lifetime owner (defect 1 + 2)", async () => {
@@ -314,6 +347,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
 
     const input = { repoPath: "/repo", filePath: "report.html" };
     expect(liveFileInputs()).toEqual([input]);
+    expect(bag.previewTagInputs).toEqual([input]); // eager hydration
     filePulse(input);
     await flush();
     const before = codeFileContent();
@@ -321,7 +355,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     await flush();
     const after = codeFileContent();
 
-    expect(bag.previewTagInputs).toEqual([input, input]);
+    expect(bag.previewTagInputs).toEqual([input, input, input]);
     expect(before).toEqual(after);
     expect(after).toMatchObject({
       kind: "binary",
@@ -339,20 +373,27 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     const indexInput = { repoPath: "/repo", filePath: "dist/index.html" };
     const secondInput = { repoPath: "/repo", filePath: "dist/second.html" };
     expect(liveFileInputs()).toEqual([indexInput]);
+    expect(bag.previewTagInputs).toEqual([indexInput]); // eager hydration
     filePulse(indexInput);
     await flush();
-    expect(bag.previewTagInputs).toEqual([indexInput]);
+    expect(bag.previewTagInputs).toEqual([indexInput, indexInput]);
 
     setSelected("dist/second.html");
     await flush();
     expect(liveFileInputs()).toEqual([secondInput]);
+    expect(bag.previewTagInputs).toEqual([indexInput, indexInput, secondInput]); // re-key hydrates eagerly too
 
     // An event for the old path is no longer connected; only the navigated-to
     // file can refresh the preview.
     filePulse(indexInput);
     filePulse(secondInput);
     await flush();
-    expect(bag.previewTagInputs).toEqual([indexInput, secondInput]);
+    expect(bag.previewTagInputs).toEqual([
+      indexInput,
+      indexInput,
+      secondInput,
+      secondInput,
+    ]);
   });
 
   // The show-ignored toggle is a DISPLAY preference, so it must not disturb the

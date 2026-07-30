@@ -145,7 +145,11 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
    *  exactly as the old value stream did — the 4s toast alone left stale state
    *  forever. The two guards below are the two benign-transient carve-outs; a
    *  survivor sets `error()`, whose rising EDGE drives the single `onError`
-   *  below, so the panel and the toast can never disagree. */
+   *  below, so the panel and the toast can never disagree. Keep one edge per
+   *  distinct active error: repeated pulses (including the eager hydration read
+   *  plus the initial race-closing snapshot) must not repeat the same toast while
+   *  that error remains active. A successful result or the next active query run
+   *  clears it, so a later recurrence is still a new edge. */
   function surfaceError(raw: unknown): void {
     const err = raw instanceof Error ? raw : new Error(String(raw));
     // Reconnect-window blip: `rawStream`'s STREAM_RETRY re-subscribes and the
@@ -154,6 +158,13 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     if (!live()) return;
     // Caller-classified benign transient (e.g. the viewed file was deleted).
     if (swallowError?.(err)) return;
+    const current = error();
+    if (
+      current?.name === err.name &&
+      current.message === err.message &&
+      (current as { code?: unknown }).code === (err as { code?: unknown }).code
+    )
+      return;
     setError(err);
     if (pending()) setPending(false);
   }

@@ -1,8 +1,9 @@
-/** Unit tests for the pulse-then-requery primitive that replaced the Code tab's
+/** Unit tests for the eager-read-then-pulse primitive that replaced the Code tab's
  *  koluSurface fs/git value streams (W1.R4). A mocked `unenrolledStreamCall` stands in
  *  for the active host's pulse stream; the test pumps a "pulse frame" by hand via
- *  `pulse()`. Each frame is one pulse — the initial snapshot frame, an on-disk change, or
- *  the fresh frame a reconnect re-subscribe yields — so a single pump models any. */
+ *  `pulse()`. The eager read hydrates without waiting for watcher setup; each frame is
+ *  then one invalidation — the initial race-closing snapshot, an on-disk change, or the
+ *  fresh frame a reconnect re-subscribe yields — so a single pump models any. */
 
 import type { StreamingProcedure } from "@kolu/surface/solid";
 import { createRoot, createSignal } from "solid-js";
@@ -94,7 +95,7 @@ describe("createPolledQuery", () => {
     expect(calls).toBe(0);
   });
 
-  it("the first pulse frame runs the initial query; value lands, pending clears", async () => {
+  it("hydrates eagerly, then the first pulse closes the read-before-watch race", async () => {
     const result = await new Promise<{ v: unknown; calls: number; p: boolean }>(
       (resolve) => {
         createRoot(async (dispose) => {
@@ -111,15 +112,15 @@ describe("createPolledQuery", () => {
             },
           });
           await flush();
-          pulse(); // initial snapshot frame
+          pulse(); // initial snapshot frame: race-closing refresh after eager hydration
           await flush();
           resolve({ v: q(), calls, p: q.pending() });
           dispose();
         });
       },
     );
-    expect(result.v).toBe("A#1");
-    expect(result.calls).toBe(1);
+    expect(result.v).toBe("A#2");
+    expect(result.calls).toBe(2);
     expect(result.p).toBe(false);
   });
 
@@ -140,7 +141,7 @@ describe("createPolledQuery", () => {
             },
           });
           await flush();
-          pulse(); // initial
+          pulse(); // initial race-closing snapshot
           await flush();
           pulse(); // an on-disk change (or a reconnect's fresh frame)
           await flush();
@@ -149,8 +150,8 @@ describe("createPolledQuery", () => {
         });
       },
     );
-    expect(result.v).toBe("A#2");
-    expect(result.calls).toBe(2);
+    expect(result.v).toBe("A#3");
+    expect(result.calls).toBe(3);
     // The requery never went pending — it updated in place.
     expect(result.p).toBe(false);
   });
@@ -190,15 +191,50 @@ describe("createPolledQuery", () => {
         dispose();
       });
     });
-    expect(result.before).toBe("A#1");
-    expect(result.after).toBe("B#2");
-    expect(result.calls).toBe(2);
+    expect(result.before).toBe("A#2");
+    expect(result.after).toBe("B#4");
+    expect(result.calls).toBe(4);
   });
 
-  it("surfaces a query rejection via error() and onError", async () => {
+  it("surfaces identical eager and snapshot query failures as one active error edge", async () => {
     const seen: string[] = [];
-    const result = await new Promise<string>((resolve) => {
+    const result = await new Promise<{ message: string; calls: number }>(
+      (resolve) => {
+        createRoot(async (dispose) => {
+          let calls = 0;
+          const { live, pulseProc, pulse } = fakeStream();
+          const q = createPolledQuery({
+            input: () => ({ repoPath: "A" }),
+            live,
+            pulseProc,
+            pulseInput: (i) => ({ repoPath: i.repoPath }),
+            query: async () => {
+              calls += 1;
+              throw new Error("boom");
+            },
+            onError: (err) => seen.push(err.message),
+          });
+          await flush();
+          pulse();
+          await flush();
+          resolve({ message: q.error()?.message ?? "", calls });
+          dispose();
+        });
+      },
+    );
+    expect(result).toEqual({ message: "boom", calls: 2 });
+    expect(seen).toEqual(["boom"]);
+  });
+
+  it("surfaces a different error code even when its message matches the active failure", async () => {
+    const seen: string[] = [];
+    const result = await new Promise<{
+      message: string;
+      code: unknown;
+      calls: number;
+    }>((resolve) => {
       createRoot(async (dispose) => {
+        let calls = 0;
         const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
@@ -206,19 +242,76 @@ describe("createPolledQuery", () => {
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async () => {
+            calls += 1;
+            throw Object.assign(new Error("boom"), {
+              code: calls < 3 ? "FIRST" : "SECOND",
+            });
+          },
+          onError: (err) => seen.push(String((err as { code?: unknown }).code)),
+        });
+        await flush(); // eager "boom"
+        pulse(); // initial snapshot repeats "boom" — one active edge
+        await flush();
+        pulse(); // same message, different code must replace it + surface
+        await flush();
+        resolve({
+          message: q.error()?.message ?? "",
+          code: (q.error() as { code?: unknown } | undefined)?.code,
+          calls,
+        });
+        dispose();
+      });
+    });
+    expect(result).toEqual({ message: "boom", code: "SECOND", calls: 3 });
+    expect(seen).toEqual(["FIRST", "SECOND"]);
+  });
+
+  it("surfaces the same failure again after a success clears it", async () => {
+    const seen: string[] = [];
+    const result = await new Promise<{
+      valueAfterSuccess: unknown;
+      errorAfterSuccess: string | undefined;
+      finalError: string | undefined;
+      calls: number;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async () => {
+            calls += 1;
+            if (calls === 2) return "recovered";
             throw new Error("boom");
           },
           onError: (err) => seen.push(err.message),
         });
+        await flush(); // eager failure
+        pulse(); // initial snapshot succeeds and clears the active error
         await flush();
-        pulse();
+        const valueAfterSuccess = q();
+        const errorAfterSuccess = q.error()?.message;
+        pulse(); // later recurrence is a new edge
         await flush();
-        resolve(q.error()?.message ?? "");
+        resolve({
+          valueAfterSuccess,
+          errorAfterSuccess,
+          finalError: q.error()?.message,
+          calls,
+        });
         dispose();
       });
     });
-    expect(result).toBe("boom");
-    expect(seen).toEqual(["boom"]);
+    expect(result).toEqual({
+      valueAfterSuccess: "recovered",
+      errorAfterSuccess: undefined,
+      finalError: "boom",
+      calls: 3,
+    });
+    expect(seen).toEqual(["boom", "boom"]);
   });
 
   it("swallows a query rejection while the transport is not live (reconnect blip)", async () => {
@@ -311,10 +404,8 @@ describe("createPolledQuery", () => {
           onError: (err) => seen.push(err.message),
           swallowError: (err) => /NOT_FOUND/.test(err.message),
         });
-        await flush();
-        pulse(); // first read → "content"
-        await flush();
-        pulse(); // file deleted → requery throws NOT_FOUND → swallowed
+        await flush(); // eager read → "content"
+        pulse(); // file deleted → snapshot refresh throws NOT_FOUND → swallowed
         await flush();
         resolve({ err: q.error()?.message, v: q(), seen });
         dispose();
@@ -359,7 +450,7 @@ describe("createPolledQuery", () => {
           },
         });
         await flush();
-        pulse(); // initial snapshot → "A#1"
+        pulse(); // initial snapshot refresh → "A#2"
         await flush();
 
         // An upstream reference tick: `input()` re-evals to a NEW object, same value.
@@ -369,9 +460,9 @@ describe("createPolledQuery", () => {
         dispose();
       });
     });
-    expect(res.v).toBe("A#1"); // value retained — NOT blanked to undefined
+    expect(res.v).toBe("A#2"); // value retained — NOT blanked to undefined
     expect(res.pending).toBe(false); // never went pending (the "Loading…" flash)
-    expect(res.calls).toBe(1); // no re-subscribe → no extra query
+    expect(res.calls).toBe(2); // eager + initial snapshot only; no churn query
   });
 
   it("a host-only change (same input value) still blanks + re-subscribes", async () => {
@@ -382,12 +473,17 @@ describe("createPolledQuery", () => {
     const res = await new Promise<{
       before: unknown;
       afterSwitch: { v: unknown; pending: boolean };
+      afterEagerRead: unknown;
       after: unknown;
       calls: number;
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
         const [host, setHost] = createSignal("host-1");
+        let releaseHost2!: () => void;
+        const host2Gate = new Promise<void>((resolveGate) => {
+          releaseHost2 = resolveGate;
+        });
         const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
           input: () => ({ repoPath: "A" }),
@@ -397,6 +493,7 @@ describe("createPolledQuery", () => {
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
             calls += 1;
+            if (host() === "host-2") await host2Gate;
             return `${i.repoPath}#${calls}`;
           },
         });
@@ -408,19 +505,23 @@ describe("createPolledQuery", () => {
         setHost("host-2");
         await flush();
         const afterSwitch = { v: q(), pending: q.pending() };
+        releaseHost2();
+        await flush();
+        const afterEagerRead = q();
         pulse(); // the re-subscribed pulse's first frame, now keyed on host-2
         await flush();
         const after = q();
 
-        resolve({ before, afterSwitch, after, calls });
+        resolve({ before, afterSwitch, afterEagerRead, after, calls });
         dispose();
       });
     });
-    expect(res.before).toBe("A#1");
+    expect(res.before).toBe("A#2");
     expect(res.afterSwitch.v).toBe(undefined); // blanked on the host switch
     expect(res.afterSwitch.pending).toBe(true);
-    expect(res.after).toBe("A#2"); // re-queried on the new host's pulse
-    expect(res.calls).toBe(2);
+    expect(res.afterEagerRead).toBe("A#3"); // hydrates without waiting for a frame
+    expect(res.after).toBe("A#4"); // snapshot closes the setup race
+    expect(res.calls).toBe(4);
   });
 
   it("active pause gate: pauses (value held, pulse torn down) while inactive, RESUMES with no blank + an immediate refresh (padi W9)", async () => {
@@ -433,10 +534,15 @@ describe("createPolledQuery", () => {
       shown: unknown;
       whilePaused: { v: unknown; pending: boolean; calls: number };
       onResume: { v: unknown; pending: boolean };
+      afterEagerResume: unknown;
       afterResume: unknown;
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
+        let releaseResume!: () => void;
+        const resumeGate = new Promise<void>((resolveGate) => {
+          releaseResume = resolveGate;
+        });
         const [active, setActive] = createSignal(true);
         const { live, pulseProc, pulse } = fakeStream();
         const q = createPolledQuery({
@@ -446,6 +552,7 @@ describe("createPolledQuery", () => {
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
             calls += 1;
+            if (calls === 3) await resumeGate;
             return `${i.repoPath}#${calls}`;
           },
           active,
@@ -453,7 +560,7 @@ describe("createPolledQuery", () => {
         await flush();
         pulse();
         await flush();
-        const shown = q(); // "A#1"
+        const shown = q(); // "A#2" (eager read + initial snapshot refresh)
 
         // PAUSE (host backgrounded): value held, pulse torn down. A pulse frame while
         // paused hits the aborted stream and must NOT requery.
@@ -468,24 +575,35 @@ describe("createPolledQuery", () => {
         setActive(true);
         await flush();
         const onResume = { v: q(), pending: q.pending() };
+        releaseResume();
+        await flush();
+        const afterEagerResume = q();
         pulse();
         await flush();
-        const afterResume = q(); // "A#2"
+        const afterResume = q(); // "A#4" (resume eager read + snapshot refresh)
 
-        resolve({ shown, whilePaused, onResume, afterResume });
+        resolve({
+          shown,
+          whilePaused,
+          onResume,
+          afterEagerResume,
+          afterResume,
+        });
         dispose();
       });
     });
-    expect(res.shown).toBe("A#1");
+    expect(res.shown).toBe("A#2");
     // Held while paused; no background poll fired (the pulse was torn down on pause).
-    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.v).toBe("A#2");
     expect(res.whilePaused.pending).toBe(false);
-    expect(res.whilePaused.calls).toBe(1);
-    // Resume: the held value is shown instantly — NO blank, NOT pending…
-    expect(res.onResume.v).toBe("A#1");
+    expect(res.whilePaused.calls).toBe(2);
+    // Resume: the eager refresh is deliberately held in flight, proving the
+    // retained value remains visible instead of blanking and refilling quickly.
+    expect(res.onResume.v).toBe("A#2");
     expect(res.onResume.pending).toBe(false);
-    // …and the pulse refreshes it in the background (the immediate refresh on activation).
-    expect(res.afterResume).toBe("A#2");
+    expect(res.afterEagerResume).toBe("A#3");
+    // The pulse snapshot then closes the resume read-before-watch race.
+    expect(res.afterResume).toBe("A#4");
   });
 
   it("active pause gate: an input change WHILE paused blanks + re-queries on resume (a genuine query change is not silently stale)", async () => {
@@ -500,6 +618,10 @@ describe("createPolledQuery", () => {
     }>((resolve) => {
       createRoot(async (dispose) => {
         let calls = 0;
+        let releaseB!: () => void;
+        const bGate = new Promise<void>((resolveGate) => {
+          releaseB = resolveGate;
+        });
         const [input, setInput] = createSignal<{ repoPath: string }>({
           repoPath: "A",
         });
@@ -512,6 +634,7 @@ describe("createPolledQuery", () => {
           pulseInput: (i) => ({ repoPath: i.repoPath }),
           query: async (i) => {
             calls += 1;
+            if (i.repoPath === "B") await bGate;
             return `${i.repoPath}#${calls}`;
           },
           active,
@@ -519,7 +642,7 @@ describe("createPolledQuery", () => {
         await flush();
         pulse();
         await flush();
-        const shownA = q(); // "A#1"
+        const shownA = q(); // "A#2" (eager read + initial snapshot refresh)
 
         // Pause, then change the input WHILE paused (the effect no-ops while inactive,
         // so the held value stays put — it does not blank yet).
@@ -533,22 +656,22 @@ describe("createPolledQuery", () => {
         setActive(true);
         await flush();
         const onResume = { v: q(), pending: q.pending() };
-        pulse();
+        releaseB();
         await flush();
-        const afterResume = q(); // "B#2"
+        const afterResume = q(); // "B#3" from the eager resume read
 
         resolve({ shownA, whilePaused, onResume, afterResume });
         dispose();
       });
     });
-    expect(res.shownA).toBe("A#1");
+    expect(res.shownA).toBe("A#2");
     // Paused: the held value stays (the effect does not act while inactive).
-    expect(res.whilePaused.v).toBe("A#1");
+    expect(res.whilePaused.v).toBe("A#2");
     expect(res.whilePaused.pending).toBe(false);
     // Resume with a changed query: blanks + goes pending (not silently stale).
     expect(res.onResume.v).toBeUndefined();
     expect(res.onResume.pending).toBe(true);
-    expect(res.afterResume).toBe("B#2");
+    expect(res.afterResume).toBe("B#3");
   });
 
   it("active pause gate: an IN-FLIGHT query is aborted on pause — a late resolve never writes the now-background store (no cross-host mix)", async () => {
