@@ -29,6 +29,7 @@ import {
   type SnapshotReading,
   type UnreadableRow,
 } from "osfacts-client";
+import { match } from "ts-pattern";
 import { log } from "./log.ts";
 import {
   currentKavalProcessTarget,
@@ -79,72 +80,67 @@ function rssEvidence(reading: SnapshotReading, pid: number): RssEvidence {
 }
 
 function padiRss(evidence: RssEvidence, pid: number): ProcessRss {
-  switch (evidence.kind) {
-    case "ok":
-      return { status: "ok", rssBytes: evidence.rssBytes };
-    case "unreadable":
+  return match<RssEvidence, ProcessRss>(evidence)
+    .with({ kind: "ok" }, ({ rssBytes }) => ({ status: "ok", rssBytes }))
+    .with({ kind: "unreadable" }, ({ unreadable, sourceErrors }) => {
       log.error(
         {
           pid,
           processName: "padi",
-          unreadable: evidence.unreadable,
-          sourceErrors: evidence.sourceErrors,
+          unreadable,
+          sourceErrors,
         },
         "padi osfacts RSS read failed",
       );
       return { status: "error" };
-    case "source-error":
+    })
+    .with({ kind: "source-error" }, ({ sourceErrors }) => {
       log.error(
-        { pid, processName: "padi", sourceErrors: evidence.sourceErrors },
+        { pid, processName: "padi", sourceErrors },
         "padi osfacts RSS read failed",
       );
       return { status: "error" };
-    case "missing":
+    })
+    .with({ kind: "missing" }, () => {
       log.error({ pid, processName: "padi" }, "padi osfacts RSS fact missing");
       return { status: "error" };
-    default:
-      evidence satisfies never;
-      throw new Error("unreachable RSS evidence");
-  }
+    })
+    .exhaustive();
 }
 
 function kavalRss(evidence: RssEvidence, pid: number): ProcessRss {
-  switch (evidence.kind) {
-    case "ok":
-      return { status: "ok", rssBytes: evidence.rssBytes };
-    case "unreadable":
-      if (
-        evidence.unreadable.errno === "ESRCH" ||
-        evidence.unreadable.errno === "ENOENT"
-      ) {
+  return match<RssEvidence, ProcessRss>(evidence)
+    .with({ kind: "ok" }, ({ rssBytes }) => ({ status: "ok", rssBytes }))
+    .with({ kind: "unreadable" }, ({ unreadable, sourceErrors }) => {
+      if (unreadable.errno === "ESRCH" || unreadable.errno === "ENOENT") {
         return { status: "absent" };
       }
       log.error(
         {
           pid,
           processName: "kaval",
-          unreadable: evidence.unreadable,
-          sourceErrors: evidence.sourceErrors,
+          unreadable,
+          sourceErrors,
         },
         "kaval osfacts RSS read failed",
       );
       return { status: "error" };
-    case "source-error":
+    })
+    .with({ kind: "source-error" }, ({ sourceErrors }) => {
       log.error(
-        { pid, processName: "kaval", sourceErrors: evidence.sourceErrors },
+        { pid, processName: "kaval", sourceErrors },
         "kaval osfacts RSS read failed",
       );
       return { status: "error" };
-    case "missing":
+    })
+    .with({ kind: "missing" }, () => {
       log.error(
         { pid, processName: "kaval" },
         "kaval osfacts RSS fact missing",
       );
       return { status: "error" };
-    default:
-      evidence satisfies never;
-      throw new Error("unreachable RSS evidence");
-  }
+    })
+    .exhaustive();
 }
 
 /** Take one osfacts reading for padi and the endpoint's connected kaval. The
