@@ -31,3 +31,9 @@ Feature: Command-rooted agent detection (#1872)
   # be matched via the command it was launched with. With no shell there is no
   # OSC 633;E mark, kaval discards the spawn argv (lock 1), and the shellIdle gate
   # would null the hint anyway (lock 2). RED today; green once both locks open.
+  Scenario: A command-rooted opencode npm shim is detected via its command (hint path)
+    When a command-rooted opencode agent is running as an npm shim with session state "thinking"
+    Then the dock should be visible
+    When the dock is expanded
+    Then the dock should show 1 working pill
+    And there should be no page errors

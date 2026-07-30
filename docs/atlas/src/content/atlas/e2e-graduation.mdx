@@ -11,13 +11,13 @@ import Svg from "../../components/Svg.astro";
 import PrLink from "../../components/PrLink.astro";
 import governance from "../../diagrams/e2e-graduation-layers.svg?raw";
 
-**A test should live at the lowest layer that can honestly assert its promise, but “a lower test exists” is not proof that it asserts the same thing.** <PrLink pr={2064} /> applied that rule to all 58 feature files. The suite moved from **530 Gherkin declarations and 546 expanded executions** to **488 declarations and 502 executions**. Default CI moved from 541 to 497 Linux executions and from 540 to 496 Darwin executions: 44 browser executions removed without removing a distinct user journey.
+**A test should live at the lowest layer that can honestly assert its promise, but “a lower test exists” is not proof that it asserts the same thing.** <PrLink pr={2064} /> applied that rule to all 58 feature files. The suite moved from **530 Gherkin declarations and 546 expanded executions** to **494 declarations and 508 executions**. Default CI moved from 541 to 503 Linux executions and from 540 to 502 Darwin executions: 38 browser executions removed without removing a distinct user journey.
 
-<Svg svg={governance} caption="The graduation gate. CI preserves scenario history, checks complete ledger rows, collects named replacement tests, and requires current browser survivors. Human review—not the schema—decides whether the replacement covers the same defect surface." />
+<Svg svg={governance} caption="The graduation gate. CI preserves scenario history, checks complete ledger rows, collects every named replacement test, and requires current browser survivors. Human review—not the schema—decides whether a lower replacement or stronger retained journey covers the same defect surface." />
 
 ## What was safe to graduate
 
-The removed scenarios repeated assertions already owned more directly by pure logic, component, or fork-free integration tests. Each retirement names its historical scenario revision, user promise, defect surface, lower-layer replacement, declared platforms, and an independent browser survivor. The lower tests include production reducers and state machines, real temporary files and watchers, real SQLite, short-lived Git repositories, and render-from-state component tests.
+The removed scenarios repeated assertions already owned more directly by pure logic, component, fork-free integration tests, or a strictly stronger retained browser journey. Each retirement names its historical scenario revision, user promise, defect surface, independent browser survivor, and—when its action is `replace`—lower-layer evidence with declared platforms. The lower tests include production reducers and state machines, real temporary files and watchers, real SQLite, short-lived Git repositories, and render-from-state component tests.
 
 The perfection review restored candidates whenever the browser contributed a fact the lower test did not own. That kept the full Code-tab `local` / `branch` / `browse` behavior matrix, Markdown sanitization and rich-render composition, real agent-token lifecycle paint, terminal switcher dismissal and split exclusion, subterminal resize, intent slot selection, file-drop size and media boundaries, canvas close-pan, theme shuffling, recent-agent filtering, Kaval PID behavior, and the other distinct composition seams found during the sweep.
 
@@ -28,12 +28,12 @@ The result is deliberately conservative. A scenario stayed in E2E if its promise
 | Mechanism | Source of truth | Mechanical guarantee |
 |---|---|---|
 | Scenario inventory | `packages/tests/scenario-inventory.json` | Every revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. CI compares the current file with every committed version reachable from `HEAD`, so historical records cannot be edited or removed. |
-| Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming its promise, defect surface, destination, replacements, and current browser survivors. |
-| Test collection | `packages/tests/governance/ledger.ts` | Every named replacement and review-evidence test is currently collected, with at least one declared platform and a stated realism boundary. |
+| Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming its promise, defect surface, destination, and current browser survivors. A `replace` action must also name replacement evidence. |
+| Test collection | `packages/tests/governance/ledger.ts` | Every named replacement and review-evidence test is currently collected, with at least one declared platform and a stated realism boundary. The platform list is a declaration, not proof that this check ran the test there. |
 | Attempt timing | Cucumber message stream → `reports/e2e-timing.json` | Every attempt is retained with status, duration, retry verdict, final-attempt totals, and per-feature totals. A passing retry cannot erase the failed attempt's cost. |
 | Starting census | `packages/tests/baseline-census.json` | The original 58 / 530 / 546 suite and its 541 Linux / 540 Darwin default counts remain pinned. |
 
-The ledger is an audit index, not an equivalence oracle. CI proves immutable history, ledger completeness, active test collection, declared platform coverage, and retained current scenario identities. Human review verifies that each replacement exercises the same promise and defect surface; `reviewEvidence.note` records that judgment explicitly as non-executable evidence. This is more honest than a generic “counterfactual” sentence that no tool actually ran.
+The ledger is an audit index, not an equivalence oracle. CI proves immutable history, ledger completeness, active test collection, non-empty platform declarations, and retained current scenario identities. Human review verifies that each replacement exercises the same promise and defect surface; `reviewEvidence.note` records that judgment explicitly as non-executable evidence. This is more honest than a generic “counterfactual” sentence that no tool actually ran.
 
 ## The runtime lesson
 

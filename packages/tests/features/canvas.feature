@@ -95,6 +95,14 @@ Feature: Canvas workspace
     When I press Control+Tab
     Then the active canvas tile should be centered in the viewport
 
+  Scenario: Ctrl+Shift+] next-terminal pans the canvas to the newly-active tile
+    Given I create a terminal
+    And I create a terminal
+    And I create a terminal
+    Then there should be 4 canvas tiles
+    When I press Control+Shift+BracketRight
+    Then the active canvas tile should be centered in the viewport
+
   Scenario: Selecting a workspace from the command palette pans the canvas to the newly-active tile
     # Caught by hickey: the prior "Switch terminal" group spread
     # actionPaletteCommand then overrode onSelect with bare

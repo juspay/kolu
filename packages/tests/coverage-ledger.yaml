@@ -27,28 +27,11 @@ retirements:
           test: "attentionCore — detect→fire (the path e2e/simulate skips) > REPRO: a background terminal that finishes fires an alert"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-23b29949c044d2c2d8c0
+      - revision-276105b04c4f4548fbca
     sameCodePathEvidence:
-      file: packages/tests/features/attention-alerts.feature
-      symbol: "Scenario: An agent awaiting you badges the PWA dock icon"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-6c74216471cd90b5a265
-    revisionId: revision-6c74216471cd90b5a265
-    action: replace
-    status: landed
-    promise: Visiting notified terminal clears the glow
-    defectSurface:
-      - attention-alerts
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a1
-    survivorRevisionIds:
-      - revision-23b29949c044d2c2d8c0
-    sameCodePathEvidence:
-      file: packages/tests/features/attention-alerts.feature
-      symbol: "Scenario: An agent awaiting you badges the PWA dock icon"
-      test: The retained browser journey reaches the same production surface.
+      file: packages/tests/features/claude-code.feature
+      symbol: "Scenario: Workspace switcher pings the branch on unread completion"
+      test: The retained browser journey positively exercises the same workspace-switcher notification surface.
   - id: retire-0f1d6b961a1a01fa4603
     revisionId: revision-0f1d6b961a1a01fa4603
     action: replace
@@ -73,28 +56,11 @@ retirements:
           test: "cameraSwap pure core > switchInNeedsCenter: seed on first visit, re-center only when the tile is out of view"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-9cb8d7f6e6a3a9b2c109
+      - revision-0c0fbf9db73e2e1fffbf
     sameCodePathEvidence:
       file: packages/tests/features/canvas.feature
-      symbol: "Scenario: Ctrl+Tab cycle pans the canvas to the newly-active tile"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-bf2e0041919990fd8cec
-    revisionId: revision-bf2e0041919990fd8cec
-    action: replace
-    status: landed
-    promise: Ctrl+Shift+] next-terminal pans the canvas to the newly-active tile
-    defectSurface:
-      - canvas
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a2
-    survivorRevisionIds:
-      - revision-9cb8d7f6e6a3a9b2c109
-    sameCodePathEvidence:
-      file: packages/tests/features/canvas.feature
-      symbol: "Scenario: Ctrl+Tab cycle pans the canvas to the newly-active tile"
-      test: The retained browser journey reaches the same production surface.
+      symbol: "Scenario: Each successive terminal create centers the viewport on the new active tile"
+      test: The retained browser journey covers the same create-and-center path for the second and later terminals.
   - id: retire-2c57bc7672bac0ffe17e
     revisionId: revision-2c57bc7672bac0ffe17e
     action: replace
@@ -180,34 +146,6 @@ retirements:
         reviewEvidence:
           file: packages/integrations/claude-code/src/fork-detection.test.ts
           test: createSessionWatcher — /fork lifecycle (eventing path) > promotes a waiting main to running_background when fork artifacts land late, then demotes on completion
-          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
-    survivorRevisionIds:
-      - revision-7a7e24f88ac2cfdf33ff
-    sameCodePathEvidence:
-      file: packages/tests/features/claude-code.feature
-      symbol: "Scenario: Claude Code state updates from thinking to waiting"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-be8884ea3daf7fd98484
-    revisionId: revision-be8884ea3daf7fd98484
-    action: replace
-    status: landed
-    promise: "A tool-permission prompt on screen promotes tool_use to awaiting (screen scrape, #905)"
-    defectSurface:
-      - claude-code
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/integrations/claude-code/src/screen.test.ts
-        test: screenHasClaudePrompt — permission gates > detects other gates via the 'don't ask again for' option
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - captured-screen-text
-        reviewEvidence:
-          file: packages/integrations/claude-code/src/screen.test.ts
-          test: screenHasClaudePrompt — permission gates > detects other gates via the 'don't ask again for' option
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-7a7e24f88ac2cfdf33ff
@@ -408,11 +346,11 @@ retirements:
           test: projectFileTreeSearch > matches whitespace-separated path tokens in order
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
+      - revision-5b1e577b8cc60ab5129e
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
+      symbol: "Scenario Outline: Filter prunes directories with no matching files [<mode>]"
+      test: The retained local, branch, and browse matrix exercises the same two-token filter path and tree projection.
   - id: retire-93ab8647d1ca2926d6f9
     revisionId: revision-93ab8647d1ca2926d6f9
     action: replace
@@ -537,7 +475,7 @@ retirements:
           test: parseLineRefs > does not absorb a trailing sentence period into a slash-path
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-e352bb2814c8786cc769
+      - revision-97735c865576c08fa188
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
@@ -565,7 +503,7 @@ retirements:
           test: resolveRef > resolves a bare filename whose basename is unique in the repo
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-e352bb2814c8786cc769
+      - revision-97735c865576c08fa188
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
@@ -593,7 +531,7 @@ retirements:
           test: parseLineRefs > matches a line range
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-e352bb2814c8786cc769
+      - revision-97735c865576c08fa188
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
@@ -621,7 +559,7 @@ retirements:
           test: "parseLineRefs > matches the deeply-nested Haskell path from #861"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-e352bb2814c8786cc769
+      - revision-97735c865576c08fa188
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
@@ -650,36 +588,7 @@ retirements:
           test: resolveGitInfo > resolves a sibling of a `.git` bare repo (project-layout)
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-91a3d7635d1db558e652
-    sameCodePathEvidence:
-      file: packages/tests/features/git-context.feature
-      symbol: "Scenario: Branch updates live when HEAD changes externally"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-227a7ff9f2fa78277324
-    revisionId: revision-227a7ff9f2fa78277324
-    action: replace
-    status: landed
-    promise: Workspace switcher does not show PR info on default branch
-    defectSurface:
-      - git-context
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/client/src/canvas/dock/PrPip.test.tsx
-        test: PrPip > renders no PR affordance for a absent observation
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - happy-dom
-          - production-component
-        reviewEvidence:
-          file: packages/client/src/canvas/dock/PrPip.test.tsx
-          test: PrPip > renders no PR affordance for a absent observation
-          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
-    survivorRevisionIds:
-      - revision-91a3d7635d1db558e652
+      - revision-36cc532bbbf6d76092a0
     sameCodePathEvidence:
       file: packages/tests/features/git-context.feature
       symbol: "Scenario: Branch updates live when HEAD changes externally"
@@ -835,12 +744,27 @@ retirements:
           file: packages/client/src/terminal/useActiveReconcile.test.ts
           test: useActiveReconcile — FULL cleanup driven off the list > (c) kill path does the full cleanup once — the list-drop reconcile is a no-op
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - &dead-session-reconcile
+        file: packages/padi/src/session/reconcile.test.ts
+        test: reconcile — boot-time adoption partition (B3.3) > DROPS a saved terminal with no live PTY — an exited shell, in neither list
+        lane: daemon
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - production-session-reconciler
+          - persisted-terminal-record
+        reviewEvidence:
+          file: packages/padi/src/session/reconcile.test.ts
+          test: reconcile — boot-time adoption partition (B3.3) > DROPS a saved terminal with no live PTY — an exited shell, in neither list
+          note: Human review confirmed this collected test exercises the persisted absence boundary; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
       - revision-3174330d2fbd19eb138d
+      - revision-ed7def8ab01f3e9a0d47
     sameCodePathEvidence:
-      file: packages/tests/features/kill.feature
-      symbol: "Scenario: Kill terminal via tile close button"
-      test: The retained browser journey reaches the same production surface.
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Terminal survives browser refresh"
+      test: This retained refresh journey and the retained kill journey jointly cover browser restart composition and immediate removal.
   - id: retire-111dde34c17802263b7a
     revisionId: revision-111dde34c17802263b7a
     action: replace
@@ -864,12 +788,14 @@ retirements:
           file: packages/client/src/terminal/useActiveReconcile.test.ts
           test: useActiveReconcile — FULL cleanup driven off the list > (a) natural PARENT exit promotes the sub AND evicts the parent's panels
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
+      - *dead-session-reconcile
     survivorRevisionIds:
-      - revision-3174330d2fbd19eb138d
+      - revision-e37f880007d5dcac6587
+      - revision-ed7def8ab01f3e9a0d47
     sameCodePathEvidence:
-      file: packages/tests/features/kill.feature
-      symbol: "Scenario: Kill terminal via tile close button"
-      test: The retained browser journey reaches the same production surface.
+      file: packages/tests/features/terminal.feature
+      symbol: "Scenario: Terminal survives browser refresh"
+      test: This retained refresh journey and the retained natural-exit journey jointly cover browser restart composition and immediate removal.
   - id: retire-ec989adbcf6a3cda147c
     revisionId: revision-ec989adbcf6a3cda147c
     action: replace
@@ -1041,34 +967,6 @@ retirements:
       file: packages/tests/features/sleeping-terminals.feature
       symbol: "Scenario: Waking a sleeping agent terminal resumes the SAME conversation"
       test: The retained browser journey reaches the same production surface.
-  - id: retire-1a9014df46905e5e3ffa
-    revisionId: revision-1a9014df46905e5e3ffa
-    action: replace
-    status: landed
-    promise: A command-rooted opencode npm shim is detected via its command (hint path)
-    defectSurface:
-      - spawn-detection
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/integrations/opencode/src/agent-adapter.test.ts
-        test: opencodeAdapter.resolveSession > matches when only lastAgentCommandName is 'opencode' (npm shim)
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - real-adapter-input
-        reviewEvidence:
-          file: packages/integrations/opencode/src/agent-adapter.test.ts
-          test: opencodeAdapter.resolveSession > matches when only lastAgentCommandName is 'opencode' (npm shim)
-          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
-    survivorRevisionIds:
-      - revision-b9ee2834259995f5d09a
-    sameCodePathEvidence:
-      file: packages/tests/features/spawn-detection.feature
-      symbol: "Scenario: A command-rooted claude with a live session is detected (pid path)"
-      test: The retained browser journey reaches the same production surface.
   - id: retire-d86c3f1dfa8ff4da96ff
     revisionId: revision-d86c3f1dfa8ff4da96ff
     action: retain-smoke
@@ -1085,35 +983,6 @@ retirements:
       file: packages/tests/features/terminal-switcher.feature
       symbol: "Scenario: Scoped terminal list filters by dock corpus"
       test: The retained browser journey reaches the same production search-corpus assembly and filter path.
-  - id: retire-46f374b07d905d78a3fc
-    revisionId: revision-46f374b07d905d78a3fc
-    action: replace
-    status: landed
-    promise: Theme preview restores on backspace drill-out
-    defectSurface:
-      - theme
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/client/src/themePalette.test.ts
-        test: themePaletteGroup > restores the committed theme when leaving the group or highlighted leaf
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - solid-callbacks
-          - palette-lifecycle
-        reviewEvidence:
-          file: packages/client/src/themePalette.test.ts
-          test: themePaletteGroup > restores the committed theme when leaving the group or highlighted leaf
-          note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
-    survivorRevisionIds:
-      - revision-bb18559398f0bd0e2e8d
-    sameCodePathEvidence:
-      file: packages/tests/features/theme.feature
-      symbol: "Scenario: Theme preview commits on selection"
-      test: The retained browser journey reaches the same production surface.
   - id: revise-797e2ff59e2c3d4b854b
     revisionId: revision-797e2ff59e2c3d4b854b
     action: revised
@@ -1374,3 +1243,633 @@ retirements:
       file: packages/tests/features/git-context.feature
       symbol: "Scenario: Git worktree shows its own branch and main repo name"
       test: The revised scenario removes its exact scratch repositories before recreating the real worktree.
+  - id: revise-920dc5905a17b68cb75e
+    revisionId: revision-920dc5905a17b68cb75e
+    action: revised
+    status: landed
+    promise: A mode's change count shows on its segment without switching into it uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-1d067a1fb1c4a9aa7b35
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: A mode's change count shows on its segment without switching into it"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-82c0fa88df7cf853a0a3
+    revisionId: revision-82c0fa88df7cf853a0a3
+    action: revised
+    status: landed
+    promise: Code tab mode survives panel close and reopen uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-ae2c43f7752f1fe00d4c
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Code tab mode survives panel close and reopen"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-02545b3e97947854c713
+    revisionId: revision-02545b3e97947854c713
+    action: revised
+    status: landed
+    promise: Collapsing a directory hides its children uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-a0202e88d9e6bd24875c
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Collapsing a directory hides its children"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-0aa1feaf25fbf5dd57bc
+    revisionId: revision-0aa1feaf25fbf5dd57bc
+    action: revised
+    status: landed
+    promise: Commenting on the rendered Markdown preview uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-7536b709821d4f1ce2ff
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Commenting on the rendered Markdown preview"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-be930591847802cb613e
+    revisionId: revision-be930591847802cb613e
+    action: revised
+    status: landed
+    promise: Editing a file updates browse-mode content live uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-b5393301dbfab28cd2cc
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Editing a file updates browse-mode content live"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-4d90b2efaf248676489b
+    revisionId: revision-4d90b2efaf248676489b
+    action: revised
+    status: landed
+    promise: Editing a file updates the diff view live uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-9246e96c1497444e10ff
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Editing a file updates the diff view live"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-131f782293a518c15749
+    revisionId: revision-131f782293a518c15749
+    action: revised
+    status: landed
+    promise: File browser expands directories lazily uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-f041383352dbdc93fac2
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser expands directories lazily"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-b8651c47da51e7f4c2ab
+    revisionId: revision-b8651c47da51e7f4c2ab
+    action: revised
+    status: landed
+    promise: File browser keeps a folder expanded across a filter and clear uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-08b3ded2b0db07000e17
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser keeps a folder expanded across a filter and clear"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-9c867a9cbe38014b18aa
+    revisionId: revision-9c867a9cbe38014b18aa
+    action: revised
+    status: landed
+    promise: File browser preserves sibling expansion when previewing a file uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-45e0f0fbcea5e144620c
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser preserves sibling expansion when previewing a file"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-766eaeab960433f2a3df
+    revisionId: revision-766eaeab960433f2a3df
+    action: revised
+    status: landed
+    promise: File browser shows file content on click uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-b45200d455e2b1df065c
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser shows file content on click"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-64bdc1a4cb995cfc788b
+    revisionId: revision-64bdc1a4cb995cfc788b
+    action: revised
+    status: landed
+    promise: File browser shows the repo file tree uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-e243b833edbf0f5f75f3
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser shows the repo file tree"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-dd9c131bee7fd93f0610
+    revisionId: revision-dd9c131bee7fd93f0610
+    action: revised
+    status: landed
+    promise: File browser wraps long lines by default uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-0ec0126955d100fa7837
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: File browser wraps long lines by default"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-b35d92e10e9f5665543f
+    revisionId: revision-b35d92e10e9f5665543f
+    action: revised
+    status: landed
+    promise: Groups files into a directory tree uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-ac2b37a007b5e2f69c55
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Groups files into a directory tree"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-46892f95c4ade286e497
+    revisionId: revision-46892f95c4ade286e497
+    action: revised
+    status: landed
+    promise: Lists changed files and opens a diff on click uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-aa011832b51c022157b9
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Lists changed files and opens a diff on click"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-88c50609e767376b12be
+    revisionId: revision-88c50609e767376b12be
+    action: revised
+    status: landed
+    promise: Mode toggle defaults to browse uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-ff7001e3afc96347cb9f
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Mode toggle defaults to browse"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-d1f45014ac89018a50f1
+    revisionId: revision-d1f45014ac89018a50f1
+    action: revised
+    status: landed
+    promise: Right-click "Open path:N" in diff view jumps to browse at that line uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-0565e831446bce1bf4fb
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Right-click "Open path:N" in diff view jumps to browse at that line'
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-fe84954aa1b9efed6a99
+    revisionId: revision-fe84954aa1b9efed6a99
+    action: revised
+    status: landed
+    promise: Right-click in a git diff returns to All files uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-e32ff8cf7ee9c5808d2f
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Right-click in a git diff returns to All files"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-7e9afc0aee3b198ce2c0
+    revisionId: revision-7e9afc0aee3b198ce2c0
+    action: revised
+    status: landed
+    promise: Right-click in All files opens the Local diff of that file uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-6321e97132e5f7cd9db8
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Right-click in All files opens the Local diff of that file"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-ae3de669e8dab74661d5
+    revisionId: revision-ae3de669e8dab74661d5
+    action: revised
+    status: landed
+    promise: Right-click on a changed file copies its path uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-bd0e3ef02ea2900b264b
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Right-click on a changed file copies its path"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-96811d9f4d38c005d067
+    revisionId: revision-96811d9f4d38c005d067
+    action: revised
+    status: landed
+    promise: Right-click on a file content line copies "path:line" uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-046a28ce7c5f6c68c86f
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Right-click on a file content line copies "path:line"'
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-94649cea0fca27b9230c
+    revisionId: revision-94649cea0fca27b9230c
+    action: revised
+    status: landed
+    promise: Shows "no changes" when the repo is clean uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-e29405aa2096caf04178
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Shows "no changes" when the repo is clean'
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-ff721151405b045b2874
+    revisionId: revision-ff721151405b045b2874
+    action: revised
+    status: landed
+    promise: Switching diff files keeps the "Copy path:line" entry in sync uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-2284bcec07abec263474
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: 'Scenario: Switching diff files keeps the "Copy path:line" entry in sync'
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-7abacb070fbe645dd78b
+    revisionId: revision-7abacb070fbe645dd78b
+    action: revised
+    status: landed
+    promise: Untracked files appear alongside modified tracked files uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-6c94eebddc14cd21f58e
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Untracked files appear alongside modified tracked files"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-dde2ae3f79ecc41aee90
+    revisionId: revision-dde2ae3f79ecc41aee90
+    action: revised
+    status: landed
+    promise: "A #/t/…/code link opens the Code tab on a file at a line uses an isolated, rerunnable Git fixture"
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-a285f9befc16fb0aad59
+    sameCodePathEvidence:
+      file: packages/tests/features/deep-links.feature
+      symbol: "Scenario: A #/t/…/code link opens the Code tab on a file at a line"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-4a8fd5d570b53c0823c8
+    revisionId: revision-4a8fd5d570b53c0823c8
+    action: revised
+    status: landed
+    promise: A deep link clicked inside the Code-tab preview routes the parent app (DL2) uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-9cf7c306fa2b7a811b52
+    sameCodePathEvidence:
+      file: packages/tests/features/deep-links.feature
+      symbol: "Scenario: A deep link clicked inside the Code-tab preview routes the parent app (DL2)"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-d39aab782c098434d019
+    revisionId: revision-d39aab782c098434d019
+    action: revised
+    status: landed
+    promise: A file-ref opens on the first click when an iframe preview is already showing uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-d6805aa6d25eea62dd30
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: A file-ref opens on the first click when an iframe preview is already showing"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-872ab7baaec1eb07c49e
+    revisionId: revision-872ab7baaec1eb07c49e
+    action: revised
+    status: landed
+    promise: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable) uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-d587536a12ed04ba0f01
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-2990778b71a2ae513ca9
+    revisionId: revision-2990778b71a2ae513ca9
+    action: revised
+    status: landed
+    promise: Bare basename without a line number resolves via unique-basename fallback uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-3f01a9b11396cd00a2c2
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Bare basename without a line number resolves via unique-basename fallback"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-4d6fb612f6e6fde90c22
+    revisionId: revision-4d6fb612f6e6fde90c22
+    action: revised
+    status: landed
+    promise: Clicking a bare path (no line number) opens the file with no selection uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-798f51b24b8083d65033
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a bare path (no line number) opens the file with no selection"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-e352bb2814c8786cc769
+    revisionId: revision-e352bb2814c8786cc769
+    action: revised
+    status: landed
+    promise: Clicking a file-ref opens the file in browse mode uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-97735c865576c08fa188
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-23bce54f6681a0c7bc5f
+    revisionId: revision-23bce54f6681a0c7bc5f
+    action: revised
+    status: landed
+    promise: Clicking a folder ref reveals and expands the directory in the tree uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-5067219957d8955f4a4d
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a folder ref reveals and expands the directory in the tree"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-fdd167ac5e6f03ce25ac
+    revisionId: revision-fdd167ac5e6f03ce25ac
+    action: revised
+    status: landed
+    promise: Clicking a folder ref while already browsing expands it in the live tree uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-5102a87af3dfc28fa672
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a folder ref while already browsing expands it in the live tree"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-b8a34db37e88f1028c12
+    revisionId: revision-b8a34db37e88f1028c12
+    action: revised
+    status: landed
+    promise: Clicking a line-range deep in a long file scrolls the selection into view uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-f52bf477369301a64b6e
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a line-range deep in a long file scrolls the selection into view"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-42c26df6e60da7eb1629
+    revisionId: revision-42c26df6e60da7eb1629
+    action: revised
+    status: landed
+    promise: Clicking a line-range file-ref selects the whole range uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-4be36c0f32c630fa2d93
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a line-range file-ref selects the whole range"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-db0efeae723f7a330c42
+    revisionId: revision-db0efeae723f7a330c42
+    action: revised
+    status: landed
+    promise: Clicking a slash-containing path with no line opens the file with no selection uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-18336f3310dab2114196
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Clicking a slash-containing path with no line opens the file with no selection"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-613a7f661868b83fdecd
+    revisionId: revision-613a7f661868b83fdecd
+    action: revised
+    status: landed
+    promise: Re-clicking the same file-ref after closing the panel re-selects the line uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-b8a53ac8530cbecc5491
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Re-clicking the same file-ref after closing the panel re-selects the line"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-cbb728e2d1f59ed92742
+    revisionId: revision-cbb728e2d1f59ed92742
+    action: revised
+    status: landed
+    promise: Tapping a file-ref on touch follows the link instead of summoning the keyboard uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-45fb84c33d1965af1347
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: Tapping a file-ref on touch follows the link instead of summoning the keyboard"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-91a3d7635d1db558e652
+    revisionId: revision-91a3d7635d1db558e652
+    action: revised
+    status: landed
+    promise: Branch updates live when HEAD changes externally uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-36cc532bbbf6d76092a0
+    sameCodePathEvidence:
+      file: packages/tests/features/git-context.feature
+      symbol: "Scenario: Branch updates live when HEAD changes externally"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-0bca87094c15a7320b4a
+    revisionId: revision-0bca87094c15a7320b4a
+    action: revised
+    status: landed
+    promise: Git init in an empty directory shows branch in workspace switcher uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-fac30d2166a27f2f809a
+    sameCodePathEvidence:
+      file: packages/tests/features/git-context.feature
+      symbol: "Scenario: Git init in an empty directory shows branch in workspace switcher"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-dc06acc8e51938d65de6
+    revisionId: revision-dc06acc8e51938d65de6
+    action: revised
+    status: landed
+    promise: Header and workspace switcher show branch in a git repo uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-9cd779848ee31b7402d3
+    sameCodePathEvidence:
+      file: packages/tests/features/git-context.feature
+      symbol: "Scenario: Header and workspace switcher show branch in a git repo"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-227a7ff9f2fa78277324
+    revisionId: revision-227a7ff9f2fa78277324
+    action: revised
+    status: landed
+    promise: Workspace switcher does not show PR info on default branch uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-eac8a1d2278097010564
+    sameCodePathEvidence:
+      file: packages/tests/features/git-context.feature
+      symbol: "Scenario: Workspace switcher does not show PR info on default branch"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-97e05b3ab6ee78e584d9
+    revisionId: revision-97e05b3ab6ee78e584d9
+    action: revised
+    status: landed
+    promise: Inspector shows git branch in a git repo uses an isolated, rerunnable Git fixture
+    defectSurface:
+      - test-fixture-isolation
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-65a2e75292d7f9f44cc1
+    sameCodePathEvidence:
+      file: packages/tests/features/right-panel.feature
+      symbol: "Scenario: Inspector shows git branch in a git repo"
+      test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.

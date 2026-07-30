@@ -11,9 +11,11 @@ E2E graduation is auditable before any scenario is deleted:
   Examples values, data tables, and doc strings—not merely a scenario title or
   row count.
 - `coverage-ledger.yaml` must contain a landed row for every revision that
-  disappears. A landed replacement names its real defect surface, retained
-  user journey, destination lane, collected replacement, and the human review
-  note that accepted it as equivalent at the declared defect surface.
+  disappears. Every row names its real defect surface, retained user journey,
+  and destination lane. A `replace` action also requires collected replacement
+  evidence and the human review note that accepted it as equivalent at the
+  declared defect surface; a `retain-smoke` action is covered by its strictly
+  stronger retained browser journey.
 - `just test-e2e-governance` compares inventory records with every committed
   version of the inventory reachable from `HEAD`, so deleting or editing
   history in a later commit fails even in detached CI.
@@ -31,8 +33,8 @@ E2E graduation is auditable before any scenario is deleted:
   daemon, whole-pipeline critical path, attempts, and retries.
 
 The ledger is a guardrail, not an equivalence oracle. CI proves immutable
-history, complete ledger rows, current browser survivors, declared platform
-coverage, and collection of every named test. Human review decides whether a
+history, complete ledger rows, current browser survivors, non-empty platform
+declarations, and collection of every named test. Human review decides whether a
 replacement preserves the same user promise through the same defect surface;
 `reviewEvidence.note` records that non-executable decision without pretending
 CI proved semantic equivalence.

@@ -3,7 +3,7 @@ import type { ScenarioInventory, ScenarioRevision } from "./inventory";
 export type TestLayer = "L1" | "L2" | "L3" | "L4" | "L5";
 export type TestLane = "unit" | "daemon" | "e2e";
 
-export interface TestProof {
+export interface ReplacementEvidence {
   file: string;
   test: string;
   lane: TestLane;
@@ -29,7 +29,7 @@ export interface Retirement {
   promise: string;
   defectSurface: string[];
   destinationLayer: TestLayer;
-  replacements: TestProof[];
+  replacements: ReplacementEvidence[];
   survivorRevisionIds: string[];
   sameCodePathEvidence?: {
     file: string;
@@ -49,6 +49,17 @@ export interface TestReference {
   owner: string;
 }
 
+function oneOf(
+  value: string,
+  allowed: readonly string[],
+  field: string,
+  id: string,
+): void {
+  if (!allowed.includes(value)) {
+    throw new Error(`${id}: invalid ${field}: ${value}`);
+  }
+}
+
 function nonEmpty(value: string, field: string, id: string): void {
   if (value.trim().length === 0) throw new Error(`${id}: ${field} is empty`);
 }
@@ -66,6 +77,19 @@ export function validateLedger(
   const entries = new Map<string, Retirement>();
   for (const entry of ledger.retirements) {
     nonEmpty(entry.id, "id", entry.id || "retirement");
+    oneOf(
+      entry.action,
+      ["replace", "retain-smoke", "collapse-outline", "renamed", "revised"],
+      "action",
+      entry.id,
+    );
+    oneOf(entry.status, ["planned", "landed", "blocked"], "status", entry.id);
+    oneOf(
+      entry.destinationLayer,
+      ["L1", "L2", "L3", "L4", "L5"],
+      "destinationLayer",
+      entry.id,
+    );
     if (entries.has(entry.revisionId)) {
       throw new Error(`${entry.revisionId}: more than one retirement row`);
     }
@@ -81,8 +105,17 @@ export function validateLedger(
     for (const proof of entry.replacements) {
       nonEmpty(proof.file, "replacement.file", entry.id);
       nonEmpty(proof.test, "replacement.test", entry.id);
+      oneOf(
+        proof.lane,
+        ["unit", "daemon", "e2e"],
+        "replacement.lane",
+        entry.id,
+      );
       if (proof.platforms.length === 0) {
         throw new Error(`${entry.id}: replacement platforms are empty`);
+      }
+      for (const platform of proof.platforms) {
+        oneOf(platform, ["linux", "darwin"], "replacement.platform", entry.id);
       }
       if (proof.realism.length === 0) {
         throw new Error(`${entry.id}: replacement realism is empty`);
@@ -93,12 +126,15 @@ export function validateLedger(
     }
     if (
       entry.status === "landed" &&
-      entry.replacements.length === 0 &&
-      entry.survivorRevisionIds.length === 0
+      entry.action === "replace" &&
+      entry.replacements.length === 0
     ) {
       throw new Error(
-        `${entry.id}: landed retirement has no replacement or survivor`,
+        `${entry.id}: landed replacement action has no replacement evidence`,
       );
+    }
+    if (entry.status === "landed" && entry.survivorRevisionIds.length === 0) {
+      throw new Error(`${entry.id}: landed retirement has no browser survivor`);
     }
     for (const survivorId of entry.survivorRevisionIds) {
       if (!currentIds.has(survivorId)) {

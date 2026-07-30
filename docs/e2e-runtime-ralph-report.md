@@ -3,21 +3,21 @@
 ## Goal
 
 Reduce Kolu's browser E2E load without changing product behavior or losing
-coverage of any distinct user-visible feature. A scenario graduates only when a
-lower-layer test exercises the same defect surface and an independent browser
-scenario still walks the user path.
+coverage of any distinct user-visible feature. A browser execution graduates
+only when its promise is covered by a lower-layer test plus an independent
+browser survivor, or by a strictly stronger retained browser journey.
 
 ## Result
 
 | Census | Original | Final | Change |
 | --- | ---: | ---: | ---: |
 | Feature files | 58 | 58 | 0 |
-| Gherkin declarations | 530 | 488 | -42 |
-| Expanded executions | 546 | 502 | -44 |
-| Default Linux executions | 541 | 497 | -44 |
-| Default Darwin executions | 540 | 496 | -44 |
+| Gherkin declarations | 530 | 494 | -36 |
+| Expanded executions | 546 | 508 | -38 |
+| Default Linux executions | 541 | 503 | -38 |
+| Default Darwin executions | 540 | 502 | -38 |
 
-The default Darwin browser load fell by 8.15%. No product behavior was removed
+The default Darwin browser load fell by 7.04%. No product behavior was removed
 or changed; production-code edits expose existing decisions to lower tests, and
 the remaining changes are tests, fixtures, CI environment, and documentation.
 
@@ -28,7 +28,8 @@ All macOS measurements use the exact `ci@petit` host.
 | Revision | Suite | Result | E2E wall time |
 | --- | --- | --- | ---: |
 | `f16eb26` | Original 540-execution strict suite | Did not settle before Odu's one-hour cap | > 60 min |
-| `8364706` | Final 496-execution strict suite | Passed | 219.367 s |
+| `8364706` | Superseded 496-execution candidate, before six perfection restorations | Passed | 219.367 s |
+| current | Final 502-execution strict suite | Measurement pending on a committed revision | — |
 
 The baseline is censored, not a five-sample median. Its run spent the hour in
 retries because macOS `/etc/zprofile` replaced the Nix path and exposed
@@ -37,19 +38,20 @@ failure made a matched before/after median impossible and revealed that a
 temporary marker-only command helper could produce false greens from stale
 fixtures.
 
-The final harness is status-strict again. The E2E dev shell includes Nix Git,
+The repaired harness is status-strict again. The E2E dev shell includes Nix Git,
 the fixture profile restores the inherited Nix `PATH`, compound setup commands
 fail as one checked transaction, and intentionally interactive or failing
-commands use an explicit start-only step. The final strict run passed after
-those repairs.
+commands use an explicit start-only step. The 496-execution candidate passed
+after those repairs; the six journeys restored by perfection review require a
+fresh final measurement and are not covered by that number.
 
 ## Coverage method
 
 - `scenario-inventory.json` keeps every historical scenario revision and CI
   compares it with every committed inventory reachable from `HEAD`.
 - `coverage-ledger.yaml` maps each removed revision to its promise, defect
-  surface, lower-layer tests, platform declaration, human review note, and
-  independent current browser survivor.
+  surface, independent current browser survivor, and—when the action is
+  `replace`—lower-layer tests, platform declarations, and a human review note.
 - Governance collects every named test. It does not claim to prove semantic
   equivalence; adversarial human review makes that judgment.
 - The perfection sweep restored every candidate for which the browser owned a
@@ -60,7 +62,7 @@ those repairs.
 
 ## Decision
 
-Keep the 44-execution reduction. It removes duplicated browser assertions while
+Keep the 38-execution reduction. It removes duplicated browser assertions while
 preserving the distinct user journeys. There is no retirement quota: future
-removals must pass the same inventory, replacement, survivor, review, and
-runtime checks.
+removals must pass the same inventory, applicable replacement, survivor,
+review, and runtime checks.

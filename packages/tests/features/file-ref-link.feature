@@ -7,7 +7,7 @@ Feature: File-ref autolinking in terminal
     Given the terminal is ready
 
   Scenario: Clicking a file-ref opens the file in browse mode
-    When I run "git init /tmp/kolu-file-ref-861 && cd /tmp/kolu-file-ref-861"
+    When I run "rm -rf /tmp/kolu-file-ref-861 && git init /tmp/kolu-file-ref-861 && cd /tmp/kolu-file-ref-861"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'line one\nline two\nline three\nline four\n' > notes.txt"
     And I run "echo 'see notes.txt:3 for the line'"
@@ -24,7 +24,7 @@ Feature: File-ref autolinking in terminal
     # a path:line reference opens the Code tab (here as the mobile bottom
     # drawer), a tap on plain content focuses to type. Only the latter raises
     # the soft keyboard — tapping the link must NOT pop it.
-    When I run "git init /tmp/kolu-file-ref-mobile && cd /tmp/kolu-file-ref-mobile"
+    When I run "rm -rf /tmp/kolu-file-ref-mobile && git init /tmp/kolu-file-ref-mobile && cd /tmp/kolu-file-ref-mobile"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\n' > notes.txt"
     And I run "echo 'open notes.txt:2 for details'"
@@ -56,7 +56,7 @@ Feature: File-ref autolinking in terminal
     # canvas zoom, for selection) and the `cellAtPoint` unit delegation pin in
     # `internals.test.ts`. It guards the path; it does NOT disprove the deleted
     # `rect.width/cols` (a centre tap resolves identically under both — sub-pixel).
-    When I run "git init /tmp/kolu-file-ref-scale && cd /tmp/kolu-file-ref-scale"
+    When I run "rm -rf /tmp/kolu-file-ref-scale && git init /tmp/kolu-file-ref-scale && cd /tmp/kolu-file-ref-scale"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > scale.txt"
     And I run "echo 'open scale.txt:3 to inspect'"
@@ -77,7 +77,7 @@ Feature: File-ref autolinking in terminal
     # "File reference not found". It now reveals the directory in the Code tab's
     # All-files tree: switch to browse, expand the folder + its ancestors, and
     # scroll it into view — no file is selected.
-    When I run "git init /tmp/kolu-file-ref-folder && cd /tmp/kolu-file-ref-folder"
+    When I run "rm -rf /tmp/kolu-file-ref-folder && git init /tmp/kolu-file-ref-folder && cd /tmp/kolu-file-ref-folder"
     And I run "git commit --allow-empty -m init"
     # Build the nested dir inside a subshell so `app/core` only ever appears
     # contiguously in the prose below — a setup line printing `app/core/one.txt`
@@ -127,7 +127,7 @@ Feature: File-ref autolinking in terminal
     # present the moment the tree mounts (no file-content render, no
     # selection/expansion to wait on — both slow, flaky axes under darwin CI
     # load that are irrelevant to what this scenario tests).
-    When I run "git init /tmp/kolu-file-ref-folder2 && cd /tmp/kolu-file-ref-folder2"
+    When I run "rm -rf /tmp/kolu-file-ref-folder2 && git init /tmp/kolu-file-ref-folder2 && cd /tmp/kolu-file-ref-folder2"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p lib && (cd lib && mkdir -p ui && printf 'a\n' > ui/button.ts && printf 'b\n' > ui/input.ts && printf 'x\n' > index.ts)"
     And I run "git add . && git commit -m files"
@@ -149,7 +149,7 @@ Feature: File-ref autolinking in terminal
   # end-to-end (the at-mount constructor path and the post-mount effect path).
 
   Scenario: Clicking a bare path (no line number) opens the file with no selection
-    When I run "git init /tmp/kolu-file-ref-noline && cd /tmp/kolu-file-ref-noline"
+    When I run "rm -rf /tmp/kolu-file-ref-noline && git init /tmp/kolu-file-ref-noline && cd /tmp/kolu-file-ref-noline"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\n' > plain.txt"
     And I run "echo 'see plain.txt for context'"
@@ -161,7 +161,7 @@ Feature: File-ref autolinking in terminal
     And no line should be selected in the file content
 
   Scenario: Clicking a slash-containing path with no line opens the file with no selection
-    When I run "git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
+    When I run "rm -rf /tmp/kolu-file-ref-slash-noline && git init /tmp/kolu-file-ref-slash-noline && cd /tmp/kolu-file-ref-slash-noline"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
     And I run "echo 'see src/notes.txt for context'"
@@ -173,7 +173,7 @@ Feature: File-ref autolinking in terminal
     And no line should be selected in the file content
 
   Scenario: Bare basename without a line number resolves via unique-basename fallback
-    When I run "git init /tmp/kolu-file-ref-noline-basename && cd /tmp/kolu-file-ref-noline-basename"
+    When I run "rm -rf /tmp/kolu-file-ref-noline-basename && git init /tmp/kolu-file-ref-noline-basename && cd /tmp/kolu-file-ref-noline-basename"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src/lib && printf 'alpha\nbeta\ngamma\n' > src/lib/unique.txt"
     And I run "echo 'open unique.txt for details'"
@@ -184,7 +184,7 @@ Feature: File-ref autolinking in terminal
     And no line should be selected in the file content
 
   Scenario: Clicking a line-range file-ref selects the whole range
-    When I run "git init /tmp/kolu-file-ref-range-sel && cd /tmp/kolu-file-ref-range-sel"
+    When I run "rm -rf /tmp/kolu-file-ref-range-sel && git init /tmp/kolu-file-ref-range-sel && cd /tmp/kolu-file-ref-range-sel"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > range.txt"
     And I run "echo 'block at range.txt:2-4 needs attention'"
@@ -195,7 +195,7 @@ Feature: File-ref autolinking in terminal
     And line 4 should be selected in the file content
 
   Scenario: Clicking a line-range deep in a long file scrolls the selection into view
-    When I run "git init /tmp/kolu-file-ref-deep && cd /tmp/kolu-file-ref-deep"
+    When I run "rm -rf /tmp/kolu-file-ref-deep && git init /tmp/kolu-file-ref-deep && cd /tmp/kolu-file-ref-deep"
     And I run "git commit --allow-empty -m init"
     And I run "seq 1 200 > big.txt"
     And I run "echo 'hot spot at big.txt:161-165 here'"
@@ -204,7 +204,7 @@ Feature: File-ref autolinking in terminal
     And line 165 should be selected in the file content
 
   Scenario: A file-ref opens on the first click when an iframe preview is already showing
-    When I run "git init /tmp/kolu-file-ref-preview && cd /tmp/kolu-file-ref-preview"
+    When I run "rm -rf /tmp/kolu-file-ref-preview && git init /tmp/kolu-file-ref-preview && cd /tmp/kolu-file-ref-preview"
     And I run "git commit --allow-empty -m init"
     And I run "printf '<h1>hi</h1>\n' > page.html"
     And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > world.ts"
@@ -224,7 +224,7 @@ Feature: File-ref autolinking in terminal
   # This scenario is the canary for that fix, so it must run against the
   # bundled build (`just test-quick`), not just dev.
   Scenario: Re-clicking the same file-ref after closing the panel re-selects the line
-    When I run "git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
+    When I run "rm -rf /tmp/kolu-file-ref-861-reclick && git init /tmp/kolu-file-ref-861-reclick && cd /tmp/kolu-file-ref-861-reclick"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > recheck.txt"
     And I run "echo 'see recheck.txt:3 again'"

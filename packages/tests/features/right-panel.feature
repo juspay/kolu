@@ -51,7 +51,7 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Inspector shows git branch in a git repo
-    When I run "git init /tmp/kolu-inspector-git && cd /tmp/kolu-inspector-git"
+    When I run "rm -rf /tmp/kolu-inspector-git && git init /tmp/kolu-inspector-git && cd /tmp/kolu-inspector-git"
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"

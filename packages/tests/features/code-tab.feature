@@ -25,7 +25,7 @@ Feature: Code tab (review + browse)
     Then the Code tab should indicate no git repository
 
   Scenario: Shows "no changes" when the repo is clean
-    When I run "git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
+    When I run "rm -rf /tmp/kolu-review-clean && git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "local"
@@ -38,13 +38,13 @@ Feature: Code tab (review + browse)
   # (the All-files repo browser) so the Code tab lands on a populated tree
   # rather than a diff that reads empty on a clean tree.
   Scenario: Mode toggle defaults to browse
-    When I run "git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
+    When I run "rm -rf /tmp/kolu-review-toggle && git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     Then the Code tab mode should be "browse"
 
   Scenario: Code tab mode survives panel close and reopen
-    When I run "git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
+    When I run "rm -rf /tmp/kolu-review-mode-persist && git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -60,7 +60,7 @@ Feature: Code tab (review + browse)
   # Here the default view is browse, yet the Local segment still
   # advertises its two uncommitted files; browse itself is never badged.
   Scenario: A mode's change count shows on its segment without switching into it
-    When I run "git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
+    When I run "rm -rf /tmp/kolu-review-badge && git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'one\n' > a.txt"
     And I run "printf 'two\n' > b.txt"
@@ -300,7 +300,7 @@ Feature: Code tab (review + browse)
   # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click
-    When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
+    When I run "rm -rf /tmp/kolu-review-dirty && git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'hello\n' > note.txt"
     And I click the Code tab
@@ -403,7 +403,7 @@ Feature: Code tab (review + browse)
       | browse |
 
   Scenario: Untracked files appear alongside modified tracked files
-    When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
+    When I run "rm -rf /tmp/kolu-review-untracked && git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'initial\n' > tracked.txt && git add tracked.txt && git commit -m 'add tracked'"
     And I run "printf 'modified\n' > tracked.txt"
@@ -416,7 +416,7 @@ Feature: Code tab (review + browse)
   # ── Pierre tree behaviour: directory grouping + collapse ──
 
   Scenario: Groups files into a directory tree
-    When I run "git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
+    When I run "rm -rf /tmp/kolu-review-tree && git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src/components && printf 'a\n' > src/index.ts && printf 'b\n' > src/components/Button.tsx"
     And I click the Code tab
@@ -426,7 +426,7 @@ Feature: Code tab (review + browse)
     And the Code tab should list a changed file "src/components/Button.tsx"
 
   Scenario: Collapsing a directory hides its children
-    When I run "git init /tmp/kolu-review-collapse && cd /tmp/kolu-review-collapse"
+    When I run "rm -rf /tmp/kolu-review-collapse && git init /tmp/kolu-review-collapse && cd /tmp/kolu-review-collapse"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts && printf 'y\n' > pkg/b.ts"
     And I click the Code tab
@@ -440,7 +440,7 @@ Feature: Code tab (review + browse)
   # ── Pierre tree right-click menu (Copy path) ──
 
   Scenario: Right-click on a changed file copies its path
-    When I run "git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
+    When I run "rm -rf /tmp/kolu-tree-ctx && git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p api && printf 'q\n' > api/handler.ts"
     And I click the Code tab
@@ -460,7 +460,7 @@ Feature: Code tab (review + browse)
   # Local (always available, includes untracked) and Branch (vs origin base).
 
   Scenario: Right-click in All files opens the Local diff of that file
-    When I run "git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
+    When I run "rm -rf /tmp/kolu-tree-tolocal && git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
@@ -483,7 +483,7 @@ Feature: Code tab (review + browse)
     And the Code tab should render a diff view
 
   Scenario: Right-click in a git diff returns to All files
-    When I run "git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
+    When I run "rm -rf /tmp/kolu-tree-tobrowse && git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
@@ -498,7 +498,7 @@ Feature: Code tab (review + browse)
   # ── Browse mode: file tree + content viewer ──
 
   Scenario: File browser shows the repo file tree
-    When I run "git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
+    When I run "rm -rf /tmp/kolu-browse-tree && git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
     And I run "mkdir -p src && printf 'a\n' > README.md && printf 'b\n' > src/index.ts"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -508,7 +508,7 @@ Feature: Code tab (review + browse)
     And the file browser should show a file "README.md"
 
   Scenario: File browser shows file content on click
-    When I run "git init /tmp/kolu-browse-content && cd /tmp/kolu-browse-content"
+    When I run "rm -rf /tmp/kolu-browse-content && git init /tmp/kolu-browse-content && cd /tmp/kolu-browse-content"
     And I run "printf 'hello world\n' > greeting.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -762,7 +762,7 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "one-B"
 
   Scenario: File browser wraps long lines by default
-    When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
+    When I run "rm -rf /tmp/kolu-browse-wrap && git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1270,7 +1270,7 @@ Feature: Code tab (review + browse)
     And the Code tab preview pane height should match the noted height
 
   Scenario: File browser expands directories lazily
-    When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
+    When I run "rm -rf /tmp/kolu-browse-expand && git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1287,7 +1287,7 @@ Feature: Code tab (review + browse)
   # their state. Selection now expands the picked file's ancestors
   # imperatively and leaves every other open directory untouched.
   Scenario: File browser preserves sibling expansion when previewing a file
-    When I run "git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
+    When I run "rm -rf /tmp/kolu-browse-keep && git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1309,7 +1309,7 @@ Feature: Code tab (review + browse)
   # keeps its expansion. (A folder filtered entirely out of view — `beta` here —
   # legitimately folds away; Pierre drops it from the projection.)
   Scenario: File browser keeps a folder expanded across a filter and clear
-    When I run "git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
+    When I run "rm -rf /tmp/kolu-browse-filter && git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1328,7 +1328,7 @@ Feature: Code tab (review + browse)
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 
   Scenario: Right-click on a file content line copies "path:line"
-    When I run "git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
+    When I run "rm -rf /tmp/kolu-browse-ctx && git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
     And I run "printf 'alpha\nbeta\ngamma\n' > letters.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1351,7 +1351,7 @@ Feature: Code tab (review + browse)
   # path so each file gets a fresh `FileDiff` and a clean
   # `useLineSelection` range.
   Scenario: Switching diff files keeps the "Copy path:line" entry in sync
-    When I run "git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
+    When I run "rm -rf /tmp/kolu-diff-multifile && git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'a-one\na-two\na-three\n' > file-a.txt"
     And I run "printf 'b-one\nb-two\nb-three\n' > file-b.txt"
@@ -1378,7 +1378,7 @@ Feature: Code tab (review + browse)
   # paste-navigate. The "Open path:N" context-menu entry dispatches via
   # the same `openInCodeTab` front door the terminal-link click uses.
   Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
-    When I run "git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
+    When I run "rm -rf /tmp/kolu-open-from-diff && git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p docs && printf 'first\nsecond\nthird\n' > docs/notes.txt"
     And I click the Code tab
@@ -1476,7 +1476,7 @@ Feature: Code tab (review + browse)
     And the Code tab should not show the binary placeholder
 
   Scenario: Editing a file updates the diff view live
-    When I run "git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
+    When I run "rm -rf /tmp/kolu-live-diff && git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'before\n' > note.txt"
     And I click the Code tab
@@ -1488,7 +1488,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "after" while nudging "/tmp/kolu-live-diff/note.txt"
 
   Scenario: Editing a file updates browse-mode content live
-    When I run "git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
+    When I run "rm -rf /tmp/kolu-live-browse && git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
     And I run "printf 'first version\n' > letters.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1720,7 +1720,7 @@ Feature: Code tab (review + browse)
   # against the preview's own host subtree (NOT the whole app page), and the
   # same select → pill → composer → tray flow works straight on the document.
   Scenario: Commenting on the rendered Markdown preview
-    When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
+    When I run "rm -rf /tmp/kolu-comments-md-reopen && git init /tmp/kolu-comments-md-reopen && cd /tmp/kolu-comments-md-reopen"
     And I run "printf '# Doc Title\n\nmd-preview-marker in the body.\n' > README.md && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"

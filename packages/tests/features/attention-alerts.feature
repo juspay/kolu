@@ -4,6 +4,14 @@ Feature: Attention Alerts
   Background:
     Given the terminal is ready
 
+  Scenario: Visiting notified terminal clears the glow
+    When I create a terminal
+    And I simulate an attention alert
+    Then a workspace switcher branch should be notified
+    When I click the notified workspace switcher branch
+    Then no workspace switcher branch should be notified
+    And there should be no page errors
+
   Scenario: An agent awaiting you badges the PWA dock icon
     # W5 cross-host attention: the app badge is now the count of agents AWAITING
     # you across every bound host (padi's `urgency` projection), not the old
