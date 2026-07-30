@@ -1906,3 +1906,19 @@ retirements:
       file: packages/tests/features/right-panel.feature
       symbol: "Scenario: Inspector shows git branch in a git repo"
       test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-3165390ce903007ddcd9
+    revisionId: revision-3165390ce903007ddcd9
+    action: revised
+    status: landed
+    promise: A mounted browse tree rolls a live file-status change up to its ancestor folder tint
+    defectSurface:
+      - browse-folder-status-rollup
+      - live-git-status-update
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-456287f35896d5983aad
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The current revision mounts the clean tree before editing, then verifies the live status stream marks and visibly tints the changed file's ancestor while leaving a clean sibling unmarked.

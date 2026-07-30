@@ -800,10 +800,13 @@ Feature: Code tab (review + browse)
   Scenario: Browse mode tints ancestor folders that contain a change
     When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
     And I run "mkdir -p src/feature lib && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && git add . && git commit -m init"
-    And I run "printf 'edited\n' > src/feature/a.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
     Then the Code tab should show a directory node "src"
+    # Make the change after the tree's initial snapshot. The preceding scenario
+    # covers initial dirty-state decoration; this one proves the mounted tree
+    # reacts to a live status update and rolls it up to the ancestor folder.
+    When I run "printf 'edited\n' > src/feature/a.txt"
     And the Code tab directory "src" should be marked as containing a change
     And the Code tab directory "lib" should not be marked as containing a change
     And the Code tab directory "src" name should be tinted differently from directory "lib"

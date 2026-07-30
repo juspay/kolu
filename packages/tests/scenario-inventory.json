@@ -7262,6 +7262,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0be1ad50deebf3f96737c6f745dda19aebfc5fe8"
+    },
+    {
+      "revisionId": "revision-456287f35896d5983aad",
+      "scenarioKey": "scenario-4d82a29b533ee62ee45d",
+      "feature": "features/code-tab.feature",
+      "scenario": "Browse mode tints ancestor folders that contain a change",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d2aade0aa5d8fa36972b2c6416a74084e5aa7297004e7edc68bf71987ebb0b20",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "6c71fe961bec85022e4ba298a28d9023bbcfd530"
     }
   ]
 }
