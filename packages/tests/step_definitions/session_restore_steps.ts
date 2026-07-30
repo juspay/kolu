@@ -1,7 +1,15 @@
 import * as assert from "node:assert";
+import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
+import { resumableTerminalIds } from "@kolu/padi/resumable";
+import {
+  LOCAL_LOCATION,
+  SavedSessionSchema,
+  type SavedTerminal,
+} from "@kolu/padi/surface";
+import { padiStateDir } from "../support/hooks.ts";
 import { padiFold } from "../support/padiEnvelope.ts";
 import { pollFor } from "../support/poll.ts";
 import {
@@ -350,6 +358,65 @@ Then(
 When("I wait for the session auto-save", async function (this: KoluWorld) {
   await new Promise((r) => setTimeout(r, 800));
 });
+
+/** Wait until padi's PERSISTED session actually offers N resumable agents.
+ *
+ *  The restore card is built from the blob on disk, and once the daemon is
+ *  killed that blob is FROZEN — so a scenario that kills kaval before the save
+ *  has caught up asserts against a session that can never improve, however long
+ *  the assertion polls. (That is exactly how this scenario failed on
+ *  aarch64-darwin: "Restore 2 terminals", no resume suffix, for the full 20 s.)
+ *
+ *  A sleep cannot express this precondition honestly. Two independent latencies
+ *  sit between "the agent was launched" and "the session on disk is
+ *  restorable": padi must OBSERVE the agent (a title event whose reconcile
+ *  ladder runs out to 1000 ms — `sensors.ts` COMMAND_RUN_RECONCILE_DELAYS_MS)
+ *  and the autosave must then fire (500 ms debounce). On this repo's Linux box
+ *  the pair lands 300-670 ms after the mock step returns; there is no fixed wait
+ *  that is both honest and fast on a loaded macOS runner.
+ *
+ *  Reading the blob is the ONLY ground truth available: while live terminals
+ *  exist nothing renders the saved session, and a split's agent reaches no
+ *  client chrome at all (see the scenario comment in session-restore.feature).
+ *  It is parsed with padi's OWN schema and counted with padi's OWN fold
+ *  (`resumableTerminalIds`), so this step cannot drift from what the host will
+ *  serve as `session.resumableIds`. */
+Then(
+  "the saved session should list {int} resumable agents",
+  async function (this: KoluWorld, expected: number) {
+    const sessionFile = path.join(padiStateDir, "config.json");
+    const readResumable = (): { count: number; detail: string } => {
+      if (!fs.existsSync(sessionFile)) return { count: 0, detail: "no config" };
+      const persisted = JSON.parse(fs.readFileSync(sessionFile, "utf8")) as {
+        session?: unknown;
+      };
+      const session = SavedSessionSchema.nullable().parse(
+        persisted.session ?? null,
+      );
+      const terminals = session?.terminals ?? [];
+      return {
+        count: resumableTerminalIds(terminals).length,
+        detail: JSON.stringify(
+          terminals.map((t) => ({
+            id: t.id.slice(0, 8),
+            parentId: t.parentId?.slice(0, 8) ?? null,
+            state: t.state,
+            restoreTarget: t.restoreTarget?.kind ?? "absent",
+          })),
+        ),
+      };
+    };
+    await pollFor({
+      observe: async () => readResumable(),
+      isDone: (r) => r.count === expected,
+      onTimeout: (last, ms) =>
+        new Error(
+          `Saved session never listed ${expected} resumable agent(s) within ${ms}ms — saw ${last?.count ?? 0} in ${last?.detail ?? "nothing"}`,
+        ),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  },
+);
 
 Then(
   "workspace switcher entry {int} should be active",
