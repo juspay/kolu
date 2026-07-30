@@ -19,6 +19,19 @@ afterEach(() => {
 });
 
 describe("currentKavalProcessTarget", () => {
+  it("returns honest absence without a held endpoint connection", () => {
+    expect(currentKavalProcessTarget()).toBeUndefined();
+
+    const current = vi.fn<KavalEndpoint["current"]>(() => undefined);
+    // The production read uses only `current`; restart behavior is outside this
+    // test, so the remaining Endpoint members are deliberately absent.
+    const endpoint = { current } as unknown as KavalEndpoint;
+    restoreEndpoint = __setEndpointForTest(endpoint);
+
+    expect(currentKavalProcessTarget()).toBeUndefined();
+    expect(current).toHaveBeenCalledTimes(1);
+  });
+
   it("takes both identity fields from one held endpoint connection", () => {
     const heldConnection = {
       metadata: { contractVersion: "6.0", pid: 4_242 },
@@ -42,5 +55,9 @@ describe("currentKavalProcessTarget", () => {
     expect(target).toEqual({ pid: 4_242, startedAt: 1_000 });
     expect(Object.isFrozen(target)).toBe(true);
     expect(current).toHaveBeenCalledTimes(1);
+
+    restoreEndpoint();
+    restoreEndpoint = (): void => {};
+    expect(currentKavalProcessTarget()).toBeUndefined();
   });
 });
