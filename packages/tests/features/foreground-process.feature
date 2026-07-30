@@ -7,6 +7,10 @@ Feature: Foreground process detection
   Background:
     Given the terminal is ready
 
+  Scenario: Workspace switcher shows terminal title at startup
+    Then the workspace switcher process name should be non-empty
+    And there should be no page errors
+
   Scenario: Workspace switcher title updates to the running command
     # Run a long-running command — our preexec hook should emit OSC 2
     # with the command string, causing the workspace switcher title to update.

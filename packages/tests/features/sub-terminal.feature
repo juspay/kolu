@@ -121,6 +121,11 @@ Feature: Sub-terminals
     And the active tile should not show a sub-terminal count
     And there should be no page errors
 
+  Scenario: Resize handle visible when expanded
+    When I create a sub-terminal via command palette
+    Then the resize handle should be visible
+    And there should be no page errors
+
   Scenario: Active pane is distinguished in a split
     When I create a sub-terminal via command palette
     Then the sub pane should be the active pane

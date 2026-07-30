@@ -41,6 +41,12 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Previous-session JSONL in the project dir doesn't confuse detection
+    When a Claude Code session is mocked with state "thinking"
+    And a newer stale previous-session JSONL exists in the same project dir
+    Then the tile chrome should show an agent indicator with state "thinking"
+    And there should be no page errors
+
   Scenario: Workspace switcher pings the branch on unread completion
     When a Claude Code session is mocked with state "waiting"
     And I create a terminal
@@ -63,6 +69,12 @@ Feature: Claude Code status detection
     Then the tile chrome should show task progress "3/5"
     And there should be no page errors
 
+  Scenario: Tile chrome shows running-in-background state with workflow fan-out
+    When a Claude Code session is mocked with state "running_background"
+    Then the tile chrome should show an agent indicator with state "running_background"
+    And the tile chrome should show workflow badge "deep-research"
+    And there should be no page errors
+
   Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
     # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
     # the newest JSONL entry and the assistant's tool_use reply is buffered in the
@@ -74,4 +86,11 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "thinking"
     When the terminal renders a Claude AskUserQuestion prompt
     Then the tile chrome should show an agent indicator with state "awaiting_user"
+    And there should be no page errors
+
+  Scenario: Claude Code indicator disappears when session ends
+    When a Claude Code session is mocked with state "thinking"
+    Then the tile chrome should show an agent indicator with state "thinking"
+    When the Claude Code session ends
+    Then the tile chrome should not show an agent indicator
     And there should be no page errors

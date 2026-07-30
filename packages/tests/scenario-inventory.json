@@ -6566,6 +6566,138 @@
       ],
       "executions": 1,
       "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-522c4d6a2e049365f1ff",
+      "scenarioKey": "scenario-7d5cc1335937a5a54ecc",
+      "feature": "features/dock.feature",
+      "scenario": "Foreground process surfaces on non-agent dock rows",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "383f6e5cd6dfe28d0ce5d2d2742aec8ca860cc3e1387533b03308e14d41981b3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-e37f880007d5dcac6587",
+      "scenarioKey": "scenario-a5b82e7e38187a47df20",
+      "feature": "features/kill.feature",
+      "scenario": "Natural PTY exit removes terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d9820b910a2480c4d70bead7df54a2ab930851e690b57f9e51ea2d949c54ee94",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-2b46191d3a25cf839c23",
+      "scenarioKey": "scenario-027e22edbaadd623f869",
+      "feature": "features/mobile-soft-keyboard.feature",
+      "scenario": "Sticky Ctrl folds into the next character typed on the soft keyboard",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "2f2dc431c8c9f0ab995f5cd20fd6df463d55e20b0686c30339e7616264274e64",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-527790e672bd3783253d",
+      "scenarioKey": "scenario-e6e3a3cb14c8afb12b7c",
+      "feature": "features/mobile-soft-keyboard.feature",
+      "scenario": "Tapping Ctrl-C interrupts a running command",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "1b638e3d5f51ea6c88548609d97e901ec44cd67cdba3ca08d8357ff8c35a8c68",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-429b93553ce0a7528476",
+      "scenarioKey": "scenario-6c7844e262a24b41d1ff",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Drilling into Recent agents keeps focus on palette input",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "912314d830644f423ef453e12b697db090b77f1bbf1303dbc21c932052b8c382",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-72a2af203a68b1b7ff37",
+      "scenarioKey": "scenario-19989dd903ca1dc3dfc5",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Known agent invocation surfaces under \"Recent agents\"",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8dbad521215e3cac81c833ae6a6bd5ef4e418bb6bfe609bf2f21b2f32c47fa07",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-29a9ba6d97c83785f8f8",
+      "scenarioKey": "scenario-a276ff22e937e6988617",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Agent sub-palette appears under a recent repo when agents exist",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "606d64e2145841d5e60b6efb161c43f8e4f7125b859e165622e49896d177c60e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-8cf7a1038b6a594c079c",
+      "scenarioKey": "scenario-5284fb052f6d0f7dc001",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Picking an agent creates the worktree and writes the command",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6d2d963037116361186942057869ed86e43bb707cf5f6d94efe883243f7bc7c0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-48e819201e86a26bb076",
+      "scenarioKey": "scenario-20345d133fd691674335",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Picking Plain shell creates a plain worktree terminal",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f8c10d00bd4dbcc949cd8e266c5a88bf2ab889941790e8b004bffe9200088485",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-42b5b7aee6b1fb948c83",
+      "scenarioKey": "scenario-ad014149b87ad6628f09",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Typing a custom name and picking an agent creates a named worktree with the agent",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "04d53774b817e5827ebac771fd2dc163931ab40b8124ff3e947fe475307e168c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
+    },
+    {
+      "revisionId": "revision-1fd10c2ce11c91a981cc",
+      "scenarioKey": "scenario-6bd81486da6aa80732a9",
+      "feature": "features/kaval-daemon.feature",
+      "scenario": "Recycling kaval with a split does not spuriously re-parent it and keeps it visible",
+      "kind": "scenario",
+      "tags": ["@kaval-restart"],
+      "bodyHash": "967064e5d0b5579c3d8bceee1a0c4c7ae1662f1997494d2523494cdf2494d54d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "de8bd4b4e3eaf9b8fa3608dae98e20bbe07eb880"
     }
   ]
 }

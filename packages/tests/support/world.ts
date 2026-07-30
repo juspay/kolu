@@ -69,6 +69,8 @@ export const CANVAS_TILE_SELECTOR = '[data-testid="canvas-tile"]';
  *  so consumers must retain the tile-identity qualifier. */
 export const ACTIVE_CANVAS_TILE_SELECTOR = `${CANVAS_TILE_SELECTOR}[data-active]`;
 
+let terminalCommandSequence = 0;
+
 export class KoluWorld extends World {
   browser!: Browser;
   context!: BrowserContext;
@@ -322,6 +324,36 @@ export class KoluWorld extends World {
     await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
+  }
+
+  async terminalRunAndWait(command: string) {
+    await this.focusForTyping("[data-visible]:not([data-sub-terminal])");
+    const sequence = terminalCommandSequence++;
+    const token = `KD_${process.pid}_${sequence}`;
+    const marker = `${token}:`;
+    await this.page.keyboard.type(
+      `{ ${command}; }; kolu_status=$?; ` +
+        `printf '\\nK''D_${process.pid}_${sequence}:%s\\n' "$kolu_status"`,
+    );
+    await this.page.keyboard.press("Enter");
+
+    const handle = await this.page.waitForFunction(
+      ({ expected }) => {
+        const content =
+          window.__readXtermBuffer?.("[data-focused][data-terminal-id]", 0) ??
+          "";
+        return content.includes(expected) ? content : null;
+      },
+      { expected: marker },
+      { timeout: HYDRATION_TIMEOUT, polling: 50 },
+    );
+    const buffer = (await handle.jsonValue()) ?? "";
+    const status = buffer.match(new RegExp(`${marker}(\\d+)`))?.[1];
+    if (status !== "0") {
+      throw new Error(
+        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}`,
+      );
+    }
   }
 
   async canvasBox() {

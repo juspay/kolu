@@ -14,6 +14,28 @@ Feature: Server-side preferences
     Then the color scheme should be "light"
     And there should be no page errors
 
+  Scenario: Scroll lock toggle persists across reload
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the scroll lock toggle
+    Then the scroll lock toggle should be disabled
+    When I reload the page and wait for ready
+    When I click the settings button
+    Then the settings popover should be visible
+    Then the scroll lock toggle should be disabled
+    And there should be no page errors
+
+  Scenario: Attention alerts toggle persists across reload
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the attention alerts toggle
+    Then the attention alerts toggle should be disabled
+    When I reload the page and wait for ready
+    When I click the settings button
+    Then the settings popover should be visible
+    Then the attention alerts toggle should be disabled
+    And there should be no page errors
+
   Scenario: Terminal renderer preference swaps the active tile and persists
     Then the terminal renderer should be "webgl"
     When I click the settings button

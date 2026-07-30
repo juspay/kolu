@@ -43,6 +43,20 @@ Feature: Terminal switcher (unified palette)
     Then the workspace switcher panel should be visible
     And there should be no page errors
 
+  Scenario: Escape dismisses the palette
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I press Escape
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
+  Scenario: Clicking outside dismisses the palette
+    When I click the workspace switcher toggle
+    Then the workspace switcher panel should be visible
+    When I click outside the workspace switcher
+    Then the workspace switcher panel should not be visible
+    And there should be no page errors
+
   Scenario: Selecting a terminal row closes the palette
     Given I run "echo dismiss-after-select"
     And I create a terminal

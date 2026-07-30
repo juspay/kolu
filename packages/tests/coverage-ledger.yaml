@@ -346,23 +346,6 @@ retirements:
       file: packages/tests/features/claude-code.feature
       symbol: "Scenario: Claude Code state updates from thinking to waiting"
       test: The retained browser journey reaches the same production surface.
-  - id: retire-9cc69bef90441e4ce1a2
-    revisionId: revision-9cc69bef90441e4ce1a2
-    action: replace
-    status: landed
-    promise: Claude Code indicator disappears when session ends
-    defectSurface:
-      - claude-code
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a3
-    survivorRevisionIds:
-      - revision-7a7e24f88ac2cfdf33ff
-    sameCodePathEvidence:
-      file: packages/tests/features/claude-code.feature
-      symbol: "Scenario: Claude Code state updates from thinking to waiting"
-      test: The retained browser journey reaches the same production surface.
   - id: retire-4b839ff3c40890f5b756
     revisionId: revision-4b839ff3c40890f5b756
     action: replace
@@ -436,40 +419,6 @@ retirements:
       file: packages/tests/features/claude-code.feature
       symbol: "Scenario: Claude Code state updates from thinking to waiting"
       test: The retained browser journey reaches the same production surface.
-  - id: retire-3ecdabda3bf8dfbe515e
-    revisionId: revision-3ecdabda3bf8dfbe515e
-    action: replace
-    status: landed
-    promise: Previous-session JSONL in the project dir doesn't confuse detection
-    defectSurface:
-      - claude-code
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a3
-    survivorRevisionIds:
-      - revision-7a7e24f88ac2cfdf33ff
-    sameCodePathEvidence:
-      file: packages/tests/features/claude-code.feature
-      symbol: "Scenario: Claude Code state updates from thinking to waiting"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-6a15b70732641f68b2b8
-    revisionId: revision-6a15b70732641f68b2b8
-    action: replace
-    status: landed
-    promise: Tile chrome shows running-in-background state with workflow fan-out
-    defectSurface:
-      - claude-code
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a4
-    survivorRevisionIds:
-      - revision-7a7e24f88ac2cfdf33ff
-    sameCodePathEvidence:
-      file: packages/tests/features/claude-code.feature
-      symbol: "Scenario: Claude Code state updates from thinking to waiting"
-      test: The retained browser journey reaches the same production surface.
   - id: retire-07f2e9e5d3b9993ce20a
     revisionId: revision-07f2e9e5d3b9993ce20a
     action: replace
@@ -491,194 +440,6 @@ retirements:
         counterfactual:
           file: packages/client/src/right-panel/fileSearch.test.ts
           test: projectFileTreeSearch > matches whitespace-separated path tokens in order
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-5b1e577b8cc60ab5129e
-    revisionId: revision-5b1e577b8cc60ab5129e
-    action: replace
-    status: landed
-    promise: Filter prunes directories with no matching files [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L1
-    replacements:
-      - file: packages/client/src/right-panel/fileSearch.test.ts
-        test: projectFileTreeSearch > prunes non-matching directory branches from the projected tree
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-projection
-        counterfactual:
-          file: packages/client/src/right-panel/fileSearch.test.ts
-          test: projectFileTreeSearch > prunes non-matching directory branches from the projected tree
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-35a024e559c3008330bc
-    revisionId: revision-35a024e559c3008330bc
-    action: collapse-outline
-    status: landed
-    promise: Filter survives clicking a filtered result [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-91d98a67909d41c17eb2
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Filter survives clicking a filtered result [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-4696c2de97aae4dd643f
-    revisionId: revision-4696c2de97aae4dd643f
-    action: collapse-outline
-    status: landed
-    promise: Folder collapse during active filter persists the filter [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-89903ad8beb906ba0aaf
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Folder collapse during active filter persists the filter [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-c83752a4315b4a0b3ce9
-    revisionId: revision-c83752a4315b4a0b3ce9
-    action: replace
-    status: landed
-    promise: Markdown preview applies the link policy to raw inline anchors
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/sanitize.test.ts
-        test: sanitizeHtml — document allowlist > applies one link policy to raw relative, external, and unsafe anchors
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - jsdom
-          - dompurify
-        counterfactual:
-          file: packages/solid-markdown/src/sanitize.test.ts
-          test: sanitizeHtml — document allowlist > applies one link policy to raw relative, external, and unsafe anchors
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-3a2bbdf941946103aaa9
-    revisionId: revision-3a2bbdf941946103aaa9
-    action: replace
-    status: landed
-    promise: Markdown preview does not let raw HTML spoof the wikilink marker
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/sanitize.test.ts
-        test: sanitizeHtml — document allowlist > strips a raw wikilink marker instead of bypassing external-link policy
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - jsdom
-          - dompurify
-        counterfactual:
-          file: packages/solid-markdown/src/sanitize.test.ts
-          test: sanitizeHtml — document allowlist > strips a raw wikilink marker instead of bypassing external-link policy
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-9b94a76f0c2b5c5b3016
-    revisionId: revision-9b94a76f0c2b5c5b3016
-    action: replace
-    status: landed
-    promise: Markdown preview drops style, class, SVG, and form controls
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/sanitize.test.ts
-        test: sanitizeHtml — document allowlist > keeps prose while dropping style, class, SVG, and interactive form controls
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - jsdom
-          - dompurify
-        counterfactual:
-          file: packages/solid-markdown/src/sanitize.test.ts
-          test: sanitizeHtml — document allowlist > keeps prose while dropping style, class, SVG, and interactive form controls
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-4bf4c97f08c348369ca4
-    revisionId: revision-4bf4c97f08c348369ca4
-    action: replace
-    status: landed
-    promise: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/render.test.ts
-        test: renderMarkdownToRawHtml — code + breaks > honours the breaks option (GitHub folds soft breaks; chat keeps them)
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-markdown-parser
-        counterfactual:
-          file: packages/solid-markdown/src/render.test.ts
-          test: renderMarkdownToRawHtml — code + breaks > honours the breaks option (GitHub folds soft breaks; chat keeps them)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-      - &a5
-        file: packages/solid-markdown/src/render.test.ts
-        test: renderMarkdownToRawHtml — GFM structure > renders GFM task lists with checkbox state
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-markdown-parser
-        counterfactual:
-          file: packages/solid-markdown/src/render.test.ts
-          test: renderMarkdownToRawHtml — GFM structure > renders GFM task lists with checkbox state
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
       - revision-4c154ab35e3bdfa459fb
@@ -708,7 +469,18 @@ retirements:
           file: packages/solid-markdown/src/render.test.ts
           test: renderMarkdownToRawHtml — GFM structure > renders GFM tables with alignment
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-      - *a5
+      - file: packages/solid-markdown/src/render.test.ts
+        test: renderMarkdownToRawHtml — GFM structure > renders GFM task lists with checkbox state
+        lane: unit
+        platforms:
+          - linux
+          - darwin
+        realism:
+          - production-markdown-parser
+        counterfactual:
+          file: packages/solid-markdown/src/render.test.ts
+          test: renderMarkdownToRawHtml — GFM structure > renders GFM task lists with checkbox state
+          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
       - file: packages/solid-markdown/src/render.test.ts
         test: renderMarkdownToRawHtml — inline HTML passthrough > passes through inline elements verbatim (to be sanitized downstream)
         lane: unit
@@ -720,58 +492,6 @@ retirements:
         counterfactual:
           file: packages/solid-markdown/src/render.test.ts
           test: renderMarkdownToRawHtml — inline HTML passthrough > passes through inline elements verbatim (to be sanitized downstream)
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-98da4e13a2246d071519
-    revisionId: revision-98da4e13a2246d071519
-    action: replace
-    status: landed
-    promise: Markdown preview renders lists, footnotes, alerts, and resolves repo images
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/render.test.ts
-        test: renderMarkdownToRawHtml — GFM extensions > renders footnotes as a superscript ref + a footnotes section
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-markdown-parser
-        counterfactual:
-          file: packages/solid-markdown/src/render.test.ts
-          test: renderMarkdownToRawHtml — GFM extensions > renders footnotes as a superscript ref + a footnotes section
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-      - file: packages/solid-markdown/src/render.test.ts
-        test: renderMarkdownToRawHtml — GFM extensions > rewrites GitHub alert blockquotes to a data-md-alert attribute
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-markdown-parser
-        counterfactual:
-          file: packages/solid-markdown/src/render.test.ts
-          test: renderMarkdownToRawHtml — GFM extensions > rewrites GitHub alert blockquotes to a data-md-alert attribute
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-      - file: packages/solid-markdown/src/render.test.ts
-        test: renderMarkdownToRawHtml — images > emits an <img> for a relative image too (fallback is downstream)
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - production-markdown-parser
-        counterfactual:
-          file: packages/solid-markdown/src/render.test.ts
-          test: renderMarkdownToRawHtml — images > emits an <img> for a relative image too (fallback is downstream)
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
       - revision-4c154ab35e3bdfa459fb
@@ -807,145 +527,6 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-fca188382791abe7d69b
-    revisionId: revision-fca188382791abe7d69b
-    action: replace
-    status: landed
-    promise: Markdown preview strips script-capable HTML and links
-    defectSurface:
-      - code-tab
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/sanitize.test.ts
-        test: sanitizeHtml — document allowlist > drops script elements and unwraps script-capable links without losing their text
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - jsdom
-          - dompurify
-        counterfactual:
-          file: packages/solid-markdown/src/sanitize.test.ts
-          test: sanitizeHtml — document allowlist > drops script elements and unwraps script-capable links without losing their text
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-4c154ab35e3bdfa459fb
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Code tab is present and switchable"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-1f56d698f8ea9b0bde8e
-    revisionId: revision-1f56d698f8ea9b0bde8e
-    action: collapse-outline
-    status: landed
-    promise: Selected file survives Inspector tab switch [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-d8c70e36a5772bfb29b5
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Selected file survives Inspector tab switch [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-d46e19bab3f054c3e555
-    revisionId: revision-d46e19bab3f054c3e555
-    action: collapse-outline
-    status: landed
-    promise: Selected file survives page refresh [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-f47963a4155b7c55ff0a
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Selected file survives page refresh [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-86feb03f1aeabce13e09
-    revisionId: revision-86feb03f1aeabce13e09
-    action: collapse-outline
-    status: landed
-    promise: Selected file survives panel collapse and reopen [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-0f5c9ea55b7a7692b2f2
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Selected file survives panel collapse and reopen [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-c83f72ec19f66bfc8f5c
-    revisionId: revision-c83f72ec19f66bfc8f5c
-    action: collapse-outline
-    status: landed
-    promise: Selected file survives switching to another terminal and back [<mode>]
-    defectSurface:
-      - code-tab
-      - outline-matrix
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-9b795b901f727e53c0a8
-    sameCodePathEvidence:
-      file: packages/tests/features/code-tab.feature
-      symbol: "Scenario: Selected file survives switching to another terminal and back [<mode>]"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-ed9723ab572ceb215509
-    revisionId: revision-ed9723ab572ceb215509
-    action: replace
-    status: landed
-    promise: Context tokens do not double-count cached input tokens
-    defectSurface:
-      - codex
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - &a6
-        file: packages/integrations/codex/src/index.test.ts
-        test: parseRolloutContextTokens > returns input_tokens alone — cached_input_tokens is a subset, not additional
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - real-rollout-lines
-        counterfactual:
-          file: packages/integrations/codex/src/index.test.ts
-          test: parseRolloutContextTokens > returns input_tokens alone — cached_input_tokens is a subset, not additional
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-859b051a535e7635d886
-    sameCodePathEvidence:
-      file: packages/tests/features/codex.feature
-      symbol: "Scenario: Tile chrome shows Codex waiting state"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-0891a18ae9d843e96cbd
-    revisionId: revision-0891a18ae9d843e96cbd
-    action: replace
-    status: landed
-    promise: Context tokens reflect input_tokens from the rollout
-    defectSurface:
-      - codex
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a6
-    survivorRevisionIds:
-      - revision-859b051a535e7635d886
-    sameCodePathEvidence:
-      file: packages/tests/features/codex.feature
-      symbol: "Scenario: Tile chrome shows Codex waiting state"
       test: The retained browser journey reaches the same production surface.
   - id: retire-93ab8647d1ca2926d6f9
     revisionId: revision-93ab8647d1ca2926d6f9
@@ -1041,35 +622,6 @@ retirements:
         counterfactual:
           file: packages/client/src/canvas/dock/dockRowActive.test.tsx
           test: data-active across the dock's row states > lights the parent while focus is in the main pane
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-b4cf7c5a1a21a208576f
-    sameCodePathEvidence:
-      file: packages/tests/features/dock.feature
-      symbol: "Scenario: Cmd+1 activates the first dock row (recency-sorted)"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-f6d78a5aba468d47faca
-    revisionId: revision-f6d78a5aba468d47faca
-    action: replace
-    status: landed
-    promise: Mod held reveals numeric shortcut hints on dock rows
-    defectSurface:
-      - dock
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/client/src/canvas/dock/DockShortcutHint.test.tsx
-        test: DockShortcutHint > appears while Mod is held and disappears when it is released
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - happy-dom
-          - solid-reactivity
-        counterfactual:
-          file: packages/client/src/canvas/dock/DockShortcutHint.test.tsx
-          test: DockShortcutHint > appears while Mod is held and disappears when it is released
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
       - revision-b4cf7c5a1a21a208576f
@@ -1220,22 +772,6 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: Clicking a file-ref opens the file in browse mode"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-4fcb3c19552d520f97bf
-    revisionId: revision-4fcb3c19552d520f97bf
-    action: retain-smoke
-    status: landed
-    promise: Workspace switcher shows terminal title at startup
-    defectSurface:
-      - foreground-process
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-e3570aa0dbaf0d96fffb
-    sameCodePathEvidence:
-      file: packages/tests/features/foreground-process.feature
-      symbol: "Scenario: Workspace switcher title updates to the running command"
       test: The retained browser journey reaches the same production surface.
   - id: retire-c76afb748933264aab3d
     revisionId: revision-c76afb748933264aab3d
@@ -1447,11 +983,11 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-d5729b0133170be29f6f
+      - revision-1fd10c2ce11c91a981cc
     sameCodePathEvidence:
       file: packages/tests/features/kaval-daemon.feature
-      symbol: "Scenario: Killing kaval mid-session shows the honest degraded canvas"
-      test: The retained browser journey reaches the same production surface.
+      symbol: "Scenario: Recycling kaval with a split does not spuriously re-parent it and keeps it visible"
+      test: The retained LIVE-recycle journey asserts a fresh kaval pid, unchanged padi pid, and restored session.
   - id: retire-ca03fc7d548c3f481d31
     revisionId: revision-ca03fc7d548c3f481d31
     action: replace
@@ -1509,52 +1045,6 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/kill.feature
       symbol: "Scenario: Kill terminal via tile close button"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-35aea7d8b598eb5f3e7e
-    revisionId: revision-35aea7d8b598eb5f3e7e
-    action: replace
-    status: landed
-    promise: Context tokens persist through a subsequent user prompt
-    defectSurface:
-      - opencode
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - &a7
-        file: packages/terminal-vocab/src/agentProjection.test.ts
-        test: agentPaintClass > paints the working states
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - exhaustive-state-fold
-        counterfactual:
-          file: packages/terminal-vocab/src/agentProjection.test.ts
-          test: agentPaintClass > paints the working states
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-1775fff168ca239afcc0
-    sameCodePathEvidence:
-      file: packages/tests/features/opencode.feature
-      symbol: "Scenario: OpenCode state updates from thinking to waiting"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-c0540b367c53e53fffba
-    revisionId: revision-c0540b367c53e53fffba
-    action: replace
-    status: landed
-    promise: Tile chrome shows OpenCode task progress
-    defectSurface:
-      - opencode
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - *a7
-    survivorRevisionIds:
-      - revision-1775fff168ca239afcc0
-    sameCodePathEvidence:
-      file: packages/tests/features/opencode.feature
-      symbol: "Scenario: OpenCode state updates from thinking to waiting"
       test: The retained browser journey reaches the same production surface.
   - id: retire-ec989adbcf6a3cda147c
     revisionId: revision-ec989adbcf6a3cda147c
@@ -1640,53 +1130,6 @@ retirements:
       file: packages/tests/features/opencode.feature
       symbol: "Scenario: OpenCode state updates from thinking to waiting"
       test: The retained browser journey reaches the same production surface.
-  - id: retire-422f1c718687b1b76418
-    revisionId: revision-422f1c718687b1b76418
-    action: replace
-    status: landed
-    promise: Attention alerts toggle persists across reload
-    defectSurface:
-      - preferences
-      - user-journey
-    destinationLayer: L2
-    replacements:
-      - &a8
-        file: packages/server/src/preferences.test.ts
-        test: preference persistence > round-trips scroll lock and attention alerts through a fresh Conf reader
-        lane: daemon
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - real-conf-store
-          - fresh-reader
-        counterfactual:
-          file: packages/server/src/preferences.test.ts
-          test: preference persistence > round-trips scroll lock and attention alerts through a fresh Conf reader
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-922cf7667fb40e0c8263
-    sameCodePathEvidence:
-      file: packages/tests/features/preferences.feature
-      symbol: "Scenario: Color scheme persists across reload"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-9dd05e9e1ba276f3a172
-    revisionId: revision-9dd05e9e1ba276f3a172
-    action: replace
-    status: landed
-    promise: Scroll lock toggle persists across reload
-    defectSurface:
-      - preferences
-      - user-journey
-    destinationLayer: L2
-    replacements:
-      - *a8
-    survivorRevisionIds:
-      - revision-922cf7667fb40e0c8263
-    sameCodePathEvidence:
-      file: packages/tests/features/preferences.feature
-      symbol: "Scenario: Color scheme persists across reload"
-      test: The retained browser journey reaches the same production surface.
   - id: retire-35bf81ee0057bbf14600
     revisionId: revision-35bf81ee0057bbf14600
     action: replace
@@ -1711,7 +1154,7 @@ retirements:
           test: parseAgentCommand > re-quotes a flag value containing a space
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
-      - revision-dc1f6dea4f5731c52dea
+      - revision-72a2af203a68b1b7ff37
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: 'Scenario: Known agent invocation surfaces under "Recent agents"'
@@ -1739,7 +1182,7 @@ retirements:
           test: parseAgentCommand > returns null for non-agent commands
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
-      - revision-dc1f6dea4f5731c52dea
+      - revision-72a2af203a68b1b7ff37
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: 'Scenario: Known agent invocation surfaces under "Recent agents"'
@@ -1767,7 +1210,7 @@ retirements:
           test: parseAgentCommand > does not leak a prompt after a boolean flag into the MRU
           breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
     survivorRevisionIds:
-      - revision-dc1f6dea4f5731c52dea
+      - revision-72a2af203a68b1b7ff37
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: 'Scenario: Known agent invocation surfaces under "Recent agents"'
@@ -1800,22 +1243,6 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: Active terminal stays active AND centered across refresh"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-5e2fae1d65990c44cc4e
-    revisionId: revision-5e2fae1d65990c44cc4e
-    action: retain-smoke
-    status: landed
-    promise: Switch UI color scheme back to dark
-    defectSurface:
-      - settings
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-7a2940e6fc37c22b1845
-    sameCodePathEvidence:
-      file: packages/tests/features/settings.feature
-      symbol: "Scenario: Switch UI color scheme to light"
       test: The retained browser journey reaches the same production surface.
   - id: retire-1de19f2850b316663d13
     revisionId: revision-1de19f2850b316663d13
@@ -1902,83 +1329,6 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/spawn-detection.feature
       symbol: "Scenario: A command-rooted claude with a live session is detected (pid path)"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-05e7fe6775df20b6a03f
-    revisionId: revision-05e7fe6775df20b6a03f
-    action: retain-smoke
-    status: landed
-    promise: Resize handle visible when expanded
-    defectSurface:
-      - sub-terminal
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-343498a660562f70b87f
-    sameCodePathEvidence:
-      file: packages/tests/features/right-panel.feature
-      symbol: "Scenario: Resize handle visible when panel is expanded"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-cf9681b6c98e3e240900
-    revisionId: revision-cf9681b6c98e3e240900
-    action: replace
-    status: landed
-    promise: Markdown link in intent renders inert in the links-off annotation slot
-    defectSurface:
-      - terminal-intent
-      - user-journey
-    destinationLayer: L1
-    replacements:
-      - file: packages/solid-markdown/src/sanitize.test.ts
-        test: sanitizeHtml — document allowlist > unwraps markdown links for links-off intent slots
-        lane: unit
-        platforms:
-          - linux
-          - darwin
-        realism:
-          - jsdom
-          - dompurify
-        counterfactual:
-          file: packages/solid-markdown/src/sanitize.test.ts
-          test: sanitizeHtml — document allowlist > unwraps markdown links for links-off intent slots
-          breaks: Mutating the production decision exercised by this assertion makes this collected test fail.
-    survivorRevisionIds:
-      - revision-574c00e9c9f892ce62ff
-    sameCodePathEvidence:
-      file: packages/tests/features/terminal-intent.feature
-      symbol: "Scenario: Type intent + Save → annotation slot shows intent line-1"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-67c96e3c26cedbc483c4
-    revisionId: revision-67c96e3c26cedbc483c4
-    action: retain-smoke
-    status: landed
-    promise: Clicking outside dismisses the palette
-    defectSurface:
-      - terminal-switcher
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-f99643a3e8fde74b1c42
-    sameCodePathEvidence:
-      file: packages/tests/features/terminal-switcher.feature
-      symbol: "Scenario: Selecting a terminal row switches the active terminal"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-abd3f67ec4969a667ccc
-    revisionId: revision-abd3f67ec4969a667ccc
-    action: retain-smoke
-    status: landed
-    promise: Escape dismisses the palette
-    defectSurface:
-      - terminal-switcher
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-f99643a3e8fde74b1c42
-    sameCodePathEvidence:
-      file: packages/tests/features/terminal-switcher.feature
-      symbol: "Scenario: Selecting a terminal row switches the active terminal"
       test: The retained browser journey reaches the same production surface.
   - id: retire-d86c3f1dfa8ff4da96ff
     revisionId: revision-d86c3f1dfa8ff4da96ff
@@ -2112,3 +1462,224 @@ retirements:
       file: packages/tests/features/theme.feature
       symbol: "Scenario: Theme preview commits on selection"
       test: The retained browser journey reaches the same production surface.
+  - id: revise-797e2ff59e2c3d4b854b
+    revisionId: revision-797e2ff59e2c3d4b854b
+    action: revised
+    status: landed
+    promise: Foreground processes surface on non-agent dock rows
+    defectSurface: [dock, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-522c4d6a2e049365f1ff]
+    sameCodePathEvidence:
+      file: packages/tests/features/dock.feature
+      symbol: "Scenario: Foreground process surfaces on non-agent dock rows"
+      test: The revised scenario explicitly starts the long-lived command without waiting for it to exit.
+  - id: revise-e879efa76aa14814a458
+    revisionId: revision-e879efa76aa14814a458
+    action: revised
+    status: landed
+    promise: A LIVE kaval recycle keeps padi alive and restores a visible split without re-parenting errors
+    defectSurface: [kaval-daemon, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1fd10c2ce11c91a981cc]
+    sameCodePathEvidence:
+      file: packages/tests/features/kaval-daemon.feature
+      symbol: "Scenario: Recycling kaval with a split does not spuriously re-parent it and keeps it visible"
+      test: The revised scenario adds the missing fresh-kaval and unchanged-padi PID assertions.
+  - id: revise-25816d7167156a530a71
+    revisionId: revision-25816d7167156a530a71
+    action: revised
+    status: landed
+    promise: Natural PTY exit removes the terminal
+    defectSurface: [terminal-lifecycle, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e37f880007d5dcac6587]
+    sameCodePathEvidence:
+      file: packages/tests/features/kill.feature
+      symbol: "Scenario: Natural PTY exit removes terminal"
+      test: The revised scenario explicitly starts exit as a non-returning shell action.
+  - id: revise-cb5c9a764ba26aff7edf
+    revisionId: revision-cb5c9a764ba26aff7edf
+    action: revised
+    status: landed
+    promise: Sticky Ctrl folds into the next soft-keyboard character
+    defectSurface: [mobile-soft-keyboard, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2b46191d3a25cf839c23]
+    sameCodePathEvidence:
+      file: packages/tests/features/mobile-soft-keyboard.feature
+      symbol: "Scenario: Sticky Ctrl folds into the next character typed on the soft keyboard"
+      test: The revised scenario explicitly starts the long-lived sleep command.
+  - id: revise-172395ceb960ee2b5595
+    revisionId: revision-172395ceb960ee2b5595
+    action: revised
+    status: landed
+    promise: Soft-keyboard Ctrl-C interrupts a running command
+    defectSurface: [mobile-soft-keyboard, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-527790e672bd3783253d]
+    sameCodePathEvidence:
+      file: packages/tests/features/mobile-soft-keyboard.feature
+      symbol: "Scenario: Tapping Ctrl-C interrupts a running command"
+      test: The revised scenario explicitly starts the long-lived sleep command.
+  - id: revise-0201b270946a07bb8f60
+    revisionId: revision-0201b270946a07bb8f60
+    action: revised
+    status: landed
+    promise: Drilling into Recent agents keeps palette focus
+    defectSurface: [recent-agents, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-429b93553ce0a7528476]
+    sameCodePathEvidence:
+      file: packages/tests/features/recent-agents.feature
+      symbol: "Scenario: Drilling into Recent agents keeps focus on palette input"
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: revise-dc1f6dea4f5731c52dea
+    revisionId: revision-dc1f6dea4f5731c52dea
+    action: revised
+    status: landed
+    promise: A known agent invocation appears under Recent agents
+    defectSurface: [recent-agents, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-72a2af203a68b1b7ff37]
+    sameCodePathEvidence:
+      file: packages/tests/features/recent-agents.feature
+      symbol: 'Scenario: Known agent invocation surfaces under "Recent agents"'
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: revise-c657f2e31808a6826abb
+    revisionId: revision-c657f2e31808a6826abb
+    action: revised
+    status: landed
+    promise: An agent sub-palette appears for a recent repository
+    defectSurface: [worktree-agent, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-29a9ba6d97c83785f8f8]
+    sameCodePathEvidence:
+      file: packages/tests/features/worktree-agent.feature
+      symbol: "Scenario: Agent sub-palette appears under a recent repo when agents exist"
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: revise-3873780815e22826acb7
+    revisionId: revision-3873780815e22826acb7
+    action: revised
+    status: landed
+    promise: Picking an agent creates a worktree and writes the command
+    defectSurface: [worktree-agent, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-8cf7a1038b6a594c079c]
+    sameCodePathEvidence:
+      file: packages/tests/features/worktree-agent.feature
+      symbol: "Scenario: Picking an agent creates the worktree and writes the command"
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: revise-abd67184895cd3365bb7
+    revisionId: revision-abd67184895cd3365bb7
+    action: revised
+    status: landed
+    promise: Picking Plain shell creates a plain worktree terminal
+    defectSurface: [worktree-agent, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-48e819201e86a26bb076]
+    sameCodePathEvidence:
+      file: packages/tests/features/worktree-agent.feature
+      symbol: "Scenario: Picking Plain shell creates a plain worktree terminal"
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: revise-ee0251bbbe0b45c5357a
+    revisionId: revision-ee0251bbbe0b45c5357a
+    action: revised
+    status: landed
+    promise: A named worktree can be created with an agent
+    defectSurface: [worktree-agent, e2e-command-lifecycle]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-42b5b7aee6b1fb948c83]
+    sameCodePathEvidence:
+      file: packages/tests/features/worktree-agent.feature
+      symbol: "Scenario: Typing a custom name and picking an agent creates a named worktree with the agent"
+      test: The revised scenario explicitly starts the interactive Claude process.
+  - id: restore-91d98a67909d41c17eb2
+    revisionId: revision-91d98a67909d41c17eb2
+    action: revised
+    status: landed
+    promise: Filter state survives result clicks in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-35a024e559c3008330bc]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Filter survives clicking a filtered result [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: restore-89903ad8beb906ba0aaf
+    revisionId: revision-89903ad8beb906ba0aaf
+    action: revised
+    status: landed
+    promise: Folder collapse preserves an active filter in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4696c2de97aae4dd643f]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Folder collapse during active filter persists the filter [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: restore-d8c70e36a5772bfb29b5
+    revisionId: revision-d8c70e36a5772bfb29b5
+    action: revised
+    status: landed
+    promise: Selected files survive Inspector switching in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1f56d698f8ea9b0bde8e]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Selected file survives Inspector tab switch [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: restore-f47963a4155b7c55ff0a
+    revisionId: revision-f47963a4155b7c55ff0a
+    action: revised
+    status: landed
+    promise: Selected files survive refresh in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d46e19bab3f054c3e555]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Selected file survives page refresh [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: restore-0f5c9ea55b7a7692b2f2
+    revisionId: revision-0f5c9ea55b7a7692b2f2
+    action: revised
+    status: landed
+    promise: Selected files survive panel collapse in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-86feb03f1aeabce13e09]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Selected file survives panel collapse and reopen [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.
+  - id: restore-9b795b901f727e53c0a8
+    revisionId: revision-9b795b901f727e53c0a8
+    action: revised
+    status: landed
+    promise: Selected files survive terminal round-trips in every Code-tab mode
+    defectSurface: [code-tab, mode-composition]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c83f72ec19f66bfc8f5c]
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario Outline: Selected file survives switching to another terminal and back [<mode>]"
+      test: Perfection review restored the complete local, branch, and browse matrix.

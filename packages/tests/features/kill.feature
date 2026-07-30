@@ -57,7 +57,7 @@ Feature: Kill terminal
     And I create a terminal
     And I create a terminal
     And I select terminal 1 in the workspace switcher
-    And I run "exit"
+    And I start "exit"
     Then the workspace switcher should eventually have 1 terminal entry
     And the terminal canvas should be visible
     And there should be no page errors

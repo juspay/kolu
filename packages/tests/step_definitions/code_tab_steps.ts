@@ -1563,11 +1563,10 @@ function modeFixturePaths(mode: CodeTabMode): { work: string; origin: string } {
 }
 
 async function runShell(world: KoluWorld, cmd: string) {
-  // Reuse `KoluWorld.terminalRun` — same path as the `When I run "…"`
-  // step at terminal_steps.ts:30. The polymorphic mode-setup steps
-  // compose several of these in sequence so authors of new outlines
-  // don't have to interleave shell setup steps explicitly.
-  await world.terminalRun(cmd);
+  // The polymorphic fixtures compose commands whose filesystem effects must
+  // be ordered. Use the same completion-aware path as `When I run "…"` so a
+  // loaded runner cannot type the next Git command into the previous process.
+  await world.terminalRunAndWait(cmd);
   await world.waitForFrame();
 }
 
@@ -1634,8 +1633,7 @@ async function setupCodeTabFixture(
     const token = String(MODE_TMP_COUNTER.n);
     const settledMarker = `KOLU_SETTLED_${token}`;
     const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
-    await runShell(
-      world,
+    await world.terminalRun(
       `(git clone ${origin} ${work} && cd ${work} && ` +
         `git checkout -b feature && ${writeFiles} && git add . && ` +
         `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
@@ -1644,6 +1642,7 @@ async function setupCodeTabFixture(
         `echo "KOLU_SET""TLED_${token}"; else ` +
         `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
     );
+    await world.waitForFrame();
     const outcome = await Promise.race([
       waitForBufferContains(world.page, settledMarker).then(() => ({
         kind: "settled" as const,

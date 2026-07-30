@@ -19,6 +19,18 @@ Feature: OpenCode status detection
     Then the tile chrome should show an OpenCode indicator with state "waiting"
     And there should be no page errors
 
+  Scenario: Context tokens persist through a subsequent user prompt
+    When an OpenCode session is mocked with state "thinking" and context tokens 23000
+    Then the tile chrome should show an OpenCode indicator with state "thinking"
+    And the tile chrome should show context tokens "23K"
+    And there should be no page errors
+
+  Scenario: Tile chrome shows OpenCode task progress
+    When an OpenCode session is mocked with state "tool_use" and 5 todos with 3 completed
+    Then the tile chrome should show an OpenCode indicator with state "tool_use"
+    And the tile chrome should show task progress "3/5"
+    And there should be no page errors
+
   Scenario: npm-shimmed OpenCode is detected via the OSC 633;E preexec hint
     # The fake-binary scenarios exercise `readForegroundBasename`, the
     # kernel-level half of `matchesAgent`. This one exercises the other

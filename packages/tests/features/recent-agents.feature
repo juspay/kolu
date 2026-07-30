@@ -19,7 +19,7 @@ Feature: Recent agents in command palette
     # `claude` is not installed in the test env, but the preexec hook
     # fires BEFORE execution — the OSC 633;E mark is emitted regardless
     # of whether the command succeeds.
-    When I run "claude --dangerously-skip-permissions"
+    When I start "claude --dangerously-skip-permissions"
     And I open the command palette
     Then palette item "Recent agents" should be visible
     When I select "Recent agents" in the palette
@@ -31,7 +31,7 @@ Feature: Recent agents in command palette
     # Same focus contract as Terminals / Theme: the drill-in
     # must leave focus in the palette input so the user can immediately
     # start typing to filter agents.
-    When I run "claude --dangerously-skip-permissions"
+    When I start "claude --dangerously-skip-permissions"
     And I open the command palette
     And I select "Recent agents" in the palette
     Then the palette breadcrumb should show "Recent agents"

@@ -66,6 +66,8 @@ Feature: kaval daemon lifecycle (B2 — the door)
     And I restart kaval from the rail dialog
     Then the warming canvas is shown while kaval restarts
     Then the daemon returns to running
+    And the kaval daemon has been recycled with a fresh pid
+    And the padi daemon pid is unchanged
     And no "Failed to set parent" error toast should have been shown
     And the session restore card should be visible
     When I click the restore button

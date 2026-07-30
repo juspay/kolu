@@ -106,6 +106,8 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
+      | local  |
+      | branch |
       | browse |
 
   # Regression for #818: switching to Inspector and back used to unmount
@@ -122,6 +124,8 @@ Feature: Code tab (review + browse)
     Examples:
       | mode   |
       | local  |
+      | branch |
+      | browse |
 
   # Regression for #919's per-slot design under multi-terminal switching.
   # Each terminal carries its own `repoRoot` via `props.meta?.git`; the
@@ -140,6 +144,8 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
+      | local  |
+      | branch |
       | browse |
 
   # Same-filename variant: both terminals are in valid git repos, and both
@@ -288,6 +294,8 @@ Feature: Code tab (review + browse)
     Examples:
       | mode   |
       | local  |
+      | branch |
+      | browse |
 
   # ── Local mode: file list + diff rendering ──
 
@@ -335,6 +343,8 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
+      | local  |
+      | branch |
       | browse |
 
   # Regression: folder-chevron clicks did nothing while a filter was
@@ -362,6 +372,8 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
+      | local  |
+      | branch |
       | browse |
 
   # Regression: Pierre's `remove` promotes an emptied directory to an
@@ -371,6 +383,24 @@ Feature: Code tab (review + browse)
   # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
   # matching file. After filtering, a directory that still contains a match
   # stays; a directory whose only files were excluded disappears.
+  Scenario Outline: Filter prunes directories with no matching files [<mode>]
+    Given a Code tab in "<mode>" mode showing files:
+      | path               | content |
+      | docs/keep.md       | keep    |
+      | docs/plans/note.md | note    |
+      | widgets/list/a.ts  | a       |
+      | widgets/forms/b.ts | b       |
+    When I type "docs keep" into the Code tab filter
+    Then the Code tab should show file "docs/keep.md"
+    And the Code tab should show a directory node "docs"
+    And the Code tab should not show file "widgets/list/a.ts"
+    And the Code tab should not show a directory node "widgets"
+
+    Examples:
+      | mode   |
+      | local  |
+      | branch |
+      | browse |
 
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
@@ -922,6 +952,64 @@ Feature: Code tab (review + browse)
   # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
   # for them); `<script>`/`align=center`/`javascript:` carry none.
 
+  Scenario: Markdown preview strips script-capable HTML and links
+    When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
+    And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Safe Render"
+    And the markdown preview should contain "evil link"
+    And the markdown preview should not render a "script" element
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  Scenario: Markdown preview drops style, class, SVG, and form controls
+    When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
+    And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "styled para"
+    And the markdown preview should not render a "[style]" element
+    And the markdown preview should not render a ".takeover" element
+    And the markdown preview should not render a "svg" element
+    And the markdown preview should not render a "button" element
+    And the markdown preview should not render a "input[type=text]" element
+
+  Scenario: Markdown preview applies the link policy to raw inline anchors
+    When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
+    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=https://example.com/>external link</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "relative doc"
+    And the markdown preview should contain "external link"
+    And the markdown preview should contain "raw evil"
+    And the markdown preview should render a "a[data-md-rel]" element
+    And the markdown preview should not render a "a[data-md-rel][target=_blank]" element
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+    And the markdown preview should not render a "a[href^=javascript]" element
+
+  Scenario: Markdown preview does not let raw HTML spoof the wikilink marker
+    When I run "rm -rf /tmp/kolu-md-wikispoof && git init /tmp/kolu-md-wikispoof && cd /tmp/kolu-md-wikispoof"
+    And I run "printf '# Spoof\n\n<a data-md-wikilink href=https://evil.example/>spoofed link</a>\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "spoofed link"
+    And the markdown preview should not render a "a[data-md-wikilink]" element
+    And the markdown preview should render a "a[target=_blank]" element
+    And the markdown preview should render a "a[rel~=noopener]" element
+
   # The repro for #1161: clicking a repo-relative link opens the linked file IN
   # the Code tab (GitHub-faithful), resolved against the previewed doc's own
   # directory — it must NOT navigate the app origin in a new browser tab. The
@@ -1027,6 +1115,38 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     When I click the wikilink "Nonexistent"
     Then a toast should appear with text "No file matching [[Nonexistent]]"
+
+  Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
+    When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
+    And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
+    And I run "printf '# Rich Doc\n\n![logo](logo.svg)\n\n- one\n- two\n\n1. a\n2. b\n\nclaim[^x]\n\n[^x]: the footnote\n\n> [!WARNING]\n> heads up\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Rich Doc"
+    And the markdown preview list markers should be visible
+    And the markdown preview should render a "section" element
+    And the markdown preview should render a "sup a" element
+    And the markdown preview should not contain "[^x]"
+    And the markdown preview should render a "[data-md-alert=warning]" element
+    And the markdown preview should render a "img[src*='/api/terminals/']" element
+    And the markdown preview should not render a "span.kolu-md-img-fallback" element
+
+  Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
+    When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
+    And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "README.md" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should render a "div.kolu-md-code" element
+    And the markdown preview should render a "button.kolu-md-copy" element
+    And the markdown preview should render a "pre.shiki" element
+    And the markdown preview should not render a "p br" element
+    And the markdown preview should render a "input[type=checkbox][disabled]" element
 
   # The footnote popover: clicking a `[n]` marker opens its definition in a
   # dismissible card anchored to the marker (instead of scrolling to the bottom

@@ -81,7 +81,7 @@ Feature: Dock
     # — a `~ ~` home-dir shell was indistinguishable from any other.
     # The quiet row now carries the foreground process title pulled
     # from `meta.foreground.title || .name`.
-    When I run "sleep 5"
+    When I start "sleep 5"
     Then the dock should show 1 foreground row containing "sleep"
 
   Scenario: Cmd+1 activates the first dock row (recency-sorted)
@@ -94,6 +94,14 @@ Feature: Dock
     And I create a terminal
     When I press shortcut "Mod+1"
     Then the active terminal should show "first-dock-row"
+
+  Scenario: Mod held reveals numeric shortcut hints on dock rows
+    Given I create a terminal
+    Then no dock-row shortcut hints should be visible
+    When I press and hold Mod
+    Then the dock should show 2 shortcut hints
+    When I release Mod
+    Then no dock-row shortcut hints should be visible
 
   Scenario: Repo sections carry a colour spine and a sticky tinted header
     # Repo identity rides a card: a repo-coloured spine down the section's

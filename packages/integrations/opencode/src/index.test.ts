@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import {
   deriveSessionState,
+  getLatestAssistantContextTokens,
+  getSessionTaskProgress,
   parseMessageState,
   runningToolsBucket,
 } from "./core.ts";
@@ -41,6 +43,10 @@ const PARSE_FAILED_MSG = "opencode message.data parse failed";
 const PART_SCHEMA = `
 CREATE TABLE part (id TEXT, message_id TEXT NOT NULL, data TEXT NOT NULL);
 CREATE INDEX part_message_id_id_idx ON part(message_id, id);
+`;
+
+const TODO_SCHEMA = `
+CREATE TABLE todo (session_id TEXT NOT NULL, status TEXT NOT NULL);
 `;
 
 function withParts(
@@ -197,6 +203,68 @@ describe("deriveSessionState", () => {
       model: null,
       messageId: "m1",
     });
+  });
+});
+
+describe("getLatestAssistantContextTokens", () => {
+  it("keeps the latest assistant total when a newer user prompt starts the next turn", () => {
+    const db = withMessages([
+      {
+        id: "m0",
+        data: JSON.stringify({
+          role: "assistant",
+          tokens: { total: 11_000 },
+        }),
+        time_created: 1,
+      },
+      {
+        id: "m1",
+        data: JSON.stringify({
+          role: "assistant",
+          tokens: { total: 23_000 },
+        }),
+        time_created: 2,
+      },
+      {
+        id: "m2",
+        data: JSON.stringify({ role: "user" }),
+        time_created: 3,
+      },
+    ]);
+
+    expect(getLatestAssistantContextTokens("s1", undefined, db)).toBe(23_000);
+  });
+
+  it("returns null before the first assistant message", () => {
+    const db = withMessages([
+      { id: "m0", data: JSON.stringify({ role: "user" }), time_created: 1 },
+    ]);
+    expect(getLatestAssistantContextTokens("s1", undefined, db)).toBeNull();
+  });
+});
+
+describe("getSessionTaskProgress", () => {
+  it("counts all session todos and only completed todos", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(TODO_SCHEMA);
+    const insert = db.prepare(
+      "INSERT INTO todo (session_id, status) VALUES (?, ?)",
+    );
+    insert.run("s1", "completed");
+    insert.run("s1", "pending");
+    insert.run("s1", "in_progress");
+    insert.run("other", "completed");
+
+    expect(getSessionTaskProgress("s1", undefined, db)).toEqual({
+      total: 3,
+      completed: 1,
+    });
+  });
+
+  it("returns null when the session has no todos", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(TODO_SCHEMA);
+    expect(getSessionTaskProgress("s1", undefined, db)).toBeNull();
   });
 });
 
