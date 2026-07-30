@@ -74,13 +74,11 @@ export interface ProcessIdentity {
 /** Resolve a PID to its current start-qualified identity. `undefined` means the
  * process is gone (ESRCH/ENOENT) — an honest domain answer. Any other failure
  * (osfacts unreadable, parse error) must throw at the composition root.
- * Sync — used by the daemon claim path (before the socket listens). */
+ * Sync — used by the daemon claim path (before the socket listens). The
+ * supervisor's awaitable inject lives beside `EndpointSpec` in
+ * `@kolu/surface-daemon-supervisor` (not here — this package is the daemon
+ * binary half). */
 export type ReadProcessIdentity = (pid: number) => ProcessIdentity | undefined;
-
-/** Supervisor inject: may be async so osfacts does not block the serving loop. */
-export type ReadProcessIdentityAsync = (
-  pid: number,
-) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
 
 /**
  * ±2 seconds in microseconds. Start instants come from `/proc/stat` btime at
@@ -186,7 +184,12 @@ export function identitiesMatch(
 }
 
 /**
- * Is the gate's recorded holder still the live process it names?
+ * Is the already-read gate record still naming a live matching process?
+ *
+ * One observation drives both liveness and generation — callers that already
+ * read the gate (e.g. {@link confirmHeldGate}) must not re-read the path for a
+ * second opinion that can race a rewrite. {@link liveHolderPid} is the
+ * path-based convenience that reads once then delegates here.
  *
  * - **Two-field:** compare with the injected identity reader (±2 s). Match →
  *   the holder's pid; mismatch / dead → `undefined` (reap).
@@ -194,11 +197,10 @@ export function identitiesMatch(
  *   prove pid-reuse). Status quo for old gates; not a weaker default for new
  *   ones.
  */
-export function liveHolderPid(
-  gatePath: string,
+export function liveHolderFromRecord(
+  read: GateIdentityRead,
   readProcessIdentity: ReadProcessIdentity,
 ): number | undefined {
-  const read = readGateIdentity(gatePath);
   if (read.kind !== "ok") return undefined;
 
   if (read.startUnixUs !== undefined) {
@@ -213,6 +215,17 @@ export function liveHolderPid(
   }
 
   return isHolderLive(read.pid) ? read.pid : undefined;
+}
+
+/**
+ * Is the gate's recorded holder still the live process it names?
+ * Reads the gate once, then {@link liveHolderFromRecord}.
+ */
+export function liveHolderPid(
+  gatePath: string,
+  readProcessIdentity: ReadProcessIdentity,
+): number | undefined {
+  return liveHolderFromRecord(readGateIdentity(gatePath), readProcessIdentity);
 }
 
 /** Take the gate for *this* process, atomically. Returns `acquired` (with a
@@ -311,27 +324,61 @@ export function acquirePidGate(
  *   - `serving` — accept works (real daemon)
  *   - `dead` — socket inode present but connect fails (stale after crash/reboot)
  *   - `absent` — no socket file yet (holder may still be starting — do NOT reclaim)
+ *   - `indeterminate` — connect neither succeeded nor failed within the probe
+ *     bound (e.g. saturated backlog). NOT proof of dead — must NOT reclaim.
  */
-/** Bound for the one-shot connect probe — claim/confirm must not hang. */
-const SOCKET_SERVE_PROBE_MS = 500;
+/**
+ * Latency ceiling for the one-shot connect probe so claim/confirm cannot hang.
+ * A timeout is **not** evidence the holder is dead — it only ends the wait;
+ * {@link socketServeState} reports `"indeterminate"` and one-field confirm
+ * holds (non-destructive). This constant is a latency bound, not a
+ * correctness knob.
+ */
+export const SOCKET_SERVE_PROBE_MS = 500;
+
+export type SocketServeState = "serving" | "dead" | "absent" | "indeterminate";
+
+/**
+ * Connect factory + probe bound used by {@link socketServeState}. Production
+ * uses `node:net` createConnection and {@link SOCKET_SERVE_PROBE_MS}. Tests
+ * rebind to drive a hanging connect (the timeout → indeterminate arm) — restore
+ * with `setSocketProbeDepsForTests()` after.
+ */
+const socketProbeDeps: {
+  connect: typeof createConnection;
+  probeMs: number;
+} = {
+  connect: createConnection,
+  probeMs: SOCKET_SERVE_PROBE_MS,
+};
+
+/** @internal Test seam for the connect-probe timeout arm. Restore after use. */
+export function setSocketProbeDepsForTests(
+  deps?: Partial<typeof socketProbeDeps>,
+): void {
+  socketProbeDeps.connect = deps?.connect ?? createConnection;
+  socketProbeDeps.probeMs = deps?.probeMs ?? SOCKET_SERVE_PROBE_MS;
+}
 
 export function socketServeState(
   socketPath: string,
-): Promise<"serving" | "dead" | "absent"> {
+): Promise<SocketServeState> {
   try {
     if (!lstatSync(socketPath).isSocket()) return Promise.resolve("dead");
   } catch (err) {
-    // Only ENOENT is "mid-boot / not yet present". Permission/IO failures are
-    // not mid-boot — treat as dead so one-field confirm reclaims or fails loud
-    // rather than holding forever.
-    return Promise.resolve(
-      (err as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "dead",
-    );
+    // Only ENOENT is "mid-boot / not yet present". Every other lstat failure
+    // (EACCES, ENOTDIR, EIO, …) has no honest mapping onto serving/dead/absent
+    // — fail loud so one-field confirm cannot reclaim on a permission/IO error.
+    // Always return a Promise (reject, not sync throw) so callers can await.
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return Promise.resolve("absent");
+    }
+    return Promise.reject(err);
   }
   return new Promise((resolve) => {
-    const sock = createConnection(socketPath);
+    const sock = socketProbeDeps.connect(socketPath);
     let settled = false;
-    const done = (v: "serving" | "dead") => {
+    const done = (v: "serving" | "dead" | "indeterminate") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -339,7 +386,11 @@ export function socketServeState(
       sock.destroy();
       resolve(v);
     };
-    const timer = setTimeout(() => done("dead"), SOCKET_SERVE_PROBE_MS);
+    // Timeout → indeterminate (not dead): a pending connect is not evidence.
+    const timer = setTimeout(
+      () => done("indeterminate"),
+      socketProbeDeps.probeMs,
+    );
     sock.once("connect", () => done("serving"));
     sock.once("error", () => done("dead"));
   });
@@ -347,14 +398,16 @@ export function socketServeState(
 
 /**
  * After {@link acquirePidGate} returns `held`, apply the one-field (legacy)
- * socket fence — or skip it when the gate file is two-field:
+ * socket fence — or skip it when the **same gate observation** is two-field:
  *   - **two-field** → identity is truth; keep held (never reclaim on socket)
  *   - socket **serving** → real daemon, keep held
  *   - socket **absent** → holder still booting (gate-first fence); keep held
+ *   - socket **indeterminate** → probe timed out; keep held (not proof of dead)
  *   - socket **dead** → stale one-field gate (reboot PID reuse / crash); reclaim
  *
- * Generation is re-read from the gate file (the source of truth) — not carried
- * as a flag on `held`. Reclaiming on "absent" would race a legitimate
+ * One gate read drives both liveness and generation — never re-read the path
+ * after identity resolution (a rewrite mid-check must not mix generation A
+ * with generation B). Reclaiming on "absent" would race a legitimate
  * gate-first boot and let a second process past the single-instance fence
  * (the F12 regression). Prefer {@link claimPidGate} at call sites: it composes
  * acquire + this confirm so the sequence is not a convention.
@@ -366,9 +419,10 @@ export async function confirmHeldGate(
   self: ProcessIdentity,
   readProcessIdentity: ReadProcessIdentity,
 ): Promise<GateAcquisition> {
-  // Always re-resolve from the gate (never trust held.pid alone — a rewrite
-  // between acquire and confirm must not leave us yielding a stale pid).
-  const live = liveHolderPid(gatePath, readProcessIdentity);
+  // ONE observation: identity may rewrite the gate during resolve; do not
+  // re-read for generation (R3-1).
+  const recorded = readGateIdentity(gatePath);
+  const live = liveHolderFromRecord(recorded, readProcessIdentity);
   if (live === undefined) {
     try {
       unlinkSync(gatePath);
@@ -378,12 +432,12 @@ export async function confirmHeldGate(
     return acquirePidGate(gatePath, self, readProcessIdentity);
   }
 
-  // Two-field: identity is truth — never reclaim on socket state.
-  if (gateIdentity(gatePath) !== undefined) {
+  // Two-field from the same observation — identity is truth.
+  if (recorded.kind === "ok" && recorded.startUnixUs !== undefined) {
     return { kind: "held", pid: live };
   }
 
-  // One-field: socket fence (F12 — absent is mid-boot hold; dead reclaims).
+  // One-field: socket fence (F12 — absent/indeterminate hold; dead reclaims).
   const state = await socketServeState(socketPath);
   if (state !== "dead") return { kind: "held", pid: live };
   try {

@@ -29,6 +29,7 @@ export {
   type EndpointState,
   type EndpointStatus,
   type IncompatibleEndpointStatus,
+  type ReadProcessIdentityAsync,
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,

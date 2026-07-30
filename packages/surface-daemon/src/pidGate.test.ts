@@ -6,6 +6,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   chmodSync,
   existsSync,
@@ -13,6 +14,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
+import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -30,7 +32,10 @@ import {
   isHolderLive,
   liveHolderPid,
   type ProcessIdentity,
+  type ReadProcessIdentity,
   readGateIdentity,
+  setSocketProbeDepsForTests,
+  socketServeState,
   START_TIME_TOLERANCE_US,
   startTimesMatch,
 } from "./pidGate.ts";
@@ -299,6 +304,109 @@ describeDaemon("claimPidGate mid-boot (F1)", () => {
     );
     expect(confirmed).toEqual({ kind: "held", pid: otherPid });
     expect(existsSync(path)).toBe(true);
+  });
+
+  it("one observation: rewrite two-field→one-field during identity does not reclaim (R3-1)", async () => {
+    // Dual-read bug: liveHolderPid sees two-field A (match), then gateIdentity
+    // re-reads one-field + dead socket and reclaims. One observation holds.
+    const path = gateIn();
+    const otherPid = liveChild();
+    const other = identities.get(otherPid)!;
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
+    const deadSocket = join(dirname(path), "stale.sock");
+    writeFileSync(deadSocket, "not-a-socket");
+
+    let identityCalls = 0;
+    const rewritingReader: ReadProcessIdentity = (pid) => {
+      const result = readIdentity(pid);
+      if (pid === otherPid && identityCalls++ === 0) {
+        // Mid-identity rewrite: one-field same pid — a second gate read would
+        // lose two-field status and dead-socket would reclaim.
+        writeFileSync(path, `${otherPid}\n`);
+      }
+      return result;
+    };
+
+    const held = acquirePidGate(path, SELF, rewritingReader);
+    expect(held.kind).toBe("held");
+    if (held.kind !== "held") throw new Error("unreachable");
+    // Re-plant two-field for confirm's first read (acquire already observed).
+    writeFileSync(path, `${other.pid}\t${other.startUnixUs}\n`);
+    identityCalls = 0;
+    const confirmed = await confirmHeldGate(
+      held,
+      path,
+      deadSocket,
+      SELF,
+      rewritingReader,
+    );
+    expect(confirmed).toEqual({ kind: "held", pid: otherPid });
+    expect(existsSync(path)).toBe(true);
+  });
+
+  it("one-field live + probe timeout → confirmHeldGate keeps held (R3-2)", async () => {
+    const path = gateIn();
+    const otherPid = liveChild();
+    writeFileSync(path, `${otherPid}\n`);
+    // Real listening socket so lstat isSocket; hanging connect drives the timeout arm.
+    const hangSocket = join(dirname(path), "hang.sock");
+    const hangConnect = (() => {
+      const fake = new EventEmitter() as Socket;
+      fake.destroy = () => {
+        fake.removeAllListeners();
+        return fake;
+      };
+      return fake;
+    }) as typeof import("node:net").createConnection;
+    setSocketProbeDepsForTests({ connect: hangConnect, probeMs: 30 });
+    try {
+      const { createServer } = await import("node:net");
+      const server = createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(hangSocket, () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+      try {
+        await expect(socketServeState(hangSocket)).resolves.toBe(
+          "indeterminate",
+        );
+
+        const held = acquirePidGate(path, SELF, readIdentity);
+        expect(held.kind).toBe("held");
+        if (held.kind !== "held") throw new Error("unreachable");
+        const confirmed = await confirmHeldGate(
+          held,
+          path,
+          hangSocket,
+          SELF,
+          readIdentity,
+        );
+        expect(confirmed).toEqual({ kind: "held", pid: otherPid });
+        expect(existsSync(path)).toBe(true);
+      } finally {
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    } finally {
+      setSocketProbeDepsForTests();
+    }
+  });
+
+  it("socketServeState: ENOENT → absent; non-ENOENT lstat throws (R3-3)", async () => {
+    const path = gateIn();
+    const missing = join(dirname(path), "no-such.sock");
+    await expect(socketServeState(missing)).resolves.toBe("absent");
+
+    // /proc/1/mem is a regular file; /proc/1/mem/child is ENOTDIR on Linux.
+    if (process.platform === "linux") {
+      await expect(socketServeState("/proc/1/mem/child")).rejects.toMatchObject(
+        {
+          code: "ENOTDIR",
+        },
+      );
+    }
   });
 });
 

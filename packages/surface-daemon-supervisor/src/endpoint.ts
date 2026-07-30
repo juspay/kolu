@@ -34,7 +34,7 @@ import {
   identitiesMatch,
   isHolderLive,
   type Logger,
-  type ReadProcessIdentityAsync,
+  type ProcessIdentity,
   readGateIdentity,
   socketServeState,
 } from "@kolu/surface-daemon";
@@ -68,6 +68,17 @@ import { waitForPidGone } from "./waitForPidGone.ts";
 // from them without pulling this Node-only module's transport/gate graph. The
 // endpoint re-exports them so existing supervisor consumers keep their import.
 export { ENDPOINT_STATES, type EndpointState };
+
+/**
+ * Supervisor inject for start-qualified process identity. May be async so an
+ * osfacts-backed reader does not block the serving event loop (prefer
+ * `processIdentityFromEnvAsync`). Lives here — beside {@link EndpointSpec} —
+ * not in `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
+ * Canonical {@link ProcessIdentity} still comes from the daemon package.
+ */
+export type ReadProcessIdentityAsync = (
+  pid: number,
+) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
 
 type ConnectedMetadata<M> = [M] extends [undefined]
   ? { metadata?: undefined }
