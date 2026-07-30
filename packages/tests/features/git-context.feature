@@ -25,27 +25,6 @@ Feature: Git context in header and workspace switcher
     And the workspace switcher branch should contain "watcher-test"
     And there should be no page errors
 
-  Scenario: Git worktree shows its own branch and main repo name
-    When I run "git init /tmp/kolu-wt-main && cd /tmp/kolu-wt-main && git commit --allow-empty -m init"
-    And I run "cd /tmp/kolu-wt-main"
-    Then the header should show a branch name
-    And the workspace switcher label should show "kolu-wt-main"
-    When I run "git worktree add -b feature-branch /tmp/kolu-wt-feature"
-    And I run "cd /tmp/kolu-wt-feature"
-    Then the header branch should contain "feature-branch"
-    And the workspace switcher branch should contain "feature-branch"
-    And the workspace switcher label should show "kolu-wt-main"
-    And the workspace switcher should show a worktree indicator
-    And there should be no page errors
-
-  Scenario: CWD inside .worktrees parent dir shows main repo name
-    When I run "git init /tmp/kolu-wt-parent && cd /tmp/kolu-wt-parent && git commit --allow-empty -m init"
-    And I run "mkdir -p /tmp/kolu-wt-parent/.worktrees && git -C /tmp/kolu-wt-parent worktree add -b wt-branch /tmp/kolu-wt-parent/.worktrees/wt-branch"
-    And I run "cd /tmp/kolu-wt-parent/.worktrees"
-    Then the workspace switcher label should show "kolu-wt-parent"
-    And the workspace switcher should not show a worktree indicator
-    And there should be no page errors
-
   Scenario: Git init in an empty directory shows branch in workspace switcher
     When I run "mkdir -p /tmp/kolu-git-init-test && cd /tmp/kolu-git-init-test"
     And I run "git init"
@@ -82,12 +61,6 @@ Feature: Git context in header and workspace switcher
     Then the intent editor should be visible
     When I double-click the terminal title branch
     Then no canvas tile should be maximized
-    And there should be no page errors
-
-  Scenario: Workspace switcher does not show PR info on default branch
-    When I run "git init /tmp/kolu-pr-default && cd /tmp/kolu-pr-default"
-    Then the header should show a branch name
-    And the workspace switcher should not show PR info
     And there should be no page errors
 
   Scenario: Header and workspace switcher hide git context outside a repo

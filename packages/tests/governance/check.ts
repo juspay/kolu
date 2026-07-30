@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -77,32 +78,52 @@ if (duplicateIds.length > 0) {
 }
 
 validateLedger(inventory, current.records, ledger);
-validateCollectedTests(ledger, (file) => {
-  const absolute = path.resolve(repoRoot, file);
-  if (absolute !== repoRoot && !absolute.startsWith(`${repoRoot}${path.sep}`)) {
-    throw new Error(`test path escapes the repository: ${file}`);
-  }
-  if (!existsSync(absolute))
-    throw new Error(`test file does not exist: ${file}`);
-  let packageDir = path.dirname(absolute);
-  while (
-    packageDir !== repoRoot &&
-    !existsSync(path.join(packageDir, "package.json"))
-  ) {
-    packageDir = path.dirname(packageDir);
-  }
-  if (packageDir === repoRoot) {
-    throw new Error(`test file has no owning workspace package: ${file}`);
-  }
-  const relative = path.relative(packageDir, absolute);
-  const output = execFileSync(
-    "pnpm",
-    ["--dir", packageDir, "exec", "vitest", "list", relative, "--json"],
-    { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  const tests = JSON.parse(output) as Array<{ name: string }>;
-  return new Set(tests.map((test) => test.name));
-});
+const collectionRoot = mkdtempSync(
+  path.join(os.tmpdir(), "kolu-e2e-governance-"),
+);
+try {
+  validateCollectedTests(ledger, (file) => {
+    const absolute = path.resolve(repoRoot, file);
+    if (
+      absolute !== repoRoot &&
+      !absolute.startsWith(`${repoRoot}${path.sep}`)
+    ) {
+      throw new Error(`test path escapes the repository: ${file}`);
+    }
+    if (!existsSync(absolute))
+      throw new Error(`test file does not exist: ${file}`);
+    let packageDir = path.dirname(absolute);
+    while (
+      packageDir !== repoRoot &&
+      !existsSync(path.join(packageDir, "package.json"))
+    ) {
+      packageDir = path.dirname(packageDir);
+    }
+    if (packageDir === repoRoot) {
+      throw new Error(`test file has no owning workspace package: ${file}`);
+    }
+    const relative = path.relative(packageDir, absolute);
+    const output = execFileSync(
+      "pnpm",
+      ["--dir", packageDir, "exec", "vitest", "list", relative, "--json"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          KOLU_AGENT_DIR: path.join(collectionRoot, "agents"),
+          KOLU_STATE_DIR: path.join(collectionRoot, "state"),
+          LOG_LEVEL: "silent",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    const tests = JSON.parse(output) as Array<{ name: string }>;
+    return new Set(tests.map((test) => test.name));
+  });
+} finally {
+  rmSync(collectionRoot, { recursive: true, force: true });
+}
 
 try {
   const baseText = git("show", `HEAD^:packages/tests/scenario-inventory.json`);

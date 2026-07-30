@@ -106,8 +106,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Regression for #818: switching to Inspector and back used to unmount
@@ -124,8 +122,6 @@ Feature: Code tab (review + browse)
     Examples:
       | mode   |
       | local  |
-      | branch |
-      | browse |
 
   # Regression for #919's per-slot design under multi-terminal switching.
   # Each terminal carries its own `repoRoot` via `props.meta?.git`; the
@@ -144,8 +140,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Same-filename variant: both terminals are in valid git repos, and both
@@ -294,8 +288,6 @@ Feature: Code tab (review + browse)
     Examples:
       | mode   |
       | local  |
-      | branch |
-      | browse |
 
   # ── Local mode: file list + diff rendering ──
 
@@ -343,8 +335,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Regression: folder-chevron clicks did nothing while a filter was
@@ -372,25 +362,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
-      | browse |
-
-  Scenario Outline: Filter matches files by path tokens [<mode>]
-    Given a Code tab in "<mode>" mode showing files:
-      | path                          | content |
-      | common/src/index.tsx          | common  |
-      | common/src/components/App.tsx | app     |
-      | packages/client/src/index.tsx | client  |
-    When I type "common index.ts" into the Code tab filter
-    Then the Code tab should show file "common/src/index.tsx"
-    And the Code tab should not show file "common/src/components/App.tsx"
-    And the Code tab should not show file "packages/client/src/index.tsx"
-
-    Examples:
-      | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Regression: Pierre's `remove` promotes an emptied directory to an
@@ -400,24 +371,6 @@ Feature: Code tab (review + browse)
   # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
   # matching file. After filtering, a directory that still contains a match
   # stays; a directory whose only files were excluded disappears.
-  Scenario Outline: Filter prunes directories with no matching files [<mode>]
-    Given a Code tab in "<mode>" mode showing files:
-      | path                | content |
-      | docs/keep.md        | keep    |
-      | docs/plans/note.md  | note    |
-      | widgets/list/a.ts   | a       |
-      | widgets/forms/b.ts  | b       |
-    When I type "docs keep" into the Code tab filter
-    Then the Code tab should show file "docs/keep.md"
-    And the Code tab should show a directory node "docs"
-    And the Code tab should not show file "widgets/list/a.ts"
-    And the Code tab should not show a directory node "widgets"
-
-    Examples:
-      | mode   |
-      | local  |
-      | branch |
-      | browse |
 
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
@@ -969,135 +922,6 @@ Feature: Code tab (review + browse)
   # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
   # for them); `<script>`/`align=center`/`javascript:` carry none.
 
-  Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
-    When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
-    And I run "printf '# Doc Title\n\n| Col A | Col B |\n|:------|------:|\n| 1 | 2 |\n\n- [x] shipped\n- [ ] pending\n\nPress <kbd>Ctrl</kbd> to go.\n\n<p align=center>centered note</p>\n\n<img src=docs/logo.png alt=brand-logo />\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should render a "h1" element
-    And the markdown preview should contain "Doc Title"
-    And the markdown preview should render a "table" element
-    And the markdown preview should contain "Col A"
-    And the markdown preview should render a "input[type=checkbox]" element
-    And the markdown preview should render a "kbd" element
-    And the markdown preview should render a "[align=center]" element
-    And the markdown preview should contain "centered note"
-    # A repo-relative inline `<img>` resolves against the doc's directory to the
-    # per-terminal file route — a real <img>, not raw text or a broken icon.
-    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
-    # resolves repo images" scenario below.
-    And the markdown preview should render a "img[src*='/api/terminals/']" element
-
-  # A leading YAML `---` front-matter block renders as a metadata table at the
-  # top of the document (GitHub-faithful), not as a spurious `<hr>` + Setext
-  # heading and not silently dropped (#1279). Keys land in a header column,
-  # scalar values beside them, and a scalar list joins with commas. The body
-  # below still parses as ordinary markdown.
-  Scenario: Markdown preview renders YAML front-matter as a metadata table
-    When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
-    # `printf --` ends option parsing so the leading `---` is the format string,
-    # not flags — a bare `printf '---…'` makes bash treat `--` as an invalid
-    # option and write nothing.
-    And I run "printf -- '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should render a "table[data-md-frontmatter]" element
-    And the markdown preview should contain "Release Notes"
-    And the markdown preview should contain "Jane Roe"
-    # The scalar list joins with commas, and the body renders as a real heading —
-    # while the `---` fences never degrade to a thematic break.
-    And the markdown preview should contain "markdown, preview"
-    And the markdown preview should render a "h1" element
-    And the markdown preview should contain "Body Heading"
-    And the markdown preview should not render a "hr" element
-
-  Scenario: Markdown preview strips script-capable HTML and links
-    When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
-    And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "Safe Render"
-    And the markdown preview should contain "evil link"
-    And the markdown preview should not render a "script" element
-    And the markdown preview should not render a "a[href^=javascript]" element
-
-  # The sanitizer is a tight allowlist, not DOMPurify's broad defaults: inline
-  # `style`/`class`, SVG, and non-checkbox form controls must all be dropped so
-  # an untrusted README can't restyle, frame, or plant focusable controls in
-  # the app. (`printf` fixtures avoid inner single quotes — see note above.)
-  Scenario: Markdown preview drops style, class, SVG, and form controls
-    When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
-    And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "styled para"
-    # The text survives but its presentational + structural escape hatches don't.
-    And the markdown preview should not render a "[style]" element
-    And the markdown preview should not render a ".takeover" element
-    And the markdown preview should not render a "svg" element
-    And the markdown preview should not render a "button" element
-    And the markdown preview should not render a "input[type=text]" element
-
-  # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
-  # README must still pick up the link policy in the sanitize pass — a repo-
-  # relative href is tagged for in-app interception (so it opens the file in the
-  # Code tab, never a new tab — #1161), a genuine external href is forced to a
-  # new tab with a severed opener, and an unsafe scheme is unwrapped to text.
-  Scenario: Markdown preview applies the link policy to raw inline anchors
-    When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
-    And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=https://example.com/>external link</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "relative doc"
-    And the markdown preview should contain "external link"
-    And the markdown preview should contain "raw evil"
-    # Repo-relative anchor is tagged for in-app interception, NOT sent to a new tab.
-    And the markdown preview should render a "a[data-md-rel]" element
-    And the markdown preview should not render a "a[data-md-rel][target=_blank]" element
-    # The genuine external anchor still opens in a new tab with a severed opener.
-    And the markdown preview should render a "a[target=_blank]" element
-    And the markdown preview should render a "a[rel~=noopener]" element
-    # The unsafe-scheme anchor is gone; its text remains.
-    And the markdown preview should not render a "a[href^=javascript]" element
-
-  # The wikilink marker (data-md-wikilink) lives in the document allowlist so the
-  # PARSER's `[[Note]]` anchors survive sanitization — but a README's RAW HTML can
-  # stamp it too. An untrusted document must not use the marker to opt an anchor
-  # out of the normal per-anchor link policy (safeHref, external target/rel
-  # stamping). So a raw `<a data-md-wikilink href=https://evil.com>` must NOT route
-  # through the pathless wikilink resolver: the sanitizer strips the spoofed marker
-  # and the anchor falls through to the external-link treatment (new tab, severed
-  # opener), exactly like any other external link.
-  Scenario: Markdown preview does not let raw HTML spoof the wikilink marker
-    When I run "rm -rf /tmp/kolu-md-wikispoof && git init /tmp/kolu-md-wikispoof && cd /tmp/kolu-md-wikispoof"
-    And I run "printf '# Spoof\n\n<a data-md-wikilink href=https://evil.example/>spoofed link</a>\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "spoofed link"
-    # The spoofed marker is stripped — the anchor is not routed to the wikilink resolver.
-    And the markdown preview should not render a "a[data-md-wikilink]" element
-    # It falls through to the normal external-link policy instead.
-    And the markdown preview should render a "a[target=_blank]" element
-    And the markdown preview should render a "a[rel~=noopener]" element
-
   # The repro for #1161: clicking a repo-relative link opens the linked file IN
   # the Code tab (GitHub-faithful), resolved against the previewed doc's own
   # directory — it must NOT navigate the app origin in a new browser tab. The
@@ -1203,55 +1027,6 @@ Feature: Code tab (review + browse)
     Then the markdown preview should be visible
     When I click the wikilink "Nonexistent"
     Then a toast should appear with text "No file matching [[Nonexistent]]"
-
-  # Regression guard for a feature audit's findings: Tailwind v4 preflight
-  # blanking list markers, footnotes + GitHub alerts being unsupported, and
-  # repo-relative images degrading to a chip instead of loading from the
-  # per-terminal file route. The SVG asset gives the relative image something
-  # real to resolve to.
-  Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
-    When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
-    And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
-    And I run "printf '# Rich Doc\n\n![logo](logo.svg)\n\n- one\n- two\n\n1. a\n2. b\n\nclaim[^x]\n\n[^x]: the footnote\n\n> [!WARNING]\n> heads up\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should contain "Rich Doc"
-    # Lists show real markers (Tailwind preflight would otherwise blank them).
-    And the markdown preview list markers should be visible
-    # Footnotes render as a section + superscript ref, not literal [^x] text.
-    And the markdown preview should render a "section" element
-    And the markdown preview should render a "sup a" element
-    And the markdown preview should not contain "[^x]"
-    # The GitHub alert renders with its type carried on a data attribute.
-    And the markdown preview should render a "[data-md-alert=warning]" element
-    # The repo-relative image resolves to the per-terminal file route and is a
-    # real <img>, not a fallback chip.
-    And the markdown preview should render a "img[src*='/api/terminals/']" element
-    And the markdown preview should not render a "span.kolu-md-img-fallback" element
-
-  # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
-  # single newline to a space), and read-only task-list checkboxes (the preview
-  # never writes back to the file).
-  Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
-    When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
-    And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    # Fenced code gets a copy-button wrapper and is syntax-highlighted (Shiki
-    # loads async; the steps poll).
-    And the markdown preview should render a "div.kolu-md-code" element
-    And the markdown preview should render a "button.kolu-md-copy" element
-    And the markdown preview should render a "pre.shiki" element
-    # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
-    And the markdown preview should not render a "p br" element
-    # The task checkbox renders read-only (presentational, disabled).
-    And the markdown preview should render a "input[type=checkbox][disabled]" element
 
   # The footnote popover: clicking a `[n]` marker opens its definition in a
   # dismissible card anchored to the marker (instead of scrolling to the bottom

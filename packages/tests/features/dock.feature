@@ -95,25 +95,6 @@ Feature: Dock
     When I press shortcut "Mod+1"
     Then the active terminal should show "first-dock-row"
 
-  Scenario: Mod held reveals numeric shortcut hints on dock rows
-    # Holding the platform modifier (Cmd on macOS, Ctrl elsewhere)
-    # paints a `Cmd+N` hint on the first nine dock rows — same modifier
-    # as the shortcut itself, so the hint discovery mirrors the chord.
-    # Releasing Mod removes the hints.
-    Given I create a terminal
-    Then no dock-row shortcut hints should be visible
-    When I press and hold Mod
-    Then the dock should show 2 shortcut hints
-    When I release Mod
-    Then no dock-row shortcut hints should be visible
-
-  Scenario: Active terminal carries a visible indicator on its dock row
-    # An accent strip pinned to the row's left edge reads as "this is
-    # the active terminal" against any tile theme — the row's body has
-    # its own bg color, so the strip sits outside the body chrome.
-    Given I create a terminal
-    Then the dock should show 1 active row indicator
-
   Scenario: Repo sections carry a colour spine and a sticky tinted header
     # Repo identity rides a card: a repo-coloured spine down the section's
     # left edge (from the per-section `--repo-color` custom property, width

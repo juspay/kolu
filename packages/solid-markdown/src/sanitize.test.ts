@@ -11,6 +11,17 @@ function sanitized(raw: string): HTMLElement {
 }
 
 describe("sanitizeHtml — document allowlist", () => {
+  it("unwraps markdown links for links-off intent slots", () => {
+    const root = document.createElement("div");
+    root.innerHTML = sanitizeHtml(
+      '<a href="https://example.com/">visible label</a>',
+      { links: false, richHtml: false },
+    );
+
+    expect(root.textContent).toBe("visible label");
+    expect(root.querySelector("a")).toBeNull();
+  });
+
   it("drops script elements and unwraps script-capable links without losing their text", () => {
     const root = sanitized(
       '<h1>Safe</h1><script>window.__xss=1</script><a href="javascript:window.__xss=2">evil link</a>',

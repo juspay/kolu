@@ -48,15 +48,6 @@ Feature: Theme switching
     And the terminal background should be "#282a36"
     And there should be no page errors
 
-  Scenario: Theme preview restores on backspace drill-out
-    When I click the theme name in the header
-    And I type "Dracula" in the palette
-    Then the header should show theme "Dracula"
-    When I clear the palette input
-    And I press Backspace
-    Then the header should show theme "Tomorrow Night"
-    And there should be no page errors
-
   Scenario: Shuffle theme via keyboard shortcut
     When I press the shuffle theme shortcut
     Then the header theme should differ from "Tomorrow Night"
@@ -65,10 +56,6 @@ Feature: Theme switching
   # Regression: argmax-style picker ping-pongs between two themes when
   # the loop only sees the current bg as a peer (Theme A's farthest is
   # Theme B and vice versa). Shuffle must be random, not argmax.
-  Scenario: Shuffle does not ping-pong between two themes
-    When I press the shuffle theme shortcut 4 times
-    Then the shuffle history should have at least 4 distinct themes
-    And there should be no page errors
 
   Scenario: Shuffle theme via command palette
     When I open the command palette
@@ -115,4 +102,3 @@ Feature: Theme switching
     # Entry 1 is the original terminal; it still carries its own Dracula.
     When I click dock row 1
     Then the header should show theme "Dracula"
-

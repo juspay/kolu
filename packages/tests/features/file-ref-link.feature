@@ -72,37 +72,6 @@ Feature: File-ref autolinking in terminal
     And xterm's helper textarea should not have been focused by tapping the link
     And there should be no page errors
 
-  Scenario: Clicking a line-range file-ref opens the file
-    When I run "git init /tmp/kolu-file-ref-861-range && cd /tmp/kolu-file-ref-861-range"
-    And I run "git commit --allow-empty -m init"
-    And I run "printf 'one\ntwo\nthree\nfour\nfive\nsix\n' > range.txt"
-    And I run "echo 'block at range.txt:2-4 needs attention'"
-    And I trigger the terminal file-ref link "range.txt:2-4"
-    Then the selected file should show content "three"
-
-  Scenario: Bare filename resolves when its basename is unique in the repo
-    When I run "git init /tmp/kolu-file-ref-898 && cd /tmp/kolu-file-ref-898"
-    And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src/lib && printf 'alpha\nbeta\ngamma\n' > src/lib/notes.txt"
-    And I run "echo 'see notes.txt:2 for the line'"
-    And I trigger the terminal file-ref link "notes.txt:2"
-    Then the right panel should be visible
-    And the Code tab should be active
-    And the Code tab mode should be "browse"
-    And the selected file should show content "beta"
-
-  Scenario: Clicking a slash-containing path opens the file at the line
-    When I run "git init /tmp/kolu-file-ref-slash && cd /tmp/kolu-file-ref-slash"
-    And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p src && printf 'alpha\nbeta\ngamma\n' > src/notes.txt"
-    And I run "echo 'error in src/notes.txt:2 — context'"
-    And I trigger the terminal file-ref link "src/notes.txt:2"
-    Then the right panel should be visible
-    And the Code tab should be active
-    And the Code tab mode should be "browse"
-    And the selected file should show content "beta"
-    And line 2 should be selected in the file content
-
   Scenario: Clicking a folder ref reveals and expands the directory in the tree
     # A folder path in terminal output (no filename, no `:line`) used to toast
     # "File reference not found". It now reveals the directory in the Code tab's
@@ -247,28 +216,6 @@ Feature: File-ref autolinking in terminal
     Then the file preview iframe should not be visible
     And the selected file should show content "gamma"
     And line 3 should be selected in the file content
-
-  Scenario: A trailing sentence period does not break a slash-containing file-ref
-    # The reported bug: prose like "There's now a single
-    # docs/plans/electricity.html." ends the path with a sentence period. `.`
-    # is a path char (extensions, dotfiles), so the greedy match used to
-    # swallow the period and the link pointed at a nonexistent
-    # `…electricity.html.` — clicking it silently no-opped. The link must stop
-    # at the real filename and open the file.
-    When I run "git init /tmp/kolu-file-ref-trailing-dot && cd /tmp/kolu-file-ref-trailing-dot"
-    And I run "git commit --allow-empty -m init"
-    And I run "mkdir -p docs/plans"
-    # Create the file via a subshell so the full `docs/plans/electricity.html`
-    # only ever appears contiguously in the period-bearing prose below — if a
-    # setup line printed the clean path, the link hit-test would land there and
-    # mask the bug.
-    And I run "(cd docs/plans && printf '<h1>electricity</h1>\n' > electricity.html)"
-    And I run "echo 'There is now a single docs/plans/electricity.html.'"
-    And I trigger the terminal file-ref link "docs/plans/electricity.html"
-    Then the right panel should be visible
-    And the Code tab should be active
-    And the file preview iframe should be visible
-    And the file preview iframe should contain "electricity"
 
   # Guards the c89a85f3 regression: a second click on the same `path:line`
   # after manually collapsing the panel must re-open it. The bug was

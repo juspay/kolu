@@ -6464,6 +6464,108 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "5ec6ad09b61259be54441ec9ff7109600156a6a1"
+    },
+    {
+      "revisionId": "revision-91d98a67909d41c17eb2",
+      "scenarioKey": "scenario-5aeed3cf7972f80cbce8",
+      "feature": "features/code-tab.feature",
+      "scenario": "Filter survives clicking a filtered result [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "a4ab179a09a70e7abcbb190bcc515fa80931cf1a3e9021554b452cf68080a419",
+      "exampleRows": [
+        {
+          "id": "example-b840a60a3c8d6d37a6bb",
+          "name": "Filter survives clicking a filtered result [browse]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-89903ad8beb906ba0aaf",
+      "scenarioKey": "scenario-c4745bd38ec2d3e709e4",
+      "feature": "features/code-tab.feature",
+      "scenario": "Folder collapse during active filter persists the filter [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "054dadc5eddd3cdaef4d2a543c86a7ada19198e2c09e1d5b75b7c9c9feeb9202",
+      "exampleRows": [
+        {
+          "id": "example-432610e86ad1c71888f9",
+          "name": "Folder collapse during active filter persists the filter [browse]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-d8c70e36a5772bfb29b5",
+      "scenarioKey": "scenario-bed7a5e1fc509c38b7d2",
+      "feature": "features/code-tab.feature",
+      "scenario": "Selected file survives Inspector tab switch [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "29927ac79fc6f5f63dfcbc2b1aa4329da80ba0fbc2887c2447191da7c0318f6e",
+      "exampleRows": [
+        {
+          "id": "example-52fa0454a8477001527f",
+          "name": "Selected file survives Inspector tab switch [local]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-f47963a4155b7c55ff0a",
+      "scenarioKey": "scenario-19444b976b71ffeba2e9",
+      "feature": "features/code-tab.feature",
+      "scenario": "Selected file survives page refresh [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "43cb7f09f8f74a633e85f3f247968c178ce08f4765d7dd278b32b1485d0fa89f",
+      "exampleRows": [
+        {
+          "id": "example-08905902f889d15c3c67",
+          "name": "Selected file survives page refresh [local]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-0f5c9ea55b7a7692b2f2",
+      "scenarioKey": "scenario-1d6a8471d69ca49f8e80",
+      "feature": "features/code-tab.feature",
+      "scenario": "Selected file survives panel collapse and reopen [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "3d4249cde644c285d332897e910ff3c22e81120a845fecd058ceef4c19aa8df9",
+      "exampleRows": [
+        {
+          "id": "example-20c030c1f2bcbce9376b",
+          "name": "Selected file survives panel collapse and reopen [browse]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
+    },
+    {
+      "revisionId": "revision-9b795b901f727e53c0a8",
+      "scenarioKey": "scenario-3b9be31361b2b5a15bde",
+      "feature": "features/code-tab.feature",
+      "scenario": "Selected file survives switching to another terminal and back [<mode>]",
+      "kind": "outline",
+      "tags": [],
+      "bodyHash": "d33987a7253aaf94077bb6366480402f2555def22c973951b5ffc838bfb8ce71",
+      "exampleRows": [
+        {
+          "id": "example-1428ec6976af9045e7db",
+          "name": "Selected file survives switching to another terminal and back [browse]"
+        }
+      ],
+      "executions": 1,
+      "firstSeenSha": "d2c3c982ec3e3f5dbba80e01c3d7ede76ee330d3"
     }
   ]
 }

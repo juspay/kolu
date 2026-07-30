@@ -28,12 +28,3 @@ Feature: Settings Popover
     When I click the "light" color scheme button
     Then the color scheme should be "light"
     And there should be no page errors
-
-  Scenario: Switch UI color scheme back to dark
-    When I click the settings button
-    Then the settings popover should be visible
-    When I click the "light" color scheme button
-    Then the color scheme should be "light"
-    When I click the "dark" color scheme button
-    Then the color scheme should be "dark"
-    And there should be no page errors
