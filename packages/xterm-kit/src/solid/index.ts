@@ -35,4 +35,4 @@ export type { WebglHandle, WebglLifecycleHooks } from "./webgl";
 
 // The component: the whole hazard set as one JSX element.
 export { Xterm } from "./Xterm";
-export type { ScrollLock, XtermHandle } from "./Xterm";
+export type { ScrollLock, TerminalGrid, XtermHandle } from "./Xterm";

@@ -642,6 +642,32 @@ export const PadiCreateInputSchema = z
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 
+/** Attach input: the terminal, plus the grid the CALLER will render the
+ *  snapshot into.
+ *
+ *  The snapshot is bytes laid out for a specific cols×rows — cursor moves and
+ *  wraps only mean anything at the width they were serialized for. Carrying the
+ *  grid on the attach REQUEST is what makes "a snapshot for a size the consumer
+ *  isn't" unrepresentable: the host resizes to this grid and serializes as one
+ *  act, so the bytes and the grid can never be two facts that raced. Without it
+ *  the consumer had to publish its size through a SEPARATE `lifecycle.resize`
+ *  and hope it landed first — and when it didn't, nothing repaired the screen,
+ *  because a same-dimensions resize is (correctly) a no-op, so no SIGWINCH ever
+ *  reached the process.
+ *
+ *  OPTIONAL, and deliberately un-versioned. Absence degrades to exactly the
+ *  previous reading in BOTH skew directions — a newer client's grid is stripped
+ *  by an older padi, a newer padi serves an older client at the PTY's current
+ *  size — which is the `commandRooted`/`shellJoin` class this contract already
+ *  carries without a bump, not the emitted-variant class that must recycle. A
+ *  bump here would force-recycle a surviving daemon (killing live PTYs) to buy
+ *  a graceful improvement. */
+export const PadiTerminalAttachInputSchema = z.object({
+  id: TerminalIdSchema,
+  cols: z.number().int().positive().optional(),
+  rows: z.number().int().positive().optional(),
+});
+
 export const PadiResizeInputSchema = z.object({
   id: TerminalIdSchema,
   cols: z.number(),
@@ -969,7 +995,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  fresh stream, so a mid-chain disconnect must terminate it (the client
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
-      inputSchema: PadiTerminalIdInputSchema,
+      inputSchema: PadiTerminalAttachInputSchema,
       // A discriminated frame, not a bare string (contract) and not an optional
       // field: a `delta` is bytes to write; a `snapshot` frame (the first frame
       // and every overflow re-attach) also carries the absolute mirror-line

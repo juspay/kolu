@@ -40,6 +40,7 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
+  TerminalGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
@@ -1350,6 +1351,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
+    grid?: TerminalGrid,
   ): Promise<TerminalAttachment> {
     // Wait for the PTY to actually exist before opening the attach stream —
     // otherwise a tile attaching off the sync shadow races the in-flight
@@ -1364,8 +1366,12 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // throw rather than silently paint a blank terminal (the same fail-loud
     // stance as `getScreenState`'s NOT_FOUND).
     const open = async (): Promise<OpenedAttach> => {
+      // The caller's grid rides on EVERY open, the initial attach and each
+      // overflow-driven re-attach alike: a re-attach that dropped it would hand
+      // back a snapshot serialized at the PTY's size instead of the consumer's,
+      // reintroducing the mismatch mid-stream.
       const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id },
+        { id, cols: grid?.cols, rows: grid?.rows },
         { signal },
       );
       const iter = stream[Symbol.asyncIterator]();

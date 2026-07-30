@@ -59,6 +59,12 @@ import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
  *  `reattachingDeltas` so both sides read the one source of truth. */
 export const TERMINAL_RESET = "\x1bc";
 
+/** A terminal grid — cols × rows. */
+export interface TerminalGrid {
+  cols: number;
+  rows: number;
+}
+
 /** A late-joining client's view of a terminal: the screen state at attach
  *  time plus the live output stream from exactly that point forward. The
  *  endpoint produces both atomically (subscribe-before-serialize) so no
@@ -217,10 +223,18 @@ export interface TerminalEndpoint {
    *  and the delta stream subscribed atomically, so the boundary between
    *  them loses and duplicates nothing. Always a Promise — the attach stream
    *  is opened through the pty-host contract (over the wire for a socket/ssh
-   *  endpoint). */
+   *  endpoint).
+   *
+   *  `grid` is the cols×rows the CALLER will render the snapshot into. The host
+   *  resizes to it before serializing, so the returned bytes are always laid out
+   *  for the grid that will paint them — the size travels WITH the request
+   *  instead of racing it through a separate resize. Omitted means "serialize at
+   *  whatever size the PTY currently has", which is only correct for a caller
+   *  that has no grid of its own (a CLI dumping the screen). */
   attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
+    grid?: TerminalGrid,
   ): Promise<TerminalAttachment>;
 
   readonly fs: TerminalEndpointFs;

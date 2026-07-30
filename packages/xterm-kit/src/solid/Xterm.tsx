@@ -21,6 +21,7 @@ import {
   type Accessor,
   type Component,
   createEffect,
+  createSignal,
   type JSX,
   on,
   onCleanup,
@@ -41,6 +42,12 @@ import { createXtermLifecycle, type XtermCore } from "./xtermLifecycle";
 /** The scroll-lock latch instance shape (structural — no exported nominal). */
 export type ScrollLock = ReturnType<typeof createScrollLock>;
 
+/** A terminal grid — cols × rows. */
+export interface TerminalGrid {
+  cols: number;
+  rows: number;
+}
+
 /** What `<Xterm onReady>` hands the consumer — the live terminal plus every
  *  mechanism it wires policy against, all inside the component's reactive owner. */
 export interface XtermHandle {
@@ -56,6 +63,17 @@ export interface XtermHandle {
   recovery: RenderRecovery;
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
   refit: () => void;
+  /** The grid this pane has actually MEASURED against its own box — `null`
+   *  until it has one.
+   *
+   *  Read this before doing anything that depends on the grid being REAL.
+   *  `terminal.cols/rows` is never null: an unmeasured xterm reports the 80×24
+   *  its constructor invents, and a hidden pane (`display:none`, a 0×0 box) can
+   *  never be measured, so it keeps reporting that invented grid indefinitely.
+   *  Rendering host-serialized bytes against it paints a screen laid out for a
+   *  width the terminal does not have. Gating on `grid()` makes that
+   *  unrepresentable: no grid, no bytes. */
+  grid: Accessor<TerminalGrid | null>;
 }
 
 interface XtermOwnProps {
@@ -80,8 +98,8 @@ interface XtermOwnProps {
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
   onData: (data: string) => void;
-  /** Grid → PTY. */
-  onResize: (size: { cols: number; rows: number }) => void;
+  /** Grid → PTY. Only ever called with a MEASURED grid (see `XtermHandle.grid`). */
+  onResize: (size: TerminalGrid) => void;
   /** The live handle, inside the reactive owner — wire policy here. */
   onReady: (handle: XtermHandle) => void;
   /** Touch tap resolver: return true if the tap was consumed (e.g. a ref was
@@ -121,9 +139,42 @@ export const Xterm: Component<
   const [own, rest] = splitProps(props, OWN_KEYS);
   let container!: HTMLDivElement;
   let fitRaf = 0;
+
+  // The measured grid (see `XtermHandle.grid`). Compared by value so a fit that
+  // lands on the same cols×rows doesn't notify — consumers gate real work on
+  // this, and a re-fit that measured nothing new is not an event.
+  const [grid, setGrid] = createSignal<TerminalGrid | null>(null, {
+    equals: (a, b) => a?.cols === b?.cols && a?.rows === b?.rows,
+  });
+
+  /** Fit to the container's current box, and record the grid IF one could be
+   *  measured. `proposeDimensions()` returns undefined for an unmeasurable box
+   *  — which is exactly the case that matters: a `display:none` pane is 0×0, so
+   *  it has no grid of its own and `grid()` must stay null rather than publish
+   *  the 80×24 xterm's constructor invented. `fit()` makes the same check
+   *  internally and no-ops; asking first is what lets us tell "measured" from
+   *  "declined to measure", which `fit()`'s void return cannot. */
+  const applyFit = () => {
+    if (!core) return;
+    const proposed = core.addons.fit.proposeDimensions();
+    if (
+      !proposed ||
+      !Number.isFinite(proposed.cols) ||
+      !Number.isFinite(proposed.rows) ||
+      proposed.cols <= 0 ||
+      proposed.rows <= 0
+    )
+      return;
+    core.addons.fit.fit();
+    // Read the grid back off the terminal rather than trusting `proposed`: fit()
+    // is the one authority on what it applied, so the fact we publish is the
+    // grid the terminal actually HAS.
+    setGrid({ cols: core.terminal.cols, rows: core.terminal.rows });
+  };
+
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => core?.addons.fit.fit());
+    fitRaf = requestAnimationFrame(applyFit);
   };
 
   // The constructed core (terminal + addons), built asynchronously and read by
@@ -223,15 +274,19 @@ export const Xterm: Component<
         webgl,
         recovery,
         refit,
+        grid,
       };
-      // Initial fit BEFORE onReady, so the initial resize RPC (grid → PTY) fires
-      // before the consumer's onReady subscribes anything that depends on the
-      // grid (e.g. an attach stream) — the pre-cut "size before stream" order.
+      // Initial fit BEFORE onReady, so the grid → PTY publish happens before the
+      // consumer's onReady wires anything that reads the grid. A hidden pane
+      // measures NOTHING here and `grid()` stays null — which is the point: the
+      // consumer then has no grid to attach against and waits, instead of
+      // attaching at the invented 80×24.
       // onResize is already wired above; if xterm's default grid already matched
-      // the fit target, onResize won't fire, so publish the current grid manually.
+      // the fit target, onResize won't fire, so publish the measured grid here.
       if (own.visible) {
-        c.addons.fit.fit();
-        own.onResize({ cols: term.cols, rows: term.rows });
+        applyFit();
+        const measured = grid();
+        if (measured) own.onResize(measured);
       }
 
       own.onReady(handle);

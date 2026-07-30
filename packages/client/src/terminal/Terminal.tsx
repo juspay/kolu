@@ -415,6 +415,31 @@ const Terminal: Component<{
       // the terminal we just reset.
       backfill?.reset();
     };
+    // The attach stream may not open until this pane has MEASURED its own box.
+    //
+    // The snapshot the host serializes is bytes laid out FOR A GRID — cursor
+    // moves and wraps are only meaningful at the width they were written for.
+    // An unmeasured xterm reports the 80×24 its constructor invents, and a pane
+    // that is hidden at mount (a collapsed split, a background sub-tab) can
+    // never be measured, so it keeps reporting that invented grid. Attaching
+    // there paints a screen laid out for the real width into 80 columns;
+    // revealing the pane then REFLOWS the damage rather than repainting it, and
+    // the repair never comes, because the grid the client finally publishes is
+    // the one the PTY already had — and kaval no-ops a same-dimensions resize,
+    // so no SIGWINCH ever reaches the process. Only a genuine resize (nudging
+    // the divider) fixed it.
+    //
+    // So: no grid, no bytes. Gating here — rather than dropping or buffering
+    // frames after the fact — is what makes the bad state unrepresentable,
+    // because the grid is also what we ASK for the snapshot AT (below), and a
+    // request can't carry a size we haven't measured.
+    let attachOpened = false;
+    createEffect(() => {
+      if (!h.grid() || attachOpened) return;
+      attachOpened = true;
+      openAttachStream();
+    });
+
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
     // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
@@ -424,82 +449,101 @@ const Terminal: Component<{
     // `unenrolledStreamCall` (`@kolu/surface/client`) — the bare, un-enrolled
     // call — rather than `padi.rawStream`'s structural health enrolment, and the
     // `unenrolled-` name makes that a visible decision at the call site.
-    consumeReattachingStream(
-      () =>
-        unenrolledStreamCall(
-          activePadiStreams.terminalAttach.unenrolled,
-          { id: props.terminalId },
-          { signal, onRetry: resetForFreshSnapshot },
-        ),
-      (frame) => {
-        // A `snapshot` frame begins a fresh snapshot (initial attach or a
-        // MID-STREAM overflow re-attach). Consume it as one indivisible act:
-        // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
-        // RIGHT HERE — before the bytes are written or scroll-lock-buffered — so
-        // an in-flight fetch's continuation can't splice across the RIS this frame
-        // carries onto the reset buffer. It returns a committer that SEEDS only
-        // once the snapshot has PARSED into the buffer (run from the write callback
-        // below): parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
-        // climbs from 0 through the near-top trigger band, and a cursor seeded up
-        // front would let one of those fire an unsolicited fetch onto a
-        // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM, so no
-        // fetch fires until a real user scroll-up. The committer rides the write
-        // callback, which scroll-lock preserves across a buffered flush — so the
-        // seed can't be lost while the user is scrolled up.
-        const commitSeed =
-          frame.kind === "snapshot"
-            ? backfill?.consumeSnapshotFrame(
-                frame.topLine,
-                frame.reflowEpoch,
-                // An overflow re-attach snapshot's data LEADS with a RIS
-                // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
-                // controller's esc handler pauses on THIS frame's own leading RIS
-                // too, so the controller must know it's coming: the seam captures
-                // the committer's baseline one generation-bump BEFORE that RIS and
-                // PREDICTS it, so the frame's own reset doesn't read as an
-                // invalidation that revokes this frame's re-seed — otherwise
-                // backfill pauses forever after a re-attach (F11).
-                frame.data.startsWith(TERMINAL_RESET),
-              )
-            : undefined;
-        // A consumed snapshot frame carries its OWN seed seam (with a per-frame
-        // token) so the controller captures its committer baseline at the
-        // snapshot's byte position, not at receipt — the F11 fix under scroll
-        // lock, where a foreign RIS buffered ahead of this snapshot would
-        // otherwise steal its seed. The controller mints the seam bytes
-        // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
-        // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
-        const data = commitSeed
-          ? `${commitSeed.seam}${frame.data}`
-          : frame.data;
-        if (handle()) {
-          // The live-activity dot is no longer lit from this attach sink — it
-          // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
-          // wire, so it works for background terminals and never flashes on a
-          // reveal/resize repaint. See `attention/useAttentionFacts`.
-          // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
-          // `term.write` returns immediately and parses the chunk asynchronously
-          // (off a setTimeout), so noteData() run here synchronously would arm a
-          // 250ms timer against data not yet in the buffer. Passing noteData as
-          // xterm's write callback arms it when the chunk has actually landed in
-          // the buffer and a paint should follow. scroll-lock buffers a chunk ->
-          // no paint -> the callback isn't invoked NOW; it is stashed WITH the
-          // chunk, and flush() fires every buffered chunk's callback once the
-          // buffered write parses on unlock — so the snapshot re-seed committer
-          // that rides this callback survives the lock instead of being dropped.
-          h.write(data, () => {
-            h.recovery.noteData();
-            // Seed the backfill cursor now that this snapshot has landed in the
-            // buffer (see the note above the write) — undefined, hence a no-op,
-            // for a plain delta frame, which carries no `topLine`.
-            commitSeed?.commit();
-          });
-        }
-      },
-      resetForFreshSnapshot,
-      signal,
-      "Terminal attach",
-    );
+    function openAttachStream() {
+      consumeReattachingStream(
+        () => {
+          // Re-read the grid HERE, not at subscribe time: this thunk is also the
+          // re-subscribe path (STREAM_RETRY, an overflow re-attach), and a pane
+          // resized since the first attach must ask for the snapshot at the grid
+          // it has NOW. Absent is unreachable — the effect above only opens the
+          // stream once a grid exists, and a measured grid is never un-measured
+          // — so it fails loud instead of silently falling back to the host's
+          // own idea of the size, which is the very defect this gate closes.
+          const measured = h.grid();
+          if (!measured)
+            throw new Error(
+              `terminal ${props.terminalId}: attach opened without a measured grid`,
+            );
+          return unenrolledStreamCall(
+            activePadiStreams.terminalAttach.unenrolled,
+            {
+              id: props.terminalId,
+              cols: measured.cols,
+              rows: measured.rows,
+            },
+            { signal, onRetry: resetForFreshSnapshot },
+          );
+        },
+        (frame) => {
+          // A `snapshot` frame begins a fresh snapshot (initial attach or a
+          // MID-STREAM overflow re-attach). Consume it as one indivisible act:
+          // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
+          // RIGHT HERE — before the bytes are written or scroll-lock-buffered — so
+          // an in-flight fetch's continuation can't splice across the RIS this frame
+          // carries onto the reset buffer. It returns a committer that SEEDS only
+          // once the snapshot has PARSED into the buffer (run from the write callback
+          // below): parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
+          // climbs from 0 through the near-top trigger band, and a cursor seeded up
+          // front would let one of those fire an unsolicited fetch onto a
+          // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM, so no
+          // fetch fires until a real user scroll-up. The committer rides the write
+          // callback, which scroll-lock preserves across a buffered flush — so the
+          // seed can't be lost while the user is scrolled up.
+          const commitSeed =
+            frame.kind === "snapshot"
+              ? backfill?.consumeSnapshotFrame(
+                  frame.topLine,
+                  frame.reflowEpoch,
+                  // An overflow re-attach snapshot's data LEADS with a RIS
+                  // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
+                  // controller's esc handler pauses on THIS frame's own leading RIS
+                  // too, so the controller must know it's coming: the seam captures
+                  // the committer's baseline one generation-bump BEFORE that RIS and
+                  // PREDICTS it, so the frame's own reset doesn't read as an
+                  // invalidation that revokes this frame's re-seed — otherwise
+                  // backfill pauses forever after a re-attach (F11).
+                  frame.data.startsWith(TERMINAL_RESET),
+                )
+              : undefined;
+          // A consumed snapshot frame carries its OWN seed seam (with a per-frame
+          // token) so the controller captures its committer baseline at the
+          // snapshot's byte position, not at receipt — the F11 fix under scroll
+          // lock, where a foreign RIS buffered ahead of this snapshot would
+          // otherwise steal its seed. The controller mints the seam bytes
+          // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
+          // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
+          const data = commitSeed
+            ? `${commitSeed.seam}${frame.data}`
+            : frame.data;
+          if (handle()) {
+            // The live-activity dot is no longer lit from this attach sink — it
+            // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
+            // wire, so it works for background terminals and never flashes on a
+            // reveal/resize repaint. See `attention/useAttentionFacts`.
+            // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
+            // `term.write` returns immediately and parses the chunk asynchronously
+            // (off a setTimeout), so noteData() run here synchronously would arm a
+            // 250ms timer against data not yet in the buffer. Passing noteData as
+            // xterm's write callback arms it when the chunk has actually landed in
+            // the buffer and a paint should follow. scroll-lock buffers a chunk ->
+            // no paint -> the callback isn't invoked NOW; it is stashed WITH the
+            // chunk, and flush() fires every buffered chunk's callback once the
+            // buffered write parses on unlock — so the snapshot re-seed committer
+            // that rides this callback survives the lock instead of being dropped.
+            h.write(data, () => {
+              h.recovery.noteData();
+              // Seed the backfill cursor now that this snapshot has landed in the
+              // buffer (see the note above the write) — undefined, hence a no-op,
+              // for a plain delta frame, which carries no `topLine`.
+              commitSeed?.commit();
+            });
+          }
+        },
+        resetForFreshSnapshot,
+        signal,
+        "Terminal attach",
+      );
+    }
 
     // Initial focus, mirroring the old post-fit focus on first mount.
     if (props.visible && props.focused !== false) focusOnSelection();

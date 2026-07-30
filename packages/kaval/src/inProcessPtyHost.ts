@@ -190,9 +190,20 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           // end (PTY exit / abort), which yields no such frame. A consumer reads
           // it as "re-attach for a fresh snapshot", not "the PTY is gone".
           let overflow = false;
-          const att = host.attach(input.id, signal, () => {
-            overflow = true;
-          });
+          // Both halves or neither: a half-specified grid is not a size, so it
+          // is dropped rather than mixed with the PTY's current other dimension.
+          const grid =
+            input.cols !== undefined && input.rows !== undefined
+              ? { cols: input.cols, rows: input.rows }
+              : undefined;
+          const att = host.attach(
+            input.id,
+            signal,
+            () => {
+              overflow = true;
+            },
+            grid,
+          );
           yield {
             kind: "snapshot" as const,
             data: att.snapshot,

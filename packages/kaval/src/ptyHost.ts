@@ -345,6 +345,12 @@ export interface PtyHostOptions {
   dataMaxQueue?: number;
 }
 
+/** A PTY grid — cols × rows. */
+export interface PtyGrid {
+  cols: number;
+  rows: number;
+}
+
 /** The multi-client PTY-owner primitive. */
 export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
@@ -353,11 +359,18 @@ export interface PtyHost {
    *  stream for a late-joining client. `onOverflow` fires (once) if THIS
    *  attachment's delta subscriber is dropped for lagging past the bound — the
    *  serving layer turns it into an `overflow` frame so the consumer re-attaches
-   *  rather than mistaking the drop for a PTY exit. */
+   *  rather than mistaking the drop for a PTY exit.
+   *
+   *  `grid` is the cols×rows the CONSUMER will render the snapshot into. The PTY
+   *  is resized to it before the serialize, so the snapshot is always laid out
+   *  for the grid that will paint it. Omit it only when the caller has no grid
+   *  of its own (a CLI dumping the screen), which reads the PTY at its current
+   *  size. */
   attach(
     id: PtyId,
     signal?: AbortSignal,
     onOverflow?: () => void,
+    grid?: PtyGrid,
   ): PtyAttachment;
   /** Per-PTY cwd update stream (OSC 7). */
   subscribeCwd(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
@@ -1021,8 +1034,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     id: PtyId,
     signal?: AbortSignal,
     onOverflow?: () => void,
+    grid?: PtyGrid,
   ): PtyAttachment {
     const entry = requireEntry(id);
+    // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
+    // bytes laid out for the grid that will paint them. This is the whole point
+    // of carrying the grid on the attach: the resize and the serialize become
+    // ONE act, and "a snapshot for a size the consumer isn't" stops being a
+    // reachable state. Doing it through `resize()` — not a private path — keeps
+    // the single mutator: same-dimensions stays a no-op (so a second viewer at
+    // the same size costs nothing and staleness the reflow epoch guards is not
+    // spuriously bumped), and a genuine change reflows the mirror, invalidates
+    // the snapshot memo, and SIGWINCHes the process exactly as a user resize
+    // does — which is what makes the process repaint into the new grid.
+    if (grid) resize(id, grid.cols, grid.rows);
     // Subscribe BEFORE serializing, both synchronously: no headless parse
     // (and thus no post-parse publish) can interleave between the two, so
     // every chunk lands in exactly one of snapshot / deltas.

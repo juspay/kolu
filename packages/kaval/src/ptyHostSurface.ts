@@ -198,6 +198,28 @@ const PtyIdSchema = z.string();
 
 const TerminalIdInputSchema = z.object({ id: PtyIdSchema });
 
+/** Attach input: the PTY, plus the grid the CONSUMER will render the snapshot
+ *  into. The host resizes the PTY to it and serializes as ONE act, so the
+ *  snapshot is always bytes laid out for the grid that will paint them — rather
+ *  than the consumer publishing its size through a separate `resize` and hoping
+ *  it lands first. When it didn't, nothing repaired the screen: a
+ *  same-dimensions `resize` is (correctly) a no-op, so no SIGWINCH reached the
+ *  process and the consumer was left reflowing a snapshot laid out for a width
+ *  it never had.
+ *
+ *  OPTIONAL, and deliberately carried WITHOUT a contract bump. Absence degrades
+ *  to exactly the previous reading in both skew directions (a 6.0 daemon strips
+ *  the grid and serializes at its own size; a newer daemon serving an older
+ *  padi receives none and does the same) — the `commandRooted` / `shellJoin`
+ *  class this contract already documents as no-bump, not the emitted-variant
+ *  class that must recycle. Bumping would force-recycle a surviving kaval,
+ *  killing the user's live PTYs, to buy a graceful improvement. */
+const TerminalAttachInputSchema = z.object({
+  id: PtyIdSchema,
+  cols: z.number().int().positive().optional(),
+  rows: z.number().int().positive().optional(),
+});
+
 /** A file the client wants present on the host before the shell starts — a
  *  wrapper rcfile (bash `--rcfile`, zsh `ZDOTDIR/.zshrc`), named relative to
  *  the host's `rcDir` (from `system.info`). The host writes each under its
@@ -414,7 +436,7 @@ export const ptyHostSurface = defineSurface({
   streams: {
     /** Per-terminal output stream — snapshot then live deltas. */
     terminalAttach: {
-      inputSchema: TerminalIdInputSchema,
+      inputSchema: TerminalAttachInputSchema,
       outputSchema: TerminalDataMsgSchema,
     },
     /** OSC 7 cwd reports. */
