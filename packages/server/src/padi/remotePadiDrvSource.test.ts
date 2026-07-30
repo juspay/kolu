@@ -21,6 +21,7 @@ import {
   type ResolveDrvPathContext,
   type SshConnectorOptions,
 } from "@kolu/surface-remote";
+import { PADI_REMOTE_DIAL } from "@kolu/padi/dial";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -187,15 +188,17 @@ describe("padi source-flake resolution — LAZY entry-scope fault (F6)", () => {
       drvPath: "/nix/store/bbb-padi.drv",
       installable: "/nix/store/source#packages.x86_64-linux.padi",
     });
-    // `padi-agent`, NOT `padi` — the attr names the CLOSURE shipped to the host
-    // (daemon + the client CLIs a terminal there needs); `binary: "padi"` names
-    // what runs inside it. Reverting this to "padi" would still connect and pass
-    // every other test in this file, while silently giving every remote terminal
-    // no toolchain — so the name is pinned here on purpose.
+    // `.package` (`padi-agent`), NOT `.binary` (`padi`) — the attr names the
+    // CLOSURE shipped to the host (daemon + the client CLIs a terminal there
+    // needs); the binary names what runs inside it. Asserted against the shared
+    // constant, not a literal: the two dial paths are held equal by ONE value,
+    // so this test goes red if either path is repointed rather than only if
+    // someone remembers to edit the literal here too.
     expect(h.resolveBakedAgentDrv).toHaveBeenCalledWith(
-      "padi-agent",
+      PADI_REMOTE_DIAL.package,
       resolverContext,
     );
+    expect(PADI_REMOTE_DIAL.package).not.toBe(PADI_REMOTE_DIAL.binary);
   });
 
   it("(c) a source that cannot resolve padi becomes a terminal build fault", async () => {

@@ -86,6 +86,7 @@ sshConnector({
 // advertised guarantee green while ambient full-inherit became spellable again.
 void dialAgentOnce({
   host: "h",
+  package: "a",
   binary: "a",
   fatalPrefix: "a:",
   localEnv: {},
@@ -93,6 +94,7 @@ void dialAgentOnce({
 
 void dialAgentOnce({
   host: "h",
+  package: "a",
   binary: "a",
   fatalPrefix: "a:",
   // @ts-expect-error — `localEnv` may not be `undefined` on the one-shot dial either.
@@ -103,6 +105,7 @@ void dialAgentOnce(
   // @ts-expect-error — `localEnv` omitted on the one-shot dial: required, same as the connector.
   {
     host: "h",
+    package: "a",
     binary: "a",
     fatalPrefix: "a:",
   },
