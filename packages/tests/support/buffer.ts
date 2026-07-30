@@ -30,33 +30,6 @@ export function readBufferText(
   );
 }
 
-/**
- * Wait for the terminal's ON-SCREEN rows to contain the expected text.
- *
- * The viewport twin of {@link waitForBufferContains}, and the two are NOT
- * interchangeable: a terminal can hold the right bytes in its buffer while
- * showing the wrong window onto them (scrolled off the live bottom), which is
- * precisely how a split renders "broken" to a user. Only a viewport-scoped
- * read can fail on that, so assert with this one whenever the claim is
- * "the user can SEE it", not merely "it arrived".
- */
-export async function waitForViewportContains(
-  page: Page,
-  expected: string,
-  { selector = ACTIVE_TERMINAL, index = 0, timeout = POLL_TIMEOUT } = {},
-): Promise<string> {
-  const handle = await page.waitForFunction(
-    ({ sel, idx, exp }) => {
-      const content =
-        window.__readXtermBuffer?.(sel, idx, { viewport: true }) ?? "";
-      return content.includes(exp) ? content : null;
-    },
-    { sel: selector, idx: index, exp: expected },
-    { timeout, polling: 50 },
-  );
-  return (await handle.jsonValue()) ?? "";
-}
-
 /** Serializable discriminant for {@link readPerTerminal}: which per-terminal
  *  scalar to project off each inner xterm container. */
 type PerTerminalProbe = "cols" | "fontSize";
@@ -111,14 +84,23 @@ export function readPerTerminal(
 export async function waitForBufferContains(
   page: Page,
   expected: string,
-  { selector = ACTIVE_TERMINAL, index = 0, timeout = POLL_TIMEOUT } = {},
+  {
+    selector = ACTIVE_TERMINAL,
+    index = 0,
+    timeout = POLL_TIMEOUT,
+    // Narrow the read to the rows the user can actually SEE. The browser-side
+    // primitive already carries this option, so the two readings share one
+    // polling body here too — see `waitForViewportContains`.
+    viewport = false,
+  } = {},
 ): Promise<string> {
   const handle = await page.waitForFunction(
-    ({ sel, idx, exp }) => {
-      const content = window.__readXtermBuffer?.(sel, idx) ?? "";
+    ({ sel, idx, exp, vp }) => {
+      const content =
+        window.__readXtermBuffer?.(sel, idx, { viewport: vp }) ?? "";
       return content.includes(exp) ? content : null;
     },
-    { sel: selector, idx: index, exp: expected },
+    { sel: selector, idx: index, exp: expected, vp: viewport },
     { timeout, polling: 50 },
   );
   // The handle's predicate above returns either a non-null string (match)
@@ -126,4 +108,23 @@ export async function waitForBufferContains(
   // `jsonValue()` is structurally always a string by the time we read it.
   // The `?? ""` fallback satisfies the type checker without a `!`.
   return (await handle.jsonValue()) ?? "";
+}
+
+/**
+ * Wait for the terminal's ON-SCREEN rows to contain the expected text.
+ *
+ * The viewport twin of {@link waitForBufferContains} — same body, one argument
+ * different — kept as its own name because the distinction is load-bearing at
+ * call sites: a terminal can hold the right bytes in its buffer while showing
+ * the wrong window onto them (scrolled off the live bottom), which is precisely
+ * how a split renders "broken" to a user. Only a viewport-scoped read can fail
+ * on that, so assert with this one whenever the claim is "the user can SEE it",
+ * not merely "it arrived".
+ */
+export function waitForViewportContains(
+  page: Page,
+  expected: string,
+  opts: Parameters<typeof waitForBufferContains>[2] = {},
+): Promise<string> {
+  return waitForBufferContains(page, expected, { ...opts, viewport: true });
 }

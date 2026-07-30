@@ -40,7 +40,11 @@ import {
   createBackfillController,
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
-import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
+import {
+  type TerminalGrid,
+  Xterm,
+  type XtermHandle,
+} from "@kolu/xterm-kit/solid";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
@@ -201,7 +205,7 @@ const Terminal: Component<{
 
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
    *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
-  async function publishDimensions(size: { cols: number; rows: number }) {
+  async function publishDimensions(size: TerminalGrid) {
     const { cols, rows } = size;
     // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
     // longer needs suppressing here: kaval excludes resize repaints from its
