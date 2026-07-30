@@ -18,6 +18,15 @@
 #      missing `pkgs.gh` reference — `nix build .#kolu` is the gate; no CI
 #      glue required (CI already builds the binder on every platform).
 #
+# **What `agents` may NOT name.** The prove re-imports the assembled tree's own
+# `default.nix`, so an attr that transitively references *this helper's* own
+# `flakeSrc` re-enters the prove and stack-overflows. A consumer with such an
+# attr (kolu's `padi-agent` — a closure whose members bake the flake ref) exposes
+# it from the agent flake WITHOUT proving it, and proves the daemon graph that
+# closure is composed out of instead. The rule is a property of this mechanism,
+# not of any consumer's manifest, so it is stated here — where the next consumer
+# meets it before rediscovering it as a stack overflow.
+#
 # Location is structure: this lives next to `daemon-identity.nix` inside
 # `@kolu/surface-daemon`, so kolu today and drishti tomorrow cannot hand out an
 # agent-source bundle the framework has not evaluated an agent from. The

@@ -121,6 +121,7 @@ describe("dialAgentOnce: eager source-ref validation", () => {
   // session's retryable "network" classification.
   const base = {
     host: "nix@prod",
+    package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",
     localEnv: {},
@@ -154,6 +155,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
       localEnv: {},
@@ -168,10 +170,29 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     expect(h.resolveAgentDrv).toHaveBeenCalledWith(FLAKE_REF, "agent");
   });
 
+  it("resolves `package`, not `binary` — the closure, not the program", async () => {
+    // The two-behaviours bug: collapsing these meant a CLI dial provisioned a
+    // different closure than the long-lived binder for the SAME host. `package`
+    // is required precisely so no caller can leave this to a default.
+    fakeSession({});
+    await dialAgentOnce({
+      host: "nix@prod",
+      package: "agent-full",
+      binary: "agent",
+      fatalPrefix: "agent:",
+      localEnv: {},
+      probe: async () => undefined,
+    });
+    await sshOpts()?.resolveDrvPath(resolverContext);
+    expect(h.resolveAgentDrv).toHaveBeenCalledWith(FLAKE_REF, "agent-full");
+    expect(sshOpts()).toMatchObject({ binary: "agent" });
+  });
+
   it("threads extraArgs to the connector (the --kaval passthrough)", async () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
@@ -187,6 +208,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
@@ -202,6 +224,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      package: "widget",
       binary: "widget",
       fatalPrefix: "widget:",
       localEnv: {},
@@ -227,6 +250,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const dial = await dialAgentOnce({
       host: "nix@prod",
+      package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
       localEnv,
@@ -251,6 +275,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
@@ -306,6 +331,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
@@ -349,6 +375,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      package: "kaval",
       binary: "kaval",
       fatalPrefix: "kaval --stdio:",
       localEnv: {},
@@ -372,6 +399,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
@@ -390,6 +418,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
   // cross-destroys the other. These tests pin "one session per dial".
   const dialArgs = {
     host: "nix@prod",
+    package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",
     localEnv: {},

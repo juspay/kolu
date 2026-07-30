@@ -33,7 +33,9 @@ fixed path. You rarely name it:
 - **Inside a kolu terminal**, padi stamps `$PADI_SOCKET` (the `$TMUX` /
   `$KAVAL_SOCKET` convention) pointing at the padi that owns the terminal — so a
   flag-less `padi-tui` "just works", and an agent driving its siblings never
-  scans or guesses a path.
+  scans or guesses a path. padi also puts `padi-tui` itself on that terminal's
+  `$PATH`, from its own build, so this holds on a **remote** host too: nothing is
+  installed there, the binary rides the closure kolu provisions.
 - **Otherwise** padi-tui autodiscovers the running padi. If several are up it
   lists them and asks you to pick.
 

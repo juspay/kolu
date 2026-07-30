@@ -44,7 +44,14 @@ import {
   type PtyHostSpawnInput,
   type PtyHostSystemInfo,
 } from "kaval";
-import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
+import {
+  cleanEnv,
+  koluIdentityEnv,
+  prepareShellInit,
+  prependPathEntries,
+  readAgentToolsBake,
+  TERMINAL_TOOLS_PATH_ENV,
+} from "kolu-pty";
 import { log } from "../log.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
@@ -97,10 +104,16 @@ function kavalConvergencePolicy(): ConvergencePolicy<"not-drainable"> {
  *  spawned PTY with an unset/stale version. */
 let spawnServerVersion: string | undefined;
 
-/** The injected app version, or a loud crash if a spawn composed before boot set
- *  it. Fail-fast: a never-set read must surface, not silently stamp a blank
- *  `TERM_PROGRAM_VERSION`. */
-function requireSpawnServerVersion(): string {
+/** The injected app version, or a loud crash if a spawn is composed before boot
+ *  set it. Fail-fast: a never-set read must surface, not silently stamp a blank
+ *  `TERM_PROGRAM_VERSION`.
+ *
+ *  Called by {@link buildTerminalSpawnInput}, which gathers ALL the daemon's own
+ *  facts into a {@link TerminalEnvSpec}; `composeSpawnInput` reads the spec and
+ *  no globals. Exported so the boot-order guard can be pinned directly — its
+ *  sibling guard (the kaval socket) throws first inside the gatherer, so there is
+ *  no path that reaches this one through the public function. */
+export function requireSpawnServerVersion(): string {
   if (spawnServerVersion === undefined) {
     throw new Error(
       "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
@@ -385,6 +398,34 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 }
 
 /**
+ * What this daemon must put in a terminal's environment for the terminal to
+ * reach back at it — the spawn policy's *what*, as one value.
+ *
+ * Every member is a fact only the running daemon holds (the sockets it serves
+ * on, the toolchain from its own build), which is why they are handed to the
+ * composer as data rather than read from globals inside it: `composeSpawnInput`
+ * stays pure and the set is enumerable in one place instead of growing another
+ * positional parameter each time a terminal needs to know one more thing about
+ * its host. `buildTerminalSpawnInput` is the one place the values are gathered.
+ */
+export interface TerminalEnvSpec {
+  /** The kaval this terminal will live in — stamped as `KAVAL_SOCKET`. */
+  kavalSocket: string;
+  /** The padi that owns it — stamped as `PADI_SOCKET` when known. */
+  padiSocket?: string;
+  /** Tool dirs to put on `PATH`, highest priority first; `[]` when this daemon
+   *  was never baked with a toolchain. Required, with `[]` as the honest empty:
+   *  the only producer (`readAgentToolsBake`) cannot return `undefined`, so an
+   *  optional marker would add a representable state that means nothing.
+   *  (`padiSocket?` is genuinely optional — its producer really can be unset.) */
+  toolsPath: readonly string[];
+  /** The kolu-server version this daemon reports — stamped as
+   *  `TERM_PROGRAM_VERSION`. A daemon fact like the rest, so the composer reads
+   *  it off the spec rather than off a module global. */
+  serverVersion: string;
+}
+
+/**
  * Compose the fully-specified spawn input the pty-host wire expects, from kolu's
  * spawn policy applied against the host's facts. Pure (no IO): the env is
  * layered least → most authoritative —
@@ -403,6 +444,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *      terminal (an agent driving its siblings) reach the daemon that owns it
  *      without scanning `/tmp` — and, on macOS where `$XDG_RUNTIME_DIR` is unset,
  *      without guessing the port-namespaced path at all.
+ *   6. `PATH` + `KOLU_TERMINAL_TOOLS_PATH` — the daemon's own client toolchain
+ *      (`spec.toolsPath`). The locators above only pay off if the tools that
+ *      READ them can be run: a socket in the env is useless to an agent whose
+ *      shell has no `padi-tui` and no `kolu` to speak it. This is the one layer
+ *      that MERGES with (rather than stomps) what came before — the dirs are
+ *      prepended to the inherited `PATH`, so the user's own tools all still
+ *      resolve, kolu's just win a name collision.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -414,14 +462,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 export function composeSpawnInput(
   args: { id: string; cwd?: string },
   info: PtyHostSystemInfo,
-  kavalSocket: string,
-  padiSocket?: string,
+  spec: TerminalEnvSpec,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
-  Object.assign(env, koluIdentityEnv(requireSpawnServerVersion()));
+  Object.assign(env, koluIdentityEnv(spec.serverVersion));
   const plan = prepareShellInit({
     shell,
     home,
@@ -438,13 +485,27 @@ export function composeSpawnInput(
   // stamp doesn't need to STOMP an inherited value, it simply IS the value.
   // Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
   env.KAVAL_TERMINAL_ID = args.id;
-  env.KAVAL_SOCKET = kavalSocket;
+  env.KAVAL_SOCKET = spec.kavalSocket;
+  // The toolchain (docblock item 6). Two assignments, one fact: the dirs go on
+  // PATH for anything the terminal runs, and the joined value is stamped under
+  // its own name so the wrapper rcfile can re-assert it after the user's
+  // dotfiles replay (an absolute `export PATH=…` there would otherwise drop it —
+  // see kolu-pty's PATH_REASSERT). Both are skipped when there are no dirs, so a
+  // from-source daemon spawns exactly the env it does today.
+  //
+  // Stamped under the TERMINAL name, never the BAKE name a wrapper writes: a
+  // kolu launched from inside this terminal must not read the stamp as its own
+  // build's toolchain. See kolu-pty's two constants.
+  if (spec.toolsPath.length > 0) {
+    env.PATH = prependPathEntries(env.PATH, spec.toolsPath);
+    env[TERMINAL_TOOLS_PATH_ENV] = spec.toolsPath.join(":");
+  }
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
   // so the /kolu agent-drives-agent loop runs `padi-tui wait` flagless. Stamped
   // only when known (padi's own serving socket, recorded at boot); an absent value
   // just makes padi-tui autodiscover, so this never blocks a spawn.
-  if (padiSocket !== undefined) env.PADI_SOCKET = padiSocket;
+  if (spec.padiSocket !== undefined) env.PADI_SOCKET = spec.padiSocket;
   return {
     id: args.id,
     argv: [shell, ...plan.args],
@@ -478,14 +539,23 @@ export async function buildTerminalSpawnInput(args: {
       "local kaval socket path read before the endpoint recorded it at boot",
     );
   }
-  // padi's own serving socket, recorded at boot by `daemonMain`
-  // (`setPadiServeSocketPath`), stamped as `PADI_SOCKET`. Optional (see
+  // The rest of the spec is gathered here — the one place the daemon's own facts
+  // are collected — so `composeSpawnInput` stays a pure function of its inputs.
+  //
+  // padi's own serving socket is recorded at boot by `daemonMain`
+  // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
   // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
   // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
-  return composeSpawnInput(
-    args,
-    await hostInfo(),
+  // `readAgentToolsBake()` needs no guard for the opposite reason: a from-source
+  // daemon has no baked toolchain and says so by returning `[]`.
+  //
+  // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
+  // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
+  // is gathered here with the rest, so the composer reads no globals of its own.
+  return composeSpawnInput(args, await hostInfo(), {
     kavalSocket,
-    getPadiServeSocketPath(),
-  );
+    padiSocket: getPadiServeSocketPath(),
+    toolsPath: readAgentToolsBake(),
+    serverVersion: requireSpawnServerVersion(),
+  });
 }

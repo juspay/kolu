@@ -128,7 +128,12 @@ c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim             
 
 **Usually no flag.** padi keys its socket by a digest of its state-root, so
 inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
-driving its siblings never guesses a path. Elsewhere it autodiscovers the running
+driving its siblings never guesses a path. padi also puts the tools themselves on
+that terminal's `$PATH` — `padi-tui`, `kaval-tui`, and the `kolu` whose `mcp`
+face agents connect to — taken from padi's own build. On a **remote** host they
+arrive in the closure kolu provisions, so an agent working there has the whole
+loop available with nothing installed on the box, and can never end up holding a
+tool from a different build than the daemon it is talking to. Elsewhere it autodiscovers the running
 padi; `--socket <path>` or `--state-root <dir>` point it at a different local
 daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
 [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh): it provisions the
