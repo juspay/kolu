@@ -65,10 +65,13 @@ const DARWIN_SUN_PATH_LEN: usize = 104;
 /// vec for both would hand the caller the dangerous one.
 pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Result<Vec<u64>, ()> {
     let mut lines = table.split(|&b| b == b'\n');
-    // The kernel's own header, and the only evidence available that what was
-    // read IS the table. `parse_proc_net` applies the same rule to
-    // `/proc/net/tcp` for the same reason.
-    if !lines.next().is_some_and(|header| contains(header, b"Inode")) {
+    // The kernel's own header, in full and in order — the only evidence
+    // available that what was read IS this table, and therefore the only thing
+    // that may authorize `Ok(empty)`, which linux promotes to proof of absence.
+    // A substring search for one token is NOT that evidence: `garbage Inode
+    // garbage` would pass it, parse to no rows, and hand back the affirmative
+    // answer. `parse_proc_net` applies the same header rule to `/proc/net/tcp`.
+    if !lines.next().is_some_and(is_unix_table_header) {
         return Err(());
     }
     let mut out = Vec::new();
@@ -83,8 +86,20 @@ pub fn unix_socket_inodes(table: &[u8], path: &[u8]) -> Result<Vec<u64>, ()> {
     Ok(out)
 }
 
-fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|w| w == needle)
+/// The column names `/proc/net/unix` prints, in order. Matched whole so a
+/// document that merely mentions one of them cannot pose as the table.
+const UNIX_TABLE_COLUMNS: [&[u8]; 8] = [
+    b"Num", b"RefCount", b"Protocol", b"Flags", b"Type", b"St", b"Inode", b"Path",
+];
+
+fn is_unix_table_header(header: &[u8]) -> bool {
+    let mut columns = header
+        .split(|&b| b == b' ' || b == b'\t' || b == b'\r')
+        .filter(|field| !field.is_empty());
+    UNIX_TABLE_COLUMNS
+        .iter()
+        .all(|want| columns.next() == Some(want))
+        && columns.next().is_none()
 }
 
 /// One table row → `(inode, path)`, or `None` for a row that carries neither
@@ -277,7 +292,19 @@ ffff9a0000000005: 00000002 00000000 00010000 0001 01 41236 /tmp/carriage\r\n";
     /// become the affirmative *nobody holds it*.
     #[test]
     fn a_document_that_is_not_the_table_is_refused_not_read_as_empty() {
-        for not_a_table in [&b""[..], b"\n", b"garbage\n", b"Num RefCount Protocol\n"] {
+        for not_a_table in [
+            &b""[..],
+            b"\n",
+            b"garbage\n",
+            b"Num RefCount Protocol\n",
+            // A counterfeit: it MENTIONS the token a substring check looks
+            // for, so it would pass one and hand back absence.
+            b"garbage Inode garbage\n",
+            // The real columns, out of order.
+            b"Num RefCount Protocol Flags Type St Path Inode\n",
+            // The real columns plus one the kernel does not print.
+            b"Num RefCount Protocol Flags Type St Inode Path Extra\n",
+        ] {
             assert!(
                 unix_socket_inodes(not_a_table, b"/run/a.sock").is_err(),
                 "{not_a_table:?} must not read as a table with no matching row"

@@ -422,10 +422,14 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
 /// share, and it is reported rather than hidden: Apple gates another user's
 /// descriptors, so **a walk that named nobody may simply have been blind**.
 /// That is precisely the [`BLIND_OR_EMPTY`](osfacts::BLIND_OR_EMPTY)
-/// condition, and it is emitted exactly when it is decision-relevant — the
-/// walk was partial AND nothing was claimed. A walk that named a holder
-/// answered the question; extra hidden holders cannot make that answer wrong,
-/// and the caller's handshake is what picks the listener out of the set.
+/// condition, and it is emitted whenever the walk named nobody —
+/// UNCONDITIONALLY, not only when some pid was observed to deny us. Gating it
+/// on a witnessed denial made the answer depend on whether an unrelated
+/// inaccessible process happened to exist, and on a host where every process
+/// is readable it would manufacture linux's proof of absence out of a walk
+/// that structurally cannot have it. A walk that named a holder answered the
+/// question; extra hidden holders cannot make that answer wrong, and the
+/// caller's handshake is what picks the listener out of the set.
 ///
 /// There is deliberately no `unclaimed` row here. Linux can say "the socket is
 /// bound but no readable pid claims it" because its table is authoritative;

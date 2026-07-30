@@ -533,10 +533,17 @@ function waitForSocket(
  *  in-process serve (a test's in-process daemon) would be — and must never be a
  *  kill target.
  *
- *  `h.pid === process.pid` is spelled HERE AND NOWHERE ELSE in this file, which
- *  is the point: if "our own process" ever gains a second component (a pid AND
- *  a start time, as the daemon-identity gate already qualifies it), that is one
- *  edit rather than a hunt across the recovery's read sites.
+ *  This is the KILL-corroboration filter specifically, and that is the whole of
+ *  its remit. Self-detection is legitimate elsewhere and the recovery does spell
+ *  it elsewhere — to REFUSE a skew served by this process, and to NAME us in a
+ *  refusal message — because those are not kill decisions. Applying this filter
+ *  at identification is precisely the bug that let an in-process serve read as
+ *  an empty holder set, and be reported `free`.
+ *
+ *  Keeping the KILL filter in one place is still the point: if "our own
+ *  process" ever gains a second component (a pid AND a start time, as the
+ *  daemon-identity gate already qualifies it), that is one edit here rather
+ *  than a hunt across the recovery's corroboration sites.
  *
  *  It takes the READING, not the reader, so the caller that must keep the three
  *  answers apart (`recoverGatelessSquatter`, and the squatter error's `detail`)
@@ -930,10 +937,12 @@ export function createEndpoint<
   // three-way reading), then proves what it is
   // over the SAME handshake the adopt path trusts, returning a FOUR-way outcome the
   // caller acts on:
-  //   - `free`     → the socket is PROVEN not accepting (nothing holds it), or it is
-  //                  held only by our OWN process (an in-process serve): nothing to
-  //                  recover (the caller spawns, or falls to a next rendezvous). An
-  //                  accepting socket we cannot attribute is NOT `free` — it fails loud.
+  //   - `free`     → the socket is PROVEN not accepting: a fresh probe found it
+  //                  dead or absent, so the caller may spawn (or fall to a next
+  //                  rendezvous). NOTHING else earns this outcome — an accepting
+  //                  socket we cannot attribute fails loud, and so does one held
+  //                  by our OWN process, because `free` is what sends the caller
+  //                  to spawn and a second daemon must never land on a live socket.
   //   - `adopted`  → a COMPATIBLE gate-less holder: its already-proven connection is
   //                  HELD directly (PTYs preserved), so the caller reconciles the session.
   //   - `refused`  → a SKEW under the REFUSE policy (padi #1313): left STANDING and

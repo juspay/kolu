@@ -40,8 +40,7 @@ export function errnoOf(err: unknown): string | undefined {
   const code = (err as { code?: unknown })?.code;
   return typeof code === "string" ? code : undefined;
 }
-/**
-
+/** The ONE exit status that still carries a document — the binary's documented
  *  total-failure path, "write the V line and its E rows, then exit 1". */
 const DOCUMENT_BEARING_EXIT = 1;
 
