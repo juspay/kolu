@@ -86,6 +86,33 @@ Feature: Session restore
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
+  # Split / parented terminals are first-class restore rows: their agents resume
+  # with the rest of the session, and the restore card lists every saved terminal
+  # (no "+N splits" collapse). The host owns the resumable set; the client only
+  # opts out. Regression: the client used to filter `!parentId` out of the resume
+  # opt-in, so a split's agent was never resumed and its restoreTarget was wiped.
+  @codex-mock @kaval-restart
+  Scenario: A split terminal's agent resumes on session restore
+    # Agent is mocked in the focused SPLIT (create-sub focuses it). Tile
+    # titlebar chrome only paints the main pane's agent, so we do not assert
+    # tile chrome here — the restore payoff is the by-id resume invocation
+    # landing in a restored PTY (same assertion as sleeping-terminals.feature).
+    Given the terminal is ready
+    When I create a sub-terminal via command palette
+    And a Codex session is mocked with state "waiting"
+    When I wait for the session auto-save
+    And the kaval daemon is killed
+    Then the degraded canvas is shown
+    When I restart kaval from the degraded canvas
+    Then the daemon returns to running
+    And the session restore card should be visible
+    And the restore button should mention "resume 1 agent"
+    When I click the restore button
+    Then there should be 1 workspace switcher entries
+    And the restored split sub-terminal should be visible
+    And a restored terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
+    And there should be no page errors
+
   # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)
   # surface as a "resume M agents" suffix on the restore button, with each
   # command shown beneath its terminal. A single "Resume agent sessions" toggle

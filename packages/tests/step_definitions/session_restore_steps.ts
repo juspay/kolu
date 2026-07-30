@@ -173,6 +173,46 @@ When(
 );
 
 Then(
+  "a restored terminal should replay the agent resume invocation {string}",
+  async function (this: KoluWorld, resumeInvocation: string) {
+    // After session.restore every terminal has a FRESH id, so we cannot scope
+    // by a pre-restart id. Scan every live xterm buffer for the resume form
+    // the host typed into the PTY — proof a split's agent actually resumed
+    // (a bare shell would show nothing of the kind).
+    try {
+      await this.page.waitForFunction(
+        (exp) => {
+          const nodes = document.querySelectorAll(
+            "[data-terminal-id][data-font-size]",
+          );
+          for (const n of nodes) {
+            const content =
+              (
+                window as unknown as {
+                  __readXtermBuffer?: (sel: string, idx: number) => string;
+                }
+              ).__readXtermBuffer?.(
+                `[data-terminal-id="${n.getAttribute("data-terminal-id")}"][data-font-size]`,
+                0,
+              ) ?? "";
+            if (content.includes(exp)) return true;
+          }
+          return false;
+        },
+        resumeInvocation,
+        { timeout: POLL_TIMEOUT, polling: 50 },
+      );
+    } catch (err) {
+      throw new Error(
+        `No restored terminal replayed resume invocation "${resumeInvocation}" ` +
+          `— a split agent that was filtered out of the resume set would show exactly this.`,
+        { cause: err },
+      );
+    }
+  },
+);
+
+Then(
   "there should be {int} workspace switcher entries",
   async function (this: KoluWorld, expected: number) {
     const entries = this.page.locator(DOCK_ROW_SELECTOR);

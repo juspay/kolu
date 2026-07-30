@@ -276,8 +276,17 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  the usual reason — a newer binder against an old 4.3 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
  *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
- *  (which would be a missing-procedure error, not a graceful absence). */
-export const PADI_SURFACE_VERSION = "4.4";
+ *  (which would be a missing-procedure error, not a graceful absence).
+ *
+ *  4.5 (RESHAPED procedure input · minor): `session.restore` / `session.import`
+ *  replace client-built `resumeIds?: string[]` with host-owned intent
+ *  `{ resumeAgents?: boolean (default true), optOutIds?: string[] }`, and the
+ *  saved-session cell stamps wire-only `resumableIds` (membership the client
+ *  may only subtract from). Not additive — a 4.4 peer that still speaks
+ *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
+ *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
+ *  give: convergence + minor-rule drain keeps the two shapes from meeting. */
+export const PADI_SURFACE_VERSION = "4.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -787,20 +796,27 @@ export const PadiPreviewReadOutputSchema = z.object({
 });
 
 /** `session.restore` — restore the persisted session server-side (padi's boot
- *  reconcile + restore, replacing the client respawn loop in W1.R). `resumeIds`
- *  is the per-terminal agent-resume opt-in set; a terminal absent from it wakes
- *  to a bare shell. */
+ *  reconcile + restore, replacing the client respawn loop in W1.R).
+ *
+ *  The wire carries INTENT, not a client-built id list: the host owns the
+ *  resumable set (stamped on the saved session as `resumableIds`) and the client
+ *  may only subtract from it (opt-outs). Resume yes/no + opt-outs of the
+ *  host-served set — never a client-filtered membership list. */
 export const PadiSessionRestoreInputSchema = z.object({
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** When true, resume every host-resumable agent except those in `optOutIds`.
+   *  Default true so import / bare restore resume all. */
+  resumeAgents: z.boolean().default(true),
+  /** Subset of the host-served resumable set the user opted out of. */
+  optOutIds: z.array(z.string()).optional(),
 });
 
 /** `session.import` — replace the persisted session with an imported blob (the
  *  diagnostic "Import session" flow, moved host-side), then restore it. */
 export const PadiSessionImportInputSchema = z.object({
   session: SavedSessionSchema,
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
+  resumeAgents: z.boolean().default(true),
+  optOutIds: z.array(z.string()).optional(),
 });
 
 // ── The surface ───────────────────────────────────────────────────────────
