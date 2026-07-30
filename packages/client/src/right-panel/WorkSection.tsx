@@ -101,6 +101,28 @@ const RepoIdentityChip: Component<{ name: string; color: string }> = (
   </span>
 );
 
+/** Branch identity chip — hue frame + optional worktree glyph. A component,
+ *  not inline JSX, for the same reason its repo peer is one: props compile to
+ *  getters, so there is no expression inside the `<Show>` body that an editor
+ *  could snapshot into a `const` and re-freeze the chips with. */
+const BranchIdentityChip: Component<{
+  branch: string;
+  isWorktree: boolean;
+  color: string;
+}> = (props) => (
+  <span
+    class="fleet-hue-chip"
+    style={{ "--chip-hue": props.color }}
+    title={props.isWorktree ? "worktree" : undefined}
+    data-testid="inspector-branch"
+  >
+    <Show when={props.isWorktree}>
+      <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
+    </Show>
+    <span class="truncate font-semibold">{props.branch}</span>
+  </span>
+);
+
 const WorkSection: Component<{
   meta: TerminalMetadata;
 }> = (props) => {
@@ -162,30 +184,16 @@ const WorkSection: Component<{
   return (
     <Section title="Work" accent="border-accent">
       <div class="space-y-1.5">
-        {/* Identity chips: branch (+worktree glyph) · repo · PR · CI rollup.
-         *  `inspector-branch` sits on the BRANCH chip alone — not a wrapper
-         *  around branch+repo — so the e2e seam that asserts "the branch is on
-         *  screen" reads only the branch's own text. On the wrapper, a rendered
-         *  repo name alone would satisfy a non-empty assertion and an empty
-         *  branch would pass. */}
+        {/* Identity chips: branch (+worktree glyph) · repo · PR · CI rollup. */}
         <div class="flex flex-wrap items-center gap-1.5">
-          {/* Every read below goes through the `id()` accessor. Assigning any
-           *  of them to a `const` here re-freezes the chips — this body is
-           *  built once and outlives every terminal switch. */}
           <Show when={identity()}>
             {(id) => (
               <>
-                <span
-                  class="fleet-hue-chip"
-                  style={{ "--chip-hue": id().annotationColor }}
-                  title={id().git.isWorktree ? "worktree" : undefined}
-                  data-testid="inspector-branch"
-                >
-                  <Show when={id().git.isWorktree}>
-                    <WorktreeIcon class="h-3 w-3 shrink-0 opacity-60" />
-                  </Show>
-                  <span class="truncate font-semibold">{id().git.branch}</span>
-                </span>
+                <BranchIdentityChip
+                  branch={id().git.branch}
+                  isWorktree={id().git.isWorktree}
+                  color={id().annotationColor}
+                />
                 <RepoIdentityChip
                   name={id().git.repoName}
                   color={id().repoColor}
@@ -269,15 +277,17 @@ const WorkSection: Component<{
           )}
         </Show>
 
-        <Show when={props.meta.git}>
-          {(git) => (
+        {/* Repo paths — gated on the SAME `identity()` accessor the chips read,
+         *  so the file has exactly one "git is present" gate. */}
+        <Show when={identity()}>
+          {(id) => (
             <Disclosure summary="Repo paths">
               <Row label="Root">
-                <span class="font-mono text-fg-3">{git().mainRepoRoot}</span>
+                <span class="font-mono text-fg-3">{id().git.mainRepoRoot}</span>
               </Row>
-              <Show when={git().isWorktree}>
+              <Show when={id().git.isWorktree}>
                 <Row label="Worktree">
-                  <span class="font-mono text-fg-3">{git().repoRoot}</span>
+                  <span class="font-mono text-fg-3">{id().git.repoRoot}</span>
                 </Row>
               </Show>
             </Disclosure>

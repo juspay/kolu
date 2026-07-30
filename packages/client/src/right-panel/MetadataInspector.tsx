@@ -12,12 +12,9 @@
  *  The panel is organized in three tiers of attention (the inspector revamp):
  *  - **State** leads: `AgentStatusCard` answers "does it need me?" in semantic
  *    color before anything is read.
- *  - **Identity** is compact: Directory + Git + Pull Request merge into one
- *    "Work" cluster of chips + a path, since they tell one story.
- *  - **Reference** folds: the per-check CI list, repo paths, and the whole
- *    Attach section live behind disclosures — and expansion follows
- *    *exceptions* (a failing/pending check list auto-expands, exceptions
- *    sorted first; an all-green list collapses to a rollup chip). */
+ *  - **Identity** is compact: the Work cluster (see `WorkSection.tsx`, which
+ *    owns what it shows and how it folds).
+ *  - **Reference** folds: the whole Attach section lives behind a disclosure. */
 
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
