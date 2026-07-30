@@ -68,6 +68,7 @@ import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
+import { judgeSnapshotGrid } from "./snapshotGrid";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
@@ -477,6 +478,21 @@ const Terminal: Component<{
     // attempt and the grid it is only valid for are one thing, not two.
     let requestedGrid: TerminalGrid | null = null;
 
+    /** Does a snapshot answered by the current attempt still describe this pane?
+     *  The rule itself lives in `snapshotGrid.ts`, stated once and tested there. */
+    const answersCurrentGrid = (): boolean =>
+      judgeSnapshotGrid(requestedGrid, h.grid()) === "accept";
+
+    /** Aborts the in-flight attempt so its `consumeReattachingStream` loop ends,
+     *  then starts one fresh loop. Used from the xterm write callback, which
+     *  cannot throw into the iterator the way the frame handler can. */
+    let attemptAbort: AbortController | null = null;
+    const reopenForStaleGrid = () => {
+      attemptAbort?.abort();
+      resetForFreshSnapshot();
+      openAttachStream();
+    };
+
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
     // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
@@ -520,12 +536,21 @@ const Terminal: Component<{
             throw new Error(msg);
           }
           requestedGrid = measured;
+          // Per-ATTEMPT abort, chained to the component's unmount signal. A
+          // snapshot that only turns out to be stale once it has PARSED lands in
+          // an xterm write callback, which cannot throw into the iterator the way
+          // the frame handler can — so that path ends its attempt by aborting
+          // this, then reopens explicitly.
+          attemptAbort = new AbortController();
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             // `resizeTo`, not a description of this pane: the host resizes the
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
-            { signal, onRetry: resetForFreshSnapshot },
+            {
+              signal: AbortSignal.any([signal, attemptAbort.signal]),
+              onRetry: resetForFreshSnapshot,
+            },
           );
         },
         (frame) => {
@@ -544,16 +569,17 @@ const Terminal: Component<{
           // thunk above, which reads the CURRENT grid. Its 300ms backoff bounds
           // the loop, and a pane that has stopped resizing converges on its first
           // reopen.
-          const current = h.grid();
-          if (
-            frame.kind === "snapshot" &&
-            requestedGrid &&
-            current &&
-            (current.cols !== requestedGrid.cols ||
-              current.rows !== requestedGrid.rows)
-          ) {
+          //
+          // This is the FIRST of two checks. Receipt is not the moment the bytes
+          // land: `h.write` parses asynchronously, and under scroll lock the
+          // chunk is buffered until unlock — an unbounded delay in which the pane
+          // can still resize. So the write callback re-checks (see there); this
+          // one is the cheap guard that stops the common case before a single
+          // byte is written or any backfill state is touched.
+          if (frame.kind === "snapshot" && !answersCurrentGrid()) {
+            const current = h.grid();
             throw new Error(
-              `terminal ${props.terminalId}: snapshot answered ${requestedGrid.cols}x${requestedGrid.rows}, pane is now ${current.cols}x${current.rows} — reopening`,
+              `terminal ${props.terminalId}: snapshot answered ${requestedGrid?.cols}x${requestedGrid?.rows}, pane is now ${current?.cols}x${current?.rows} — reopening`,
             );
           }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
@@ -613,6 +639,21 @@ const Terminal: Component<{
             // that rides this callback survives the lock instead of being dropped.
             h.write(data, () => {
               h.recovery.noteData();
+              // SECOND grid check — this is where the bytes actually landed.
+              // Receipt is not that moment: the write above parses
+              // asynchronously, and scroll lock stashes the chunk until unlock,
+              // which the user controls. A pane that resized inside that window
+              // has just had a snapshot for the OLD grid parsed into it, so the
+              // seed computed from those bytes must not be committed (it would
+              // anchor backfill to a layout the buffer no longer has) and the
+              // screen must be repainted from a snapshot for the grid it now is.
+              // The frame handler's throw is unavailable here — this runs in an
+              // xterm callback, not the iterator — so the attempt is aborted and
+              // reopened explicitly instead.
+              if (commitSeed && !answersCurrentGrid()) {
+                reopenForStaleGrid();
+                return;
+              }
               // Seed the backfill cursor now that this snapshot has landed in the
               // buffer (see the note above the write) — undefined, hence a no-op,
               // for a plain delta frame, which carries no `topLine`.
