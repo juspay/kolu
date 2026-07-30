@@ -629,38 +629,6 @@ retirements:
       file: packages/tests/features/dock.feature
       symbol: "Scenario: Cmd+1 activates the first dock row (recency-sorted)"
       test: The retained browser journey reaches the same production surface.
-  - id: retire-796e1ee003d3e06c1130
-    revisionId: revision-796e1ee003d3e06c1130
-    action: retain-smoke
-    status: landed
-    promise: a bug-repro video larger than the old limit reaches the PTY
-    defectSurface:
-      - file-drop
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-be175fd7459a1ea5159b
-    sameCodePathEvidence:
-      file: packages/tests/features/file-drop.feature
-      symbol: "Scenario: dropped file path is delivered to the PTY"
-      test: The retained browser journey reaches the same production surface.
-  - id: retire-5f3e709f21acf05fc3da
-    revisionId: revision-5f3e709f21acf05fc3da
-    action: retain-smoke
-    status: landed
-    promise: a dropped video file is accepted and its path reaches the PTY
-    defectSurface:
-      - file-drop
-      - user-journey
-    destinationLayer: L5
-    replacements: []
-    survivorRevisionIds:
-      - revision-be175fd7459a1ea5159b
-    sameCodePathEvidence:
-      file: packages/tests/features/file-drop.feature
-      symbol: "Scenario: dropped file path is delivered to the PTY"
-      test: The retained browser journey reaches the same production surface.
   - id: retire-f91128018d71c82f50b5
     revisionId: revision-f91128018d71c82f50b5
     action: replace
