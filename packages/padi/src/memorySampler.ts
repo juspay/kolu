@@ -7,12 +7,12 @@
  *
  * padi owns kaval now (it supervises the kaval PROCESS), so padi is the source of
  * the rail's per-host memory readout — the axis kolu-server's in-process sampler
- * served before the W2.2 cutover. Every tick it reads its OWN resident-set size
- * (`process.memoryUsage().rss`, always available — it is measuring itself) and
- * polls kaval's RSS over `system.processMemory` EXACTLY as kolu-server's old
- * sampler did: only when the daemon is connected (else the honest `absent`), and a
- * poll that throws on a BELIEVED-connected daemon is surfaced as the distinct
- * `error` state, never collapsed into the same `absent` shape as "no daemon".
+ * served before the W2.2 cutover. Every tick asks the baked osfacts binary for the
+ * exact padi pid and, when connected, the pid from kaval's pid-first gate. One
+ * `snapshot --pids … --mem` replaces both padi's self-measurement and the old RPC
+ * hop into kaval. An honestly absent/raced-away kaval remains `absent`; unreadable
+ * RSS and binary/contract failures surface as the distinct `error` arm; gate
+ * invariant failures reject the read and reach the cell's declared error policy.
  * kolu-server folds this reading into the rail's cell; the client never subscribes
  * to it directly.
  *
@@ -20,9 +20,19 @@
  * so a coarser tick than the client's 1s heap read is plenty live.
  */
 
+import { readGateIdentity } from "@kolu/surface-daemon";
+import {
+  bakedOsFactsBin,
+  OsfactsClientError,
+  snapshotPids,
+  type SnapshotReading,
+} from "osfacts-client";
 import { log } from "./log.ts";
-import { readDaemonStatus } from "./ptyHost/daemonStatus.ts";
-import { ptyHostClient } from "./ptyHost/index.ts";
+import {
+  getLocalSocketPath,
+  readDaemonStatus,
+} from "./ptyHost/daemonStatus.ts";
+import { kavalGatePath } from "./ptyHost/localDriver.ts";
 import type { PadiProcessMemory, ProcessRss } from "./vocab.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
 
@@ -31,38 +41,91 @@ import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
  *  a 5s poll is plenty live without chattering at the daemon. */
 export const MEMORY_SAMPLE_INTERVAL_MS = 5_000;
 
-/** Poll kaval's RSS as the honest three-way. `absent` when there is no connected
- *  daemon to measure (the expected "no value", read off the daemon-status store —
- *  never a thrown poll against a down daemon); `ok` when a connected daemon
- *  answered `system.processMemory`; `error` when a BELIEVED-connected daemon's poll
- *  threw (surfaced — logged ERROR — and reported distinctly, so a failed RPC never
- *  renders identically to "no daemon"). */
-async function pollKavalRss(): Promise<ProcessRss> {
+function connectedKavalPid(): number | undefined {
   if (
     readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.state !== "connected"
   ) {
-    return { status: "absent" };
+    return undefined;
   }
-  try {
-    const { rss } = await ptyHostClient.surface.system.processMemory({});
-    return { status: "ok", rssBytes: rss };
-  } catch (err) {
-    log.error({ err }, "kaval processMemory poll failed");
-    return { status: "error" };
+
+  const socketPath = getLocalSocketPath();
+  if (socketPath === undefined) {
+    throw new Error("connected kaval has no recorded socket path");
+  }
+  const gatePath = kavalGatePath(socketPath);
+  const gate = readGateIdentity(gatePath);
+  switch (gate.kind) {
+    case "ok":
+      return gate.pid;
+    case "absent":
+      throw new Error(`connected kaval gate is absent at ${gatePath}`);
+    case "malformed":
+      throw new Error(`connected kaval gate is malformed at ${gatePath}`);
+    case "unreadable":
+      throw new Error(
+        `connected kaval gate is unreadable at ${gatePath} — refusing to sample an unproven pid`,
+      );
+    default:
+      return gate satisfies never;
   }
 }
 
-/** Take one reading — padi's own RSS (always `ok`, it measures itself) plus
- *  kaval's honest three-way. The poll READ of padi's derived `processMemory` cell
+function processRss(
+  reading: SnapshotReading,
+  pid: number,
+  processName: "padi" | "kaval",
+): ProcessRss {
+  const row = reading.memory.find((value) => value.pid === pid);
+  if (row !== undefined) return { status: "ok", rssBytes: row.rssBytes };
+
+  const unreadable = reading.unreadable.find(
+    (value) => value.pid === pid && value.facet === "mem",
+  );
+  if (
+    processName === "kaval" &&
+    (unreadable?.errno === "ESRCH" || unreadable?.errno === "ENOENT")
+  ) {
+    return { status: "absent" };
+  }
+  const sourceErrors = reading.errors.filter((value) => value.facet === "mem");
+  if (unreadable !== undefined || sourceErrors.length > 0) {
+    log.error(
+      { pid, processName, unreadable, sourceErrors },
+      `${processName} osfacts RSS read failed`,
+    );
+    return { status: "error" };
+  }
+  throw new Error(`osfacts returned no RSS fact for ${processName} pid ${pid}`);
+}
+
+/** Take one osfacts reading for padi and its connected kaval. The poll READ of
+ *  padi's derived `processMemory` cell
  *  (`servePadi.ts`: `derived.cell(source({ read: samplePadiMemory, install }))`).
  *  The reactor owns the loop the hand-rolled sampler used to: the T+0 seed read,
  *  the non-overlap guard, and later-read log-skip-continue — so this is just the
  *  pure read, and `MEMORY_SAMPLE_INTERVAL_MS` is the caller-owned cadence. */
 export async function samplePadiMemory(): Promise<PadiProcessMemory> {
-  const padi: ProcessRss = {
-    status: "ok",
-    rssBytes: process.memoryUsage().rss,
+  const kavalPid = connectedKavalPid();
+  const pids = kavalPid === undefined ? [process.pid] : [process.pid, kavalPid];
+  let reading: SnapshotReading;
+  try {
+    reading = await snapshotPids(bakedOsFactsBin("KOLU_OSFACTS_BIN"), pids, {
+      mem: true,
+    });
+  } catch (err) {
+    if (!(err instanceof OsfactsClientError)) throw err;
+    log.error({ err, pids }, "osfacts memory snapshot failed");
+    return {
+      padi: { status: "error" },
+      kaval:
+        kavalPid === undefined ? { status: "absent" } : { status: "error" },
+    };
+  }
+  return {
+    padi: processRss(reading, process.pid, "padi"),
+    kaval:
+      kavalPid === undefined
+        ? { status: "absent" }
+        : processRss(reading, kavalPid, "kaval"),
   };
-  const kaval = await pollKavalRss();
-  return { padi, kaval };
 }

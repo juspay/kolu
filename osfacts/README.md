@@ -208,8 +208,8 @@ Two lanes. Two questions. Both block merge.
 
 | in | out (later) |
 | --- | --- |
-| OSF1–3, OSF6–7: procs, listeners, RSS, start, CPU µs, uid, cwd, status, argv, host telemetry | OSF8: kolu adopts new facets (memory sampling, pid+start identity, start-qualified daemon ownership) across daemon upgrade windows |
-| TSV + `--json`; mandatory `U`/`E` rows | socket-holder lookup; further consumer migrations |
+| OSF1–3, OSF6–8: procs, listeners, RSS, start, CPU µs, uid, cwd, status, argv, host telemetry; kolu port, memory, and start-qualified identity consumers | socket-holder lookup; further consumer migrations |
+| TSV + `--json`; mandatory `U`/`E` rows | drishti adoption + extraction |
 | incubates in kolu monorepo (this dir = future repo root) | extract when second external consumer (drishti) pins it |
 
 Plan of record (every claim + number measured):  

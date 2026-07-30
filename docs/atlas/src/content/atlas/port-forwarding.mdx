@@ -280,7 +280,7 @@ listening TCP sockets against each subtree:
 
 - **both platforms** — one spawn of the baked **osfacts** binary
   (`KOLU_OSFACTS_BIN`, via `osfacts-client`) with `--roots` over the terminal
-  root pids. Versioned TSV (`V 1`, then `P` / `L` / `U` rows); raw network-order
+  root pids. Versioned TSV (`V 2`, then `P` / `L` / `U` rows); raw network-order
   bind-address hex; padi's `addressBind` is the single scope/family judge.
   A `U` on a *requested* root is a blind scan (never an empty port list); a `U`
   on a descendant is skipped (the sudo lesson). Non-root sees own-uid pids only

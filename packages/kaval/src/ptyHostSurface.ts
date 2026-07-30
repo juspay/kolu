@@ -180,8 +180,16 @@ import { z } from "zod";
  *  degrades to the status quo), there is no graceful degradation for an absent
  *  stream live-activity cutover depends on — so the minor bump correctly
  *  force-recycles a surviving old kaval (its session parks + restores) rather than
- *  leave a consumer talking to a stream that isn't there. */
-export const PTY_HOST_CONTRACT_VERSION = "5.3";
+ *  leave a consumer talking to a stream that isn't there.
+ *
+ *  Bumped to 6.0 (BREAKING · major): `system.processMemory` is REMOVED after padi
+ *  moved both its own and kaval's RSS reads to one baked osfacts `--mem` call. A
+ *  5.3 client meeting a 6.0 daemon would call a missing procedure; a 6.0 client
+ *  meeting a 5.3 daemon simply leaves a dead member unused. Only a major rejects
+ *  both directions, so rollback never waves the missing-procedure direction
+ *  through. `system.version` is byte-for-byte unchanged — its exact schema pin
+ *  remains the frozen handshake used before compatibility is judged. */
+export const PTY_HOST_CONTRACT_VERSION = "6.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -383,15 +391,6 @@ const SystemHeartbeatOutputSchema = z.object({
   ts: z.number(),
 });
 
-/** The daemon's resident-set size (`process.memoryUsage().rss`, bytes) at reply
- *  time — its own atomic verb so it changes for its own reason (what
- *  process-memory facts the rail wants), independent of `system.heartbeat`'s
- *  pure liveness round-trip. The server folds `rss` onto the rail's kaval memory
- *  readout. */
-const SystemProcessMemoryOutputSchema = z.object({
-  rss: z.number(),
-});
-
 /** Host facts a client reads once per connection to compose spawn policy for
  *  *this* host — including one it isn't running on (the R-2 remote enabler).
  *  `shell`/`home` are the host's login shell and `$HOME`; `platform` is its
@@ -584,12 +583,6 @@ export const ptyHostSurface = defineSurface({
     system: {
       version: { input: z.object({}), output: SystemVersionOutputSchema },
       heartbeat: { input: z.object({}), output: SystemHeartbeatOutputSchema },
-      /** The daemon's own process RSS — its own atomic verb so liveness and
-       *  process-memory observability change for unrelated reasons (3.2). */
-      processMemory: {
-        input: z.object({}),
-        output: SystemProcessMemoryOutputSchema,
-      },
       /** Host facts for client-side spawn-policy composition (B0). */
       info: { input: z.object({}), output: SystemInfoOutputSchema },
     },
