@@ -166,9 +166,12 @@ export type StreamingProcedure<I, O> = (
  *  shared state backwards. Invisible and harmless while every input is a stable
  *  key, which is why it is recorded here rather than only at the consumer that
  *  first hit it. Either keep the input a stable key, or have the consumer
- *  re-state the live fact on its own authoritative channel once each fresh
- *  snapshot lands (`client/src/terminal/Terminal.tsx`'s `reassertGrid` is the
- *  worked example). */
+ *  REFUSE an answer that was computed for the stale fact and reopen the stream
+ *  — kolu's terminal attach is the worked example: it remembers the grid it
+ *  asked at, drops a snapshot answering any other grid, and its re-attach thunk
+ *  re-reads the live grid on every open (`client/src/terminal/Terminal.tsx`).
+ *  Painting the stale answer and correcting afterwards does NOT work: the
+ *  damage (scrollback wrapped at the wrong width) is already done. */
 export function unenrolledStreamCall<I, O>(
   procedure: StreamingProcedure<I, O>,
   input: I,

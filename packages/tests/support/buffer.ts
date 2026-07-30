@@ -124,7 +124,13 @@ export async function waitForBufferContains(
 export function waitForViewportContains(
   page: Page,
   expected: string,
-  opts: Parameters<typeof waitForBufferContains>[2] = {},
+  // Every option EXCEPT `viewport` — this helper IS the viewport reading, so a
+  // caller spelling `{ viewport: false }` would be silently overridden below.
+  // Omitting it makes the contradiction a type error instead.
+  opts: Omit<
+    NonNullable<Parameters<typeof waitForBufferContains>[2]>,
+    "viewport"
+  > = {},
 ): Promise<string> {
   return waitForBufferContains(page, expected, { ...opts, viewport: true });
 }

@@ -1367,8 +1367,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // then deltas; a first frame that isn't a snapshot is a contract violation —
     // throw rather than silently paint a blank terminal (the same fail-loud
     // stance as `getScreenState`'s NOT_FOUND).
-    // The resize is consumed by the FIRST open only — it is not replayed by the
-    // overflow-driven re-attaches below.
+    // The resize is a PARAMETER of the open, not state: only the initial attach
+    // below passes one, and the overflow-driven re-attaches call `open()` bare.
     //
     // `resizeTo` is a VALUE captured when this attach was requested, but the
     // consumer's real grid is a live fact: after any resize it travels on
@@ -1380,12 +1380,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // correct precisely because the initial attach already sized the terminal
     // and `lifecycle.resize` has owned every change since, so the PTY is already
     // at the consumer's current size and the fresh snapshot serializes there.
-    let pendingResize = resizeTo;
-    const open = async (): Promise<OpenedAttach> => {
-      const initialResize = pendingResize;
-      pendingResize = undefined;
+    const open = async (openAt?: TerminalGrid): Promise<OpenedAttach> => {
       const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id, resizeTo: initialResize },
+        { id, resizeTo: openAt },
         { signal },
       );
       const iter = stream[Symbol.asyncIterator]();
@@ -1416,7 +1413,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       };
     };
 
-    const initial = await open();
+    const initial = await open(resizeTo);
     // The deltas survive a slow-subscriber drop: on kaval's `overflow` frame the
     // loop re-attaches for a fresh snapshot instead of ending (which would freeze
     // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
@@ -1424,7 +1421,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
-      deltas: reattachingDeltas(open, initial.iter),
+      // Re-attaches carry NO resize (see above) — `open()` with no argument.
+      deltas: reattachingDeltas(() => open(), initial.iter),
     };
   }
 }

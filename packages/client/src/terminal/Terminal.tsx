@@ -41,6 +41,7 @@ import {
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
 import {
+  sameGrid,
   type TerminalGrid,
   Xterm,
   type XtermHandle,
@@ -69,7 +70,6 @@ import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
 import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
-import { judgeSnapshotGrid } from "./snapshotGrid";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
@@ -463,9 +463,11 @@ const Terminal: Component<{
     // a re-derivation of the rule beside the rule.
     h.onceMeasured(() => openAttachStream());
 
-    // The ONE publisher of this pane's grid → the PTY. `grid` is value-compared
-    // inside the kit, so this fires exactly once per REAL grid change — the
-    // initial fit included — and never for a re-fit that measured nothing new.
+    // The ONE publisher of this pane's grid CHANGES → the PTY. (The attach's own
+    // `resizeTo` states the grid the pane OPENS at; every change after that
+    // travels here.) `grid` is value-compared inside the kit, so this fires
+    // exactly once per REAL grid change — the initial fit included — and never
+    // for a re-fit that measured nothing new.
     // Driving it from the signal rather than a second `onResize` callback door
     // means "who states this pane's size" has a single answer.
     createEffect(
@@ -474,16 +476,9 @@ const Terminal: Component<{
       }),
     );
 
-    // The grid THIS attach attempt asked the host to serialize at. Written by the
-    // thunk on every open, read by the snapshot frame that answers it — so an
-    // attempt and the grid it is only valid for are one thing, not two.
-    // Supersession for restartable attach loops. The restart below is triggered
-    // from an xterm write callback, but the iterator behind the loop settles
-    // later and exposes no completion to await — so the old loop is always still
-    // alive when its replacement starts. Rather than try to sequence that
-    // teardown, every attempt holds its OWN state (grid, abort) in its closure
-    // and asks the gate whether it is still the live one; superseded work is
-    // simply dropped. See `attachAttempts.ts`.
+    // Supersession for restartable attach loops: every attempt holds its OWN
+    // state in its closure and asks the gate whether it is still the live one.
+    // See `attachAttempts.ts`.
     const attempts = createAttemptGate();
 
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
@@ -506,23 +501,39 @@ const Terminal: Component<{
       // re-subscribing on the successor's behalf. Component unmount still ends
       // every attempt through the same signal.
       const attemptSignal = AbortSignal.any([signal, abort.signal]);
+      /** The grid THIS attach attempt asked the host to serialize at. Written by
+       *  the thunk on every open, read by the snapshot frame that answers it — so
+       *  an attempt and the grid it is only valid for are one thing, not two. */
       let requestedGrid: TerminalGrid | null = null;
 
+      /** Live = still the current attempt AND not torn down. `isCurrent()` alone
+       *  stays true forever when no successor opens, so an unmounted pane's
+       *  scroll-lock-stashed callback would still act. */
+      const attemptLive = () => attempt.isCurrent() && !attemptSignal.aborted;
+
       // Every effect this attempt can still fire after supersession, guarded in
-      // one place. The reset hooks matter most: an old loop resetting the screen
-      // would wipe the successor's authoritative snapshot.
-      const resetIfCurrent = onlyWhenCurrent(attempt, resetForFreshSnapshot);
-      const noteDataIfCurrent = onlyWhenCurrent(attempt, () =>
-        h.recovery.noteData(),
+      // one place — keyed on the LIVE predicate, so it is inert after unmount
+      // too. The reset hooks matter most: an old loop resetting the screen would
+      // wipe the successor's authoritative snapshot.
+      const resetIfLive = onlyWhenCurrent(
+        { isCurrent: attemptLive },
+        resetForFreshSnapshot,
       );
 
-      /** Does a snapshot answered by THIS attempt still describe the pane? The
-       *  rule lives in `snapshotGrid.ts`, stated once and tested there. */
-      const answersCurrentGrid = (): boolean =>
-        judgeSnapshotGrid(requestedGrid, h.grid()) === "accept";
+      /** Does a snapshot answered by THIS attempt still describe the pane?
+       *
+       *  An absent side ANSWERS: with nothing to compare there is no evidence of
+       *  a mismatch, and refusing on ignorance would livelock the reopen loop
+       *  rather than protect anything. The reachable absences are both benign —
+       *  no request has been made yet, or the pane has been disposed and its grid
+       *  released. */
+      const answersCurrentGrid = (): boolean => {
+        const current = h.grid();
+        return !requestedGrid || !current || sameGrid(requestedGrid, current);
+      };
 
       /** End this loop and start exactly one replacement. Guarded by
-       *  `isCurrent()` at every call site, so several superseded callbacks
+       *  `attemptLive()` at every call site, so several superseded callbacks
        *  reaching here produce ONE successor, not a cascade. */
       const reopenForStaleGrid = () => {
         abort.abort();
@@ -573,7 +584,7 @@ const Terminal: Component<{
               // successor's. Its reset hook is guarded for the same reason: a
               // superseded attempt's retry must not wipe the successor's screen.
               signal: attemptSignal,
-              onRetry: resetIfCurrent,
+              onRetry: resetIfLive,
             },
           );
         },
@@ -582,7 +593,7 @@ const Terminal: Component<{
           // iterator settles later, so frames already queued behind it still
           // arrive here — and consuming one would paint into a terminal the
           // successor has already reset.
-          if (!attempt.isCurrent()) return;
+          if (!attemptLive()) return;
           // REFUSE a snapshot that answers a grid this pane no longer has.
           //
           // A snapshot is bytes laid out for the grid it was serialized at, and
@@ -599,12 +610,10 @@ const Terminal: Component<{
           // the loop, and a pane that has stopped resizing converges on its first
           // reopen.
           //
-          // This is the FIRST of two checks. Receipt is not the moment the bytes
-          // land: `h.write` parses asynchronously, and under scroll lock the
-          // chunk is buffered until unlock — an unbounded delay in which the pane
-          // can still resize. So the write callback re-checks (see there); this
-          // one is the cheap guard that stops the common case before a single
-          // byte is written or any backfill state is touched.
+          // This is the FIRST of two checks — the cheap guard that stops the
+          // common case before a single byte is written or any backfill state is
+          // touched. Receipt is not when the bytes LAND, so the write callback
+          // re-checks; the why is stated in full there.
           if (frame.kind === "snapshot" && !answersCurrentGrid()) {
             const current = h.grid();
             throw new Error(
@@ -667,10 +676,14 @@ const Terminal: Component<{
             // buffered write parses on unlock — so the snapshot re-seed committer
             // that rides this callback survives the lock instead of being dropped.
             h.write(data, () => {
-              // Guarded: a superseded attempt's stashed callback must not report
-              // activity for a stream nobody is reading (which would arm the
-              // render-stall watchdog against the successor's paint).
-              noteDataIfCurrent();
+              // A superseded (or unmounted) attempt's stashed callback does
+              // NOTHING: it would report activity for a stream nobody is reading
+              // (arming the render-stall watchdog against the successor's paint),
+              // commit a seed belonging to a dead attempt, or restart the loop a
+              // second time. The guard is FIRST, ahead of `noteData`, so none of
+              // those effects can precede it.
+              if (!attemptLive()) return;
+              h.recovery.noteData();
               // SECOND grid check — this is where the bytes actually landed.
               // Receipt is not that moment: the write above parses
               // asynchronously, and scroll lock stashes the chunk until unlock,
@@ -681,12 +694,8 @@ const Terminal: Component<{
               // screen must be repainted from a snapshot for the grid it now is.
               // The frame handler's throw is unavailable here — this runs in an
               // xterm callback, not the iterator — so the attempt is aborted and
-              // reopened explicitly instead.
-              // A superseded attempt's stashed callbacks must not act either:
-              // they would commit a seed belonging to a dead attempt, or restart
-              // the loop a second time. The first stale callback installs the one
-              // replacement; the rest are already superseded and return here.
-              if (!attempt.isCurrent()) return;
+              // reopened explicitly instead. The first stale callback installs
+              // the one replacement; the rest are superseded by the guard above.
               if (commitSeed && !answersCurrentGrid()) {
                 reopenForStaleGrid();
                 return;
@@ -698,7 +707,7 @@ const Terminal: Component<{
             });
           }
         },
-        resetIfCurrent,
+        resetIfLive,
         attemptSignal,
         "Terminal attach",
       );

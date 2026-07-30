@@ -28,6 +28,7 @@ import {
   onCleanup,
   splitProps,
 } from "solid-js";
+import { sameGrid, type TerminalGrid } from "./grid";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
@@ -43,11 +44,9 @@ import { createXtermLifecycle, type XtermCore } from "./xtermLifecycle";
 /** The scroll-lock latch instance shape (structural — no exported nominal). */
 export type ScrollLock = ReturnType<typeof createScrollLock>;
 
-/** A terminal grid — cols × rows. */
-export interface TerminalGrid {
-  cols: number;
-  rows: number;
-}
+// The grid value + its equality (`./grid`), re-exported here so `TerminalGrid`
+// still reads as the component's own vocabulary at every import site.
+export { sameGrid, type TerminalGrid } from "./grid";
 
 /** `@xterm/addon-fit`'s own clamp floor (`MINIMUM_COLS` / `MINIMUM_ROWS`).
  *  `proposeDimensions()` never returns anything below it, so a proposal AT the
@@ -164,7 +163,7 @@ export const Xterm: Component<
   // lands on the same cols×rows doesn't notify — consumers gate real work on
   // this, and a re-fit that measured nothing new is not an event.
   const [grid, setGrid] = createSignal<TerminalGrid | null>(null, {
-    equals: (a, b) => a?.cols === b?.cols && a?.rows === b?.rows,
+    equals: (a, b) => (a && b ? sameGrid(a, b) : a === b),
   });
 
   /** Fit to the container's current box, and record the grid IF one could be
@@ -206,7 +205,16 @@ export const Xterm: Component<
       proposed.rows <= FIT_ADDON_MIN_ROWS
     )
       return;
-    core.addons.fit.fit();
+    // Only call `fit()` when the proposal actually differs from what the
+    // terminal already has: `fit()` re-runs `proposeDimensions()` internally and
+    // then no-ops on unchanged dims, so an unguarded call resolves styles twice
+    // per animation frame per visible pane on the resize / divider-drag hot path
+    // to reach the same outcome.
+    if (
+      proposed.cols !== core.terminal.cols ||
+      proposed.rows !== core.terminal.rows
+    )
+      core.addons.fit.fit();
     // Read the grid back off the terminal rather than trusting `proposed`: fit()
     // is the one authority on what it applied, so the fact we publish is the
     // grid the terminal actually HAS.
