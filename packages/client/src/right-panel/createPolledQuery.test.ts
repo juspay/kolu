@@ -156,6 +156,46 @@ describe("createPolledQuery", () => {
     expect(result.p).toBe(false);
   });
 
+  it("explicit refresh marks the retained value pending until a fresh read lands", async () => {
+    const result = await new Promise<{
+      before: unknown;
+      held: unknown;
+      pending: boolean;
+      after: unknown;
+      calls: number;
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        let calls = 0;
+        let value = "old";
+        const { live, pulseProc } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: async () => {
+            calls += 1;
+            return value;
+          },
+        });
+        await flush();
+        const before = q();
+        value = "fresh";
+        q.refresh();
+        const held = q();
+        const pending = q.pending();
+        await flush();
+        resolve({ before, held, pending, after: q(), calls });
+        dispose();
+      });
+    });
+    expect(result.before).toBe("old");
+    expect(result.held).toBe("old");
+    expect(result.pending).toBe(true);
+    expect(result.after).toBe("fresh");
+    expect(result.calls).toBe(2);
+  });
+
   it("input change requeries with the new input", async () => {
     const result = await new Promise<{
       before: unknown;

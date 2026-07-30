@@ -54,7 +54,6 @@
 
 import type { CodeTabView } from "@kolu/padi/surface";
 import { scopedByEntry } from "@kolu/surface-map/client";
-import type { Subscription } from "@kolu/surface/solid";
 import { ORPCError } from "@orpc/client";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
@@ -65,7 +64,11 @@ import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
-import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
+import {
+  createPolledQuery,
+  type PolledQuery,
+  type PolledQueryConfig,
+} from "./createPolledQuery";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 
@@ -117,7 +120,7 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
       PolledQueryConfig<Input, { repoPath: string }, unknown, Result>,
       "live" | "pulseHost" | "active" | "pulseProc" | "pulseInput"
     >,
-  ): Subscription<Result> {
+  ): PolledQuery<Result> {
     return createPolledQuery({
       ...config,
       ...authorities,
@@ -311,6 +314,15 @@ export const codeAllPaths = windowedSub(
   (v) => v,
   undefined,
 );
+
+/** Force the active host's browse inventory to be read after a user intent.
+ * Returns false only during the brief no-active-scope removal race. */
+export function refreshCodeAllPaths(): boolean {
+  const query = activeHostCodeTab()?.allPaths;
+  if (!query) return false;
+  query.refresh();
+  return true;
+}
 export const codeIgnoredPaths = windowedSub(
   () => activeHostCodeTab()?.ignoredPaths,
   (v) => v,

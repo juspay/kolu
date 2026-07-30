@@ -32,9 +32,10 @@
  *     (input, host) key, so a fresh-reference-but-equal-value input on the same
  *     host never blanks (a #1714-class trap, armed since #1652, closed here).
  *
- * The returned handle is a `Subscription<Result>` — a callable accessor with
- * `.pending` / `.error` — identical to what `app.streams.X.use(...)` returned,
- * so `q()`, `q.pending()`, `q.error()` all read verbatim downstream.
+ * The returned handle is a `PolledQuery<Result>` — the same callable accessor
+ * with `.pending` / `.error`, plus an explicit `.refresh()` for user intents
+ * that must close a read-before-watch race before deciding against the current
+ * snapshot (for example, resolving a just-printed terminal file reference).
  *
  * The blank-on-host-switch above is the STANDALONE behavior (`active` defaults to
  * always-on). For the Code tab, `hostCodeTab` instead builds ONE instance per host
@@ -108,9 +109,16 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   active?: Accessor<boolean>;
 }
 
+export interface PolledQuery<Result> extends Subscription<Result> {
+  /** Re-read the current active input without blanking its last value. Pending
+   *  rises until that fresh read lands, so a caller can defer a decision that
+   *  must not be made against the retained snapshot. No-op while idle/paused. */
+  refresh: () => void;
+}
+
 export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   config: PolledQueryConfig<Input, PulseInput, Pulse, Result>,
-): Subscription<Result> {
+): PolledQuery<Result> {
   const {
     input,
     live,
@@ -136,6 +144,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // stream-backed subscription) would see "not complete" forever even after the
   // pulse genuinely stopped.
   const [complete, setComplete] = createSignal(false);
+  const [refreshTick, setRefreshTick] = createSignal(0);
 
   /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
    *  Routing the pulse (watcher-install) failure here, not to a separate
@@ -215,7 +224,7 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   );
 
   createEffect(
-    on([active, inputState], ([isActive, { i, key }]) => {
+    on([active, inputState, refreshTick], ([isActive, { i, key }]) => {
       // The previous run's `onCleanup` (pulse abort) has already run. While PAUSED
       // (this host is not the shown one), the pulse is torn down — no background
       // polling — and the held value + `pending` + `shownKey` are FROZEN for a later
@@ -296,7 +305,15 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     error,
     pending,
     complete,
-  }) as Subscription<Result>;
+    refresh: () => {
+      if (!active() || inputState().i === null) return;
+      // Keep the last value painted, but tell decision-making consumers that
+      // it is not authoritative until the forced read lands. Bumping the tick
+      // reopens the same-key poll; its eager read closes the race.
+      setPending(true);
+      setRefreshTick((tick) => tick + 1);
+    },
+  }) as PolledQuery<Result>;
 
   // Drive `onError` off the self-clearing `error()` EDGE via the shared
   // `@kolu/surface/solid` helper (the exact wiring `createSubscription` itself

@@ -79,6 +79,7 @@ import {
   codeDiff,
   codeIgnoredPaths,
   codeLocalStatus,
+  refreshCodeAllPaths,
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -412,6 +413,12 @@ const CodeTab: Component<{
   // (non-reactive) variable: it is only read/written inside the effect and
   // must survive the effect's re-runs, so it is not a tracked dependency.
   let consumedRequest: OpenInCodeTabRequest | null = null;
+  // A retained browse inventory can be one frame older than a file-ref the
+  // terminal has just printed: the file write may land in the read-before-watch
+  // window. On a miss, force exactly one post-intent read before declaring the
+  // reference absent. Key by request identity so a real miss still terminates
+  // with one toast, while a later click gets its own fresh proof.
+  let refreshedMiss: OpenInCodeTabRequest | null = null;
 
   // Highlight-session record for the latest handled pendingOpen tick. Holds
   // the full request object (reference identity discriminates two
@@ -459,11 +466,6 @@ const CodeTab: Component<{
         if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== req.targetMode || isPending) return;
-        // Committed to handling this request on this tick — mark it consumed
-        // before resolution so any re-run (terminal round-trip, treePaths
-        // settling) can't reprocess it, even after a manual tree-click has
-        // reset `handled`.
-        consumedRequest = req;
         const resolved = resolveRef({
           rawPath: req.ref.path,
           repoRoot: repo,
@@ -476,10 +478,21 @@ const CodeTab: Component<{
           hasLine: req.ref.startLine !== null,
         });
         if (resolved === null) {
+          if (refreshedMiss !== req) {
+            refreshedMiss = req;
+            if (refreshCodeAllPaths()) return;
+          }
+          // The post-intent read also missed: this is now an authoritative
+          // not-found result rather than a stale retained snapshot.
+          consumedRequest = req;
           toast.error(`File reference not found: ${req.ref.path}`);
           setHandled({ request: req, resolvedPath: null });
           return;
         }
+        // Committed to handling this request on this tick. Mark it consumed
+        // only after resolution (and any one-time refresh) so the fresh
+        // inventory tick can finish the same request.
+        consumedRequest = req;
         if (resolved.kind === "directory") {
           // A folder ref reveals (expands + scrolls to) the directory in the
           // tree without changing the shown file — selection stays put, and

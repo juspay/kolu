@@ -141,7 +141,12 @@ import {
   removeHost,
   resetHosts,
 } from "../hostScope/mockHostMap.testlib";
-import { codeAllPaths, codeFileContent, codeLocalStatus } from "./hostCodeTab";
+import {
+  codeAllPaths,
+  codeFileContent,
+  codeLocalStatus,
+  refreshCodeAllPaths,
+} from "./hostCodeTab";
 import { setShowIgnoredFiles } from "./showIgnoredFiles";
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -412,7 +417,7 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
 
     const settled = codeAllPaths();
     expect(settled?.paths).toEqual(["src/app.ts"]);
-    const queriesBefore = bag.counts.listAll;
+    const queriesBefore = bag.counts.listAll ?? 0;
     // Guard against a vacuous pass: if the mock were never reached, the
     // equality assertions below would compare `undefined` to `undefined`.
     expect(queriesBefore).toBeGreaterThan(0);
@@ -431,5 +436,22 @@ describe("hostCodeTab — per-host query ownership (padi W9)", () => {
     expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
     expect(codeAllPaths.pending()).toBe(false);
     expect(bag.counts.listAll).toBe(queriesBefore);
+  });
+
+  it("an explicit active-host inventory refresh keeps the tree painted while proving a fresh snapshot", async () => {
+    switchTo(HOST_A);
+    void codeAllPaths.pending();
+    await flush();
+
+    const queriesBefore = bag.counts.listAll ?? 0;
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(refreshCodeAllPaths()).toBe(true);
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(codeAllPaths.pending()).toBe(true);
+
+    await flush();
+    expect(bag.counts.listAll).toBe(queriesBefore + 1);
+    expect(codeAllPaths()?.paths).toEqual(["src/app.ts"]);
+    expect(codeAllPaths.pending()).toBe(false);
   });
 });
