@@ -624,12 +624,14 @@ let
 
     echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
     found_kolu=0
-    found_tui=0
+    found_kaval_tui=0
+    found_padi_tui=0
     IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
     for d in "''${dirs[@]}"; do
       [ -z "$d" ] && continue
       [ -e "$d/kolu" ] && found_kolu=1
-      [ -e "$d/kaval-tui" ] && found_tui=1
+      [ -e "$d/kaval-tui" ] && found_kaval_tui=1
+      [ -e "$d/padi-tui" ] && found_padi_tui=1
     done
     if [ "$found_kolu" != 1 ]; then
       echo "FAIL: no 'kolu' on the composed KOLU_AGENT_TOOLS_PATH — a local" >&2
@@ -637,8 +639,17 @@ let
       echo "clobbers this one is the known cause." >&2
       exit 1
     fi
-    if [ "$found_tui" != 1 ]; then
+    # Both TUIs, not just one: they arrive together from `agentToolPackages`
+    # today, so a proof that names only `kaval-tui` would stay green if
+    # `padi-tui` were dropped from that list — leaving local terminals able to
+    # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
+    if [ "$found_kaval_tui" != 1 ]; then
       echo "FAIL: no 'kaval-tui' on the composed KOLU_AGENT_TOOLS_PATH." >&2
+      exit 1
+    fi
+    if [ "$found_padi_tui" != 1 ]; then
+      echo "FAIL: no 'padi-tui' on the composed KOLU_AGENT_TOOLS_PATH — a local" >&2
+      echo "terminal could not run the 'padi-tui wait' done-signal loop." >&2
       exit 1
     fi
   '';
@@ -836,6 +847,82 @@ let
     nativeBuildInputs = [ pkgs.makeWrapper ];
     postBuild = ''
       wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin"
+
+      # ── The composed-wrapper proof, IN the derivation that is DIALED ─────────
+      # `padi-agent` — not `padi`, not `default` — is what BOTH dial paths
+      # provision onto a host, so it is where the remote guarantee has to be
+      # proven. Without this, dropping `default` (the `kolu` binary) or a TUI
+      # from `paths=` above still BUILDS, still evaluates green in
+      # `ci::agent-flake-nix` (which only forces `drvPath`), and still passes
+      # every TypeScript test (they all inject the bake directly) — failing only
+      # much later, on a real remote host, when an agent's `.mcp.json` cannot
+      # run `kolu mcp`. That is the same class of hole the LOCAL `default` arm
+      # closed after a one-word wrapper bug shipped green; the remote arm is the
+      # primary product of this change and gets the same proof, at the same
+      # altitude, spelled the same way.
+      #
+      # Two facts, because the bake is a self-reference and either half can rot
+      # independently: (1) `$out/bin` really carries the three programs, and
+      # (2) the wrapped `padi` a remote actually execs resolves a bake that
+      # NAMES a directory carrying them — an inner `--set` that clobbers the
+      # outer one would leave (1) true and (2) false.
+      for b in kolu kaval-tui padi-tui; do
+        if [ ! -e "$out/bin/$b" ]; then
+          echo "FAIL: padi-agent has no '$b' in its own bin/ — a REMOTE agent" >&2
+          echo "provisioned with this closure could not run it. Check that" >&2
+          echo "'paths' still carries 'default' and every agentToolPackages entry." >&2
+          exit 1
+        fi
+      done
+
+      # Neutralise each wrapper's final `exec …` so sourcing runs only the env
+      # prelude, then chain them in the real order: outer (wrapProgram's, above)
+      # → inner (the `padi` wrapper it wraps). Assert the shape BEFORE relying
+      # on it — the same guard the local proof uses: if nixpkgs' makeWrapper ever
+      # stops emitting exactly one `^exec ` line the `sed` would match nothing
+      # and this proof would fail OPEN, running the real `padi` in the sandbox
+      # instead of asserting anything.
+      for w in $out/bin/padi $out/bin/.padi-wrapped; do
+        if [ "$(grep -c '^exec ' "$w")" != 1 ]; then
+          echo "FAIL: $w has no single '^exec ' line — makeWrapper's output shape" >&2
+          echo "changed, and this check would silently fail open. Fix the sed." >&2
+          exit 1
+        fi
+      done
+      sed 's|^exec .*||' $out/bin/padi > "$TMPDIR/padi-agent-outer.sh"
+      sed 's|^exec .*||' $out/bin/.padi-wrapped > "$TMPDIR/padi-agent-inner.sh"
+      . "$TMPDIR/padi-agent-outer.sh"
+      . "$TMPDIR/padi-agent-inner.sh"
+
+      echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
+      remote_kolu=0
+      remote_kaval_tui=0
+      remote_padi_tui=0
+      IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+      for d in "''${agent_dirs[@]}"; do
+        [ -z "$d" ] && continue
+        [ -e "$d/kolu" ] && remote_kolu=1
+        [ -e "$d/kaval-tui" ] && remote_kaval_tui=1
+        [ -e "$d/padi-tui" ] && remote_padi_tui=1
+      done
+      if [ "$remote_kolu" != 1 ]; then
+        echo "FAIL: no 'kolu' on the composed KOLU_AGENT_TOOLS_PATH of the padi" >&2
+        echo "a remote host is dialed with — an agent in a terminal on that host" >&2
+        echo "could not run 'kolu mcp'. An inner-wrapper --set that clobbers this" >&2
+        echo "one is the known cause." >&2
+        exit 1
+      fi
+      if [ "$remote_kaval_tui" != 1 ]; then
+        echo "FAIL: no 'kaval-tui' on the composed KOLU_AGENT_TOOLS_PATH — a" >&2
+        echo "terminal on a remote host could not attach to its siblings." >&2
+        exit 1
+      fi
+      if [ "$remote_padi_tui" != 1 ]; then
+        echo "FAIL: no 'padi-tui' on the composed KOLU_AGENT_TOOLS_PATH — a" >&2
+        echo "terminal on a remote host could not run the 'padi-tui wait'" >&2
+        echo "done-signal loop." >&2
+        exit 1
+      fi
     '';
     meta.mainProgram = "padi";
   };

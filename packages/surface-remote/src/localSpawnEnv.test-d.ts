@@ -4,6 +4,10 @@
  * UNSPELLABLE (never a review catch). `tsc` GREEN over this file ⇒ the guarantee
  * holds; making `localEnv` optional (or `| undefined`) would compile the
  * `@ts-expect-error` lines below and fail the pin — reopening the seam #1880 left.
+ *
+ * The file pins every field whose OPTIONALITY would silently restore a fixed bug,
+ * not just `localEnv`: `dialAgentOnce`'s `package` is here for the same reason —
+ * see its case at the bottom.
  */
 import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
@@ -108,5 +112,21 @@ void dialAgentOnce(
     package: "a",
     binary: "a",
     fatalPrefix: "a:",
+  },
+);
+
+// `package` is required for the same reason and pinned the same way: it names the
+// flake ATTR to provision, while `binary` names the program to exec inside it. A
+// future `package?: string` defaulting to `binary` would silently reintroduce the
+// two-closures bug — a host dialed with one attr built and another attr's binary
+// run — with every pin above still green. Omit ONLY `package` here, so that
+// regression is a compile error rather than a review catch.
+void dialAgentOnce(
+  // @ts-expect-error — `package` omitted on the one-shot dial: the provisioned attr is required, never derived from `binary`.
+  {
+    host: "h",
+    binary: "a",
+    fatalPrefix: "a:",
+    localEnv: {},
   },
 );

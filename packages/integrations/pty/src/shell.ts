@@ -717,10 +717,23 @@ function selectShellInit(shell: string): ShellInit | null {
  * holds if it comes AFTER. PROMPT_COMMAND in env doesn't work because the
  * user's rc would overwrite it.
  *
- * The PATH re-assert needs no argument: it reads `$KOLU_AGENT_TOOLS_PATH` from
- * the env the caller already composed, and no-ops when that is unset. So it is
+ * The PATH re-assert needs no argument: it reads `TERMINAL_TOOLS_PATH_ENV`
+ * (`$KOLU_TERMINAL_TOOLS_PATH`) — the STAMP that padi's `composeSpawnInput`
+ * already put in this terminal's env — and no-ops when that is unset. So it is
  * emitted unconditionally rather than gated on an option — one less knob, and
  * the rcfile stays a pure function of the shell, not of spawn policy.
+ *
+ * It must NOT read the BAKE name (`AGENT_TOOLS_BAKE_ENV` /
+ * `$KOLU_AGENT_TOOLS_PATH`): that name is written only by nix wrappers, so a
+ * daemon started INSIDE a kolu terminal would read that terminal's stamp as its
+ * own bake and hand a foreign build's tools to every terminal it then spawns —
+ * the tool/daemon skew the two-name split exists to abolish.
+ *
+ * Only bash and zsh get this: `selectShellInit` returns a plan for those two and
+ * `null` for everything else, so fish and friends keep the spawn-env prepend
+ * alone (best effort — an absolute `set -x PATH` in `config.fish` still drops
+ * the tools). The docs state that bound explicitly rather than promising it
+ * everywhere.
  *
  * `rcDir` is the *host's* directory where the per-terminal bashrc / ZDOTDIR
  * will be written — passed in (from the host's `system.info`) so the returned

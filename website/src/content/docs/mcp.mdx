@@ -37,8 +37,10 @@ to install if you already run kolu; no browser involved.
 
 1. Make sure the `kolu` binary is on your PATH — if you installed kolu with the
    home-manager module, it already is (the module puts `kolu` on PATH by
-   default), and **inside a kolu terminal it always is**, on your own machine
-   and on a remote host alike (see [Inside a kolu
+   default), and **inside a kolu terminal it is put there for you**, on your own
+   machine and on a remote host alike — and in bash and zsh it is re-applied
+   after your dotfiles run, so a `PATH=` line can't remove it (fish and other
+   shells get it at spawn only; see [Inside a kolu
    terminal](#inside-a-kolu-terminal)). Then register the
    server with your agent:
 
@@ -88,6 +90,13 @@ The tools it gets are the ones from the **same build** as the daemon serving it 
 they arrive in the closure kolu copies to the host when it dials, so a tool and
 its daemon can never disagree about the wire between them. Your own `PATH` is
 untouched apart from these names taking precedence.
+
+One bound worth stating plainly: **in bash and zsh** kolu re-applies its `PATH`
+entries *after* your dotfiles have run, so an absolute `PATH=…` line in
+`~/.bashrc` or `~/.zshrc` cannot quietly remove the tools. **In fish and any
+other shell** the tools are only put in the terminal's spawn environment — that
+is best-effort, and an absolute `set -x PATH …` in `config.fish` will still drop
+them. Prepend rather than assign there, or add the paths back yourself.
 
 ## Drive a terminal
 
