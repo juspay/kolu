@@ -170,9 +170,11 @@ smoke: nix
 # green, `just dev` dead on load).
 #
 # Needs no `nix build`, so it does NOT depend on `nix` — it runs from source
-# like `unit` does. `--no-deps`: ci::install already installed the workspace,
-# and a second concurrent `pnpm install` corrupts the shared node_modules/.bin
-# (see the funnel rule at the top of this file).
+# like `unit` does. Both `--no-deps` layers are load-bearing: this one skips
+# `test-dev: install`, while the harness starts `just --no-deps dev` so the
+# public dev recipe's install dependency is skipped too. Otherwise dev-smoke
+# rewrites the shared node_modules/.bin while unit is executing it (Darwin
+# surfaced this as transient vitest exit 126).
 dev-smoke: install
     {{ nix_shell }} just --no-deps test-dev
 

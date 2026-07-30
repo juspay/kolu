@@ -33,7 +33,10 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import getPort from "get-port";
 import { chromium, type ConsoleMessage } from "playwright";
-import { scanKoluListeningOutput } from "./devSmokeReadiness.ts";
+import {
+  devSmokeJustArgs,
+  scanKoluListeningOutput,
+} from "./devSmokeReadiness.ts";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
 
@@ -119,7 +122,7 @@ async function waitForOwnedProxyHealth(
  *  GROUP. `detached: true` + `kill(-pid)` is what reaches both halves; killing
  *  the `just` pid alone orphans a Vite that keeps holding the port. */
 function startDevServer(ports: { server: number; client: number }) {
-  return spawn("just", ["dev", String(ports.server), String(ports.client)], {
+  return spawn("just", devSmokeJustArgs(ports), {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],

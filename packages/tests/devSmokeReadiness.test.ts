@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { scanKoluListeningOutput } from "./devSmokeReadiness.ts";
+import {
+  devSmokeJustArgs,
+  scanKoluListeningOutput,
+} from "./devSmokeReadiness.ts";
+
+test("the CI smoke reuses its completed workspace install", () => {
+  assert.deepEqual(devSmokeJustArgs({ server: 43_210, client: 43_211 }), [
+    "--no-deps",
+    "dev",
+    "43210",
+    "43211",
+  ]);
+});
 
 test("a recipe echo and wrong-port banner cannot prove server ownership", () => {
   const expectedPort = 43_210;

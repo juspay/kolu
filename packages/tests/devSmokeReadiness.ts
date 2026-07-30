@@ -3,6 +3,12 @@ export interface ListeningScan {
   readonly ownsPort: boolean;
 }
 
+export function devSmokeJustArgs(
+  ports: Readonly<{ server: number; client: number }>,
+): string[] {
+  return ["--no-deps", "dev", String(ports.server), String(ports.client)];
+}
+
 /** Scan complete log lines for kolu-server's own listening banner.
  *
  * The line boundary is load-bearing: `just dev` separately echoes the selected

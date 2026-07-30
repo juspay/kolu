@@ -37,14 +37,14 @@ install:
 # The env vars must be exported before the parallel fork — Vite reads them once
 # at startup to compute its proxy target — so resolution happens here, in the
 # sequential recipe body, before `_dev` forks server + client.
-dev SERVER_PORT="" CLIENT_PORT="":
+dev SERVER_PORT="" CLIENT_PORT="": install
     #!/usr/bin/env bash
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
-    {{ nix_shell }} just _dev
+    {{ nix_shell }} just _dev-parallel
 
 # Run server + client on two free random ports, printing the resolved URLs.
 # For agents / a second worktree that must not collide with a primary instance.
@@ -128,9 +128,6 @@ dev-clean SERVER_PORT="":
       fi
     done
     echo "dev-clean: done — next bare \`just dev\` will spawn a fresh padi for this worktree"
-
-[private]
-_dev: install _dev-parallel
 
 [private]
 [parallel]
