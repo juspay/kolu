@@ -1,5 +1,4 @@
 import { Given, Then, When } from "@cucumber/cucumber";
-import { waitForBufferContains } from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
@@ -1587,13 +1586,13 @@ function writeFileCommand(path: string, content: string): string {
 async function setupCodeTabFixture(
   world: KoluWorld,
   mode: CodeTabMode,
-  writeFiles: string,
+  writeFiles: readonly string[],
 ): Promise<string> {
   const { work, origin } = modeFixturePaths(mode);
   if (mode === "local") {
     await runShell(world, `git init ${work} && cd ${work}`);
     await runShell(world, `git commit --allow-empty -m init`);
-    await runShell(world, writeFiles);
+    for (const writeFile of writeFiles) await runShell(world, writeFile);
   } else if (mode === "branch") {
     // Branch mode's listing is `git diff --name-status merge-base(HEAD,
     // origin/<default>)`, which excludes untracked files — so files must be
@@ -1616,51 +1615,31 @@ async function setupCodeTabFixture(
     // terminal into the repo. The former partial fix entered immediately after
     // clone, then created the branch/files/index through live watcher events;
     // one dropped Darwin event could leave the first clean snapshot permanent.
-    // The marker is split across a shell string-concat (`SET""TLED`) so the
-    // search text matches only the command's OUTPUT, never the typed echo.
     const seed = `${origin}-seed`;
-    // Keep the marker shorter than the narrowest e2e terminal. The xterm
-    // buffer inserts a newline at a wrapped cell boundary, so embedding the
-    // full worktree path made a successful marker unreadable as one string
-    // whenever the terminal was narrow under parallel Darwin load.
-    const token = String(MODE_TMP_COUNTER.n);
-    const settledMarker = `KOLU_SETTLED_${token}`;
-    const failedMarker = `KOLU_FIXTURE_FAILED_${token}`;
-    await world.terminalRun(
-      `(git init --bare -b master ${origin} && ` +
-        `(git init -b master ${seed} && cd ${seed} && ` +
-        `git remote add origin ${origin} && ` +
-        `git commit --allow-empty -m init && git push -u origin master) && ` +
-        `git clone ${origin} ${work} && cd ${work} && ` +
-        `git checkout -b feature && ${writeFiles} && git add . && ` +
-        `git rev-parse --verify origin/master >/dev/null 2>&1) ` +
-        `&& cd ${work}; kolu_fixture_status=$?; ` +
-        `if [ "$kolu_fixture_status" -eq 0 ]; then ` +
-        `echo "KOLU_SET""TLED_${token}"; else ` +
-        `echo "KOLU_FIX""TURE_FAILED_${token}:$kolu_fixture_status"; false; fi`,
-    );
-    await world.waitForFrame();
-    const outcome = await Promise.race([
-      waitForBufferContains(world.page, settledMarker).then(() => ({
-        kind: "settled" as const,
-      })),
-      waitForBufferContains(world.page, failedMarker).then((buffer) => ({
-        kind: "failed" as const,
-        buffer,
-      })),
-    ]);
-    if (outcome.kind === "failed") {
-      const failure = outcome.buffer
-        .split("\n")
-        .find((line) => line.includes(failedMarker));
-      const tail = outcome.buffer.split("\n").slice(-20).join("\n");
-      throw new Error(
-        `branch fixture setup failed: ${failure?.trim() ?? failedMarker}\n${tail}`,
-      );
+    // Playwright's keyboard path is the user-level boundary this fixture is
+    // meant to retain, but one giant shell program can lose characters under
+    // parallel Darwin load. Send short commands and acknowledge each through
+    // terminalRunAndWait. None enters `work` until every origin/branch/index
+    // fact is final, preserving the first-subscription ordering above.
+    await runShell(world, `git init --bare -b master ${origin}`);
+    await runShell(world, `git init -b master ${seed}`);
+    await runShell(world, `git -C ${seed} remote add origin ${origin}`);
+    await runShell(world, `git -C ${seed} commit --allow-empty -m init`);
+    await runShell(world, `git -C ${seed} push -u origin master`);
+    await runShell(world, `git clone ${origin} ${work}`);
+    await runShell(world, `git -C ${work} checkout -b feature`);
+    for (const writeFile of writeFiles) {
+      await runShell(world, `(cd ${work} && ${writeFile})`);
     }
+    await runShell(world, `git -C ${work} add .`);
+    await runShell(
+      world,
+      `git -C ${work} rev-parse --verify origin/master >/dev/null`,
+    );
+    await runShell(world, `cd ${work}`);
   } else if (mode === "browse") {
     await runShell(world, `git init ${work} && cd ${work}`);
-    await runShell(world, writeFiles);
+    for (const writeFile of writeFiles) await runShell(world, writeFile);
     await runShell(world, `git add . && git commit -m init`);
   } else {
     throw new Error(`unknown mode: ${mode}`);
@@ -1760,11 +1739,9 @@ Given(
     content: string,
   ) {
     const m = mode as CodeTabMode;
-    const work = await setupCodeTabFixture(
-      this,
-      m,
+    const work = await setupCodeTabFixture(this, m, [
       writeFileCommand(path, content),
-    );
+    ]);
     await activateCodeTabMode(this, m);
     await waitForFixturePath(this, m, path, work);
   },
@@ -1780,7 +1757,7 @@ Given(
   ) {
     const m = mode as CodeTabMode;
     const rows = table.rawTable.slice(1); // skip header
-    const writes = rows.map(([p, c]) => writeFileCommand(p, c)).join(" && ");
+    const writes = rows.map(([p, c]) => writeFileCommand(p, c));
     const work = await setupCodeTabFixture(this, m, writes);
     await activateCodeTabMode(this, m);
     const firstPath = rows[0]?.[0];
