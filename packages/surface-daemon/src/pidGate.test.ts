@@ -63,7 +63,15 @@ function liveChild(): number {
   });
   children.push(child);
   if (child.pid === undefined) throw new Error("child failed to start");
-  identities.set(child.pid, { pid: child.pid, startUnixUs: child.pid * 1_000 });
+  // Keep the synthetic instant far enough above zero that the pid-reuse cases
+  // can subtract the full tolerance and remain a valid positive v2 timestamp.
+  // Fresh Darwin runners commonly allocate pids below 2,000; using pid*1,000
+  // made those fixtures negative, which intentionally parses as a legacy
+  // one-field gate and therefore (correctly) falls back to kill(0).
+  identities.set(child.pid, {
+    pid: child.pid,
+    startUnixUs: START_TIME_TOLERANCE_US * 2 + child.pid * 1_000,
+  });
   return child.pid;
 }
 
