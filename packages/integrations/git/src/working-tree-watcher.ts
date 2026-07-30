@@ -267,10 +267,10 @@ function installSharedWorkingTreeWatcher(
    *  one burst after subscription: it can observe `mkdir src`, add a watch for
    *  `src`, but miss `mkdir src/feature`, which happened before that new watch
    *  existed. Parcel then watches the parent forever while edits below the
-   *  missed descendant are silent. A non-empty created directory (or a create
-   *  that moved before inspection) schedules one bounded, trailing repair for
-   *  the whole mkdir burst. Replacing the root subscription rebuilds the
-   *  recursive watch set from the settled tree. Parcel shares a native watch
+   *  missed descendant are silent. A non-empty created directory schedules one
+   *  bounded, trailing repair for the whole mkdir burst. Replacing the root
+   *  subscription rebuilds the recursive watch set from the settled tree.
+   *  Parcel shares a native watch
    *  for overlapping subscriptions, so rebuilding must retire the old root
    *  first; the post-install reconciliation below re-reads authoritative state
    *  and covers every mutation in that brief replacement window. */
