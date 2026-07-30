@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 300" font-family="system-ui, sans-serif">
+  <rect width="920" height="300" fill="#0f1117"/>
+  <!-- legend -->
+  <g font-size="10.5" fill="#8b95a7">
+    <circle cx="690" cy="26" r="5" fill="#2dd4a7"/><text x="702" y="30">in flight</text>
+    <circle cx="790" cy="26" r="5" fill="#5b8def"/><text x="802" y="30">new build</text>
+  </g>
+
+  <!-- nodes -->
+  <g>
+    <rect x="40" y="60" width="230" height="58" rx="9" fill="#141925" stroke="#2dd4a7" stroke-width="1.5"/>
+    <text x="54" y="82" fill="#7fe3c3" font-size="12.5" font-weight="600">TR1 · total create (stopgap)</text>
+    <text x="54" y="99" fill="#8b95a7" font-size="10.5">reject nested parentId — PR #2060</text>
+
+    <rect x="40" y="190" width="230" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="54" y="212" fill="#9db4e8" font-size="12.5" font-weight="600">TR2 · every terminal a tile</text>
+    <text x="54" y="229" fill="#8b95a7" font-size="10.5">auto-tiling + edges · splits retired</text>
+
+    <rect x="390" y="120" width="230" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="404" y="142" fill="#9db4e8" font-size="12.5" font-weight="600">TR3 · depth legalized</text>
+    <text x="404" y="159" fill="#8b95a7" font-size="10.5">TR1 guard lifted · recursive Dock · totality assert</text>
+
+    <rect x="680" y="190" width="210" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="694" y="212" fill="#9db4e8" font-size="12.5" font-weight="600">TR4 · focus = camera</text>
+    <text x="694" y="229" fill="#8b95a7" font-size="10.5">maximized mode deleted</text>
+  </g>
+
+  <!-- edges -->
+  <g stroke="#8b95a7" stroke-width="1.4" fill="none">
+    <path d="M 270 89 C 330 89, 330 138, 388 142"/>
+    <path d="M 270 219 C 330 219, 330 162, 388 156"/>
+  </g>
+  <path d="M 270 232 C 460 268, 560 244, 678 226" stroke="#8b95a7" stroke-width="1.4" fill="none" stroke-dasharray="5 4"/>
+  <g fill="#8b95a7">
+    <path d="M 388 142 l -11 -6 l 1 12 z"/>
+    <path d="M 388 156 l -11 -5 l -1 12 z"/>
+    <path d="M 678 226 l -12 -4 l 3 12 z"/>
+  </g>
+  <text x="300" y="250" fill="#8b95a7" font-size="10">less churn after TR2 (dashed = ordering preference, not a dependency)</text>
+  <text x="300" y="112" fill="#8b95a7" font-size="10">TR3 needs both: rendering must be total before depth is legal input</text>
+</svg>

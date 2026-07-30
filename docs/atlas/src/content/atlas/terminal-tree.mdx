@@ -1,0 +1,56 @@
+---
+title: Terminal Tree — the Tree Is the Tiling
+description: "One tree of first-class terminals; canvas layout, Dock rows and focus all derive from it. The redesign that makes #2059-class invisibility unrepresentable — in four phases, TR1–TR4."
+parents: [feature, padi]
+status: proposed
+maturity: seedling
+updated: 2026-07-29
+---
+
+import Svg from "../../components/Svg.astro";
+import Callout from "../../components/Callout.astro";
+import Footnote from "../../components/Footnote.astro";
+import PrLink from "../../components/PrLink.astro";
+import map from "../../diagrams/terminal-tree-map.svg?raw";
+import phases from "../../diagrams/terminal-tree-phases.svg?raw";
+
+**The design, in one sentence: the tree is the tiling.** Every terminal is a node in one tree (padi's existing `parentId`) and a first-class tile on the canvas; default placement is a pure function of the tree (children tile beside their parent, arrows draw the edges), dragging overrides one tile, focus is the camera zooming to a tile, and the Dock is the same tree walked as rows. No splits, no sub-panel, no maximized mode, no "Autoarrange" action — auto-arrangement is the resting state, not a command.
+
+<Svg svg={map} wide caption="One tree (left), one pure layout function (middle), one scene (right). The canvas, the Dock and the camera are three projections of the same walk — none of them can lose a terminal." />
+
+## The model — layout is a function of the tree
+
+- **Every terminal is a tile.** An agent teammate, a `just dev`, a lazygit — same thing, differing only in size and parent. There is no second kind of terminal (no split, no sub-tab, no "stuck" attachment), so there is no second rendering path.
+- **Default placement is `f(tree)`** — deterministic and total: each child tiles in a column to the right of its parent, siblings stack, subtrees space by their extent.<Footnote>The concrete default: place a child at `parent.x + parent.w + gutter`, stacking siblings top-to-bottom in tree order; a subtree reserves the vertical extent of its descendants. Helpers (terminals with no agent) get the compact tile size. Any deterministic packer with these properties is acceptable; the property that matters is *total* — every node gets coordinates.</Footnote> Edges render as arrows between tiles; relation labels on the arrows come from [terminal-teams F2](terminal-teams.html) when that lands, not from this design.
+- **Drag wins, per tile.** Dragging a tile flags it `layoutMode: "manual"` in its existing `canvasLayout`; everything else keeps flowing from the tree. There is deliberately **no Autoarrange command** to press or to accidentally destroy a hand layout with — auto is simply what a tile does until a human moves it.
+- **Focus = camera.** "Maximize" is the camera zooming until a tile fills the viewport (~200 ms tween, instant under reduced-motion); Esc or a background click flies back. Same scene, same renderer — the maximized *mode* (`useViewPosture`, covered tiles, dock-posture split) is deleted. A Dock row click teleports the camera to that tile.
+
+## Why — the class behind #2059
+
+[#2059](https://github.com/juspay/kolu/issues/2059): a terminal created over MCP with a `parentId` that is itself a split child is fully alive in padi but **never renders** — the client derives tiles by filtering (`!parentId` → tile, one level of children per tile) and a grandchild matches no rule, so it silently has zero render sites.<Footnote>The mechanism: `useTerminalMetadata.ts` keeps records with no `parentId` as tiles; children are looked up only per-tile in `TerminalContent.tsx`. A depth-2 record is excluded from both. Session restore has a second latent instance of the same class — its two-level partition drops a grandchild whose parent appears later in the saved array (`sessionRestore.ts`).</Footnote> The class of bug: **when visibility is derived by filtering, anything that matches no rule disappears without an error.**
+
+This design deletes the class instead of the instance: placement is a total function (every node gets coordinates), rendering is a full tree walk (never a filter), and TR3 adds the belt-and-braces **totality assert** — every active, non-parked terminal has exactly one render site, else a loud error. The stopgap guard (<PrLink pr={2060} />) closes the hole today by *rejecting* nested `parentId` at create; TR3 lifts it once depth is renderable.
+
+## The phase tree — TR1‥TR4
+
+<Svg svg={phases} caption="TR1 (stopgap, in flight) and TR2 (the rendering rewrite) both gate TR3, which legalizes depth. TR4 is independent; scheduled after TR2 only to avoid touching the canvas twice." />
+
+### TR1 — total create (stopgap; in flight)
+
+padi's create (and `chrome.setParent`) rejects a `parentId` whose target itself has a parent, with a typed error naming the root ancestor. **User-visible delta:** an orchestrating agent gets an actionable refusal instead of an invisible terminal. **Acceptance:** over MCP, `lifecycle_create { parentId: <split id> }` → typed error naming the root tile; a one-level parent still works. **Why separate:** it stops live observability loss *today* with a two-line guard — it cannot wait for a canvas rewrite. Ships as <PrLink pr={2060} /> (full /be run, in flight).
+
+### TR2 — every terminal a tile
+
+The rendering rewrite: retire the in-tile split/sub-panel UI; existing `parentId` children become their own (compact) tiles, auto-placed beside their parent with edges drawn; drag sets the per-tile manual flag.<Footnote>No data migration: `parentId` already is the tree, and placement is derived at render, so existing sessions and saved layouts load as-is — a saved `canvasLayout` counts as `manual`. The split button's behavior is unchanged from the user's view: it still creates a child terminal; the child now appears as an adjacent tile rather than a pane.</Footnote> **User-visible delta:** sub-terminals appear as adjacent connected tiles instead of panes inside the parent. **Acceptance:** create a sub-terminal from a tile → it renders as its own tile beside the parent with an arrow; drag it → it stays where dropped; reload → both facts survive. **Why separate:** this must land before depth is legal input (TR3) — legalizing nested `parentId` while the split UI is still the renderer would recreate #2059's unrenderable records.
+
+### TR3 — depth legalized
+
+Lift the TR1 guard; make the Dock recursive (arbitrary-depth indented rows, relation chip); fix session restore's order-dependent two-level partition by restoring via tree walk; add the **totality assert** (every active terminal has exactly one render site — loud error, per the fail-fast rule). **User-visible delta:** an agent can parent a terminal under any terminal; the chain renders as cascading tiles and nested Dock rows. **Acceptance:** over MCP, create a depth-2 chain (the #2059 repro) → both terminals render as tiles, the Dock shows depth-2 indentation, no error anywhere; restart kolu → the chain survives. **Why separate:** it is sequenced on TR2 (rendering must be total first) and on TR1 (the guard it removes); Dock recursion and the restore fix ride along because they are the same tree walk.
+
+### TR4 — focus = camera
+
+Replace maximized mode with zoom-to-tile: double-click / shortcut flies the camera to fit the tile; Esc flies back; Dock click teleports; `useViewPosture`, covered-tile rendering and the dock-posture split are deleted; xterm re-renders at native pixels when the camera settles. **User-visible delta:** maximize becomes a smooth zoom that keeps the fleet one gesture away; behavior is otherwise equivalent. **Acceptance:** double-click a tile → it fills the viewport crisply; Esc → back to the fleet at the previous camera; click a Dock row while zoomed → camera flies to that tile; grep confirms the posture module is gone. **Why separate:** it is a self-contained deletion of a whole mode, independent of TR3; the dashed edge in the diagram is an ordering preference — landing it after TR2 avoids reworking the canvas containers twice — not a dependency.
+
+## Composing with terminal-teams
+
+[terminal-teams](terminal-teams.html) F1–F4 predate this note; the fit is clean but two items change shape. **F1 (`create --near`) is superseded** by TR2's automap — placement no longer needs a flag because it is derived; F1 should not be built. **F2 (typed relations) and F3 (edges + badges) compose**: this design draws *containment* edges from `parentId`; F2's `delegates | consults | reviews` become labels/badges on those arrows (and Dock chips) rather than a second edge system — the footnote in terminal-teams that keeps `parentId` separate from relations ("containment ≠ collaboration") holds unchanged. F4 (/goal) is orthogonal.
