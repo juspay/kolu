@@ -121,8 +121,6 @@ import {
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
 export * from "./vocab.ts";
-/** Host-owned resumability fold — also the pure source for the wire stamp. */
-export { resumableTerminalIds } from "./session/resumable.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
@@ -278,8 +276,17 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  the usual reason — a newer binder against an old 4.3 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
  *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
- *  (which would be a missing-procedure error, not a graceful absence). */
-export const PADI_SURFACE_VERSION = "4.4";
+ *  (which would be a missing-procedure error, not a graceful absence).
+ *
+ *  4.5 (RESHAPED procedure input · minor): `session.restore` / `session.import`
+ *  replace client-built `resumeIds?: string[]` with host-owned intent
+ *  `{ resumeAgents?: boolean (default true), optOutIds?: string[] }`, and the
+ *  saved-session cell stamps wire-only `resumableIds` (membership the client
+ *  may only subtract from). Not additive — a 4.4 peer that still speaks
+ *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
+ *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
+ *  give: convergence + minor-rule drain keeps the two shapes from meeting. */
+export const PADI_SURFACE_VERSION = "4.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });

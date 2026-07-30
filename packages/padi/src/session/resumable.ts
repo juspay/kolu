@@ -25,8 +25,7 @@ export function resumableTerminalIds(
 ): string[] {
   return terminals
     .filter(
-      (t) =>
-        t.state !== "sleeping" && resumableCommand(t.restoreTarget) !== null,
+      (t) => t.state === "active" && resumableCommand(t.restoreTarget) !== null,
     )
     .map((t) => t.id);
 }

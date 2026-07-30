@@ -95,9 +95,18 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   const [resumeAgents, setResumeAgents] = createSignal(true);
 
   // Host-served resumable set — the client never constructs membership; it only
-  // renders this list and may subtract (opt-out). Absent stamp → empty (e2e
-  // fixtures / pre-enrichment blobs); the live host always stamps.
-  const resumableIds = createMemo(() => props.savedSession?.resumableIds ?? []);
+  // renders this list and may subtract (opt-out). A live host always stamps;
+  // absence is a hard error (never soft-empty to "no agents").
+  const resumableIds = createMemo(() => {
+    const session = props.savedSession;
+    if (!session) return [] as string[];
+    if (session.resumableIds === undefined) {
+      throw new Error(
+        "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+      );
+    }
+    return session.resumableIds;
+  });
 
   const resumeCount = () => (resumeAgents() ? resumableIds().length : 0);
 

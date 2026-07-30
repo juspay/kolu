@@ -228,6 +228,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
               ],
               activeTerminalId: "p0",
               savedAt: 1,
+              resumableIds: [],
             };
             const session = mount();
             // Let the hydration effect flush so the decision runs.
@@ -390,6 +391,7 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
               ],
               activeTerminalId: "0",
               savedAt: 1,
+              resumableIds: [],
             };
             const session = mount();
             // Let the hydration effect flush so `savedSession()` is populated.
@@ -455,7 +457,12 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const activeMeta = (): TerminalMetadata =>
       ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
     h.sessionPending = false;
-    h.savedSession = { terminals: [], activeTerminalId: "B", savedAt: 1 };
+    h.savedSession = {
+      terminals: [],
+      activeTerminalId: "B",
+      savedAt: 1,
+      resumableIds: [],
+    };
     const { store, setActiveSilently, reconcileLiveIds } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
@@ -523,6 +530,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
       terminals: [],
       activeTerminalId: "P0",
       savedAt: 1,
+      resumableIds: [],
     };
 
     await new Promise<void>((resolve, reject) => {

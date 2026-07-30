@@ -54,7 +54,7 @@ describe("padiSurface contract", () => {
     // 4.4 (minor): a NEW `fs.listIgnored` procedure (git's collapsed gitignored
     // listing, behind the Code tab's show-ignored toggle). Purely additive —
     // `fs.listAll` is untouched — so the plainest minor there is.
-    expect(PADI_SURFACE_VERSION).toBe("4.4");
+    expect(PADI_SURFACE_VERSION).toBe("4.5");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -65,7 +65,7 @@ describe("padiSurface contract", () => {
     // client's schema can meet an old frame missing the added field. Without
     // this leg, a 4.4 client against a surviving 4.3 padi would call the
     // `fs.listIgnored` procedure that padi does not have.
-    expect(isContractVersionCompatible("4.3", "4.4")).toBe(false);
+    expect(isContractVersionCompatible("4.4", "4.5")).toBe(false);
     // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a
     // major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("4.1", "4.0")).toBe(true);
