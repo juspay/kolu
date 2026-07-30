@@ -1917,7 +1917,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-f5e26c30f126a0a72ac6
+      - revision-aed82841ff73951a75e0
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1933,7 +1933,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-f5e26c30f126a0a72ac6
+      - revision-aed82841ff73951a75e0
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1942,31 +1942,58 @@ retirements:
     revisionId: revision-da857ad10356f22ef965
     action: revised
     status: landed
-    promise: Initial and live folder-status roll-up remain observable when the repo watcher drops an event under parallel load
+    promise: Bursty repo-change pulses cannot starve the status read that paints initial and live folder roll-up
     defectSurface:
       - browse-folder-status-rollup
-      - test-watcher-event-loss
+      - pulse-refresh-starvation
     destinationLayer: L5
-    replacements: []
+    replacements:
+      - file: packages/surface/src/pollOnChange.test.ts
+        test: pollOnChange > coalesces a pulse burst without aborting or starving the in-flight query
+        lane: unit
+        platforms: [linux, darwin]
+        realism:
+          - controlled pulse burst while the leading request remains unresolved
+          - real AbortSignal ownership and coalesced trailing refresh
+        reviewEvidence:
+          file: packages/surface/src/pollOnChange.test.ts
+          test: pollOnChange > coalesces a pulse burst without aborting or starving the in-flight query
+          note: The framework-level test pins progress under the exact burst that made the browser wait nondeterministic; the surviving browser scenario still proves the real initial and post-mount user flow.
     survivorRevisionIds:
-      - revision-f5e26c30f126a0a72ac6
+      - revision-aed82841ff73951a75e0
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
-      test: The current revision preserves the same initial and live assertions while repeatedly emitting a no-op repo event during each positive wait, so a dropped inotify pulse cannot strand the test on stale state.
+      test: The current browser revision preserves the same initial and live assertions using one real edit; the unit replacement proves a burst is coalesced without abort-starving the status read.
   - id: revise-016186bf023516c77263
     revisionId: revision-016186bf023516c77263
     action: revised
     status: landed
-    promise: The folder-status watcher recovery stimulates the changed file rather than an unrelated directory entry
+    promise: The folder-status browser journey observes the real edit without manufacturing an endless watcher-event burst
     defectSurface:
       - browse-folder-status-rollup
-      - test-watcher-event-loss
+      - test-watcher-event-storm
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-f5e26c30f126a0a72ac6
+      - revision-aed82841ff73951a75e0
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
-      test: The current revision re-touches seed/dirty.txt and src/feature/a.txt during their respective positive waits, directly re-firing the working-tree event whose resulting status is asserted.
+      test: The current revision waits on the status result from the user's actual edit instead of repeatedly resetting the production watcher's trailing debounce.
+  - id: revise-f5e26c30f126a0a72ac6
+    revisionId: revision-f5e26c30f126a0a72ac6
+    action: revised
+    status: landed
+    promise: Initial and live folder-status roll-up remain covered without a test-side event loop that can starve the watcher under load
+    defectSurface:
+      - browse-folder-status-rollup
+      - test-watcher-event-storm
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-aed82841ff73951a75e0
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The surviving scenario still opens an already-dirty tree, checks the clean sibling, performs a real post-mount edit, and verifies its ancestor tint; only the repeated no-op touches were removed.
