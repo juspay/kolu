@@ -178,8 +178,13 @@ dev-smoke: install
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized
-# lookup, not a concurrent Nix build.
-e2e: install nix
+# lookup, not a concurrent Nix build. The eight packaged server worlds are also
+# load-sensitive at boot: while Home Manager's QEMU fan-out was still active,
+# every child stayed alive but emitted no first log byte across four attempts;
+# the same eight binaries all listened in under a second after the fan-out
+# drained. Order this lane after `home-manager`, just like the Biome consumers,
+# instead of padding the server-ownership deadline or retry count.
+e2e: install nix home-manager
     # CUCUMBER_RETRY is the residual safety net for darwin-runner-load flakes
     # that survive the structural fixes in #955. Darwin runs at 2, linux at 1:
     # the darwin residual is an fs-event-drop class (e.g. the live-reload
