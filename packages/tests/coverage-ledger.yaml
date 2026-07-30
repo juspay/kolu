@@ -56,11 +56,12 @@ retirements:
           test: "cameraSwap pure core > switchInNeedsCenter: seed on first visit, re-center only when the tile is out of view"
           note: Human review confirmed this collected test exercises the declared defect surface; CI verifies collection, not behavioral equivalence.
     survivorRevisionIds:
-      - revision-0c0fbf9db73e2e1fffbf
+      - revision-b4cf7c5a1a21a208576f
+      - revision-9cb8d7f6e6a3a9b2c109
     sameCodePathEvidence:
-      file: packages/tests/features/canvas.feature
-      symbol: "Scenario: Each successive terminal create centers the viewport on the new active tile"
-      test: The retained browser journey covers the same create-and-center path for the second and later terminals.
+      file: packages/tests/features/dock.feature
+      symbol: "Scenario: Cmd+1 activates the first dock row (recency-sorted)"
+      test: The retained Cmd+1 journey exercises the action; the retained Ctrl+Tab journey independently exercises switch-time centering.
   - id: retire-2c57bc7672bac0ffe17e
     revisionId: revision-2c57bc7672bac0ffe17e
     action: replace
@@ -73,11 +74,11 @@ retirements:
     replacements:
       - *a2
     survivorRevisionIds:
-      - revision-9cb8d7f6e6a3a9b2c109
+      - revision-0c0fbf9db73e2e1fffbf
     sameCodePathEvidence:
       file: packages/tests/features/canvas.feature
-      symbol: "Scenario: Ctrl+Tab cycle pans the canvas to the newly-active tile"
-      test: The retained browser journey reaches the same production surface.
+      symbol: "Scenario: Each successive terminal create centers the viewport on the new active tile"
+      test: The retained browser journey covers the same create-and-center path for the second and later terminals.
   - id: retire-a1bfa410dea11db57fda
     revisionId: revision-a1bfa410dea11db57fda
     action: retain-smoke
@@ -1643,11 +1644,27 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-d587536a12ed04ba0f01
+      - revision-9724b30acd0f9f06509e
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
       test: The current revision preserves the user journey while clearing its fixed Git fixture before setup.
+  - id: revise-d587536a12ed04ba0f01
+    revisionId: revision-d587536a12ed04ba0f01
+    action: revised
+    status: landed
+    promise: A transformed touch tap targets a visible terminal file reference through the production hit-test
+    defectSurface:
+      - transformed-touch-hit-testing
+      - test-harness-realism
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-9724b30acd0f9f06509e
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
+      test: The current revision keeps the real transformed CDP touch and production cell resolver while placing the reference inside the terminal's clipped touch surface.
   - id: revise-2990778b71a2ae513ca9
     revisionId: revision-2990778b71a2ae513ca9
     action: revised

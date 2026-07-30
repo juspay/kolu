@@ -59,7 +59,11 @@ Feature: File-ref autolinking in terminal
     When I run "rm -rf /tmp/kolu-file-ref-scale && git init /tmp/kolu-file-ref-scale && cd /tmp/kolu-file-ref-scale"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\ndelta\n' > scale.txt"
-    And I run "echo 'open scale.txt:3 to inspect'"
+    # Keep the target near the transform's fixed point. At the usual bottom-row
+    # prompt, scaling the whole mobile terminal from 0 0 moves the glyph beyond
+    # its parent's clip, so Chromium would correctly deliver the tap outside the
+    # terminal instead of exercising its transformed hit-test.
+    And I run "clear && echo 'open scale.txt:3 to inspect'"
     # Inject the ancestor CSS scale (the reachable stand-in for canvas zoom), then
     # tap the glyph's now-magnified visual centre — it must still resolve to the
     # ref (drawer opens; a mis-resolved tap would land on plain content and focus
