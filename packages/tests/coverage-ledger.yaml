@@ -1910,6 +1910,22 @@ retirements:
     revisionId: revision-3165390ce903007ddcd9
     action: revised
     status: landed
+    promise: Opening Browse on an already-dirty tree marks and tints the changed file's ancestor folder
+    defectSurface:
+      - browse-folder-status-rollup
+      - initial-git-status-construction
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-da857ad10356f22ef965
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The current browser revision first proves an already-dirty seed folder is marked and visibly tinted; FileTree initial git status > passes initial git status into Pierre's constructor pins Kolu's constructor wiring, and Pierre initial git-status roll-up > marks every changed file ancestor while leaving a clean sibling unmarked pins Pierre's initial model.
+  - id: revise-456287f35896d5983aad
+    revisionId: revision-456287f35896d5983aad
+    action: revised
+    status: landed
     promise: A mounted browse tree rolls a live file-status change up to its ancestor folder tint
     defectSurface:
       - browse-folder-status-rollup
@@ -1917,8 +1933,8 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-456287f35896d5983aad
+      - revision-da857ad10356f22ef965
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
-      test: The current revision mounts the clean tree before editing, then verifies the live status stream marks and visibly tints the changed file's ancestor while leaving a clean sibling unmarked.
+      test: The current revision settles a positive initial dirty result and proves src is clean before editing it, then verifies the live status update marks and visibly tints src while leaving lib clean.

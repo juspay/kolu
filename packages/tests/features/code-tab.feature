@@ -799,13 +799,19 @@ Feature: Code tab (review + browse)
   # so single-child flattening doesn't fold it into `src/feature`.)
   Scenario: Browse mode tints ancestor folders that contain a change
     When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
-    And I run "mkdir -p src/feature lib && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && git add . && git commit -m init"
+    And I run "mkdir -p src/feature lib seed && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && printf 'seed\n' > seed/dirty.txt && git add . && git commit -m init"
+    And I run "printf 'seed-edited\n' > seed/dirty.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
     Then the Code tab should show a directory node "src"
-    # Make the change after the tree's initial snapshot. The preceding scenario
-    # covers initial dirty-state decoration; this one proves the mounted tree
-    # reacts to a live status update and rolls it up to the ancestor folder.
+    # A positive initial dirty result settles the status snapshot before the
+    # live edit. `src` is therefore known clean at this boundary, rather than
+    # merely absent while the first status request is still in flight.
+    And the Code tab directory "seed" should be marked as containing a change
+    And the Code tab directory "seed" name should be tinted differently from directory "lib"
+    And the Code tab directory "src" should not be marked as containing a change
+    # Now prove the mounted tree reacts to the later status update and rolls it
+    # up to the newly changed ancestor while the clean sibling remains clean.
     When I run "printf 'edited\n' > src/feature/a.txt"
     And the Code tab directory "src" should be marked as containing a change
     And the Code tab directory "lib" should not be marked as containing a change
