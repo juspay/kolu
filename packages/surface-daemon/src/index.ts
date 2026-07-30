@@ -111,6 +111,7 @@ export {
   type ProcessIdentity,
   type ReadProcessIdentity,
   readGateIdentity,
+  setSocketProbeDepsForTests,
   SOCKET_SERVE_PROBE_MS,
   type SocketServeState,
   START_TIME_TOLERANCE_US,

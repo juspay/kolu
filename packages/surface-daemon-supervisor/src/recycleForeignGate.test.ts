@@ -19,15 +19,21 @@
  * would die.
  */
 
+import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
+import {
+  acquirePidGate,
+  gatePid,
+  isHolderLive,
+  setSocketProbeDepsForTests,
+} from "@kolu/surface-daemon";
 import {
   plantYesterdayDaemon,
   type YesterdayDaemonOpts,
@@ -36,6 +42,7 @@ import {
   createEndpoint as createEndpointCore,
   destructiveRecycleSteps,
   type EndpointStatus,
+  isSocketProbeIndeterminateError,
   recycle,
 } from "./index.ts";
 import {
@@ -483,7 +490,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     }
   });
 
-  it("async readProcessIdentity rejection surfaces (R3-5)", async () => {
+  it("async readProcessIdentity rejection surfaces with connecting→dead (R3-5 / R4-2)", async () => {
     const d = await plantYesterdayDaemon(
       fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
     );
@@ -496,7 +503,8 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     );
 
     const boom = new Error("osfacts inject failed (R3-5)");
-    const endpoint = createEndpointCore({
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
       home: {
         dir: dirname(d.socketPath),
@@ -525,12 +533,144 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         throw new Error("connect must not run when identity rejects");
       },
       log: silentLog,
-      onStatus: () => {},
+      onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
     await expect(recycle(endpoint, destructiveRecycleSteps())).rejects.toThrow(
       boom,
     );
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+  });
+
+  it("one-field + indeterminate socket: spawn never runs, fail loud (R4-1)", async () => {
+    // Boolean collapse would treat indeterminate as free and reach spawn.
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    // One-field gate so the supervisor takes the socket-serve fold.
+    writeFileSync(d.gatePath, `${survivorPid}\n`);
+
+    // Real listening socket (lstat isSocket) + hanging connect → indeterminate.
+    const hangServer = createServer();
+    servers.push(hangServer);
+    await new Promise<void>((resolve, reject) => {
+      hangServer.once("error", reject);
+      hangServer.listen(d.socketPath, () => {
+        hangServer.off("error", reject);
+        resolve();
+      });
+    });
+    const hangConnect = (() => {
+      const fake = new EventEmitter() as Socket;
+      fake.destroy = () => {
+        fake.removeAllListeners();
+        return fake;
+      };
+      return fake;
+    }) as typeof import("node:net").createConnection;
+    setSocketProbeDepsForTests({ connect: hangConnect, probeMs: 30 });
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpointCore<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      readProcessIdentity: testReadProcessIdentity,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+          throw new Error("spawn-reached-after-indeterminate");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    try {
+      await expect(
+        recycle(endpoint, destructiveRecycleSteps()),
+      ).rejects.toSatisfy(
+        (err: unknown) =>
+          isSocketProbeIndeterminateError(err) && err.gatePid === survivorPid,
+      );
+      expect(spawned).toBe(false);
+      expect(isHolderLive(survivorPid)).toBe(true);
+      expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    } finally {
+      setSocketProbeDepsForTests();
+    }
+  });
+
+  it("non-ENOENT socket lstat rejection emits connecting→dead (R4-2)", async () => {
+    if (process.platform !== "linux") return;
+    // One-field live holder + ENOTDIR socket path → probe rejects, status must
+    // not wedge on connecting.
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(d.gatePath, `${survivorPid}\n`);
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpointCore<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        // /proc/1/mem/child → ENOTDIR on Linux
+        socketPath: "/proc/1/mem/child",
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      readProcessIdentity: testReadProcessIdentity,
+      driver: {
+        spawn: async () => {
+          throw new Error("spawn must not run on lstat reject");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run on lstat reject");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await expect(
+      recycle(endpoint, destructiveRecycleSteps()),
+    ).rejects.toMatchObject({ code: "ENOTDIR" });
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 });

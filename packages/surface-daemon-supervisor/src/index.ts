@@ -33,7 +33,9 @@ export {
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,
+  isSocketProbeIndeterminateError,
   isSocketSquatterForeignError,
+  SocketProbeIndeterminateError,
   SocketSquatterForeignError,
 } from "./endpoint.ts";
 // EndpointSpec re-exported for consumers and for `./createEndpoint.testlib`
