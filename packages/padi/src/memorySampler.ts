@@ -100,7 +100,8 @@ function padiRss(evidence: RssEvidence, pid: number): ProcessRss {
       );
       return { status: "error" };
     case "missing":
-      throw new Error(`osfacts returned no RSS fact for padi pid ${pid}`);
+      log.error({ pid, processName: "padi" }, "padi osfacts RSS fact missing");
+      return { status: "error" };
     default:
       evidence satisfies never;
       throw new Error("unreachable RSS evidence");
@@ -135,7 +136,11 @@ function kavalRss(evidence: RssEvidence, pid: number): ProcessRss {
       );
       return { status: "error" };
     case "missing":
-      throw new Error(`osfacts returned no RSS fact for kaval pid ${pid}`);
+      log.error(
+        { pid, processName: "kaval" },
+        "kaval osfacts RSS fact missing",
+      );
+      return { status: "error" };
     default:
       evidence satisfies never;
       throw new Error("unreachable RSS evidence");

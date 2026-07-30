@@ -73,6 +73,15 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     );
   });
 
+  it("surfaces a missing requested padi fact through the typed error arm", async () => {
+    await withOsfactsMemoryFixture({ rows: [] }, async () => {
+      await expect(samplePadiMemory()).resolves.toEqual({
+        padi: { status: "error" },
+        kaval: { status: "absent" },
+      });
+    });
+  });
+
   it("surfaces an osfacts contract failure instead of retaining stale RSS", async () => {
     connectedKaval();
     await withOsfactsMemoryFixture({ rows: [], version: 999 }, async () => {
@@ -97,6 +106,19 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
 
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`, "U\t4242\tmem\tEACCES"] },
+      async () => {
+        await expect(samplePadiMemory()).resolves.toEqual({
+          padi: { status: "ok", rssBytes: 10_485_760 },
+          kaval: { status: "error" },
+        });
+      },
+    );
+  });
+
+  it("surfaces a missing requested fact for the current kaval through the typed error arm", async () => {
+    connectedKaval();
+    await withOsfactsMemoryFixture(
+      { rows: [`M\t${process.pid}\t10485760`] },
       async () => {
         await expect(samplePadiMemory()).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
