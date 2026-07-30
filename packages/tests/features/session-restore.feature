@@ -93,10 +93,13 @@ Feature: Session restore
   # opt-in, so a split's agent was never resumed and its restoreTarget was wiped.
   @codex-mock @kaval-restart
   Scenario: A split terminal's agent resumes on session restore
+    # Agent is mocked in the focused SPLIT (create-sub focuses it). Tile
+    # titlebar chrome only paints the main pane's agent, so we do not assert
+    # tile chrome here — the restore payoff is the by-id resume invocation
+    # landing in a restored PTY (same assertion as sleeping-terminals.feature).
     Given the terminal is ready
     When I create a sub-terminal via command palette
     And a Codex session is mocked with state "waiting"
-    Then the tile chrome should show a Codex indicator with state "waiting"
     When I wait for the session auto-save
     And the kaval daemon is killed
     Then the degraded canvas is shown
