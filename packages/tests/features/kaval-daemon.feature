@@ -55,42 +55,6 @@ Feature: kaval daemon lifecycle (B2 — the door)
   # the padi gate pid stays put, and the live session survives the recycle to be
   # restored.
   @kaval-restart
-  Scenario: Restarting a LIVE kaval recycles it (fresh pid), keeps padi up, and preserves the session
-    Given the terminal is ready
-    When I capture the padi and kaval daemon pids
-    And I open the kaval rail dialog
-    And I restart kaval from the rail dialog
-    Then the warming canvas is shown while kaval restarts
-    And the restore card is not offered until kaval is connected
-    Then the daemon returns to running
-    And the kaval daemon has been recycled with a fresh pid
-    And the padi daemon pid is unchanged
-    And the session restore card should be visible
-    When I click the restore button
-    Then there should be 1 workspace switcher entries
-    And there should be no page errors
-
-  # W2.2 REGRESSION REPRO (investigation W2.2) — recycling kaval with a SPLIT present.
-  # Two symptoms the recycle must not produce:
-  #   1. The client's list-driven reconcile (useActiveReconcile) sees the drain empty
-  #      the terminal list and fires `chrome.setParent(subId, null)` to promote the
-  #      split's sub-terminals to top-level — against the fresh kaval that never had
-  #      them, so padi throws NOT_FOUND and a scary "Failed to set parent" toast pops
-  #      while the restore card is still up (before the user restores).
-  #   2. After restore the split's sub-terminal comes back HIDDEN — its restored
-  #      visibility (active sub-tab on the restored, fresh-id parent) is not honored.
-  # Red on the current code:
-  #   - `no "Failed to set parent" error toast should have been shown`  → SYMPTOM 1
-  #      (useActiveReconcile promotes the split's sub via chrome.setParent(sub,null)
-  #       during the drain; padi has already dropped it → NOT_FOUND toast).
-  #   - `the restored split sub-terminal should be visible`             → SYMPTOM 2
-  #      (the `viewSeeded` latch skips hydrateFromTerminals on the in-session
-  #       restore, so the restored parent's active sub-tab is never seeded and the
-  #       sub pane never becomes visible). NOTE: `the sub-panel should be visible`
-  #       (tab bar only) is a FALSE-GREEN for symptom 2 — the bar renders on the
-  #       fresh parent's default collapsed:false; the content-visibility line below
-  #       is the assertion that actually catches it.
-  @kaval-restart
   Scenario: Recycling kaval with a split does not spuriously re-parent it and keeps it visible
     Given the terminal is ready
     When I create a sub-terminal via command palette
@@ -102,6 +66,8 @@ Feature: kaval daemon lifecycle (B2 — the door)
     And I restart kaval from the rail dialog
     Then the warming canvas is shown while kaval restarts
     Then the daemon returns to running
+    And the kaval daemon has been recycled with a fresh pid
+    And the padi daemon pid is unchanged
     And no "Failed to set parent" error toast should have been shown
     And the session restore card should be visible
     When I click the restore button

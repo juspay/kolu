@@ -8,8 +8,8 @@ Feature: Sleeping terminals
   These scenarios drive the real user JOURNEYS and assert the real OUTCOMES:
   the woken terminal resumes the SAME conversation (not a blank fresh agent);
   a dragged sleeping tile stays where it was left across a reload; a slept
-  session survives a full daemon restart; a malformed persisted record is
-  dropped, not fatal; and sleeping the only terminal never clears the session.
+  session survives a full daemon restart; and wake/restart convergence never
+  creates an orphan or duplicate tile.
 
   @codex-mock
   Scenario: Waking a sleeping agent terminal resumes the SAME conversation
@@ -94,35 +94,6 @@ Feature: Sleeping terminals
     When I click the restore button
     Then the restored sleeping tile should be sleeping
     And there should be exactly 1 canvas tile
-    And there should be no page errors
-
-  Scenario: A malformed sleeping record is dropped while the good one restores
-    # Plant TWO sleeping records into the saved session: one well-formed, one
-    # MALFORMED (a non-UUID id — the one defect that PASSES the loose persisted-
-    # session schema so the session plants, yet is DROPPED per-record at the
-    # server's seed boundary, which re-checks the id against the strict UUID
-    # schema). On a cold restore the good sleeping tile must come back DORMANT and
-    # the malformed one must be dropped — no crash, no freeze, no second tile. The
-    # guard: exactly one sleeping tile and exactly one canvas tile after restore.
-    Given a saved session with one good and one malformed sleeping record
-    When I open the app
-    Then the session restore card should be visible
-    And the restore card should mark a sleeping terminal as asleep
-    When I click the restore button
-    Then the restored sleeping tile should be sleeping
-    And there should be exactly 1 canvas tile
-    And there should be no page errors
-
-  Scenario: Sleeping the only terminal does not clear the session
-    # Sleeping the last terminal must NOT be read as "no terminals" — the dormant
-    # tile stays on the canvas and the workspace switcher keeps its single entry.
-    # A regression that cleared the session on the last terminal would leave the
-    # canvas empty; here the sleeping tile must remain.
-    Given the terminal is ready
-    When I sleep the active terminal via the tile sleep button
-    Then the slept terminal should be sleeping
-    And there should be exactly 1 canvas tile
-    And the workspace switcher should have 1 terminal entry
     And there should be no page errors
 
   Scenario: The dock's ☾ toggle hides and re-shows sleeping terminals

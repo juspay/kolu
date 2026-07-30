@@ -41,7 +41,7 @@ Feature: Deep links — every view addressable by a #/… URL
 
   Scenario: A #/t/…/code link opens the Code tab on a file at a line
     When I create a terminal
-    And I run "git init /tmp/kolu-deeplink-code && cd /tmp/kolu-deeplink-code"
+    And I run "rm -rf /tmp/kolu-deeplink-code && git init /tmp/kolu-deeplink-code && cd /tmp/kolu-deeplink-code"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'alpha\nbeta\ngamma\n' > notes.txt"
     And I run "git add notes.txt && git commit -m notes"
@@ -116,7 +116,7 @@ Feature: Deep links — every view addressable by a #/… URL
     # click-to-jump. The previewed HTML names its authoring terminal via its
     # own $KAVAL_TERMINAL_ID, so the pill targets a real terminal id.
     When I create a terminal
-    And I run "git init /tmp/kolu-dl2-pill && cd /tmp/kolu-dl2-pill"
+    And I run "rm -rf /tmp/kolu-dl2-pill && git init /tmp/kolu-dl2-pill && cd /tmp/kolu-dl2-pill"
     And I run "git commit --allow-empty -m init"
     And I run "echo DEEP-PILL-MARKER"
     And I run "printf '<a href=\"/#/t/local/%s\">jump to agent</a>\n' \"$KAVAL_TERMINAL_ID\" > pill.html"

@@ -153,6 +153,18 @@ if (fixtureHome) {
     path.join(fixtureHome, ".gitconfig"),
     `[user]\n\tname = ${process.env.GIT_AUTHOR_NAME}\n\temail = ${process.env.GIT_AUTHOR_EMAIL}\n`,
   );
+  const inheritedPath = process.env.PATH;
+  if (!inheritedPath) {
+    throw new Error("E2E harness requires PATH for spawned terminal fixtures");
+  }
+  // macOS's /etc/zprofile replaces the inherited Nix PATH with system paths.
+  // The isolated HOME is replayed after /etc/zprofile by prepareShellInit, so
+  // restore the harness PATH here. This keeps the real Nix git on pristine
+  // Darwin runners instead of falling into Apple's uninstalled Xcode stub.
+  fs.writeFileSync(
+    path.join(fixtureHome, ".zprofile"),
+    `export PATH='${inheritedPath.replaceAll("'", `'\\''`)}'\n`,
+  );
 }
 
 const AGENT_DIR_VARS = [

@@ -30,11 +30,15 @@
  */
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GitStatusEntry } from "@pierre/trees";
 
 // The mock captures Pierre's `onSelectionChange` so a test can make "Pierre" emit
 // a selection — with or without a preceding user gesture.
 const { pierre } = vi.hoisted(() => ({
-  pierre: { emit: (_paths: readonly string[]) => {} },
+  pierre: {
+    emit: (_paths: readonly string[]) => {},
+    initialGitStatus: undefined as GitStatusEntry[] | undefined,
+  },
 }));
 
 vi.mock("@pierre/trees", () => {
@@ -43,6 +47,7 @@ vi.mock("@pierre/trees", () => {
     constructor(opts: any) {
       const onSel = opts?.onSelectionChange;
       pierre.emit = (paths) => onSel?.(paths);
+      pierre.initialGitStatus = opts?.gitStatus;
     }
     render() {}
     getSelectedPaths(): readonly string[] {
@@ -69,13 +74,17 @@ afterEach(() => {
 
 /** Mount and return the tree's own container — the element the gate listens on
  *  (in the real app, composed user events cross Pierre's shadow root to it). */
-function mount(onSelect: (p: string | null) => void): HTMLElement {
+function mount(
+  onSelect: (p: string | null) => void,
+  gitStatus?: GitStatusEntry[],
+): HTMLElement {
   const wrapper = document.createElement("div");
   document.body.appendChild(wrapper);
   const dispose = render(
     () => (
       <FileTree
         paths={PATHS}
+        gitStatus={gitStatus}
         onSelect={onSelect}
         onError={(e) => {
           throw e;
@@ -170,5 +179,17 @@ describe("FileTree selection provenance (shimmer #1841)", () => {
     } finally {
       globalThis.requestAnimationFrame = realRaf;
     }
+  });
+});
+
+describe("FileTree initial git status", () => {
+  it("passes initial git status into Pierre's constructor", () => {
+    const gitStatus: GitStatusEntry[] = [
+      { path: "examples/Main.lean", status: "modified" },
+    ];
+
+    mount(() => {}, gitStatus);
+
+    expect(pierre.initialGitStatus).toEqual(gitStatus);
   });
 });
