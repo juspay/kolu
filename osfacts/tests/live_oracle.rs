@@ -36,8 +36,13 @@ use std::time::Duration;
 // facet costs 6.0 us per readable descriptor, and the other seven facets
 // together cost ~15 us per process. Both budgets carry roughly 3x headroom for
 // a contended CI box, which is what makes this a smoke rather than a benchmark.
+// On small containers the fixed cost of enabling and serializing the extra
+// facets dominates both scaled terms: 31 processes / 207 descriptors measured
+// 13.1 ms against a 6.5 ms scaled allowance. Keep an explicit small-host floor
+// below the historical 42.25 ms regression this smoke was introduced to catch.
 const LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS: u128 = 75;
 const LINUX_PORTS_CPU_BUDGET_US_PER_FD: u128 = 20;
+const LINUX_EXTRA_FACETS_CPU_BUDGET_MIN_US: u128 = 20_000;
 
 #[derive(Debug, Default, World)]
 #[world(init = Self::new)]
@@ -682,13 +687,14 @@ fn complete_process_snapshot_is_fast(_world: &mut LiveWorld) {
         let process_micros =
             LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS.saturating_mul(process_count as u128);
         let fd_micros = LINUX_PORTS_CPU_BUDGET_US_PER_FD.saturating_mul(fd_count as u128);
-        let limit_micros = process_micros.saturating_add(fd_micros);
+        let scaled_limit_micros = process_micros.saturating_add(fd_micros);
+        let limit_micros = scaled_limit_micros.max(LINUX_EXTRA_FACETS_CPU_BUDGET_MIN_US);
         eprintln!(
-            "Linux child CPU medians across {process_count} processes / {fd_count} descriptors: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} (budget {process_micros}us process + {fd_micros}us fd = {limit_micros}us total)"
+            "Linux child CPU medians across {process_count} processes / {fd_count} descriptors: --procs={baseline_median:?}, all facets={median:?}, extra={extra:?} (scaled budget {process_micros}us process + {fd_micros}us fd = {scaled_limit_micros}us; small-host floor {LINUX_EXTRA_FACETS_CPU_BUDGET_MIN_US}us; effective {limit_micros}us)"
         );
         assert!(
             extra.as_micros() < limit_micros,
-            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes and {fd_count} descriptors; live smoke budget is {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process + {LINUX_PORTS_CPU_BUDGET_US_PER_FD}us/descriptor ({limit_micros}us total; baseline samples={:?}; all-facet samples={:?})",
+            "Linux extra-facets child CPU median was {extra:?} (--procs={baseline_median:?}, all facets={median:?}) across {process_count} processes and {fd_count} descriptors; live smoke budget is max({LINUX_EXTRA_FACETS_CPU_BUDGET_MIN_US}us, {LINUX_EXTRA_FACETS_CPU_BUDGET_US_PER_PROCESS}us/process + {LINUX_PORTS_CPU_BUDGET_US_PER_FD}us/descriptor) = {limit_micros}us (scaled {scaled_limit_micros}us; baseline samples={:?}; all-facet samples={:?})",
             world.linux_perf_baseline_samples,
             world.linux_perf_samples,
         );

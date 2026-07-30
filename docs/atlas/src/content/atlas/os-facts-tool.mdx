@@ -266,7 +266,11 @@ CPU per live process **plus 20 µs per readable descriptor**. Two terms, because
 the cost has two drivers: `--ports` walks every process's file descriptors and
 scales with descriptor count, while the other seven facets scale with process
 count. Measured on an idle 407-process, 2725-descriptor host at ~15 µs/process
-and 6.0 µs/descriptor, so each term carries about 3x headroom.<Footnote>The
+and 6.0 µs/descriptor, so each term carries about 3x headroom. The effective
+budget has a 20 ms small-host floor: on a 31-process, 207-descriptor CI container,
+fixed facet setup and serialization measured 13.1 ms beyond `--procs`, while the
+two scaled terms collapsed to 6.5 ms. The floor remains below the historical
+42.25 ms regression this smoke was introduced to catch.<Footnote>The
 first version budgeted per-process only. On a workstation the two counts track
 each other and it passed; on a CI container — 50 processes, a build daemon's
 worth of descriptors — the fd walk alone spent 20 ms against a 3.75 ms

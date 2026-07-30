@@ -498,7 +498,11 @@ CPU per live process <strong>plus 20 µs per readable descriptor</strong>. Two t
 the cost has two drivers: <code>--ports</code> walks every process’s file descriptors and
 scales with descriptor count, while the other seven facets scale with process
 count. Measured on an idle 407-process, 2725-descriptor host at ~15 µs/process
-and 6.0 µs/descriptor, so each term carries about 3x headroom.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The
+and 6.0 µs/descriptor, so each term carries about 3x headroom. The effective
+budget has a 20 ms small-host floor: on a 31-process, 207-descriptor CI container,
+fixed facet setup and serialization measured 13.1 ms beyond <code>--procs</code>, while the
+two scaled terms collapsed to 6.5 ms. The floor remains below the historical
+42.25 ms regression this smoke was introduced to catch.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>The
 first version budgeted per-process only. On a workstation the two counts track
 each other and it passed; on a CI container — 50 processes, a build daemon’s
 worth of descriptors — the fd walk alone spent 20 ms against a 3.75 ms

@@ -94,8 +94,12 @@ Two drivers → two terms:
 | --- | ---: | ---: |
 | per process (7 facets) | 75 µs | ~15 µs |
 | per readable fd (`--ports`) | 20 µs | ~6.0 µs |
+| small-host floor | 20 ms total | 13.1 ms at 31 procs / 207 fds |
 
-~3× headroom each — enough for a contended CI box.
+The effective budget is the larger of the two scaled terms' sum and the 20 ms
+floor. The floor covers fixed facet setup and serialization on small containers,
+where multiplying tiny process/fd counts otherwise under-models the work; it
+remains below the historical 42.25 ms regression this smoke was added to catch.
 
 A single process-scaled budget **failed every CI host** it met: containers run few processes + thousands of fds. Calibrate against reality, not your laptop.
 
