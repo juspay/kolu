@@ -76,7 +76,7 @@
 <tr>
 <td>Scenario inventory</td>
 <td><code>packages/tests/scenario-inventory.json</code></td>
-<td>Each revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. New revisions append; CI compares historical records with the merge base, so an old record cannot be edited or removed in the deleting change.</td>
+<td>Each revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. New revisions append; CI compares historical records with the parent commit, so an old record cannot be edited or removed in the next change—even from a detached checkout.</td>
 </tr>
 <tr>
 <td>Coverage ledger</td>

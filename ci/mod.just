@@ -195,8 +195,8 @@ e2e: install nix
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
 
 # Wave 0's non-browser guard: parse the real Gherkin suite, compare its
-# immutable inventory with master, and require a landed coverage-ledger row for
-# every scenario revision that disappeared. Runs on both platforms so the
+# immutable inventory with the parent commit, and require a landed
+# coverage-ledger row for every scenario revision that disappeared. Runs on both platforms so the
 # platform-specific default counts stay executable facts.
 e2e-governance: install
     {{ nix_shell }} just --no-deps test-e2e-governance

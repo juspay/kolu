@@ -31,7 +31,7 @@ EG is the E2E-graduation track. EG0 changes no feature and retires no browser ex
 
 | Mechanism | Source of truth | Enforced property |
 |---|---|---|
-| Scenario inventory | `packages/tests/scenario-inventory.json` | Each revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. New revisions append; CI compares historical records with the merge base, so an old record cannot be edited or removed in the deleting change. |
+| Scenario inventory | `packages/tests/scenario-inventory.json` | Each revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. New revisions append; CI compares historical records with the parent commit, so an old record cannot be edited or removed in the next change—even from a detached checkout. |
 | Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming the promise, real defect surface, destination layer, replacement, and current survivor. |
 | Replacement proof | `packages/tests/governance/ledger.ts` | Replacement and counterfactual test names must resolve through Vitest collection. The counterfactual names the break it introduces; review still verifies that it crosses the declared real seam. |
 | Attempt timing | Cucumber message stream → `reports/e2e-timing.json` | Every attempt is retained with status, wall duration, step duration, retry verdict, final-attempt totals, and per-feature totals. A passing retry cannot erase the failed attempt's cost. |

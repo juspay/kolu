@@ -104,13 +104,9 @@ validateCollectedTests(ledger, (file) => {
   return new Set(tests.map((test) => test.name));
 });
 
-const base = git("merge-base", "HEAD", "master");
 try {
-  const baseText = git(
-    "show",
-    `${base}:packages/tests/scenario-inventory.json`,
-  );
-  assertAppendOnly(readInventory(baseText, "merge-base inventory"), inventory);
+  const baseText = git("show", `HEAD^:packages/tests/scenario-inventory.json`);
+  assertAppendOnly(readInventory(baseText, "parent inventory"), inventory);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   if (

@@ -14,8 +14,9 @@ Wave 0 makes E2E removal auditable before any scenario is deleted:
   disappears. A landed replacement names its real defect surface, retained
   user journey, destination lane, and a counterfactual test explaining how the
   replacement is proven to fail when that behavior breaks.
-- `just test-e2e-governance` compares inventory records with the merge base, so
-  deleting or editing history in the same PR fails. New or intentionally
+- `just test-e2e-governance` compares inventory records with the parent commit,
+  so deleting or editing history in a later commit fails even in detached CI.
+  New or intentionally
   revised scenarios are appended with `cd packages/tests && pnpm
   inventory:update` and then reviewed.
 - Every Cucumber run writes `reports/messages.ndjson` and reduces it to

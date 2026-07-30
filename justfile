@@ -177,8 +177,8 @@ test-unit: install
     {{ nix_shell }} pnpm test:unit
 
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
-# deliberately separate from test-unit: it reads Git history to prove old
-# inventory records were not edited or removed in the same change.
+# deliberately separate from test-unit: it reads the parent commit to prove old
+# inventory records were not edited or removed in the next change.
 test-e2e-governance: install
     cd packages/tests && {{ nix_shell }} pnpm test:governance
 
