@@ -12,6 +12,25 @@ apm.lock.yaml linguist-generated
 .codex/** linguist-generated
 .opencode/** linguist-generated
 
+# Exclude from `git archive` / GitHub source tarballs (what `github:…` flake
+# inputs unpack into ~/.cache/nix/tarball-cache).
+#
+# The app flake's build `src` is already a packages-only fileset
+# (nix/workspace.nix); website has its own flake. Without export-ignore, every
+# consumer still downloads the full monorepo (~3k members / ~44MB) and can hit
+# EMFILE under macOS's default soft maxfiles (256).
+/website export-ignore
+/docs export-ignore
+/.claude export-ignore
+/.agents export-ignore
+/.codex export-ignore
+/.opencode export-ignore
+/.agency export-ignore
+/.apm export-ignore
+/agents export-ignore
+/.github export-ignore
+/ci export-ignore
+
 # Generated Astro output, committed for in-app (Code tab) preview of the Atlas.
 # dist/ is a pure function of src/, so a 3-way text merge of the HTML is never
 # meaningful — it only splatters conflict markers into generated pages. `-merge`
