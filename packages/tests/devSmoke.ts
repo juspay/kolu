@@ -33,6 +33,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import getPort from "get-port";
 import { chromium, type ConsoleMessage } from "playwright";
+import { scanKoluListeningOutput } from "./devSmokeReadiness.ts";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
 
@@ -44,6 +45,8 @@ const DEV_READY_TIMEOUT_MS = 180_000;
 const APP_MOUNT_TIMEOUT_MS = 60_000;
 /** Quiet period after mount, to catch errors that arrive just after first paint. */
 const SETTLE_MS = 3_000;
+
+class HttpReadyTimeout extends Error {}
 
 /** Two free ports, held open until both are chosen so they cannot collide with
  *  each other. Random ports are mandatory, not tidiness: the canonical 7681/5173
@@ -87,7 +90,29 @@ async function waitForHttp(
     }
     await sleep(500);
   }
-  throw new Error(`timed out after ${timeoutMs}ms waiting for ${url}`);
+  throw new HttpReadyTimeout(
+    `timed out after ${timeoutMs}ms waiting for ${url}`,
+  );
+}
+
+async function waitForOwnedProxyHealth(
+  url: string,
+  ownsPort: () => boolean,
+  expectedPort: number,
+  timeoutMs: number,
+  proc: ChildProcess,
+) {
+  try {
+    await waitForHttp(url, ownsPort, timeoutMs, proc);
+  } catch (error) {
+    if (error instanceof HttpReadyTimeout && !ownsPort()) {
+      throw new Error(
+        `kolu-server never announced "kolu listening" on :${expectedPort}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** `just dev` forks a server and a client in parallel, so the child is a process
@@ -132,23 +157,22 @@ async function main() {
 
   const dev = startDevServer(ports);
   const devLog: string[] = [];
-  let startupLog = "";
   let serverOwnsPort = false;
-  const recordDevOutput = (data: Buffer) => {
-    const text = data.toString();
-    devLog.push(text);
+  let stdoutPartialLine = "";
+  let stderrPartialLine = "";
+  const recordDevOutput = (stream: "stdout" | "stderr") => (data: Buffer) => {
+    const chunk = data.toString();
+    devLog.push(chunk);
     if (serverOwnsPort) return;
-    startupLog += text;
-    if (
-      startupLog.includes("kolu listening") &&
-      startupLog.includes(`:${ports.server}`)
-    ) {
-      serverOwnsPort = true;
-    }
-    if (startupLog.length > 16_384) startupLog = startupLog.slice(-4_096);
+    const partialLine =
+      stream === "stdout" ? stdoutPartialLine : stderrPartialLine;
+    const scan = scanKoluListeningOutput(partialLine, chunk, ports.server);
+    if (stream === "stdout") stdoutPartialLine = scan.trailingPartialLine;
+    else stderrPartialLine = scan.trailingPartialLine;
+    serverOwnsPort = scan.ownsPort;
   };
-  dev.stdout?.on("data", recordDevOutput);
-  dev.stderr?.on("data", recordDevOutput);
+  dev.stdout?.on("data", recordDevOutput("stdout"));
+  dev.stderr?.on("data", recordDevOutput("stderr"));
 
   const failures: string[] = [];
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -161,53 +185,62 @@ async function main() {
     // client readiness alone makes a clean boot look like a browser failure.
     // Require our child to claim the server port before probing through the
     // same Vite proxy path the browser uses; a stale listener cannot satisfy it.
-    await Promise.all([
-      waitForHttp(clientUrl, () => true, DEV_READY_TIMEOUT_MS, dev),
-      waitForHttp(
-        proxiedHealthUrl,
-        () => serverOwnsPort,
-        DEV_READY_TIMEOUT_MS,
-        dev,
-      ),
-    ]);
-    console.log(
-      `dev-smoke: dev stack ready (client=${clientUrl} proxy-health=${proxiedHealthUrl})`,
-    );
-
-    browser = await chromium.launch();
-    const page = await browser.newPage();
-
-    page.on("console", (msg) => {
-      if (isFailure(msg)) failures.push(`console.error: ${msg.text()}`);
-    });
-    // A module-load crash arrives as an uncaught exception, not a console call.
-    page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
-
-    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
-
-    // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
-    // page with an empty body, which a status-code check would have called
-    // healthy. `[data-ws-status]` is the app shell's connection indicator — the
-    // same element the cucumber suite reads — so waiting on it proves Solid
-    // rendered, not just that Vite answered.
-    //
-    // A mount failure is recorded, NOT thrown. When the app dies at module load
-    // both things are true — the console has the crash and the mount never
-    // happens — and the console message is the one that names the cause. Letting
-    // the timeout propagate would report `TimeoutError` and discard the
-    // diagnosis the listeners above already captured.
     try {
-      await page
-        .locator("[data-ws-status]")
-        .first()
-        .waitFor({ state: "attached", timeout: APP_MOUNT_TIMEOUT_MS });
-      // Only settle once mounted: a module-load crash in a lazily-imported chunk
-      // surfaces slightly after first paint, and this is what catches it.
-      await sleep(SETTLE_MS);
-    } catch {
-      failures.push(
-        `app never mounted: no [data-ws-status] within ${APP_MOUNT_TIMEOUT_MS}ms`,
+      await Promise.all([
+        waitForHttp(clientUrl, () => true, DEV_READY_TIMEOUT_MS, dev),
+        waitForOwnedProxyHealth(
+          proxiedHealthUrl,
+          () => serverOwnsPort,
+          ports.server,
+          DEV_READY_TIMEOUT_MS,
+          dev,
+        ),
+      ]);
+      console.log(
+        `dev-smoke: dev stack ready (client=${clientUrl} proxy-health=${proxiedHealthUrl})`,
       );
+    } catch (error) {
+      failures.push(
+        `dev stack never became ready: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    if (failures.length === 0) {
+      browser = await chromium.launch();
+      const page = await browser.newPage();
+
+      page.on("console", (msg) => {
+        if (isFailure(msg)) failures.push(`console.error: ${msg.text()}`);
+      });
+      // A module-load crash arrives as an uncaught exception, not a console call.
+      page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
+
+      await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
+
+      // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
+      // page with an empty body, which a status-code check would have called
+      // healthy. `[data-ws-status]` is the app shell's connection indicator — the
+      // same element the cucumber suite reads — so waiting on it proves Solid
+      // rendered, not just that Vite answered.
+      //
+      // A mount failure is recorded, NOT thrown. When the app dies at module load
+      // both things are true — the console has the crash and the mount never
+      // happens — and the console message is the one that names the cause. Letting
+      // the timeout propagate would report `TimeoutError` and discard the
+      // diagnosis the listeners above already captured.
+      try {
+        await page
+          .locator("[data-ws-status]")
+          .first()
+          .waitFor({ state: "attached", timeout: APP_MOUNT_TIMEOUT_MS });
+        // Only settle once mounted: a module-load crash in a lazily-imported chunk
+        // surfaces slightly after first paint, and this is what catches it.
+        await sleep(SETTLE_MS);
+      } catch {
+        failures.push(
+          `app never mounted: no [data-ws-status] within ${APP_MOUNT_TIMEOUT_MS}ms`,
+        );
+      }
     }
   } finally {
     await browser?.close();
