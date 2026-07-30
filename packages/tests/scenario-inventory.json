@@ -7250,6 +7250,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "311ad5e3060663fe45e337cd9627638f9d0d9fbf"
+    },
+    {
+      "revisionId": "revision-969fa4a561315a8f68b3",
+      "scenarioKey": "scenario-a9acee33f05c2cd180f8",
+      "feature": "features/file-ref-link.feature",
+      "scenario": "A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "8832834cad58059d036a5376ee7d427090fd97e77ec8c4ea1cb29ebd74a557eb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "0be1ad50deebf3f96737c6f745dda19aebfc5fe8"
     }
   ]
 }

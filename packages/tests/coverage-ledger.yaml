@@ -1644,7 +1644,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-9724b30acd0f9f06509e
+      - revision-969fa4a561315a8f68b3
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
@@ -1660,11 +1660,27 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-9724b30acd0f9f06509e
+      - revision-969fa4a561315a8f68b3
     sameCodePathEvidence:
       file: packages/tests/features/file-ref-link.feature
       symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
       test: The current revision keeps the real transformed CDP touch and production cell resolver while placing the reference inside the terminal's clipped touch surface.
+  - id: revise-9724b30acd0f9f06509e
+    revisionId: revision-9724b30acd0f9f06509e
+    action: revised
+    status: landed
+    promise: The transformed touch journey fails if inverse coordinate correction disappears
+    defectSurface:
+      - transformed-touch-hit-testing
+      - false-green-prevention
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-969fa4a561315a8f68b3
+    sameCodePathEvidence:
+      file: packages/tests/features/file-ref-link.feature
+      symbol: "Scenario: A touch tap under an injected CSS transform resolves to the visually-tapped cell (mobile stand-in; the canvas-zoom quadrant is Chromium-unreachable)"
+      test: The live journey asserts a visible discriminating point and the production resolver; bypassing the inverse returns [32,9] instead of [20,6] and fails before the touch.
   - id: revise-2990778b71a2ae513ca9
     revisionId: revision-2990778b71a2ae513ca9
     action: revised
