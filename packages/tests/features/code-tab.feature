@@ -799,7 +799,7 @@ Feature: Code tab (review + browse)
   # so single-child flattening doesn't fold it into `src/feature`.)
   Scenario: Browse mode tints ancestor folders that contain a change
     When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
-    And I run "mkdir -p src/feature lib seed && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && printf 'seed\n' > seed/dirty.txt && git add . && git commit -m init"
+    And I run "mkdir -p src/feature lib seed ready && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && printf 'seed\n' > seed/dirty.txt && printf 'ready\n' > ready/marker.txt && git add . && git commit -m init"
     And I run "printf 'seed-edited\n' > seed/dirty.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -809,6 +809,13 @@ Feature: Code tab (review + browse)
     Then the Code tab directory "seed" should be marked as containing a change
     And the Code tab directory "seed" name should be tinted differently from directory "lib"
     And the Code tab directory "src" should not be marked as containing a change
+    # The initial status read is deliberately independent of the async watcher
+    # subscription. Exercise a separate committed sentinel first, so the measured
+    # `src` edit happens only after a post-mount watcher refresh has landed.
+    When I click the terminal canvas
+    And I run "printf 'watcher-ready\n' > ready/marker.txt"
+    Then the Code tab directory "ready" should be marked as containing a change
+    When I click the terminal canvas
     # Now prove the mounted tree reacts to the later status update and rolls it
     # up to the newly changed ancestor while the clean sibling remains clean.
     When I run "printf 'edited\n' > src/feature/a.txt"

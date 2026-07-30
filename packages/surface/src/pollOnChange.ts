@@ -2,8 +2,9 @@
  * `pollOnChange` — the CLIENT dual of `pollOnEvent` (the server poll-on-event-tick
  * stream source). Where `pollOnEvent` reads on an event tick and yields
  * snapshot-then-deltas, `pollOnChange` subscribes a value-bearing PULSE stream (a
- * `{seq}` distinguisher) and, on every frame, re-runs a request/response PROCEDURE
- * and emits the result — the framework-free core of the Code tab's
+ * `{seq}` distinguisher), reads once immediately, and then re-runs a
+ * request/response PROCEDURE on every pulse frame — the framework-free core of
+ * the Code tab's
  * pulse-then-requery (W1.R4: push → pulse-then-requery, UX byte-identical bar
  * imperceptible extra latency).
  *
@@ -22,10 +23,13 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
    *  value stream's reconnect-refresh, preserved. */
   pulse: StreamingProcedure<PulseInput, Pulse>;
   pulseInput: PulseInput;
-  /** Re-run on every pulse frame (the initial snapshot + each on-disk change + each
-   *  post-reconnect snapshot). Reads are single-flight: pulses that arrive while a
-   *  read is running coalesce into one trailing refresh. `signal` is aborted only
-   *  when the poll ends, so a sustained pulse burst cannot starve every read. */
+  /** Read immediately, then re-run on every pulse frame (the initial snapshot +
+   *  each on-disk change + each post-reconnect snapshot). The direct read keeps
+   *  initial hydration independent of watcher setup; the pulse snapshot closes
+   *  the race between that read and watcher installation. Reads are single-flight:
+   *  pulses that arrive while a read is running coalesce into one trailing refresh.
+   *  `signal` is aborted only when the poll ends, so a sustained pulse burst cannot
+   *  starve every read. */
   query: (signal: AbortSignal) => Promise<Result>;
   /** A fresh result landed (from a read that was not aborted by teardown). */
   onResult: (result: Result) => void;
@@ -41,8 +45,9 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
   signal: AbortSignal;
 }
 
-/** Subscribe the pulse and requery per frame. Returns immediately; the loop runs
- *  until the pulse ends (`onComplete`) or `signal` aborts. */
+/** Query once, then subscribe to the pulse and requery per frame. Returns
+ *  immediately; the loop runs until the pulse ends (`onComplete`) or `signal`
+ *  aborts. */
 export function pollOnChange<PulseInput, Pulse, Result>(
   opts: PollOnChangeOpts<PulseInput, Pulse, Result>,
 ): void {
@@ -90,6 +95,12 @@ export function pollOnChange<PulseInput, Pulse, Result>(
   // Teardown aborts the in-flight requery too (not just the pulse) — the caller's
   // `signal` is the single owner of the whole poll's lifetime.
   opts.signal.addEventListener("abort", stop, { once: true });
+
+  // A notification stream is an invalidation channel, not the authority for
+  // initial state. Hydrate directly so a delayed watcher subscription cannot
+  // leave the consumer blank forever. The pulse stream's initial snapshot still
+  // requests a refresh, closing the read-before-watch installation window.
+  runQuery();
 
   void (async () => {
     try {

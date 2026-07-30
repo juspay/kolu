@@ -88,6 +88,29 @@ function queryHarness(): {
 }
 
 describe("pollOnChange", () => {
+  it("hydrates before the pulse stream delivers its first frame", async () => {
+    const pulse = controllablePulse<number>();
+    const queries = queryHarness();
+    const results: string[] = [];
+    const lifetime = new AbortController();
+
+    pollOnChange({
+      pulse: pulse.procedure,
+      pulseInput: undefined,
+      query: queries.query,
+      onResult: (result) => results.push(result),
+      onError: () => {},
+      onComplete: () => {},
+      signal: lifetime.signal,
+    });
+
+    await vi.waitFor(() => expect(queries.calls).toHaveLength(1));
+    expect(pulse.delivered).toBe(0);
+    queries.calls[0]!.resolve("initial");
+    await vi.waitFor(() => expect(results).toEqual(["initial"]));
+    lifetime.abort();
+  });
+
   it("coalesces a pulse burst without aborting or starving the in-flight query", async () => {
     const pulse = controllablePulse<number>();
     const queries = queryHarness();
