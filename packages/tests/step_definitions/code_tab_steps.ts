@@ -1882,12 +1882,27 @@ Then(
       .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
       .first();
     await pollFor({
-      observe: () => marked.isVisible().catch(() => false),
-      isDone: (visible) => visible,
+      observe: async () => ({
+        visible: await marked.isVisible().catch(() => false),
+        gitStatus: await this.page
+          .locator(`${TREE} [data-item-git-status]`)
+          .evaluateAll((rows) =>
+            rows.map((row) => ({
+              path: row.getAttribute("data-item-path"),
+              status: row.getAttribute("data-item-git-status"),
+            })),
+          ),
+        changedDirectories: await this.page
+          .locator(`${TREE} [data-item-contains-git-change="true"]`)
+          .evaluateAll((rows) =>
+            rows.map((row) => row.getAttribute("data-item-path")),
+          ),
+      }),
+      isDone: ({ visible }) => visible,
       onTick: () => nudgeFiles([filePath]),
-      onTimeout: (_last, elapsedMs) =>
+      onTimeout: (last, elapsedMs) =>
         new Error(
-          `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms while nudging ${filePath}`,
+          `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms while nudging ${filePath}; final tree state: ${JSON.stringify(last)}`,
         ),
       intervalMs: 500,
       timeoutMs: HYDRATION_TIMEOUT,

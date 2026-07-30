@@ -23,10 +23,11 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
   pulse: StreamingProcedure<PulseInput, Pulse>;
   pulseInput: PulseInput;
   /** Re-run on every pulse frame (the initial snapshot + each on-disk change + each
-   *  post-reconnect snapshot). `signal` aborts a SUPERSEDED in-flight read — a newer
-   *  pulse frame, or teardown — so a slow read can never land over a fresher frame. */
+   *  post-reconnect snapshot). Reads are single-flight: pulses that arrive while a
+   *  read is running coalesce into one trailing refresh. `signal` is aborted only
+   *  when the poll ends, so a sustained pulse burst cannot starve every read. */
   query: (signal: AbortSignal) => Promise<Result>;
-  /** A fresh result landed (from a read that was not superseded/aborted). */
+  /** A fresh result landed (from a read that was not aborted by teardown). */
   onResult: (result: Result) => void;
   /** A query OR pulse failure (never an abort). Routing BOTH channels here is what
    *  lets a persistent watcher failure (inotify ENOSPC) surface a real error, not
@@ -45,33 +46,50 @@ export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
 export function pollOnChange<PulseInput, Pulse, Result>(
   opts: PollOnChangeOpts<PulseInput, Pulse, Result>,
 ): void {
-  // Abort-supersede: a newer pulse frame's requery cancels an older in-flight one,
-  // so a slow read never lands its result over a fresher frame's.
   let queryCtl: AbortController | null = null;
+  let refreshRequested = false;
+  let stopped = false;
+
+  // A burst is leading + trailing: start one read immediately, remember any pulse
+  // that arrives while it runs, then perform exactly one follow-up read. Serial
+  // reads cannot land out of order, and forward progress does not depend on finding
+  // a quiet gap between filesystem events.
   const runQuery = (): void => {
-    queryCtl?.abort();
+    if (stopped) return;
+    if (queryCtl) {
+      refreshRequested = true;
+      return;
+    }
+
     const ctl = new AbortController();
     queryCtl = ctl;
     void (async () => {
       try {
         const result = await opts.query(ctl.signal);
-        if (ctl.signal.aborted) return;
+        if (ctl.signal.aborted || stopped) return;
         opts.onResult(result);
       } catch (err) {
-        if (ctl.signal.aborted) return;
+        if (ctl.signal.aborted || stopped) return;
         opts.onError(err);
+      } finally {
+        if (queryCtl === ctl) queryCtl = null;
+        if (!stopped && refreshRequested) {
+          refreshRequested = false;
+          runQuery();
+        }
       }
     })();
   };
-  // Abort whatever requery is in flight — used at teardown and before every
-  // terminal pulse callback (a function boundary so it reads the closure-mutated
-  // `queryCtl`, not the flow-narrowed initial `null`).
-  const abortInFlightQuery = (): void => {
+
+  const stop = (): void => {
+    stopped = true;
+    refreshRequested = false;
     queryCtl?.abort();
+    queryCtl = null;
   };
   // Teardown aborts the in-flight requery too (not just the pulse) — the caller's
   // `signal` is the single owner of the whole poll's lifetime.
-  opts.signal.addEventListener("abort", abortInFlightQuery, { once: true });
+  opts.signal.addEventListener("abort", stop, { once: true });
 
   void (async () => {
     try {
@@ -88,14 +106,14 @@ export function pollOnChange<PulseInput, Pulse, Result>(
       // late result must not call `onResult` AFTER `onComplete` has latched (the
       // subscription's value must not change once complete). The entry is gone, so
       // the discarded final requery would only have surfaced a stale/erroring read.
-      abortInFlightQuery();
+      stop();
       if (!opts.signal.aborted) opts.onComplete();
     } catch (err) {
       // Pulse failure — abort the in-flight requery FIRST, for the SAME reason: a
       // query that resolves after `onError` would call `onResult` and clear the
       // just-recorded failure, presenting a dead watcher (e.g. inotify ENOSPC) as
       // healthy stale data. The terminal error must own the query.
-      abortInFlightQuery();
+      stop();
       if (!opts.signal.aborted) opts.onError(err);
     }
   })();
