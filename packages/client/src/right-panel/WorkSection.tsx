@@ -13,6 +13,7 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi/surface";
 import { type CheckStatus, type PrInfo, prValue } from "anyforge/schemas";
 import { prUnavailableSource } from "kolu-common/surface";
+import { terminalKey } from "kolu-common/terminalKey";
 import { type Component, createMemo, For, Show } from "solid-js";
 import ChecksIndicator from "../terminal/ChecksIndicator";
 import { ProviderUnavailableContent } from "../terminal/PrUnavailablePopover";
@@ -132,17 +133,28 @@ const WorkSection: Component<{
    *  pair (this terminal's branch wearing the last one's hue) is unspellable
    *  rather than merely avoided.
    *
+   *  The hue keys come from `terminalKey`, NOT from a local
+   *  `[git.repoName, git.branch]` spelling. That function is the canonical
+   *  identity projection, and `buildTerminalDisplayInfos` — the dock's paint —
+   *  keys off it too. The two spellings are equal today, so restating it here
+   *  would be a second source of truth for the very dock/Inspector hue equality
+   *  this file promises: a later change to `terminalKey` would silently drift
+   *  the Inspector while every current test stayed green.
+   *
    *  `WorkSection.test.tsx` is the executable form of that claim and carries
    *  the #2037 regression narrative. */
   const identity = createMemo(() => {
     const git = props.meta.git;
     if (!git) return null;
-    const colors = assignColors([git.repoName, git.branch]);
-    const repoColor = colors.get(git.repoName);
-    const annotationColor = colors.get(git.branch);
+    // Past the git guard, so `terminalKey` takes its git arm: group = repo
+    // name, label = branch. The cwd arm is unreachable here by construction.
+    const { group, label } = terminalKey(props.meta);
+    const colors = assignColors([group, label]);
+    const repoColor = colors.get(group);
+    const annotationColor = colors.get(label);
     if (!repoColor || !annotationColor) {
       throw new Error(
-        `assignColors missing inspector keys for ${git.repoName}/${git.branch}`,
+        `assignColors missing inspector keys for ${group}/${label}`,
       );
     }
     return { git, repoColor, annotationColor };

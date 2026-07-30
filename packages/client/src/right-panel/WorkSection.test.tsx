@@ -34,11 +34,14 @@ afterEach(() => {
   host = undefined;
 });
 
+type ActivePr = Extract<TerminalMetadata, { state: "active" }>["pr"];
+
 function terminal(git: {
   repoName: string;
   branch: string;
   isWorktree?: boolean;
   cwd: string;
+  pr?: ActivePr;
 }): TerminalMetadata {
   return {
     state: "active",
@@ -53,7 +56,7 @@ function terminal(git: {
       remoteUrl: null,
     },
     location: LOCAL_LOCATION,
-    pr: { kind: "absent" },
+    pr: git.pr ?? { kind: "absent" },
     agent: null,
     foreground: null,
     ports: { status: "unknown" },
@@ -118,6 +121,24 @@ describe("WorkSection identity chips", () => {
     expect(text("inspector-repo")).toBe("AI");
   });
 
+  /** The monogram is deliberately OUTSIDE the `inspector-repo` testid (its glyph
+   *  would otherwise read as "Kkolu"), which means the name and hue assertions
+   *  above cannot see it. Snapshot `RepoMonogram`'s `group` and they would all
+   *  still pass while the visible glyph stayed on the previous repo. */
+  it("repaints the repo monogram glyph when the terminal switches", () => {
+    const { setMeta } = mount(RESIZE_BUG);
+    const glyph = () =>
+      el("inspector-repo-chip")
+        ?.querySelector(".repo-monogram")
+        ?.textContent?.trim();
+
+    expect(glyph()).toBe("K");
+
+    setMeta(PI);
+
+    expect(glyph()).toBe("A");
+  });
+
   it("drops the worktree glyph when switching to a non-worktree terminal", () => {
     const { setMeta } = mount(RESIZE_BUG);
     const branch = () =>
@@ -168,5 +189,106 @@ describe("WorkSection identity chips", () => {
     mount(RESIZE_BUG);
     expect(hue("inspector-branch")).toBe(first.branch);
     expect(hue("inspector-repo-chip")).toBe(first.repo);
+  });
+});
+
+/** The PR/CI half of the cluster reaches through the same one-memo-one-accessor
+ *  shape the git half does, so it can freeze the same way — and the identity
+ *  tests above would stay green while it did, because every fixture there has
+ *  `pr: absent`. These pin the whole PR path across a switch: link, number,
+ *  title, rollup, and the per-check list. */
+describe("WorkSection PR and CI", () => {
+  const GREEN = terminal({
+    repoName: "kolu",
+    branch: "resize-bug",
+    cwd: "/home/srid/code/kolu/.worktrees/resize-bug",
+    pr: {
+      kind: "ok",
+      value: {
+        number: 2037,
+        title: "Repo identity paints the same way across Kolu",
+        state: "open",
+        url: "https://github.test/pull/2037",
+        checks: "pass",
+        checkRuns: [
+          { name: "ci::biome", outcome: "pass" },
+          { name: "ci::nix", outcome: "pass" },
+        ],
+      },
+    },
+  });
+  const RED = terminal({
+    repoName: "AI",
+    branch: "docs/pesu-chat-rewrite",
+    cwd: "/home/srid/code/AI/.worktrees/pi",
+    pr: {
+      kind: "ok",
+      value: {
+        number: 2072,
+        title: "Inspector chips follow the terminal you're on",
+        state: "open",
+        url: "https://github.test/pull/2072",
+        checks: "fail",
+        checkRuns: [
+          { name: "ci::typecheck", outcome: "fail" },
+          { name: "ci::e2e", outcome: "pending" },
+          { name: "ci::biome", outcome: "pass" },
+        ],
+      },
+    },
+  });
+
+  const prLink = () => host?.querySelector<HTMLAnchorElement>("a[href]");
+  const checkNames = () =>
+    [
+      ...(host?.querySelectorAll('[data-testid="inspector-pr-checks"] li') ??
+        []),
+    ]
+      .map((li) => li.textContent?.trim())
+      .filter(Boolean);
+
+  it("repaints link, number, title, rollup, and check list on a switch", () => {
+    const { setMeta } = mount(GREEN);
+
+    expect(prLink()?.getAttribute("href")).toBe(
+      "https://github.test/pull/2037",
+    );
+    expect(prLink()?.textContent).toContain("#2037");
+    expect(text("inspector-ci")).toBe("✓ 2 passed");
+    expect(checkNames()).toEqual(["ci::biome", "ci::nix"]);
+
+    setMeta(RED);
+
+    expect(prLink()?.getAttribute("href")).toBe(
+      "https://github.test/pull/2072",
+    );
+    expect(prLink()?.textContent).toContain("#2072");
+    // The rollup's VERDICT and its COUNT come out of one read, so they can
+    // never describe two different PRs — a green tally under a red verdict.
+    expect(text("inspector-ci")).toBe("✕ 1 failed");
+    // Exceptions sort first.
+    expect(checkNames()).toEqual(["ci::typecheck", "ci::e2e", "ci::biome"]);
+    expect(host?.textContent).toContain(
+      "Inspector chips follow the terminal you're on",
+    );
+    expect(host?.textContent).not.toContain(
+      "Repo identity paints the same way",
+    );
+  });
+
+  it("clears the whole PR cluster when switching to a terminal without one", () => {
+    const { setMeta } = mount(GREEN);
+    expect(el("inspector-ci")).not.toBeNull();
+
+    setMeta(PI);
+
+    expect(prLink()).toBeNull();
+    expect(el("inspector-ci")).toBeNull();
+    expect(el("inspector-pr-checks")).toBeNull();
+    expect(host?.textContent).not.toContain(
+      "Repo identity paints the same way",
+    );
+    // The identity half must still have followed the switch.
+    expect(text("inspector-branch")).toBe("docs/pesu-chat-rewrite");
   });
 });
