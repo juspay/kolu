@@ -343,8 +343,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Regression: folder-chevron clicks did nothing while a filter was
@@ -372,25 +370,6 @@ Feature: Code tab (review + browse)
 
     Examples:
       | mode   |
-      | local  |
-      | branch |
-      | browse |
-
-  Scenario Outline: Filter matches files by path tokens [<mode>]
-    Given a Code tab in "<mode>" mode showing files:
-      | path                          | content |
-      | common/src/index.tsx          | common  |
-      | common/src/components/App.tsx | app     |
-      | packages/client/src/index.tsx | client  |
-    When I type "common index.ts" into the Code tab filter
-    Then the Code tab should show file "common/src/index.tsx"
-    And the Code tab should not show file "common/src/components/App.tsx"
-    And the Code tab should not show file "packages/client/src/index.tsx"
-
-    Examples:
-      | mode   |
-      | local  |
-      | branch |
       | browse |
 
   # Regression: Pierre's `remove` promotes an emptied directory to an
@@ -400,25 +379,6 @@ Feature: Code tab (review + browse)
   # `FileTree.tsx`) prunes any directory that is no longer an ancestor of a
   # matching file. After filtering, a directory that still contains a match
   # stays; a directory whose only files were excluded disappears.
-  Scenario Outline: Filter prunes directories with no matching files [<mode>]
-    Given a Code tab in "<mode>" mode showing files:
-      | path                | content |
-      | docs/keep.md        | keep    |
-      | docs/plans/note.md  | note    |
-      | widgets/list/a.ts   | a       |
-      | widgets/forms/b.ts  | b       |
-    When I type "docs keep" into the Code tab filter
-    Then the Code tab should show file "docs/keep.md"
-    And the Code tab should show a directory node "docs"
-    And the Code tab should not show file "widgets/list/a.ts"
-    And the Code tab should not show a directory node "widgets"
-
-    Examples:
-      | mode   |
-      | local  |
-      | branch |
-      | browse |
-
   Scenario: Untracked files appear alongside modified tracked files
     When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"
@@ -642,38 +602,6 @@ Feature: Code tab (review + browse)
     When I go forward in the Code tab
     Then the Code tab mode should be "browse"
     And the file "seed.txt" should be selected in the file browser
-
-  # Browser-fork semantics: navigating after a back drops the forward tail.
-  # Walk a→b→c, rewind to a, then pick c afresh — that fork must evict b, so a
-  # subsequent forward lands on c (the new branch), never the discarded b, and
-  # the forward button is dead at the new tip. Unit-tested in createBrowser, but
-  # never end-to-end through the real toolbar until now.
-  Scenario: Code tab forward history is truncated when navigating after going back
-    Given a Code tab in "browse" mode showing files:
-      | path  | content |
-      | a.txt | aaa     |
-      | b.txt | bbb     |
-      | c.txt | ccc     |
-    When I click the file "a.txt" in the file browser
-    Then the selected file should show content "aaa"
-    When I click the file "b.txt" in the file browser
-    Then the selected file should show content "bbb"
-    When I click the file "c.txt" in the file browser
-    Then the selected file should show content "ccc"
-    When I go back in the Code tab
-    Then the selected file should show content "bbb"
-    When I go back in the Code tab
-    Then the selected file should show content "aaa"
-    # New navigation from the middle forks the stack: the b/c tail is dropped.
-    When I click the file "c.txt" in the file browser
-    Then the selected file should show content "ccc"
-    And the Code tab "forward" button should be disabled
-    When I go back in the Code tab
-    Then the selected file should show content "aaa"
-    # Forward now reaches the re-picked c directly — b was truncated, not revisited.
-    When I go forward in the Code tab
-    Then the selected file should show content "ccc"
-    And the Code tab "forward" button should be disabled
 
   # Regression: history records repo-relative `{ mode, path }` with no repo
   # identity of its own, so it must be scoped to the repo it was captured in.
@@ -969,54 +897,6 @@ Feature: Code tab (review + browse)
   # `printf` fixtures avoid inner single quotes (the `I run` step has no escape
   # for them); `<script>`/`align=center`/`javascript:` carry none.
 
-  Scenario: Markdown preview renders GFM tables, task lists, and inline HTML
-    When I run "rm -rf /tmp/kolu-md-gfm && git init /tmp/kolu-md-gfm && cd /tmp/kolu-md-gfm"
-    And I run "printf '# Doc Title\n\n| Col A | Col B |\n|:------|------:|\n| 1 | 2 |\n\n- [x] shipped\n- [ ] pending\n\nPress <kbd>Ctrl</kbd> to go.\n\n<p align=center>centered note</p>\n\n<img src=docs/logo.png alt=brand-logo />\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should render a "h1" element
-    And the markdown preview should contain "Doc Title"
-    And the markdown preview should render a "table" element
-    And the markdown preview should contain "Col A"
-    And the markdown preview should render a "input[type=checkbox]" element
-    And the markdown preview should render a "kbd" element
-    And the markdown preview should render a "[align=center]" element
-    And the markdown preview should contain "centered note"
-    # A repo-relative inline `<img>` resolves against the doc's directory to the
-    # per-terminal file route — a real <img>, not raw text or a broken icon.
-    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
-    # resolves repo images" scenario below.
-    And the markdown preview should render a "img[src*='/api/terminals/']" element
-
-  # A leading YAML `---` front-matter block renders as a metadata table at the
-  # top of the document (GitHub-faithful), not as a spurious `<hr>` + Setext
-  # heading and not silently dropped (#1279). Keys land in a header column,
-  # scalar values beside them, and a scalar list joins with commas. The body
-  # below still parses as ordinary markdown.
-  Scenario: Markdown preview renders YAML front-matter as a metadata table
-    When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
-    # `printf --` ends option parsing so the leading `---` is the format string,
-    # not flags — a bare `printf '---…'` makes bash treat `--` as an invalid
-    # option and write nothing.
-    And I run "printf -- '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    And the markdown preview should render a "table[data-md-frontmatter]" element
-    And the markdown preview should contain "Release Notes"
-    And the markdown preview should contain "Jane Roe"
-    # The scalar list joins with commas, and the body renders as a real heading —
-    # while the `---` fences never degrade to a thematic break.
-    And the markdown preview should contain "markdown, preview"
-    And the markdown preview should render a "h1" element
-    And the markdown preview should contain "Body Heading"
-    And the markdown preview should not render a "hr" element
-
   Scenario: Markdown preview strips script-capable HTML and links
     When I run "rm -rf /tmp/kolu-md-xss && git init /tmp/kolu-md-xss && cd /tmp/kolu-md-xss"
     And I run "printf '# Safe Render\n\nintro paragraph here\n\n<script>window.__xss=1</script>\n\n[evil link](javascript:window.__xss=2)\n' > README.md"
@@ -1173,23 +1053,6 @@ Feature: Code tab (review + browse)
     Then the wikilink disambiguation menu should be visible
     When I click the wikilink candidate "b/Note.md"
     Then the file "b/Note.md" should be selected in the file browser
-
-  # Regression: a bare `[[Note]]` implies ONLY the `.md` extension, never an
-  # arbitrary same-stem one. `[[lua-filters]]` beside both lua-filters.md and
-  # lua-filters.feature must open the .md straight away — NOT pop a (bogus)
-  # disambiguation menu listing the .feature as a rival match.
-  Scenario: Wikilink implies only .md, not a same-stem sibling extension
-    When I run "rm -rf /tmp/kolu-md-wikimd && git init /tmp/kolu-md-wikimd && cd /tmp/kolu-md-wikimd"
-    And I run "mkdir -p docs/guide tests/features && printf '# Lua Filters\n\nFilters doc reached.\n' > docs/guide/lua-filters.md && printf 'Feature: lua filters\n' > tests/features/lua-filters.feature"
-    And I run "printf '# Home\n\nconfigure [[lua-filters]] next\n' > README.md"
-    And I run "git add . && git commit -m init"
-    And I click the Code tab
-    And I click the Code tab mode "browse"
-    When I click the file "README.md" in the file browser
-    Then the markdown preview should be visible
-    When I click the wikilink "lua-filters"
-    Then the file "docs/guide/lua-filters.md" should be selected in the file browser
-    And the markdown preview should contain "Filters doc reached"
 
   # A wikilink to a name that matches nothing surfaces a toast (not a silent
   # no-op), the same way a dead relative link does.

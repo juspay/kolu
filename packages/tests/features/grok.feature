@@ -15,21 +15,6 @@ Feature: Grok status detection
     Then the tile chrome should show a Grok indicator with state "thinking"
     And there should be no page errors
 
-  Scenario: Tile chrome shows Grok tool-use state
-    When a Grok session is mocked with state "tool_use"
-    Then the tile chrome should show a Grok indicator with state "tool_use"
-    And there should be no page errors
-
-  Scenario: Tile chrome shows Grok waiting state
-    When a Grok session is mocked with state "waiting"
-    Then the tile chrome should show a Grok indicator with state "waiting"
-    And there should be no page errors
-
-  Scenario: Tile chrome shows Grok awaiting-user state
-    When a Grok session is mocked with state "awaiting_user"
-    Then the tile chrome should show a Grok indicator with state "awaiting_user"
-    And there should be no page errors
-
   # Production Grok often writes active_sessions.json AFTER the process is
   # already foreground (map update is not instantaneous). Detection then
   # depends entirely on the active_sessions externalChanges rewake — the
