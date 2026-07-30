@@ -302,7 +302,18 @@ export function buildPadiSurfaceDeps(deps: {
             });
           },
         },
-        equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        // Compare disk shape only — `get()` always stamps `resumableIds`, while
+        // writers often pass the conf blob without it. Equality must not treat
+        // stamp presence as a content change (would defeat byte-identical dedup
+        // and remount the restore card on every re-save).
+        equals: (a, b) => {
+          const disk = (s: typeof a) => {
+            if (s === null) return null;
+            const { resumableIds: _drop, ...rest } = s;
+            return rest;
+          };
+          return JSON.stringify(disk(a)) === JSON.stringify(disk(b));
+        },
         onWrite: () => cancelPendingAutosave(),
       },
       // The activity feed — backed by padi's OWN state-root Conf, set by padi's

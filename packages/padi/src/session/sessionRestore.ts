@@ -304,6 +304,10 @@ export async function restoreSession(
         ? oldToNew.get(a.record.parentId)
         : undefined,
     })),
+    // Missing-parent records must ride every settle write — otherwise a
+    // sibling spawn's `persistSettledRestoreSnapshot(live+reparked)` drops
+    // them from disk and erases the resume tokens the optimistic merge kept.
+    unrestored,
   );
 
   if (unrestored.length > 0) {
@@ -350,6 +354,10 @@ export async function settleRestoreRespawns(
     record: SavedActiveTerminal;
     parentIdMapped: string | undefined;
   }[],
+  /** Records that must survive every settle write (e.g. missing-parent
+   *  unrestored actives re-parked in the optimistic pass). Merged with
+   *  reparked on each persist so a sibling spawn cannot erase them. */
+  retained: readonly SavedTerminal[] = [],
 ): Promise<void> {
   const reparked: SavedActiveTerminal[] = [];
   await Promise.all(
@@ -377,9 +385,10 @@ export async function settleRestoreRespawns(
       // itself here has orphaned any live child of its own; promoting incrementally means
       // an UNRELATED never-settling sibling spawn can no longer strand that child under a
       // hidden parent for the process lifetime. Then persist the merged live+re-parked
-      // snapshot so the promotion (and any re-park) reaches disk without awaiting the batch.
+      // (+ retained unrestored) snapshot so the promotion (and any re-park) reaches disk
+      // without awaiting the batch.
       promoteOrphanedRestoreChildren(respawns);
-      persistSettledRestoreSnapshot(reparked);
+      persistSettledRestoreSnapshot(reparked, retained);
     }),
   );
 }
@@ -431,11 +440,21 @@ export function promoteOrphanedRestoreChildren(
  *  is in NEITHER set → correctly removed from disk. */
 export function persistSettledRestoreSnapshot(
   reparked: SavedActiveTerminal[],
+  retained: readonly SavedTerminal[] = [],
 ): void {
   const live = snapshotSession();
+  // Live wins id collisions; then reparked (spawn failures); then retained
+  // unrestored records (e.g. missing-parent) that snapshotSession never sees.
+  const seen = new Set(live.terminals.map((t) => t.id));
+  const extras: SavedTerminal[] = [];
+  for (const t of [...reparked, ...retained]) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    extras.push(t);
+  }
   saveSession({
     ...live,
-    terminals: [...live.terminals, ...reparked],
+    terminals: [...live.terminals, ...extras],
   });
 }
 

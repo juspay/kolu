@@ -341,6 +341,45 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     await done;
   });
 
+  it("missing-parent unrestored keeps restoreTarget after sibling spawn settles", async () => {
+    // One valid active + an orphaned child (parent id not in the session). The
+    // optimistic write merges the orphan; a later settle write must NOT drop it
+    // (and its exact resume token) before the loud incomplete-restore error.
+    const orphanId = "deadbeef-dead-4beef-8bee-deadbeefdead";
+    const orphanExact = {
+      kind: "exact" as const,
+      command: "claude --model sonnet",
+      agent: {
+        kind: "claude-code" as const,
+        sessionId: "12341234-1234-1234-1234-123412341234",
+      },
+    };
+    const orphan: SavedActiveTerminal = {
+      ...base,
+      id: orphanId,
+      state: "active",
+      cwd: "/orphan",
+      parentId: "ffffffff-ffff-4fff-8fff-ffffffffffff", // not in session
+      lastActivityAt: 9,
+      lastAgentCommand: "claude --model sonnet",
+      restoreTarget: orphanExact,
+    };
+    setSavedSession({
+      terminals: [parentRecord, orphan],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    seedParkedTerminal(parentRecord);
+    seedParkedTerminal(orphan);
+
+    await expect(restoreSession({})).rejects.toThrow(/missing parent/);
+
+    const saved = getSavedSession();
+    const kept = saved?.terminals.find((t) => t.id === orphanId);
+    expect(kept).toBeDefined();
+    expect(kept?.restoreTarget).toEqual(orphanExact);
+  });
+
   it("W12/CONF-6 — a spawn that FAILS mid-restore is re-parked under the FRESH id, NOT deleted", async () => {
     // The env has no kaval, so every fresh spawn's async tail rejects — exactly the
     // mid-restore kaval-death shape. `restoreSession` freezes the autosave across the

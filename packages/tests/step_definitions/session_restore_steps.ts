@@ -202,10 +202,11 @@ Then(
         resumeInvocation,
         { timeout: POLL_TIMEOUT, polling: 50 },
       );
-    } catch {
+    } catch (err) {
       throw new Error(
         `No restored terminal replayed resume invocation "${resumeInvocation}" ` +
           `— a split agent that was filtered out of the resume set would show exactly this.`,
+        { cause: err },
       );
     }
   },
