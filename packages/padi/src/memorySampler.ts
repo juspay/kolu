@@ -25,7 +25,9 @@ import {
   bakedOsFactsBin,
   OsfactsClientError,
   snapshotPids,
+  type SnapshotSourceErrorRow,
   type SnapshotReading,
+  type UnreadableRow,
 } from "osfacts-client";
 import { log } from "./log.ts";
 import {
@@ -48,32 +50,96 @@ function kavalTargetStillCurrent(target: KavalProcessTarget): boolean {
   );
 }
 
-function processRss(
-  reading: SnapshotReading,
-  pid: number,
-  processName: "padi" | "kaval",
-): ProcessRss {
+type RssEvidence =
+  | { readonly kind: "ok"; readonly rssBytes: number }
+  | {
+      readonly kind: "unreadable";
+      readonly unreadable: UnreadableRow;
+      readonly sourceErrors: SnapshotSourceErrorRow[];
+    }
+  | {
+      readonly kind: "source-error";
+      readonly sourceErrors: SnapshotSourceErrorRow[];
+    }
+  | { readonly kind: "missing" };
+
+function rssEvidence(reading: SnapshotReading, pid: number): RssEvidence {
   const row = reading.memory.find((value) => value.pid === pid);
-  if (row !== undefined) return { status: "ok", rssBytes: row.rssBytes };
+  if (row !== undefined) return { kind: "ok", rssBytes: row.rssBytes };
 
   const unreadable = reading.unreadable.find(
     (value) => value.pid === pid && value.facet === "mem",
   );
-  if (
-    processName === "kaval" &&
-    (unreadable?.errno === "ESRCH" || unreadable?.errno === "ENOENT")
-  ) {
-    return { status: "absent" };
-  }
   const sourceErrors = reading.errors.filter((value) => value.facet === "mem");
-  if (unreadable !== undefined || sourceErrors.length > 0) {
-    log.error(
-      { pid, processName, unreadable, sourceErrors },
-      `${processName} osfacts RSS read failed`,
-    );
-    return { status: "error" };
+  if (unreadable !== undefined) {
+    return { kind: "unreadable", unreadable, sourceErrors };
   }
-  throw new Error(`osfacts returned no RSS fact for ${processName} pid ${pid}`);
+  if (sourceErrors.length > 0) return { kind: "source-error", sourceErrors };
+  return { kind: "missing" };
+}
+
+function padiRss(evidence: RssEvidence, pid: number): ProcessRss {
+  switch (evidence.kind) {
+    case "ok":
+      return { status: "ok", rssBytes: evidence.rssBytes };
+    case "unreadable":
+      log.error(
+        {
+          pid,
+          processName: "padi",
+          unreadable: evidence.unreadable,
+          sourceErrors: evidence.sourceErrors,
+        },
+        "padi osfacts RSS read failed",
+      );
+      return { status: "error" };
+    case "source-error":
+      log.error(
+        { pid, processName: "padi", sourceErrors: evidence.sourceErrors },
+        "padi osfacts RSS read failed",
+      );
+      return { status: "error" };
+    case "missing":
+      throw new Error(`osfacts returned no RSS fact for padi pid ${pid}`);
+    default:
+      evidence satisfies never;
+      throw new Error("unreachable RSS evidence");
+  }
+}
+
+function kavalRss(evidence: RssEvidence, pid: number): ProcessRss {
+  switch (evidence.kind) {
+    case "ok":
+      return { status: "ok", rssBytes: evidence.rssBytes };
+    case "unreadable":
+      if (
+        evidence.unreadable.errno === "ESRCH" ||
+        evidence.unreadable.errno === "ENOENT"
+      ) {
+        return { status: "absent" };
+      }
+      log.error(
+        {
+          pid,
+          processName: "kaval",
+          unreadable: evidence.unreadable,
+          sourceErrors: evidence.sourceErrors,
+        },
+        "kaval osfacts RSS read failed",
+      );
+      return { status: "error" };
+    case "source-error":
+      log.error(
+        { pid, processName: "kaval", sourceErrors: evidence.sourceErrors },
+        "kaval osfacts RSS read failed",
+      );
+      return { status: "error" };
+    case "missing":
+      throw new Error(`osfacts returned no RSS fact for kaval pid ${pid}`);
+    default:
+      evidence satisfies never;
+      throw new Error("unreachable RSS evidence");
+  }
 }
 
 /** Take one osfacts reading for padi and the endpoint's connected kaval. The
@@ -109,9 +175,9 @@ export async function samplePadiMemory(): Promise<PadiProcessMemory> {
   const kavalStillCurrent =
     kavalTarget !== undefined && kavalTargetStillCurrent(kavalTarget);
   return {
-    padi: processRss(reading, process.pid, "padi"),
+    padi: padiRss(rssEvidence(reading, process.pid), process.pid),
     kaval: kavalStillCurrent
-      ? processRss(reading, kavalTarget.pid, "kaval")
+      ? kavalRss(rssEvidence(reading, kavalTarget.pid), kavalTarget.pid)
       : { status: "absent" },
   };
 }
