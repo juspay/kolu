@@ -2,7 +2,7 @@
  * `kaval-tui attach` — the raw-tty passthrough loop (R-4 Phase 2). The design
  * decisions live in `docs/atlas/src/content/atlas/pty-daemon-tui.mdx` (Phase 2
  * section) and are echoed at their sites below: device-query reply filtering,
- * resize-then-attach, one-shot notices only, exit-stream discrimination with
+ * the grid-carrying attach, one-shot notices only, exit-stream discrimination with
  * no auto-retry, and one deterministic restore on every exit path (the restore
  * itself — `@kolu/terminal-protocol`'s `SNAPSHOT_TTY_RESET` + un-raw — is the
  * caller's job, in `main.ts`, so it can also run on signals and crashes that
@@ -248,15 +248,17 @@ export async function runAttach(
       const abort = new AbortController();
       currentAbort = abort;
       try {
-        // Resize-then-attach (design decision): the snapshot serializes at
-        // the server-side grid, so resizing FIRST makes it render at the
-        // local dimensions. Cross-client policy is last-resize-wins — a
-        // concurrently-attached browser tile may show wrap artifacts until
-        // its own next resize (a size-change tap would be contract 2.2).
+        // The grid rides ON the attach: the host resizes to it and serializes
+        // as one act, so the snapshot is always laid out for THIS tty's
+        // dimensions. This replaces the old resize-then-attach pairing, which
+        // was two calls a caller had to remember to order correctly and which
+        // raced whenever it didn't — the same defect that made a hidden browser
+        // split render at a grid it never had. Cross-client policy is unchanged
+        // (last-attach-wins): a concurrently-attached browser tile may show wrap
+        // artifacts until its own next attach or resize.
         const { cols, rows } = tty.size();
-        await client.surface.terminal.resize({ id, cols, rows });
         const stream = await client.surface.terminalAttach.get(
-          { id },
+          { id, cols, rows },
           { signal: abort.signal },
         );
         const iter = stream[Symbol.asyncIterator]();

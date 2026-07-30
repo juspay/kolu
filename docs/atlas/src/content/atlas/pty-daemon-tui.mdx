@@ -154,13 +154,13 @@ cli.restore -> tty: "setRawMode(false) + reset string"
 `}
 />
 
-The sequence: connect → version gate (both shipped in Phase 1) → **resize-then-attach** → raw mode → one-shot `↻ snapshot restored…` notice → paint snapshot → pump until detach or stream end. Five decisions carry the design weight (echoed as code comments at their sites, per this note's convention):
+The sequence: connect → version gate (both shipped in Phase 1) → **attach carrying the local grid** → raw mode → one-shot `↻ snapshot restored…` notice → paint snapshot → pump until detach or stream end. Five decisions carry the design weight (echoed as code comments at their sites, per this note's convention):
 
 | Decision | Choice | Why |
 | --- | --- | --- |
 | **Device-query replies** | filter the tty's auto-answers out of the stdin→`write` path | The snapshot/deltas carry queries (DA1 · DSR/CPR · XTVERSION …) that the user's _real_ terminal auto-answers on stdin — but the headless mirror already answered them server-side, so forwarding the duplicate reply corrupts the inner program's stdin (the yazi-class bug). Mirror the browser path's suppression predicates, preserving the client-suppressed ⇒ server-answered invariant. |
 | **Terminal restore** | one deterministic reset on _every_ exit path | The snapshot replays modes onto the local terminal — alt-buffer (`?1049h`), mouse tracking, bracketed paste (`?2004h`), app cursor keys. Detach, PTY exit, SIGTERM/SIGHUP, and crash all run `setRawMode(false)` **+ a fixed reset string** (alt-buffer off, mouse off, paste-wrap off, cursor visible). Restore is much more than un-raw-ing stdin. |
-| **Sizing** | resize-then-attach; last-resize-wins across clients | The snapshot serializes at the server-side grid (the browser's last size, or the 80×24 default); resizing _first_ renders it at the local dimensions. The contract has no size-change tap, so a concurrently-attached browser tile may show wrap artifacts until its own next resize — accepted and documented; a size tap would be contract 2.2, out of Phase 2 scope. |
+| **Sizing** | the grid rides ON the attach; last-attach-wins across clients | A serialized screen is bytes laid out _for a specific cols×rows_, so the attach request carries the local tty's grid and the host resizes-and-serializes as one act — the snapshot always arrives laid out for the terminal that will paint it. This supersedes the original resize-then-attach pairing, which was two calls a caller had to order correctly and which raced whenever it didn't; the grid is now part of the request, so the mismatch is unrepresentable rather than merely avoided by discipline. The contract still has no size-change tap, so a concurrently-attached browser tile may show wrap artifacts until its own next attach or resize — accepted and documented. |
 | **Status lines** | one-shot notices only — **no persistent footer** | A live taps-fed footer needs scroll-region ownership, which violates the raw-passthrough render-fidelity decision above (the earlier sketch self-contradicted). One line before the paint (`↻ snapshot restored…`), one after restore on detach; the CLI owns zero pixels while attached. |
 | **Stream end & retry** | discriminate via the `exit` stream; never auto-retry | The deltas iterator ends identically on PTY exit, server-side abort, and the silent slow-consumer drop (bounded 10k queue). On end, ask `exit`: code present → report it, quit with it; PTY still live → re-attach, and the fresh snapshot repaints — exactly the right recovery for the drop case. Stream auto-retry would replay the snapshot mid-session, so attach opts out; if the server itself goes away the CLI restores the tty and prints an honest one-liner — manual re-dial is the only reconnect. |
 
@@ -194,7 +194,7 @@ kaval-tui: no pty-host socket at /run/user/1000/kolu/pty-host.sock (ECONNREFUSED
   "● 3 live PTYs (in kolu-server, in-process) · pty-host pid 9981",
 ]} />
 
-**Birth → work → detach → re-attach** (Phase 2/3). `create` mints a PTY and prints its id; `attach <id>` takes it over — everything passes through raw, the CLI owns no pixels while attached; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot, serialized at the local tty's dimensions thanks to resize-then-attach.
+**Birth → work → detach → re-attach** (Phase 2/3). `create` mints a PTY and prints its id; `attach <id>` takes it over — everything passes through raw, the CLI owns no pixels while attached; a line-start `~.` detaches (the server keeps the PTY); re-attach repaints the full scrollback snapshot instantly because the first yield of the attach stream _is_ the snapshot, serialized at the local tty's dimensions because the attach request carries them.
 
 <Terminal title="kaval-tui · re-attached 3f9a…c21 · claude: implement pty-tui" lines={[
   "↻ snapshot restored — 1,284 lines · PTY pid 12843 unchanged",

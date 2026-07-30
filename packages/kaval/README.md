@@ -39,7 +39,22 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | exit           | child exit code                 | `exitPromise`             |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 
-## Two load-bearing properties
+## Three load-bearing properties
+
+**The snapshot is serialized at the consumer's grid.** A serialized screen is
+bytes laid out *for a specific cols×rows* — cursor moves and wraps only mean
+anything at the width they were written for. So `attach()` takes the grid the
+consumer will render into, resizes the PTY to it, and serializes as **one act**.
+The size travels *with* the request instead of racing it through a separate
+`resize()`, which makes "a snapshot for a size the consumer isn't" unrepresentable
+rather than merely unlikely. It used to be a discipline each caller had to
+remember (resize first, then attach), and a caller that got it wrong had no way
+back: a same-dimensions `resize()` is correctly a no-op, so no `SIGWINCH` reaches
+the process and nothing ever repaints. The resize goes through the same
+`resize()` every other caller uses, so a genuine change reflows the mirror,
+invalidates the snapshot memo, and signals the process exactly as a user resize
+does. Omit the grid only when the caller has no grid of its own (a CLI dumping
+the screen), which reads the PTY at its current size.
 
 **Race-free attach.** `attach()` calls `subscribe()` then `serialize()` as two
 back-to-back *synchronous* statements. Because the PTY publishes data only from
@@ -103,8 +118,12 @@ const { id, pid } = host.spawn({
   onDispose: () => cleanupRcFiles(),
 });
 
-// Late-join client: snapshot first, then live deltas.
-const { snapshot, deltas } = host.attach(id, signal);
+// Late-join client: snapshot first, then live deltas. The grid is the
+// consumer's own — the snapshot comes back laid out for it.
+const { snapshot, deltas } = host.attach(id, signal, undefined, {
+  cols: 120,
+  rows: 40,
+});
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);
 
