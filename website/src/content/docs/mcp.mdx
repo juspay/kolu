@@ -37,7 +37,12 @@ to install if you already run kolu; no browser involved.
 
 1. Make sure the `kolu` binary is on your PATH — if you installed kolu with the
    home-manager module, it already is (the module puts `kolu` on PATH by
-   default). Then register the server with your agent:
+   default), and **inside a kolu terminal it is put there for you**, on your own
+   machine and on a remote host alike — and in bash and zsh it is re-applied
+   after your dotfiles run, so a `PATH=` line can't remove it (fish and other
+   shells get it at spawn only; see [Inside a kolu
+   terminal](#inside-a-kolu-terminal)). Then register the
+   server with your agent:
 
    ```sh
    # Claude Code
@@ -70,6 +75,28 @@ to install if you already run kolu; no browser involved.
    ```
 
 </Steps>
+
+## Inside a kolu terminal
+
+An agent running **in** a kolu terminal needs no step above, and this is true on a
+remote host exactly as it is on your own machine. The terminal is spawned with
+kolu's own CLIs — `kolu`, `kaval-tui`, `padi-tui` — already on its `PATH`, and
+with `$PADI_SOCKET` naming the daemon that owns it. So a plain `.mcp.json` with
+`"command": "kolu"` resolves and connects, with no `--host` flag and nothing
+installed on that machine: an agent you started on a remote host can drive its
+sibling terminals the moment it boots.
+
+The tools it gets are the ones from the **same build** as the daemon serving it —
+they arrive in the closure kolu copies to the host when it dials, so a tool and
+its daemon can never disagree about the wire between them. Your own `PATH` is
+untouched apart from these names taking precedence.
+
+One bound worth stating plainly: **in bash and zsh** kolu re-applies its `PATH`
+entries *after* your dotfiles have run, so an absolute `PATH=…` line in
+`~/.bashrc` or `~/.zshrc` cannot quietly remove the tools. **In fish and any
+other shell** the tools are only put in the terminal's spawn environment — that
+is best-effort, and an absolute `set -x PATH …` in `config.fish` will still drop
+them. Prepend rather than assign there, or add the paths back yourself.
 
 ## Drive a terminal
 

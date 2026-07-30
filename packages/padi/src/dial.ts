@@ -189,13 +189,27 @@ export function assertPadiSurfaceCompatible(
  * Lifecycle supervision remains outside this dial kit. The returned connection
  * is one-shot and reading `hello` never drains or replaces the remote daemon.
  */
+/** How a remote kolu-managed padi is reached — the CLOSURE provisioned onto the
+ *  host (the daemon PLUS the client CLIs a terminal there must be able to run)
+ *  and the BINARY exec'd inside it. One value, so no dial path can name half of
+ *  it: `padi-agent` here and a bare `padi` over there is how one host ended up
+ *  receiving two different closures, with `padi-tui --host` / `kolu mcp --host`
+ *  terminals missing the toolchain the browser path's terminals had.
+ *
+ *  Both dial paths import THIS — `dialPadiViaHost` below, and kolu-server's
+ *  long-lived binder (`server/src/padi/remotePadiBinding.ts`). */
+export const PADI_REMOTE_DIAL = {
+  package: "padi-agent",
+  binary: "padi",
+} as const;
+
 export function dialPadiViaHost(
   host: string,
 ): Promise<AgentDial<PadiDaemonContract>> {
   return dialAgentOnce<PadiDaemonContract>({
     host,
     localEnv: composeSpawnEnv(process.env),
-    binary: "padi",
+    ...PADI_REMOTE_DIAL,
     fatalPrefix: "padi --stdio:",
     probe: async (client) => {
       const hello = await client.surface.control.core.hello();

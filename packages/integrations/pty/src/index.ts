@@ -12,17 +12,23 @@
  *  Only depends on Node's stdlib — no node-pty, no xterm. */
 
 export {
+  AGENT_TOOLS_BAKE_ENV,
   cleanEnv,
   composeSpawnEnv,
   configureNixShellEnv,
   type InitFile,
   koluIdentityEnv,
   NIX_ENV_WHITELIST,
+  PATH_PREPEND_CASES,
+  PATH_REASSERT,
   pickEnv,
   prepareShellInit,
+  prependPathEntries,
+  readAgentToolsBake,
   type ShellInitPlan,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,
   SPAWN_ENV_PRESENTATION,
+  TERMINAL_TOOLS_PATH_ENV,
 } from "./shell.ts";

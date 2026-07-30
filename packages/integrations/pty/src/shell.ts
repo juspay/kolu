@@ -214,6 +214,12 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
   process.exit(1);
 }
 
+/** Read a colon-joined `PATH`-shaped value as its list of entries, dropping the
+ *  empty ones POSIX would read as "the current directory". */
+function splitPathEntries(value: string): string[] {
+  return value.split(":").filter((entry) => entry !== "");
+}
+
 /**
  * Sanitize the parent env that will reach the PTY shell.
  *
@@ -226,10 +232,13 @@ export function configureNixShellEnv(whitelist: string | undefined): void {
  * SHELL with the user's login shell from /etc/passwd. The whitelist widens the
  * base, it does not replace it — so dev never gets a narrower env than production.
  *
- * Either way, a single shared post-step strips kolu's own internal env
- * (the `KOLU_*` namespace plus the wrapper-baked kaval identity vars — see
- * `isKoluInternalEnvKey` and the inline note above the strip) so the invariant
- * holds independent of how env was built.
+ * Either way, shared post-steps run for both branches, so their invariants hold
+ * independent of how env was built: strip kolu's own internal env (the `KOLU_*`
+ * namespace plus the wrapper-baked kaval identity vars — see
+ * `isKoluInternalEnvKey`), then drop empty `PATH` entries, which POSIX reads as
+ * "the current directory". This is the ONE place that sanitizes a PATH; the
+ * prepend rule (`prependPathEntries` / `PATH_REASSERT`) deliberately does not.
+ * See the inline notes above each step.
  *
  * Scope note: this layer only filters what the parent process exposes.
  * Restoring user env that the parent doesn't carry (e.g. PATH from
@@ -286,6 +295,15 @@ export function cleanEnv(): Record<string, string> {
   env = Object.fromEntries(
     Object.entries(env).filter(([k]) => !isKoluInternalEnvKey(k)),
   );
+  // Drop empty entries from PATH. An empty entry ("/usr/bin::/bin", a leading or
+  // trailing ":") is not cosmetic — POSIX reads it as "the current directory", so
+  // every hosted shell would resolve commands out of whatever tree the user
+  // happens to have cd'd into. For a terminal we host and hand to an agent that is
+  // a real hazard, and the daemon's own inherited PATH is the one place we can fix
+  // it for everyone downstream.
+  if (env.PATH != null) {
+    env.PATH = splitPathEntries(env.PATH).join(":");
+  }
   return env;
 }
 
@@ -405,6 +423,174 @@ export const OSC2_PRECMD_ZSH = `__kolu_title_precmd() { print -Pn '\\e]2;%(4~|�
  *  them when the PTY exits. */
 export type InitFile = { name: string; content: string };
 
+/** The BAKE: what a nix wrapper tells a daemon. The tool directories from the
+ *  daemon's OWN build closure, colon-joined, highest priority first.
+ *
+ *  Written only by a build — `default.nix`'s `default` wrapper (local) and the
+ *  `padi-agent` wrapper (remote) — and read only by `readAgentToolsBake` plus
+ *  kolu-server's forward of it onto the padi it supervises. It is NOT the name
+ *  stamped into a spawned terminal; that is `TERMINAL_TOOLS_PATH_ENV`.
+ *
+ *  **Two names because they are two facts, pointing opposite ways.** They used
+ *  to share one, and a daemon started INSIDE a kolu terminal then read that
+ *  terminal's stamp as its own bake — handing a foreign build's `kaval-tui` /
+ *  `padi-tui` to every terminal it spawned, the exact tool/daemon skew this
+ *  design exists to abolish. The gate that caught it (`KOLU_PADI_BIN &&`) was a
+ *  third, unrelated variable used as a discriminator. With the bake name never
+ *  present in a terminal env, nothing can inherit it and the skew is
+ *  unspellable rather than guarded. */
+export const AGENT_TOOLS_BAKE_ENV = "KOLU_AGENT_TOOLS_PATH";
+
+/** The STAMP: what a daemon tells a terminal. The tool directories it put on
+ *  that terminal's `PATH`, colon-joined, in the same order.
+ *
+ *  Written only by padi's `composeSpawnInput`, read only by `PATH_REASSERT` in
+ *  the wrapper rcfile — so the dirs survive a dotfile that assigns `PATH`
+ *  absolutely. Nothing reads it as a bake, so a nested kolu cannot inherit a
+ *  toolchain from the terminal it was launched in.
+ *
+ *  Being `KOLU_*` is load-bearing — `cleanEnv`'s `isKoluInternalEnvKey` strip
+ *  means an ambient value can never ride the allowlist into a PTY, so every
+ *  terminal's value is the one its OWN spawner stamped (the same self-ownership
+ *  property `KAVAL_TERMINAL_ID` has). */
+export const TERMINAL_TOOLS_PATH_ENV = "KOLU_TERMINAL_TOOLS_PATH";
+
+/**
+ * The tool dirs a wrapper baked onto THIS process — the client CLIs every
+ * terminal this daemon spawns must be able to run (`kaval-tui`, `padi-tui`, and
+ * the `kolu` whose `mcp` face an agent's `.mcp.json` invokes). `[]` when unbaked.
+ *
+ * **Why this is a fact a daemon is TOLD, never one it derives.** The dirs must
+ * be the ones from the SAME build as the running daemon — an agent inside a
+ * terminal that drives its siblings speaks padi's wire, so a tool from a
+ * different build is exactly the contract skew the daemon's staleKey machinery
+ * exists to prevent. Only the build system knows that path, so it bakes it:
+ *
+ *   - **remote** — the provisioned agent closure's own wrapper sets it to its
+ *     `$out/bin` (a self-reference, resolved at build time), so a padi reached
+ *     over ssh reports the closure that was actually copied to that host. There
+ *     is no env channel across `ssh`, and nothing to thread through argv: the
+ *     binary that boots already carries the answer.
+ *   - **local** — the `default` wrapper sets it and `kolu-server` forwards it
+ *     onto padi's spawn env, so a locally-supervised padi is stamped the same way.
+ *
+ * Absent (a from-source `just dev` / e2e padi, which has no wrapper to bake it)
+ * the value is simply empty and terminals carry no injected tools — explicit
+ * absence, not a guessed default. Deriving a path here instead — from
+ * `process.execPath`, `argv[1]`, or a search of `PATH` — would be precisely the
+ * silent-degradation fallback the repo forbids: it would resolve to the tsx
+ * loader or to whatever build happens to be installed on the host, which is the
+ * skew this indirection exists to make unspellable.
+ *
+ * `env` is injectable so the resolution is testable without touching the
+ * process env.
+ */
+export function readAgentToolsBake(
+  env: Record<string, string | undefined> = process.env,
+): readonly string[] {
+  const raw = env[AGENT_TOOLS_BAKE_ENV];
+  if (raw == null || raw === "") return [];
+  return splitPathEntries(raw);
+}
+
+/** The prepend/dedupe rule as DATA — the single oracle BOTH implementations are
+ *  tested against, so the TypeScript half (`prependPathEntries`) and the shell
+ *  half (`PATH_REASSERT`) cannot drift. Co-location in one file is not
+ *  unification: the rule is written twice, in two languages, and only a shared
+ *  table makes a change to either red until the other follows. Add a row and
+ *  both halves are asserted against it.
+ *
+ *  Every row is behaviour both halves genuinely share, because that is the only
+ *  thing a shared oracle can be. The rule is deliberately minimal — prepend,
+ *  skip what is already there, leave the caller's `PATH` otherwise verbatim
+ *  (the `"/usr/bin::/bin"` row pins that: an empty entry the caller had is still
+ *  there afterwards). Sanitizing a caller's `PATH` is a DIFFERENT job and lives
+ *  in exactly one place, `cleanEnv` — see the empty-entry note there. */
+export const PATH_PREPEND_CASES: ReadonlyArray<{
+  path: string;
+  dirs: readonly string[];
+  expect: string;
+}> = [
+  { path: "/usr/bin:/bin", dirs: ["/a", "/b"], expect: "/a:/b:/usr/bin:/bin" },
+  { path: "/usr/bin:/a", dirs: ["/a"], expect: "/usr/bin:/a" },
+  { path: "", dirs: ["/a"], expect: "/a" },
+  { path: "/usr/bin:/bin", dirs: [], expect: "/usr/bin:/bin" },
+  // The caller's PATH is passed through unedited, empty entry and all.
+  { path: "/usr/bin::/bin", dirs: ["/a"], expect: "/a:/usr/bin::/bin" },
+];
+
+/** Prepend `dirs` to a `PATH` value, preserving `dirs` order and dropping any
+ *  entry already present (so a re-spawn or a nested terminal can't grow PATH
+ *  without bound). Pure string algebra — the TS half of the two-context
+ *  guarantee whose shell half is `PATH_REASSERT`. Both are driven from
+ *  `PATH_PREPEND_CASES` so the "prepend without duplicating" rule has one
+ *  oracle, not one address.
+ *
+ *  The contract is exactly that and nothing more: the caller's existing `PATH`
+ *  comes out verbatim, including any empty entry it carried. This function does
+ *  NOT sanitize somebody else's `PATH` — that hardening happens once, at the
+ *  `cleanEnv` boundary, so it isn't re-implemented here and again in POSIX shell
+ *  in `PATH_REASSERT`. What IS filtered here is the `dirs` we were asked to add:
+ *  an empty string among them would mean "put the current directory on PATH",
+ *  which this function must never introduce on its own. */
+export function prependPathEntries(
+  currentPath: string | undefined,
+  dirs: readonly string[],
+): string {
+  const current = currentPath ?? "";
+  // A wholly empty (or absent) PATH is ZERO entries, not one empty entry — the
+  // same reading the shell half takes with `${PATH:+:$PATH}`, which appends
+  // nothing at all when `$PATH` is empty.
+  const existing = current === "" ? [] : current.split(":");
+  const fresh = dirs.filter((d) => d !== "" && !existing.includes(d));
+  return [...fresh, ...existing].join(":");
+}
+
+/** The shell half of the guarantee: re-assert the tool dirs on `PATH` AFTER the
+ *  user's dotfiles have been replayed.
+ *
+ *  Spawn-env alone is not enough. The replay above re-sources `~/.bashrc` /
+ *  `~/.zshrc`, and a dotfile that does an ABSOLUTE `export PATH=…` (common, and
+ *  the whole reason the replay exists — see this module's header) silently drops
+ *  whatever the spawn env put there. So the dirs are asserted twice: once in the
+ *  spawn env (so a shell we don't wrap, and any non-shell argv, still gets them)
+ *  and once here (so a wrapped shell keeps them no matter what the user's
+ *  dotfiles do to PATH).
+ *
+ *  The dirs are read from `$KOLU_TERMINAL_TOOLS_PATH` at runtime rather than
+ *  interpolated into this source: the block is then a FIXED string with no
+ *  caller data in it, so no shell-quoting question arises at all (a path with a
+ *  space or a metacharacter is data in a variable, never source to re-parse).
+ *  POSIX-only syntax — one text for both the bash and zsh wrappers.
+ *
+ *  Same minimal contract as the TS half: prepend, skip a dir already on `$PATH`,
+ *  and otherwise leave `$PATH` byte-identical — it does not rewrite the inherited
+ *  value, so an empty entry a dotfile left there survives. That is deliberate:
+ *  empty-entry hardening happens once at the `cleanEnv` boundary rather than
+ *  being re-implemented here in POSIX shell, which is what would let the two
+ *  halves drift. The `[ -z "$__kolu_dir" ] && continue` above filters the dirs
+ *  we were ASKED to add, so this block never introduces one itself.
+ *
+ *  Exported so `PATH_PREPEND_CASES` can be asserted against THIS text under a
+ *  real bash and zsh, not against a paraphrase of it. */
+export const PATH_REASSERT = [
+  `__kolu_path_reassert() {`,
+  `  __kolu_new=""; __kolu_rest="\${1-}"`,
+  `  while [ -n "$__kolu_rest" ]; do`,
+  `    __kolu_dir="\${__kolu_rest%%:*}"`,
+  `    case "$__kolu_rest" in *:*) __kolu_rest="\${__kolu_rest#*:}" ;; *) __kolu_rest="" ;; esac`,
+  `    [ -z "$__kolu_dir" ] && continue`,
+  `    case ":$PATH:" in *":$__kolu_dir:"*) continue ;; esac`,
+  `    __kolu_new="\${__kolu_new:+$__kolu_new:}$__kolu_dir"`,
+  `  done`,
+  `  [ -n "$__kolu_new" ] && PATH="$__kolu_new\${PATH:+:$PATH}"`,
+  `  export PATH`,
+  `  unset __kolu_new __kolu_rest __kolu_dir`,
+  `}`,
+  `__kolu_path_reassert "\${${TERMINAL_TOOLS_PATH_ENV}-}"`,
+  `unset -f __kolu_path_reassert`,
+].join("\n");
+
 /** The spawn plan for one PTY: the shell `args`, an `env` override, and the
  *  wrapper rcfiles to materialise. Pure data — no side effects, no cleanup
  *  callback (the host owns the files' lifetime). */
@@ -519,11 +705,32 @@ function selectShellInit(shell: string): ShellInit | null {
  * nothing. The pty-host materialises the returned `initFiles` under its own
  * `rcDir` and removes them when the PTY exits.
  *
- * The wrapper layers two things in order: replay (user dotfiles the shell
- * would have auto-sourced) → hooks (kolu's OSC injection). The layering is
- * load-bearing — replay must precede hooks so user PROMPT_COMMAND / starship
- * etc. can't clobber our hooks. PROMPT_COMMAND in env doesn't work because
- * the user's rc would overwrite it.
+ * The wrapper layers three things in order: replay (user dotfiles the shell
+ * would have auto-sourced) → PATH re-assert (`PATH_REASSERT`) → hooks (kolu's
+ * OSC injection). The layering is load-bearing — replay must precede hooks so
+ * user PROMPT_COMMAND / starship etc. can't clobber our hooks, and it must
+ * precede the PATH re-assert for the same reason in the other direction: a
+ * dotfile's absolute `export PATH=…` runs during replay, so the re-assert only
+ * holds if it comes AFTER. PROMPT_COMMAND in env doesn't work because the
+ * user's rc would overwrite it.
+ *
+ * The PATH re-assert needs no argument: it reads `TERMINAL_TOOLS_PATH_ENV`
+ * (`$KOLU_TERMINAL_TOOLS_PATH`) — the STAMP that padi's `composeSpawnInput`
+ * already put in this terminal's env — and no-ops when that is unset. So it is
+ * emitted unconditionally rather than gated on an option — one less knob, and
+ * the rcfile stays a pure function of the shell, not of spawn policy.
+ *
+ * It must NOT read the BAKE name (`AGENT_TOOLS_BAKE_ENV` /
+ * `$KOLU_AGENT_TOOLS_PATH`): that name is written only by nix wrappers, so a
+ * daemon started INSIDE a kolu terminal would read that terminal's stamp as its
+ * own bake and hand a foreign build's tools to every terminal it then spawns —
+ * the tool/daemon skew the two-name split exists to abolish.
+ *
+ * Only bash and zsh get this: `selectShellInit` returns a plan for those two and
+ * `null` for everything else, so fish and friends keep the spawn-env prepend
+ * alone (best effort — an absolute `set -x PATH` in `config.fish` still drops
+ * the tools). The docs state that bound explicitly rather than promising it
+ * everywhere.
  *
  * `rcDir` is the *host's* directory where the per-terminal bashrc / ZDOTDIR
  * will be written — passed in (from the host's `system.info`) so the returned
@@ -541,6 +748,8 @@ export function prepareShellInit(opts: {
   if (!home) return noop;
   const init = selectShellInit(shell);
   if (!init) return noop;
-  const rcContent = [...init.replay(home), ...init.hooks].join("\n");
+  const rcContent = [...init.replay(home), PATH_REASSERT, ...init.hooks].join(
+    "\n",
+  );
   return init.plan(rcContent, terminalId, rcDir);
 }
