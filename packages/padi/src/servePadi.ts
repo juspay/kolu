@@ -64,6 +64,7 @@ import {
   getActiveTerminal,
   getTerminal,
   registryMap,
+  rejectNestedParent,
   requireActiveTerminal,
   requireMutableTerminal,
   snapshotFor,
@@ -395,8 +396,12 @@ export function buildPadiSurfaceDeps(deps: {
           // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
           // later — the client can't supply it. (Only `session.restore` threads a
           // saved `lastActivityAt` through, via `respawnActive`, not this path.)
-          if (input.parentId !== undefined)
+          if (input.parentId !== undefined) {
+            // Live parent (F3) + one-level splits only (#2059): a nested
+            // parentId would create a live terminal the canvas never paints.
             requireActiveTerminal(input.parentId);
+            rejectNestedParent(input.parentId);
+          }
           const info = createTerminal(input.cwd, input.parentId, {
             themeName: input.themeName,
             canvasLayout: input.canvasLayout,
@@ -510,6 +515,9 @@ export function buildPadiSurfaceDeps(deps: {
         },
         setParent: ({ input }) => {
           requireMutableTerminal(input.id);
+          // Same one-level fence as lifecycle.create (#2059) — re-parenting
+          // onto a split child is the other door into the invisible nest.
+          if (input.parentId !== null) rejectNestedParent(input.parentId);
           log.info(
             { terminal: input.id, parent: input.parentId },
             "set terminal parent",

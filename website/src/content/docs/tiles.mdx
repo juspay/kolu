@@ -28,6 +28,10 @@ made from the shell or by an agent
 ([`padi-tui create --parent`](/padi)) opens the same way — the pane expands and
 the new split is selected, no click needed (unless you're already working in
 another split of that tile, which it won't yank you off).
+`--parent` must name a **top-level tile** (not another split): nesting a split
+under a split is refused with an error that names the root tile to re-parent
+against, so a nested create never leaves a live terminal the canvas cannot
+show.
 
 In a split, the pane that does **not** have focus recedes slightly, so the one
 your keystrokes are going to always reads as the foreground.

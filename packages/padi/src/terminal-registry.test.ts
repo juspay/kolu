@@ -22,14 +22,19 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActiveTerminalProcess,
   registerTerminal,
+  rejectNestedParent,
   requireMutableTerminal,
   requireTerminal,
+  rootAncestorId,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
 import { LOCAL_LOCATION } from "./vocab.ts";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
+const ROOT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
+const MID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
+const LEAF = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as TerminalId;
 
 const snapshot = (): TerminalSnapshot => ({
   cwd: "/w",
@@ -113,5 +118,49 @@ describe("requireMutableTerminal — parked records are immutable", () => {
     const err = caught(() => requireMutableTerminal(ID));
     expect(err).toBeInstanceOf(ORPCError);
     expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+  });
+});
+
+describe("rejectNestedParent / rootAncestorId (#2059)", () => {
+  function seed(id: TerminalId, parentId?: string): void {
+    registerTerminal(id, {
+      info: { id, pid: 1 },
+      meta: {
+        state: "active",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        ...(parentId !== undefined ? { parentId } : {}),
+      },
+      snapshot: snapshot(),
+      handle: {} as ActiveTerminalProcess["handle"],
+    });
+  }
+
+  it("no-ops for a top-level parent (and for an unknown id)", () => {
+    seed(ROOT);
+    expect(caught(() => rejectNestedParent(ROOT))).toBeUndefined();
+    expect(caught(() => rejectNestedParent("nope"))).toBeUndefined();
+  });
+
+  it("throws BAD_REQUEST naming the root when parent is itself a split", () => {
+    seed(ROOT);
+    seed(MID, ROOT);
+    seed(LEAF, MID);
+
+    const err = caught(() => rejectNestedParent(LEAF));
+    expect(err).toBeInstanceOf(ORPCError);
+    const orpc = err as ORPCError<string, unknown>;
+    expect(orpc.code).toBe("BAD_REQUEST");
+    expect(orpc.message).toContain(LEAF);
+    expect(orpc.message).toContain(ROOT);
+  });
+
+  it("rootAncestorId walks a multi-level chain to the top-level tile", () => {
+    seed(ROOT);
+    seed(MID, ROOT);
+    seed(LEAF, MID);
+    expect(rootAncestorId(LEAF)).toBe(ROOT);
+    expect(rootAncestorId(MID)).toBe(ROOT);
+    expect(rootAncestorId(ROOT)).toBe(ROOT);
   });
 });

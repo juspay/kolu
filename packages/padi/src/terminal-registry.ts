@@ -290,3 +290,33 @@ export function terminalNotFound(
 ): ORPCError<"NOT_FOUND", undefined> {
   return new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
 }
+
+/** Walk `parentId` → its parent → … until a top-level id (no `parentId`).
+ *  Cycle-safe: a loop returns the first revisited id rather than spinning. */
+export function rootAncestorId(id: string): string {
+  let cur = id;
+  const seen = new Set<string>();
+  while (true) {
+    if (seen.has(cur)) return cur;
+    seen.add(cur);
+    const parent = getTerminal(cur)?.meta.parentId;
+    if (parent === undefined) return cur;
+    cur = parent;
+  }
+}
+
+/** Refuse a parent that is itself a split child. Nested splits are accepted
+ *  by the create / setParent wire shape but never painted on the canvas —
+ *  the silent-invisible middle is the worst outcome (#2059). Fail loud with
+ *  a typed `BAD_REQUEST` that names the root ancestor so the caller can
+ *  re-parent one level up. No-op when `parentId` is top-level or unknown. */
+export function rejectNestedParent(parentId: string): void {
+  const grandparentId = getTerminal(parentId)?.meta.parentId;
+  if (grandparentId === undefined) return;
+  const rootId = rootAncestorId(parentId);
+  throw new ORPCError("BAD_REQUEST", {
+    message:
+      `Nested splits are unsupported: parent ${parentId} is itself a split child. ` +
+      `Parent against the root tile instead (${rootId}).`,
+  });
+}
