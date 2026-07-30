@@ -84,7 +84,13 @@ function startDevServer(ports: { server: number; client: number }) {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    // `just dev`'s padi and kaval deliberately detach from this process group.
+    // Bind both daemons to the smoke runner so they reap themselves even when a
+    // failed check or an external signal bypasses the normal group teardown.
+    env: {
+      ...process.env,
+      KOLU_DAEMON_BIND_PID: String(process.pid),
+    },
   });
 }
 
