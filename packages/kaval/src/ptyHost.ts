@@ -351,27 +351,31 @@ export interface PtyGrid {
   rows: number;
 }
 
+/** The optional halves of an {@link PtyHost.attach}. */
+export interface PtyAttachOpts {
+  /** Fires (once) if THIS attachment's delta subscriber is dropped for lagging
+   *  past the bound — the serving layer turns it into an `overflow` frame so the
+   *  consumer re-attaches rather than mistaking the drop for a PTY exit. */
+  onOverflow?: () => void;
+  /** The cols×rows the CONSUMER will render the snapshot into. The PTY is
+   *  resized to it before the serialize, so the snapshot is always laid out for
+   *  the grid that will paint it. Omit it only when the caller has no grid of its
+   *  own (a CLI dumping the screen), which reads the PTY at its current size. */
+  grid?: PtyGrid;
+}
+
 /** The multi-client PTY-owner primitive. */
 export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
   spawn(opts: PtySpawnOpts): PtySpawnResult;
   /** Subscribe-before-serialize: returns a race-free snapshot + delta
-   *  stream for a late-joining client. `onOverflow` fires (once) if THIS
-   *  attachment's delta subscriber is dropped for lagging past the bound — the
-   *  serving layer turns it into an `overflow` frame so the consumer re-attaches
-   *  rather than mistaking the drop for a PTY exit.
+   *  stream for a late-joining client.
    *
-   *  `grid` is the cols×rows the CONSUMER will render the snapshot into. The PTY
-   *  is resized to it before the serialize, so the snapshot is always laid out
-   *  for the grid that will paint it. Omit it only when the caller has no grid
-   *  of its own (a CLI dumping the screen), which reads the PTY at its current
-   *  size. */
-  attach(
-    id: PtyId,
-    signal?: AbortSignal,
-    onOverflow?: () => void,
-    grid?: PtyGrid,
-  ): PtyAttachment;
+   *  The two optional behaviours ride in ONE bag rather than trailing
+   *  positionals, so a caller that wants only the later one never has to write a
+   *  positional `undefined` past the one it doesn't care about — the shape most
+   *  callers need (a grid, no overflow handler) stays spellable. */
+  attach(id: PtyId, signal?: AbortSignal, opts?: PtyAttachOpts): PtyAttachment;
   /** Per-PTY cwd update stream (OSC 7). */
   subscribeCwd(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
   /** Per-PTY title update stream (OSC 0/2). */
@@ -1033,9 +1037,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   function attach(
     id: PtyId,
     signal?: AbortSignal,
-    onOverflow?: () => void,
-    grid?: PtyGrid,
+    opts?: PtyAttachOpts,
   ): PtyAttachment {
+    const { onOverflow, grid } = opts ?? {};
     const entry = requireEntry(id);
     // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
     // bytes laid out for the grid that will paint them. This is the whole point

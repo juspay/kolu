@@ -216,8 +216,15 @@ const TerminalIdInputSchema = z.object({ id: PtyIdSchema });
  *  killing the user's live PTYs, to buy a graceful improvement. */
 const TerminalAttachInputSchema = z.object({
   id: PtyIdSchema,
-  cols: z.number().int().positive().optional(),
-  rows: z.number().int().positive().optional(),
+  // ONE optional composite, never two optional scalars — see the note on padi's
+  // mirror of this schema. Half a grid is not a size, so it must not be a
+  // sendable request rather than something each reader remembers to discard.
+  grid: z
+    .object({
+      cols: z.number().int().positive(),
+      rows: z.number().int().positive(),
+    })
+    .optional(),
 });
 
 /** A file the client wants present on the host before the shell starts — a

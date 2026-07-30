@@ -140,7 +140,7 @@
 </tr>
 <tr>
 <td><code>kaval-tui attach &lt;id&gt;</code></td>
-<td><code>terminalAttach.get({id})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code> + <code>exit.get({id})</code></td>
+<td><code>terminalAttach.get({id, grid})</code> (stream) + <code>terminal.write</code> / <code>terminal.resize</code> + <code>exit.get({id})</code></td>
 <td>Put the local tty in raw mode. First yield is the <strong>scrollback snapshot</strong> → paint to stdout; deltas stream after. Forward stdin via <code>write</code>; <code>SIGWINCH</code> → <code>resize({id, cols, rows})</code>. A line-start <code>~.</code> escape detaches — the CLI exits, kolu-server keeps the PTY. When the deltas end, the <code>exit</code> stream discriminates “PTY died” (report the real code, quit with it) from “stream dropped” (re-attach; the fresh snapshot repaints). <em>The full client-side loop — reply filter, deterministic restore, sizing — shipped with Phase 2 below.</em></td>
 </tr>
 <tr>

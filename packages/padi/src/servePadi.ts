@@ -385,17 +385,10 @@ export function buildPadiSurfaceDeps(deps: {
       // remote tile's attach reaches its host (a remote endpoint arrives with the
       // cross-host work); local today.
       terminalAttach: {
-        source: async function* ({ id, cols, rows }, signal) {
+        source: async function* ({ id, grid }, signal) {
           const entry = requireActiveTerminal(id);
-          // The caller's grid rides through to the host, which resizes to it and
-          // serializes as ONE act — so the snapshot is always bytes for the grid
-          // the consumer actually has. Both halves must be present to mean
-          // anything; a half-specified grid is not a size, so it is dropped
-          // rather than mixed with the PTY's current other dimension.
-          const grid =
-            cols !== undefined && rows !== undefined
-              ? { cols, rows }
-              : undefined;
+          // The caller's grid rides through to the host verbatim — it arrives as
+          // one composite, so there is nothing to validate or reassemble here.
           const { snapshot, topLine, reflowEpoch, deltas } =
             await resolveTerminalEndpoint(entry.meta.location).attach(
               id,

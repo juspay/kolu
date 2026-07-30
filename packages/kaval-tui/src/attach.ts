@@ -256,9 +256,8 @@ export async function runAttach(
         // split render at a grid it never had. Cross-client policy is unchanged
         // (last-attach-wins): a concurrently-attached browser tile may show wrap
         // artifacts until its own next attach or resize.
-        const { cols, rows } = tty.size();
         const stream = await client.surface.terminalAttach.get(
-          { id, cols, rows },
+          { id, grid: tty.size() },
           { signal: abort.signal },
         );
         const iter = stream[Symbol.asyncIterator]();

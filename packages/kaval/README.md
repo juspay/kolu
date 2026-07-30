@@ -120,9 +120,8 @@ const { id, pid } = host.spawn({
 
 // Late-join client: snapshot first, then live deltas. The grid is the
 // consumer's own — the snapshot comes back laid out for it.
-const { snapshot, deltas } = host.attach(id, signal, undefined, {
-  cols: 120,
-  rows: 40,
+const { snapshot, deltas } = host.attach(id, signal, {
+  grid: { cols: 120, rows: 40 },
 });
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);

@@ -148,21 +148,27 @@ export const Xterm: Component<
   });
 
   /** Fit to the container's current box, and record the grid IF one could be
-   *  measured. `proposeDimensions()` returns undefined for an unmeasurable box
-   *  — which is exactly the case that matters: a `display:none` pane is 0×0, so
-   *  it has no grid of its own and `grid()` must stay null rather than publish
-   *  the 80×24 xterm's constructor invented. `fit()` makes the same check
-   *  internally and no-ops; asking first is what lets us tell "measured" from
-   *  "declined to measure", which `fit()`'s void return cannot. */
+   *  measured.
+   *
+   *  The gate is the BOX, not the addon's proposal. `proposeDimensions()`
+   *  returns undefined only when there is no renderer/element at all; for a
+   *  present-but-degenerate box it still returns a grid, because the addon
+   *  CLAMPS its answer to its own 2×1 floor. Trusting that answer would publish
+   *  a 2×1 as a genuine measurement — a fabricated grid, which is precisely what
+   *  `grid()` promises never to contain — and the attach it unblocks would size
+   *  a real PTY to 2×1. So require a non-degenerate box first, and treat the
+   *  proposal as advisory. (`fit()` no-ops on an unmeasurable box too; asking
+   *  separately is what lets us tell "measured" from "declined to measure",
+   *  which `fit()`'s void return cannot.) */
   const applyFit = () => {
     if (!core) return;
+    const box = container.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return;
     const proposed = core.addons.fit.proposeDimensions();
     if (
       !proposed ||
       !Number.isFinite(proposed.cols) ||
-      !Number.isFinite(proposed.rows) ||
-      proposed.cols <= 0 ||
-      proposed.rows <= 0
+      !Number.isFinite(proposed.rows)
     )
       return;
     core.addons.fit.fit();

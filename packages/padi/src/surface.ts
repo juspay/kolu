@@ -642,6 +642,12 @@ export const PadiCreateInputSchema = z
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 
+/** A terminal grid — cols AND rows, together or not at all. */
+export const TerminalGridSchema = z.object({
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+});
+
 /** Attach input: the terminal, plus the grid the CALLER will render the
  *  snapshot into.
  *
@@ -664,8 +670,15 @@ export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
  *  a graceful improvement. */
 export const PadiTerminalAttachInputSchema = z.object({
   id: TerminalIdSchema,
-  cols: z.number().int().positive().optional(),
-  rows: z.number().int().positive().optional(),
+  // ONE optional composite, never two optional scalars: a grid is a cols AND a
+  // rows, so `{ cols }` with no `rows` must not be a sendable request. Splitting
+  // it would make half a grid representable on the wire and push the
+  // both-or-neither rule out into hand-written guards at every reader — the very
+  // class of "valid-looking value nobody can act on" this change exists to
+  // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
+  // here is strict, so an older peer strips an unknown `grid` exactly as it would
+  // strip unknown `cols`/`rows`.
+  grid: TerminalGridSchema.optional(),
 });
 
 export const PadiResizeInputSchema = z.object({

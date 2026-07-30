@@ -440,6 +440,15 @@ const Terminal: Component<{
       openAttachStream();
     });
 
+    /** Re-state this pane's own grid to the host. `lifecycle.resize` is the one
+     *  authoritative channel for a live size change, and this pane is the sole
+     *  authority for its value — so re-stating it can only ever correct the
+     *  terminal towards what this pane actually has, never away from it. */
+    const reassertGrid = () => {
+      const measured = h.grid();
+      if (measured) void publishDimensions(measured);
+    };
+
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
     // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
@@ -452,13 +461,18 @@ const Terminal: Component<{
     function openAttachStream() {
       consumeReattachingStream(
         () => {
-          // Re-read the grid HERE, not at subscribe time: this thunk is also the
-          // re-subscribe path (STREAM_RETRY, an overflow re-attach), and a pane
-          // resized since the first attach must ask for the snapshot at the grid
-          // it has NOW. Absent is unreachable — the effect above only opens the
-          // stream once a grid exists, and a measured grid is never un-measured
-          // — so it fails loud instead of silently falling back to the host's
-          // own idea of the size, which is the very defect this gate closes.
+          // Read the grid at the moment this stream is opened. Note this thunk
+          // is NOT the transport-retry path: `unenrolledStreamCall` invokes the
+          // procedure once and oRPC's retry plugin re-subscribes by replaying
+          // that captured input, so a STREAM_RETRY re-sends the grid recorded
+          // here. `consumeReattachingStream`'s own outer re-attach does re-enter
+          // it and picks up a fresh grid. The replay is what `reassertGrid`
+          // below exists for.
+          //
+          // Absent is unreachable — the effect above opens the stream only once
+          // a grid exists, and a measured grid is never un-measured — so it
+          // fails loud rather than silently falling back to the host's own idea
+          // of the size, which is the very defect this gate closes.
           const measured = h.grid();
           if (!measured)
             throw new Error(
@@ -466,15 +480,22 @@ const Terminal: Component<{
             );
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
-            {
-              id: props.terminalId,
-              cols: measured.cols,
-              rows: measured.rows,
-            },
+            { id: props.terminalId, grid: measured },
             { signal, onRetry: resetForFreshSnapshot },
           );
         },
         (frame) => {
+          // A snapshot means the terminal was just SIZED for someone — possibly
+          // for a grid this pane no longer has. A transport retry re-subscribes
+          // by replaying the input captured above, so after a resize the replay
+          // asks for the OLD grid and drags the PTY back to it. This pane is the
+          // authority on its own size, so it re-states that fact right after any
+          // event that could have moved the terminal under it, which converts a
+          // replayed stale claim into a transient rather than a stuck screen.
+          // Free in the steady state: kaval no-ops an exact same-dimensions
+          // resize, so the overwhelmingly common "nothing moved" case costs one
+          // comparison and no SIGWINCH.
+          if (frame.kind === "snapshot") reassertGrid();
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
           // MID-STREAM overflow re-attach). Consume it as one indivisible act:
           // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
