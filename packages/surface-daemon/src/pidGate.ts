@@ -340,9 +340,9 @@ export type SocketServeState = "serving" | "dead" | "absent" | "indeterminate";
 
 /**
  * Connect factory + probe bound used by {@link socketServeState}. Production
- * uses `node:net` createConnection and {@link SOCKET_SERVE_PROBE_MS}. Tests
- * rebind to drive a hanging connect (the timeout → indeterminate arm) — restore
- * with `setSocketProbeDepsForTests()` after.
+ * always uses `node:net` createConnection and {@link SOCKET_SERVE_PROBE_MS}.
+ * Tests rebind via {@link setSocketProbeDepsForTests} from the
+ * `./pidGate.testlib` subpath only — never the production package root.
  */
 const socketProbeDeps: {
   connect: typeof createConnection;
@@ -352,12 +352,28 @@ const socketProbeDeps: {
   probeMs: SOCKET_SERVE_PROBE_MS,
 };
 
-/** @internal Test seam for the connect-probe timeout arm. Restore after use. */
+export type SocketProbeDeps = {
+  connect: typeof createConnection;
+  probeMs: number;
+};
+
+/**
+ * Test-only override of the connect-probe factory and bound. **Not on the
+ * production package root** — import from `@kolu/surface-daemon/pidGate.testlib`.
+ * Returns the previous deps so callers can restore precisely; calling with no
+ * args (or after capture) resets to production defaults. Always restore in
+ * `finally`.
+ */
 export function setSocketProbeDepsForTests(
-  deps?: Partial<typeof socketProbeDeps>,
-): void {
+  deps?: Partial<SocketProbeDeps>,
+): SocketProbeDeps {
+  const previous: SocketProbeDeps = {
+    connect: socketProbeDeps.connect,
+    probeMs: socketProbeDeps.probeMs,
+  };
   socketProbeDeps.connect = deps?.connect ?? createConnection;
   socketProbeDeps.probeMs = deps?.probeMs ?? SOCKET_SERVE_PROBE_MS;
+  return previous;
 }
 
 export function socketServeState(

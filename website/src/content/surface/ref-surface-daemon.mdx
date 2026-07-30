@@ -12,7 +12,8 @@ The daemon *binary* half — the code that runs inside the long-lived process. I
 carries no `@kolu/*` app dependency; the client half lives separately in
 [@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Production
 imports use the package root; mixed-version suites use the dedicated
-`./upgrade-window.testlib` subpath.
+`./upgrade-window.testlib` subpath; pid-gate test seams (connect-probe
+override) use `./pidGate.testlib` — never re-exported from the production root.
 
 ## The frozen control core
 

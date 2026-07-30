@@ -297,13 +297,24 @@ export function isSocketProbeIndeterminateError(
     isSocketProbeIndeterminate?: unknown;
     gatePath?: unknown;
     socketPath?: unknown;
+    gatePid?: unknown;
   };
+  // Attest every field the narrowed type promises — including optional
+  // gatePid (absent/undefined, or a finite positive integer pid). A branded
+  // carrier with gatePid: "not-a-pid" must not narrow (R5-2).
+  const gatePidOk =
+    e.gatePid === undefined ||
+    (typeof e.gatePid === "number" &&
+      Number.isFinite(e.gatePid) &&
+      Number.isInteger(e.gatePid) &&
+      e.gatePid > 0);
   return (
     typeof err === "object" &&
     err !== null &&
     e.isSocketProbeIndeterminate === true &&
     typeof e.gatePath === "string" &&
-    typeof e.socketPath === "string"
+    typeof e.socketPath === "string" &&
+    gatePidOk
   );
 }
 

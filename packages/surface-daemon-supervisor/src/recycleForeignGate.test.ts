@@ -28,12 +28,8 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import {
-  acquirePidGate,
-  gatePid,
-  isHolderLive,
-  setSocketProbeDepsForTests,
-} from "@kolu/surface-daemon";
+import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
+import { setSocketProbeDepsForTests } from "@kolu/surface-daemon/pidGate.testlib";
 import {
   plantYesterdayDaemon,
   type YesterdayDaemonOpts,

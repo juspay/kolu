@@ -34,11 +34,11 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
   readGateIdentity,
-  setSocketProbeDepsForTests,
   socketServeState,
   START_TIME_TOLERANCE_US,
   startTimesMatch,
 } from "./pidGate.ts";
+import { setSocketProbeDepsForTests } from "./pidGate.testlib.ts";
 
 const SELF: ProcessIdentity = { pid: process.pid, startUnixUs: 1_000_000 };
 const identities = new Map<number, ProcessIdentity>([[process.pid, SELF]]);
