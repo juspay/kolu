@@ -754,6 +754,16 @@ const E2E_SERVER_ENV_KEYS = [
   "KOLU_TEST_VERBOSE",
   // Which kaval the server spawns (nix-built vs from-source) — the spawn-deciding var.
   "KOLU_KAVAL_BIN",
+  // The baked osfacts binary padi and kaval read process facts through
+  // (`bakedOsFactsBin`). Required and fail-fast with NO PATH fallback, so a
+  // from-source server that does not inherit it dies at boot — which is what
+  // `just test-quick` did for every scenario after #2067 adopted osfacts:
+  // BeforeAll failed with "could not start a kolu server that owns its port",
+  // 0 scenarios run. `just test` was unaffected (and so was CI) because
+  // `.#koluBin`'s nix wrapper bakes the path in rather than inheriting it —
+  // which is exactly why nothing caught this. Same class as KOLU_KAVAL_BIN
+  // above: a which-binary var the from-source path can only get by inheritance.
+  "KOLU_OSFACTS_BIN",
   "KOLU_COMMIT_HASH",
   "TZ",
   "TERMINFO",
