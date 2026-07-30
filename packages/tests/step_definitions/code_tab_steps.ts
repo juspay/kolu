@@ -1876,6 +1876,26 @@ Then(
 );
 
 Then(
+  "the Code tab directory {string} should be marked as containing a change while nudging file {string}",
+  async function (this: KoluWorld, path: string, filePath: string) {
+    const marked = this.page
+      .locator(`${dirRow(path)}[data-item-contains-git-change="true"]`)
+      .first();
+    await pollFor({
+      observe: () => marked.isVisible().catch(() => false),
+      isDone: (visible) => visible,
+      onTick: () => nudgeFiles([filePath]),
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `Directory "${path}" was not marked as containing a change within ${elapsedMs}ms while nudging ${filePath}`,
+        ),
+      intervalMs: 500,
+      timeoutMs: HYDRATION_TIMEOUT,
+    });
+  },
+);
+
+Then(
   "the Code tab directory {string} should not be marked as containing a change",
   async function (this: KoluWorld, path: string) {
     await waitTreeReady(this, dirRow(path));

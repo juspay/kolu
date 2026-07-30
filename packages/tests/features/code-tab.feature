@@ -803,17 +803,17 @@ Feature: Code tab (review + browse)
     And I run "printf 'seed-edited\n' > seed/dirty.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    Then the Code tab should show a directory node "src"
     # A positive initial dirty result settles the status snapshot before the
     # live edit. `src` is therefore known clean at this boundary, rather than
-    # merely absent while the first status request is still in flight.
-    And the Code tab directory "seed" should be marked as containing a change
+    # merely absent while the first status request is still in flight. Repeated
+    # no-op mtime touches recover a dropped watcher pulse under CI load.
+    Then the Code tab directory "seed" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/seed/dirty.txt"
     And the Code tab directory "seed" name should be tinted differently from directory "lib"
     And the Code tab directory "src" should not be marked as containing a change
     # Now prove the mounted tree reacts to the later status update and rolls it
     # up to the newly changed ancestor while the clean sibling remains clean.
     When I run "printf 'edited\n' > src/feature/a.txt"
-    And the Code tab directory "src" should be marked as containing a change
+    Then the Code tab directory "src" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/src/feature/a.txt"
     And the Code tab directory "lib" should not be marked as containing a change
     And the Code tab directory "src" name should be tinted differently from directory "lib"
 

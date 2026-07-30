@@ -1917,7 +1917,7 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-da857ad10356f22ef965
+      - revision-f5e26c30f126a0a72ac6
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
@@ -1933,8 +1933,40 @@ retirements:
     destinationLayer: L5
     replacements: []
     survivorRevisionIds:
-      - revision-da857ad10356f22ef965
+      - revision-f5e26c30f126a0a72ac6
     sameCodePathEvidence:
       file: packages/tests/features/code-tab.feature
       symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
       test: The current revision settles a positive initial dirty result and proves src is clean before editing it, then verifies the live status update marks and visibly tints src while leaving lib clean.
+  - id: revise-da857ad10356f22ef965
+    revisionId: revision-da857ad10356f22ef965
+    action: revised
+    status: landed
+    promise: Initial and live folder-status roll-up remain observable when the repo watcher drops an event under parallel load
+    defectSurface:
+      - browse-folder-status-rollup
+      - test-watcher-event-loss
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-f5e26c30f126a0a72ac6
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The current revision preserves the same initial and live assertions while repeatedly emitting a no-op repo event during each positive wait, so a dropped inotify pulse cannot strand the test on stale state.
+  - id: revise-016186bf023516c77263
+    revisionId: revision-016186bf023516c77263
+    action: revised
+    status: landed
+    promise: The folder-status watcher recovery stimulates the changed file rather than an unrelated directory entry
+    defectSurface:
+      - browse-folder-status-rollup
+      - test-watcher-event-loss
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds:
+      - revision-f5e26c30f126a0a72ac6
+    sameCodePathEvidence:
+      file: packages/tests/features/code-tab.feature
+      symbol: "Scenario: Browse mode tints ancestor folders that contain a change"
+      test: The current revision re-touches seed/dirty.txt and src/feature/a.txt during their respective positive waits, directly re-firing the working-tree event whose resulting status is asserted.
