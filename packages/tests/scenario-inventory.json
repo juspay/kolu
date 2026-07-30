@@ -7336,6 +7336,30 @@
       "firstSeenSha": "a474fffb17c49d91101c96726ddb851d5c8bca00"
     },
     {
+      "revisionId": "revision-77762ac33f1cbf2c8bc6",
+      "scenarioKey": "scenario-427bc73b776fff2af71c",
+      "feature": "features/right-panel.feature",
+      "scenario": "Inspector Work chips follow the active terminal across repos",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6ffb93ded2507b73d87bea3ebb13a25292e8078ac0afd2d33abeba865c613757",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3667a93547bf99b3a2f504d45cb6c7f2a6390517"
+    },
+    {
+      "revisionId": "revision-69d63ecaa2983660754c",
+      "scenarioKey": "scenario-f04e5172fd10893c7d56",
+      "feature": "features/right-panel.feature",
+      "scenario": "Inspector Work chips read correctly in the mobile drawer",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "4279b4333f44cd93be360e955756b980eda8133e606d100db9d4d31cf34c658e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3667a93547bf99b3a2f504d45cb6c7f2a6390517"
+    },
+    {
       "revisionId": "revision-ac70b681a51a948a1476",
       "scenarioKey": "scenario-65db81c159a51516556a",
       "feature": "features/sub-terminal.feature",
