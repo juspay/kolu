@@ -17,6 +17,7 @@ import {
   snapshotPidsSync,
   socketHolders,
   foldSocketHoldersReading,
+  failureDocument,
   type SocketHoldersReading,
 } from "./client.ts";
 
@@ -351,8 +352,10 @@ describe("socketHolders", () => {
     }
   });
 
-  it("refuses an empty path rather than asking about some other socket", () => {
-    expect(() => socketHolders("/bin/true", "")).toThrow(OsfactsClientError);
+  it("refuses an empty path rather than asking about some other socket", async () => {
+    await expect(socketHolders("/bin/true", "")).rejects.toThrow(
+      OsfactsClientError,
+    );
   });
 
   it("keeps the E rows of a blind walk that exited non-zero", async () => {
@@ -490,8 +493,10 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
       holders: [
         { pid: 4242, command: "kaval" },
         // Named by the OS, but its identity read lost the race — still a
-        // holder, and still a kill candidate the handshake may confirm.
-        { pid: 4243, command: "?" },
+        // holder, and still a kill candidate the handshake may confirm. The
+        // name is ABSENT, not `"?"`: a sentinel inside the value would be
+        // indistinguishable from a process whose name really is `?`.
+        { pid: 4243, command: undefined },
       ],
     });
   });
@@ -542,7 +547,7 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
           unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
         }),
       ),
-    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: "?" }] });
+    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: undefined }] });
   });
 
   /** An unclaimed row beside a claimed one does not weaken the claim: the
@@ -556,5 +561,46 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
         }),
       ),
     ).toEqual({ kind: "holders", holders: [{ pid: 9, command: "kaval" }] });
+  });
+});
+
+/**
+ * The document-bearing-failure rule, at the one point two rules disagreed.
+ *
+ * The binary's total-failure path is "write the V line and its E rows, then
+ * exit 1", and that document is the only place the answer to *which source
+ * went blind* exists. It must survive the non-zero exit — and it must NOT
+ * survive a child that a signal cut off mid-write, whose stdout is a fragment.
+ */
+describe("failureDocument", () => {
+  const document = "V\t2\nE\tproc_readdir\tproc\tEACCES\n";
+
+  it("keeps a COMPLETE exit-1 document that the timeout also flagged as killed", () => {
+    // The race: the command timeout fires and calls `kill()`, but the child had
+    // ALREADY exited 1 on its own. Node then reports `killed: true` with
+    // `signal: null` and a whole document on stdout. A `killed` rule discards
+    // it — losing exactly the E rows this function exists to preserve.
+    expect(
+      failureDocument({ code: 1, killed: true, signal: null, stdout: document }),
+    ).toBe(document);
+  });
+
+  it("discards a document from a child a SIGNAL ended — it may be truncated", () => {
+    expect(
+      failureDocument({
+        code: null,
+        killed: true,
+        signal: "SIGKILL",
+        stdout: document,
+      }),
+    ).toBeUndefined();
+    // The sync twin's spelling of the same fact.
+    expect(
+      failureDocument({ status: null, signal: "SIGKILL", stdout: document }),
+    ).toBeUndefined();
+  });
+
+  it("refuses a usage-error document (exit 2), which is the CLI refusing the ask", () => {
+    expect(failureDocument({ code: 2, stdout: "V\t2\n" })).toBeUndefined();
   });
 });

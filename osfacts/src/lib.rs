@@ -20,8 +20,9 @@ pub use pcblist::{
 pub use proc_addr::{decode_network_hex, decode_proc_hex, encode_hex, encode_proc_hex};
 pub use schema::{
     blind_or_empty, encode_tsv_string, encode_tsv_strings, errno_name, hex_bytes, sanitize_name,
-    source_error, Attribution, Cpu, Disk, Facet, HostMemory, HostSnapshot, Load, Memory, Network,
-    Port, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot,
-    SocketHolders, SourceError, StartTime, Swap, Unreadable, BLIND_OR_EMPTY, SCHEMA_VERSION,
+    source_error, Attribution, Cpu, Disk, Document, Facet, HostMemory, HostSnapshot, Load, Memory,
+    Network, Port, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid,
+    Snapshot, SocketHolders, SourceError, StartTime, Swap, Unreadable, BLIND_OR_EMPTY,
+    SCHEMA_VERSION,
 };
-pub use unix_socket::{sockaddr_un_path, unix_socket_inodes};
+pub use unix_socket::{darwin_sockaddr_un_path, unix_socket_inodes};

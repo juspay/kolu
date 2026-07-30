@@ -16,8 +16,17 @@
 const AF_UNIX_FAMILY: u8 = 1;
 const _: () = assert!(AF_UNIX_FAMILY as i32 == libc::AF_UNIX);
 
-/// `sizeof ((struct sockaddr_un *)0)->sun_path` from `<sys/un.h>`.
-pub const SUN_PATH_LEN: usize = 104;
+/// DARWIN's `sizeof ((struct sockaddr_un *)0)->sun_path` from `<sys/un.h>`.
+///
+/// The number is platform-specific — linux's is 108 — and this decoder is only
+/// ever fed darwin `un_sockinfo` slots, which is why it is spelled here rather
+/// than read from `libc` on a host that would report the other one. It is
+/// PRIVATE, and its name says whose it is, for exactly that reason: a `pub`
+/// `DARWIN_SUN_PATH_LEN` reads as a portable fact, and a linux-sourced slot fed
+/// through it would be silently sliced at the wrong window. (`AF_UNIX_FAMILY`
+/// above can afford a `const _: () = assert!(…)` guard because it IS the same
+/// on both; this one cannot have one, which is the whole hazard.)
+const DARWIN_SUN_PATH_LEN: usize = 104;
 
 /// The inodes of every table row whose PATH is exactly `path`, in first-seen
 /// order and without repeats.
@@ -99,12 +108,12 @@ fn split_unix_row(line: &[u8]) -> Option<(u64, &[u8])> {
 /// the same rule the path was written with. An empty path (an unbound socket,
 /// or darwin's empty spelling for an unnamed one) is `None`, not `Some("")` —
 /// no caller can hold a socket at the empty path, so it is an absence.
-pub fn sockaddr_un_path(slot: &[u8]) -> Option<&[u8]> {
-    if slot.len() < 2 + SUN_PATH_LEN || slot[1] != AF_UNIX_FAMILY {
+pub fn darwin_sockaddr_un_path(slot: &[u8]) -> Option<&[u8]> {
+    if slot.len() < 2 + DARWIN_SUN_PATH_LEN || slot[1] != AF_UNIX_FAMILY {
         return None;
     }
-    let path = &slot[2..2 + SUN_PATH_LEN];
-    let end = path.iter().position(|&b| b == 0).unwrap_or(SUN_PATH_LEN);
+    let path = &slot[2..2 + DARWIN_SUN_PATH_LEN];
+    let end = path.iter().position(|&b| b == 0).unwrap_or(DARWIN_SUN_PATH_LEN);
     (end > 0).then(|| &path[..end])
 }
 
@@ -125,7 +134,7 @@ mod tests {
     #[test]
     fn a_bound_slot_yields_its_path() {
         assert_eq!(
-            sockaddr_un_path(&slot(AF_UNIX_FAMILY, b"/run/user/501/kaval.sock")),
+            darwin_sockaddr_un_path(&slot(AF_UNIX_FAMILY, b"/run/user/501/kaval.sock")),
             Some(&b"/run/user/501/kaval.sock"[..])
         );
     }
@@ -134,22 +143,22 @@ mod tests {
     /// off an AF_INET record would report raw address bytes as a socket path.
     #[test]
     fn a_slot_of_another_family_names_nothing() {
-        assert_eq!(sockaddr_un_path(&slot(2 /* AF_INET */, b"/not/a/path")), None);
+        assert_eq!(darwin_sockaddr_un_path(&slot(2 /* AF_INET */, b"/not/a/path")), None);
     }
 
     /// An unnamed socket is an absence, not a holder of the empty path.
     #[test]
     fn an_empty_path_is_an_absence() {
-        assert_eq!(sockaddr_un_path(&slot(AF_UNIX_FAMILY, b"")), None);
+        assert_eq!(darwin_sockaddr_un_path(&slot(AF_UNIX_FAMILY, b"")), None);
     }
 
     /// A path that fills `sun_path` exactly has no NUL to stop at.
     #[test]
     fn a_path_that_fills_the_field_is_read_whole() {
-        let full = vec![b'x'; SUN_PATH_LEN];
+        let full = vec![b'x'; DARWIN_SUN_PATH_LEN];
 
         assert_eq!(
-            sockaddr_un_path(&slot(AF_UNIX_FAMILY, &full)),
+            darwin_sockaddr_un_path(&slot(AF_UNIX_FAMILY, &full)),
             Some(&full[..])
         );
     }
@@ -160,7 +169,7 @@ mod tests {
     fn a_slot_too_short_to_hold_sun_path_is_refused() {
         let short = slot(AF_UNIX_FAMILY, b"/run/a.sock");
 
-        assert_eq!(sockaddr_un_path(&short[..2 + SUN_PATH_LEN - 1]), None);
+        assert_eq!(darwin_sockaddr_un_path(&short[..2 + DARWIN_SUN_PATH_LEN - 1]), None);
     }
 
     /// The real column layout, as the kernel prints it.

@@ -16,8 +16,41 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod darwin;
 
+/// The one place the host platform is named.
+///
+/// Each verb below is then three lines with no `#[cfg]` of its own — the same
+/// five-branch dispatch written once instead of once per verb, which is what a
+/// doc comment reading "same law as `take_snapshot`" was standing in for. A
+/// fourth verb inherits the dispatch for free.
+#[cfg(target_os = "linux")]
+use linux as platform;
+#[cfg(target_os = "macos")]
+use darwin as platform;
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+use unsupported as platform;
+
+/// The empty-document platform. Not a fallback: a host osfacts has no sensors
+/// for cannot answer, and an empty document with no `E` rows is the honest
+/// shape for "this build was never taught to look" — it exits 0 with nothing,
+/// exactly as the three `#[cfg(not(...))]` arms it replaces did.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+mod unsupported {
+    use crate::cli::{HostArgs, SnapshotArgs, SocketHoldersArgs};
+    use osfacts::{HostSnapshot, Snapshot, SocketHolders};
+
+    pub fn snapshot(_args: &SnapshotArgs) -> Snapshot {
+        Snapshot::new()
+    }
+    pub fn socket_holders(_args: &SocketHoldersArgs) -> SocketHolders {
+        SocketHolders::new()
+    }
+    pub fn host(_args: &HostArgs) -> HostSnapshot {
+        HostSnapshot::new()
+    }
+}
+
 use cli::{Command, HostArgs, SnapshotArgs, SocketHoldersArgs};
-use osfacts::{HostSnapshot, Snapshot, SocketHolders, SourceError};
+use osfacts::{Document, HostSnapshot, Snapshot, SocketHolders};
 use std::io::{self, Write};
 use std::process::ExitCode;
 
@@ -43,39 +76,6 @@ fn main() -> ExitCode {
         }
     }
 }
-
-/// One document the binary can emit. The three verbs answer different
-/// questions, but they all obey ONE emit-and-exit law, so it is written once:
-/// a document that carried a fact is a success even when a source went blind,
-/// and only a document with nothing but blindness in it exits non-zero.
-trait Document {
-    fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()>;
-    fn write_json(&self, out: &mut dyn Write) -> io::Result<()>;
-    fn has_facts(&self) -> bool;
-    fn errors(&self) -> &[SourceError];
-}
-
-macro_rules! impl_document {
-    ($t:ty) => {
-        impl Document for $t {
-            fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
-                <$t>::write_tsv(self, out)
-            }
-            fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
-                <$t>::write_json(self, out)
-            }
-            fn has_facts(&self) -> bool {
-                <$t>::has_facts(self)
-            }
-            fn errors(&self) -> &[SourceError] {
-                &self.errors
-            }
-        }
-    };
-}
-impl_document!(Snapshot);
-impl_document!(SocketHolders);
-impl_document!(HostSnapshot);
 
 fn emit(doc: &dyn Document, json: bool) -> ExitCode {
     let stdout = io::stdout();
@@ -107,61 +107,23 @@ fn exit_code(doc: &dyn Document) -> ExitCode {
 fn take_snapshot(args: &SnapshotArgs) -> Snapshot {
     // Row order belongs to the schema, not to a sensor: normalize here, once,
     // so both platforms emit the same TSV for the same facts.
-    #[cfg(target_os = "linux")]
-    {
-        let mut snap = linux::snapshot(args);
-        snap.normalize();
-        return snap;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut snap = darwin::snapshot(args);
-        snap.normalize();
-        return snap;
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = args;
-        Snapshot::new()
-    }
+    let mut snap = platform::snapshot(args);
+    snap.normalize();
+    snap
 }
 
-/// Row order belongs to the schema, not to a sensor — same law as
-/// [`take_snapshot`], so both platforms emit the same TSV for the same facts.
 fn take_socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
-    #[cfg(target_os = "linux")]
-    {
-        let mut holders = linux::socket_holders(args);
-        holders.normalize();
-        return holders;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let mut holders = darwin::socket_holders(args);
-        holders.normalize();
-        return holders;
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = args;
-        SocketHolders::new()
-    }
+    let mut holders = platform::socket_holders(args);
+    holders.normalize();
+    holders
 }
 
+/// No `normalize` here, and that is a decision rather than an omission: a
+/// `HostSnapshot` carries no per-pid row vectors to order — its facts are
+/// scalars plus cpu/net/disk lists the sensors already emit in the host's own
+/// enumeration order, which is the order to report them in.
 fn take_host(args: &HostArgs) -> HostSnapshot {
-    #[cfg(target_os = "linux")]
-    {
-        return linux::host(args);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return darwin::host(args);
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
-        let _ = args;
-        HostSnapshot::new()
-    }
+    platform::host(args)
 }
 
 fn write_version_only() -> io::Result<()> {

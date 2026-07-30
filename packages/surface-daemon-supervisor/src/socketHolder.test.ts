@@ -18,10 +18,7 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { testReadSocketHolders } from "./createEndpoint.testlib.ts";
-
-/** kolu's own bake — this repo's suites, so this repo's env var. */
-const readHolders = testReadSocketHolders("KOLU_OSFACTS_BIN");
+import { readSocketHoldersForKoluTests as readHolders } from "./createEndpoint.kolu.testlib.ts";
 
 const children: number[] = [];
 afterEach(async () => {

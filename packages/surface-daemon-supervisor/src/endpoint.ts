@@ -237,7 +237,9 @@ export class SocketSquatterForeignError extends Error {
     detail?: string,
   ) {
     const who = holders.length
-      ? holders.map((h) => `pid ${h.pid} (${h.command})`).join(", ")
+      ? holders
+          .map((h) => `pid ${h.pid} (${h.command ?? "name unavailable"})`)
+          .join(", ")
       : (detail ?? "an unidentifiable process");
     super(
       `rendezvous socket ${socketPath} is held by ${who}, which did not complete the daemon handshake — refusing to kill a process that is not a verified daemon of this endpoint`,
@@ -274,7 +276,12 @@ export function isSocketSquatterForeignError(
         typeof h === "object" &&
         h !== null &&
         Number.isInteger((h as { pid?: unknown }).pid) &&
-        typeof (h as { command?: unknown }).command === "string",
+        // `command` is OPTIONAL — absent when the identity read lost the race.
+        // The brand attests the shape it promises, and an absent name is part
+        // of that shape rather than a violation of it.
+        ["string", "undefined"].includes(
+          typeof (h as { command?: unknown }).command,
+        ),
     )
   );
 }
@@ -905,7 +912,8 @@ export function createEndpoint<
   // is gate-only, so recycle never targeted the orphan; the fresh spawn couldn't
   // bind and handshaked the orphan into an endless `incompatible`).
   //
-  // It identifies the holder over the OS (`socketHolders`), then proves what it is
+  // It identifies the holder over the OS (`spec.readSocketHolders`, the injected
+  // three-way reading), then proves what it is
   // over the SAME handshake the adopt path trusts, returning a FOUR-way outcome the
   // caller acts on:
   //   - `free`     → the socket is PROVEN not accepting (nothing holds it), or it is

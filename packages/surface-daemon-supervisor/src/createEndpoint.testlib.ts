@@ -59,25 +59,20 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
     osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath);
 }
 
-/** The default `readSocketHolders` for a suite that did not name one: a loud
- *  refusal rather than a silent kolu-specific assumption. A suite that reaches
- *  it is a suite whose endpoint really does read socket holders, and it must
- *  say which binary to read them with. */
-const unInjectedSocketHolders: ReadSocketHolders = async (socketPath) => {
-  throw new Error(
-    `createEndpointForTest: this suite reached a socket-holder read for ${socketPath} without injecting \`readSocketHolders\` — pass testReadSocketHolders(<your osfacts env var>)`,
-  );
-};
-
+/**
+ * {@link createEndpointCore} with the identity inject supplied.
+ *
+ * `readSocketHolders` stays REQUIRED, exactly as production has it: a default
+ * here — even a throwing one — is a fallback that defers a missing required
+ * inject from construction to first use, and it let a suite pass without ever
+ * exercising the real injection. kolu's suites get it from
+ * `./createEndpoint.kolu.testlib.ts`; a suite that never reaches a holder read
+ * passes a one-line stub (`async () => ({ kind: "none" })`) and says so.
+ */
 export function createEndpointForTest<C, I, M = undefined>(
-  spec: Omit<
-    EndpointSpec<C, I, M>,
-    "readProcessIdentity" | "readSocketHolders"
-  > &
-    Partial<Pick<EndpointSpec<C, I, M>, "readSocketHolders">>,
+  spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
 ) {
   return createEndpointCore({
-    readSocketHolders: unInjectedSocketHolders,
     ...spec,
     readProcessIdentity: testReadProcessIdentity,
   });

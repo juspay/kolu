@@ -19,7 +19,7 @@ import {
   type Logger,
 } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
-import { createEndpointForTest as createEndpoint } from "../createEndpoint.testlib.ts";
+import { createEndpointForKoluTest as createEndpoint } from "../createEndpoint.kolu.testlib.ts";
 
 import { createConnectorDrainBudget } from "./budget.ts";
 import { convergeAdmit } from "./convergeAdmit.ts";

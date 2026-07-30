@@ -882,10 +882,15 @@ const DOCUMENT_BEARING_EXIT = 1;
  *
  * Two exclusions, and both are load-bearing:
  *
- * A **killed** child is excluded: on timeout or SIGKILL the output is whatever
- * had been flushed, so a `V` prefix there means a truncated document, not a
- * complete one — and a truncated document must surface as the spawn failure it
- * is rather than as a parse error about some arbitrary row.
+ * A child that was **ended by a signal** is excluded: on SIGKILL the output is
+ * whatever had been flushed, so a `V` prefix there means a truncated document,
+ * not a complete one — and a truncated document must surface as the spawn
+ * failure it is rather than as a parse error about some arbitrary row.
+ *
+ * Exported for its own unit pins (NOT from the package index — this is not
+ * public API): the two exclusions are one-line rules whose failure mode is a
+ * silently discarded document, which no round-trip through a stub binary can
+ * manufacture on demand.
  *
  * Any status **other than 1** is excluded, because the binary writes its
  * version line on the usage path too (deliberately — a consumer built against
@@ -896,17 +901,21 @@ const DOCUMENT_BEARING_EXIT = 1;
  * exact collapse-to-empty the wire format exists to refuse, and the one an
  * older binary on a caller's `PATH` produces every single time.
  */
-function failureDocument(err: unknown): string | undefined {
+export function failureDocument(err: unknown): string | undefined {
   const failure = err as {
     stdout?: unknown;
     killed?: boolean;
     signal?: unknown;
   };
-  // `killed` is the async spelling of "we SIGKILLed it"; `signal` is the sync
-  // one. Both twins must exclude a killed child, so both spellings are read —
-  // and the status check below independently rejects a killed child anyway
-  // (spawnSync reports `status: null` when a signal ended it).
-  if (failure?.killed || failure?.signal) return undefined;
+  // A child ended BY A SIGNAL flushed only part of its document, so its stdout
+  // is a truncated one. `killed` is NOT that test: node sets it whenever WE
+  // sent a signal, even when the child had already exited on its own — so when
+  // the command timeout fires against a child that has just exited 1, node
+  // reports `{ code: 1, killed: true, signal: null }` and a `killed` rule
+  // discards a COMPLETE document, losing exactly the `E` rows naming which
+  // source went blind. `signal` is populated on both twins (`error.signal` from
+  // execFile, `signal` on the thrown spawnSync result), so one rule serves both.
+  if (failure?.signal != null) return undefined;
   if (exitStatusOf(err) !== DOCUMENT_BEARING_EXIT) return undefined;
   const stdout = failure?.stdout;
   if (typeof stdout !== "string" || !stdout.startsWith("V\t")) return undefined;
@@ -1094,11 +1103,17 @@ export async function processIdentityFromEnvAsync(
  * "unclaimed"}` row is *something holds it that I could not name*; a
  * `socket_holders` error row is *I could not look*.
  */
-export function socketHolders(
+export async function socketHolders(
   bin: string,
   socketPath: string,
   facets: { procs?: boolean } = {},
 ): Promise<SocketHoldersReading> {
+  // `async`, so the empty-path guard REJECTS rather than throwing
+  // synchronously. Every other spawn entry point in this module rejects
+  // (`runOsfacts`'s own empty-`bin` guard included), and a caller writing
+  // `socketHolders(bin, path).catch(handle)` — the shape the module teaches —
+  // would otherwise get an uncaught exception from one function out of all of
+  // them.
   if (!socketPath)
     throw new OsfactsClientError(
       "spawn",
@@ -1106,7 +1121,7 @@ export function socketHolders(
     );
   const args = ["socket-holders", socketPath];
   if (facets.procs) args.push("--procs");
-  return runOsfacts(bin, args).then(parseSocketHoldersOutput);
+  return parseSocketHoldersOutput(await runOsfacts(bin, args));
 }
 
 /** A process the OS reports as holding a socket path — its pid and a human
@@ -1114,10 +1129,15 @@ export function socketHolders(
 export interface SocketHolder {
   pid: number;
   /** A readable command for the pid — osfacts' short display name (the
-   *  executable's basename), the same fact on both platforms. `"?"` when the
-   *  holder could not be named: it may have exited between the holder lookup
-   *  and the identity read. Diagnostic only, never a decision input. */
-  command: string;
+   *  executable's basename), the same fact on both platforms.
+   *
+   *  ABSENT, not `"?"`, when the holder could not be named (it may have exited
+   *  between the holder lookup and the identity read). An in-band `"?"` is
+   *  indistinguishable from a process genuinely reporting `?` as its name,
+   *  which is the same one-value-several-facts collapse the three-way reading
+   *  above exists to refuse — one level down, inside a holder. Diagnostic only,
+   *  never a decision input. */
+  command?: string;
 }
 
 /**
@@ -1165,8 +1185,7 @@ export function foldSocketHoldersReading(
       ? [
           {
             pid: holder.pid,
-            command:
-              reading.procs.find((row) => row.pid === holder.pid)?.name ?? "?",
+            command: reading.procs.find((row) => row.pid === holder.pid)?.name,
           },
         ]
       : [],

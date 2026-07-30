@@ -6,7 +6,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
-import { createEndpointForTest as createEndpoint } from "./createEndpoint.testlib.ts";
+import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 import {
   converge,
   DaemonContractSkewError,

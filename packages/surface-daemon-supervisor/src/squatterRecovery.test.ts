@@ -27,18 +27,7 @@ import {
   type EndpointStatus,
   isSocketSquatterForeignError,
 } from "./endpoint.ts";
-import {
-  createEndpointForTest,
-  testReadSocketHolders,
-} from "./createEndpoint.testlib.ts";
-
-/** kolu's suites, so kolu's bake. The testlib takes the env-var NAME rather
- *  than spelling one, because the package it lives in is shared with drishti. */
-const createEndpoint: typeof createEndpointForTest = (spec) =>
-  createEndpointForTest({
-    readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
-    ...spec,
-  });
+import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 
 import { endpointPrivate } from "./endpoint.private.ts";
 

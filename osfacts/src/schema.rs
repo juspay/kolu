@@ -254,6 +254,28 @@ pub struct Snapshot {
     pub errors: Vec<SourceError>,
 }
 
+/// One document the binary can emit.
+///
+/// The three verbs answer different questions, but they all obey ONE
+/// emit-and-exit law, so it is written once (in `main`): a document that
+/// carried a fact is a success even when a source went blind, and only a
+/// document with nothing but blindness in it exits non-zero.
+///
+/// It is declared HERE, beside the documents, and each type implements it as
+/// its ONLY definition of these four methods. A trait in `main` whose impls
+/// forwarded to same-named inherent methods meant every document defined
+/// `write_tsv` / `write_json` / `has_facts` twice, and a fourth document would
+/// have had to remember the forwarding as well as the method.
+pub trait Document {
+    fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()>;
+    fn write_json(&self, out: &mut dyn Write) -> io::Result<()>;
+    /// Did this reading carry any fact? An exhaustive destructure in every
+    /// impl, so a new field is a compile error until it is classified.
+    fn has_facts(&self) -> bool;
+    /// The sources that went blind — what the exit code is decided against.
+    fn errors(&self) -> &[SourceError];
+}
+
 impl Snapshot {
     pub fn new() -> Self {
         Self {
@@ -275,36 +297,6 @@ impl Snapshot {
             facet,
             errno: errno_name(err),
         });
-    }
-
-    /// Did this snapshot carry any fact at all? An exhaustive destructure, so
-    /// adding a field to `Snapshot` without deciding whether it is a fact is a
-    /// compile error rather than a silently wrong exit code.
-    pub fn has_facts(&self) -> bool {
-        let Self {
-            version: _,
-            procs,
-            memory,
-            start_times,
-            cpu_times,
-            uids,
-            cwds,
-            statuses,
-            argv,
-            ports,
-            unreadable,
-            errors: _,
-        } = self;
-        !procs.is_empty()
-            || !memory.is_empty()
-            || !start_times.is_empty()
-            || !cpu_times.is_empty()
-            || !uids.is_empty()
-            || !cwds.is_empty()
-            || !statuses.is_empty()
-            || !argv.is_empty()
-            || !ports.is_empty()
-            || !unreadable.is_empty()
     }
 
     /// Total, platform-independent row order.
@@ -355,8 +347,40 @@ impl Snapshot {
         unreadable.sort_by_key(|row| (row.pid, row.facet));
         unreadable.dedup_by_key(|row| (row.pid, row.facet));
     }
+}
 
-    pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
+impl Document for Snapshot {
+    /// Did this snapshot carry any fact at all? An exhaustive destructure, so
+    /// adding a field to `Snapshot` without deciding whether it is a fact is a
+    /// compile error rather than a silently wrong exit code.
+    fn has_facts(&self) -> bool {
+        let Self {
+            version: _,
+            procs,
+            memory,
+            start_times,
+            cpu_times,
+            uids,
+            cwds,
+            statuses,
+            argv,
+            ports,
+            unreadable,
+            errors: _,
+        } = self;
+        !procs.is_empty()
+            || !memory.is_empty()
+            || !start_times.is_empty()
+            || !cpu_times.is_empty()
+            || !uids.is_empty()
+            || !cwds.is_empty()
+            || !statuses.is_empty()
+            || !argv.is_empty()
+            || !ports.is_empty()
+            || !unreadable.is_empty()
+    }
+
+    fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "V\t{}", self.version)?;
         write_procs(out, &self.procs)?;
         for m in &self.memory {
@@ -396,8 +420,12 @@ impl Snapshot {
         out.flush()
     }
 
-    pub fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
         write_json(self, out)
+    }
+
+    fn errors(&self) -> &[SourceError] {
+        &self.errors
     }
 }
 
@@ -471,23 +499,6 @@ impl SocketHolders {
         });
     }
 
-    /// Did this reading carry any fact? Exhaustive destructure for the same
-    /// reason as [`Snapshot::has_facts`].
-    ///
-    /// Note what is NOT a fact: an empty `holders` with no `errors` is the
-    /// affirmative answer *nobody holds this path*, and it exits successfully
-    /// through the `errors.is_empty()` arm rather than this one.
-    pub fn has_facts(&self) -> bool {
-        let Self {
-            version: _,
-            holders,
-            procs,
-            unreadable,
-            errors: _,
-        } = self;
-        !holders.is_empty() || !procs.is_empty() || !unreadable.is_empty()
-    }
-
     /// Total, platform-independent row order — same law as [`Snapshot::normalize`].
     pub fn normalize(&mut self) {
         let Self {
@@ -513,8 +524,27 @@ impl SocketHolders {
         unreadable.sort_by_key(|row| (row.pid, row.facet));
         unreadable.dedup_by_key(|row| (row.pid, row.facet));
     }
+}
 
-    pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
+impl Document for SocketHolders {
+    /// Did this reading carry any fact? Exhaustive destructure for the same
+    /// reason as [`Document::has_facts`].
+    ///
+    /// Note what is NOT a fact: an empty `holders` with no `errors` is the
+    /// affirmative answer *nobody holds this path*, and it exits successfully
+    /// through the `errors.is_empty()` arm rather than this one.
+    fn has_facts(&self) -> bool {
+        let Self {
+            version: _,
+            holders,
+            procs,
+            unreadable,
+            errors: _,
+        } = self;
+        !holders.is_empty() || !procs.is_empty() || !unreadable.is_empty()
+    }
+
+    fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "V\t{}", self.version)?;
         for h in &self.holders {
             let (status, pid) = match h {
@@ -529,8 +559,12 @@ impl SocketHolders {
         out.flush()
     }
 
-    pub fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
         write_json(self, out)
+    }
+
+    fn errors(&self) -> &[SourceError] {
+        &self.errors
     }
 }
 
@@ -618,10 +652,12 @@ impl HostSnapshot {
             ..Self::default()
         }
     }
+}
 
+impl Document for HostSnapshot {
     /// Did this host reading carry any fact at all? Exhaustive destructure for
-    /// the same reason as [`Snapshot::has_facts`].
-    pub fn has_facts(&self) -> bool {
+    /// the same reason as [`Document::has_facts`].
+    fn has_facts(&self) -> bool {
         let Self {
             version: _,
             load,
@@ -642,7 +678,7 @@ impl HostSnapshot {
             || !disks.is_empty()
     }
 
-    pub fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn write_tsv(&self, out: &mut dyn Write) -> io::Result<()> {
         writeln!(out, "V\t{}", self.version)?;
         if let Some(v) = &self.load {
             writeln!(out, "HLOAD\t{}\t{}\t{}", v.one, v.five, v.fifteen)?;
@@ -684,8 +720,12 @@ impl HostSnapshot {
         out.flush()
     }
 
-    pub fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn write_json(&self, out: &mut dyn Write) -> io::Result<()> {
         write_json(self, out)
+    }
+
+    fn errors(&self) -> &[SourceError] {
+        &self.errors
     }
 }
 

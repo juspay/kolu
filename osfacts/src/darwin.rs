@@ -6,9 +6,9 @@
 
 use crate::cli::{HostArgs, Scope, SnapshotArgs, SocketHoldersArgs};
 use osfacts::{
-    attribute_host_listeners, blind_or_empty, decode_host_listeners, hex_bytes, sanitize_name,
-    slot_from_vflag, sockaddr_un_path, source_error, AddressSlot, Attribution, Cpu, Disk, Facet,
-    HostListener, HostMemory, HostSnapshot, Load, Memory, Network, Proc, ProcessArgv,
+    attribute_host_listeners, blind_or_empty, darwin_sockaddr_un_path, decode_host_listeners,
+    hex_bytes, sanitize_name, slot_from_vflag, source_error, AddressSlot, Attribution, Cpu, Disk,
+    Facet, HostListener, HostMemory, HostSnapshot, Load, Memory, Network, Proc, ProcessArgv,
     ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot, SocketHolders, StartTime,
     Swap, TCP_STATE_LISTEN,
 };
@@ -466,16 +466,18 @@ pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
     out.holders
         .extend(claimed.iter().map(|&pid| Attribution::Claimed { pid }));
     if args.procs {
+        // Indexed, not looked up: `claimed` was pushed from `process_table`'s
+        // own keys, so every name is already in hand. A `get(&pid)` here would
+        // carry a `None` arm that cannot fire — and the comment excusing it
+        // would describe a race against the OS that is not being run, since
+        // the map was built by this same function moments earlier.
         for pid in claimed {
-            match process_table.get(&pid) {
-                Some(row) => out.procs.push(Proc {
-                    pid,
-                    ppid: row.ppid,
-                    name: process_name(pid, &row.name),
-                }),
-                // The census listed this pid moments ago; it has since exited.
-                None => out.push_unreadable(pid, Facet::Proc, libc::ESRCH),
-            }
+            let row = &process_table[&pid];
+            out.procs.push(Proc {
+                pid,
+                ppid: row.ppid,
+                name: process_name(pid, &row.name),
+            });
         }
     }
     out
@@ -944,7 +946,7 @@ fn holds_unix_socket(pid: u32, path: &[u8]) -> Result<bool, i32> {
         }
         // SAFETY: `soi_kind` discriminates the union, and it says unix domain.
         let un = unsafe { psi.soi_proto.pri_un };
-        if sockaddr_un_path(&un.unsi_addr) == Some(path) {
+        if darwin_sockaddr_un_path(&un.unsi_addr) == Some(path) {
             return Ok(true);
         }
     }

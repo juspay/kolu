@@ -181,9 +181,11 @@ and dials `node:net`), so a new sibling leaf is a clean fit:
 
 - **`socketHolder.ts`** — a new leaf next to `waitForPidGone.ts`: `socketHolders(socketPath)
   → SocketHolder[]` (each `{ pid, command }`), platform-dispatched (`/proc` on linux, `lsof`
-  on darwin), fail-fast on an unsupported platform.<Footnote>Since OSF4 this leaf holds the
-  *fold*, not the reader: the platform dispatch is one `osfacts socket-holders` call, and the
-  return type is the three-way `SocketHolderReading` rather than a possibly-empty list.</Footnote>
+  on darwin), fail-fast on an unsupported platform.<Footnote>Since OSF4 this leaf holds
+  neither the reader nor the fold: the platform dispatch is one `osfacts socket-holders`
+  call, the fold from that document to the three-way `SocketHolderReading` lives in
+  `osfacts-client` beside the parser, and what remains here is the shape of the ask —
+  `ReadSocketHolders`, injected on `EndpointSpec`.</Footnote>
   It returns *every* pid the OS reports
   holding the path — a **list**, not a single pid: linux's `/proc/net/unix` names the bound
   listener exactly, but darwin's `lsof` can report the listener *plus* connected clients, so
@@ -215,8 +217,9 @@ are therefore:
 
 - `pid?: number` on `DaemonContractSkewError` — the skewed daemon's self-reported pid, so
   the gate-less-squatter recovery has its third identity attestation (**additive, optional**);
-- `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `socketHolders` /
-  `SocketHolder` — genuinely new exports.
+- `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `ReadSocketHolders` /
+  `SocketHolder` / `SocketHolderReading` — genuinely new exports (the last two re-exported
+  from `osfacts-client`, which owns the fold that builds them).
 
 A `pid` on the *connection* (`DaemonConnection`) was **not** added: a compatible holder is
 adopted, never killed, so nothing would ever read it — a dead field is worse than none.<Footnote>Caught

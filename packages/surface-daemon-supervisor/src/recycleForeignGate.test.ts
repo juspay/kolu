@@ -42,13 +42,15 @@ import {
   recycle,
 } from "./index.ts";
 import {
-  createEndpointForTest as createEndpoint,
   testAcquireReadIdentity,
   testReadProcessIdentity,
   testSelfIdentity,
-  testReadSocketHolders,
   testStartUnixUs,
 } from "./createEndpoint.testlib.ts";
+import {
+  createEndpointForKoluTest as createEndpoint,
+  readSocketHoldersForKoluTests,
+} from "./createEndpoint.kolu.testlib.ts";
 
 const silentLog = {
   debug() {},
@@ -422,7 +424,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     let spawned = false;
     const endpoint = createEndpointCore({
       hostId: "local",
-      readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -504,7 +506,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
-      readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -577,7 +579,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
-      readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -641,7 +643,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
-      readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -703,7 +705,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
-      readSocketHolders: testReadSocketHolders("KOLU_OSFACTS_BIN"),
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,

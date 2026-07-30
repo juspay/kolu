@@ -22,7 +22,7 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { createEndpointForTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.testlib";
+import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import {
   closeSync,
   constants as fsConstants,

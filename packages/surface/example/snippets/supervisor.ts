@@ -110,7 +110,7 @@ export async function bootSupervisor(
     hostId: "local",
     home, // SAME call as the daemon — disagreement impossible
     readProcessIdentity,
-    readSocketHolders, // osfactsSocketHolders(bakedOsFactsBin(<your var>))
+    readSocketHolders, // osfacts-client's osfactsSocketHolders(<the same resolved bin>)
     policy,
     probe: probeDaemonIdentity({ capability: "not-drainable" }),
     driver: survivableSpawnDriver({
