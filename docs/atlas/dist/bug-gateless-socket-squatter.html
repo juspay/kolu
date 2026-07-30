@@ -269,7 +269,7 @@ and dials <code>node:net</code>), so a new sibling leaf is a clean fit:</p>
 <li><strong><code>socketHolder.ts</code></strong> — a new leaf next to <code>waitForPidGone.ts</code>: <code>socketHolders(socketPath) → SocketHolder[]</code> (each <code>{ pid, command }</code>), platform-dispatched (<code>/proc</code> on linux, <code>lsof</code>
 on darwin), fail-fast on an unsupported platform.<span class="fn" data-fn data-astro-cid-2yjzt2l5><button type="button" class="fn-ref" aria-expanded="false" aria-label="Footnote" data-astro-cid-2yjzt2l5><span class="fn-num" aria-hidden="true" data-astro-cid-2yjzt2l5></span></button><span class="fn-pop" role="tooltip" data-astro-cid-2yjzt2l5><span class="fn-pop-inner" data-astro-cid-2yjzt2l5>Since OSF4 this leaf holds
 neither the reader nor the fold: the platform dispatch is one <code>osfacts socket-holders</code>
-call, the fold from that document to the three-way <code>SocketHolderReading</code> lives in
+call, the fold from that document to the three-way <code>SocketOccupancy</code> lives in
 <code>osfacts-client</code> beside the parser, and what remains here is the shape of the ask —
 <code>ReadSocketHolders</code>, injected on <code>EndpointSpec</code>.</span></span></span>
 It returns <em>every</em> pid the OS reports
@@ -303,7 +303,7 @@ are therefore:</p>
 <li><code>pid?: number</code> on <code>DaemonContractSkewError</code> — the skewed daemon’s self-reported pid, so
 the gate-less-squatter recovery has its third identity attestation (<strong>additive, optional</strong>);</li>
 <li><code>SocketSquatterForeignError</code> / <code>isSocketSquatterForeignError</code> and <code>ReadSocketHolders</code> /
-<code>SocketHolder</code> / <code>SocketHolderReading</code> — genuinely new exports (the last two re-exported
+<code>SocketHolder</code> / <code>SocketOccupancy</code> — genuinely new exports (the last two re-exported
 from <code>osfacts-client</code>, which owns the fold that builds them).</li>
 </ul>
 <p>A <code>pid</code> on the <em>connection</em> (<code>DaemonConnection</code>) was <strong>not</strong> added: a compatible holder is

@@ -183,7 +183,7 @@ and dials `node:net`), so a new sibling leaf is a clean fit:
   → SocketHolder[]` (each `{ pid, command }`), platform-dispatched (`/proc` on linux, `lsof`
   on darwin), fail-fast on an unsupported platform.<Footnote>Since OSF4 this leaf holds
   neither the reader nor the fold: the platform dispatch is one `osfacts socket-holders`
-  call, the fold from that document to the three-way `SocketHolderReading` lives in
+  call, the fold from that document to the three-way `SocketOccupancy` lives in
   `osfacts-client` beside the parser, and what remains here is the shape of the ask —
   `ReadSocketHolders`, injected on `EndpointSpec`.</Footnote>
   It returns *every* pid the OS reports
@@ -218,7 +218,7 @@ are therefore:
 - `pid?: number` on `DaemonContractSkewError` — the skewed daemon's self-reported pid, so
   the gate-less-squatter recovery has its third identity attestation (**additive, optional**);
 - `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `ReadSocketHolders` /
-  `SocketHolder` / `SocketHolderReading` — genuinely new exports (the last two re-exported
+  `SocketHolder` / `SocketOccupancy` — genuinely new exports (the last two re-exported
   from `osfacts-client`, which owns the fold that builds them).
 
 A `pid` on the *connection* (`DaemonConnection`) was **not** added: a compatible holder is

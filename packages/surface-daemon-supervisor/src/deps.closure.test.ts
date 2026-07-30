@@ -32,7 +32,7 @@ const ENTRY = resolve(SRC, "index.ts");
 // reassemble the same stdio dial/handshake would duplicate the skew boundary
 // this package exists to own. Emphatically NO kolu-* app package.
 // OSF4 admits the `osfacts-client` edge: `ReadSocketHolders` is stated in the
-// tool client's vocabulary (`SocketHolder` / `SocketHolderReading`, re-exported
+// tool client's vocabulary (`SocketHolder` / `SocketOccupancy`, re-exported
 // from `socketHolder.ts`), because the fold that produces that answer lives
 // beside the parser there — one home for kolu and drishti both, rather than the
 // same three-way hand-written twice. Type-only today, and the guard counts type

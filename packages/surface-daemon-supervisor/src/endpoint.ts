@@ -63,7 +63,7 @@ import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
 import type {
   ReadSocketHolders,
   SocketHolder,
-  SocketHolderReading,
+  SocketOccupancy,
 } from "./socketHolder.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
@@ -536,8 +536,8 @@ function waitForSocket(
  *  It takes the READING, not the reader, so the caller that must keep the three
  *  answers apart (`recoverGatelessSquatter`, and the squatter error's `detail`)
  *  still holds them: this only drops the pids, never the arm. */
-function externalHolders(reading: SocketHolderReading): SocketHolder[] {
-  return reading.kind === "holders"
+function externalHolders(reading: SocketOccupancy): SocketHolder[] {
+  return reading.kind === "held"
     ? reading.holders.filter((h) => h.pid !== process.pid)
     : [];
 }
@@ -966,7 +966,7 @@ export function createEndpoint<
       // flatten them. Only a NAMED holder set is actionable; `none` (nothing
       // holds it) and `unattributed` (something might, unnameably) both mean we
       // cannot pick a kill target, and both resolve through `freeOrFailLoud`.
-      const reading: SocketHolderReading = await spec.readSocketHolders(
+      const reading: SocketOccupancy = await spec.readSocketHolders(
         rv.socketPath,
       );
       if (reading.kind === "unattributed") {

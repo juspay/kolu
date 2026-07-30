@@ -15,7 +15,7 @@
  * readlink walk, and its own `lsof` shell-out on darwin — the last of kolu's
  * five hand-rolled OS readers. All of it is now one `osfacts socket-holders`
  * call, and the fold from that document to the answer below lives beside the
- * parser in `osfacts-client` (`foldSocketHoldersReading` /
+ * parser in `osfacts-client` (`foldSocketOccupancy` /
  * `osfactsSocketHolders`), next to its structural twin `foldStartTimeReading`.
  * What is left in this package is the SHAPE OF THE ASK: a function type on
  * `EndpointSpec`, and the two answer types re-exported so a consumer wiring
@@ -25,7 +25,7 @@
  * collapsed *nobody holds it*, *someone holds it whom I may not name*, and *I
  * could not look* into the same empty array — so a caller could not tell a free
  * socket from a blind read. They are now separate arms of
- * {@link SocketHolderReading}, and the recovery folds them exhaustively. Only
+ * {@link SocketOccupancy}, and the recovery folds them exhaustively. Only
  * `none` is proof of freedom, and even that proof is deliberately not acted on
  * alone: the caller re-probes the socket before spawning onto it.
  *
@@ -50,13 +50,13 @@
 
 export type {
   SocketHolder,
-  SocketHolderReading,
+  SocketOccupancy,
 } from "osfacts-client";
 
-import type { SocketHolderReading } from "osfacts-client";
+import type { SocketOccupancy } from "osfacts-client";
 
 /** Ask the OS which processes hold `socketPath`. Injected on `EndpointSpec` so
  *  the spine never learns which env var a given consumer bakes the binary into. */
 export type ReadSocketHolders = (
   socketPath: string,
-) => Promise<SocketHolderReading>;
+) => Promise<SocketOccupancy>;

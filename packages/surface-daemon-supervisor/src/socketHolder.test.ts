@@ -60,7 +60,7 @@ function spawnHolder(socketPath: string): Promise<number> {
 /** Every pid the reading names, or `[]` on an arm that names nobody. */
 async function heldPids(socketPath: string): Promise<number[]> {
   const reading = await readHolders(socketPath);
-  return reading.kind === "holders" ? reading.holders.map((h) => h.pid) : [];
+  return reading.kind === "held" ? reading.holders.map((h) => h.pid) : [];
 }
 
 describeDaemon("the injected reader, against the real binary", () => {
@@ -71,8 +71,8 @@ describeDaemon("the injected reader, against the real binary", () => {
 
     const reading = await readHolders(socketPath);
 
-    expect(reading.kind).toBe("holders");
-    if (reading.kind !== "holders") return;
+    expect(reading.kind).toBe("held");
+    if (reading.kind !== "held") return;
     const holder = reading.holders.find((h) => h.pid === pid);
     expect(holder).toBeDefined();
     // osfacts' short display name — the executable's basename, the same fact

@@ -1150,12 +1150,12 @@ export interface SocketHolder {
  * — and a supervisor that reads the first meaning while the third is true
  * spawns a second daemon onto a live rendezvous socket.
  */
-export type SocketHolderReading =
+export type SocketOccupancy =
   /** At least one process the OS named. Non-empty BY TYPE, not by comment: a
    *  consumer that re-checks `holders.length === 0` is checking something
    *  unreachable, and a dead safety branch reads exactly like a live one. */
   | {
-      readonly kind: "holders";
+      readonly kind: "held";
       readonly holders: readonly [SocketHolder, ...SocketHolder[]];
     }
   /** Proven: nothing holds this path. Only linux can prove this — its
@@ -1177,9 +1177,9 @@ export type SocketHolderReading =
  * is where the three answers are kept apart, so it is where a regression would
  * collapse them.
  */
-export function foldSocketHoldersReading(
+export function foldSocketOccupancy(
   reading: SocketHoldersReading,
-): SocketHolderReading {
+): SocketOccupancy {
   const named = reading.holders.flatMap((holder) =>
     holder.status === "claimed"
       ? [
@@ -1193,7 +1193,7 @@ export function foldSocketHoldersReading(
   // Destructured rather than length-checked, so the non-empty tuple is BUILT
   // rather than asserted — no cast, and no way to return an empty `holders`.
   const [first, ...rest] = named;
-  if (first !== undefined) return { kind: "holders", holders: [first, ...rest] };
+  if (first !== undefined) return { kind: "held", holders: [first, ...rest] };
   // A bound socket the tool could not attribute to any readable pid. Linux
   // emits this when the path IS in its table but no pid it may inspect holds
   // the inode — a foreign-uid holder, and emphatically not a free socket.
@@ -1215,7 +1215,7 @@ export function foldSocketHoldersReading(
 }
 
 /**
- * `socketHolders` + {@link foldSocketHoldersReading}, bound to an
+ * `socketHolders` + {@link foldSocketOccupancy}, bound to an
  * already-resolved binary path — the shape a supervisor injects.
  *
  * `bin` is resolved ONCE at the composition root rather than per call, so a
@@ -1226,11 +1226,9 @@ export function foldSocketHoldersReading(
  */
 export function osfactsSocketHolders(
   bin: string,
-): (socketPath: string) => Promise<SocketHolderReading> {
+): (socketPath: string) => Promise<SocketOccupancy> {
   return async (socketPath) =>
-    foldSocketHoldersReading(
-      await socketHolders(bin, socketPath, { procs: true }),
-    );
+    foldSocketOccupancy(await socketHolders(bin, socketPath, { procs: true }));
 }
 
 export async function host(

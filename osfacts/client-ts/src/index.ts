@@ -10,7 +10,7 @@
  * The exception, and it is a deliberate one: where a verb's reading has ONE
  * honest domain answer that every consumer would otherwise hand-write the same
  * way, the fold ships here beside the parser — `processIdentity*` over the
- * start-time reading, `osfactsSocketHolders` / `foldSocketHoldersReading` over
+ * start-time reading, `osfactsSocketHolders` / `foldSocketOccupancy` over
  * the holder reading. Both keep an "absent" arm that must never collapse into
  * the others, which is exactly the mistake a per-consumer copy makes.
  *
@@ -50,7 +50,7 @@ export {
   type SocketHolderRow,
   type SocketHoldersReading,
   type SocketHolder,
-  type SocketHolderReading,
+  type SocketOccupancy,
   HOST_SOURCE_FACETS,
   type HostSourceFacet,
   type HostSourceErrorRow,
@@ -79,7 +79,7 @@ export {
   processIdentityFromEnv,
   processIdentityFromEnvAsync,
   socketHolders,
-  foldSocketHoldersReading,
+  foldSocketOccupancy,
   osfactsSocketHolders,
   host,
 } from "./client.ts";

@@ -16,7 +16,7 @@ import {
   snapshotHost,
   snapshotPidsSync,
   socketHolders,
-  foldSocketHoldersReading,
+  foldSocketOccupancy,
   failureDocument,
   type SocketHoldersReading,
 } from "./client.ts";
@@ -476,10 +476,10 @@ function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
   return { holders: [], procs: [], unreadable: [], errors: [], ...over };
 }
 
-describe("foldSocketHoldersReading — three answers, never one", () => {
+describe("foldSocketOccupancy — three answers, never one", () => {
   it("names every claimed holder, with its command", () => {
     expect(
-      foldSocketHoldersReading(
+      foldSocketOccupancy(
         reading({
           holders: [
             { status: "claimed", pid: 4242 },
@@ -489,7 +489,7 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
         }),
       ),
     ).toEqual({
-      kind: "holders",
+      kind: "held",
       holders: [
         { pid: 4242, command: "kaval" },
         // Named by the OS, but its identity read lost the race — still a
@@ -502,12 +502,12 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
   });
 
   it("reports a proven-empty document as `none`, the ONLY proof of freedom", () => {
-    expect(foldSocketHoldersReading(reading({}))).toEqual({ kind: "none" });
+    expect(foldSocketOccupancy(reading({}))).toEqual({ kind: "none" });
   });
 
   /** The linux shape: the socket IS bound, and no pid we may inspect holds it. */
   it("keeps a bound-but-unnameable holder out of `none`", () => {
-    const folded = foldSocketHoldersReading(
+    const folded = foldSocketOccupancy(
       reading({ holders: [{ status: "unclaimed" }] }),
     );
 
@@ -517,7 +517,7 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
 
   /** The darwin shape: the search itself could not complete. */
   it("keeps a blind search out of `none`", () => {
-    const folded = foldSocketHoldersReading(
+    const folded = foldSocketOccupancy(
       reading({
         errors: [
           {
@@ -541,26 +541,26 @@ describe("foldSocketHoldersReading — three answers, never one", () => {
    *  longer promises, because no reader can write one). */
   it("still names holders when the identity read lost one pid", () => {
     expect(
-      foldSocketHoldersReading(
+      foldSocketOccupancy(
         reading({
           holders: [{ status: "claimed", pid: 7 }],
           unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
         }),
       ),
-    ).toEqual({ kind: "holders", holders: [{ pid: 7, command: undefined }] });
+    ).toEqual({ kind: "held", holders: [{ pid: 7, command: undefined }] });
   });
 
   /** An unclaimed row beside a claimed one does not weaken the claim: the
    *  recovery has a pid to handshake, which is what it needs. */
   it("prefers a named holder over an unattributed sibling row", () => {
     expect(
-      foldSocketHoldersReading(
+      foldSocketOccupancy(
         reading({
           holders: [{ status: "unclaimed" }, { status: "claimed", pid: 9 }],
           procs: [{ pid: 9, ppid: 1, name: "kaval" }],
         }),
       ),
-    ).toEqual({ kind: "holders", holders: [{ pid: 9, command: "kaval" }] });
+    ).toEqual({ kind: "held", holders: [{ pid: 9, command: "kaval" }] });
   });
 });
 
@@ -581,7 +581,12 @@ describe("failureDocument", () => {
     // `signal: null` and a whole document on stdout. A `killed` rule discards
     // it — losing exactly the E rows this function exists to preserve.
     expect(
-      failureDocument({ code: 1, killed: true, signal: null, stdout: document }),
+      failureDocument({
+        code: 1,
+        killed: true,
+        signal: null,
+        stdout: document,
+      }),
     ).toBe(document);
   });
 
