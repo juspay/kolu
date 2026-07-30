@@ -339,7 +339,7 @@ function installSharedWorkingTreeWatcher(
    *  further coalesce to one trailing replacement. */
   function requestSubscribe(): void {
     if (cancelled) return;
-    if (installTask) {
+    if (installTask !== null) {
       resubscribeRequested = true;
       return;
     }
