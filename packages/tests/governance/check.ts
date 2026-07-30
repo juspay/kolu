@@ -129,7 +129,7 @@ const inventoryHistory = git(
   "log",
   "--format=%H",
   "--diff-filter=AM",
-  "HEAD^",
+  "HEAD",
   "--",
   "packages/tests/scenario-inventory.json",
 )
