@@ -220,14 +220,17 @@ const Terminal: Component<{
         rows,
       });
     } catch (err) {
-      // This claim is now ACKNOWLEDGED end-to-end — padi awaits kaval's accept
-      // rather than logging the rejection server-side and resolving — so a
-      // rejection here means the PTY genuinely kept its old size while this pane
-      // renders against the new one. That is a wrong-grid screen with no other
-      // symptom, so it must not collapse to a no-op (`.agency/code-police.md` →
-      // caught-error-must-not-collapse-to-empty). A killed terminal is the one
-      // EXPECTED loss (the tile tears down via terminalExit) and is quiet; one
-      // STABLE toast id keeps a flurry of failed resizes to a single message.
+      // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
+      // reply rather than logging server-side and resolving — so a REJECTION
+      // here means the grid claim did not land: the PTY kept its old size while
+      // this pane renders against the new one. That is a wrong-grid screen with
+      // no other symptom, so it must not collapse to a no-op
+      // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
+      // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
+      // and padi returns quietly by design, so nothing reaches here — and the
+      // tile tears down via terminalExit anyway. The extra guard below covers the
+      // same race one hop earlier (the arm is already gone locally). One STABLE
+      // toast id keeps a flurry of failed resizes to a single message.
       if (activeArm(terminalStore.getMetadata(props.terminalId)) === undefined)
         return;
       toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {

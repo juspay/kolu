@@ -409,8 +409,12 @@ export interface PtyHost {
   exitPromise(id: PtyId, signal?: AbortSignal): Promise<number>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
-  /** Resize the PTY grid + the headless mirror. No-op if gone. */
-  resize(id: PtyId, cols: number, rows: number): void;
+  /** Resize the PTY grid + the headless mirror. Returns TRUE when the entry
+   *  existed and the grid now holds — whether that took a real resize or was an
+   *  exact same-dimensions no-op — and FALSE when there is no such PTY (already
+   *  exited or never spawned), which is the one way a caller's grid claim can
+   *  fail to land here. */
+  resize(id: PtyId, cols: number, rows: number): boolean;
   /** Kill the PTY. Teardown (channels, mirror, onDispose) runs from the
    *  child's exit, so `exitPromise` still resolves. No-op if gone. */
   kill(id: PtyId, signal?: NodeJS.Signals): void;
@@ -1245,16 +1249,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entries.get(id)?.proc.write(data);
   }
 
-  function resize(id: PtyId, cols: number, rows: number): void {
+  function resize(id: PtyId, cols: number, rows: number): boolean {
     const entry = entries.get(id);
-    if (!entry) return;
+    // The ONE false: no such PTY. Reported rather than swallowed so the caller
+    // can tell "the grid landed" from "there was nothing to land it on".
+    if (!entry) return false;
     const prevCols = entry.headless.cols;
     const prevRows = entry.headless.rows;
     // An EXACT same-dims resize renumbers and reflows nothing — a second viewer
     // attaching at the same size, or the mount-time re-publish of the current
     // dims, would otherwise spuriously stale every attached client's cursor
-    // (there is no dedupe upstream). Skip it wholesale.
-    if (cols === prevCols && rows === prevRows) return;
+    // (there is no dedupe upstream). Skip it wholesale — but report TRUE: the
+    // entry exists and is already at the requested grid, which is exactly the
+    // caller's claim satisfied.
+    if (cols === prevCols && rows === prevRows) return true;
     // Open the resize-mute window BEFORE the resize: the SIGWINCH repaint this
     // triggers is a genuine byte burst that must NOT count as meaningful output
     // (the reveal/resize "un-finish" regression, killed at the source).
@@ -1274,6 +1282,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // (its own onResize pauses on a cols change only). Bumped AFTER the rewrap so
     // a getHistory racing this resize reads the new value.
     if (cols !== prevCols) entry.anchor.bumpReflow();
+    return true;
   }
 
   function handle(id: PtyId): PtyHandle {

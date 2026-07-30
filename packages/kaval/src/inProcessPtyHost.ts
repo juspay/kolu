@@ -390,10 +390,13 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           host.write(input.id, input.data);
           return { ok: true };
         },
-        resize: async ({ input }) => {
-          host.resize(input.id, input.cols, input.rows);
-          return { ok: true };
-        },
+        // `ok` is the host's own answer, not a constant: FALSE means there was
+        // no such PTY to resize (it exited before this call arrived), so the
+        // caller's grid claim did not land on anything. Callers treat that as
+        // the expected killed-terminal race; a REJECTION is the real failure.
+        resize: async ({ input }) => ({
+          ok: host.resize(input.id, input.cols, input.rows),
+        }),
         // Each host entry mapped into the wire shape via `toWireEntry` — the
         // shared bridge (see its doc) that makes a host/schema drift a compile
         // error rather than a silent zod field-strip. The `inventory` stream's

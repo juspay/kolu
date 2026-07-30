@@ -645,7 +645,7 @@ export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 /** A terminal grid — cols AND rows, together or not at all. The ONE grid rule
  *  on this surface: every member carrying a grid reuses it, so tightening the
  *  rule is one edit instead of a re-derivation per member. */
-export const TerminalGridSchema = z.object({
+export const EndpointGridSchema = z.object({
   cols: z.number().int().positive(),
   rows: z.number().int().positive(),
 });
@@ -686,7 +686,7 @@ export const PadiTerminalAttachInputSchema = z.object({
   // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
   // here is strict, so an older peer strips an unknown `resizeTo` exactly as it
   // would strip unknown `cols`/`rows`.
-  resizeTo: TerminalGridSchema.optional(),
+  resizeTo: EndpointGridSchema.optional(),
 });
 
 // The SAME grid rule the attach carries. `resize` and `attach` describe one
@@ -696,7 +696,7 @@ export const PadiTerminalAttachInputSchema = z.object({
 // one that didn't enforce it. Tightening rejects only values kaval already
 // refused, so no working call changes behaviour; the loud failure just moves to
 // the boundary that owns the concept.
-export const PadiResizeInputSchema = TerminalGridSchema.extend({
+export const PadiResizeInputSchema = EndpointGridSchema.extend({
   id: TerminalIdSchema,
 });
 

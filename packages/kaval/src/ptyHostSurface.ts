@@ -534,6 +534,10 @@ export const ptyHostSurface = defineSurface({
         input: TerminalWriteInputSchema,
         output: z.object({ ok: z.boolean() }),
       },
+      // `ok` is a real answer, not a constant: FALSE means the host had no such
+      // PTY (it exited before the call arrived), so the caller's grid claim
+      // landed on nothing. TRUE covers both a real resize and an exact
+      // same-dimensions no-op — either way the PTY now holds that grid.
       resize: {
         input: TerminalResizeInputSchema,
         output: z.object({ ok: z.boolean() }),

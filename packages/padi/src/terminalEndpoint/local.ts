@@ -40,7 +40,7 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  TerminalGrid,
+  EndpointGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
@@ -205,10 +205,28 @@ class PtyHostTerminalProxy implements TerminalHandle {
    *  a claim that silently failed to land leaves that consumer rendering against
    *  a size the PTY does not have — the exact wrong-grid screen this subsystem
    *  exists to prevent, with no way for the caller to know. So the rejection
-   *  propagates to the caller instead of collapsing into a server-side log. */
+   *  propagates to the caller instead of collapsing into a server-side log.
+   *
+   *  `ok: false` is the ONE quiet outcome: kaval had no such PTY, i.e. the
+   *  process exited on its side before padi observed the exit and tore this
+   *  proxy down. That is the same expected killed-terminal race the surrounding
+   *  design deliberately quiet-drops (see `servePadi`'s `getActiveTerminal`
+   *  drop), not a failure — there is no consumer left to render at the wrong
+   *  size. Returning here keeps it out of the caller's error path; anything that
+   *  REJECTS (transport, handler throw) still propagates, which is the failure
+   *  the client's toast exists for. */
   async resize(cols: number, rows: number): Promise<void> {
     await this.ready;
-    await this.client.surface.terminal.resize({ id: this.id, cols, rows });
+    const { ok } = await this.client.surface.terminal.resize({
+      id: this.id,
+      cols,
+      rows,
+    });
+    if (!ok)
+      log.debug(
+        { terminal: this.id, cols, rows },
+        "resize dropped: pty already exited on kaval's side",
+      );
   }
 
   async getScreenState(): Promise<string> {
@@ -1353,7 +1371,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
-    resizeTo?: TerminalGrid,
+    resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment> {
     // Wait for the PTY to actually exist before opening the attach stream —
     // otherwise a tile attaching off the sync shadow races the in-flight
@@ -1380,7 +1398,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // correct precisely because the initial attach already sized the terminal
     // and `lifecycle.resize` has owned every change since, so the PTY is already
     // at the consumer's current size and the fresh snapshot serializes there.
-    const open = async (openAt?: TerminalGrid): Promise<OpenedAttach> => {
+    const open = async (openAt?: EndpointGrid): Promise<OpenedAttach> => {
       const stream = await ptyHostClient.surface.terminalAttach.get(
         { id, resizeTo: openAt },
         { signal },

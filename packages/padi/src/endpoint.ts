@@ -59,8 +59,12 @@ import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
  *  `reattachingDeltas` so both sides read the one source of truth. */
 export const TERMINAL_RESET = "\x1bc";
 
-/** A terminal grid — cols × rows. */
-export interface TerminalGrid {
+/** A terminal grid — cols × rows. padi's OWN boundary type, deliberately not
+ *  imported from the xterm kit or kaval (this module imports zero kaval/kit
+ *  symbols by design — same rule that makes `PtySpawnOpts` a hand-declaration
+ *  here); it carries a distinct name so padi's grid and the kit's
+ *  identically-shaped grid type never read as one type in a grep. */
+export interface EndpointGrid {
   cols: number;
   rows: number;
 }
@@ -241,7 +245,7 @@ export interface TerminalEndpoint {
   attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
-    resizeTo?: TerminalGrid,
+    resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment>;
 
   readonly fs: TerminalEndpointFs;

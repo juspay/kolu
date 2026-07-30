@@ -1,9 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import {
-  waitForBufferContains,
-  waitForViewportContains,
-} from "../support/buffer.ts";
+import { waitForBufferContains } from "../support/buffer.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   COARSE_POINTER_QUERY,
@@ -167,13 +164,25 @@ When(
     // receive and paint an 80-column snapshot correctly and this scenario would
     // pass while the bug was fully present — a vacuous guard. Assert it rather
     // than assume it.
-    const cols = await this.page.$eval(
+    //
+    // POLLED, not read once: the grid is measured by a ResizeObserver + a
+    // rAF-debounced `applyFit`, and the preceding step only waits for the split's
+    // DOM presence — so a bare read on a loaded CI box can land on 0 or a pre-fit
+    // value and fail spuriously. Wait until the split reports a measured,
+    // non-zero `cols`, then assert what that measurement is.
+    const measured = await this.page.waitForFunction(
+      (sel) => {
+        const node = document.querySelector(sel);
+        const cols = (node as unknown as { __xterm?: { cols: number } })
+          ?.__xterm?.cols;
+        return typeof cols === "number" && cols > 0 ? cols : null;
+      },
       VISIBLE_SUB,
-      (n) =>
-        (n as unknown as { __xterm?: { cols: number } }).__xterm?.cols ?? 0,
+      { timeout: POLL_TIMEOUT },
     );
+    const cols = await measured.jsonValue();
     assert.ok(
-      cols > 0 && cols !== 80,
+      cols !== 80,
       `split is ${cols} columns; this scenario only exercises the defect when the real grid differs from xterm's fabricated 80`,
     );
     await this.focusForTyping(VISIBLE_SUB);
@@ -182,9 +191,11 @@ When(
     // Prove the payload actually RAN before the scenario hides the panel. Without
     // this the arrangement is unconditional, and a shell still initializing would
     // surface three steps later as a confusing viewport failure that reads like
-    // the render defect itself.
-    await waitForViewportContains(this.page, BOTTOM_MARKER, {
+    // the render defect itself. VIEWPORT, not buffer: the claim is that the user
+    // can SEE the bottom of the output, not merely that the bytes arrived.
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
       selector: VISIBLE_SUB,
+      viewport: true,
     });
   },
 );
@@ -198,8 +209,9 @@ Then(
     // VIEWPORT, not buffer: the defect delivers every byte correctly and then
     // shows the wrong window onto them, so a whole-buffer read passes on a
     // screen the user sees as broken. Only the on-screen rows can fail here.
-    await waitForViewportContains(this.page, BOTTOM_MARKER, {
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
       selector: VISIBLE_SUB,
+      viewport: true,
     });
   },
 );
