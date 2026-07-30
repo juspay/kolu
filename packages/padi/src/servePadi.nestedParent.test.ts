@@ -162,4 +162,14 @@ describe("chrome.setParent — nested parentId refused (#2059)", () => {
     setParent({ input: { id: CHILD, parentId: null } });
     expect(getTerminal(CHILD)?.meta.parentId).toBeUndefined();
   });
+
+  it("rejects self-parent (typed BAD_REQUEST, terminal stays top-level)", () => {
+    const setParent = setParentHandler();
+    const err = caught(() =>
+      setParent({ input: { id: SIBLING, parentId: SIBLING } }),
+    );
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
+    expect(getTerminal(SIBLING)?.meta.parentId).toBeUndefined();
+  });
 });

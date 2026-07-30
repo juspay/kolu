@@ -16,6 +16,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { ORPCError } from "@orpc/server";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import {
@@ -201,7 +202,17 @@ export function setTerminalParent(
 ): void {
   // Same one-level fence as createTerminal (#2059) — the other generative
   // write of a non-null parent edge. Clearing (null) is always legal.
-  if (parentId !== null) rejectNestedParent(parentId);
+  // Self-parent would invent a cycle with no top-level tile (invisible on
+  // canvas) — rejectNestedParent alone can't see it, because the proposed
+  // parent is currently top-level until the write lands.
+  if (parentId !== null) {
+    if (parentId === id) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Cannot parent a terminal against itself (${id}).`,
+      });
+    }
+    rejectNestedParent(parentId);
+  }
   const entry = getTerminal(id);
   if (entry) {
     const newParent = parentId ?? undefined;
