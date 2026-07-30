@@ -32,3 +32,24 @@ export function createAttemptGate(): AttemptGate {
     },
   };
 }
+
+/**
+ * Wrap an effect so it runs only while `attempt` is the live one.
+ *
+ * EVERY effect an attempt can still trigger after supersession has to go through
+ * this, not just the obvious ones. A superseded loop reaches further than its
+ * frames: its transport-retry and re-attach hooks can still reset the screen —
+ * wiping the successor's authoritative snapshot — and its render-recovery pings
+ * still report activity for a stream nobody is reading. Those are attempt-owned
+ * lifecycle paths exactly as much as frame delivery is, so they are wrapped the
+ * same way and the guard is one named thing rather than a condition each call
+ * site re-remembers.
+ */
+export function onlyWhenCurrent<A extends unknown[]>(
+  attempt: Attempt,
+  effect: (...args: A) => void,
+): (...args: A) => void {
+  return (...args: A) => {
+    if (attempt.isCurrent()) effect(...args);
+  };
+}

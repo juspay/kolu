@@ -68,7 +68,7 @@ import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
-import { createAttemptGate } from "./attachAttempts";
+import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import { judgeSnapshotGrid } from "./snapshotGrid";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
@@ -501,7 +501,20 @@ const Terminal: Component<{
       // loop's work still counts; `abort` ends this loop and no other.
       const attempt = attempts.open();
       const abort = new AbortController();
+      // The whole loop — not just its RPC — is scoped to this attempt: aborting
+      // it ends this consumer's `while`, so a superseded attempt cannot keep
+      // re-subscribing on the successor's behalf. Component unmount still ends
+      // every attempt through the same signal.
+      const attemptSignal = AbortSignal.any([signal, abort.signal]);
       let requestedGrid: TerminalGrid | null = null;
+
+      // Every effect this attempt can still fire after supersession, guarded in
+      // one place. The reset hooks matter most: an old loop resetting the screen
+      // would wipe the successor's authoritative snapshot.
+      const resetIfCurrent = onlyWhenCurrent(attempt, resetForFreshSnapshot);
+      const noteDataIfCurrent = onlyWhenCurrent(attempt, () =>
+        h.recovery.noteData(),
+      );
 
       /** Does a snapshot answered by THIS attempt still describe the pane? The
        *  rule lives in `snapshotGrid.ts`, stated once and tested there. */
@@ -556,10 +569,11 @@ const Terminal: Component<{
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
-              // This attempt's own abort, chained to the component's unmount
-              // signal — ending this loop, never a successor's.
-              signal: AbortSignal.any([signal, abort.signal]),
-              onRetry: resetForFreshSnapshot,
+              // This attempt's own signal — ending this loop, never a
+              // successor's. Its reset hook is guarded for the same reason: a
+              // superseded attempt's retry must not wipe the successor's screen.
+              signal: attemptSignal,
+              onRetry: resetIfCurrent,
             },
           );
         },
@@ -653,7 +667,10 @@ const Terminal: Component<{
             // buffered write parses on unlock — so the snapshot re-seed committer
             // that rides this callback survives the lock instead of being dropped.
             h.write(data, () => {
-              h.recovery.noteData();
+              // Guarded: a superseded attempt's stashed callback must not report
+              // activity for a stream nobody is reading (which would arm the
+              // render-stall watchdog against the successor's paint).
+              noteDataIfCurrent();
               // SECOND grid check — this is where the bytes actually landed.
               // Receipt is not that moment: the write above parses
               // asynchronously, and scroll lock stashes the chunk until unlock,
@@ -681,8 +698,8 @@ const Terminal: Component<{
             });
           }
         },
-        resetForFreshSnapshot,
-        signal,
+        resetIfCurrent,
+        attemptSignal,
         "Terminal attach",
       );
     }
