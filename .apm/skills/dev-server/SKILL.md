@@ -41,21 +41,47 @@ production build locally beside a live kolu; it goes on a pu box like everything
 else. "Production-faithful" is not "production-safe"; faithfulness is exactly why
 it collides.
 
-So before launching anything, decide where it runs:
+So before launching anything, decide where it runs.
 
-- **Run on a `pu` box (the default for `/be`-style runs)** whenever production
-  kolu is live on this machine — i.e. any time `systemctl --user is-active kolu`
-  is `active`. Builds, the dev server, and evidence capture all go on a fresh pu
-  box (see the **pu** and **evidence** skills): the box has its own RAM and
-  loopback, so a local OOM can't reach production. **Never** loop `just dev-auto`
-  + nix builds locally next to a live production kolu — and **never run the built
-  `result/bin/kolu` locally** either (it grabs the production state dir + kaval
-  socket; isolating ports is not enough).
-- **Run locally only** when production is **not** running here (`is-active` →
-  `inactive`/`failed`), or the user has explicitly OK'd local execution this
-  session. Then the rest of this skill (random ports, scoped teardown) applies.
+**`systemctl --user is-active kolu` is NOT the gate — do not use it alone.** It
+only sees the *packaged* unit, and it answers `inactive` in two indistinguishable
+cases: the unit is stopped, and **the unit does not exist at all** (exit 4, `Unit
+kolu.service could not be found`). Reading that `inactive` as "nothing is live, so
+local is safe" is the caught-error-collapses-to-a-default defect from the design
+philosophy, wearing a venue-gate hat — and it is not hypothetical. On the
+maintainer's own machine there is **no `kolu.service` unit at all**, while five
+kolus run, one of them a 22-hour `just dev` from another worktree holding the
+user's live PTYs and agent sessions. The OOM-killer does not care which of the two
+shapes started the kolu it reaps; a gate that only sees one of them licenses
+exactly the incident it exists to prevent.
 
-When in doubt, prefer pu — a clean CI-like box never touches the user's machine.
+So probe for **any** live kolu, both shapes, read-only:
+
+```sh
+systemctl --user is-active kolu           # packaged production — may not exist here
+pgrep -af 'packages/kaval/src/bin\.ts'    # EVERY kolu's pty-host daemon: packaged AND `just dev`
+```
+
+Every kolu — nix-store binary or `just dev` out of a worktree — runs
+`packages/kaval/src/bin.ts`, so the second probe is the one that actually holds.
+(Read-only `pgrep` is fine and is used this way in **remote-host-testing**; the
+ban in §5 is on pattern-*killing*, never on pattern-*looking*.)
+
+- **Run on a `pu` box (the default for `/be`-style runs)** whenever that `pgrep`
+  prints anything, or `is-active` says `active`. Builds, the dev server, and
+  evidence capture all go on a fresh pu box (see the **pu** and **evidence**
+  skills): the box has its own RAM and loopback, so a local OOM can't reach any of
+  them. **Never** loop `just dev-auto` + nix builds locally next to a live kolu —
+  and **never run the built `result/bin/kolu` locally** either (it grabs the
+  production state dir + kaval socket; isolating ports is not enough).
+- **Run locally only** when the `pgrep` is **empty** *and* `is-active` is not
+  `active` — i.e. you positively established that no kolu of either shape is
+  running here. Then the rest of this skill (random ports, scoped teardown)
+  applies.
+
+An inconclusive or erroring probe means **pu**, never local — absence of evidence
+is not evidence of absence. When in doubt, prefer pu: a clean CI-like box never
+touches the user's machine.
 
 ## 1. Launch on two random free ports — always `just dev-auto`
 
@@ -153,15 +179,17 @@ the production-kaval kill compounded.
 
 ## Acceptance (verify before declaring the app launched / torn down)
 
-- **Local was the right venue at all** — production kolu was `inactive` (or the
-  user OK'd local). If production is live here, heavy work belonged on a pu box
-  (§0); a single throwaway local launch is one thing, but **never** a loop of
-  `dev-auto` + builds beside it.
+- **Local was the right venue at all** — you ran §0's **both-shapes** probe and
+  the `pgrep` came back **empty** (or the user OK'd local). An `is-active` of
+  `inactive` on its own does **not** clear this bar. If any kolu is live here,
+  heavy work belonged on a pu box (§0); a single throwaway local launch is one
+  thing, but **never** a loop of `dev-auto` + builds beside it.
 - Two **random** ports, both remembered in `.dev-server/ports.json` and reused
   across the session (no re-grepping, no guessing).
-- Production `kolu.service` **provably untouched** — `systemctl --user status
-  kolu` shows the same PID **and uptime** before and after your run (a changed
-  uptime means it restarted — an OOM kill counts as touching it, even if no
-  command of yours named it).
+- **Every** kolu that was live before your run is still live after it — same PIDs,
+  same uptimes (`pgrep -af 'packages/kaval/src/bin\.ts'` before and after, plus
+  `systemctl --user status kolu` if that unit exists). A changed uptime means it
+  restarted; an OOM kill counts as touching it, even if no command of yours named
+  it — and it counts just as much for a `just dev` kolu as for `kolu.service`.
 - Teardown removes **only** the dev instance (the remembered PIDs); production
   keeps running.

@@ -160,9 +160,11 @@ guess.
 
 **Post-run zero-leak assertion** — confirm before declaring done:
 
-- Production kolu's PID **and** uptime are unchanged from before your run
-  (`systemctl --user status kolu` locally, if applicable) — an OOM counts as
-  touching it even if nothing you ran named it.
+- **Every** local kolu's PID **and** uptime are unchanged from before your run —
+  `pgrep -af 'packages/kaval/src/bin\.ts'` before and after (it catches the
+  packaged unit *and* a `just dev` kolu from another worktree), plus
+  `systemctl --user status kolu` where that unit exists. An OOM counts as touching
+  one even if nothing you ran named it.
 - No orphaned padi/kaval process is left running on the remote box:
 
   ```sh
