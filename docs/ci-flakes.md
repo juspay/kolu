@@ -122,7 +122,7 @@ failure fixable in this repository is in scope.
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
 **Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `1/5` at `3b40ccf#1`.** The first two green runs above
+post-review streak: `2/5` at `59f09c0#1`.** The first two green runs above
 predate the osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
@@ -135,6 +135,7 @@ retries.
 | --- | --- | --- | --- |
 | `85b4a61#1` | `85b4a6161` | Failed: `ci::unit`, `ci::daemon`, and `ci::agent-flake-nix` on both platforms | `0/5` |
 | `3b40ccf#1` | `3b40ccf11` | Passed | `1/5` |
+| `59f09c0#1` | `59f09c0ec` | Passed | `2/5` |
 
 ### `85b4a61#1`: stale daemon-recipe structural assertion
 
