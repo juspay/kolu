@@ -93,8 +93,9 @@ root cause has been identified from the run logs and supporting evidence.
 - **Fix verification:** the installed 6.0.3 `tsc` executable is a Node entry
   point loading `lib/tsc.js`, so the crashing Go parser is absent from this
   gate. Local `atlas::check-sync` passed its typecheck, 23 helper tests, fresh
-  build comparison, and scrambled-locale idempotency build. Repeated Darwin
-  verification is pending.
+  build comparison, and scrambled-locale idempotency build. Targeted
+  two-platform run `de8c863#5` then passed `ci::atlas-sync` on `ci@petit` and
+  `kolu-ci-1`.
 
 ## E2E stabilization streak
 
@@ -171,8 +172,8 @@ osfacts-live fix prompted by `3a6c829#1`.
   recurrence disproved it as a fix.
 - **Fix verification:** the rebuilt `kolu-fonts` derivation's `fonts.css`
   passed a direct Biome format check, ends with exactly one newline, and local
-  full-repository formatting passed over 1,732 files. Full two-platform
-  verification is pending.
+  full-repository formatting passed over 1,732 files. Targeted two-platform run
+  `de8c863#5` then passed `ci::fmt` on `ci@petit` and `kolu-ci-1`.
 
 ### `67b890f#1`: Darwin fmt, same generated font CSS defect
 
@@ -190,8 +191,8 @@ osfacts-live fix prompted by `3a6c829#1`.
   Biome-normal layout and verify that generated output directly before
   restarting the full-CI streak.
 - **Implementation:** the generator now emits the exact formatter-normal
-  layout. The generated derivation passed direct local formatting; full
-  two-platform verification is pending.
+  layout. The generated derivation passed direct local formatting, followed by
+  `ci::fmt` on both platforms in targeted run `de8c863#5`.
 
 ### `37cebaa#1`: Darwin unit workspace fanout killed
 
@@ -227,3 +228,4 @@ full two-platform green streak.
 | `907acfd#1` | `907acfd2f` | `osfacts-live@aarch64-darwin` and dependencies | `ci@petit` | Passed |
 | `e00cbe5#1` | `e00cbe551` | `fmt@x86_64-linux` | `kolu-ci-1` | Passed |
 | `5a8461c#1` | `5a8461cb7` | `unit@aarch64-darwin` | `ci@petit` | Passed |
+| `de8c863#5` | `de8c86315` | `fmt` and `atlas-sync` on both platforms | `ci@petit`, `kolu-ci-1` | Passed |
