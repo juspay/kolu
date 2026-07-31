@@ -48,13 +48,13 @@ usage() {
   exit 2
 }
 
+# Splits $1 on commas into the fixed global `split_csv_out`. Callers copy it
+# out; see the nix_args comment below for why this script must run on bash 3.2.
+# A nameref (`local -n`, bash 4.3+) would read better and dies on macos-latest.
 split_csv() {
-  local csv=$1
-  local -n _out=$2
-  _out=()
   local IFS=,
   # shellcheck disable=SC2206
-  _out=($csv)
+  split_csv_out=($1)
 }
 
 while (( $# > 0 )); do
@@ -62,12 +62,14 @@ while (( $# > 0 )); do
     -h|--help) usage ;;
     --kinds)
       [[ $# -ge 2 ]] || die "--kinds needs an argument"
-      split_csv "$2" kinds
+      split_csv "$2"
+      kinds=(${split_csv_out[@]:+"${split_csv_out[@]}"})
       shift 2
       ;;
     --require)
       [[ $# -ge 2 ]] || die "--require needs an argument"
-      split_csv "$2" require
+      split_csv "$2"
+      require=(${split_csv_out[@]:+"${split_csv_out[@]}"})
       require_set=1
       shift 2
       ;;
