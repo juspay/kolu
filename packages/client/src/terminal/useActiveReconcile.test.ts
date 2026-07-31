@@ -263,6 +263,30 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.selectSubTab).toHaveBeenCalledWith(T("R"), T("G"));
     expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
   });
+
+  it("promotes grandchildren when the whole ancestor chain departs in one frame", () => {
+    // R and M leave together; G survives → promote G, no chrome under dead R.
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => {
+        if (p === T("M")) return [T("G")];
+        if (p === T("R")) return [T("M")];
+        return [];
+      },
+      focusedTerminalId: () => T("M"),
+    });
+    evictTerminal(
+      ports,
+      T("M"),
+      T("R"),
+      [T("R")],
+      new Set([T("R"), T("M")]),
+      graph({ R: null, M: "R", G: "M" }),
+    );
+    expect(calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(T("G"));
+    expect(calls.rehomeUnder).not.toHaveBeenCalled();
+    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.selectSubTab).not.toHaveBeenCalled();
+  });
 });
 
 const emptyGraph = graph({ P: null });
@@ -320,9 +344,12 @@ function setupReconcile(init: {
     setParents: (v: Record<string, TerminalId | null>) => void;
     setConnected: (v: boolean) => void;
     setHost: (v: string) => void;
-    evictImperatively: ReturnType<
-      typeof createEvictionDedup
-    >["evictImperatively"];
+    evictImperatively: (
+      id: TerminalId,
+      parentId: TerminalId | null,
+      topLevelBefore: readonly TerminalId[],
+      willDrop: boolean,
+    ) => void;
     calls: ReturnType<typeof makePorts>["calls"];
     dispose: () => void;
   };

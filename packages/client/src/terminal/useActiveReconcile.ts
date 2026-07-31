@@ -126,45 +126,59 @@ export function evictTerminal(
     };
     const edge = graph.parentOf;
     const census = graph.ids;
-    const root = containingTileOf(parentId, edge);
-    // True children of the departing node — re-home under the root tile.
+    // Surviving containing tile: walk the pre-removal chain, skipping anyone
+    // also leaving this frame. If no ancestor survives (batch killed the whole
+    // stack), promote children to top-level — never rehome under a dead root.
+    let dest: TerminalId | null = parentId;
+    const seen = new Set<TerminalId>();
+    while (dest !== null && departing.has(dest)) {
+      if (seen.has(dest)) {
+        dest = null;
+        break;
+      }
+      seen.add(dest);
+      const up = edge(dest);
+      dest = up === undefined || up === null ? null : up;
+    }
+    // True children of the departing node.
     for (const child of census) {
       if (child === id) continue;
       if (edge(child) !== id) continue;
       if (departing.has(child)) continue;
-      ports.rehomeUnder(child, root);
+      if (dest === null) ports.promoteToTopLevel(child);
+      else ports.rehomeUnder(child, dest);
     }
-    // Flat remaining tabs of the tile from the PRE-removal graph, excluding
-    // everyone leaving this frame (not only `id` — a batch can drop cousins too).
+    // Chrome repair only when a live root still owns the panel.
+    if (dest === null) return;
     const wasFocused = ports.focusedTerminalId() === id;
     const remaining = census.filter(
       (x) =>
         !departing.has(x) &&
         x !== id &&
-        x !== root &&
-        containingTileOf(x, edge) === root,
+        x !== dest &&
+        containingTileOf(x, edge) === dest,
     );
     if (remaining.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(root);
-      else ports.subPanel.collapseChrome(root);
+      if (wasFocused) ports.subPanel.collapse(dest);
+      else ports.subPanel.collapseChrome(dest);
       // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
       // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
       // null or a LIVE sub of this tile" global lets consumers trust a plain
       // null-check for "no active split" instead of each re-deriving liveness —
       // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
       // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(root, null);
+      ports.subPanel.setActiveSubTab(dest, null);
     } else {
-      if (ports.subPanel.activeSubTab(root) === id) {
+      if (ports.subPanel.activeSubTab(dest) === id) {
         const replacement = remaining[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(root, replacement);
-        else ports.subPanel.setActiveSubTab(root, replacement);
+        if (wasFocused) ports.subPanel.selectSubTab(dest, replacement);
+        else ports.subPanel.setActiveSubTab(dest, replacement);
       }
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore
       // it while the still-focused pane repairs DOM focus after removal.
-      ports.subPanel.requestRefocus(root);
+      ports.subPanel.requestRefocus(dest);
     }
     return;
   }
