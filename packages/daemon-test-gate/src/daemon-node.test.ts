@@ -26,6 +26,10 @@ const REPO_ROOT = join(
 );
 const CI = readFileSync(join(REPO_ROOT, "ci", "mod.just"), "utf8");
 const ROOT = readFileSync(join(REPO_ROOT, "justfile"), "utf8");
+const DEV_SMOKE = readFileSync(
+  join(REPO_ROOT, "packages", "tests", "devSmoke.ts"),
+  "utf8",
+);
 
 function recipeBody(source: string, recipe: string): string {
   const lines = source.split("\n");
@@ -85,4 +89,11 @@ test("the canonical daemon-test recipe turns the gate and spawn leash ON", () =>
     body,
     "`test-daemon` must bind spawned daemon lifetimes to the recipe process",
   ).toContain("KOLU_DAEMON_BIND_PID=$$");
+});
+
+test("the dev smoke binds its detached daemon tree to the smoke process", () => {
+  expect(
+    DEV_SMOKE,
+    "`dev-smoke` must not leave its detached padi/kaval tree alive after CI",
+  ).toContain("KOLU_DAEMON_BIND_PID: String(process.pid)");
 });

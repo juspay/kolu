@@ -84,7 +84,15 @@ function startDevServer(ports: { server: number; client: number }) {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    // `just dev` deliberately detaches padi (and padi detaches kaval) so a
+    // normal developer server can restart without killing terminal sessions.
+    // A one-shot smoke run has the opposite lifetime: bind both daemons to this
+    // process so its exit reaps the detached tree as well as the foreground
+    // process group stopped below.
+    env: {
+      ...process.env,
+      KOLU_DAEMON_BIND_PID: String(process.pid),
+    },
   });
 }
 

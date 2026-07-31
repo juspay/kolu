@@ -122,7 +122,7 @@ failure fixable in this repository is in scope.
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
 **Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `0/5` — reset by `03c8122#1`.** The first two green runs
+post-review streak: `0/5` — reset by `c4ec338#1`.** The first two green runs
 above predate the osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
@@ -140,6 +140,55 @@ retries.
 | `8235c95#1` | `8235c952e` | Failed: `ci::osfacts-live@aarch64-darwin`; all other nodes passed | `0/5` |
 | `6f863c2#1` | `6f863c2ed` | Passed | `1/5` |
 | `03c8122#1` | `03c812280` | Failed: `ci::daemon@aarch64-darwin`; all other nodes passed | `0/5` |
+| `c4ec338#1` | `c4ec33842` | Failed: `ci::e2e@aarch64-darwin`; Linux passed; macOS `ci::osfacts-live` was fail-fast skipped | `0/5` |
+
+### `c4ec338#1`: macOS Code-tab live update did not arrive
+
+- **Failure:** `ci::e2e@aarch64-darwin` finished 506 scenarios with one
+  failure. `Editing a file updates the diff view live` timed out after 60
+  seconds on attempts 1 and 2 despite rewriting the watched file's timestamp
+  every 500 ms. Attempt 3 failed earlier when its fixture's
+  `git commit --allow-empty -m init` returned status 128. The suite made 513
+  attempts in total, including seven retries.
+- **Root cause:** under investigation. No hypothesis is recorded as a root
+  cause: the evidence below proves a separate `dev-smoke` daemon leak that
+  contaminated both CI hosts, but does not yet prove that the leaked processes
+  caused this exact Code-tab timeout or Git exit.
+- **Evidence:** `.ci/c4ec338/aarch64-darwin/ci::e2e.log` records both
+  60-second live-view timeouts, the third-attempt Git status, the final
+  505-passed/1-failed result, and all seven retries. The durable Odu ledger
+  records every Linux node passing and only macOS e2e failing; macOS
+  `ci::osfacts-live` was dependency-skipped by fail-fast.
+- **Proposed fix:** first stop `dev-smoke` from leaking padi/kaval daemons and
+  remove the proven cross-run contamination. Then reproduce this exact scenario
+  on `ci@petit`; accept the leak as its cause only if direct post-fix evidence
+  establishes that link. Otherwise continue tracing the watcher and terminal
+  command failures from their own diagnostics.
+
+### Proven during `c4ec338#1`: `dev-smoke` leaks one daemon tree per CI run
+
+- **Failure:** completed `ci::dev-smoke` nodes leave their detached padi/kaval
+  daemon tree alive after the Odu snapshot and its server process have exited.
+  Before this fix, 29 orphaned Odu daemon processes remained on `ci@petit`
+  using 3,043,120 KiB RSS, and 22 remained on `kolu-ci-1` using 3,790,592 KiB
+  RSS.
+- **Root cause:** `packages/tests/devSmoke.ts` passes `process.env` unchanged
+  to `just dev`. It terminates the foreground `just` process group, but padi is
+  deliberately detached and therefore survives that signal. Because
+  `KOLU_DAEMON_BIND_PID` is absent, padi selects its production `forever`
+  lifetime instead of binding itself and its kaval child to the smoke process.
+- **Evidence:** the `c4ec338#1` dev-smoke log chose server port 58422 and
+  reported success. After the node and full run settled, PID 91143 on
+  `ci@petit` was reparented to PID 1 and still ran padi from the exact
+  `c4ec338-88894-683e335a` Odu snapshot with legacy kaval socket
+  `kaval-58422-502`; its environment contained the snapshot's
+  `KOLU_PADI_STATE_DIR` and no `KOLU_DAEMON_BIND_PID`. The other surviving
+  process commands each name a distinct historical Odu snapshot, establishing
+  the one-run-per-leak pattern on both hosts.
+- **Proposed fix:** set `KOLU_DAEMON_BIND_PID` to the dev-smoke process PID in
+  the environment passed to `just dev`. The existing padi-to-kaval forwarding
+  and `boundToPid` lifetime then reap the detached tree when the smoke process
+  ends, without changing normal developer `just dev` persistence.
 
 ### `03c8122#1`: duplicate macOS unit workspaces externally killed
 
