@@ -54,6 +54,20 @@ test("ci/mod.just wires `daemon` into the default DAG", () => {
   ).toContain("daemon");
 });
 
+test("the `daemon` node waits for the fork-free `unit` workspace", () => {
+  const daemonTarget = CI.split("\n").find((line) =>
+    line.startsWith("daemon:"),
+  );
+  expect(
+    daemonTarget,
+    "ci/mod.just must declare a `daemon:` DAG target",
+  ).toBeDefined();
+  expect(
+    daemonTarget?.split(/\s+/),
+    "`daemon` must not run a second 63-package workspace beside `unit`",
+  ).toContain("unit");
+});
+
 test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => {
   expect(
     recipeBody(CI, "daemon"),

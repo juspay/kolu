@@ -122,8 +122,8 @@ failure fixable in this repository is in scope.
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
 **Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `1/5` at `6f863c2#1`.** The first two green runs above
-predate the osfacts-live fix prompted by `3a6c829#1`.
+post-review streak: `0/5` — reset by `03c8122#1`.** The first two green runs
+above predate the osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
 
@@ -139,6 +139,32 @@ retries.
 | `c215704#1` | `c215704fb` | Passed | `3/5` |
 | `8235c95#1` | `8235c952e` | Failed: `ci::osfacts-live@aarch64-darwin`; all other nodes passed | `0/5` |
 | `6f863c2#1` | `6f863c2ed` | Passed | `1/5` |
+| `03c8122#1` | `03c812280` | Failed: `ci::daemon@aarch64-darwin`; all other nodes passed | `0/5` |
+
+### `03c8122#1`: duplicate macOS unit workspaces externally killed
+
+- **Failure:** `ci::daemon@aarch64-darwin` terminated by signal 9 with exit
+  code 137 while starting the `@kolu/solid-pwa-install` package. Every completed
+  test file before the termination passed.
+- **Root cause:** the CI DAG started `ci::unit` and `ci::daemon` together on
+  macOS. Each invoked a complete 63-package pnpm workspace traversal; their
+  package concurrency was individually bounded to one, but the two workspace
+  runners still executed concurrently inside the rest of the CI fanout. The
+  daemon runner was externally SIGKILLed eight seconds after both nodes
+  started.
+- **Evidence:** `.ci/03c8122/runs/1.log` records `ci::unit` and `ci::daemon`
+  starting together and the daemon node failing eight seconds later.
+  `.ci/03c8122/aarch64-darwin/ci::daemon.log` records `Scope: 63 of 64
+  workspace projects`, successful results for every completed package, then
+  `test-daemon was terminated ... by signal 9`; there is no Vitest failure.
+- **Proposed fix:** make `ci::daemon` depend on `ci::unit`. This preserves both
+  required nodes and every gated daemon suite while preventing two copies of
+  the 63-package workspace from running at once.
+- **Implementation:** the CI DAG now declares `daemon: install unit`, and the
+  daemon-node structural guard pins that serialization alongside the existing
+  delegation and gate assertions.
+- **Fix verification:** all 21 daemon-test-gate unit tests pass, and a dry run
+  of `ci::daemon` orders `ci::unit` before `ci::daemon`.
 
 ### `8235c95#1`: Darwin `ps etime` ceiling lost at sub-second delay
 

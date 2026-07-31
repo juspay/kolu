@@ -221,7 +221,10 @@ unit: install
 # by daemon-node.test.ts) is what keeps that coverage from evaporating in a recipe
 # refactor. Sets the gate + the run-bind leash (a spawned daemon dies with the run);
 # CI boxes are leased/contained, so the fork storm cannot reach production.
-daemon: install
+# `unit` must finish first: both recipes traverse the same 63-package workspace,
+# and running two pnpm/Vitest trees concurrently was externally SIGKILLed on
+# petit even with each tree's package concurrency bounded to one.
+daemon: install unit
     {{ nix_shell }} just --no-deps test-daemon
 
 # Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
