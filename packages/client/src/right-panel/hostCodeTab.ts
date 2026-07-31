@@ -67,6 +67,7 @@ import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
+import type { CodeTabScope } from "./codeTabOpenController";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 
@@ -81,11 +82,15 @@ export type BrowseFileContent =
   | { kind: "text"; content: string; truncated: boolean }
   | { kind: "binary"; url: string };
 
+/** A file listing stamped with the exact Code-tab owner that produced it. */
+export interface ScopedCodePaths {
+  scope: CodeTabScope;
+  paths: string[];
+}
+
 /** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
- *  "am I the shown host" gate — see the isActive contract in the header. The host key
- *  is intentionally unused: every input reads the ACTIVE projection (blessed), so an
- *  instance differs from its siblings only in its retained store and its active gate. */
-function buildHostCodeTab(ctx: { isActive: () => boolean }) {
+ *  "am I the shown host" gate — see the isActive contract in the header. */
+function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const store = useTerminalStore();
   const rightPanel = useRightPanel();
 
@@ -171,15 +176,35 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // cannot drift into querying for different views (a new view mode added to one
   // and not the other would silently fetch an overlay for a tree that isn't
   // mounted). The diff modes read the status files instead of either listing.
-  const browseInput = (): { repoPath: string } | null => {
+  const browseInput = (): {
+    terminalId: TerminalId;
+    repoPath: string;
+  } | null => {
     const p = shownRepoPath();
-    return p && codeView() === "browse" ? { repoPath: p } : null;
+    const terminalId = shownTerminalId();
+    return p && terminalId !== null && codeView() === "browse"
+      ? { terminalId, repoPath: p }
+      : null;
   };
 
   // The whole-repo file list.
   const allPaths = repoQuery({
     input: browseInput,
-    query: (i, signal) => activePadiRpc.fs.listAll(i, { signal }),
+    query: async (i, signal): Promise<ScopedCodePaths> => {
+      const result = await activePadiRpc.fs.listAll(
+        { repoPath: i.repoPath },
+        { signal },
+      );
+      return {
+        scope: {
+          host,
+          terminalId: i.terminalId,
+          repoRoot: i.repoPath,
+          mode: "browse",
+        },
+        paths: result.paths,
+      };
+    },
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
@@ -192,7 +217,21 @@ function buildHostCodeTab(ctx: { isActive: () => boolean }) {
   // extra `git ls-files` spawn only while the user actually wants the overlay.
   const ignoredPaths = repoQuery({
     input: () => (showIgnoredFiles() ? browseInput() : null),
-    query: (i, signal) => activePadiRpc.fs.listIgnored(i, { signal }),
+    query: async (i, signal): Promise<ScopedCodePaths> => {
+      const result = await activePadiRpc.fs.listIgnored(
+        { repoPath: i.repoPath },
+        { signal },
+      );
+      return {
+        scope: {
+          host,
+          terminalId: i.terminalId,
+          repoRoot: i.repoPath,
+          mode: "browse",
+        },
+        paths: result.paths,
+      };
+    },
     onError: (err) => toast.error(`Ignored file list: ${err.message}`),
   });
 
@@ -279,7 +318,9 @@ export type HostCodeTab = ReturnType<typeof buildHostCodeTab>;
 // app-lifetime root, so its `padiMap` read is decoupled from import order (a unit test
 // can stand up a mock `padiMap` before the owner first reads it).
 const codeTabScopes = createSharedRoot(() =>
-  scopedByEntry(padiMap, activeHost, (_host, ctx) => buildHostCodeTab(ctx)),
+  scopedByEntry(padiMap, activeHost, (host, ctx) =>
+    buildHostCodeTab(host, ctx),
+  ),
 );
 
 /** The ACTIVE host's retained Code-tab queries — `undefined` only during the removal

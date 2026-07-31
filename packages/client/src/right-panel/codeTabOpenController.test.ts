@@ -36,6 +36,7 @@ function createHarness(options?: {
   const [snapshot, setSnapshot] = createSignal<Snapshot>({
     request: req,
     scope: req.scope,
+    inventoryScope: req.scope,
     paths: [],
     inventoryPending: false,
     includeIgnored: false,
@@ -92,6 +93,22 @@ describe("createCodeTabOpenController", () => {
     await tick();
     expect(h.onResolved).toHaveBeenCalledOnce();
     expect(h.readFresh).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("does not resolve retained paths stamped for another owner", async () => {
+    const h = createHarness({
+      snapshot: {
+        inventoryScope: scope("t2"),
+        paths: ["new.ts"],
+      },
+      readFresh: async () => [],
+    });
+    await tick();
+    await tick();
+    expect(h.readFresh).toHaveBeenCalledOnce();
+    expect(h.onResolved).not.toHaveBeenCalled();
+    expect(h.onNotFound).toHaveBeenCalledOnce();
     h.dispose();
   });
 
@@ -157,6 +174,7 @@ describe("createCodeTabOpenController", () => {
         snapshot: (): CodeTabOpenSnapshot<readonly string[]> => ({
           request: req,
           scope: currentScope(),
+          inventoryScope: req.scope,
           paths: [],
           inventoryPending: false,
           includeIgnored: false,
@@ -202,6 +220,7 @@ describe("createCodeTabOpenController", () => {
         snapshot: () => ({
           request: req,
           scope: req.scope,
+          inventoryScope: req.scope,
           paths: [],
           inventoryPending: false,
           includeIgnored: includeIgnored(),

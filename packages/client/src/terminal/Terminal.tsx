@@ -182,12 +182,10 @@ const Terminal: Component<{
   // the same ref against this terminal's repo and route through one front door.
   function activateFileRef(ref: LineRef) {
     const meta = terminalStore.getMetadata(props.terminalId);
-    const repoRoot = meta?.git?.repoRoot ?? null;
-    if (!repoRoot) return;
+    if (!meta) return;
     openInCodeTab({
       terminalId: props.terminalId,
       ref,
-      repoRoot,
       cwd: meta?.cwd,
       targetMode: "browse",
     });

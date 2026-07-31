@@ -51,7 +51,6 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
         openInCodeTab({
           terminalId: props.terminalId,
           ref,
-          repoRoot: props.repoRoot,
           targetMode: "browse",
         })
       }

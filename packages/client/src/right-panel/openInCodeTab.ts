@@ -38,14 +38,11 @@ interface OpenInCodeTabInput {
   /** The terminal whose per-terminal selection and history this request owns. */
   terminalId: TerminalId;
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to `repoRoot` (or, when present, cwd-relative under
-   *  `repoRoot`) by `CodeTab` via `resolveRef` — which also recognises a
-   *  folder path and reveals it in the tree instead of opening a file. */
+   *  relative to the panel-owning tile's repository (or, when present,
+   *  cwd-relative under it) by `CodeTab` via `resolveRef` — which also
+   *  recognises a folder path and reveals it in the tree instead of opening a
+   *  file. */
   ref: LineRef;
-  /** Per-terminal git repo root that `ref.path` is relative to (when
-   *  relative). Absolute paths beneath this root are also accepted —
-   *  the resolver normalizes both shapes. */
-  repoRoot: string;
   /** Terminal cwd at the time of the request. Drives the "user typed
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
    *  undefined falls back to repo-relative interpretation only. */
@@ -88,19 +85,36 @@ export const pendingOpen = pending;
 export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
   const terminals = useTerminalStore();
+  const target = terminals.getMetadata(req.terminalId);
+  if (target === undefined)
+    throw new Error(
+      `openInCodeTab: no terminal metadata for ${req.terminalId}`,
+    );
+  const panelOwnerId = target.parentId ?? req.terminalId;
+  const panelOwner =
+    panelOwnerId === req.terminalId
+      ? target
+      : terminals.getMetadata(panelOwnerId);
+  if (panelOwner === undefined)
+    throw new Error(
+      `openInCodeTab: no panel-owner metadata for ${panelOwnerId}`,
+    );
+  const repoRoot = panelOwner.git?.repoRoot;
+  if (repoRoot === undefined)
+    throw new Error(`openInCodeTab: panel owner ${panelOwnerId} has no repo`);
   const request: OpenInCodeTabRequest = {
     ref: req.ref,
     cwd: req.cwd,
     allowBasenameFallback: req.allowBasenameFallback,
     scope: {
       host: activeHost(),
-      terminalId: req.terminalId,
-      repoRoot: req.repoRoot,
+      terminalId: panelOwnerId,
+      repoRoot,
       mode: req.targetMode,
     },
   };
   batch(() => {
-    terminals.focusTerminalSilently(request.scope.terminalId);
+    terminals.focusTerminalSilently(req.terminalId);
     rp.openCodeAt(request.scope.mode);
     rp.reveal();
     setPending(request);

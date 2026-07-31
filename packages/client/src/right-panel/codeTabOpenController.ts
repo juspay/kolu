@@ -1,11 +1,8 @@
 import type { CodeTabView } from "@kolu/padi/surface";
-import {
-  encodeHostKey,
-  type HostKey,
-  hostKeysEqual,
-} from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
+import { match } from "ts-pattern";
 import type { LineRef } from "../ui/lineRef";
 
 /** The complete owner of a Code-tab selection slot and open request. */
@@ -18,25 +15,28 @@ export interface CodeTabScope {
 
 /** Stable equality for the complete owner of a Code-tab request. */
 export function codeTabScopesEqual(a: CodeTabScope, b: CodeTabScope): boolean {
-  return (
-    hostKeysEqual(a.host, b.host) &&
-    a.terminalId === b.terminalId &&
-    a.repoRoot === b.repoRoot &&
-    a.mode === b.mode
-  );
+  const left = codeTabScopeIdentity(a);
+  const right = codeTabScopeIdentity(b);
+  return left.every((value, index) => value === right[index]);
 }
 
 /** Collision-safe key for state that is scoped to one Code-tab owner. */
-export function codeTabScopeKey(scope: CodeTabScope | null): string {
-  if (scope === null) return "";
+export function codeTabScopeKey(scope: CodeTabScope | null): string | null {
+  return scope === null ? null : JSON.stringify(codeTabScopeIdentity(scope));
+}
+
+function codeTabScopeIdentity(
+  scope: CodeTabScope,
+): readonly [string, TerminalId, string, CodeTabView] {
   return [
     encodeHostKey(scope.host),
     scope.terminalId,
     scope.repoRoot,
     scope.mode,
-  ].join("\0");
+  ];
 }
 
+/** A captured user intent to navigate one exact Code-tab owner to a file ref. */
 export interface OpenInCodeTabRequest {
   /** The exact host + terminal + repository + mode allowed to consume this request. */
   scope: CodeTabScope;
@@ -48,9 +48,12 @@ export interface OpenInCodeTabRequest {
   allowBasenameFallback?: boolean;
 }
 
+/** Current reactive facts used to decide whether and how a request may land. */
 export interface CodeTabOpenSnapshot<Paths> {
   request: OpenInCodeTabRequest | null;
   scope: CodeTabScope | null;
+  /** Owner stamped on the retained inventory, or null when it is unscoped. */
+  inventoryScope: CodeTabScope | null;
   paths: Paths;
   inventoryPending: boolean;
   includeIgnored: boolean;
@@ -91,13 +94,21 @@ export function createCodeTabOpenController<Paths, Resolved>(
 ): void {
   let attempt: OpenAttempt = { kind: "idle" };
 
+  const refreshingAttempt = (): Extract<
+    OpenAttempt,
+    { kind: "refreshing" }
+  > | null =>
+    match(attempt)
+      .with({ kind: "refreshing" }, (refreshing) => refreshing)
+      .otherwise(() => null);
+
   const retire = (): void => {
-    if (attempt.kind === "refreshing") attempt.controller.abort();
+    refreshingAttempt()?.controller.abort();
     attempt = { kind: "idle" };
   };
 
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
-    if (attempt.kind === "refreshing") attempt.controller.abort();
+    refreshingAttempt()?.controller.abort();
     attempt = { kind: "complete", request };
     apply();
   };
@@ -107,11 +118,12 @@ export function createCodeTabOpenController<Paths, Resolved>(
     includeIgnored: boolean,
     controller: AbortController,
   ): boolean => {
+    const refreshing = refreshingAttempt();
     if (
-      attempt.kind !== "refreshing" ||
-      attempt.request !== request ||
-      attempt.includeIgnored !== includeIgnored ||
-      attempt.controller !== controller ||
+      refreshing === null ||
+      refreshing.request !== request ||
+      refreshing.includeIgnored !== includeIgnored ||
+      refreshing.controller !== controller ||
       controller.signal.aborted
     ) {
       return false;
@@ -133,7 +145,15 @@ export function createCodeTabOpenController<Paths, Resolved>(
       retire();
       return;
     }
-    if (attempt.kind === "complete" && attempt.request === request) return;
+    if (
+      match(attempt)
+        .with(
+          { kind: "complete" },
+          (completeAttempt) => completeAttempt.request === request,
+        )
+        .otherwise(() => false)
+    )
+      return;
 
     if (
       current.scope === null ||
@@ -147,10 +167,11 @@ export function createCodeTabOpenController<Paths, Resolved>(
       return;
     }
 
+    const refreshing = refreshingAttempt();
     if (
-      attempt.kind === "refreshing" &&
-      (attempt.request !== request ||
-        attempt.includeIgnored !== current.includeIgnored ||
+      refreshing !== null &&
+      (refreshing.request !== request ||
+        refreshing.includeIgnored !== current.includeIgnored ||
         current.inventoryPending)
     ) {
       retire();
@@ -158,13 +179,18 @@ export function createCodeTabOpenController<Paths, Resolved>(
 
     if (current.inventoryPending) return;
 
-    const resolved = options.resolve(request, current.paths);
-    if (resolved !== null) {
-      complete(request, () => options.onResolved(request, resolved));
-      return;
+    if (
+      current.inventoryScope !== null &&
+      codeTabScopesEqual(current.inventoryScope, request.scope)
+    ) {
+      const resolved = options.resolve(request, current.paths);
+      if (resolved !== null) {
+        complete(request, () => options.onResolved(request, resolved));
+        return;
+      }
     }
 
-    if (attempt.kind === "refreshing") return;
+    if (refreshingAttempt() !== null) return;
 
     const includeIgnored = current.includeIgnored;
     const controller = new AbortController();
@@ -186,6 +212,8 @@ export function createCodeTabOpenController<Paths, Resolved>(
         }
       })
       .catch((raw: unknown) => {
+        // A superseded/aborted read no longer belongs to the latest user
+        // intent; its failure must not toast over the replacement request.
         if (!isCurrent(request, includeIgnored, controller)) return;
         const error = raw instanceof Error ? raw : new Error(String(raw));
         complete(request, () => options.onError(request, error));

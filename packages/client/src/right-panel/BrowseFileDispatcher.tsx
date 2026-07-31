@@ -144,7 +144,6 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     openInCodeTab({
       terminalId: props.terminalId,
       ref: { path, startLine: null, endLine: null },
-      repoRoot: props.repoPath,
       targetMode: "browse",
       allowBasenameFallback: false,
     });

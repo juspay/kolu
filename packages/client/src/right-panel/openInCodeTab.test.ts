@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   focusTerminalSilently: vi.fn(),
+  getMetadata: vi.fn(),
   openCodeAt: vi.fn(),
   reveal: vi.fn(),
 }));
@@ -9,6 +10,7 @@ const h = vi.hoisted(() => ({
 vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     focusTerminalSilently: h.focusTerminalSilently,
+    getMetadata: h.getMetadata,
   }),
 }));
 
@@ -28,13 +30,17 @@ import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 describe("openInCodeTab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    h.getMetadata.mockReturnValue({
+      id: "terminal-b",
+      parentId: null,
+      git: { repoRoot: "/repo" },
+    });
   });
 
   it("focuses the issuing terminal before opening its Code-tab request", () => {
     openInCodeTab({
       terminalId: "terminal-b",
       ref: { path: "new.ts", startLine: 1, endLine: 1 },
-      repoRoot: "/repo",
       targetMode: "browse",
     });
 
@@ -49,6 +55,34 @@ describe("openInCodeTab", () => {
       terminalId: "terminal-b",
       repoRoot: "/repo",
       mode: "browse",
+    });
+  });
+
+  it("focuses a split pane while scoping the request to its panel owner", () => {
+    h.getMetadata.mockImplementation((id: string) =>
+      id === "split-b"
+        ? {
+            id,
+            parentId: "terminal-a",
+            git: { repoRoot: "/split-repo" },
+          }
+        : {
+            id,
+            parentId: null,
+            git: { repoRoot: "/owner-repo" },
+          },
+    );
+
+    openInCodeTab({
+      terminalId: "split-b",
+      ref: { path: "new.ts", startLine: 1, endLine: 1 },
+      targetMode: "browse",
+    });
+
+    expect(h.focusTerminalSilently).toHaveBeenCalledWith("split-b");
+    expect(pendingOpen()?.scope).toMatchObject({
+      terminalId: "terminal-a",
+      repoRoot: "/owner-repo",
     });
   });
 });

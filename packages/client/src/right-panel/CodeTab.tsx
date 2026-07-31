@@ -76,6 +76,7 @@ import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
 import {
   type CodeTabScope,
   codeTabScopeKey,
+  codeTabScopesEqual,
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
@@ -298,6 +299,13 @@ const CodeTab: Component<{
       mode: view(),
     };
   };
+  const commentContext = createMemo(() => {
+    const terminalId = props.terminalId;
+    const repoRoot = repoPath();
+    return terminalId === null || repoRoot === null
+      ? null
+      : { terminalId, repoRoot };
+  });
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
   // The single selection funnel: set the shown file AND record it in history.
   // Recording can never drift from selection because they are one call —
@@ -484,22 +492,6 @@ const CodeTab: Component<{
     setHandled({ request: req, resolvedPath: rel });
   };
 
-  const resolveOpenRequest = (
-    req: OpenInCodeTabRequest,
-    paths: readonly string[],
-  ): ReturnType<typeof resolveRef> =>
-    resolveRef({
-      rawPath: req.ref.path,
-      repoRoot: req.scope.repoRoot,
-      cwd: req.cwd,
-      repoPaths: paths,
-      allowBasenameFallback: req.allowBasenameFallback,
-      // A `:N` line suffix means the user pointed at a *file* line — a
-      // directory match would wrongly reveal the folder and drop the line,
-      // so gate the folder-reveal step off when a line is present.
-      hasLine: req.ref.startLine !== null,
-    });
-
   // The controller owns the volatile open lifecycle. This presenter exposes
   // current facts and atomic UI outcomes; it does not carry request/controller
   // slots or reconstruct supersession in promise callbacks.
@@ -507,11 +499,22 @@ const CodeTab: Component<{
     snapshot: () => ({
       request: pendingOpen(),
       scope: currentScope(),
+      inventoryScope: treeInventory().scope,
       paths: treePaths(),
       inventoryPending: treeInventory().pending,
       includeIgnored: showIgnoredFiles(),
     }),
-    resolve: resolveOpenRequest,
+    resolve: (request, paths) =>
+      resolveRef({
+        rawPath: request.ref.path,
+        repoRoot: request.scope.repoRoot,
+        cwd: request.cwd,
+        repoPaths: paths,
+        allowBasenameFallback: request.allowBasenameFallback,
+        // A `:N` line suffix means the user pointed at a *file* line — a
+        // directory match would wrongly reveal the folder and drop the line.
+        hasLine: request.ref.startLine !== null,
+      }),
     readFresh: (request, includeIgnored, signal) =>
       readFreshCodePaths(
         request.scope.host,
@@ -575,7 +578,9 @@ const CodeTab: Component<{
    *  The overlay's `pending` leg is gated on the toggle because an idle query
    *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
    *  input) — with the toggle off it is idle by design, not loading. */
-  const treeInventory = createMemo<BrowseInventory>(() => {
+  const treeInventory = createMemo<
+    BrowseInventory & { scope: CodeTabScope | null }
+  >(() => {
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -595,16 +600,30 @@ const CodeTab: Component<{
     // overlap, readiness covers only the consulted sources) live in
     // `mergeBrowseInventory`, where a table test pins each one.
     if (view() === "browse") {
-      return mergeBrowseInventory(allPaths()?.paths, ignoredPaths()?.paths, {
+      const tracked = allPaths();
+      const ignored = ignoredPaths();
+      const showIgnored = showIgnoredFiles();
+      const inventory = mergeBrowseInventory(tracked?.paths, ignored?.paths, {
         trackedPending: allPaths.pending(),
         ignoredPending: ignoredPaths.pending(),
-        showIgnored: showIgnoredFiles(),
+        showIgnored,
       });
+      const scope =
+        tracked !== undefined &&
+        (!showIgnored ||
+          (ignored !== undefined &&
+            codeTabScopesEqual(tracked.scope, ignored.scope)))
+          ? tracked.scope
+          : null;
+      return { ...inventory, scope };
     }
     return {
       paths: status()?.files.map((f) => f.path) ?? [],
       ignored: [],
       pending: statusPending(),
+      // Diff-status results are not owner-stamped. A user open in these modes
+      // takes the fixed-host fresh-read path instead of trusting this inventory.
+      scope: null,
     };
   });
 
@@ -740,7 +759,6 @@ const CodeTab: Component<{
           startLine: loc.ref.startLine,
           endLine: loc.ref.endLine,
         },
-        repoRoot: repo,
         targetMode: loc.mode,
         allowBasenameFallback: false,
       });
@@ -1272,14 +1290,12 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
-        <Show when={repoPath() !== null && props.terminalId !== null}>
-          {(_present) => (
+        <Show when={commentContext()}>
+          {(present) => (
             <>
               <CommentsTray
-                terminalId={props.terminalId as string}
+                terminalId={present().terminalId}
                 onJumpTo={(comment) => {
-                  const repo = repoPath();
-                  if (repo === null) return;
                   // Two complementary highlights on land:
                   //   1. Pierre's blue line bar (full-row selection)
                   //      via `openInCodeTab` when we have a stored
@@ -1293,13 +1309,12 @@ const CodeTab: Component<{
                   // re-find disagree on the row.
                   if (comment.lineRange) {
                     openInCodeTab({
-                      terminalId: props.terminalId as TerminalId,
+                      terminalId: present().terminalId,
                       ref: {
                         path: comment.path,
                         startLine: comment.lineRange.start,
                         endLine: comment.lineRange.end,
                       },
-                      repoRoot: repo,
                       targetMode: "browse",
                     });
                   } else {
@@ -1328,7 +1343,7 @@ const CodeTab: Component<{
                   });
                 }}
               />
-              <CommentComposer terminalId={props.terminalId as string} />
+              <CommentComposer terminalId={present().terminalId} />
             </>
           )}
         </Show>
