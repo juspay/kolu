@@ -1,16 +1,20 @@
-# Build every package this flake exports, on linux + darwin, and push each
+# Build every output this flake exposes, on linux + darwin, and push each
 # closure to the shared Attic cache (https://cache.nixos.asia/oss). The flake
 # already lists this cache as a substituter, so a green push here warms CI
 # boxes and local `nix build`s on both platforms.
 #
-# The build set is DERIVED from `packages.<system>`, never hand-listed. A
-# hand-list is a second source of truth that drifts silently: this job used to
-# build a bare `nix build` (= `.#default` alone), which warmed `padi-agent` and
-# `vazhi` NOT AT ALL, and warmed kaval-tui/padi-tui/osfacts only incidentally —
-# they happen to sit in `default`'s closure. Nothing said so, nothing checked
-# it, and a package falling out of that closure would have gone quietly cold.
-# Deriving the set makes that failure mode impossible to express rather than
-# merely detectable: a newly exported package is warmed the day it lands.
+# The build set is DERIVED, never hand-listed, and derived by the one script
+# that already answers "what does this repo build" — `ci/flake-build`. This job
+# used to run a bare `nix build` (= `.#default` alone) and push whatever new
+# store paths appeared, so coverage was an emergent property of `default`'s
+# closure rather than a decision. `padi-agent` and `vazhi` sat outside it and
+# were never warmed at all; `kaval-tui`, `padi-tui` and `osfacts` were warmed
+# only incidentally, and would have gone quietly cold the day they left that
+# closure. Nothing declared the intent, and nothing would have gone red.
+#
+# Sharing the script with `ci::nix` makes the gap impossible to express rather
+# than merely detectable: a newly exposed output is warmed the day it lands,
+# and the cache job cannot disagree with CI about what this repo builds.
 name: nix-cache
 
 on:
@@ -65,41 +69,45 @@ jobs:
         run: |
           nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
           attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
-          nix path-info --all | sort > "$RUNNER_TEMP/pre-build-paths"
 
-      # Enumerate `packages.<system>` and build all of it. `jq` is preinstalled
-      # on both runner images (the login step above already relies on it), and
-      # `xargs` keeps the attr list off the shell's word-splitting path. Full
-      # `.#packages.$system.<attr>` paths rather than `.#<attr>`, so resolution
-      # can never fall through to another output type.
+      # Discovery is `ci/flake-build` — the SAME script every `ci::*-nix` node
+      # already uses (ci/mod.just:90, :124, :148). It enumerates attrNames of
+      # the flake's own outputs, dies loudly when a required kind is empty, and
+      # ends in `nix build -L --no-link --print-out-paths`, so its stdout IS the
+      # list of built artifacts (`-L` logs go to stderr). Warming the cache and
+      # building in CI are therefore the same question with one answer; a job
+      # that spelled the question itself could drift from `ci::nix` again, which
+      # is exactly how `padi-agent`/`vazhi` stayed cold and unnoticed.
       #
-      # The empty-list guard is load-bearing, not defensive dressing: `xargs`
-      # with no input would run a bare `nix build`, which silently means
-      # `.#default` — resurrecting the exact partial-coverage bug this step
-      # exists to kill, and reporting it green. Crash instead.
-      - name: Build every exported package
+      # We push the closures of the built outputs, NOT a before/after diff of
+      # `nix path-info --all`. The diff inferred "what this build produced" from
+      # ambient global store state, which was wrong in both directions: it
+      # over-pushed anything unrelated that touched the store inside the window
+      # (the whole nixpkgs build-time toolchain, republished into a project
+      # cache), and silently EXCLUDED genuine closure members that happened to
+      # predate the snapshot — every path attic-client's own install shares with
+      # kolu. `attic push` computes the exact closure of a named path, so naming
+      # the artifact directly is both smaller and correct, and needs no
+      # `.drv`/`.check`/`.lock` blocklist to filter clutter that never arrives.
+      - name: Build and push every flake output
+        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in a
+        # pipe fails the step — not just the last command in it.
         shell: bash
         run: |
-          system=$(nix eval --impure --raw --expr builtins.currentSystem)
-          targets=$(nix eval --json --apply 'builtins.attrNames' ".#packages.$system" \
-            | jq -r --arg s "$system" '.[] | ".#packages." + $s + "." + .')
-          if [ -z "$targets" ]; then
-            echo "::error::flake exports no packages for $system — refusing to warm a partial cache" >&2
-            exit 1
-          fi
-          echo "Building $(printf '%s\n' "$targets" | wc -l) packages for $system:"
-          printf '%s\n' "$targets"
-          printf '%s\n' "$targets" | xargs nix build -L --print-out-paths
-
-      # Push every store path the build produced (post minus pre snapshot,
-      # minus .drv/.check/.lock clutter) — same set attic-action pushed from
-      # its post step, without the action.
-      - name: Push to Attic
-        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in
-        # the pipe fails the step — not just the final `attic push`.
-        shell: bash
-        run: |
-          nix path-info --all | sort \
-            | comm -13 "$RUNNER_TEMP/pre-build-paths" - \
-            | grep -Ev '\.(drv|drv\.chroot|check|lock)$' \
-            | attic push --stdin oss
+          warm() {
+            echo "::group::warm $*"
+            local paths
+            paths=$(bash ci/flake-build "$@")
+            # A positive assertion, not dressing. Without it a run that built
+            # and pushed NOTHING is indistinguishable from a healthy one: the
+            # step stays green and the only symptom is everyone's builds
+            # quietly going cold. Green must mean "warmed", not "ran".
+            if [ -z "$paths" ]; then
+              echo "::error::ci/flake-build produced no output paths for: $*"
+              exit 1
+            fi
+            printf '%s\n' "$paths"
+            printf '%s\n' "$paths" | xargs attic push oss
+            echo "::endgroup::"
+          }
+          warm .
