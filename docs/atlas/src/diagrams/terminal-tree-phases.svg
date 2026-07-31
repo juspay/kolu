@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 220" font-family="system-ui, sans-serif">
+  <rect width="920" height="220" fill="#0f1117"/>
+  <!-- legend -->
+  <g font-size="10.5" fill="#8b95a7">
+    <circle cx="790" cy="26" r="5" fill="#5b8def"/><text x="802" y="30">new build</text>
+  </g>
+
+  <!-- nodes: a linear chain -->
+  <g>
+    <rect x="40" y="80" width="240" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="54" y="102" fill="#9db4e8" font-size="12.5" font-weight="600">TR1 · focus = camera</text>
+    <text x="54" y="119" fill="#8b95a7" font-size="10.5">maximized mode deleted · subtree fit</text>
+
+    <rect x="340" y="80" width="250" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="354" y="102" fill="#9db4e8" font-size="12.5" font-weight="600">TR2 · every terminal a tile</text>
+    <text x="354" y="119" fill="#8b95a7" font-size="10.5">auto-tiling + edges · splits retired</text>
+
+    <rect x="650" y="80" width="240" height="58" rx="9" fill="#141925" stroke="#5b8def" stroke-width="1.5"/>
+    <text x="664" y="102" fill="#9db4e8" font-size="12.5" font-weight="600">TR3 · depth legalized</text>
+    <text x="664" y="119" fill="#8b95a7" font-size="10.5">recursive Dock · totality assert · restore fix</text>
+  </g>
+
+  <!-- edges -->
+  <path d="M 280 109 L 338 109" stroke="#8b95a7" stroke-width="1.4" fill="none"/>
+  <path d="M 338 109 l -12 -6 l 0 12 z" fill="#8b95a7"/>
+  <path d="M 590 109 L 648 109" stroke="#8b95a7" stroke-width="1.4" fill="none"/>
+  <path d="M 648 109 l -12 -6 l 0 12 z" fill="#8b95a7"/>
+
+  <text x="120" y="170" fill="#8b95a7" font-size="10">camera's subtree-fit replaces the maximized sub-panel — it must exist before splits become tiles</text>
+  <text x="420" y="190" fill="#8b95a7" font-size="10">rendering must be total before depth becomes legal input</text>
+</svg>

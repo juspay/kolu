@@ -5,15 +5,14 @@ import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
-import { activeScope } from "../hostScope/hostScopes";
-import { useRightPanel } from "../right-panel/useRightPanel";
-import { lifecycle } from "../rpc/rpc";
 import {
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../hostScope/activeWire";
+import { activeScope } from "../hostScope/hostScopes";
+import { useRightPanel } from "../right-panel/useRightPanel";
+import { lifecycle } from "../rpc/rpc";
 import { activePadiRpc } from "../wire";
-import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
@@ -24,7 +23,6 @@ type HydrationEntry = { t: { id: TerminalId }; m: TerminalMetadata };
 
 export function useSessionRestore(deps: { store: TerminalStore }) {
   const { store } = deps;
-  const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
   const [savedSession, setSavedSession] = createSignal<SavedSession | null>(
@@ -91,7 +89,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     }
     if (latch.phase === "seeded") return;
     // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
-    // listed terminal — hydration reads `parentId` and `subPanel` off the record
+    // listed terminal — hydration reads `parentId` and `rightPanel` off the record
     // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
     // returns `undefined` for a PARKED (restore-card) record as well as a
     // not-yet-arrived one, so this loop naturally waits out the parked set (which
@@ -116,24 +114,11 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     entries: HydrationEntry[],
     serverActiveId: string | null,
   ) {
-    // Canvas layouts live on metadata — no client-side seeding needed.
-    // Seed sub-panel + right-panel state from server metadata.
-    for (const { t, m } of entries) {
-      if (m.subPanel) subPanel.seedPanel(t.id, m.subPanel);
+    // Canvas layouts live on metadata — no client-side seeding needed, and a
+    // child's position is derived from its parent, so there is nothing to seed
+    // for it either. Only the right panel carries per-terminal chrome now.
+    for (const { m, t } of entries) {
       if (m.rightPanel) rightPanel.seedPanel(t.id, m.rightPanel);
-    }
-
-    // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs = Object.groupBy(
-      entries.filter(({ m }) => m.parentId),
-      ({ m }) => m.parentId as string,
-    );
-    for (const [parentId, group] of Object.entries(subs)) {
-      const subIds = group?.map(({ t }) => t.id) ?? [];
-      const activeSubTab = subPanel.peekSubPanel(parentId).activeSubTab;
-      if (!activeSubTab || !subIds.includes(activeSubTab)) {
-        subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
-      }
     }
 
     // Prefer the server-persisted active terminal; fall back to first in order.
@@ -141,28 +126,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // #554), so on refresh the server snapshot is the only source of truth
     // for "which terminal was active". `entries` arrives in the server's
     // Map insertion order, which is the canonical ordering.
-    const topIds = entries.filter(({ m }) => !m.parentId).map(({ t }) => t.id);
+    // EVERY terminal is a tile now, so the candidate set is the whole list —
+    // a child is a legal active tile, not a pane that has to resolve to its
+    // parent first.
+    const tileIds = entries.map(({ t }) => t.id);
     // A deep link opened on this cold boot names the terminal to focus. Honor it
-    // over the server's last-active — resolved to its OWNING tile for a split —
-    // so a bookmark wins the `activeId` write here instead of racing the
-    // deep-link router's settle effect for it. Only when the target is a member
-    // of THIS host's list (else a stale cross-host intent is ignored).
+    // over the server's last-active, so a bookmark wins the `activeId` write
+    // here instead of racing the deep-link router's settle effect for it. Only
+    // when the target is a member of THIS host's list (else a stale cross-host
+    // intent is ignored).
     const intent = deepLinkFocusIntent();
-    const intentTile =
-      intent !== null
-        ? (entries.find((e) => e.t.id === intent)?.m.parentId ?? intent)
-        : null;
     const picked =
-      intentTile && topIds.includes(intentTile as TerminalId)
-        ? (intentTile as TerminalId)
-        : serverActiveId && topIds.includes(serverActiveId as TerminalId)
+      intent && tileIds.includes(intent as TerminalId)
+        ? (intent as TerminalId)
+        : serverActiveId && tileIds.includes(serverActiveId as TerminalId)
           ? (serverActiveId as TerminalId)
-          : (topIds[0] ?? null);
+          : (tileIds[0] ?? null);
     // Seed/reconcile the durable visit trail BEFORE activation. writeFocus
     // noteVisit's the pick; if we seed after, a non-empty one-entry trail
     // would skip multi-id restore order (Ctrl+Tab would only see the pick).
     store.reconcileLiveIds(
-      picked ? [picked, ...topIds.filter((x) => x !== picked)] : topIds,
+      picked ? [picked, ...tileIds.filter((x) => x !== picked)] : tileIds,
     );
 
     // `setActiveSilently`: the canvas's first-mount fallback effect pans

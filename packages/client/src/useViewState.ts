@@ -13,9 +13,6 @@
  *  One member stays HOST-INDEPENDENT (it must NOT swap on a host switch), so it
  *  remains an app-level signal in this facade rather than owner state:
  *  `centerActiveRequest` (a momentary write-and-consume viewport command).
- *  `canvasMaximized` moved INTO the owner at W7 TIER A — it parameterizes the
- *  VIEW OF this host's tiles, so it is per-host by THE RULE; the facade re-points
- *  it at `activeScope()?.view.canvasMaximized` like every other per-host fact.
  *
  *  Removal-race flooring: `hostScopes.active()` is `undefined` for one tick when
  *  the active host is removed from the pool (the `wire.ts` membership reconcile
@@ -45,12 +42,6 @@ export function useViewState() {
     view()?.isActiveTile(id) ?? false;
   const mruOrder = () => view()?.mruOrder() ?? [];
 
-  /** Whether the workspace is in fullscreen-one-tile mode — the ACTIVE host's
-   *  per-host posture (born in `createViewState`, persisted per host so it survives
-   *  reload). Floors the removal race to `false`, exactly like the view-selection
-   *  reads above. */
-  const canvasMaximized = (): boolean => view()?.canvasMaximized() ?? false;
-
   /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
    *  consumer seam. `equals: false` so back-to-back requests for the same id
    *  still fire. Public reads only; the writer is private (external callers go
@@ -73,17 +64,11 @@ export function useViewState() {
 
   const forgetFromMru = (id: TerminalId): void => view()?.forgetFromMru(id);
 
-  function toggleCanvasMaximized() {
-    view()?.setCanvasMaximized((prev) => !prev);
-  }
-
   const markUnread = (id: TerminalId) => view()?.markUnread(id);
   const isUnread = (id: TerminalId): boolean => view()?.isUnread(id) ?? false;
 
   /** Clear the ACTIVE host's selection record (handleCloseAll closes every tile
-   *  on the active host). Other hosts' records are untouched. The owner's `reset`
-   *  also drops this host's `canvasMaximized` posture back to tiled, matching the
-   *  pre-per-host behavior. */
+   *  on the active host). Other hosts' records are untouched. Other hosts' records are untouched. */
   function reset() {
     view()?.reset();
   }
@@ -93,8 +78,6 @@ export function useViewState() {
     activeId,
     isFocused,
     isActiveTile,
-    canvasMaximized,
-    toggleCanvasMaximized,
     mruOrder,
     reconcileLiveIds,
     forgetFromMru,

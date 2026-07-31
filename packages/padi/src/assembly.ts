@@ -14,13 +14,6 @@
  * INJECTED via `setDaemonProcessId` / `setSpawnServerVersion`, not imported.
  */
 
-// ── session persistence ─────────────────────────────────────────────────
-export {
-  cancelPendingAutosave,
-  freezeAutosave,
-  initAutosaveGate,
-  unfreezeAutosave,
-} from "./session/autosaveGate.ts";
 // padi's staleKey read — the binder's build-convergence key (#1670). Re-exported
 // through this barrel (not a deep `@kolu/padi/buildId` import) so the binder honors
 // the package-boundary seal: on boot it compares its own baked `PADI_BUILD_ID`
@@ -50,9 +43,6 @@ export {
   padiSurfaceCtx,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
-// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
-export type { PairedDaemon } from "./session/pairedDaemon.ts";
 // The range-capable serve-dir read kolu-server's re-backed Hono preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
@@ -77,6 +67,16 @@ export {
 } from "./publisher.ts";
 // ── native serving (W1.R0) ──────────────────────────────────────────────
 export { buildPadiSurfaceDeps } from "./servePadi.ts";
+// ── session persistence ─────────────────────────────────────────────────
+export {
+  cancelPendingAutosave,
+  freezeAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "./session/autosaveGate.ts";
+// The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
+// inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
+export type { PairedDaemon } from "./session/pairedDaemon.ts";
 export {
   clearSavedSession,
   getSavedSession,
@@ -142,7 +142,6 @@ export {
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
-  setSubPanelState,
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,

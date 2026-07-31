@@ -15,19 +15,6 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
-import {
-  type AutosaveFreeze,
-  cancelPendingAutosave,
-  freezeAutosave,
-  unfreezeAutosave,
-} from "./autosaveGate.ts";
-import { resumableTerminalIds } from "./resumable.ts";
-import {
-  clearSavedSession,
-  getSavedSession,
-  saveSession,
-  setSavedSession,
-} from "./session.ts";
 import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
@@ -48,6 +35,19 @@ import type {
   SavedTerminal,
 } from "../vocab.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
+import {
+  type AutosaveFreeze,
+  cancelPendingAutosave,
+  freezeAutosave,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
+import { resumableTerminalIds } from "./resumable.ts";
+import {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+} from "./session.ts";
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
@@ -86,7 +86,6 @@ function respawnActive(
     {
       themeName: t.themeName,
       canvasLayout: t.canvasLayout,
-      subPanel: t.subPanel,
       rightPanel: t.rightPanel,
       intent: t.intent,
     },
@@ -174,10 +173,20 @@ export async function restoreSession(
    *  session). Must stay on disk with their resume tokens and surface as a
    *  loud error — never silently dropped (fail-fast). */
   const unrestored: SavedTerminal[] = [];
-  const topLevel = saved.terminals.filter((t) => !t.parentId);
-  const subTerminals = saved.terminals.filter(
-    (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
-  );
+  // The saved tree, indexed by parent. Restoring is a WALK from the roots
+  // rather than a two-pass "top level, then subs": the old partition restored
+  // every child in array order against an `oldToNew` map that had only just
+  // been filled by the first pass, so a grandchild whose parent appeared LATER
+  // in the array found no mapped parent and was quietly dropped. Depth is
+  // arbitrary now, so that ordering assumption had to go.
+  const roots = saved.terminals.filter((t) => !t.parentId);
+  const childrenOf = new Map<string, SavedTerminal[]>();
+  for (const t of saved.terminals) {
+    if (!t.parentId) continue;
+    const siblings = childrenOf.get(t.parentId);
+    if (siblings) siblings.push(t);
+    else childrenOf.set(t.parentId, [t]);
+  }
 
   // Restore ONE saved record into the live registry, threading `oldToNew`. A
   // SLEEPING record restores DORMANT — seed it (no PTY spawn, no resume; Wake does
@@ -238,21 +247,26 @@ export async function restoreSession(
     "session restore (spawn setup)",
   );
   try {
-    for (const t of topLevel) restoreRecord(t);
-    for (const t of subTerminals) {
-      // A sub whose parent is absent from the session (corrupt blob / missing
-      // parent id) cannot hang off a live parent (F3). Do NOT silently drop it:
-      // keep the record (and its resume token) and fail loudly after the rest
-      // of the restore lands.
-      const parentId = oldToNew.get(t.parentId);
-      if (parentId === undefined) {
-        // Corrupt / missing parent — keep the record on disk (with its resume
-        // token) and fail loudly after the rest of the restore lands.
-        unrestored.push(t);
-        continue;
-      }
+    // Depth-first from each root, so a record is always restored AFTER the
+    // parent it hangs off — at any depth, in any array order. `visited` keeps a
+    // parentId cycle in a corrupt blob from looping forever.
+    const visited = new Set<string>();
+    const walk = (t: SavedTerminal, parentId?: string): void => {
+      if (visited.has(t.id)) return;
+      visited.add(t.id);
       restoreRecord(t, parentId);
-    }
+      const mapped = oldToNew.get(t.id);
+      // The parent could not be restored, so its children have nothing to hang
+      // off (F3). They are kept, not dropped, and reported below.
+      if (mapped === undefined) return;
+      for (const child of childrenOf.get(t.id) ?? []) walk(child, mapped);
+    };
+    for (const t of roots) walk(t);
+    // Anything the walk never reached is unreachable from any root: its parent
+    // is missing from the session, or it sits in a parentId cycle. Do NOT
+    // silently drop it — keep the record (and its resume token) and fail loudly
+    // once the rest of the restore lands.
+    for (const t of saved.terminals) if (!visited.has(t.id)) unrestored.push(t);
 
     // Preserve the active marker across the restart (RISK Q1 host-side): map the
     // saved active id through `oldToNew` so it names the RESTORED terminal (a fresh
@@ -313,7 +327,7 @@ export async function restoreSession(
   if (unrestored.length > 0) {
     const ids = unrestored.map((t) => t.id).join(", ");
     throw new Error(
-      `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (missing parent): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
+      `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (unreachable from any root — missing parent or a parentId cycle): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
     );
   }
 }
@@ -420,7 +434,7 @@ export function promoteOrphanedRestoreChildren(
 /** Persist the merged live+re-parked snapshot after a respawn settles — part of the F5
  *  fix. During the spawn window a terminal that already spawned stays fully interactive, and
  *  a padi-LOCAL setter ({@link setTerminalTheme} / {@link setCanvasLayout} /
- *  {@link setSubPanelState} / {@link setRightPanelState} / {@link setTerminalIntent} /
+ *  {@link setRightPanelState} / {@link setTerminalIntent} /
  *  {@link setTerminalParent} / {@link setActiveTerminalId}) mutates committed in-memory state
  *  and fires `terminals:dirty` WITHOUT waiting on kaval. Re-persisting the live snapshot as
  *  each spawn settles captures those — and, crucially, because no process-wide freeze is held

@@ -49,17 +49,15 @@ export interface ActionContext {
   /** Flip the active terminal's find bar (`Cmd+F`). */
   toggleSearch: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
-  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleShuffleTheme: () => void;
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   toggleDock: () => void;
-  /** Flip the canvas between tiled and maximized posture. Wired to
-   *  `useViewPosture().toggle`, whose own write guard makes it a no-op
-   *  off the spatial canvas (mobile / narrow) or with zero terminals — so
-   *  the keybind needs no extra guard. */
-  toggleCanvasPosture: () => void;
+  /** Hold the camera on the active tile, or release it. Wired to
+   *  `useFocusTile().toggle`, whose own guards make it a no-op off the
+   *  spatial canvas (mobile / narrow) or with no active tile — so the
+   *  keybind needs no extra guard. */
+  focusActiveTile: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -250,40 +248,13 @@ const _ACTIONS = {
     label: "Reset zoom",
     keybind: { key: "0", mod: true },
   },
-  toggleSubPanel: {
-    label: "Toggle terminal split",
-    keybind: { key: "`", code: "Backquote", ctrl: true },
-    handler: (ctx) => {
-      // Split needs a live PTY — gate on the ACTIVE arm, not bare `activeId()`
-      // (also true for a sleeping tile, which would spawn a hidden active child
-      // under a dormant parent — F3).
-      const id = activeLiveId(ctx);
-      if (id) ctx.toggleSubPanel(id);
-    },
-  },
   createSubTerminal: {
-    label: "Split terminal",
+    label: "New child terminal",
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     handler: (ctx) => {
       const id = activeLiveId(ctx);
       if (id)
         ctx.handleCreateSubTerminal(id, ctx.activeMeta()?.cwd ?? undefined);
-    },
-  },
-  nextSubTab: {
-    label: "Next split tab",
-    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    handler: (ctx) => {
-      const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, 1);
-    },
-  },
-  prevSubTab: {
-    label: "Previous split tab",
-    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    handler: (ctx) => {
-      const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, -1);
     },
   },
   shuffleTheme: {
@@ -327,14 +298,14 @@ const _ACTIONS = {
     keybind: { key: "B", code: "KeyB", mod: true, shift: true },
     handler: (ctx) => ctx.toggleDock(),
   },
-  toggleCanvasPosture: {
-    label: "Maximize / restore terminal",
-    // Mod+Shift+M — M for maximize. The shifted form matches the
+  focusActiveTile: {
+    label: "Focus tile",
+    // Mod+Shift+M — M for maximize, the gesture this replaced. The shifted form matches the
     // Mod+Shift+<letter> convention shared by toggleDock, shuffleTheme,
     // and screenshotTerminal, and stays clear of the in-PTY chords in
     // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
     keybind: { key: "M", code: "KeyM", mod: true, shift: true },
-    handler: (ctx) => ctx.toggleCanvasPosture(),
+    handler: (ctx) => ctx.focusActiveTile(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

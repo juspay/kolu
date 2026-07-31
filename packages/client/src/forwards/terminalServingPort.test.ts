@@ -18,13 +18,13 @@
  *    be searched as though it serves nothing; it simply cannot answer.
  */
 
-import { describe, expect, it } from "vitest";
-import type { GitInfo } from "kolu-git/schemas";
 import type { TerminalId } from "kolu-common/surface";
+import type { GitInfo } from "kolu-git/schemas";
+import { describe, expect, it } from "vitest";
 import {
+  type ServingCandidate,
   servingTerminalName,
   terminalServingPort,
-  type ServingCandidate,
 } from "./terminalServingPort";
 
 const id = (s: string) => s as TerminalId;

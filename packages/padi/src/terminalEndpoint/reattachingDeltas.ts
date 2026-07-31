@@ -22,8 +22,8 @@
  */
 
 import { ORPCError } from "@orpc/server";
-import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
 import type { PtyHostDataMsg } from "kaval";
+import { TERMINAL_RESET, type TerminalAttachFrame } from "../endpoint.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. Re-exported from the frame-type barrel
  *  (`endpoint.ts`, the one source of truth both sides read) so existing importers

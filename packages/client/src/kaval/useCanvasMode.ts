@@ -20,20 +20,20 @@
 
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import {
-  type CanvasFacts,
-  type CanvasMode,
-  resolveCanvasMode,
-} from "./canvasModeResolver";
 import { isConnectPhase } from "../host/connectCanvasCopy";
+import { getMonotonicNow } from "../time/clock";
+import { type LogAbsence, NO_LOG_LINES } from "../ui/logTailChrome";
 import { activeHost, connectionInfo, hostKeys, padiMap } from "../wire";
-import { NO_LOG_LINES, type LogAbsence } from "../ui/logTailChrome";
 import {
   bootDeadlineExceeded,
   pruneBootAnchors,
   recordBootFrame,
 } from "./bootDeadline";
-import { getMonotonicNow } from "../time/clock";
+import {
+  type CanvasFacts,
+  type CanvasMode,
+  resolveCanvasMode,
+} from "./canvasModeResolver";
 import {
   activeEntryState,
   daemonChannelLive,

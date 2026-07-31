@@ -14,7 +14,6 @@ import type {
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createFinishQuiet } from "./finishQuiet.ts";
 import {
   type PadiTerminal,
   PadiTerminalSchema,
@@ -22,6 +21,7 @@ import {
   urgencyEqual,
 } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createFinishQuiet } from "./finishQuiet.ts";
 
 const QUIET = 50;
 const A = "00000000-0000-4000-8000-000000000001" as TerminalId;

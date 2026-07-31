@@ -19,13 +19,13 @@ import {
 import type { Logger } from "pino";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import {
-  createActivityTracker,
-  sameActivitySet,
-} from "./terminalActivityTracker.ts";
-import {
   ACTIVITY_RESUBSCRIBE_DELAY_MS,
   resubscribeStream,
 } from "../terminalEndpoint/local.ts";
+import {
+  createActivityTracker,
+  sameActivitySet,
+} from "./terminalActivityTracker.ts";
 
 /** The `activity` stream backing shape — the live-set `source` thunk padi's
  *  `padiSurface` activity stream is wired with. Re-invoked per subscription

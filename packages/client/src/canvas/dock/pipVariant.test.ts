@@ -1,5 +1,5 @@
-import type { PipVariant } from "@kolu/solid-statepip";
 import type { TerminalMetadata } from "@kolu/padi/surface";
+import type { PipVariant } from "@kolu/solid-statepip";
 import { describe, expect, it } from "vitest";
 import type { DockRowBucket } from "./dockRowRanking";
 import { pipGlyphFor, pipVariant } from "./pipVariant";

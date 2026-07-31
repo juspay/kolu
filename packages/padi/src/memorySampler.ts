@@ -24,9 +24,9 @@
 import {
   bakedOsFactsBin,
   OsfactsClientError,
-  snapshotPids,
-  type SnapshotSourceErrorRow,
   type SnapshotReading,
+  type SnapshotSourceErrorRow,
+  snapshotPids,
   type UnreadableRow,
 } from "osfacts-client";
 import { match } from "ts-pattern";

@@ -35,7 +35,6 @@ import { z } from "zod";
 import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,
-  SubPanelStateSchema,
 } from "./chromeVocab.ts";
 
 // The UI-CHROME vocabulary (canvas layout · sub-panel · Code-tab views ·
@@ -173,7 +172,6 @@ export const ClientPersistedTerminalFieldsSchema = z.object({
   /** Canvas tile position/size — client-reported, used for session restore. */
   canvasLayout: CanvasLayoutSchema.optional(),
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
-  subPanel: SubPanelStateSchema.optional(),
   /** Right-panel per-terminal state — client-reported. Holds the fields
    *  that are *about* the terminal's task: whether the panel is showing
    *  (`collapsed`), the active tab, the code sub-mode, and the per-mode file
@@ -365,7 +363,6 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
 export const CreateTerminalInputSchema = z.object({
   themeName: z.string().min(1).optional(),
   canvasLayout: CanvasLayoutSchema.optional(),
-  subPanel: SubPanelStateSchema.optional(),
   rightPanel: RightPanelPerTerminalStateSchema.optional(),
   intent: z.string().min(1).optional(),
 });

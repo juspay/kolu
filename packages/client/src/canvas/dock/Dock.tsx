@@ -66,8 +66,8 @@ import { activeArm } from "@kolu/padi/surface";
 import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
-import type { TerminalId } from "kolu-common/surface";
 import { cwdBasename } from "kolu-common/path";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
@@ -103,9 +103,9 @@ import { ChevronDownIcon, PlusIcon, SearchIcon } from "../../ui/Icons";
 import { nextAfter } from "../../ui/nextAfter";
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
-import { useViewPosture } from "../useViewPosture";
 import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
+import { DockShortcutHint } from "./DockShortcutHint";
 import {
   CARDS_WIDTH_PX,
   clampDockCardsWidth,
@@ -113,14 +113,13 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { DockShortcutHint } from "./DockShortcutHint";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { rowSubline } from "./rowSubline";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
@@ -204,7 +203,6 @@ const Dock: Component<{
   onCreate: () => void;
 }> = (props) => {
   const tree = useDockOrder();
-  const posture = useViewPosture();
 
   // Width of the flex host the maximized dock shares with the canvas — its own
   // parent. `effectiveDockWidth` caps the rendered width to it so a stored-wide
@@ -218,12 +216,12 @@ const Dock: Component<{
   onMount(() => setHostEl(asideEl.parentElement));
   const hostSize = createElementSize(hostEl);
 
-  /** The one resizable dock surface: the maximized cards sidebar. Named once so
-   *  the width computation and the resize-handle gate stay provably
-   *  co-extensive — a handle can't render on a dock that isn't host-capped, nor
-   *  vice versa. */
-  const isResizableDock = (): boolean =>
-    posture.mode() === "maximized" && dockMode() === "cards";
+  /** The one resizable dock surface: the cards dock. Named once so the width
+   *  computation and the resize-handle gate stay provably co-extensive — a
+   *  handle can't render on a dock that isn't host-capped, nor vice versa.
+   *  (This used to also require maximized posture; with maximized mode gone
+   *  the cards dock keeps the capability rather than silently losing it.) */
+  const isResizableDock = (): boolean => dockMode() === "cards";
 
   // Live drag-in-progress width — NOT persisted. Every `pointermove` during a
   // drag would otherwise call `setDockCardsWidth`, which writes straight
@@ -304,26 +302,16 @@ const Dock: Component<{
       data-testid="dock"
       ref={asideEl}
       data-mode={dockMode()}
-      data-maximized={posture.mode() === "maximized" ? "" : undefined}
       class="flex flex-col select-none overflow-hidden bg-surface-1"
       classList={{
-        // Tiled: absolute float inside the canvas; positions over
-        // tiles rather than reflowing them. `top-6` keeps a small
-        // gutter below the (now borderless) chrome so the dock reads as
-        // a canvas tool without floating conspicuously low. Opaque
-        // background (see base class) so canvas tiles don't bleed
-        // through the seams between rows or behind the rounded corners.
-        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
-          posture.mode() === "tiled",
-        "max-h-[calc(100vh-14rem)]": posture.mode() === "tiled",
-        // Maximized: real left-panel flex sibling of the canvas. The
-        // canvas takes the remaining space via `flex-1` next to us
-        // (see TerminalCanvas). Full canvas height comes from the
-        // parent flex container (`stretch` is the default
-        // `align-items`); a right-edge separator reads as a hard
-        // panel boundary rather than a floating card.
-        "relative shrink-0 h-full border-r border-edge":
-          posture.mode() === "maximized",
+        // The dock floats inside the canvas, positioning over tiles rather
+        // than reflowing them. `top-6` keeps a small gutter below the (now
+        // borderless) chrome so it reads as a canvas tool without floating
+        // conspicuously low. Opaque background (see base class) so canvas
+        // tiles don't bleed through the seams between rows or behind the
+        // rounded corners. There is only one posture now — focusing a tile
+        // moves the camera and leaves every piece of chrome where it was.
+        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40 max-h-[calc(100vh-14rem)]": true,
       }}
       style={{ width: `${effectiveDockWidth()}px` }}
     >

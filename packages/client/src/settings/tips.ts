@@ -4,7 +4,6 @@
  * Optional `doc` links a tip to a product-docs page via DocLink.
  */
 
-import { posturedActionLabel } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
 import type { DocSlug } from "../ui/DocLink";
@@ -43,7 +42,7 @@ export const CONTEXTUAL_TIPS = {
 export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-sub",
-    text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
+    text: `${formatKeybind(ACTIONS.createSubTerminal.keybind)} opens a child terminal — its own tile beside this one, connected by an arrow`,
   },
   {
     id: "amb-host-map",
@@ -140,7 +139,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-tile-maximize",
-    text: "Double-click a tile's title bar to maximize it to the viewport. Double-click again to restore.",
+    text: "Double-click a tile's title bar to fly the camera onto it — a tile with children frames the whole group. Esc flies back.",
     doc: "tiles",
   },
   {
@@ -150,7 +149,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-chrome-maximize",
-    text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the maximize toggle in the header, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
+    text: `${formatKeybind(ACTIONS.focusActiveTile.keybind)} (or the focus button in the header) holds the camera on the active tile; Esc or a click on empty canvas flies back to the fleet.`,
     doc: "canvas",
   },
   {

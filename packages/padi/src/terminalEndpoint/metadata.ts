@@ -206,7 +206,7 @@ export function updateMemory(
 }
 
 /** Atomically mutate client-owned AUTHORED metadata (`themeName`, `parentId`,
- *  `canvasLayout`, `subPanel`, `rightPanel`, `intent`) on `entry.meta` and
+ *  `canvasLayout`, `rightPanel`, `intent`) on `entry.meta` and
  *  publish the composed record. The mutator is narrowed to `TerminalClientMetadata`
  *  so RPC handlers cannot overwrite provider-owned state. Every client field is
  *  persisted, so this arms the autosave ({@link notifyDirty}). The composed publish

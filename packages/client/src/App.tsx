@@ -28,13 +28,13 @@ import {
 import { Toaster } from "solid-sonner";
 import { match, P } from "ts-pattern";
 import AboutDialog from "./AboutDialog";
-import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
 import Dock from "./canvas/dock/Dock";
+import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
 import TileTitleActions from "./canvas/TileTitleActions";
@@ -268,7 +268,6 @@ const App: Component = () => {
         visible={true}
         focused={active()}
         theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
         onFocus={() => store.setActiveSilently(id)}
       />
     );
@@ -283,7 +282,6 @@ const App: Component = () => {
         visible={visible()}
         focused={visible()}
         theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
       />
     );
   }

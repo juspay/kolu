@@ -14,23 +14,23 @@
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
 import { gatePid, readGateIdentity } from "@kolu/surface-daemon";
 import {
   createSharedArtifactWatchdog,
-  executeVersionDispositionProof,
   type ExecutedVersionDispositionProof,
+  executeVersionDispositionProof,
   unknownProtocolFilesOnDisk,
   unknownSharedFileMessage,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { describe, expect, it } from "vitest";
 import {
   openPadiStateStores,
   PADI_STATE_SCHEMA_VERSION,

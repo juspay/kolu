@@ -23,8 +23,8 @@
 
 import { parseArgs } from "node:util";
 import { daemonProcessMain, stderrLogger } from "@kolu/surface-daemon";
-import { runPadiDaemon } from "./daemonMain.ts";
 import { log as padiDaemonLog } from "../log.ts";
+import { runPadiDaemon } from "./daemonMain.ts";
 import { runPadiStdioBridge } from "./stdioBridge.ts";
 import { installUnhandledRejectionBoundary } from "./unhandledRejectionBoundary.ts";
 

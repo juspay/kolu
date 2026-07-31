@@ -34,12 +34,12 @@ import {
 import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { rowSubline } from "./rowSubline";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockOrder } from "./useDockOrder";

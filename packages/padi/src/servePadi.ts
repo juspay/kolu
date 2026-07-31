@@ -17,29 +17,31 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
-import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
-import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
-import { ORPCError } from "@orpc/server";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
+import { ORPCError } from "@orpc/server";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
-import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
 import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
-import { cancelPendingAutosave } from "./session/autosaveGate.ts";
-import {
-  requirePadiActivityFeedStore,
-  requirePadiSessionStore,
-} from "./session/confStores.ts";
-import type { TerminalEndpoint } from "./endpoint.ts";
-import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import type { TerminalEndpoint } from "./endpoint.ts";
+import { padiFsGitDeps } from "./fsGitDeps.ts";
+import {
+  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
+  samplePadiHostInventory,
+} from "./hostInventory.ts";
+import {
+  MEMORY_SAMPLE_INTERVAL_MS,
+  samplePadiMemory,
+} from "./memorySampler.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
@@ -47,6 +49,11 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+import { cancelPendingAutosave } from "./session/autosaveGate.ts";
+import {
+  requirePadiActivityFeedStore,
+  requirePadiSessionStore,
+} from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
@@ -74,14 +81,6 @@ import {
   discardLocalSleeping,
   wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
-import {
-  HOST_INVENTORY_SAMPLE_INTERVAL_MS,
-  samplePadiHostInventory,
-} from "./hostInventory.ts";
-import {
-  MEMORY_SAMPLE_INTERVAL_MS,
-  samplePadiMemory,
-} from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
@@ -92,12 +91,12 @@ import {
   setActiveTerminalId,
   setCanvasLayout,
   setRightPanelState,
-  setSubPanelState,
   setTerminalIntent,
   setTerminalParent,
   setTerminalTheme,
   sleepTerminal,
 } from "./terminals.ts";
+import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
 import { exportTranscriptHtml } from "./transcript/transcript.ts";
 import { base64DecodedLength, rejectionFor } from "./upload.ts";
 
@@ -438,7 +437,6 @@ export function buildPadiSurfaceDeps(deps: {
           const info = createTerminal(input.cwd, input.parentId, {
             themeName: input.themeName,
             canvasLayout: input.canvasLayout,
-            subPanel: input.subPanel,
             rightPanel: input.rightPanel,
             intent: input.intent,
           });
@@ -568,13 +566,6 @@ export function buildPadiSurfaceDeps(deps: {
         setCanvasLayout: ({ input }) => {
           requireMutableTerminal(input.id);
           setCanvasLayout(input.id, input.layout);
-        },
-        setSubPanel: ({ input }) => {
-          requireMutableTerminal(input.id);
-          setSubPanelState(input.id, {
-            collapsed: input.collapsed,
-            panelSize: input.panelSize,
-          });
         },
         setRightPanel: ({ input }) => {
           requireMutableTerminal(input.id);

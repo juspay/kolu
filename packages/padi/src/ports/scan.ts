@@ -8,24 +8,24 @@
  */
 
 import {
-  type ListenerRow,
-  type ProcessRow,
-  type SnapshotFacets,
-  type SnapshotReading,
-  type SnapshotSourceErrorRow,
-  type SnapshotSourceFacet,
-  type UnreadableRow,
-  OsfactsClientError,
-  bakedOsFactsBin,
-  snapshotFacetNames,
-  snapshotSubtree,
-} from "osfacts-client";
-import {
   foldPorts,
   type PortFamily,
   type PortInfo,
   type PortScope,
 } from "@kolu/terminal-vocab/ports";
+import {
+  bakedOsFactsBin,
+  type ListenerRow,
+  OsfactsClientError,
+  type ProcessRow,
+  type SnapshotFacets,
+  type SnapshotReading,
+  type SnapshotSourceErrorRow,
+  type SnapshotSourceFacet,
+  snapshotFacetNames,
+  snapshotSubtree,
+  type UnreadableRow,
+} from "osfacts-client";
 
 /** Same budget as the client default — exported so supervisor can match it. */
 export { OSFACTS_COMMAND_TIMEOUT_MS as PORT_SCAN_COMMAND_TIMEOUT_MS } from "osfacts-client";

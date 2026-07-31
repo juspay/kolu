@@ -9,10 +9,11 @@
  *  honest state label — no fake progress bar (remote-hosts.mdx).
  */
 
+import { activePadiTerminal } from "@kolu/padi/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createReactiveSubscription } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
+import type { KoluForward, TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -23,16 +24,14 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { hostMarks } from "../attention/attentionMarks";
-import { activePadiTerminal } from "@kolu/padi/surface";
-import type { KoluForward } from "kolu-common/surface";
 import { ForwardRows } from "../forwards/ForwardRows";
 import { servingLink } from "../forwards/terminalServingPort";
-import { selectFleetTerminal } from "../palette/fleetActions";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
-import { formatTimeAgo } from "../terminal/staleness";
 import { tailOf } from "../kaval/connectCanvasView";
 import { failedEpisode } from "../kaval/useDaemonStatus";
+import { selectFleetTerminal } from "../palette/fleetActions";
+import { formatTimeAgo } from "../terminal/staleness";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import {
   LOG_TAIL_LINE,
   LOG_TAIL_SURFACE,

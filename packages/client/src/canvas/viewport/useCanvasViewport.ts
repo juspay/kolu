@@ -6,8 +6,9 @@
 
 import type { Accessor } from "solid-js";
 import { activeScope } from "../../hostScope/hostScopes";
+import type { Camera } from "../../useViewState";
 import type { TileLayout } from "../TileLayout";
-import { animatePan } from "./animatedPan";
+import { animateCamera } from "./animatedCamera";
 import {
   canvasTransformCSS,
   gridBgPositionCSS,
@@ -17,7 +18,10 @@ import { installGestures } from "./gestures";
 import {
   accumulateZoom,
   applyGestureBatch,
+  boundingBox,
   computeCenterPan,
+  FIT_PADDING_PX,
+  fitBox,
   type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
@@ -49,6 +53,10 @@ const zoom = (): number => cam()?.zoom() ?? 1;
 const setPanX = (v: number): void => cam()?.setPanX(v);
 const setPanY = (v: number): void => cam()?.setPanY(v);
 const setZoom = (v: number): void => cam()?.setZoom(v);
+
+/** The zoom ceiling a focus fit may reach. 1 = native resolution: focusing
+ *  never enlarges a terminal, so glyphs are never resampled. */
+const FOCUS_MAX_ZOOM = 1;
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
@@ -159,6 +167,26 @@ export interface CanvasViewport {
   /** Pan so canvas-space point (x, y) is centered in the viewport.
    *  Same animation + cancel semantics as `centerOnTile`. */
   panTo: (x: number, y: number) => void;
+  /** Fly the camera so the given canvas-space boxes fill the viewport — the
+   *  focus gesture that replaced maximized mode. Pass one tile's layout to
+   *  focus it, or a parent plus its descendants to fit the subtree. */
+  fitTo: (boxes: readonly TileLayout[]) => void;
+  /** Fly to an explicit pose — used to return to a remembered camera. */
+  flyTo: (pose: Camera) => void;
+  /** The current camera pose, for remembering before a focus move. */
+  pose: () => Camera;
+  /** The tile the camera is held on, or null when free. Focus is per-host
+   *  (it lives on the host's camera), so switching hosts shows that host's
+   *  own focus state with no restore step. */
+  focusedTileId: Accessor<string | null>;
+  /** Hold the camera on a tile, remembering the current pose to fly back to.
+   *  This only records the INTENT — `TerminalCanvas` watches `focusedTileId`
+   *  and performs the actual fit, because that is where tile layouts live. */
+  focusTile: (id: string) => void;
+  /** Release focus; the canvas flies back to the remembered pose. */
+  releaseFocus: () => void;
+  /** Read-and-clear the pose to fly back to (the canvas consumes this). */
+  takeRestorePose: () => Camera | null;
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
@@ -261,26 +289,60 @@ function targetForPoint(
   );
 }
 
-function startAnimatedPan(target: { panX: number; panY: number }) {
+/** The single animated-pose writer. Every programmatic camera move — center,
+ *  pan-to-point, fit-a-subtree, fly-back-to-a-remembered-pose — lands here, so
+ *  they all share one arbitration against gestures and one in-flight tween. */
+function flyTo(target: Camera) {
   abortTransientInput();
-  currentAnim = animatePan(
-    { x: panX(), y: panY() },
-    { x: target.panX, y: target.panY },
-    (x, y) => {
+  currentAnim = animateCamera(
+    { panX: panX(), panY: panY(), zoom: zoom() },
+    target,
+    (x, y, z) => {
       setPanX(x);
       setPanY(y);
+      setZoom(z);
     },
   );
 }
 
+/** Current camera pose — the value a caller remembers so it can fly back
+ *  (TR1: Esc returns to where you were before you focused a tile). */
+function pose(): Camera {
+  return { panX: panX(), panY: panY(), zoom: zoom() };
+}
+
 function centerOnTile(tile: TileLayout) {
   const t = targetForTile(tile);
-  if (t) startAnimatedPan(t);
+  // Centering keeps the current zoom — only `fitTo` changes it.
+  if (t) flyTo({ ...t, zoom: zoom() });
 }
 
 function panTo(x: number, y: number) {
   const t = targetForPoint(x, y);
-  if (t) startAnimatedPan(t);
+  if (t) flyTo({ ...t, zoom: zoom() });
+}
+
+/** Fly the camera so `boxes` fill the viewport — TR1's "maximize". One box
+ *  fits that tile; a parent's whole subtree fits the group. A no-op with no
+ *  boxes or before the container mounts (no real dimensions to fit into). */
+function fitTo(boxes: readonly TileLayout[]) {
+  if (!containerEl) return;
+  const box = boundingBox(boxes);
+  if (!box) return;
+  flyTo(
+    fitBox(
+      box.minX,
+      box.minY,
+      box.maxX,
+      box.maxY,
+      containerEl.clientWidth,
+      containerEl.clientHeight,
+      FIT_PADDING_PX,
+      // Never magnify — see `fitBox`. A terminal is a raster; upscaling it
+      // resamples type that was already rendered at device resolution.
+      FOCUS_MAX_ZOOM,
+    ),
+  );
 }
 
 function setPan(x: number, y: number) {
@@ -331,6 +393,13 @@ const viewport: CanvasViewport = {
   normalizeDelta,
   centerOnTile,
   panTo,
+  fitTo,
+  flyTo,
+  pose,
+  focusedTileId: () => cam()?.focusedTileId() ?? null,
+  focusTile: (id: string) => cam()?.focusTile(id, pose()),
+  releaseFocus: () => cam()?.releaseFocus(),
+  takeRestorePose: () => cam()?.takeRestorePose() ?? null,
   setPan,
   abortTransientInput,
   viewportSize,

@@ -11,6 +11,7 @@
  *  would freeze the memo for every later consumer with no error to
  *  point at. */
 
+import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { useAttentionFacts } from "../../attention/useAttentionFacts";
 import { createSharedRoot } from "../../createSharedRoot";
@@ -18,9 +19,9 @@ import { showSleeping } from "../../terminal/showSleeping";
 import { useStaleCheck } from "../../terminal/staleness";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { useTileStore } from "../../tile/useTileStore";
+import { encActiveHost } from "../../wire";
 import { rankDockRows } from "./dockRowRanking";
 import { buildDockTree, type DockTree } from "./dockTree";
-import { encActiveHost } from "../../wire";
 
 export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   const store = useTerminalStore();
@@ -47,15 +48,26 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
   // colour from metadata that arrives on a different subscription. `classOf`
   // deliberately does not read the live set: row order and colour move on agent
   // transitions, not on the ~1 s byte tick.
-  const ranked = createMemo(() =>
-    rankDockRows(
-      tileStore.tileIds(),
+  const ranked = createMemo(() => {
+    // ROOT rows only. `tileIds()` is every terminal now (a child is a tile), so
+    // handing it in whole would render each child twice — once as a top-level
+    // row and again as its parent's sub-row. A terminal whose parent is not on
+    // this host's canvas is a root here, which keeps the projection total: it
+    // gets a row of its own rather than waiting for a parent that never comes.
+    const ids = tileStore.tileIds();
+    const present = new Set(ids);
+    const roots = ids.filter((id) => {
+      const parentId = store.getMetadata(id)?.parentId;
+      return !parentId || !present.has(parentId as TerminalId);
+    });
+    return rankDockRows(
+      roots,
       store.getMetadata,
       isStale,
       (id) => facts.classOf(encActiveHost(), id),
       store.getSubTerminalIds,
-    ),
-  );
+    );
+  });
   return createMemo(() =>
     buildDockTree(ranked(), store.getDisplayInfo, !showSleeping()),
   );

@@ -18,9 +18,9 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, Show } from "solid-js";
+import MobileHostRow from "./host/MobileHostRow";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import MobileHostRow from "./host/MobileHostRow";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";

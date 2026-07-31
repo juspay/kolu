@@ -66,7 +66,6 @@ import {
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
-import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
@@ -88,20 +87,21 @@ import {
 } from "kolu-git/schemas";
 import { z } from "zod";
 import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+} from "./chromeVocab.ts";
+import type { ClientErrorPolicy } from "./clientPolicy.ts";
+import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
 } from "./transcript/transcriptSchema.ts";
 import {
-  CanvasLayoutSchema,
-  RightPanelPerTerminalStateSchema,
-} from "./chromeVocab.ts";
-import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
-  DaemonStatusSchema,
-  DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
+  DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
   KavalSkewVersionsSchema,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
@@ -120,12 +120,12 @@ import {
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
-export * from "./vocab.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
 // re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
+export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -285,8 +285,18 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  may only subtract from). Not additive — a 4.4 peer that still speaks
  *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
  *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
- *  give: convergence + minor-rule drain keeps the two shapes from meeting. */
-export const PADI_SURFACE_VERSION = "4.5";
+ *  give: convergence + minor-rule drain keeps the two shapes from meeting.
+ *
+ *  5.0 (REMOVED procedure · MAJOR): `chrome.setSubPanel` is gone with the
+ *  in-tile split it configured — every terminal is its own canvas tile now, so
+ *  there is no sub-panel to collapse or size. A removal is shape-breaking in
+ *  BOTH skew directions (an old client calls a procedure this padi no longer
+ *  has; a new client would find one on an old padi it no longer speaks), which
+ *  is exactly the argument the 4.0 bump records for `lifecycle.restoreSleeping`
+ *  — so it takes the major and the drain that comes with it. The persisted
+ *  `subPanel` metadata field goes with it; zod strips the unknown key, so a
+ *  session written by an older padi still loads and simply forgets it. */
+export const PADI_SURFACE_VERSION = "5.0";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -730,12 +740,6 @@ export const PadiSetCanvasLayoutInputSchema = z.object({
   layout: CanvasLayoutSchema,
 });
 
-export const PadiSetSubPanelInputSchema = z.object({
-  id: TerminalIdSchema,
-  collapsed: z.boolean(),
-  panelSize: z.number(),
-});
-
 export const PadiSetRightPanelInputSchema =
   RightPanelPerTerminalStateSchema.extend({ id: TerminalIdSchema });
 
@@ -1093,7 +1097,6 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       setParent: { input: PadiSetParentInputSchema },
       setActive: { input: PadiSetActiveInputSchema },
       setCanvasLayout: { input: PadiSetCanvasLayoutInputSchema },
-      setSubPanel: { input: PadiSetSubPanelInputSchema },
       setRightPanel: { input: PadiSetRightPanelInputSchema },
     },
     /** Screen reads — the serialized screen + a scrollback text slice. */

@@ -36,13 +36,13 @@
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
+import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
+import { ptyHostClient } from "../ptyHost/index.ts";
 import {
   getLastPairedDaemon,
   isReplacedDaemon,
   recordPairedDaemon,
 } from "../session/pairedDaemon.ts";
-import { readDaemonStatus, setAdoptedCount } from "../ptyHost/daemonStatus.ts";
-import { ptyHostClient } from "../ptyHost/index.ts";
 import { reconcile } from "../session/reconcile.ts";
 import {
   clearSavedSession,

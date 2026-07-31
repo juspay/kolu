@@ -116,10 +116,6 @@ export const KOLU_MCP_DENIED: readonly { member: string; reason: string }[] = [
     reason: "browser canvas arrangement — meaningless for an agent",
   },
   {
-    member: "chrome.setSubPanel",
-    reason: "browser canvas arrangement — meaningless for an agent",
-  },
-  {
     member: "chrome.setRightPanel",
     reason: "browser canvas arrangement — meaningless for an agent",
   },

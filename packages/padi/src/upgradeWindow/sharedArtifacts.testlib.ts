@@ -10,6 +10,7 @@
  */
 
 export type { SharedArtifact } from "@kolu/surface-daemon";
+
 import type { SharedArtifact } from "@kolu/surface-daemon";
 
 /**

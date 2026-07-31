@@ -3,14 +3,14 @@
  * against fixture TSV. Live OS proofs live in `scan.live.test.ts`.
  */
 
-import { describe, expect, it } from "vitest";
 import { parseSnapshotOutput } from "osfacts-client";
+import { describe, expect, it } from "vitest";
 import {
   addressBind,
   decodeNetworkAddress,
+  type ProcessRow,
   partitionSubtrees,
   sourceErrorsMessage,
-  type ProcessRow,
   unreadablePolicy,
 } from "./scan.ts";
 

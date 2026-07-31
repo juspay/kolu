@@ -17,16 +17,16 @@
  *     known DEFINED agent pid, never a false `undefined`, so it emits `unknown` not null.
  */
 
-import pino from "pino";
-import { describe, expect, it } from "vitest";
-import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { inMemoryChannel } from "@kolu/surface/server";
-import type { ForegroundSample } from "kaval";
 import type {
-  TerminalPorts,
   TerminalEvent,
   TerminalId,
+  TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
+import type { AgentAdapter, AgentInfoShape } from "anyagent";
+import type { ForegroundSample } from "kaval";
+import pino from "pino";
+import { describe, expect, it } from "vitest";
 import {
   type CommandRunSample,
   type SensorSignals,

@@ -7,7 +7,7 @@
 
 import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
-import { useViewPosture } from "./canvas/useViewPosture";
+import { useFocusTile } from "./canvas/useFocusTile";
 import { showsWorkspaceSwitcher } from "./capabilities";
 import type { ActionContext } from "./input/actions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
@@ -17,7 +17,6 @@ import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { shortcutsHelp } from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
-import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTerminalSearch } from "./terminal/useTerminalSearch";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -27,9 +26,8 @@ import { useThemeManager } from "./useThemeManager";
 export function useActionContext(): ActionContext {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
-  const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
-  const posture = useViewPosture();
+  const focusTile = useFocusTile();
   const commandPalette = useCommandPalette();
   const terminalSearch = useTerminalSearch();
   const { handleShuffleTheme } = useThemeManager();
@@ -65,13 +63,6 @@ export function useActionContext(): ActionContext {
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,
-    toggleSubPanel: crud.toggleSubPanel,
-    cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(
-        parentId,
-        store.getSubTerminalIds(parentId),
-        direction,
-      ),
     handleShuffleTheme,
     handleScreenshotTerminal: () => {
       const id = store.activeId();
@@ -79,7 +70,7 @@ export function useActionContext(): ActionContext {
     },
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,
-    toggleCanvasPosture: posture.toggle,
+    focusActiveTile: focusTile.toggle,
     // Lazy `useRecorder()` defers recorder init to the first toggle, not boot.
     toggleRecordingPause: () => useRecorder().togglePause(),
   };

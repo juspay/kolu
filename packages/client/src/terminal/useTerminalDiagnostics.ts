@@ -13,11 +13,11 @@
  *  store for UI subscription. Same lifecycle, different volatility axes
  *  — both registrations happen in Terminal.tsx onMount/onCleanup. */
 
+import type { ScrollLockEvent } from "@kolu/xterm-kit/solid";
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, createRoot } from "solid-js";
 import { createStore, produce } from "solid-js/store";
-import type { ScrollLockEvent } from "@kolu/xterm-kit/solid";
 
 export type Renderer = "webgl" | "dom";
 

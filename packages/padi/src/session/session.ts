@@ -9,11 +9,11 @@
  * blob read/write, and the named writers cancel a pending autosave through the gate.
  */
 
-import { cancelPendingAutosave } from "./autosaveGate.ts";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import type { SavedSession, SavedTerminal } from "../vocab.ts";
+import { cancelPendingAutosave } from "./autosaveGate.ts";
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
 function writeSession(next: SavedSession | null): void {

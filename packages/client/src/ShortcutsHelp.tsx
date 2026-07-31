@@ -30,12 +30,9 @@ const HELP_ORDER: readonly { id: ActionId; label?: string }[] = [
   { id: "zoomIn" },
   { id: "zoomOut" },
   { id: "zoomReset" },
-  { id: "toggleSubPanel" },
   { id: "createSubTerminal" },
-  { id: "nextSubTab" },
-  { id: "prevSubTab" },
   { id: "toggleRightPanel" },
-  { id: "toggleCanvasPosture" },
+  { id: "focusActiveTile" },
   { id: "shortcutsHelp" },
 ];
 

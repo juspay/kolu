@@ -16,7 +16,9 @@ import { describe, expect, it } from "vitest";
 import {
   accumulateZoom,
   applyGestureBatch,
+  boundingBox,
   computeCenterPan,
+  fitBox,
   type GestureBatch,
   MAX_ZOOM,
   MIN_ZOOM,
@@ -214,5 +216,78 @@ describe("accumulateZoom (per-event clamping)", () => {
     close(got.zoom, ref.zoom);
     close(got.panX, ref.panX);
     close(got.panY, ref.panY);
+  });
+});
+
+/** `fitBox` is TR1's "maximize": focusing a tile flies the camera to the pose
+ *  where that tile (or a whole focused subtree) fills the viewport. These pin
+ *  the two properties the gesture depends on — the box really is centered, and
+ *  it really does fit — plus the clamps that keep a degenerate input safe. */
+describe("boundingBox", () => {
+  it("spans every box", () => {
+    expect(
+      boundingBox([
+        { x: 10, y: 20, w: 100, h: 50 },
+        { x: 200, y: 5, w: 40, h: 400 },
+      ]),
+    ).toEqual({ minX: 10, minY: 5, maxX: 240, maxY: 405 });
+  });
+
+  it("is null for an empty set — callers must not fit nothing", () => {
+    expect(boundingBox([])).toBeNull();
+  });
+});
+
+describe("fitBox", () => {
+  const VW = 1200;
+  const VH = 800;
+
+  it("centers the box in the viewport", () => {
+    const pose = fitBox(100, 100, 500, 400, VW, VH);
+    const center = viewportCenter(pose.panX, pose.panY, VW, VH, pose.zoom);
+    close(center.x, 300);
+    close(center.y, 250);
+  });
+
+  it("fits the box inside the viewport, honouring the padding", () => {
+    const pad = 32;
+    const pose = fitBox(0, 0, 400, 300, VW, VH, pad);
+    // Projected screen size must not exceed the padded viewport.
+    expect(400 * pose.zoom).toBeLessThanOrEqual(VW - 2 * pad + 1e-9);
+    expect(300 * pose.zoom).toBeLessThanOrEqual(VH - 2 * pad + 1e-9);
+  });
+
+  it("magnifies a small box when allowed to", () => {
+    expect(fitBox(0, 0, 200, 150, VW, VH).zoom).toBeGreaterThan(1);
+  });
+
+  it("never magnifies past maxZoom — focus passes 1 so type is never resampled", () => {
+    // A terminal is a raster: upscaling it resamples glyphs xterm already
+    // drew at device resolution, which is what made the magnified focus look
+    // soft. Capping at 1 keeps a focused terminal pixel-exact.
+    expect(fitBox(0, 0, 200, 150, VW, VH, 32, 1).zoom).toBe(1);
+    expect(fitBox(0, 0, 800, 540, VW, VH, 32, 1).zoom).toBe(1);
+    // The cap is a CEILING, not a floor — a subtree too big to fit still
+    // zooms out, because that is the only way to frame the group.
+    expect(fitBox(0, 0, 6000, 4000, VW, VH, 32, 1).zoom).toBeLessThan(1);
+  });
+
+  it("shrinks to fit a subtree larger than the viewport", () => {
+    const pose = fitBox(0, 0, 6000, 4000, VW, VH);
+    expect(pose.zoom).toBeLessThan(1);
+  });
+
+  it("clamps zoom to the canvas range", () => {
+    expect(fitBox(0, 0, 1, 1, VW, VH).zoom).toBeLessThanOrEqual(MAX_ZOOM);
+    expect(fitBox(0, 0, 1e6, 1e6, VW, VH).zoom).toBeGreaterThanOrEqual(
+      MIN_ZOOM,
+    );
+  });
+
+  it("survives a degenerate box and a padding larger than the viewport", () => {
+    expect(Number.isFinite(fitBox(50, 50, 50, 50, VW, VH).zoom)).toBe(true);
+    expect(Number.isFinite(fitBox(0, 0, 100, 100, 40, 40, 500).zoom)).toBe(
+      true,
+    );
   });
 });

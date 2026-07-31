@@ -7,7 +7,6 @@
  * (its local-machine `daemonInventory.localScan` under a remote binding) reuse.
  */
 
-import type { PadiDaemon } from "./stateRoot.ts";
 import type { KavalDaemon } from "kaval";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,6 +16,7 @@ import {
   type KavalProbe,
   withSelfPadi,
 } from "./hostInventory.ts";
+import type { PadiDaemon } from "./stateRoot.ts";
 
 const DIGEST = "/run/user/1000/kaval-abc123/pty-host.sock";
 const ACTIVE = DIGEST;

@@ -23,11 +23,6 @@ export const CanvasLayoutSchema = z.object({
   h: z.number(),
 });
 
-export const SubPanelStateSchema = z.object({
-  collapsed: z.boolean(),
-  panelSize: z.number(),
-});
-
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
 export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
 

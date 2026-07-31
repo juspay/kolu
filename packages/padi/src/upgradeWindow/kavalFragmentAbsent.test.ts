@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { daemonBuild } from "@kolu/surface-daemon";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
@@ -17,7 +18,6 @@ import {
 } from "kaval";
 import { expect, it } from "vitest";
 import { probeKavalForConvergence } from "../ptyHost/connect.ts";
-import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
 
 describeDaemon("yesterday kaval without the frozen fragment", () => {

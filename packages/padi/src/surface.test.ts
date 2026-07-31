@@ -54,7 +54,7 @@ describe("padiSurface contract", () => {
     // 4.4 (minor): a NEW `fs.listIgnored` procedure (git's collapsed gitignored
     // listing, behind the Code tab's show-ignored toggle). Purely additive —
     // `fs.listAll` is untouched — so the plainest minor there is.
-    expect(PADI_SURFACE_VERSION).toBe("4.5");
+    expect(PADI_SURFACE_VERSION).toBe("5.0");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -132,7 +132,7 @@ describe("padiSurface contract", () => {
       "setParent",
       "setActive",
       "setCanvasLayout",
-      "setSubPanel",
+
       "setRightPanel",
     ]);
     expect(Object.keys(procs.screen ?? {})).toEqual([

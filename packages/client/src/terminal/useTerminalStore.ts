@@ -14,23 +14,18 @@ import { activeArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { useViewState } from "../useViewState";
 import { terminalListSub } from "../hostScope/activeWire";
-import { useSubPanel } from "./useSubPanel";
+import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
-import {
-  admitWebglTiles,
-  isActiveSplit,
-  tileWebglCost,
-  WEBGL_CONTEXT_CAP,
-} from "./webglBudget";
+import { useTileFocus } from "./useTileFocus";
+import { admitWebglTiles, WEBGL_CONTEXT_CAP } from "./webglBudget";
 
 export const useTerminalStore = createSharedRoot(() => {
   const view = useViewState();
   const metadata = useTerminalMetadata({
     list: terminalListSub,
   });
-  const subPanel = useSubPanel();
+  const tileFocus = useTileFocus();
 
   /** The terminal currently receiving input, narrowed to a live PTY. The focus
    *  identity itself is the per-host fact in `createViewState`; this accessor
@@ -64,38 +59,18 @@ export const useTerminalStore = createSharedRoot(() => {
         .filter((id) => activeArm(metadata.getMetadata(id)) !== undefined),
     );
     const ordered = view.mruOrder().filter((id) => live.has(id));
-    // `tileWebglCost` is the one home for a tile's context cost (main pane + an
-    // expanded, active split), so the running count is the true number of live
-    // WebGL contexts — admitting the full working set churn-free (#1399) while
-    // staying under Chrome's per-tab limit (#575). `holdsWebgl` below maps the
-    // same split rule down to individual terminals via `isActiveSplit`.
-    return admitWebglTiles(
-      ordered,
-      (id) => tileWebglCost(subPanel.peekSubPanel(id)),
-      WEBGL_CONTEXT_CAP,
-    );
+    // Every tile is exactly one PTY now, so every tile costs exactly one
+    // context — admitting the full working set churn-free (#1399) while staying
+    // under Chrome's per-tab limit (#575).
+    return admitWebglTiles(ordered, () => 1, WEBGL_CONTEXT_CAP);
   });
 
-  /** Whether `id` should hold a WebGL renderer under the budget. A budgeted
-   *  tile's slot covers its main pane AND its active split — the split inherits
-   *  the tile's renderer, so focusing into it never swaps the main pane to DOM
-   *  and the 7.7% divergence never appears side-by-side within one tile. A
-   *  non-active split of a budgeted tile, and every tile outside the budget,
-   *  fall back to xterm's DOM renderer. Sibling of `focusedId`: the one place
-   *  that maps the tile-level budget down to individual terminals (main vs.
-   *  split). Note this diverges from "is focused" — an unfocused budget tile
-   *  keeps WebGL — so it is deliberately distinct from the `isFocused` gate
-   *  that still drives zoom and `data-focused`. */
+  /** Whether `id` should hold a WebGL renderer under the budget. A tile is one
+   *  terminal, so this is simply budget membership. Note it diverges from "is
+   *  focused" — an unfocused budgeted tile keeps WebGL — so it stays distinct
+   *  from the `isFocused` gate that drives zoom and `data-focused`. */
   function holdsWebgl(id: TerminalId): boolean {
-    const budget = webglTileBudget();
-    const parentId = metadata.getMetadata(id)?.parentId ?? null;
-    if (parentId === null) return budget.includes(id);
-    const panel = subPanel.peekSubPanel(parentId);
-    // A budgeted tile's slot covers exactly its active split (a collapsed split
-    // is invisible and holds no context). `isActiveSplit` is the same predicate
-    // `tileWebglCost` builds the budget from, so this per-terminal grant and the
-    // budgeted count can't drift apart.
-    return budget.includes(parentId) && isActiveSplit(panel, id);
+    return webglTileBudget().includes(id);
   }
 
   // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
@@ -123,24 +98,14 @@ export const useTerminalStore = createSharedRoot(() => {
   // to fall into.
   const activeMeta = () => active().meta;
 
-  /** Select a top-level tile without panning. Its existing panel chrome decides
-   *  which visible pane receives input, then that choice is committed to the
-   *  same one per-host focus fact. */
+  /** Select a tile without panning. Any terminal is a legal target — a child
+   *  is a first-class tile now, not a pane hidden inside its parent. */
   function setActiveSilently(id: TerminalId | null): void {
     if (id === null) {
-      subPanel.clearFocus();
+      tileFocus.clearFocus();
       return;
     }
-    const record = metadata.getMetadata(id);
-    // Creation returns the new top-level id before its streamed metadata can
-    // arrive. The caller already names a tile; write its id as the gap hint and
-    // let live metadata supersede that hint as soon as it is present.
-    if (record && record.parentId !== null && record.parentId !== undefined) {
-      throw new Error(
-        `setActiveSilently: ${id} is a split; use focusTerminal instead`,
-      );
-    }
-    subPanel.focusVisiblePane(id);
+    tileFocus.focusTerminal(id);
   }
 
   /** Select a top-level tile and ask the canvas to center it. */
@@ -149,33 +114,20 @@ export const useTerminalStore = createSharedRoot(() => {
     if (id !== null) view.requestCenterActive();
   }
 
-  /** Explicitly land on a top-level terminal's main pane and center its tile.
-   *  The tile registry can name a newly-created tile before metadata arrives, so
-   *  absence is accepted; a live split record is a caller error. */
+  /** Land on a tile and center it. Every terminal is a tile, so there is no
+   *  longer a "this id is a split" caller error to raise. */
   function focusMainTerminal(id: TerminalId): void {
-    const record = metadata.getMetadata(id);
-    if (record && record.parentId !== null && record.parentId !== undefined) {
-      throw new Error(`focusMainTerminal: ${id} is a split`);
-    }
-    subPanel.focusMainPane(id);
+    tileFocus.focusTerminal(id);
     view.requestCenterActive();
   }
 
-  /** Land on any terminal without asking a canvas to pan. A top-level landing
-   *  focuses its main pane; a split landing first makes that split the visible
-   *  remembered tab. This is the explicit row/terminal verb: its target id fully
-   *  determines the pane, with no remembered-pane lookup. Touch layouts use it
-   *  because they own no canvas, while desktop composes centering below. */
+  /** Land on any terminal without asking a canvas to pan. Touch layouts use
+   *  this because they own no canvas; desktop composes centering below. */
   function focusTerminalSilently(id: TerminalId): void {
     const record = metadata.getMetadata(id);
     if (!record)
       throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
-    const parentId = record.parentId ?? null;
-    if (parentId === null) {
-      subPanel.focusMainPane(id);
-      return;
-    }
-    subPanel.focusSubTab(parentId, id);
+    tileFocus.focusTerminal(id);
   }
 
   /** Land on any terminal and ask the desktop canvas to center its tile. */

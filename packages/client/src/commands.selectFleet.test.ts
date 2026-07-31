@@ -1,7 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { selectFleetTerminal } from "./palette/fleetActions";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
+import { describe, expect, it, vi } from "vitest";
+import { selectFleetTerminal } from "./palette/fleetActions";
 
 const LOCAL: HostKey = { kind: "local" };
 const REMOTE: HostKey = { kind: "remote", target: "zest" };

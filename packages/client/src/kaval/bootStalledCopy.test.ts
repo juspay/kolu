@@ -5,13 +5,13 @@
  *  connect phase — so the card never renders a blank, a duplicate, or a terminal lie. */
 
 import { describe, expect, it } from "vitest";
-import type { ClientStalledLeg } from "./canvasModeResolver";
 import {
   BOOT_STALLED_COPY,
   bootStalledCopy,
   bootStalledPhaseDetail,
   CONNECTOR_STALLED_COPY,
 } from "./bootStalledCopy";
+import type { ClientStalledLeg } from "./canvasModeResolver";
 
 const CLIENT_LEGS: ClientStalledLeg[] = ["membership", "session", "daemon"];
 

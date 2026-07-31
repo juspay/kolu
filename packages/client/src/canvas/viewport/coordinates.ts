@@ -46,6 +46,22 @@ export function tileTransformCSS(
   return `translate(${tx}px, ${ty}px) scale(${zoom})`;
 }
 
+/** Project a canvas-space point to screen-space (container-relative px) — the
+ *  same mapping `tileTransformCSS` bakes into a tile's transform, exposed as a
+ *  value for anything that has to draw BETWEEN tiles rather than inside one.
+ *  The parent→child edges use it: drawing them in screen space (instead of
+ *  putting the overlay under a scaled transform) keeps stroke width and label
+ *  type at their natural size, so an edge stays readable at any zoom. */
+export function canvasToScreen(
+  x: number,
+  y: number,
+  panX: number,
+  panY: number,
+  zoom: number,
+): { x: number; y: number } {
+  return { x: (x - panX) * zoom, y: (y - panY) * zoom };
+}
+
 /** CSS background-position for the grid, tracking pan+zoom. */
 export function gridBgPositionCSS(
   panX: number,

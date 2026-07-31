@@ -3,16 +3,16 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { PTY_HOST_CONTRACT_VERSION } from "kaval";
+import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { connectKaval } from "../ptyHost/connect.ts";
-import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
-import { PTY_HOST_CONTRACT_VERSION } from "kaval";
 
 const skewSurface = defineSurface({
   procedures: {

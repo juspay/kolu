@@ -33,6 +33,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
+import {
   type UnixSocketConnection,
   unixSocketLink,
 } from "@kolu/surface/links/unix-socket";
@@ -50,12 +54,8 @@ import {
   unknownSharedFileMessage,
   waitForSocket,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
-import {
-  assertDaemonSpawnAllowed,
-  describeDaemon,
-} from "@kolu/daemon-test-gate";
-import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { KAVAL_GATE_FILE } from "kaval";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
   padiGatePath,
   padiKavalSocketPath,

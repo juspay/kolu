@@ -1,13 +1,13 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
+import type { HostKey } from "kolu-common/hostKey";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
-import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -16,13 +16,14 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import { useFocusTile } from "./canvas/useFocusTile";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
 import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   ACTIONS,
   type ActionContext,
@@ -31,7 +32,6 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
-import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -42,8 +42,8 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
-import { useTileStore } from "./tile/useTileStore";
 import { themePaletteGroup } from "./themePalette";
+import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
@@ -145,13 +145,10 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
-  // memo reads `mode()`/`canMaximize()` so the command's label and
-  // visibility track posture reactively. The *write* path stays on
-  // `deps.toggleCanvasPosture` (the shared `ActionContext` seam the keyboard
-  // shortcut also uses), so the two surfaces never drift if App later wraps
-  // the toggle with a guard or telemetry.
-  const posture = useViewPosture();
+  // Camera focus — the reader half. Visibility tracks `canFocus()`; the
+  // *write* path stays on `deps.focusActiveTile` (the shared `ActionContext`
+  // seam the keyboard shortcut also uses), so the two surfaces never drift.
+  const focusTile = useFocusTile();
   const tileStore = useTileStore();
   const crud = useTerminalCrud();
   // Fleet-wide terminal index — every connected host's terminals, ranked by
@@ -338,9 +335,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // both arms (they touch persisted fields, not a live PTY).
           ...(activeArm(deps.activeMeta())
             ? [
-                actionPaletteCommand("toggleSubPanel", deps, {
-                  section: "active-terminal",
-                }),
                 actionPaletteCommand("createSubTerminal", deps, {
                   section: "active-terminal",
                 }),
@@ -430,18 +424,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     // --- Canvas (desktop only — spatial tile actions) ---
     ...(supportsSpatialCanvas()
       ? [
-          // Maximize / restore — gated on a tile existing (posture's own
-          // `canMaximize`, matching the ChromeBar button being disabled at
-          // zero terminals). The label describes the action a select
-          // performs, so when already maximized it reads "Restore canvas",
-          // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. Carries the keybind chip so the palette advertises
-          // the Mod+Shift+M shortcut from one source of truth.
-          ...(posture.canMaximize()
+          // Focus the camera on the active tile — gated on there being one to
+          // focus, matching the ChromeBar button being disabled at zero
+          // terminals. Carries the keybind chip so the palette advertises the
+          // Mod+Shift+M shortcut from one source of truth.
+          ...(focusTile.canFocus()
             ? [
-                actionPaletteCommand("toggleCanvasPosture", deps, {
+                actionPaletteCommand("focusActiveTile", deps, {
                   section: "canvas",
-                  name: posturedActionLabel(posture.mode()),
+                  name: focusTile.isFocused() ? "Release focus" : "Focus tile",
                 }),
               ]
             : []),

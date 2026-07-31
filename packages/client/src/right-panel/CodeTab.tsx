@@ -72,6 +72,8 @@ import { isDesktop, isTouch } from "../useMobile";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
+import FileSearchInput from "./FileSearchInput";
+import { projectFileTreeSearch } from "./fileSearch";
 import {
   codeActiveStatus,
   codeAllPaths,
@@ -80,8 +82,6 @@ import {
   codeIgnoredPaths,
   codeLocalStatus,
 } from "./hostCodeTab";
-import FileSearchInput from "./FileSearchInput";
-import { projectFileTreeSearch } from "./fileSearch";
 import {
   type OpenInCodeTabRequest,
   openInCodeTab,

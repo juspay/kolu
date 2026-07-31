@@ -19,15 +19,15 @@
  *  deletes the record: "either of two roots may do the delete" was a coherence
  *  rule maintained by two matching comments rather than by the structure. */
 
-import {
-  emptyByClass,
-  type HostAttentionFrame,
-  hostActiveIds,
-  frameClassOf,
-  type TerminalAttention,
-} from "./attentionFacts";
 import type { AttentionClass, TerminalId } from "kolu-common/surface";
 import { createStore, produce } from "solid-js/store";
+import {
+  emptyByClass,
+  frameClassOf,
+  type HostAttentionFrame,
+  hostActiveIds,
+  type TerminalAttention,
+} from "./attentionFacts";
 
 export interface HostMarks extends HostAttentionFrame {
   /** Finished-but-unvisited terminals on this host — the amber count. */

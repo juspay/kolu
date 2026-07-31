@@ -20,6 +20,7 @@ import {
   rowAction,
 } from "./portAction";
 import type { PortRow } from "./portRows";
+
 describe("FORWARD_REASON", () => {
   it("has words for every forward mechanism, and says which is which", () => {
     // A `Record` over the union makes a missing arm a compile error; this pins that

@@ -2,6 +2,8 @@
  *  Encapsulates the zoom/pan algorithm so it can evolve (easing, constraints,
  *  undo) without touching gesture input or CSS generation. */
 
+import type { Camera } from "../../useViewState";
+
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 3;
 export const GRID_SIZE = 24;
@@ -42,6 +44,76 @@ export function computeCenterPan(
     panX: centerX - viewportW / (2 * zoom),
     panY: centerY - viewportH / (2 * zoom),
   };
+}
+
+/** Screen-space breathing room left around a focused box, in px. */
+export const FIT_PADDING_PX = 32;
+
+/** Axis-aligned bounding box of a set of boxes, or `null` for an empty set.
+ *  The single home for the "what does this group of tiles span" walk that the
+ *  camera's fit, the restore-time centering, and the minimap all need — so a
+ *  fit and a fallback-center can never disagree about a subtree's extent. */
+export function boundingBox(
+  boxes: readonly { x: number; y: number; w: number; h: number }[],
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const b of boxes) {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
+/** The pose that fits a canvas-space box into the viewport: the largest zoom
+ *  at which the box (plus `paddingPx` of screen-space margin) still fits, with
+ *  the box centered. This IS "maximize" now — focusing a tile fits that tile,
+ *  focusing a parent fits its whole subtree's `boundingBox`.
+ *
+ *  `maxZoom` is the ceiling the fit may reach, and focus passes **1**: a
+ *  terminal is a RASTER, not vector art. Scaling a tile past 100% resamples
+ *  glyphs xterm already rendered at device resolution, so a magnified
+ *  "maximize" looks soft and slightly wrong — the reason the old
+ *  fill-the-viewport behaviour had to go rather than be ported. Capping at 1
+ *  means focus can only ever *shrink* to bring a group into view, never
+ *  enlarge, so type is pixel-exact in the case that matters (a single terminal
+ *  you are reading) and a too-large subtree still frames as an overview.
+ *
+ *  Centering reuses `computeCenterPan` at the *fitted* zoom — the same solver
+ *  every other centering path uses, so a fit and a center can't drift apart. */
+export function fitBox(
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  viewportW: number,
+  viewportH: number,
+  paddingPx: number = FIT_PADDING_PX,
+  maxZoom: number = MAX_ZOOM,
+): Camera {
+  // A degenerate (zero-area) box would divide by zero; floor both extents at
+  // one canvas unit so a fit is always defined.
+  const boxW = Math.max(1, maxX - minX);
+  const boxH = Math.max(1, maxY - minY);
+  // Padding can't eat the whole viewport (a very small container, or a large
+  // pad): floor the usable extent so the ratio stays positive.
+  const availW = Math.max(1, viewportW - 2 * paddingPx);
+  const availH = Math.max(1, viewportH - 2 * paddingPx);
+  const zoom = clampZoom(Math.min(availW / boxW, availH / boxH, maxZoom));
+  const { panX, panY } = computeCenterPan(
+    minX,
+    minY,
+    maxX,
+    maxY,
+    viewportW,
+    viewportH,
+    zoom,
+  );
+  return { panX, panY, zoom };
 }
 
 /** Canvas-space point at the viewport center — the forward projection that is

@@ -18,8 +18,8 @@
  *      generic `onEvent`-never-called proof) would not catch.
  */
 
-import { describe, expect, it } from "vitest";
 import type { ForegroundSample } from "kaval";
+import { describe, expect, it } from "vitest";
 import {
   bridgeStream,
   onForegroundTapError,

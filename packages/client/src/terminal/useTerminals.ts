@@ -15,15 +15,12 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeScope } from "../hostScope/hostScopes";
 import { listIsAuthoritative } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
-import { useAdoptNewSplit } from "./useAdoptNewSplit";
 import { useSessionRestore } from "./useSessionRestore";
-import { useSubPanel } from "./useSubPanel";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalExits } from "./useTerminalExits";
 import { useTerminalStore } from "./useTerminalStore";
@@ -119,35 +116,10 @@ export function useTerminals() {
     listIsAuthoritative,
   });
 
-  // Make an EXTERNALLY-created split (padi-tui `create --parent`, another client)
-  // behave like a manual one: expand the parent's panel and — unless a live split
-  // is already active — select the new tab. Reacts to the arrival on the list, so
-  // no actor has to reach into the browser's sub-panel state. Host-scoped and
-  // gated on the restore seed so it never fights hydration. See useAdoptNewSplit.
-  //
-  // Installed BEFORE useSessionRestore so adopt observes the pre-seed phase on the
-  // seed-boundary flush. On the flush where the last terminal's metadata arrives,
-  // hydration flips the restore latch to `seeded` (a plain non-reactive write) and
-  // seeds each panel in the SAME batch; an adopt run that sampled the just-flipped
-  // `seeded` for a sub first entering the snapshot on that flush would false-adopt
-  // it (re-opening a restored-collapsed panel, persisting the wrong state). Adopt
-  // runs first for TWO independent reasons: it is created first (creation order),
-  // AND its effect is memo-backed (`on(snapshot)`) while hydration is a plain
-  // effect — SolidJS schedules a memo-backed effect ahead of a plain one. So it
-  // samples the pre-flip `decided`, baselines the sub, and skips; hydration then
-  // owns the seed. (Verified against the installed runtime in useAdoptNewSplit.test.)
-  const subPanel = useSubPanel();
-  useAdoptNewSplit({
-    rawList: allTerminalIds,
-    parentOf,
-    activeHostKey,
-    restorePhase: () => activeScope()?.restore.phase ?? "pending",
-    ports: {
-      expandPanel: subPanel.expandPanel,
-      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
-      setActiveSubTab: subPanel.setActiveSubTab,
-    },
-  });
+  // An externally-created child (padi-tui `create --parent`, another client)
+  // needs no adoption any more: it arrives on the list, becomes a tile, and the
+  // tree places it beside its parent. There is no panel to expand and no tab to
+  // select, so `useAdoptNewSplit` and its restore-phase race went with them.
 
   const session = useSessionRestore({ store });
 

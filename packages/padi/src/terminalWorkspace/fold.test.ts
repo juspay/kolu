@@ -1,3 +1,12 @@
+import {
+  type AgentIdentity,
+  type AgentInfo,
+  type RestoreTarget,
+  seedMemory,
+  seedSnapshot,
+  type TerminalEvent,
+  type TerminalState,
+} from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
   agentIdentityChanged,
@@ -9,15 +18,6 @@ import {
   seedRecencyBaseline,
   stepRecencyBaseline,
 } from "./fold.ts";
-import {
-  type AgentIdentity,
-  type AgentInfo,
-  type RestoreTarget,
-  seedMemory,
-  seedSnapshot,
-  type TerminalEvent,
-  type TerminalState,
-} from "@kolu/terminal-vocab/schema";
 
 const gitInfo = (branch: string) => ({
   repoRoot: "/r",

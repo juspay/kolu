@@ -28,12 +28,6 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
-import {
-  persistSettledRestoreSnapshot,
-  restoreSession,
-  settleRestoreRespawns,
-} from "./sessionRestore.ts";
 import {
   type ActiveTerminalProcess,
   getTerminal,
@@ -53,6 +47,12 @@ import {
   type SavedSession,
   type SavedTerminal,
 } from "../vocab.ts";
+import { getSavedSession, setSavedSession } from "./session.ts";
+import {
+  persistSettledRestoreSnapshot,
+  restoreSession,
+  settleRestoreRespawns,
+} from "./sessionRestore.ts";
 
 // Restore drives the discard path (`cleanupTerminalScratch`), which reads the
 // per-instance scratch root. Boot injects the server id before any of this runs;

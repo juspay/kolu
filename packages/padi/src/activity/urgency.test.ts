@@ -11,12 +11,15 @@
  * pinned without the tracker.
  */
 
-import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalSnapshot,
+} from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { type PadiTerminal, urgencyEqual } from "../surface.ts";
-import { recomputeUrgency } from "./urgency.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { recomputeUrgency } from "./urgency.ts";
 
 function makeAgent(state: AgentInfo["state"]): AgentInfo {
   return {

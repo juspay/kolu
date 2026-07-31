@@ -16,6 +16,15 @@
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
+import {
+  destructiveRecycleSteps,
+  recycle,
+} from "@kolu/surface-daemon-supervisor";
 import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
@@ -27,19 +36,18 @@ import {
   expect,
   it,
 } from "vitest";
-import {
-  cancelPendingAutosave,
-  initAutosaveGate,
-  unfreezeAutosave,
-} from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
-import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
+import {
+  cancelPendingAutosave,
+  initAutosaveGate,
+  unfreezeAutosave,
+} from "../session/autosaveGate.ts";
 import {
   getSavedSession,
   saveSession,
@@ -61,14 +69,6 @@ import type {
   SavedSession,
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
-import {
-  destructiveRecycleSteps,
-  recycle,
-} from "@kolu/surface-daemon-supervisor";
-import { mkdtempSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 

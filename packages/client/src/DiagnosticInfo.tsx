@@ -4,6 +4,7 @@
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
 import Dialog from "@corvu/dialog";
+import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
@@ -14,11 +15,9 @@ import { hostFrame } from "./attention/attentionMarks";
 import { useAttentionFacts } from "./attention/useAttentionFacts";
 import { serverProcessId, wsStatus } from "./rpc/rpc";
 import { bindStatePip } from "./terminal/statePipBind";
-import { useTerminalStore } from "./terminal/useTerminalStore";
-import { activeHost } from "./wire";
-import { PAINT_STALL_WARN_MS } from "@kolu/xterm-kit/solid";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 import { getDiagnostics } from "./terminal/useTerminalDiagnostics";
+import { useTerminalStore } from "./terminal/useTerminalStore";
 import { webglLifecycleSnapshot } from "./terminal/webglTracker";
 import { writeTextToClipboard } from "./ui/clipboard";
 import { createDisclosure } from "./ui/createDisclosure";
@@ -34,6 +33,7 @@ import {
   serverRssBytes,
 } from "./ui/useMemoryUsage";
 import { layoutMode } from "./useMobile";
+import { activeHost } from "./wire";
 
 /** A per-process RSS display projected for the JSON snapshot — the byte figure
  *  when a live process answered, `"error"` when a believed-up process's read

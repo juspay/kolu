@@ -39,25 +39,16 @@ describe("pickAutoSwitchTarget", () => {
 });
 
 /** Spy ports for `evictTerminal`. `getSubTerminalIds` / `activeId` /
- *  `activeSubTab` are supplied per-test; the mutating seams are spies. */
+ *  supplied per-test; the mutating seams are spies. */
 function makePorts(over: {
   getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
-  activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
     promoteToTopLevel: vi.fn<(id: TerminalId) => void>(),
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
-    collapse: vi.fn<(id: TerminalId) => void>(),
-    collapseChrome: vi.fn<(id: TerminalId) => void>(),
-    setActiveSubTab:
-      vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
-    selectSubTab:
-      vi.fn<(parentId: TerminalId, subId: TerminalId | null) => void>(),
-    requestRefocus: vi.fn<(id: TerminalId) => void>(),
-    removeSub: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
     removeSearch: vi.fn<(id: TerminalId) => void>(),
   };
@@ -68,31 +59,21 @@ function makePorts(over: {
     activate: calls.activate,
     dropFromMru: calls.dropFromMru,
     promoteToTopLevel: calls.promoteToTopLevel,
-    subPanel: {
-      collapse: calls.collapse,
-      collapseChrome: calls.collapseChrome,
-      activeSubTab: over.activeSubTab ?? (() => null),
-      setActiveSubTab: calls.setActiveSubTab,
-      selectSubTab: calls.selectSubTab,
-      requestRefocus: calls.requestRefocus,
-      remove: calls.removeSub,
-    },
     removeRightPanel: calls.removeRightPanel,
     removeSearch: calls.removeSearch,
   };
   return { ports, calls };
 }
 
-describe("evictTerminal — top-level branch", () => {
+describe("evictTerminal", () => {
   it("promotes subs, sheds chrome, and auto-switches when active", () => {
     const { ports, calls } = makePorts({
       getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
       activeId: () => T("P"),
     });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(ports, T("P"), [T("P"), T("Q")], new Set([T("P")]));
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
-    expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
     expect(calls.dropFromMru).toHaveBeenCalledWith(T("P"));
@@ -102,7 +83,7 @@ describe("evictTerminal — top-level branch", () => {
 
   it("does not auto-switch when the removed tile was not active", () => {
     const { ports, calls } = makePorts({ activeId: () => T("Q") });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(ports, T("P"), [T("P"), T("Q")], new Set([T("P")]));
     expect(calls.activate).not.toHaveBeenCalled();
   });
 
@@ -113,7 +94,6 @@ describe("evictTerminal — top-level branch", () => {
     evictTerminal(
       ports,
       T("A"),
-      null,
       [T("A"), T("B"), T("C")],
       new Set([T("A"), T("B"), T("C")]),
     );
@@ -127,7 +107,6 @@ describe("evictTerminal — top-level branch", () => {
     evictTerminal(
       ports,
       T("A"),
-      null,
       [T("A"), T("B"), T("C"), T("D")],
       new Set([T("A"), T("B")]),
     );
@@ -135,85 +114,27 @@ describe("evictTerminal — top-level branch", () => {
   });
 });
 
-describe("evictTerminal — sub-terminal branch", () => {
-  it("collapses, clears the tab, and focuses the parent when the focused last sub departs", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [], // no siblings remain
-      focusedTerminalId: () => T("S"),
-    });
-    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
-    expect(calls.collapse).toHaveBeenCalledWith(T("P"));
-    // The active tab is cleared so it can't dangle at the departed sub — the
-    // invariant "activeSubTab is null or a live sub" that lets adopt/restore
-    // trust a plain null-check.
-    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
-    expect(calls.collapseChrome).not.toHaveBeenCalled();
-    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
-  });
-
-  it("keeps a background tile's focus untouched when its last sub departs", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [],
-      focusedTerminalId: () => T("OTHER"),
-    });
-
-    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
-
-    expect(calls.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
-    expect(calls.collapse).not.toHaveBeenCalled();
-    expect(calls.setActiveSubTab).toHaveBeenCalledWith(T("P"), null);
-    expect(calls.requestRefocus).not.toHaveBeenCalled();
-  });
-
-  it("switches the active sub-tab to a sibling and refocuses", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
-      activeSubTab: () => T("S1"),
-      focusedTerminalId: () => T("S1"),
-    });
-    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
-    expect(calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
-    expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
-    expect(calls.collapse).not.toHaveBeenCalled();
-  });
-
-  it("keeps main-pane focus while repairing a departed active sub tab", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
-      activeSubTab: () => T("S1"),
-      focusedTerminalId: () => T("P"),
-    });
-    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
-    expect(calls.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(
-      T("P"),
-      T("S2"),
-    );
-    expect(calls.selectSubTab).not.toHaveBeenCalled();
-    expect(calls.requestRefocus).toHaveBeenCalledExactlyOnceWith(T("P"));
-  });
-});
-
 describe("createEvictionDedup", () => {
   it("skips a departed id already evicted by the imperative path (no double)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], true); // kill: claim + evict
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // the later list-drop
+    d.evictImperatively(T("P"), [T("P")], true); // kill: claim + evict
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")])); // the later list-drop
     expect(runEvict).toHaveBeenCalledTimes(1); // NOT twice
   });
 
   it("runs the cleanup for an UNCLAIMED departure (natural exit)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]));
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")]));
     expect(runEvict).toHaveBeenCalledTimes(1);
   });
 
   it("does not claim when no list-drop will follow (willDrop=false)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], false); // already-gone kill
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // an unrelated later departure
+    d.evictImperatively(T("P"), [T("P")], false); // already-gone kill
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")])); // an unrelated later departure
     expect(runEvict).toHaveBeenCalledTimes(2); // not skipped → no stale claim leak
   });
 });
@@ -258,18 +179,16 @@ function setupReconcile(init: {
     const [connected, setConnected] = createSignal(init.connected ?? true);
     const [host, setHost] = createSignal(init.host ?? "local");
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (pid) =>
+      getSubTerminalIds: (pid: TerminalId) =>
         rawIds().filter((id) => (parents()[id] ?? null) === pid),
       activeId: () => state.active,
       focusedTerminalId: () => state.focused,
-      activeSubTab: (pid) => state.activeSubTab[pid] ?? null,
     });
     calls.activate.mockImplementation((id) => {
       state.active = id;
     });
-    const eviction = createEvictionDedup(
-      (id, parentId, topLevelBefore, departing) =>
-        evictTerminal(ports, id, parentId, topLevelBefore, departing),
+    const eviction = createEvictionDedup((id, tilesBefore, departing) =>
+      evictTerminal(ports, id, tilesBefore, departing),
     );
     useActiveReconcile({
       rawList: rawIds,
@@ -305,11 +224,13 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("S"), T("Q")]);
 
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledWith(T("S"));
-    expect(h.calls.removeSub).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeSearch).toHaveBeenCalledWith(T("P"));
-    // P was active and at index 0 of [P, Q] → focus falls to survivor Q.
-    expect(h.calls.activate).toHaveBeenCalledWith(T("Q"));
+    // P was active; the survivors in list order are [S, Q], so focus falls to S
+    // — P's own (just-promoted) child. A child is a first-class tile now, so
+    // it is a legal landing spot; before the tree-is-tiling change only
+    // top-level ids were candidates and focus skipped past S to Q.
+    expect(h.calls.activate).toHaveBeenCalledWith(T("S"));
     h.dispose();
   });
 
@@ -326,9 +247,10 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     // metadata but was captured in the pre-removal snapshot.
     h.setRawIds([T("P"), T("S2")]);
 
-    expect(h.calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
-    expect(h.calls.requestRefocus).toHaveBeenCalledWith(T("P"));
+    // A departing CHILD is an ordinary tile departure now: nothing to repair on
+    // the parent (no tab bar, no panel), and it has no children to promote.
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
+    expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("S1"));
     h.dispose();
   });
 
@@ -342,7 +264,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
 
     // handleKill's imperative path evicts synchronously (subs still present),
     // claiming P.
-    h.evictImperatively(T("P"), null, [T("P")], true);
+    h.evictImperatively(T("P"), [T("P")], true);
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledTimes(1);
 
     // The kill's list-drop then arrives → reconcile must skip (claimed).
@@ -370,7 +292,6 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
     expect(h.calls.removeRightPanel).not.toHaveBeenCalled();
     expect(h.calls.dropFromMru).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
@@ -398,7 +319,6 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("P2"), T("S2")]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
     h.dispose();
   });
@@ -459,12 +379,12 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     await tick();
 
     // Close A imperatively (claims A) → focus falls to the live survivor B.
-    h.evictImperatively(T("A"), null, [T("A"), T("B")], true);
+    h.evictImperatively(T("A"), [T("A"), T("B")], true);
     expect(h.calls.activate).toHaveBeenLastCalledWith(T("B"));
 
     // Close B before A's list-drop lands — the live list still holds A, but A is
     // claimed, so focus clamps to null, not back onto the dead A.
-    h.evictImperatively(T("B"), null, [T("A"), T("B")], true);
+    h.evictImperatively(T("B"), [T("A"), T("B")], true);
     expect(h.calls.activate).toHaveBeenLastCalledWith(null);
     expect(h.calls.activate).not.toHaveBeenCalledWith(T("A"));
     h.dispose();
@@ -484,7 +404,6 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     h.setRawIds([T("P"), T("Q")]);
 
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
-    expect(h.calls.removeSub).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
     h.dispose();
   });

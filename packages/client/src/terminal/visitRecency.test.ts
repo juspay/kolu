@@ -7,8 +7,8 @@ import {
   parseVisitList,
   removeVisit,
   upsertVisit,
-  visitedAtOf,
   type VisitEntry,
+  visitedAtOf,
 } from "./visitRecency";
 
 const T = (s: string) => s as TerminalId;

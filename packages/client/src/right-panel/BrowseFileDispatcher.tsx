@@ -31,10 +31,10 @@
 
 import { resolveLinkHref } from "@kolu/solid-browser";
 import {
-  type FileWithSource,
-  type FileWithUrl,
   type FileData,
   FileView,
+  type FileWithSource,
+  type FileWithUrl,
   type RenderedRenderer,
   type SourceRenderer,
 } from "@kolu/solid-fileview";
@@ -64,8 +64,8 @@ import { OptionMenu } from "../ui/OptionMenu";
 import { activeHost } from "../wire";
 import BrowseFileView from "./BrowseFileView";
 import BrowseIframeRenderer from "./BrowseIframeRenderer";
-import { codeFileContent } from "./hostCodeTab";
 import { FootnotePopover, type FootnoteTarget } from "./FootnotePopover";
+import { codeFileContent } from "./hostCodeTab";
 import { resolveMarkdownImageSrc } from "./markdownImageSrc";
 import { openInCodeTab } from "./openInCodeTab";
 

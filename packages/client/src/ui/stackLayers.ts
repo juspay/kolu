@@ -35,6 +35,12 @@
 export const Z_CANVAS_TILE_ACTIVE = 10;
 export const Z_CANVAS_TILE_INACTIVE = 1;
 
+/** Parent→child tree edges (`TileEdges`). Strictly BELOW every tile — the
+ *  edges connect tiles and must never paint over one, nor intercept a pointer
+ *  (the overlay is `pointer-events: none` as well, so this is belt and
+ *  braces). Sits above the grid background, which has no z-index of its own. */
+export const Z_CANVAS_EDGES = 0;
+
 /** Inner vertical handle inside `CodeTab` (tree ↔ content split) and
  *  the terminal-split handle inside a canvas tile. Both live inside a
  *  positioned ancestor whose own stacking context insulates them from

@@ -31,16 +31,16 @@ import {
   isNoListenerError,
   readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
-import { withTimeout } from "./withTimeout.ts";
 import {
   discoverKavalDaemons,
-  type kavalDaemonContract,
   type KavalDaemon,
+  type kavalDaemonContract,
 } from "kaval";
 import {
   getPadiServeSocketPath,
   readDaemonStatus,
 } from "./ptyHost/daemonStatus.ts";
+import { isMissingFrozenFragment } from "./ptyHost/missingFrozenFragment.ts";
 import {
   discoverPadiDaemons,
   type PadiDaemon,
@@ -52,7 +52,7 @@ import type {
   RunningPadi,
 } from "./surface.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
-import { isMissingFrozenFragment } from "./ptyHost/missingFrozenFragment.ts";
+import { withTimeout } from "./withTimeout.ts";
 
 /** The read-only status a kaval socket answered — fields are null only where the
  *  daemon/listener is honestly absent, never because a failure was swallowed. */

@@ -79,14 +79,6 @@ vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
-const subPanelSpy = vi.hoisted(() => ({ setActiveSubTab: vi.fn() }));
-vi.mock("./useSubPanel", () => ({
-  useSubPanel: () => ({
-    seedPanel: () => {},
-    peekSubPanel: () => ({ activeSubTab: null }),
-    setActiveSubTab: subPanelSpy.setActiveSubTab,
-  }),
-}));
 const toastSpy = vi.hoisted(() => ({ success: vi.fn() }));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
@@ -504,27 +496,25 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
     const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
     let active: string | null = null;
     const listSub = Object.assign(() => list(), { pending: () => false });
+    const reconcileLiveIds = vi.fn();
     const store = {
       listSub,
-      terminalIds: () =>
-        (list() ?? [])
-          .map((t) => t.id)
-          .filter((id) => !meta()[id]?.parentId) as TerminalId[],
+      // EVERY listed terminal is a tile now — parents and children alike.
+      terminalIds: () => (list() ?? []).map((t) => t.id) as TerminalId[],
       getMetadata: (id: TerminalId) => meta()[id],
       setActiveSilently: (id: string | null) => {
         active = id;
       },
       activeId: () => active,
-      reconcileLiveIds: () => {},
+      reconcileLiveIds,
     } as unknown as TerminalStore;
-    return { store, setList, setMeta };
+    return { store, setList, setMeta, reconcileLiveIds };
   }
 
   const splitMeta = (parentId?: string): TerminalMetadata =>
     ({ state: "active", parentId }) as unknown as TerminalMetadata;
 
-  it("re-runs hydrateFromTerminals for the restored terminals (fresh parent gets its sub-tab)", async () => {
-    subPanelSpy.setActiveSubTab.mockClear();
+  it("re-runs hydrateFromTerminals for the restored terminals (the latch resets)", async () => {
     h.sessionPending = false;
     h.savedSession = {
       terminals: [],
@@ -537,17 +527,17 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
       createRoot((dispose) => {
         void (async () => {
           try {
-            const { store, setList, setMeta } = reactiveStore();
+            const { store, setList, setMeta, reconcileLiveIds } =
+              reactiveStore();
 
             // 1) FIRST live load — a parent P0 with a split S0. viewSeeded latches.
             setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
             setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
             const session = useSessionRestore({ store });
             await new Promise((r) => setTimeout(r, 0));
-            expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
-              "P0" as TerminalId,
-              "S0" as TerminalId,
-            );
+            // Hydration ran: it seeded the visit trail with BOTH tiles (a child is
+            // a tile now, so it is part of the restored order).
+            expect(reconcileLiveIds).toHaveBeenCalledWith(["P0", "S0"]);
 
             // 2) The recycle drains the canvas → the re-fetch effect populates the
             // restore card's saved session (terminalIds is now empty).
@@ -556,7 +546,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(h.savedSession);
 
-            subPanelSpy.setActiveSubTab.mockClear();
+            reconcileLiveIds.mockClear();
 
             // 3) The user clicks Restore — `handleRestoreSession` resets the latch.
             await session.handleRestoreSession({});
@@ -567,10 +557,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             setList([{ id: "P1" }, { id: "S1" }] as TerminalInfo[]);
             await new Promise((r) => setTimeout(r, 0));
 
-            expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
-              "P1" as TerminalId,
-              "S1" as TerminalId,
-            );
+            expect(reconcileLiveIds).toHaveBeenCalledWith(["P1", "S1"]);
 
             dispose();
             resolve();
