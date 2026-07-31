@@ -62,7 +62,10 @@ root cause has been identified from the run logs and supporting evidence.
   against a direct fresh browse inventory before consuming the request. The
   existing file-ref scenarios already create each target immediately before
   clicking it, including the exact-path and unique-basename cases that exposed
-  this race. Client unit tests pass; Linux e2e verification is pending.
+  this race.
+- **Fix verification:** `kolu-client` passed all 1,181 unit tests. On
+  `kolu-ci-1`, `features/file-ref-link.feature` passed all 12 scenarios and 136
+  steps with zero retries, including both immediate-create cases.
 
 ### `fba3b95#4`: Darwin atlas-sync, TypeScript-Go parser panic
 
@@ -85,3 +88,13 @@ root cause has been identified from the run logs and supporting evidence.
   then pin Atlas to the last non-panicking TypeScript release until that
   regression is fixed. Validate the chosen pin with repeated
   `atlas::check-sync` runs on `ci@petit`.
+
+## E2E stabilization streak
+
+The streak starts after the first e2e-flake fix above. Every run covers both
+platforms on `ci@petit` and `kolu-ci-1`. Any red full-CI run resets the
+consecutive-green count. Every failure is recorded with evidence, root cause,
+and a proposed fix; fixes in this PR remain limited to e2e failures.
+
+| Attempt | Commit | Result | Consecutive green |
+| --- | --- | --- | --- |
