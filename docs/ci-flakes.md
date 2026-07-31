@@ -122,8 +122,8 @@ failure fixable in this repository is in scope.
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
 **Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `0/5` — reset by `8235c95#1`.** The first two green runs
-above predate the osfacts-live fix prompted by `3a6c829#1`.
+post-review streak: `1/5` at `6f863c2#1`.** The first two green runs above
+predate the osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
 
@@ -138,6 +138,7 @@ retries.
 | `59f09c0#1` | `59f09c0ec` | Passed | `2/5` |
 | `c215704#1` | `c215704fb` | Passed | `3/5` |
 | `8235c95#1` | `8235c952e` | Failed: `ci::osfacts-live@aarch64-darwin`; all other nodes passed | `0/5` |
+| `6f863c2#1` | `6f863c2ed` | Passed | `1/5` |
 
 ### `8235c95#1`: Darwin `ps etime` ceiling lost at sub-second delay
 
@@ -162,6 +163,8 @@ retries.
   preserved even when the delay is sub-second.
 - **Implementation:** the lower endpoint is now
   `(ps elapsed + measured lower delay).saturating_sub(1)`.
+- **Fix verification:** full two-platform run `6f863c2#1` passed, including
+  `ci::osfacts-live@aarch64-darwin`.
 
 ### `85b4a61#1`: stale daemon-recipe structural assertion
 
