@@ -230,10 +230,12 @@ and is fixed in this PR before the campaign resumes.
   instrumented scenario passed 20 consecutive isolated executions, then the
   complete 114-scenario Code-tab feature passed five consecutive times under
   the CI-shaped four-worker load (570 executions, 570 attempts, zero retries).
-  This rules out a deterministic source-view failure and a Code-tab-local load
-  interaction but does not identify the rare failure's root cause, so the item
-  remains unresolved and no product or interaction change is claimed as its
-  fix yet.
+  Three complete Linux e2e lanes then passed on the same host without a
+  scenario retry budget (1,521 executions, 1,521 attempts, zero retries). This
+  rules out a deterministic source-view failure and a readily repeatable
+  suite-load interaction but does not identify the rare failure's root cause,
+  so the item remains unresolved and no product or interaction change is
+  claimed as its fix yet.
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
