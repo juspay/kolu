@@ -200,12 +200,17 @@ reach for as by what it owns:
 
   This holds even where padi acts ON a preference — **the one prose home for the
   new-terminal policy decision; every in-code comment points here rather than
-  restating it.** padi RESOLVES the theme of every new terminal at its
-  `lifecycle.create` front door, so a create from the MCP server, a TUI or a
-  script honours the **New terminal theme** setting just like a keyboard create
-  ([#2045]). It learns the setting by REPORT, not by reading it: the app chrome
-  calls `chrome.setNewTerminalPolicy` and padi holds the last report (the cell in
-  `terminals.ts`, beside the reported active terminal; the decision itself in
+  restating it.** padi RESOLVES the theme of every new terminal at
+  `createTerminal`, the ORDINARY constructor every caller passes through (the
+  wire `lifecycle.create` and every in-process caller alike), so a create from
+  the MCP server, a TUI or a script honours the **New terminal theme** setting
+  just like a keyboard create ([#2045]). Session restore (`restoreSpawn`) is the
+  one create the policy does NOT touch: a restored terminal keeps the theme it
+  was saved with.
+
+  It learns the setting by REPORT, not by reading it: the app chrome calls
+  `chrome.setNewTerminalPolicy` and padi holds the last report (the cell in
+  `chromeReports.ts`, beside the reported active terminal; the decision itself in
   `newTerminalPolicy.ts`). That keeps the ownership arrow pointing out — and it
   is the only shape that works on BOTH arms, since a remote padi has no channel
   to kolu-server's conf at all. The report carries the browser's RESOLVED

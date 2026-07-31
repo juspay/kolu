@@ -15,11 +15,9 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import type {
-  NewTerminalPolicy,
-  TerminalId,
-} from "@kolu/terminal-vocab/schema";
-import { notifyDirty } from "./publisher.ts";
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { getActiveTerminalId } from "./chromeReports.ts";
+import { resolveCreateTerminalTheme } from "./newTerminalPolicy.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
 import {
@@ -66,6 +64,16 @@ export {
   type TerminalProcess,
   terminalCount,
 } from "./terminal-registry.ts";
+
+// Same one-import-path courtesy for the chrome REPORTS (`chromeReports.ts`),
+// which live in their own leaf so the lifecycle can read them cycle-free.
+export {
+  getActiveTerminalId,
+  getNewTerminalPolicy,
+  restoreActiveTerminalId,
+  setActiveTerminalId,
+  setNewTerminalPolicy,
+} from "./chromeReports.ts";
 
 /** Build a session snapshot from current terminal state.
  *
@@ -114,7 +122,10 @@ export function snapshotSession(): SessionSnapshot {
           id,
         }),
     );
-  return { terminals: snappedTerminals, activeTerminalId };
+  return {
+    terminals: snappedTerminals,
+    activeTerminalId: getActiveTerminalId(),
+  };
 }
 
 /** Create a new terminal — the ORDINARY constructor (the wire `lifecycle.create`
@@ -126,7 +137,12 @@ export function snapshotSession(): SessionSnapshot {
  *  authored facts — a fresh terminal earns `lastActivityAt` / `lastAgentCommand` /
  *  `restoreTarget` from padi's own observation, and the type makes them unspellable
  *  here. The one path with prior truth about them, session restore, uses
- *  {@link restoreSpawn} instead. */
+ *  {@link restoreSpawn} instead.
+ *
+ *  Applies the NEW-TERMINAL POLICY (`newTerminalPolicy.ts`) — resolved HERE, at
+ *  the one door every caller passes through, so an MCP / TUI / script create
+ *  honours the user's setting exactly like a keyboard one (#2045). An explicit
+ *  `initial.themeName` still wins. See `packages/padi/README.md` § preferences. */
 export function createTerminal(
   cwd?: string,
   parentId?: string,
@@ -138,7 +154,13 @@ export function createTerminal(
   return localEndpoint.spawnPty(id, {
     cwd,
     parentId,
-    initialMetadata: initial,
+    initialMetadata: {
+      ...initial,
+      themeName: resolveCreateTerminalTheme({
+        themeName: initial?.themeName,
+        parentId,
+      }),
+    },
   });
 }
 
@@ -147,7 +169,10 @@ export function createTerminal(
  *  is a distinct constructor rather than a mode flag on {@link createTerminal} so the
  *  restore-only shape is structurally unspellable by an ordinary create: the fence is
  *  the type, not a convention. Called ONLY by `sessionRestore.ts`'s `respawnActive`;
- *  `restoreOnly` rides its own named parameter, never merged into `initial`. */
+ *  `restoreOnly` rides its own named parameter, never merged into `initial`.
+ *
+ *  UNPOLICED, unlike {@link createTerminal}: a restored terminal keeps the theme it
+ *  was saved with — there is nothing to decide. */
 export function restoreSpawn(
   cwd: string | undefined,
   parentId: string | undefined,
@@ -281,63 +306,6 @@ function rightPanelStateEqual(
   if (am.branch !== bm.branch) return false;
   if (am.browse !== bm.browse) return false;
   return true;
-}
-
-// Active terminal ID — client-reported, and the one fact padi holds for "the
-// terminal the user was last in". TWO readers: the session snapshot, and
-// `lifecycle.create`'s `inherit` theme resolution (#2045). Like every other
-// client-reported chrome fact here (canvasLayout, subPanel, rightPanel) it is a
-// single shared value with last-write-wins across connected clients — two
-// windows whose focus has diverged agree on whichever reported last.
-let activeTerminalId: TerminalId | null = null;
-
-/** The sole writer of `activeTerminalId`. Records the marker and nothing else —
- *  the dirty-fire is a separate concern the client setter composes on top. */
-function assignActiveTerminalId(id: TerminalId | null): void {
-  activeTerminalId = id;
-}
-
-/** Read the client-reported active terminal id. */
-export function getActiveTerminalId(): TerminalId | null {
-  return activeTerminalId;
-}
-
-/** Store which terminal is active (reported by the client).
- *  Only emits session:changed when a terminal is actually selected —
- *  null (no selection, e.g. client reconnect) must not trigger
- *  auto-save because snapshotSession() may return an empty terminal
- *  list at that point, which would clear the saved session. */
-export function setActiveTerminalId(id: TerminalId | null): void {
-  assignActiveTerminalId(id);
-  if (id !== null) notifyDirty();
-}
-
-// The app chrome's last new-terminal POLICY report — the twin of
-// `activeTerminalId` above, and here for the same reason: it is a client-reported
-// chrome fact, one shared value with last-write-wins across connected clients.
-// `lifecycle.create` resolves every new terminal's look from it
-// (`newTerminalPolicy.ts`). `null` = ABSENT, not a default: a padi nobody has
-// opened a browser against has no user preference to honour, and must not invent
-// one that could drift from kolu-common's.
-let newTerminalPolicy: NewTerminalPolicy | null = null;
-
-/** Record the app chrome's new-terminal policy report (`chrome.setNewTerminalPolicy`). */
-export function setNewTerminalPolicy(policy: NewTerminalPolicy): void {
-  newTerminalPolicy = policy;
-}
-
-/** The last reported new-terminal policy, or `null` if no chrome has reported. */
-export function getNewTerminalPolicy(): NewTerminalPolicy | null {
-  return newTerminalPolicy;
-}
-
-/** Restore the active-terminal marker from a session being adopted at boot
- *  (B3.3), WITHOUT firing `terminals:dirty` — unlike `setActiveTerminalId`, the
- *  client-reported setter. The boot converges the saved session explicitly right
- *  after, so this must not arm a competing autosave; it only seeds the value
- *  `snapshotSession()` will read so the adopted session keeps its active tile. */
-export function restoreActiveTerminalId(id: TerminalId | null): void {
-  assignActiveTerminalId(id);
 }
 
 /** Set the theme name for a terminal (stored in metadata, published to clients). */

@@ -85,7 +85,6 @@ import {
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
-import { resolveCreateTerminalTheme } from "./newTerminalPolicy.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -438,16 +437,10 @@ export function buildPadiSurfaceDeps(deps: {
           if (input.parentId !== undefined)
             requireActiveTerminal(input.parentId);
 
-          // The new terminal's look is resolved HERE, at the single front door
-          // every caller passes through — so a UI create and an MCP-created
-          // terminal see the same user preference (#2045), on the remote arm as
-          // well as the local one, because the policy arrives by chrome REPORT
-          // over this same surface. `newTerminalPolicy.ts` owns the whole
-          // decision INCLUDING its inputs (which registry entries count as an
-          // inherit source / as an on-screen peer, and that the policy governs
-          // top-level creates only, never a split).
+          // `themeName` is a caller OVERRIDE only — `createTerminal` applies the
+          // new-terminal policy for every caller, wire or in-process (#2045).
           const info = createTerminal(input.cwd, input.parentId, {
-            themeName: resolveCreateTerminalTheme(input),
+            themeName: input.themeName,
             canvasLayout: input.canvasLayout,
             subPanel: input.subPanel,
             rightPanel: input.rightPanel,
@@ -577,9 +570,6 @@ export function buildPadiSurfaceDeps(deps: {
           setActiveTerminalId(input.id);
         },
         setNewTerminalPolicy: ({ input }) => {
-          // The app chrome's report of the user's RESOLVED new-terminal
-          // preferences — the fact `lifecycle.create` resolves every new
-          // terminal's look from, for browser and out-of-band callers alike.
           setNewTerminalPolicy(input);
         },
         setCanvasLayout: ({ input }) => {

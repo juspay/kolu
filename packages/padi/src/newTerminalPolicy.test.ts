@@ -1,18 +1,45 @@
 /** Unit tests for padi's new-terminal theme resolver — the decision
- *  `lifecycle.create` runs for every caller (browser, MCP, TUI, script).
+ *  `createTerminal` runs for every caller (browser, MCP, TUI, script).
  *
- *  The registry-reading front door (`resolveCreateTerminalTheme`) is pinned in
- *  `servePadi.test.ts`, which drives it through a real create; here the pure core
- *  is driven with explicit inputs. */
+ *  Two levels: the pure core with explicit inputs, and — at the bottom — the
+ *  real door (`createTerminal`), which is where the policy is actually applied. */
 
-import type { NewTerminalPolicy } from "@kolu/terminal-vocab/schema";
-import { describe, expect, it } from "vitest";
+import type {
+  NewTerminalPolicy,
+  TerminalId,
+  TerminalSnapshot,
+} from "@kolu/terminal-vocab/schema";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  __resetNewTerminalPolicyForTest,
+  setNewTerminalPolicy,
+} from "./chromeReports.ts";
+import { setDaemonProcessId } from "./koluRoot.ts";
 import { resolveCreateTerminalThemeFrom } from "./newTerminalPolicy.ts";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "./padiSurfaceCtx.ts";
+import {
+  type ActiveTerminalProcess,
+  getTerminal,
+  registerTerminal,
+  terminalEntries,
+  unregisterTerminal,
+} from "./terminal-registry.ts";
+import { createTerminal } from "./terminals.ts";
+import { type AuthoredActiveTerminal, LOCAL_LOCATION } from "./vocab.ts";
+
+setDaemonProcessId("new-terminal-policy-test");
 
 const ROSE = "rose";
 const NORD = "nord";
 const DRACULA = "Dracula";
 const LIGHT_THEME = "Catppuccin Latte";
+
+const noPeers = () => [];
+const noInherit = () => undefined;
 
 const inheritPolicy: NewTerminalPolicy = {
   newTerminalTheme: "inherit",
@@ -26,14 +53,14 @@ const shuffleDarkPolicy: NewTerminalPolicy = {
   isDark: true,
 };
 
-describe("resolveCreateTerminalTheme", () => {
+describe("resolveCreateTerminalThemeFrom", () => {
   it("honours an explicit override regardless of strategy", () => {
     expect(
       resolveCreateTerminalThemeFrom({
         overrideThemeName: DRACULA,
         policy: inheritPolicy,
-        inheritThemeName: ROSE,
-        peerThemeNames: [],
+        inheritThemeName: () => ROSE,
+        peerThemeNames: noPeers,
       }),
     ).toBe(DRACULA);
   });
@@ -43,7 +70,8 @@ describe("resolveCreateTerminalTheme", () => {
       resolveCreateTerminalThemeFrom({
         overrideThemeName: DRACULA,
         policy: null,
-        peerThemeNames: [],
+        inheritThemeName: noInherit,
+        peerThemeNames: noPeers,
       }),
     ).toBe(DRACULA);
   });
@@ -54,18 +82,40 @@ describe("resolveCreateTerminalTheme", () => {
     expect(
       resolveCreateTerminalThemeFrom({
         policy: null,
-        inheritThemeName: ROSE,
-        peerThemeNames: [NORD],
+        inheritThemeName: () => ROSE,
+        peerThemeNames: () => [NORD],
       }),
     ).toBeUndefined();
+  });
+
+  it("reads NEITHER registry input on the branches that don't need them", () => {
+    // Both inputs walk padi's registry; `policy === null` is the entire steady
+    // state of a browser-less padi, so neither may be paid for eagerly.
+    const inheritThemeName = vi.fn(() => ROSE);
+    const peerThemeNames = vi.fn(() => [NORD]);
+    resolveCreateTerminalThemeFrom({
+      policy: null,
+      inheritThemeName,
+      peerThemeNames,
+    });
+    expect(inheritThemeName).not.toHaveBeenCalled();
+    expect(peerThemeNames).not.toHaveBeenCalled();
+    // `inherit` reads its own source and nothing else.
+    resolveCreateTerminalThemeFrom({
+      policy: inheritPolicy,
+      inheritThemeName,
+      peerThemeNames,
+    });
+    expect(inheritThemeName).toHaveBeenCalledOnce();
+    expect(peerThemeNames).not.toHaveBeenCalled();
   });
 
   it("inherit copies the terminal the user was last in", () => {
     expect(
       resolveCreateTerminalThemeFrom({
         policy: inheritPolicy,
-        inheritThemeName: ROSE,
-        peerThemeNames: [],
+        inheritThemeName: () => ROSE,
+        peerThemeNames: noPeers,
       }),
     ).toBe(ROSE);
   });
@@ -80,8 +130,8 @@ describe("resolveCreateTerminalTheme", () => {
     expect(
       resolveCreateTerminalThemeFrom({
         policy: inheritPolicy,
-        inheritThemeName: undefined,
-        peerThemeNames: [NORD],
+        inheritThemeName: noInherit,
+        peerThemeNames: () => [NORD],
       }),
     ).toBeUndefined();
   });
@@ -89,8 +139,8 @@ describe("resolveCreateTerminalTheme", () => {
   it("shuffle picks a theme outside the peer set", () => {
     const picked = resolveCreateTerminalThemeFrom({
       policy: shuffleDarkPolicy,
-      peerThemeNames: [ROSE],
-      rand: () => 0,
+      inheritThemeName: noInherit,
+      peerThemeNames: () => [ROSE],
     });
     expect(picked).not.toBe(ROSE);
     expect(typeof picked).toBe("string");
@@ -100,28 +150,25 @@ describe("resolveCreateTerminalTheme", () => {
     expect(
       resolveCreateTerminalThemeFrom({
         policy: shuffleDarkPolicy,
-        peerThemeNames: [LIGHT_THEME],
-        rand: () => 0,
+        inheritThemeName: noInherit,
+        peerThemeNames: () => [LIGHT_THEME],
       }),
     ).not.toBe(LIGHT_THEME);
   });
 
   it("shuffle counts an UNTHEMED peer as the default theme", () => {
-    // An unthemed terminal renders as the default theme, so it must repel a
-    // spread shuffle exactly like an explicitly-default-themed one. Dropping
-    // `undefined` peers would let a new terminal land on a background already
-    // on screen.
-    const withUndefinedPeer = resolveCreateTerminalThemeFrom({
-      policy: { ...shuffleDarkPolicy, shuffleBehavior: "random" },
-      peerThemeNames: [undefined],
-      rand: () => 0,
-    });
-    const withNoPeers = resolveCreateTerminalThemeFrom({
-      policy: { ...shuffleDarkPolicy, shuffleBehavior: "random" },
-      peerThemeNames: [],
-      rand: () => 0,
-    });
-    expect(withUndefinedPeer).not.toBe(withNoPeers);
+    const pick = (peers: (string | undefined)[]) =>
+      resolveCreateTerminalThemeFrom({
+        policy: { ...shuffleDarkPolicy, shuffleBehavior: "random" },
+        inheritThemeName: noInherit,
+        peerThemeNames: () => peers,
+      });
+    const rand = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      expect(pick([undefined])).not.toBe(pick([]));
+    } finally {
+      rand.mockRestore();
+    }
   });
 
   it("resolves the shuffle family from the REPORTED dark mode", () => {
@@ -135,9 +182,90 @@ describe("resolveCreateTerminalTheme", () => {
           shuffleBehavior: "auto",
           isDark,
         },
-        peerThemeNames: [],
-        rand: () => 0,
+        inheritThemeName: noInherit,
+        peerThemeNames: noPeers,
       });
-    expect(auto(true)).not.toBe(auto(false));
+    const rand = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      expect(auto(true)).not.toBe(auto(false));
+    } finally {
+      rand.mockRestore();
+    }
+  });
+});
+
+// ── the real door: `createTerminal` applies the policy ────────────────────────
+//
+// The policy lives on the CONSTRUCTOR, not on the wire handler, so an
+// in-process caller (worktree create, MCP, a script) gets it too. Splits are
+// carved out: they never carried a theme before #2045, and `shuffle` is the
+// default preference, so letting it through would start tinting every sub-tab.
+describe("createTerminal — the new-terminal policy at the door", () => {
+  const PARENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as TerminalId;
+
+  const parentMeta: AuthoredActiveTerminal = {
+    state: "active",
+    location: LOCAL_LOCATION,
+    lastActivityAt: 42,
+    themeName: ROSE,
+  };
+  const parentSnapshot: TerminalSnapshot = {
+    cwd: "/work/repo",
+    git: null,
+    pr: { kind: "absent" },
+    agent: null,
+    foreground: null,
+    ports: { status: "unknown" },
+  };
+
+  function themeOf(parentId?: string, themeName?: string): string | undefined {
+    const info = createTerminal(undefined, parentId, { themeName });
+    return getTerminal(info.id as TerminalId)?.meta.themeName;
+  }
+
+  function seedParent(): void {
+    registerTerminal(PARENT_ID, {
+      info: { id: PARENT_ID, pid: 1 },
+      meta: parentMeta,
+      snapshot: parentSnapshot,
+      handle: {} as ActiveTerminalProcess["handle"],
+    });
+  }
+
+  beforeEach(() => {
+    setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
+    // The user's setting, as the app chrome reports it: shuffle (the DEFAULT).
+    setNewTerminalPolicy({
+      newTerminalTheme: "shuffle",
+      shuffleBehavior: "dark",
+      isDark: true,
+    });
+  });
+  afterEach(async () => {
+    // The kaval-less fresh spawn's async tail rejects on a later microtask (the
+    // failed-spawn path); let it settle, then drain any entry the create left.
+    await new Promise((r) => setTimeout(r, 0));
+    for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+    __resetNewTerminalPolicyForTest();
+    __resetPadiSurfaceCtxForTest();
+  });
+
+  it("a TOP-LEVEL create takes the reported policy's theme", () => {
+    expect(typeof themeOf()).toBe("string");
+  });
+
+  it("a SPLIT create takes NO theme — the policy stops at the tile boundary", () => {
+    seedParent();
+    expect(themeOf(PARENT_ID)).toBeUndefined();
+  });
+
+  it("a SPLIT create still honours an explicit caller override", () => {
+    seedParent();
+    expect(themeOf(PARENT_ID, DRACULA)).toBe(DRACULA);
+  });
+
+  it("an UNREPORTED policy leaves the create on the server default", () => {
+    __resetNewTerminalPolicyForTest();
+    expect(themeOf()).toBeUndefined();
   });
 });
