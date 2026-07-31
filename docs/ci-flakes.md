@@ -11,6 +11,9 @@ root cause has been identified from the run logs and supporting evidence.
 - Record the exact odu run identity, commit, hosts, and result.
 - Do not classify a red node as a flake merely because a later run passes.
 - Record the root cause and evidence alongside every failure.
+- Do not record guesses or hypotheses as root causes. A root cause is accepted
+  only when direct log evidence, source inspection, or a controlled
+  reproduction demonstrates the causal chain. Keep it unresolved until then.
 
 ## Runs
 
