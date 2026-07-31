@@ -257,9 +257,19 @@ describe("fitBox", () => {
     expect(300 * pose.zoom).toBeLessThanOrEqual(VH - 2 * pad + 1e-9);
   });
 
-  it("magnifies a small tile to fill the viewport — the old maximize feel", () => {
-    const pose = fitBox(0, 0, 200, 150, VW, VH);
-    expect(pose.zoom).toBeGreaterThan(1);
+  it("magnifies a small box when allowed to", () => {
+    expect(fitBox(0, 0, 200, 150, VW, VH).zoom).toBeGreaterThan(1);
+  });
+
+  it("never magnifies past maxZoom — focus passes 1 so type is never resampled", () => {
+    // A terminal is a raster: upscaling it resamples glyphs xterm already
+    // drew at device resolution, which is what made the magnified focus look
+    // soft. Capping at 1 keeps a focused terminal pixel-exact.
+    expect(fitBox(0, 0, 200, 150, VW, VH, 32, 1).zoom).toBe(1);
+    expect(fitBox(0, 0, 800, 540, VW, VH, 32, 1).zoom).toBe(1);
+    // The cap is a CEILING, not a floor — a subtree too big to fit still
+    // zooms out, because that is the only way to frame the group.
+    expect(fitBox(0, 0, 6000, 4000, VW, VH, 32, 1).zoom).toBeLessThan(1);
   });
 
   it("shrinks to fit a subtree larger than the viewport", () => {

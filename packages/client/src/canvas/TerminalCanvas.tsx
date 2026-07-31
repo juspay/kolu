@@ -464,12 +464,24 @@ const TerminalCanvas: Component<{
   /** Escape releases focus — but ONLY when the key didn't land in a terminal.
    *  Esc belongs to whatever is running in the PTY (vim, a pager, an agent's
    *  prompt); stealing it would break every one of them. The same rule the
-   *  wheel handler applies to scroll (`isWheelTargetTerminal`). */
-  function handleCanvasKeyDown(e: KeyboardEvent) {
-    if (e.key !== "Escape" || !viewport.focusedTileId()) return;
-    if (e.target instanceof Element && e.target.closest(".xterm")) return;
-    viewport.releaseFocus();
-  }
+   *  wheel handler applies to scroll (`isWheelTargetTerminal`).
+   *
+   *  Listened for on the WINDOW, not on the canvas element: a key event is
+   *  delivered to the focused element and bubbles UP, so a handler on the
+   *  canvas div only ever sees keys pressed while something inside it holds
+   *  DOM focus. After clicking chrome — or with nothing focused at all, where
+   *  the event's target is `document.body` — the press would never reach it,
+   *  and Esc would silently do nothing. The window sees every key; the
+   *  terminal guard below is what keeps it from stealing one. */
+  createEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !viewport.focusedTileId()) return;
+      if (e.target instanceof Element && e.target.closest(".xterm")) return;
+      viewport.releaseFocus();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
 
   // On first mount at the default origin, pan so the persisted active tile
   // is centered (matches what a workspace-switcher click does). If there's no
@@ -620,7 +632,6 @@ const TerminalCanvas: Component<{
             if (e.target === e.currentTarget && viewport.focusedTileId())
               viewport.releaseFocus();
           }}
-          onKeyDown={handleCanvasKeyDown}
         >
           {/* The tree, drawn: one curve per parent→child edge, painted under
            *  every tile and inert to the pointer. It is the only place the

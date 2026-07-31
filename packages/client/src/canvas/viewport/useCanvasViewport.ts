@@ -20,6 +20,7 @@ import {
   applyGestureBatch,
   boundingBox,
   computeCenterPan,
+  FIT_PADDING_PX,
   fitBox,
   type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
@@ -52,6 +53,10 @@ const zoom = (): number => cam()?.zoom() ?? 1;
 const setPanX = (v: number): void => cam()?.setPanX(v);
 const setPanY = (v: number): void => cam()?.setPanY(v);
 const setZoom = (v: number): void => cam()?.setZoom(v);
+
+/** The zoom ceiling a focus fit may reach. 1 = native resolution: focusing
+ *  never enlarges a terminal, so glyphs are never resampled. */
+const FOCUS_MAX_ZOOM = 1;
 
 /** Container ref, set on mount. */
 let containerEl: HTMLDivElement | null = null;
@@ -332,6 +337,10 @@ function fitTo(boxes: readonly TileLayout[]) {
       box.maxY,
       containerEl.clientWidth,
       containerEl.clientHeight,
+      FIT_PADDING_PX,
+      // Never magnify — see `fitBox`. A terminal is a raster; upscaling it
+      // resamples type that was already rendered at device resolution.
+      FOCUS_MAX_ZOOM,
     ),
   );
 }

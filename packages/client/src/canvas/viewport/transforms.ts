@@ -74,11 +74,17 @@ export function boundingBox(
  *  the box centered. This IS "maximize" now — focusing a tile fits that tile,
  *  focusing a parent fits its whole subtree's `boundingBox`.
  *
- *  Zoom is clamped to the canvas's normal `[MIN_ZOOM, MAX_ZOOM]` range, so a
- *  small tile genuinely magnifies to fill the viewport (the old maximized
- *  mode's felt behaviour) rather than sitting small in the middle. Centering
- *  reuses `computeCenterPan` at the *fitted* zoom — the same solver every
- *  other centering path uses, so a fit and a center can't drift apart. */
+ *  `maxZoom` is the ceiling the fit may reach, and focus passes **1**: a
+ *  terminal is a RASTER, not vector art. Scaling a tile past 100% resamples
+ *  glyphs xterm already rendered at device resolution, so a magnified
+ *  "maximize" looks soft and slightly wrong — the reason the old
+ *  fill-the-viewport behaviour had to go rather than be ported. Capping at 1
+ *  means focus can only ever *shrink* to bring a group into view, never
+ *  enlarge, so type is pixel-exact in the case that matters (a single terminal
+ *  you are reading) and a too-large subtree still frames as an overview.
+ *
+ *  Centering reuses `computeCenterPan` at the *fitted* zoom — the same solver
+ *  every other centering path uses, so a fit and a center can't drift apart. */
 export function fitBox(
   minX: number,
   minY: number,
@@ -87,6 +93,7 @@ export function fitBox(
   viewportW: number,
   viewportH: number,
   paddingPx: number = FIT_PADDING_PX,
+  maxZoom: number = MAX_ZOOM,
 ): Camera {
   // A degenerate (zero-area) box would divide by zero; floor both extents at
   // one canvas unit so a fit is always defined.
@@ -96,7 +103,7 @@ export function fitBox(
   // pad): floor the usable extent so the ratio stays positive.
   const availW = Math.max(1, viewportW - 2 * paddingPx);
   const availH = Math.max(1, viewportH - 2 * paddingPx);
-  const zoom = clampZoom(Math.min(availW / boxW, availH / boxH));
+  const zoom = clampZoom(Math.min(availW / boxW, availH / boxH, maxZoom));
   const { panX, panY } = computeCenterPan(
     minX,
     minY,
