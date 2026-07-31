@@ -51,8 +51,10 @@ import {
 // Owned by the shared browser-safe leaf so both sides of the padi seal read one
 // declaration; its `ProcessRss` type is re-exported above for this module's importers.
 import {
+  NewTerminalThemeSchema,
   type ProcessRss,
   ProcessRssSchema,
+  ShuffleBehaviorSchema,
   TcpPortSchema,
 } from "@kolu/terminal-vocab/schema";
 // The host key, from its own padi-LESS module — the forward vocabulary below is
@@ -60,7 +62,6 @@ import {
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
 import { HostKeySchema } from "./hostKey.ts";
 import type { TaskProgressSchema } from "anyagent/schemas";
-import { match } from "ts-pattern";
 import { z } from "zod";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
@@ -147,6 +148,8 @@ export {
   RestoreTargetSchema,
   reasonForSource,
   resumableCommand,
+  NewTerminalThemeSchema,
+  ShuffleBehaviorSchema,
   TERMINAL_IDLE_AFTER_MS,
   TerminalIdSchema,
   TerminalSnapshotSchema,
@@ -156,24 +159,13 @@ export {
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
-/** How a newly created terminal gets its theme. `inherit` copies the active
- *  terminal's theme (like new terminals inherit its size — set one theme once
- *  and every new terminal follows; the first terminal seeds from the server
- *  default); `shuffle` auto-picks a distinct tint via {@link ShuffleBehaviorSchema}. */
-export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
-
-/** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
- *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
- *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
- *  resolved light/dark mode; `colourful` prefers saturated (non-grey) tints
- *  across light and dark. */
-export const ShuffleBehaviorSchema = z.enum([
-  "random",
-  "dark",
-  "light",
-  "auto",
-  "colourful",
-]);
+// `NewTerminalThemeSchema` / `ShuffleBehaviorSchema` / `shuffleMode` are OWNED by
+// `@kolu/terminal-vocab/schema` — the shared browser-safe terminal vocabulary —
+// because padi RESOLVES the new-terminal theme at its `lifecycle.create` front
+// door and so must validate the same literals, which it cannot do by importing
+// `kolu-common` (the arrow runs `kolu-common → @kolu/padi`, never back). Same
+// reason `DEFAULT_SCROLLBACK` lives there. They ride the moved-symbol re-export
+// block above, so every existing `kolu-common/surface` import site is unchanged.
 
 /** Right-panel preferences — workspace-level layout chrome: the panel's width
  *  and the Code-tab tree/content split. Both are viewer density taste — tuned
@@ -243,28 +235,15 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     of one. `z.infer<typeof Schema>` here keeps the wiring local.
 
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
-export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
-export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
 
-/** The candidate-pool filter a shuffle should apply, from the
- *  `shuffleBehavior` preference and the app's resolved dark mode.
- *  `undefined` means no restriction (`random` — the whole catalogue).
- *  Otherwise `"light"` / `"dark"` / `"colourful"` — the same literals
- *  `pickTheme`'s `mode` accepts (`ThemePickMode` in terminal-themes). The
- *  single source of truth for every shuffle: a `shuffle` new terminal AND the
- *  ⌘⇧J action both resolve their pool through here. */
-export function shuffleMode(
-  behavior: ShuffleBehavior,
-  isDark: boolean,
-): "light" | "dark" | "colourful" | undefined {
-  return match(behavior)
-    .with("random", () => undefined)
-    .with("dark", () => "dark" as const)
-    .with("light", () => "light" as const)
-    .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
-    .with("colourful", () => "colourful" as const)
-    .exhaustive();
-}
+// The new-terminal theme vocabulary and its `shuffleMode` pool filter are owned
+// by `@kolu/terminal-vocab/schema` (see the schema re-export above) — padi
+// resolves shuffles too, and cannot import `kolu-common`.
+export {
+  type NewTerminalTheme,
+  type ShuffleBehavior,
+  shuffleMode,
+} from "@kolu/terminal-vocab/schema";
 
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;
 

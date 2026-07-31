@@ -198,6 +198,19 @@ reach for as by what it owns:
   "session")`), never the raw conf store, so it carries no dependency on the
   server's `state.ts`.
 
+  This holds even where padi acts ON a preference. padi RESOLVES the theme of
+  every new terminal at its `lifecycle.create` front door, so a create from the
+  MCP server, a TUI or a script honours the **New terminal theme** setting just
+  like a keyboard create ([#2045]). It learns the setting by REPORT, not by
+  reading it: the app chrome calls `chrome.setNewTerminalThemePolicy` and padi
+  holds the last report (`terminalThemePolicy.ts`), the same way it holds the
+  last reported active terminal. That keeps the ownership arrow pointing out —
+  and it is the only shape that works on BOTH arms, since a remote padi has no
+  channel to kolu-server's conf at all. The report carries the browser's
+  RESOLVED `isDark`, never a `"system"` colour scheme padi could not answer.
+
+[#2045]: https://github.com/juspay/kolu/issues/2045
+
 ## Status
 
 - **W1.C / W1.M / W1.R — shipped:** the contract, terminal-domain move, native

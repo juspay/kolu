@@ -66,6 +66,60 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
  *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
 export const DEFAULT_SCROLLBACK = 50_000;
 
+// ── New-terminal theme preferences ────────────────────────────────────
+//
+// The vocabulary for "what theme does a NEW terminal get". Like
+// `DEFAULT_SCROLLBACK` above, these are terminal-DOMAIN facts both the app
+// (client + kolu-common, which re-exports them) AND the per-host daemon
+// (`@kolu/padi`, which RESOLVES the theme at its `lifecycle.create` front door)
+// must agree on — so they live HERE rather than in `kolu-common/surface`: padi
+// validating a theme-policy report must not force the forbidden
+// `@kolu/padi → kolu-common` back-edge, and the values must ride padi's HASHED
+// build closure so a change flips `PADI_BUILD_ID`.
+
+/** How a new terminal picks its theme. `inherit` copies the terminal the user
+ *  was last in (the app's default palette when there is none); `shuffle`
+ *  auto-picks a tint distinct from the open terminals, restricted by
+ *  {@link ShuffleBehaviorSchema}. */
+export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
+export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
+
+/** Which themes any shuffle draws from — a `shuffle` new terminal and the ⌘⇧J
+ *  "shuffle this terminal" action alike. */
+export const ShuffleBehaviorSchema = z.enum([
+  "random",
+  "dark",
+  "light",
+  "auto",
+  "colourful",
+]);
+export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
+
+/** The candidate-pool filter a shuffle should apply, from the `shuffleBehavior`
+ *  preference and the app's RESOLVED dark mode. `undefined` means no
+ *  restriction (`random` — the whole catalogue). Otherwise `"light"` /
+ *  `"dark"` / `"colourful"` — the same literals `pickTheme`'s `mode` accepts
+ *  (`ThemePickMode` in terminal-themes; spelled as a literal union here so this
+ *  vocabulary needs no `terminal-themes` edge). The single source of truth for
+ *  every shuffle: a `shuffle` new terminal (resolved by padi) AND the ⌘⇧J action
+ *  (resolved by the client) both resolve their pool through here.
+ *
+ *  `isDark` is the RESOLVED answer, never the raw `colorScheme` preference —
+ *  only the browser can resolve `"system"` against its media query, so the
+ *  resolved boolean is what travels. */
+export function shuffleMode(
+  behavior: ShuffleBehavior,
+  isDark: boolean,
+): "light" | "dark" | "colourful" | undefined {
+  return match(behavior)
+    .with("random", () => undefined)
+    .with("dark", () => "dark" as const)
+    .with("light", () => "light" as const)
+    .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
+    .with("colourful", () => "colourful" as const)
+    .exhaustive();
+}
+
 // ── Agent status ──────────────────────────────────────────────────────
 
 // `AgentKindSchema` + the resume vocabulary (`AgentIdentitySchema`,

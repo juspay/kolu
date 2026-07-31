@@ -280,7 +280,12 @@ function rightPanelStateEqual(
   return true;
 }
 
-// Active terminal ID — client-reported, used only for session snapshots.
+// Active terminal ID — client-reported, and the one fact padi holds for "the
+// terminal the user was last in". TWO readers: the session snapshot, and
+// `lifecycle.create`'s `inherit` theme resolution (#2045). Like every other
+// client-reported chrome fact here (canvasLayout, subPanel, rightPanel) it is a
+// single shared value with last-write-wins across connected clients — two
+// windows whose focus has diverged agree on whichever reported last.
 let activeTerminalId: TerminalId | null = null;
 
 /** The sole writer of `activeTerminalId`. Records the marker and nothing else —

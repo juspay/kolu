@@ -66,11 +66,12 @@ and the <kbd>⌘⇧J</kbd> "shuffle this terminal" shortcut:
   is never overwritten out from under you.
 </Aside>
 
-<Aside type="note" title="Applies to every new terminal">
-  The new-terminal theme preference is resolved by padi (the terminal daemon)
-  at the one front door every caller passes through — so a terminal created
-  by the MCP server, a TUI, or a script follows the same **Inherit** or
-  **Shuffle** setting as one you open from the keyboard.
+<Aside type="note" title="Applies to every new terminal, on every host">
+  These two settings are applied by padi (the terminal daemon) at the one door
+  every new terminal comes through — so a terminal created by the MCP server, a
+  TUI, or a script follows the same **New terminal theme** and **Shuffle
+  behaviour** you'd get opening one from the keyboard, on remote hosts as well
+  as your local one.
 </Aside>
 
 ## The app theme

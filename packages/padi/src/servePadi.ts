@@ -36,6 +36,7 @@ import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
 } from "./session/confStores.ts";
+import { getSavedSession } from "./session/session.ts";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
@@ -87,9 +88,9 @@ import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
 import { saveTerminalFile } from "./terminalScratch.ts";
 import {
-  readTerminalThemePolicyFromEnv,
+  getNewTerminalThemePolicy,
   resolveCreateTerminalTheme,
-  type TerminalThemePolicy,
+  setNewTerminalThemePolicy,
 } from "./terminalThemePolicy.ts";
 import {
   createTerminal,
@@ -168,16 +169,8 @@ export function buildPadiSurfaceDeps(deps: {
   /** padi's resolved state-root — the `hostInventory` poll read resolves the
    *  held-kaval fallback address from it (`samplePadiHostInventory`). */
   stateRoot: string;
-  /** Source for the user's new-terminal theme preference. Defaults to reading
-   *  the live kolu-server conf (`$KOLU_STATE_DIR/config.json`) so out-of-band
-   *  create callers (MCP, a TUI, scripts) honour the same setting as the
-   *  browser. Tests inject a static source. */
-  terminalThemePolicy?: { get: () => TerminalThemePolicy };
 }): PadiDeps {
   const { endpoint, log, startedAt, commit, lifetime, stateRoot } = deps;
-  const terminalThemePolicy = deps.terminalThemePolicy ?? {
-    get: readTerminalThemePolicyFromEnv,
-  };
   const fsGit = padiFsGitDeps(endpoint, log);
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
@@ -453,22 +446,29 @@ export function buildPadiSurfaceDeps(deps: {
 
           // Resolve the new-terminal theme HERE, at the single front door every
           // caller passes through. The browser no longer pre-computes it, so UI
-          // creates and MCP-created terminals see the same user preference.
+          // creates and MCP-created terminals see the same user preference
+          // (#2045) — on the remote arm as well as the local one, because the
+          // policy arrives by chrome REPORT over this same surface.
           const activeId = getActiveTerminalId();
-          const activeThemeName = activeId
-            ? getTerminal(activeId)?.meta.themeName
-            : undefined;
-          const saved = requirePadiSessionStore().get();
-          const savedActiveThemeName = saved?.terminals.find(
-            (t) => t.id === saved.activeTerminalId,
-          )?.themeName;
+          const saved = getSavedSession();
           const themeName = resolveCreateTerminalTheme({
             overrideThemeName: input.themeName,
-            policy: terminalThemePolicy.get(),
-            activeThemeName,
-            lastThemeName: savedActiveThemeName,
-            peerThemeNames: [...terminalEntries()].flatMap(([, entry]) =>
-              entry.meta.themeName ? [entry.meta.themeName] : [],
+            policy: getNewTerminalThemePolicy(),
+            // Best first: the live active terminal, then the saved session's
+            // active terminal (the only "last one you were in" padi has before
+            // a client has reported a focus).
+            inheritCandidates: [
+              activeId ? getTerminal(activeId)?.meta.themeName : undefined,
+              saved?.terminals.find((t) => t.id === saved.activeTerminalId)
+                ?.themeName,
+            ],
+            // Pass every entry's theme THROUGH, `undefined` included — an
+            // unthemed terminal renders as the default theme, so it must still
+            // repel a spread shuffle. `resolveThemeBgs` maps `undefined` to that
+            // background; filtering here would silently let a new terminal land
+            // on a background already on screen.
+            peerThemeNames: [...terminalEntries()].map(
+              ([, entry]) => entry.meta.themeName,
             ),
           });
 
@@ -601,6 +601,12 @@ export function buildPadiSurfaceDeps(deps: {
         },
         setActive: ({ input }) => {
           setActiveTerminalId(input.id);
+        },
+        setNewTerminalThemePolicy: ({ input }) => {
+          // The app chrome's report of the user's RESOLVED new-terminal theme
+          // preference — the fact `lifecycle.create` resolves every new
+          // terminal's theme from, for browser and out-of-band callers alike.
+          setNewTerminalThemePolicy(input);
         },
         setCanvasLayout: ({ input }) => {
           requireMutableTerminal(input.id);

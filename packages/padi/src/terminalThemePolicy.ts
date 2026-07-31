@@ -1,191 +1,110 @@
 /** Terminal-theme policy for new terminals — the one place padi decides what a
  *  fresh terminal looks like when the caller doesn't pin a theme.
  *
- *  The preference values are read from the existing kolu-server conf store
- *  (`$KOLU_STATE_DIR/config.json`) so the browser and every out-of-band caller
- *  (MCP, a TUI, a script) converge on the same user setting without duplicating
- *  the decision in each frontend. The on-disk shape is the single source of
- *  truth; padi only reads the three fields it needs.
+ *  ── Why padi decides, and how it learns the preference ──────────────────────
+ *  The theme used to be resolved in the browser (`useTerminalCrud`), which only
+ *  browser-created terminals passed through — so a terminal created by the MCP
+ *  server, a TUI or a script landed on the built-in default and ignored the
+ *  user's setting (#2045). Resolution now happens at padi's `lifecycle.create`,
+ *  the single front door EVERY caller passes through.
  *
- *  The three preference literals and the shuffle→mode mapping mirror
- *  `kolu-common/surface.ts`'s zod schemas and `shuffleMode` helper, but
- *  padi's package seal (see `assembly.ts` / `clientPolicy.ts`) forbids
- *  importing `kolu-common` — the dependency arrow runs the other way. So
- *  the literals are re-declared here; a schema change in kolu-common must
- *  be reflected here. The zod narrowing in `readTerminalThemePolicy`
- *  validates at the boundary so a drift surfaces loudly.
+ *  padi is not the OWNER of the preference — kolu-server is (its conf store).
+ *  padi learns it by REPORT: the app chrome calls
+ *  `chrome.setNewTerminalThemePolicy` and padi holds the last report, exactly
+ *  the way `setActiveTerminalId` holds the last reported active terminal. The
+ *  report travels over padi's surface, so it reaches a REMOTE padi over the ssh
+ *  hop identically to a local one — which reading kolu-server's `config.json`
+ *  off disk could never do (`$KOLU_STATE_DIR` is a local-arm-only env var; the
+ *  remote arm carries state via `--state-root` argv, see `remotePadiBinding.ts`).
+ *
+ *  The report carries `isDark`, the browser's RESOLVED answer, never the raw
+ *  `colorScheme` preference: `"system"` can only be resolved against a media
+ *  query, and padi runs headless. The guarantee sits at the endpoint that knows
+ *  enough to make it.
+ *
+ *  Until a chrome has reported (a padi nobody has opened a browser against),
+ *  there is no user preference to honour and {@link resolveCreateTerminalTheme}
+ *  returns `undefined` — the caller's own default, exactly what a create did
+ *  before any of this existed. That is an ABSENT fact, not a degraded one; padi
+ *  invents no default preference of its own to drift from kolu-common's.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
-  availableThemes,
-  DEFAULT_THEME_NAME,
-  pickTheme,
-  resolveThemeBgs,
-  type ThemePickMode,
-} from "terminal-themes";
-import { z } from "zod";
+  type NewTerminalTheme,
+  type ShuffleBehavior,
+  shuffleMode,
+} from "@kolu/terminal-vocab/schema";
+import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 
-// Literal source of truth for the three preference enums. Mirrors
-// kolu-common/surface.ts's zod schemas; kept in lock-step by convention
-// (the padi seal prevents importing them).
-const NEW_TERMINAL_THEMES = ["inherit", "shuffle"] as const;
-export type NewTerminalTheme = (typeof NEW_TERMINAL_THEMES)[number];
-
-const SHUFFLE_BEHAVIORS = [
-  "random",
-  "dark",
-  "light",
-  "auto",
-  "colourful",
-] as const;
-export type ShuffleBehavior = (typeof SHUFFLE_BEHAVIORS)[number];
-
-const COLOR_SCHEMES = ["light", "dark", "system"] as const;
-export type ColorScheme = (typeof COLOR_SCHEMES)[number];
-
+/** The user's new-terminal theme preference as the app chrome reports it —
+ *  already resolved (`isDark`, not a `"system"` colour scheme). */
 export interface TerminalThemePolicy {
   newTerminalTheme: NewTerminalTheme;
   shuffleBehavior: ShuffleBehavior;
-  colorScheme: ColorScheme;
+  /** The app's RESOLVED dark mode. Only the browser can answer this for a
+   *  `"system"` colour scheme, so it arrives resolved. */
+  isDark: boolean;
 }
 
-export const DEFAULT_TERMINAL_THEME_POLICY: TerminalThemePolicy = {
-  newTerminalTheme: "shuffle",
-  shuffleBehavior: "auto",
-  colorScheme: "dark",
-};
+/** The last policy the app chrome reported, or `null` if none ever has.
+ *  Module-global for the same reason `activeTerminalId` is: one padi, one
+ *  chrome-reported fact, read by whichever create comes next. */
+let reportedPolicy: TerminalThemePolicy | null = null;
 
-/** Narrow zod schema for just the three fields padi reads from the conf
- *  file. Full `PreferencesSchema` lives in `kolu-common/surface.ts`; this is
- *  the minimum subset padi's seal allows it to read. `.catch()` at each
- *  field maps a wrong-typed value to the whole-block fallback, matching
- *  kolu-server's fail-fast behaviour on the server side (the server throws
- *  on a corrupt file; padi falls back to defaults so a standalone create
- *  still works). */
-const ThemePrefsSubsetSchema = z.object({
-  newTerminalTheme: z
-    .enum(NEW_TERMINAL_THEMES)
-    .catch(DEFAULT_TERMINAL_THEME_POLICY.newTerminalTheme),
-  shuffleBehavior: z
-    .enum(SHUFFLE_BEHAVIORS)
-    .catch(DEFAULT_TERMINAL_THEME_POLICY.shuffleBehavior),
-  colorScheme: z
-    .enum(COLOR_SCHEMES)
-    .catch(DEFAULT_TERMINAL_THEME_POLICY.colorScheme),
-});
-
-/** The candidate-pool filter a shuffle should apply, copied from the
- *  `shuffleMode` helper in `kolu-common/surface` — copied because padi's
- *  package seal forbids importing `kolu-common` (the dependency arrow runs
- *  `kolu-common → @kolu/padi`, never back). `undefined` means no
- *  restriction (`random`). */
-function shuffleMode(
-  behavior: ShuffleBehavior,
-  isDark: boolean,
-): ThemePickMode | undefined {
-  switch (behavior) {
-    case "random":
-      return undefined;
-    case "dark":
-      return "dark";
-    case "light":
-      return "light";
-    case "auto":
-      return isDark ? "dark" : "light";
-    case "colourful":
-      return "colourful";
-    default:
-      return undefined;
-  }
+/** Record the app chrome's new-terminal theme report (`chrome.setNewTerminalThemePolicy`). */
+export function setNewTerminalThemePolicy(policy: TerminalThemePolicy): void {
+  reportedPolicy = policy;
 }
 
-/** POLICY CHOICE: padi treats an unresolvable color scheme as dark.
- *
- *  The app preference can be `"system"`, but padi runs headless — it has
- *  no OS media-query to consult. So rather than carry an "unknown" third
- *  state through the shuffle, we SMUSH: any non-`"light"` value counts as
- *  dark for shuffle purposes. The browser (which CAN resolve `"system"`)
- *  still uses the real value for its own shuffle decisions in
- *  `useTerminalCrud`; this asymmetry affects only padi-resolved shuffles
- *  under preference `"system"`. */
-function isDarkFromPolicy(colorScheme: ColorScheme): boolean {
-  return colorScheme !== "light";
+/** The last reported policy, or `null` if no chrome has reported one yet. */
+export function getNewTerminalThemePolicy(): TerminalThemePolicy | null {
+  return reportedPolicy;
 }
 
-/** Read the user's terminal-theme policy from a kolu conf directory.
- *  Pure function — testable without env-var shuffling. */
-export function readTerminalThemePolicy(stateDir: string): TerminalThemePolicy {
-  const configPath = join(stateDir, "config.json");
-  if (!existsSync(configPath)) return DEFAULT_TERMINAL_THEME_POLICY;
-
-  try {
-    const raw: unknown = JSON.parse(readFileSync(configPath, "utf8"));
-    const prefs =
-      raw != null && typeof raw === "object" && "preferences" in raw
-        ? raw.preferences
-        : {};
-    const parsed = ThemePrefsSubsetSchema.safeParse(prefs);
-    return parsed.success ? parsed.data : DEFAULT_TERMINAL_THEME_POLICY;
-  } catch {
-    // A corrupt conf file is kolu-server's fail-fast concern, not padi's.
-    // Falling back to defaults here keeps a standalone create working while
-    // the server surfaces the real corruption on its own boot.
-    return DEFAULT_TERMINAL_THEME_POLICY;
-  }
-}
-
-/** Env-var-reading wrapper — the injectable default padi's surface deps use.
- *  `$KOLU_STATE_DIR` is already forwarded to padi by `daemonEnv`
- *  (`packages/server/src/padi/padiBinding.ts`), so a padi booted by
- *  kolu-server sees the live user prefs. A standalone padi (no server)
- *  returns defaults. */
-export function readTerminalThemePolicyFromEnv(): TerminalThemePolicy {
-  const stateDir = process.env.KOLU_STATE_DIR;
-  if (!stateDir) return DEFAULT_TERMINAL_THEME_POLICY;
-  return readTerminalThemePolicy(stateDir);
+/** Test seam — drop the reported policy so a suite starts from "nobody has
+ *  reported", the state a fresh padi boots in. */
+export function resetNewTerminalThemePolicyForTest(): void {
+  reportedPolicy = null;
 }
 
 export interface ResolveCreateTerminalThemeOptions {
-  /** An explicit caller override always wins. */
+  /** An explicit caller override always wins (session restore, a worktree
+   *  create, an MCP caller that named a theme). */
   overrideThemeName?: string;
-  policy: TerminalThemePolicy;
-  /** The active terminal's current `themeName`, if any. */
-  activeThemeName?: string;
-  /** The saved session's active-terminal `themeName` — inherit's fallback
-   *  when no live terminal is active. (Named "last" because padi has no
-   *  direct recency signal; the caller supplies the best proxy it has.) */
-  lastThemeName?: string;
-  /** Every live terminal's current `themeName` — used by "shuffle" to avoid
-   *  landing on a duplicate background. */
-  peerThemeNames: string[];
+  /** The reported preference, or `null` when no chrome has reported one. */
+  policy: TerminalThemePolicy | null;
+  /** Inherit's sources, BEST FIRST — the live active terminal's theme, then the
+   *  saved session's active terminal (padi's best proxy for "the terminal the
+   *  user was last in" before any client has reconnected). The first defined
+   *  entry wins; all-undefined means there is nothing to inherit. */
+  inheritCandidates: readonly (string | undefined)[];
+  /** Each live terminal's `themeName`, used by `shuffle` to avoid landing on a
+   *  background already on screen. An `undefined` entry is NOT dropped — it
+   *  means "on the default theme", which is what it renders as, and
+   *  `resolveThemeBgs` maps it to that background. */
+  peerThemeNames: readonly (string | undefined)[];
   /** Deterministic random source for tests. Defaults to `Math.random`. */
   rand?: () => number;
 }
 
-/** Pick the theme for a newly created terminal, honouring the user's preference
- *  exactly the way the browser's `useTerminalCrud` used to. */
+/** Pick the theme for a newly created terminal.
+ *
+ *  Returns `undefined` for "no opinion" — an unresolved `inherit` (nothing to
+ *  inherit from) or an unreported policy — which leaves the caller on its own
+ *  default rather than inventing one here. */
 export function resolveCreateTerminalTheme(
   opts: ResolveCreateTerminalThemeOptions,
-): string {
-  if (opts.overrideThemeName) {
-    return opts.overrideThemeName;
-  }
+): string | undefined {
+  if (opts.overrideThemeName) return opts.overrideThemeName;
+  if (opts.policy === null) return undefined;
 
-  if (opts.policy.newTerminalTheme === "inherit") {
-    return opts.activeThemeName ?? opts.lastThemeName ?? DEFAULT_THEME_NAME;
-  }
+  if (opts.policy.newTerminalTheme === "inherit")
+    return opts.inheritCandidates.find((name) => name !== undefined);
 
-  const mode = shuffleMode(
-    opts.policy.shuffleBehavior,
-    isDarkFromPolicy(opts.policy.colorScheme),
-  );
-  const peerBgs = resolveThemeBgs(opts.peerThemeNames, (name) => name);
   return pickTheme(availableThemes, {
     spread: true,
-    peerBgs,
-    mode,
+    peerBgs: resolveThemeBgs(opts.peerThemeNames, (name) => name),
+    mode: shuffleMode(opts.policy.shuffleBehavior, opts.policy.isDark),
     rand: opts.rand,
   });
 }

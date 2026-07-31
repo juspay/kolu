@@ -33,7 +33,24 @@ const colourful = pickTheme(availableThemes, {
   excludeBgs: ["#1d1f21"],
   mode: "colourful",
 });
+
+// Project a set of terminals onto the backgrounds they RENDER as, ready to feed
+// `peerBgs`. The selector may return `undefined` for a terminal that has no theme
+// set — that is not skipped, it resolves to `DEFAULT_THEME_NAME`'s background,
+// because an unthemed terminal is drawn in the default theme.
+const peerBgs = resolveThemeBgs(terminals, (t) => t.themeName);
 ```
+
+## Entry points
+
+- **`terminal-themes`** — the catalog and the picker (`availableThemes`,
+  `getThemeByName`, `resolveThemeBgs`, `pickTheme`, `DEFAULT_THEME_NAME`).
+  Consumed by the kolu client AND by `@kolu/padi`, which resolves each new
+  terminal's theme at `lifecycle.create`.
+- **`terminal-themes/color`** — the colour-math leaf (perceptual distance and
+  the light/dark/colourful classification the picker's `mode` uses). A separate
+  entry point because only the client reaches it; padi's build closure
+  deliberately excludes it (see `default.nix`).
 
 ## Regenerating themes
 

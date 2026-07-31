@@ -22,6 +22,7 @@ import {
   evictTerminal,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
+import { useNewTerminalThemePolicyReport } from "./useNewTerminalThemePolicyReport";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -39,6 +40,10 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
+  // Keep every host's padi told what the new-terminal theme preference resolves
+  // to — padi picks the theme for creates from ANY caller, including ones that
+  // never touch this module (MCP, a TUI, a script).
+  useNewTerminalThemePolicyReport();
 
   // --- Handlers ---
 

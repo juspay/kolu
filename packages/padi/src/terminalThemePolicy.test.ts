@@ -1,28 +1,30 @@
-/** Unit tests for padi's new-terminal theme resolver. */
+/** Unit tests for padi's new-terminal theme resolver and the chrome-reported
+ *  policy cell it resolves against. */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
-  DEFAULT_TERMINAL_THEME_POLICY,
-  readTerminalThemePolicy,
+  getNewTerminalThemePolicy,
+  resetNewTerminalThemePolicyForTest,
   resolveCreateTerminalTheme,
+  setNewTerminalThemePolicy,
+  type TerminalThemePolicy,
 } from "./terminalThemePolicy.ts";
 
 const ROSE = "rose";
 const NORD = "nord";
 const DRACULA = "Dracula";
+const LIGHT_THEME = "Catppuccin Latte";
 
-const alwaysRosePolicy: typeof DEFAULT_TERMINAL_THEME_POLICY = {
-  ...DEFAULT_TERMINAL_THEME_POLICY,
+const inheritPolicy: TerminalThemePolicy = {
   newTerminalTheme: "inherit",
+  shuffleBehavior: "auto",
+  isDark: true,
 };
 
-const shuffleDarkPolicy: typeof DEFAULT_TERMINAL_THEME_POLICY = {
-  ...DEFAULT_TERMINAL_THEME_POLICY,
+const shuffleDarkPolicy: TerminalThemePolicy = {
   newTerminalTheme: "shuffle",
   shuffleBehavior: "dark",
+  isDark: true,
 };
 
 describe("resolveCreateTerminalTheme", () => {
@@ -30,124 +32,140 @@ describe("resolveCreateTerminalTheme", () => {
     expect(
       resolveCreateTerminalTheme({
         overrideThemeName: DRACULA,
-        policy: alwaysRosePolicy,
-        activeThemeName: ROSE,
+        policy: inheritPolicy,
+        inheritCandidates: [ROSE],
         peerThemeNames: [],
       }),
     ).toBe(DRACULA);
   });
 
-  it("inherit copies the active terminal's theme", () => {
+  it("honours an explicit override even when no policy has been reported", () => {
     expect(
       resolveCreateTerminalTheme({
-        policy: alwaysRosePolicy,
-        activeThemeName: ROSE,
+        overrideThemeName: DRACULA,
+        policy: null,
+        inheritCandidates: [],
+        peerThemeNames: [],
+      }),
+    ).toBe(DRACULA);
+  });
+
+  it("has NO opinion until a chrome has reported a policy", () => {
+    // A padi nobody has opened a browser against has no user preference to
+    // honour — it must not invent one, so the caller keeps its own default.
+    expect(
+      resolveCreateTerminalTheme({
+        policy: null,
+        inheritCandidates: [ROSE],
+        peerThemeNames: [NORD],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("inherit takes the first defined candidate (the live active terminal)", () => {
+    expect(
+      resolveCreateTerminalTheme({
+        policy: inheritPolicy,
+        inheritCandidates: [ROSE, NORD],
         peerThemeNames: [],
       }),
     ).toBe(ROSE);
   });
 
-  it("inherit falls back to the last-used theme when nothing is active", () => {
+  it("inherit falls through to the saved session when nothing is active", () => {
     expect(
       resolveCreateTerminalTheme({
-        policy: alwaysRosePolicy,
-        lastThemeName: NORD,
+        policy: inheritPolicy,
+        inheritCandidates: [undefined, NORD],
         peerThemeNames: [],
       }),
     ).toBe(NORD);
   });
 
-  it("inherit falls back to the built-in default when no theme is known", () => {
-    const theme = resolveCreateTerminalTheme({
-      policy: alwaysRosePolicy,
-      peerThemeNames: [],
-    });
-    expect(typeof theme).toBe("string");
-    expect(theme.length).toBeGreaterThan(0);
+  it("inherit has no opinion when there is nothing to inherit", () => {
+    expect(
+      resolveCreateTerminalTheme({
+        policy: inheritPolicy,
+        inheritCandidates: [undefined, undefined],
+        peerThemeNames: [],
+      }),
+    ).toBeUndefined();
   });
 
   it("shuffle picks a theme outside the peer set", () => {
     const picked = resolveCreateTerminalTheme({
       policy: shuffleDarkPolicy,
       peerThemeNames: [ROSE],
+      inheritCandidates: [],
       rand: () => 0,
     });
     expect(picked).not.toBe(ROSE);
     expect(typeof picked).toBe("string");
   });
 
-  it("shuffle with dark mode stays in the dark family", () => {
-    // `_picked` — Biome flags the unused binding because we assert on the
-    // SECOND call below; the first call's return value is intentionally
-    // discarded (we only test that dark-mode shuffle stays in the dark
-    // family when a light peer is supplied).
-    const _picked = resolveCreateTerminalTheme({
-      policy: shuffleDarkPolicy,
+  it("shuffle restricted to dark avoids an explicitly light peer", () => {
+    expect(
+      resolveCreateTerminalTheme({
+        policy: shuffleDarkPolicy,
+        peerThemeNames: [LIGHT_THEME],
+        inheritCandidates: [],
+        rand: () => 0,
+      }),
+    ).not.toBe(LIGHT_THEME);
+  });
+
+  it("shuffle counts an UNTHEMED peer as the default theme", () => {
+    // An unthemed terminal renders as the default theme, so it must repel a
+    // spread shuffle exactly like an explicitly-default-themed one. Dropping
+    // `undefined` peers would let a new terminal land on a background already
+    // on screen.
+    const withUndefinedPeer = resolveCreateTerminalTheme({
+      policy: { ...shuffleDarkPolicy, shuffleBehavior: "random" },
+      peerThemeNames: [undefined],
+      inheritCandidates: [],
+      rand: () => 0,
+    });
+    const withNoPeers = resolveCreateTerminalTheme({
+      policy: { ...shuffleDarkPolicy, shuffleBehavior: "random" },
       peerThemeNames: [],
+      inheritCandidates: [],
       rand: () => 0,
     });
-    // All real dark-theme names include well-known dark schemes; we assert
-    // only that a theme was picked, and that it differs from an explicit
-    // light peer if one is supplied.
-    const lightPeer = "Catppuccin Latte";
-    const withPeer = resolveCreateTerminalTheme({
-      policy: shuffleDarkPolicy,
-      peerThemeNames: [lightPeer],
-      rand: () => 0,
-    });
-    expect(withPeer).not.toBe(lightPeer);
+    expect(withUndefinedPeer).not.toBe(withNoPeers);
+  });
+
+  it("resolves the shuffle family from the REPORTED dark mode", () => {
+    // `auto` is the default shuffle behaviour, and the resolved `isDark` is the
+    // only thing that decides its family — the browser answers `"system"`, padi
+    // never guesses (which used to smush every System user onto dark).
+    const auto = (isDark: boolean) =>
+      resolveCreateTerminalTheme({
+        policy: {
+          newTerminalTheme: "shuffle",
+          shuffleBehavior: "auto",
+          isDark,
+        },
+        peerThemeNames: [],
+        inheritCandidates: [],
+        rand: () => 0,
+      });
+    expect(auto(true)).not.toBe(auto(false));
   });
 });
 
-describe("readTerminalThemePolicy", () => {
-  it("returns defaults for a missing config file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-missing-"));
-    expect(readTerminalThemePolicy(dir)).toEqual(DEFAULT_TERMINAL_THEME_POLICY);
+describe("the chrome-reported policy cell", () => {
+  beforeEach(() => {
+    resetNewTerminalThemePolicyForTest();
   });
 
-  it("reads the three theme fields from the conf file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-"));
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        preferences: {
-          newTerminalTheme: "inherit",
-          shuffleBehavior: "dark",
-          colorScheme: "dark",
-        },
-      }),
-    );
-    expect(readTerminalThemePolicy(dir)).toEqual({
-      newTerminalTheme: "inherit",
-      shuffleBehavior: "dark",
-      colorScheme: "dark",
-    });
+  it("starts empty — a fresh padi has heard from no chrome", () => {
+    expect(getNewTerminalThemePolicy()).toBeNull();
   });
 
-  it("falls back field-by-field for invalid values via zod catch", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-partial-"));
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        preferences: {
-          newTerminalTheme: "monochrome",
-          shuffleBehavior: "dark",
-          colorScheme: true,
-        },
-      }),
-    );
-    // newTerminalTheme and colorScheme land on their .catch defaults;
-    // shuffleBehavior passes through.
-    expect(readTerminalThemePolicy(dir)).toEqual({
-      newTerminalTheme: DEFAULT_TERMINAL_THEME_POLICY.newTerminalTheme,
-      shuffleBehavior: "dark",
-      colorScheme: DEFAULT_TERMINAL_THEME_POLICY.colorScheme,
-    });
-  });
-
-  it("falls back to whole-block defaults for a corrupt file", () => {
-    const dir = mkdtempSync(join(tmpdir(), "padi-theme-policy-corrupt-"));
-    writeFileSync(join(dir, "config.json"), "{ not-json");
-    expect(readTerminalThemePolicy(dir)).toEqual(DEFAULT_TERMINAL_THEME_POLICY);
+  it("holds the last report", () => {
+    setNewTerminalThemePolicy(inheritPolicy);
+    expect(getNewTerminalThemePolicy()).toEqual(inheritPolicy);
+    setNewTerminalThemePolicy(shuffleDarkPolicy);
+    expect(getNewTerminalThemePolicy()).toEqual(shuffleDarkPolicy);
   });
 });

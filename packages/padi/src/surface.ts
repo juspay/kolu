@@ -70,7 +70,9 @@ import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
+  NewTerminalThemeSchema,
   RepoChangePulseSchema,
+  ShuffleBehaviorSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/schema";
 import {
@@ -285,8 +287,19 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  may only subtract from). Not additive — a 4.4 peer that still speaks
  *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
  *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
- *  give: convergence + minor-rule drain keeps the two shapes from meeting. */
-export const PADI_SURFACE_VERSION = "4.5";
+ *  give: convergence + minor-rule drain keeps the two shapes from meeting.
+ *
+ *  4.6 (additive · minor): a NEW `chrome.setNewTerminalThemePolicy` procedure —
+ *  the app chrome's report of the user's RESOLVED new-terminal theme preference,
+ *  the twin of `chrome.setActive`'s active-terminal report. padi resolves every
+ *  new terminal's theme at `lifecycle.create` so an out-of-band create (MCP, a
+ *  TUI, a script) honours the setting, and this is the channel that tells it what
+ *  the setting IS — over the same surface on the local and the remote arm alike
+ *  (#2045). Purely additive, the plainest minor there is; the minor suffices for
+ *  the usual reason — a newer binder against an old 4.5 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
+ *  surface, so a 4.6 client never calls the procedure on a padi that lacks it. */
+export const PADI_SURFACE_VERSION = "4.6";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -725,6 +738,22 @@ export const PadiSetActiveInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
 });
 
+/** The user's new-terminal theme preference, REPORTED by the app chrome — the
+ *  twin of `setActive`'s active-terminal report. padi resolves every new
+ *  terminal's theme at its `lifecycle.create` front door (so a create from the
+ *  MCP server, a TUI or a script honours the setting exactly like a keyboard
+ *  create), but the preference is kolu-server's to own and only the BROWSER can
+ *  resolve a `"system"` colour scheme against its media query. So the chrome
+ *  reports the already-RESOLVED policy — `isDark`, never the raw `colorScheme`
+ *  — and padi holds the last report. */
+export const PadiSetNewTerminalThemePolicyInputSchema = z.object({
+  newTerminalTheme: NewTerminalThemeSchema,
+  shuffleBehavior: ShuffleBehaviorSchema,
+  /** The app's RESOLVED dark mode — `colorScheme` after `"system"` has been
+   *  answered by the browser's media query. */
+  isDark: z.boolean(),
+});
+
 export const PadiSetCanvasLayoutInputSchema = z.object({
   id: TerminalIdSchema,
   layout: CanvasLayoutSchema,
@@ -1092,6 +1121,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       setIntent: { input: PadiSetIntentInputSchema },
       setParent: { input: PadiSetParentInputSchema },
       setActive: { input: PadiSetActiveInputSchema },
+      setNewTerminalThemePolicy: {
+        input: PadiSetNewTerminalThemePolicyInputSchema,
+      },
       setCanvasLayout: { input: PadiSetCanvasLayoutInputSchema },
       setSubPanel: { input: PadiSetSubPanelInputSchema },
       setRightPanel: { input: PadiSetRightPanelInputSchema },
