@@ -40,6 +40,21 @@ type SetParentHandler = (a: {
   input: { id: string; parentId: string | null };
 }) => void;
 
+/** A dormant top-level tile: present, awake nowhere. Both doors must refuse it as
+ *  a parent, and must SAY that is why. */
+function seedDormant(): void {
+  registerTerminal(DORMANT, {
+    info: { id: DORMANT, pid: 1 },
+    meta: {
+      state: "sleeping",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      sleptAt: 1,
+    },
+    snapshot: snapshot(),
+  });
+}
+
 /** ONE deps graph per case, with both handlers derived from it — so "which deps
  *  instance is this asserting against?" has an answer in the test's own text. */
 let create: CreateHandler;
@@ -88,22 +103,35 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     expect(getTerminal(SIBLING)?.meta.parentId).toBeUndefined();
   });
 
+  it("lifecycle.create refuses a DORMANT parent by SAYING it is dormant", () => {
+    // The create door used to run `requireActiveTerminal` first, which answered a
+    // sleeping parent with a bare NOT_FOUND — "Terminal X not found" for a tile
+    // the user can see on the canvas. That narrow is a strict subset of the
+    // parent-edge rule now, so the door no longer shadows the accurate fault.
+    seedDormant();
+    const err = caught(() => create({ input: { parentId: DORMANT } }));
+    expect(err).toBeInstanceOf(ORPCError);
+    const orpc = err as ORPCError<string, unknown>;
+    expect(orpc.code).toBe("BAD_REQUEST");
+    expect(orpc.message).toMatch(/dormant/i);
+  });
+
+  it("lifecycle.create still answers an ABSENT parent with NOT_FOUND", () => {
+    // Removing the handler narrow must not change the code for a parent that
+    // genuinely is not there — the rule's own presence floor carries it.
+    const err = caught(() =>
+      create({ input: { parentId: "99999999-9999-4999-8999-999999999999" } }),
+    );
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+  });
+
   it("chrome.setParent refuses a DORMANT parent and leaves the child top-level", () => {
     // The door-level half of the sleeping hole: `chrome.setParent` runs
     // `requireMutableTerminal` on the SUBJECT only, so nothing but the shared
     // rule stands between a caller and a live pane hung off a tile whose body is
-    // `DormantTileBody` — painted nowhere. `lifecycle.create` is covered one
-    // layer up by `requireActiveTerminal`; this door is not.
-    registerTerminal(DORMANT, {
-      info: { id: DORMANT, pid: 1 },
-      meta: {
-        state: "sleeping",
-        location: LOCAL_LOCATION,
-        lastActivityAt: 1,
-        sleptAt: 1,
-      },
-      snapshot: snapshot(),
-    });
+    // `DormantTileBody` — painted nowhere.
+    seedDormant();
 
     const err = caught(() =>
       setParent({ input: { id: SIBLING, parentId: DORMANT } }),

@@ -427,17 +427,19 @@ export function buildPadiSurfaceDeps(deps: {
     procedures: {
       lifecycle: {
         create: ({ input }) => {
-          // A sub-terminal must hang off a LIVE parent (F3) — the same
-          // live-PTY narrow every per-terminal handler uses, and a STRICTER
-          // fact than the parent-edge rule `createTerminal` enforces below
-          // (which requires presence, not liveness).
+          // No parent narrow here: "a sub-terminal must hang off a LIVE parent"
+          // (F3) is now a STRICT SUBSET of the parent-edge rule `createTerminal`
+          // enforces below — `isPaintableParent` narrows through
+          // `getActiveTerminal`, so it demands liveness AND top-level placement.
+          // A `requireActiveTerminal` here would only SHADOW that rule's accurate
+          // fault: a dormant parent would surface as a bare NOT_FOUND ("Terminal
+          // X not found") for a tile that plainly exists, instead of the
+          // BAD_REQUEST that says it is dormant and to wake it first (#2059).
           // `PadiCreateInput` omits `lastActivityAt`: a fresh terminal seeds
           // `lastActivityAt: 0` (via `createAuthoredActive` → `seedMemory`),
           // and the fold stamps recency later — the client can't supply it.
           // (Only `session.restore` threads a saved `lastActivityAt` through,
           // via `respawnActive`, not this path.)
-          if (input.parentId !== undefined)
-            requireActiveTerminal(input.parentId);
           const info = createTerminal(input.cwd, input.parentId, {
             themeName: input.themeName,
             canvasLayout: input.canvasLayout,
