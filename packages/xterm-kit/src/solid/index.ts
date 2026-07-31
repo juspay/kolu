@@ -19,6 +19,13 @@ export {
 } from "./renderRecovery";
 export type { RenderRecovery, RenderRecoveryProbes } from "./renderRecovery";
 
+// Unfocused-terminal write coalesce — cuts multi-agent main-thread paint/parse.
+export {
+  createOutputCoalesce,
+  UNFOCUSED_COALESCE_MS,
+} from "./outputCoalesce";
+export type { OutputCoalesce, OutputCoalesceDeps } from "./outputCoalesce";
+
 // The mobile touch surface xterm 6.0 ships none of.
 export { enableSoftKeyboardInput } from "./softKeyboardInput";
 export { wireTouchScroll, wireTouchTaps } from "./touch";

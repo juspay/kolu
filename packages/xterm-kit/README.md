@@ -64,5 +64,8 @@ a `_core.buffers.normal` rename touches all three in tandem.
   DOM wiring.
 - `createRenderRecovery` — forced synchronous repaint when the rAF paint loop
   parks under occlusion.
+- `createOutputCoalesce` — batch PTY→xterm writes for unfocused terminals so a
+  Dock-scale multi-agent flood does not schedule full-rate parse+paint on every
+  tile; focused stays real-time. Pure (clock-injectable) and unit-tested.
 - `enableSoftKeyboardInput` / `isCoarsePointer` — the touch soft-keyboard surface
   and its coarse-pointer gate.
