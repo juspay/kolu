@@ -125,5 +125,15 @@ osfacts-live fix prompted by `3a6c829#1`.
 - **Implementation:** the Darwin oracle now takes the second `ps` snapshot,
   distinguishes a retired or reused PID from the same live process, and accepts
   a missing process row only when osfacts also emitted `proc ESRCH`. All facts
-  remain mandatory for every surviving process. Verification on `ci@petit` is
-  pending.
+  remain mandatory for every surviving process.
+- **Fix verification:** targeted Darwin run `907acfd#1` passed
+  `ci::osfacts-live` and its dependency closure on `ci@petit`.
+
+## Targeted verification runs
+
+These CI runs verify a fix on its affected platform but do not count toward the
+full two-platform green streak.
+
+| Run | Commit | Scope | Host | Result |
+| --- | --- | --- | --- | --- |
+| `907acfd#1` | `907acfd2f` | `osfacts-live@aarch64-darwin` and dependencies | `ci@petit` | Passed |
