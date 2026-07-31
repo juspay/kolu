@@ -104,8 +104,9 @@ failure fixable in this repository is in scope.
 | `3b57b1f#1` | `3b57b1f9c` | Passed | `2/5` |
 | `de10685#1` | `de1068524` | Passed | `1/5` |
 | `a454147#1` | `a4541473f` | Passed | `2/5` |
+| `7594e7d#1` | `7594e7d1a` | Failed: `ci::fmt@x86_64-linux`; all other nodes passed | `0/5` |
 
-**Current active streak: `2/5`.** The first two green runs above predate the
+**Current active streak: `0/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
@@ -130,6 +131,30 @@ osfacts-live fix prompted by `3a6c829#1`.
   remain mandatory for every surviving process.
 - **Fix verification:** targeted Darwin run `907acfd#1` passed
   `ci::osfacts-live` and its dependency closure on `ci@petit`.
+
+### `7594e7d#1`: Linux fmt, transient generated-font symlink
+
+- **Failure:** Biome included the generated Nix-store `fonts.css` and rejected
+  its source formatting even though `packages/client/public/fonts` is ignored
+  explicitly in `biome.jsonc`.
+- **Root cause:** every concurrent `nix develop` shell hook runs `ln -sfn` on
+  the same ignored font symlink. That unlink-and-recreate window let Biome
+  discover the canonical `/nix/store/...-kolu-fonts/fonts.css` path outside the
+  ignored repository path.
+- **Evidence:** the failure names the canonical Nix-store file rather than
+  `packages/client/public/fonts/fonts.css`. The CI checkout has the ignored
+  repository path as a symlink to that exact store directory, and rerunning the
+  same Biome command after the symlink stabilized checked 1,732 files and
+  passed. The failing concurrent run checked 1,733 files. See
+  `.ci/7594e7d/x86_64-linux/ci::fmt.log`.
+- **Proposed fix:** have the shell hook replace an incorrect font link by
+  atomically renaming a process-unique temporary symlink. Leave an already
+  correct link untouched, so concurrent shell entries never expose a missing
+  path during Biome traversal.
+- **Implementation:** the shell hook now fails loudly if the generated path is
+  a real directory, leaves the correct symlink untouched, and atomically
+  renames a process-unique temporary link when replacement is necessary.
+  Targeted Linux fmt verification is pending.
 
 ## Targeted verification runs
 

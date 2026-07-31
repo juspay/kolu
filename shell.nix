@@ -19,7 +19,16 @@ pkgs.mkShell {
 
   shellHook = ''
     if root=$(git rev-parse --show-toplevel 2>/dev/null); then
-      ln -sfn "$KOLU_FONTS_DIR" "$root/packages/client/public/fonts"
+      fonts_link="$root/packages/client/public/fonts"
+      if [ -e "$fonts_link" ] && [ ! -L "$fonts_link" ]; then
+        echo "expected $fonts_link to be absent or a symlink" >&2
+        return 1
+      fi
+      if [ "$(readlink "$fonts_link" 2>/dev/null || true)" != "$KOLU_FONTS_DIR" ]; then
+        fonts_link_tmp="$fonts_link.tmp.$$"
+        ln -s "$KOLU_FONTS_DIR" "$fonts_link_tmp"
+        mv -f "$fonts_link_tmp" "$fonts_link"
+      fi
     fi
   '';
 
