@@ -16,7 +16,7 @@ Invoke the `/test` skill. It owns **both** lanes: the unit lane (`just test-unit
 
 ## CI command
 
-Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the odu MCP front door, the banned opt-out flags (`--no-post` / `--no-strict` / `--no-snapshot`), mandatory two-platform (`x86_64-linux` + `aarch64-darwin`) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, the `pu`-misbehaviour #1204 log, the Flaky Test Tracker, and the green-gate (`odu protect`). The `/do` CI step is exactly "run the `/ci` skill." Runner mechanics (subcommands, flags, modes, the socket surface) are the `/odu` skill it layers on top of.
+Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the odu MCP front door, the banned opt-out flags (`--no-post` / `--no-strict` / `--no-snapshot`), mandatory two-platform (`x86_64-linux` + `aarch64-darwin`) coverage, odu-native venue-pool leasing across both platforms, live fail-fast surfacing, the `pu`-misbehaviour #1204 log, and the green-gate (`odu protect`). The `/do` CI step is exactly "run the `/ci` skill." Runner mechanics (subcommands, flags, modes, the socket surface) are the `/odu` skill it layers on top of.
 
 ## Documentation
 

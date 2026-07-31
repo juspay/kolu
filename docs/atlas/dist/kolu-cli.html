@@ -377,8 +377,8 @@ dial a padi that already runs and fails fast otherwise. A pre-lifted
 <code>connectPadiViaHost</code> composition was proposed and REFUTED — padi-tui’s
 wrapper carries padi-specific probe/scoping the CLI client may diverge from;
 compose in-app, extract only if a byte-identical twin actually emerges.</span></span></span></li>
-<li><strong>One <code>surfaceClient</code>, <code>STREAM_RETRY</code> mounted.</strong> The flaky-tracker’s #1827
-lesson binds: a raw client without the retry plugin flakes on
+<li><strong>One <code>surfaceClient</code>, <code>STREAM_RETRY</code> mounted.</strong> The #1827 flake’s lesson
+binds: a raw client without the retry plugin flakes on
 attach-vs-reconnect races that production consumers survive. The CLI client mounts
 the same plugin production mounts — both faces share the one client, so the
 MCP face inherits it.</li>

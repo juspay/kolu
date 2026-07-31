@@ -1,6 +1,6 @@
 // The exhaustive shiki `langs` list, DERIVED from the content itself — the fix
 // for the embedded-grammar load race (Atlas note bug-shiki-grammar-load-race;
-// flaky-test-tracker's release-workflow.html byte-shrink row).
+// the release-workflow.html byte-shrink flake).
 //
 // Why derived, not hand-enumerated: shiki's bundled `mdx`/`markdown` grammars
 // declare their embedded languages lazily (`embeddedLangsLazy`), and astro's

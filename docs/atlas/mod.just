@@ -65,7 +65,7 @@ build: install
 # docs/atlas/dist/ *in place* would hand any concurrent lane a half-written
 # tree: nix reported it both as `Path 'docs/atlas/dist' … is not tracked by Git`
 # (paths momentarily absent from the index) and as a store path whose "contents
-# have changed" mid-copy — see the flaky-test tracker. So both builds land in a
+# have changed" mid-copy. So both builds land in a
 # scratch dir outside the worktree and the answer comes from comparing
 # directories, not from asking git what changed. Nothing is written, so there is
 # nothing to repair afterwards either.
@@ -87,7 +87,7 @@ check-sync: _static
     #!/usr/bin/env bash
     set -euo pipefail
     # Deliberately NOT trap-cleaned: on the failure path both sides of a
-    # divergence must outlive the gate. The tracker's atlas-sync byte-shrink
+    # divergence must outlive the gate. The atlas-sync byte-shrink
     # flake was twice diagnosed from luck and once lost outright, when a
     # diagnostic rebuild overwrote the only copy of the divergent bytes. Here the
     # committed side is safe in git and the fresh side is in $scratch, so they

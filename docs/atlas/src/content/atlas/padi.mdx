@@ -209,7 +209,7 @@ W2 and W3 shipped at pace (a deliberate call); the consolidation pays the pace's
 - **Split the sensors out of padi's restart hash** — only on recorded deploy-pain evidence (a stretch where sensor-only changes forced padi restarts users noticed). The restart is cheap by design; until the evidence exists this is deliberately a no-op, and never serve stale detection (#1031) governs any eventual split.
 - **Retire the near-unreachable `PADI_MEMORY_READ_ERROR` contract arm** — <PrLink pr={1699} /> moved the memory read onto the in-process mirror, which cannot fail like the remote dial the arm was built for; retiring it is a contract change and ships as its own deliberate wire-version decision, not a rider.
 - **The fine-grained CI token** — srid mints a public-repo read-only PAT (its only job: authenticated rate limits for flake-input fetches); an agent wires it via the pool provisioning path (stdin, never in the store or logs); done when the personal token is rotated and absent from every box.
-- **Flaky-test debt** — a standing root-cause pass dispatched off [the flaky tracker](flaky-test-tracker.html) (fix or quarantine-with-reason, never re-tuned retries); done when a full both-platform e2e run passes without retries twice consecutively, or every tracked flake carries a root-cause note and a quarantine decision.
+- **Flaky-test debt** — a standing root-cause pass over whatever the e2e lanes are actually throwing (fix or quarantine-with-reason, never re-tuned retries); done when a full both-platform e2e run passes without retries twice consecutively, or every flake still reproducing carries a root-cause note and a quarantine decision.
 
 <a id="w34"></a>
 
@@ -329,7 +329,7 @@ Two live edges: **K1's completion shipped as [W9](#w9)** — the per-host wire s
 
 ### W8 — remote terminals, documented honestly — *shipped* <PrLink pr={1722} /> <PrLink pr={1727} /> *(a docs phase)*
 
-**Shipped 2026-07-08, two PRs** — a docs phase seeded by a live incident (a kolu remote terminal is an *ssh session*, not the machine's GUI login session, so tools like `gh` that lean on the macOS Keychain silently break over the bind): the atlas analysis of the ssh-session environment gaps (<PrLink pr={1722} />) and the user-facing website page (<PrLink pr={1727} /> — remote hosts as a *feature*: enable · add · switch, with the gaps as one compact limitations/FAQ section, marked alpha). The living rule: **the catalogue grows by incident** — every future "works locally, breaks in kolu" report lands a row (the flaky-tracker discipline, applied to environment gaps).
+**Shipped 2026-07-08, two PRs** — a docs phase seeded by a live incident (a kolu remote terminal is an *ssh session*, not the machine's GUI login session, so tools like `gh` that lean on the macOS Keychain silently break over the bind): the atlas analysis of the ssh-session environment gaps (<PrLink pr={1722} />) and the user-facing website page (<PrLink pr={1727} /> — remote hosts as a *feature*: enable · add · switch, with the gaps as one compact limitations/FAQ section, marked alpha). The living rule: **the catalogue grows by incident** — every future "works locally, breaks in kolu" report lands a row in the same PR that hit it, never deferred to a later cleanup.
 
 <a id="w6"></a>
 
