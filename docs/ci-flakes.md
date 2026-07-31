@@ -153,6 +153,20 @@ retries.
 | `92ec01a#1` | `92ec01a93` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `07b5e88#1` | `07b5e886b` | Passed every node on both platforms, including both `osfacts-live` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `5/5` |
 
+## E2E-only GitHub streak
+
+This campaign focuses fixes on e2e flakes. A test-only fix is preferred unless
+an application change fixes a product bug or makes the behavior reliably
+correct in general. Each attempt is a strict full-CI run posted to GitHub from
+macOS `ci@petit` and Linux `kolu-ci-1`; a run counts only when every required
+GitHub status is green and both e2e lanes finish without a scenario retry.
+Any e2e flake resets the streak, is investigated to a demonstrated root cause,
+and is fixed in this PR before the campaign resumes.
+
+| Attempt | Commit | Result | Consecutive green |
+| --- | --- | --- | --- |
+| `02b18bd#1` | `02b18bd35` | Every required GitHub status passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
+
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
 - **Failure:** `ci::e2e-governance@x86_64-linux` failed while validating the
