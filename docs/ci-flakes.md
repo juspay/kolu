@@ -122,8 +122,8 @@ failure fixable in this repository is in scope.
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
 **Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `3/5` at `c215704#1`.** The first two green runs above
-predate the osfacts-live fix prompted by `3a6c829#1`.
+post-review streak: `0/5` — reset by `8235c95#1`.** The first two green runs
+above predate the osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
 
@@ -137,6 +137,31 @@ retries.
 | `3b40ccf#1` | `3b40ccf11` | Passed | `1/5` |
 | `59f09c0#1` | `59f09c0ec` | Passed | `2/5` |
 | `c215704#1` | `c215704fb` | Passed | `3/5` |
+| `8235c95#1` | `8235c952e` | Failed: `ci::osfacts-live@aarch64-darwin`; all other nodes passed | `0/5` |
+
+### `8235c95#1`: Darwin `ps etime` ceiling lost at sub-second delay
+
+- **Failure:** the foreign-process oracle rejected PID 387 because osfacts
+  measured an elapsed age of 371049 seconds while its computed `ps` interval
+  began at 371050 seconds.
+- **Root cause:** Darwin `ps etime` advances to the next displayed second
+  before exact elapsed time reaches that second. The oracle attempted to allow
+  for that by subtracting one from the measured inter-snapshot delay before
+  adding it to `ps`'s value. When that delay was below one second,
+  `saturating_sub(1)` clamped the delay to zero and discarded the required
+  one-second allowance.
+- **Evidence:** the failing log prints the exact rejected comparison:
+  `osfacts elapsed=371049s, ps expected=371050..=371051`. A controlled
+  14-sample probe on the same `ci@petit` host observed `ps etime=00:01` after
+  only 0.262 seconds and `ps etime=00:02` after 1.065 seconds, directly
+  establishing the ceiling behavior. The oracle code at `8235c952e` subtracts
+  from `Duration::as_secs()` before adding the reported `ps` age. See
+  `.ci/8235c95/aarch64-darwin/ci::osfacts-live.log`.
+- **Proposed fix:** add the measured lower delay to the `ps` age first, then
+  subtract the one-second Darwin display allowance from the total so it is
+  preserved even when the delay is sub-second.
+- **Implementation:** the lower endpoint is now
+  `(ps elapsed + measured lower delay).saturating_sub(1)`.
 
 ### `85b4a61#1`: stale daemon-recipe structural assertion
 

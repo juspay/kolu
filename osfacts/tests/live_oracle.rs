@@ -589,10 +589,9 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_micros() as u64;
-        let minimum_elapsed_increase = now_instant
+        let minimum_elapsed_delay = now_instant
             .saturating_duration_since(first_ps.finished_at)
-            .as_secs()
-            .saturating_sub(1);
+            .as_secs();
         let maximum_elapsed_increase = now_instant
             .saturating_duration_since(first_ps.started_at)
             .as_secs()
@@ -621,9 +620,15 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                 .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
             let start = start[2].parse::<u64>().expect("start time");
             let elapsed = now.saturating_sub(start) / 1_000_000;
-            let expected_elapsed =
-                expected.elapsed_seconds.saturating_add(minimum_elapsed_increase)
-                    ..=expected
+            // Darwin `ps etime` advances to the next displayed second before
+            // a monotonic stopwatch reaches it. Apply that one-second ceiling
+            // allowance after adding the measured delay: subtracting it from
+            // a sub-second delay first would saturate at zero and lose it.
+            let expected_elapsed = expected
+                .elapsed_seconds
+                .saturating_add(minimum_elapsed_delay)
+                .saturating_sub(1)
+                ..=expected
                         .elapsed_seconds
                         .saturating_add(maximum_elapsed_increase);
             assert!(
