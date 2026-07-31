@@ -287,6 +287,30 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.collapse).not.toHaveBeenCalled();
     expect(calls.selectSubTab).not.toHaveBeenCalled();
   });
+
+  it("re-homes under the root even when a middle parent survives", () => {
+    // R ← P ← M ← G; only M closes. G rehomes to R (not P); chrome on R.
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => (p === T("M") ? [T("G")] : []),
+      activeSubTab: () => T("M"),
+      focusedTerminalId: () => T("M"),
+    });
+    evictTerminal(
+      ports,
+      T("M"),
+      T("P"),
+      [T("R")],
+      new Set([T("M")]),
+      graph({ R: null, P: "R", M: "P", G: "M" }),
+    );
+    expect(calls.rehomeUnder).toHaveBeenCalledExactlyOnceWith(T("G"), T("R"));
+    // Active tab was M; replacement is first remaining flat pane under R (P or G).
+    expect(calls.selectSubTab).toHaveBeenCalledWith(
+      T("R"),
+      expect.stringMatching(/^(P|G)$/),
+    );
+    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
 });
 
 const emptyGraph = graph({ P: null });

@@ -126,19 +126,24 @@ export function evictTerminal(
     };
     const edge = graph.parentOf;
     const census = graph.ids;
-    // Surviving containing tile: walk the pre-removal chain, skipping anyone
-    // also leaving this frame. If no ancestor survives (batch killed the whole
-    // stack), promote children to top-level — never rehome under a dead root.
-    let dest: TerminalId | null = parentId;
-    const seen = new Set<TerminalId>();
-    while (dest !== null && departing.has(dest)) {
-      if (seen.has(dest)) {
-        dest = null;
-        break;
+    // Surviving containing tile: walk the full pre-removal ancestor chain and
+    // take the HIGHEST still-live ancestor (canvas chrome keys on the root, not
+    // a live middle). If none survive, promote to top-level.
+    let dest: TerminalId | null = null;
+    {
+      let cur: TerminalId | null = parentId;
+      const seen = new Set<TerminalId>();
+      while (cur !== null) {
+        if (seen.has(cur)) {
+          dest = null;
+          break;
+        }
+        seen.add(cur);
+        if (!departing.has(cur)) dest = cur; // overwrite as we climb → highest
+        const up = edge(cur);
+        if (up === undefined || up === null) break;
+        cur = up;
       }
-      seen.add(dest);
-      const up = edge(dest);
-      dest = up === undefined || up === null ? null : up;
     }
     // True children of the departing node.
     for (const child of census) {
