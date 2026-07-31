@@ -24,8 +24,7 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-import { buildPadiSurfaceDeps } from "./servePadi.ts";
-import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { padiDeps } from "./servePadi.testlib.ts";
 import { getSavedSession, setSavedSession } from "./session/session.ts";
 import {
   PADI_SURFACE_VERSION,
@@ -146,14 +145,7 @@ function terminalsBacking(): {
   readOne: (key: string) => unknown;
   readAll: () => Map<string, unknown>;
 } {
-  const deps = buildPadiSurfaceDeps({
-    endpoint: fakeEndpoint,
-    log: stubLog,
-    startedAt: 0,
-    commit: "",
-    lifetime: { kind: "forever" },
-    stateRoot: "/tmp/padi-test-state-root",
-  });
+  const deps = padiDeps({ stateRoot: "/tmp/padi-test-state-root" });
   // `terminals` is an AUTHORED collection (the `readAll`/`readOne` arm), not a
   // graph-owned `derived.collection`; narrow the dep union by the presence of the
   // `readOne` read seam (the derived arm omits it) before reading it.
@@ -185,12 +177,9 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
     startedAt: number;
     commit: string;
   }): PadiIdentity {
-    const deps = buildPadiSurfaceDeps({
-      endpoint: fakeEndpoint,
-      log: stubLog,
+    const deps = padiDeps({
       startedAt: opts.startedAt,
       commit: opts.commit,
-      lifetime: { kind: "forever" },
       stateRoot: "/tmp/padi-test-state-root",
     });
     // White-box read of the authored cell's backing store. The cell-dep slot is a
@@ -278,14 +267,7 @@ describe("padi terminals collection backing == the deleted client reader-join", 
 function scratchWrite(): (args: {
   input: { terminalId: string; name: string; data: string };
 }) => { path: string } {
-  const deps = buildPadiSurfaceDeps({
-    endpoint: fakeEndpoint,
-    log: stubLog,
-    startedAt: 0,
-    commit: "",
-    lifetime: { kind: "forever" },
-    stateRoot: "/tmp/padi-test-state-root",
-  });
+  const deps = padiDeps({ stateRoot: "/tmp/padi-test-state-root" });
   const w = deps.procedures?.scratch?.write;
   if (!w) throw new Error("padi deps must serve scratch.write");
   return w as unknown as (args: {
@@ -395,14 +377,7 @@ describe("padi session cell backing is non-recursive + normalizes (review #2)", 
 
   /** The `session` cell's backing store, narrowed out of the deps shape. */
   function sessionBacking(): { get: () => SavedSession | null } {
-    const deps = buildPadiSurfaceDeps({
-      endpoint: fakeEndpoint,
-      log: stubLog,
-      startedAt: 0,
-      commit: "",
-      lifetime: { kind: "forever" },
-      stateRoot: "/tmp/padi-test-state-root",
-    });
+    const deps = padiDeps({ stateRoot: "/tmp/padi-test-state-root" });
     // White-box read of the authored cell's backing store (see `identityBacking`).
     const s = (
       deps.cells?.session as
@@ -522,14 +497,7 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
   });
 
   function serve() {
-    const deps = buildPadiSurfaceDeps({
-      endpoint: fakeEndpoint,
-      log: stubLog,
-      startedAt: 0,
-      commit: "",
-      lifetime: { kind: "forever" },
-      stateRoot: "/tmp/padi-test-state-root",
-    });
+    const deps = padiDeps({ stateRoot: "/tmp/padi-test-state-root" });
     const create = deps.procedures?.lifecycle?.create as
       | ((a: { input: Record<string, never> }) => unknown)
       | undefined;

@@ -428,9 +428,9 @@ export function buildPadiSurfaceDeps(deps: {
       lifecycle: {
         create: ({ input }) => {
           // A sub-terminal must hang off a LIVE parent (F3) — the same
-          // live-PTY narrow every per-terminal handler uses. Nested depth is
-          // fenced inside createTerminal (#2059) — the generative write — so
-          // every non-restore parent assignment shares one rule.
+          // live-PTY narrow every per-terminal handler uses, and a STRICTER
+          // fact than the parent-edge rule `createTerminal` enforces below
+          // (which requires presence, not liveness).
           // `PadiCreateInput` omits `lastActivityAt`: a fresh terminal seeds
           // `lastActivityAt: 0` (via `createAuthoredActive` → `seedMemory`),
           // and the fold stamps recency later — the client can't supply it.
@@ -563,7 +563,6 @@ export function buildPadiSurfaceDeps(deps: {
             { terminal: input.id, parent: input.parentId },
             "set terminal parent",
           );
-          // Nested depth is fenced inside setTerminalParent (#2059).
           setTerminalParent(input.id, input.parentId);
         },
         setActive: ({ input }) => {
