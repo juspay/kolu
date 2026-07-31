@@ -126,6 +126,67 @@ post-review streak: `0/5` — reset by the subsequent architecture and review
 code changes.** The first two green runs above predate the osfacts-live
 fix prompted by `3a6c829#1`.
 
+## Post-review CI streak
+
+These are the five required full two-platform runs after `/be-review`. They run
+strictly in sequence on macOS `ci@petit` and Linux `kolu-ci-1`, with no step
+retries.
+
+| Attempt | Commit | Result | Consecutive green |
+| --- | --- | --- | --- |
+| `85b4a61#1` | `85b4a6161` | Failed: `ci::unit`, `ci::daemon`, and `ci::agent-flake-nix` on both platforms | `0/5` |
+
+### `85b4a61#1`: stale daemon-recipe structural assertion
+
+- **Failure:** `ci::unit` and `ci::daemon` failed on both platforms in
+  `packages/daemon-test-gate/src/daemon-node.test.ts`. The assertion required
+  the immediate `ci/mod.just` `daemon` body to contain
+  `KOLU_DAEMON_TESTS=1`.
+- **Root cause:** review commit `be07c4313` changed that CI body from a duplicate
+  inline command to `just --no-deps test-daemon`. The canonical root
+  `test-daemon` recipe still sets both `KOLU_DAEMON_TESTS=1` and
+  `KOLU_DAEMON_BIND_PID=$$`, but the structural test inspected only the
+  delegating recipe and therefore rejected the new valid shape.
+- **Evidence:** all four node logs show the same received body,
+  `{{ nix_shell }} just --no-deps test-daemon`, and the same failed expectation
+  for an inline `KOLU_DAEMON_TESTS=1`. The root `justfile` recipe at the tested
+  commit contains both required environment assignments. See
+  `.ci/85b4a61/{aarch64-darwin,x86_64-linux}/ci::{unit,daemon}.log`.
+- **Proposed fix:** assert the complete delegation chain: the CI `daemon`
+  recipe must call `just --no-deps test-daemon`, and the root `test-daemon`
+  recipe must set both the daemon gate and spawn leash.
+- **Implementation:** the structural test now reads both recipe bodies and
+  pins those three facts separately.
+- **Fix verification:** all 20 daemon-test-gate unit tests pass locally.
+
+### `85b4a61#1`: remote-agent source omits the formatter config
+
+- **Failure:** `ci::agent-flake-nix` failed on both platforms while evaluating
+  the `kaval` derivation because
+  `/nix/store/...-source/biome.jsonc` did not exist.
+- **Root cause:** the font derivation now formats its generated CSS with
+  `--config-path ${../../../biome.jsonc}`, but `agentSource` assembles a minimal
+  remote-agent tree that included `default.nix`, `nix/`, `npins/`, `osfacts/`,
+  and the workspace fileset—not root `biome.jsonc`. Evaluating the font
+  derivation from that deliberately filtered tree therefore dereferenced a
+  file excluded by its source contract.
+- **Evidence:** the macOS and Linux logs independently terminate at the same
+  Nix evaluation error: `path '/nix/store/...-source/biome.jsonc' does not
+  exist`. `default.nix`'s `agentSource` union at `85b4a6161` does not list that
+  file, while `nix/packages/fonts/default.nix` directly reads it. See
+  `.ci/85b4a61/{aarch64-darwin,x86_64-linux}/ci::agent-flake-nix.log`.
+- **Proposed fix:** add root `biome.jsonc` to the proven remote-agent fileset so
+  every file read while evaluating its derivations is present.
+- **Implementation:** `agentSource.fileset` now explicitly includes
+  `./biome.jsonc`.
+- **Fix verification:** the complete local `ci::agent-flake-nix` recipe passes,
+  including evaluation of every exposed remote-agent package from the assembled
+  source.
+
+The failed run settled without retries. Every other runnable node passed on
+both platforms; `ci::osfacts-live` was dependency-skipped after the failures
+above.
+
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
 
 - **Failure:** the live-host oracle selected 12 foreign processes from `ps`,
