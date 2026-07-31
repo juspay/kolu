@@ -54,7 +54,11 @@ describe("padiSurface contract", () => {
     // 4.4 (minor): a NEW `fs.listIgnored` procedure (git's collapsed gitignored
     // listing, behind the Code tab's show-ignored toggle). Purely additive —
     // `fs.listAll` is untouched — so the plainest minor there is.
-    expect(PADI_SURFACE_VERSION).toBe("4.5");
+    // 4.6 (minor): a NEW `fs.listDirectory` procedure — one level of a
+    // directory, read when the user expands a row `listIgnored`'s collapse left
+    // childless (#2091). Additive for the same reason 4.4 was, and separate
+    // from both listings because it is keyed by directory and fired by a click.
+    expect(PADI_SURFACE_VERSION).toBe("4.6");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
@@ -143,6 +147,7 @@ describe("padiSurface contract", () => {
     expect(Object.keys(procs.fs ?? {})).toEqual([
       "listAll",
       "listIgnored",
+      "listDirectory",
       "readFile",
       "filePreviewTag",
     ]);

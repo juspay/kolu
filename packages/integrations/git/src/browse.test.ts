@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, listIgnored, readFile, filePreviewTag } from "./browse.ts";
+import {
+  listAll,
+  listDirectory,
+  listIgnored,
+  readFile,
+  filePreviewTag,
+} from "./browse.ts";
 import { _computeIgnore } from "./working-tree-watcher.ts";
 
 describe("listAll", () => {
@@ -101,6 +107,81 @@ describe("listIgnored", () => {
     expect(ignore).toContain(path.join(tmpDir, "secret.log"));
     expect(ignore).toContain(path.join(tmpDir, ".git"));
     for (const p of ignore) expect(p.endsWith("/")).toBe(false);
+  });
+});
+
+describe("listDirectory", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-test-"));
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, ".gitignore"), "out/\n");
+    fs.mkdirSync(path.join(tmpDir, "out", "assets"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "out", "index.html"), "<html>\n");
+    fs.writeFileSync(path.join(tmpDir, "out", "style.css"), "body{}\n");
+    fs.writeFileSync(path.join(tmpDir, "out", "assets", "logo.png"), "png\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("reads ONE level, marking subdirectories with git's trailing slash", async () => {
+    // The listing that answers an expand of a collapsed ignored directory.
+    // One level, so expanding `node_modules/` costs a readdir rather than the
+    // ~100k-path recursive listing `git ls-files` would have to produce; the
+    // subdirectory comes back collapsed and expandable in its own turn.
+    const result = await listDirectory(tmpDir, "out/");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.sort()).toEqual(
+      ["out/assets/", "out/index.html", "out/style.css"].sort(),
+    );
+  });
+
+  it("accepts the directory key with or without the trailing slash", async () => {
+    // The caller holds Pierre's folder key (`out/`); the slash is presentation,
+    // not identity, so both spellings must resolve to the same listing.
+    const withSlash = await listDirectory(tmpDir, "out/");
+    const without = await listDirectory(tmpDir, "out");
+    expect(withSlash.ok && without.ok).toBe(true);
+    if (!withSlash.ok || !without.ok) return;
+    expect(without.value.sort()).toEqual(withSlash.value.sort());
+  });
+
+  it("needs no gitignore filtering — git only collapses a WHOLLY ignored dir", async () => {
+    // Why a bare readdir is the honest listing here rather than a lax one:
+    // `--directory` collapses a directory only when everything beneath it is
+    // ignored, so inside a collapsed row there is nothing to filter out. The
+    // property is checked against git itself so the assumption can't rot.
+    const ignored = await listIgnored(tmpDir);
+    expect(ignored.ok).toBe(true);
+    if (!ignored.ok) return;
+    expect(ignored.value).toContain("out/");
+    const children = await listDirectory(tmpDir, "out/");
+    expect(children.ok).toBe(true);
+    if (!children.ok) return;
+    const tracked = await listAll(tmpDir);
+    expect(tracked.ok).toBe(true);
+    if (!tracked.ok) return;
+    // Not one child is something git would have listed as tracked.
+    const trackedSet = new Set(tracked.value);
+    expect(children.value.filter((p) => trackedSet.has(p))).toEqual([]);
+  });
+
+  it("refuses to escape the repo root", async () => {
+    // Same traversal guard as `readFile` — a directory key arriving over the
+    // wire must not read outside the repo it names.
+    const result = await listDirectory(tmpDir, "../");
+    expect(result.ok).toBe(false);
+  });
+
+  it("errors on a directory that is gone", async () => {
+    // A stale expand (the build output was cleaned between listing and click)
+    // must surface, not silently paint an empty folder as authoritative.
+    const result = await listDirectory(tmpDir, "out/nope/");
+    expect(result.ok).toBe(false);
   });
 });
 

@@ -244,6 +244,28 @@ export const FsListIgnoredOutputSchema = z.object({
 });
 export type FsListIgnoredOutput = z.infer<typeof FsListIgnoredOutputSchema>;
 
+/** The on-demand counterpart to `listIgnored`'s collapse. A collapsed directory
+ *  is the one place the flat listings deliberately stop, so the tree has no
+ *  child to paint when the user opens that row; this reads the level then. Kept
+ *  a separate procedure for the same reason `listIgnored` is: it is keyed by
+ *  DIRECTORY and fired by a click, so folding it into either whole-repo listing
+ *  would put a per-expansion input in that query's value key and blank the
+ *  tree on every click. */
+export const FsListDirectoryInputSchema = z.object({
+  /** Absolute path to the repo root. */
+  repoPath: z.string(),
+  /** Directory to read, relative to the repo root. Pierre's folder key carries
+   *  a trailing slash; both spellings resolve to the same listing. */
+  dirPath: z.string(),
+});
+
+export const FsListDirectoryOutputSchema = z.object({
+  /** ONE level of repo-relative entries, subdirectories carrying git's trailing
+   *  slash so they render collapsed and expandable in their own turn. */
+  paths: z.array(z.string()),
+});
+export type FsListDirectoryOutput = z.infer<typeof FsListDirectoryOutputSchema>;
+
 export const FsReadFileInputSchema = z.object({
   /** Terminal that owns the URL handle for `kind: "binary"` outputs.
    *  Text reads ignore this — the field is on the input because the URL

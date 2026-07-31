@@ -70,7 +70,7 @@ import SegmentedControl, {
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost } from "../wire";
+import { activeHost, activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
@@ -423,6 +423,10 @@ const CodeTab: Component<{
         // the view switch: that switch fires this effect while fsListAll is
         // still loading, before the gated resolution effect sets `revealDir`.
         setRevealDir(null);
+        // The loaded levels were read out of the PREVIOUS repo, and repo-
+        // relative keys collide across repos (`out/` exists in both), so
+        // keeping them would paint one repo's build output inside another's.
+        setLoadedChildren(new Map());
       },
       { defer: true },
     ),
@@ -457,6 +461,40 @@ const CodeTab: Component<{
   // folder forever. A fresh object per request re-fires the reveal on a repeat
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
+
+  // One level of contents per gitignored directory the user has opened, keyed
+  // by Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
+  // directory to its name alone — one `node_modules/` row instead of thousands
+  // — which left those rows expandable but empty (#2091); this holds what an
+  // expand read back so the merge can substitute it for the collapsed key.
+  //
+  // Deliberately NOT a `createPolledQuery` beside the two listings in
+  // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
+  // pulse, whereas this is keyed by DIRECTORY and driven by a click. The
+  // watcher's ignore set is built from `listIgnored`, so an ignored path emits
+  // no pulse by construction — there is no pulse to ride, and inventing one
+  // would mean watching exactly the churn (`node_modules`, build output) the
+  // ignore set exists to keep out. Re-expanding a folder is the refresh
+  // instead: the wrapper reports every expansion, so a collapse-and-reopen
+  // re-reads the level.
+  const [loadedChildren, setLoadedChildren] = createSignal<
+    ReadonlyMap<string, readonly string[]>
+  >(new Map());
+
+  const loadLazyDirectory = (dirPath: string): void => {
+    const p = repoPath();
+    if (!p) return;
+    activePadiRpc.fs
+      .listDirectory({ repoPath: p, dirPath })
+      .then((result) => {
+        // A fresh Map per write: the merge memo reads this by reference, and an
+        // in-place `set` would leave the tree painting the previous level.
+        setLoadedChildren((prev) => new Map(prev).set(dirPath, result.paths));
+      })
+      .catch((err: Error) =>
+        toast.error(`Failed to list ${dirPath}: ${err.message}`),
+      );
+  };
 
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
@@ -619,11 +657,16 @@ const CodeTab: Component<{
       const tracked = allPaths();
       const ignored = ignoredPaths();
       const showIgnored = showIgnoredFiles();
-      const inventory = mergeBrowseInventory(tracked?.paths, ignored?.paths, {
-        trackedPending: allPaths.pending(),
-        ignoredPending: ignoredPaths.pending(),
-        showIgnored,
-      });
+      const inventory = mergeBrowseInventory(
+        tracked?.paths,
+        ignored?.paths,
+        loadedChildren(),
+        {
+          trackedPending: allPaths.pending(),
+          ignoredPending: ignoredPaths.pending(),
+          showIgnored,
+        },
+      );
       const scope =
         tracked !== undefined &&
         (!showIgnored ||
@@ -636,6 +679,9 @@ const CodeTab: Component<{
     return {
       paths: status()?.files.map((f) => f.path) ?? [],
       ignored: [],
+      // The diff views list CHANGED files, where a gitignored path can't
+      // appear — so there is no collapsed directory to expand.
+      lazyDirs: [],
       pending: statusPending(),
       // Diff-status results are not owner-stamped. A user open in these modes
       // takes the fixed-host fresh-read path instead of trusting this inventory.
@@ -1105,6 +1151,11 @@ const CodeTab: Component<{
                       // stands so a remount re-reveals it (`revealDir` above);
                       // it's cleared on the next navigation, not on apply.
                       revealRequest={revealDir()}
+                      // The collapsed gitignored directories: rows Pierre gives
+                      // a chevron but whose children were never sent, so an
+                      // expand has to go read them (#2091).
+                      lazyDirectories={treeInventory().lazyDirs}
+                      onExpandLazyDirectory={loadLazyDirectory}
                       initialExpansion={isDiffView() ? "open" : "closed"}
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}

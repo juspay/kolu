@@ -87,6 +87,22 @@ export type FileTreeProps = {
    *  re-scrolling to a stale folder forever. A fresh object re-reveals the same
    *  folder on a repeat click. Null when no reveal is pending. */
   revealRequest?: { path: string } | null;
+  /** Directory rows whose children are deliberately absent from `paths` — the
+   *  host loads them on demand. Trailing-slash folder keys, like every other
+   *  directory entry here. Pierre gives such a row a working chevron either
+   *  way, so without this the user could open a folder onto nothing and the
+   *  host would never hear about it (the Code tab's collapsed gitignored
+   *  directories, #2091). **Reactive**: the current value is read on each
+   *  expansion tick, so a directory revealed by a load becomes watchable
+   *  itself. */
+  lazyDirectories?: readonly string[];
+  /** Fires when one of `lazyDirectories` goes from collapsed to expanded —
+   *  the host's cue to fetch that level and fold it into `paths`. Only a
+   *  TRANSITION fires, so an already-open row costs nothing, and a re-expand
+   *  fires again so reopening a folder refetches it (the only refresh gesture
+   *  available for paths nothing watches). Never fires for an ordinary
+   *  directory, whose children `paths` already carries. */
+  onExpandLazyDirectory?: (path: string) => void;
   /** Initial folder expansion — captured at construction and **not
    *  reactive**. Pierre takes this once in its constructor; later prop
    *  changes are silently ignored. Re-mount the component (e.g. by
@@ -247,6 +263,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // that deferral is about extraction, not about the adjacency-vs-causal choice.
   let userGesture = false;
 
+  // Which watched directories are currently open, so only a genuine
+  // collapsed → expanded TRANSITION reaches the host. Pierre exposes no
+  // expansion callback and maps expand/collapse to no mutation event (they are
+  // `FileTreeStoreIgnoredSemanticEvent`s, which `toTreesMutationEvent` drops),
+  // so the transition is read off its store subscription — which fires for a
+  // programmatic `expand()` and for a real row click alike.
+  const openLazyDirs = new Set<string>();
+
   // Pierre fires `onSelectionChange` for directory clicks too, which would
   // produce an EISDIR if the consumer reads the path as a file. Directories
   // mostly don't appear in `paths` (Pierre infers them from path prefixes) —
@@ -262,6 +286,40 @@ export const FileTree: Component<FileTreeProps> = (props) => {
     for (const p of props.paths) if (!isDirectoryPath(p)) files.add(p);
     return files;
   });
+
+  /** Probe the host's watched directories and report any that just opened.
+   *
+   *  Only the declared keys are probed — a handful of collapsed gitignored
+   *  directories — never the whole visible projection, which matters because
+   *  the store subscription this rides also fires for selection, focus and
+   *  every path mutation. Scanning `getVisibleRows` here would put a
+   *  whole-tree walk on that path for a fact about a few rows.
+   *
+   *  Reporting is edge-triggered against `openLazyDirs`, so the host's own
+   *  answer — folding the fetched level into `paths`, which ticks the store
+   *  again — cannot re-enter: the directory is still open and still recorded,
+   *  so the next probe stays silent. */
+  const reportLazyExpansions = (): void => {
+    const t = tree;
+    if (!t) return;
+    for (const key of props.lazyDirectories ?? []) {
+      const item = t.getItem(key);
+      // No row for this key (a search projection hid it, or it left the
+      // inventory): it holds no expansion state to speak of, so forget it and
+      // let its next appearance report afresh.
+      if (!item || !("isExpanded" in item)) {
+        openLazyDirs.delete(key);
+        continue;
+      }
+      if (!item.isExpanded()) {
+        openLazyDirs.delete(key);
+        continue;
+      }
+      if (openLazyDirs.has(key)) continue;
+      openLazyDirs.add(key);
+      props.onExpandLazyDirectory?.(key);
+    }
+  };
 
   onMount(() => {
     // Arm the provenance gate on real user input. Capture phase so it is set
@@ -367,6 +425,20 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // call site for the rule, so the mount case can't drift from the change
       // case.
       hostSheet = adoptShadowSheet(container);
+      // Watch for lazy-directory expansions. Pierre invokes the listener once
+      // synchronously at registration, and `openLazyDirs` starts empty, so a
+      // row that mounts ALREADY open — `initialExpansion: "open"`, or an
+      // `initialExpandedPaths` reveal replayed across a remount — reports too.
+      // That is the honest reading: it is an open, childless folder either way,
+      // and the user is looking at it now.
+      onCleanup(tree.subscribe(reportLazyExpansions));
+      // Pierre's `subscribe` does NOT replay at registration, so a row that
+      // mounts ALREADY open — `initialExpansion: "open"`, or an
+      // `initialExpandedPaths` reveal replayed across one of the remounts the
+      // live path stream causes — would sit there open and childless with no
+      // tick ever coming. Probe once for it. It is the same fact as an
+      // expansion: an open, empty folder in front of the user.
+      reportLazyExpansions();
     }, props.onError);
     // Deliberately do NOT clear the request here: it stays standing so this
     // exact application repeats on every remount (the host clears it on a real
@@ -412,6 +484,16 @@ export const FileTree: Component<FileTreeProps> = (props) => {
         const toOpen = [
           ...(expandPaths ?? []),
           ...(selectedPath ? ancestorDirectoryPaths(selectedPath) : []),
+          // Re-open the lazy directories the user has open. Loading a level
+          // REPLACES the collapsed key with its children, and Pierre's remove
+          // destroys that directory node — the one carrying the expansion — so
+          // the node rebuilt from the children arrives closed. Without this the
+          // folder would snap shut at the exact moment its contents arrived,
+          // which reads as the click having done nothing. Re-expanding is also
+          // what keeps the reporting edge-triggered: the directory stays open
+          // and stays recorded, so the load cannot re-enter as a fresh
+          // expansion.
+          ...openLazyDirs,
         ];
         // Normalize both sides so a collapsed dir key never coexists with
         // inventory children — pathDiff can then always recursive-remove
@@ -475,6 +557,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
             return;
           }
         }
+      },
+      { defer: true },
+    ),
+  );
+
+  // A directory can become watchable AFTER the row is already on screen and
+  // open — the overlay listing that names it lands a tick later than the tree,
+  // and a load reveals nested directories that are lazy in their own turn.
+  // Pierre's store does not tick for a change to a host prop, so the
+  // subscription alone would never probe those keys; re-probe when the watched
+  // set itself changes.
+  createEffect(
+    on(
+      () => props.lazyDirectories,
+      () => {
+        safeApply(reportLazyExpansions, props.onError);
       },
       { defer: true },
     ),

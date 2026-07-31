@@ -607,6 +607,21 @@ export function buildPadiSurfaceDeps(deps: {
       fs: {
         listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
         listIgnored: ({ input }) => endpoint.fs.listIgnored(input.repoPath),
+        // A directory cleaned between the listing and the click (a `just clean`
+        // under an open build-output row) must surface as a TYPED `NOT_FOUND`,
+        // the same delete-while-viewing shape `readFile` maps — the Code tab
+        // keeps the stale children rather than painting an empty folder as
+        // authoritative.
+        listDirectory: async ({ input }) => {
+          try {
+            return await endpoint.fs.listDirectory(
+              input.repoPath,
+              input.dirPath,
+            );
+          } catch (e) {
+            throw fileGoneAsNotFound(e, input.dirPath);
+          }
+        },
         // A file deleted while the Code tab is viewing it must surface as a
         // TYPED `NOT_FOUND`, not a raw ENOENT that masks to a generic error on
         // the wire: `BrowseFileDispatcher` swallows `NOT_FOUND` (delete-while-

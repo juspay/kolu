@@ -5,11 +5,18 @@
  *  walks `node_modules/`, `.git/`, build artifacts, etc. `listIgnored` is its
  *  exact complement — the same enumeration for what git DOES ignore, collapsed
  *  so a fully-ignored directory costs one entry rather than its whole subtree.
- *  Union the two and you have the working tree. */
+ *  Union the two and you have the working tree.
+ *
+ *  `listDirectory` is the on-demand counterpart to that collapse: one level of
+ *  a directory, read when the user expands a row the collapse left childless. */
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { open as fsOpen, readFile as fsReadFile } from "node:fs/promises";
+import {
+  open as fsOpen,
+  readFile as fsReadFile,
+  readdir,
+} from "node:fs/promises";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
@@ -94,6 +101,68 @@ export async function listIgnored(
     "Failed to list ignored files",
     log,
   );
+}
+
+/** ONE level of a directory's contents, repo-relative, with git's trailing
+ *  slash on each subdirectory — the same folder-key format `listIgnored` emits,
+ *  so the two listings compose in the tree without a translation step.
+ *
+ *  This exists to answer an EXPAND of a collapsed ignored directory. Those rows
+ *  are the one place the flat `listAll`/`listIgnored` snapshot deliberately
+ *  stops: `--directory` collapses a wholly-ignored directory to its name, which
+ *  is what keeps `node_modules/` at one row instead of thousands, but it also
+ *  means the tree holds no child to paint when the user opens that row. Reading
+ *  the level on demand restores the contents without giving the collapse up.
+ *
+ *  ONE level, not a recursive walk, is what bounds the cost: expanding
+ *  `node_modules/` reads a single directory and hands back package names, each
+ *  collapsed and expandable in its own turn. A recursive listing — the only
+ *  thing `git ls-files` can produce here, since it has no depth limit — would
+ *  be ~100k paths for that same click.
+ *
+ *  No ignore filtering, and none is missing: git collapses a directory only
+ *  when EVERYTHING beneath it is ignored, so every entry inside a collapsed row
+ *  is ignored by construction. Filtering would be a second, weaker authority
+ *  answering a question git has already settled. (`browse.test.ts` checks that
+ *  against git itself rather than trusting the argument.)
+ *
+ *  Same traversal guard as `readFile` — the directory key arrives over the wire.
+ *  A missing or unreadable directory returns an err rather than an empty list:
+ *  a cleaned build output must not paint as an authoritative empty folder.
+ *
+ *  @param repoPath  Absolute path to the repo root.
+ *  @param dirPath   Path relative to repo root, with or without trailing slash.
+ *  @param log       Optional logger. */
+export async function listDirectory(
+  repoPath: string,
+  dirPath: string,
+  log?: Logger,
+): Promise<GitResult<string[]>> {
+  const resolved = await resolveExistingUnder(repoPath, dirPath, log);
+  if (!resolved.ok) return resolved as GitResult<string[]>;
+  // `rel` is the lexically normalized key with any trailing slash already gone
+  // (`path.relative` erases it), so the two spellings a caller may hold —
+  // Pierre's folder key `out/` and the bare `out` — converge here.
+  const { abs, rel } = resolved.value;
+  try {
+    const entries = await readdir(abs, { withFileTypes: true });
+    return ok(
+      entries.map((e) => {
+        const child = rel === "" ? e.name : `${rel}/${e.name}`;
+        // A symlink is reported as neither file nor directory by `withFileTypes`
+        // (no stat is performed); leaving it slash-free renders it as a leaf,
+        // which is the honest row for something we will not follow.
+        return e.isDirectory() ? `${child}/` : child;
+      }),
+    );
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    log?.error({ err: msg, repoPath, dirPath }, "listDirectory failed");
+    return err({
+      code: "GIT_FAILED",
+      message: `Failed to list directory: ${msg}`,
+    });
+  }
 }
 
 /** Max file size to read (1 MB). Larger files get a truncation notice. */
