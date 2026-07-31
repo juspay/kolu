@@ -178,7 +178,9 @@ osfacts-live fix prompted by `3a6c829#1`.
   the heavier daemon-test node. Preserve the existing per-package Vitest
   parallelism.
 - **Implementation:** `ci::unit` now applies that package-level concurrency
-  bound. Targeted Darwin unit verification is pending.
+  bound.
+- **Fix verification:** targeted Darwin run `5a8461c#1` passed `ci::unit` on
+  `ci@petit`.
 
 ## Targeted verification runs
 
@@ -189,3 +191,4 @@ full two-platform green streak.
 | --- | --- | --- | --- | --- |
 | `907acfd#1` | `907acfd2f` | `osfacts-live@aarch64-darwin` and dependencies | `ci@petit` | Passed |
 | `e00cbe5#1` | `e00cbe551` | `fmt@x86_64-linux` | `kolu-ci-1` | Passed |
+| `5a8461c#1` | `5a8461cb7` | `unit@aarch64-darwin` | `ci@petit` | Passed |
