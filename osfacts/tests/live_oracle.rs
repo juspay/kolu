@@ -584,10 +584,19 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
             first_ps.rows.len(),
             "foreign process accounting diverged from ps:\n{body}"
         );
+        let now_instant = Instant::now();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_micros() as u64;
+        let minimum_elapsed_increase = now_instant
+            .saturating_duration_since(first_ps.finished_at)
+            .as_secs()
+            .saturating_sub(1);
+        let maximum_elapsed_increase = now_instant
+            .saturating_duration_since(first_ps.started_at)
+            .as_secs()
+            .saturating_add(1);
         for expected in &first_ps.rows {
             if retired.contains(&expected.pid) {
                 continue;
@@ -612,11 +621,15 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                 .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
             let start = start[2].parse::<u64>().expect("start time");
             let elapsed = now.saturating_sub(start) / 1_000_000;
+            let expected_elapsed =
+                expected.elapsed_seconds.saturating_add(minimum_elapsed_increase)
+                    ..=expected
+                        .elapsed_seconds
+                        .saturating_add(maximum_elapsed_increase);
             assert!(
-                elapsed.abs_diff(expected.elapsed_seconds) <= 3,
-                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps elapsed={}s",
+                expected_elapsed.contains(&elapsed),
+                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps expected={expected_elapsed:?}",
                 expected.pid,
-                expected.elapsed_seconds
             );
             for facet in ["proc", "uid", "start_time"] {
                 assert!(
