@@ -76,11 +76,16 @@ async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${url}`);
 }
 
-/** `just dev` forks a server and a client in parallel, so the child is a process
- *  GROUP. `detached: true` + `kill(-pid)` is what reaches both halves; killing
- *  the `just` pid alone orphans a Vite that keeps holding the port. */
+/** `_dev-parallel` is the server/client half of `just dev`, without its
+ *  workspace-install dependency. The caller (`test-dev`, and CI's install
+ *  funnel above it) already owns installation; starting another `pnpm install`
+ *  here races every concurrent consumer of `node_modules/.bin`.
+ *
+ *  The recipe forks a server and a client in parallel, so the child is a
+ *  process GROUP. `detached: true` + `kill(-pid)` is what reaches both halves;
+ *  killing the `just` pid alone orphans a Vite that keeps holding the port. */
 function startDevServer(ports: { server: number; client: number }) {
-  return spawn("just", ["dev", String(ports.server), String(ports.client)], {
+  return spawn("just", ["_dev-parallel"], {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
@@ -91,6 +96,8 @@ function startDevServer(ports: { server: number; client: number }) {
     // process group stopped below.
     env: {
       ...process.env,
+      KOLU_DEV_SERVER_PORT: String(ports.server),
+      KOLU_DEV_CLIENT_PORT: String(ports.client),
       KOLU_DAEMON_BIND_PID: String(process.pid),
     },
   });

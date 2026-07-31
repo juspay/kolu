@@ -171,6 +171,33 @@ and is fixed in this PR before the campaign resumes.
 | `4900aa0#1` | `4900aa05d` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `8eddf56#1` | `8eddf56cd` | Failed only `ci::dev-smoke@x86_64-linux`; both e2e lanes passed with 0 retries; streak reset | `0/5` |
 | `916c362#1` | `916c362f2` | Every GitHub check passed, including both repaired `dev-smoke` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
+| `0e224c9#1` | `0e224c993` | Failed only `ci::unit@aarch64-darwin`; both e2e lanes passed with 0 retries; streak reset | `0/5` |
+
+### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
+
+- **Failure:** `ci::unit@aarch64-darwin` stopped in `@kolu/shell-quote` with
+  `node_modules/.bin/vitest: No such file or directory` and `spawn ENOENT`.
+- **Root cause:** `devSmoke.ts` launched the public `just dev` recipe. Its
+  private `_dev` dependency runs `install`, so the dev-smoke node started a
+  second workspace `pnpm install` while the unit node was consuming package
+  executables from the same CI snapshot. Pnpm temporarily removed
+  `shell-quote/node_modules/.bin/vitest` while relinking the workspace.
+- **Evidence:** `.ci/0e224c9/aarch64-darwin/ci::unit.log` shows three packages
+  pass before the `shell-quote` executable disappears at 03:24:26. Read-only
+  inspection of the still-live snapshot found that exact executable recreated
+  with a 03:24:27 birth time and root `.modules.yaml` modified at 03:24:27.
+  Source inspection closes the competing-writer chain:
+  `devSmoke.ts` spawns `just dev`, `dev` invokes `_dev`, and
+  `_dev: install _dev-parallel`; the CI `dev-smoke` node otherwise correctly
+  enters through the single completed `ci::install` dependency.
+- **Proposed fix:** have the already-installed smoke harness launch the
+  existing private `_dev-parallel` recipe directly, passing its selected server
+  and client ports through the same environment variables. Keep public
+  `just dev` dependent on `install` for normal cold local use.
+- **Implementation:** the smoke harness now passes its random ports through
+  `KOLU_DEV_SERVER_PORT` and `KOLU_DEV_CLIENT_PORT` and launches
+  `_dev-parallel` directly. The public `just dev` installation path remains
+  unchanged.
 
 ### `8eddf56#1`: Linux dev-smoke opened the app before its server was ready
 
