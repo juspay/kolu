@@ -105,6 +105,7 @@ failure fixable in this repository is in scope.
 | `de10685#1` | `de1068524` | Passed | `1/5` |
 | `a454147#1` | `a4541473f` | Passed | `2/5` |
 | `7594e7d#1` | `7594e7d1a` | Failed: `ci::fmt@x86_64-linux`; all other nodes passed | `0/5` |
+| `37cebaa#1` | `37cebaafc` | Failed: `ci::unit@aarch64-darwin`; all other nodes passed | `0/5` |
 
 **Current active streak: `0/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
@@ -156,6 +157,28 @@ osfacts-live fix prompted by `3a6c829#1`.
   renames a process-unique temporary link when replacement is necessary.
 - **Fix verification:** targeted Linux run `e00cbe5#1` passed `ci::fmt` on
   `kolu-ci-1`.
+
+### `37cebaa#1`: Darwin unit workspace fanout killed
+
+- **Failure:** `ci::unit@aarch64-darwin` ended by signal 9 as the Kaval package
+  suite started.
+- **Root cause:** this was not a failed test: the top-level pnpm command was
+  externally SIGKILLed during its unbounded workspace-package fanout. The unit
+  recipe adds that package concurrency inside a CI node already running beside
+  the other full-pipeline nodes.
+- **Evidence:** the log shows several package Vitest processes running
+  concurrently, every completed package passing, then
+  `packages/kaval test:unit$ vitest run`, `packages/kaval test:unit: Failed`,
+  and the recipe terminating by signal 9 with no Vitest failure output. A host
+  process snapshot during the still-running pipeline showed the concurrent
+  Node and Chromium processes occupying hundreds of MiB each. See
+  `.ci/37cebaa/aarch64-darwin/ci::unit.log`.
+- **Proposed fix:** run the CI unit workspace with
+  `--workspace-concurrency=1`, the same explicit resource bound already used by
+  the heavier daemon-test node. Preserve the existing per-package Vitest
+  parallelism.
+- **Implementation:** `ci::unit` now applies that package-level concurrency
+  bound. Targeted Darwin unit verification is pending.
 
 ## Targeted verification runs
 

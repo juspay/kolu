@@ -211,8 +211,11 @@ e2e-governance: install
 
 # Run vitest unit tests — FORK-FREE (the daemon suites are gated OFF by default;
 # `describeDaemon` keys on KOLU_DAEMON_TESTS). Keeps ONE meaning: no real daemon fork.
+# Packages run serially because this node already overlaps the rest of the CI
+# fanout; unconstrained workspace fanout can push the top-level pnpm process
+# into an external signal kill before Vitest reports any assertion.
 unit: install
-    {{ nix_shell }} pnpm test:unit
+    {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
 
 # The daemon-forking unit suites as their OWN required node (juspay/kolu#1375 A7).
 # Default-OFF gating means `unit` alone would silently skip every daemon suite
