@@ -222,12 +222,24 @@ export const Xterm: Component<
       proposed.cols !== core.terminal.cols ||
       proposed.rows !== core.terminal.rows
     ) {
-      // Land any coalesced unfocused bytes BEFORE cols/rows change. Those bytes
-      // were generated for the OLD grid; parsing them after resize wraps/cursors
-      // at the wrong width (canvas zoom / divider drag can fire every frame and
-      // the coalesce window widens the race to ~100ms). Snapshot frames have a
+      // Push coalesced unfocused bytes into term.write BEFORE fit()/resize
+      // changes cols/rows. Those bytes were generated for the OLD grid;
+      // xterm's resize flushSync-parses its write queue at the *current* cols
+      // (CONTRACT PIN in internals.test.ts) so this lands them at the old
+      // width. Canvas zoom / divider drag can fire every frame and the
+      // coalesce window widens the race to ~100ms. Snapshot frames have a
       // second grid check at the write callback; delta frames do not.
-      coalesce?.flush();
+      // No-op under an engaged scroll lock: flush → writeData buffers into
+      // scrollLock.pending instead of term.write, so flushSync never sees
+      // those bytes (pre-existing wider lock hazard — not this PR).
+      // Fail loud if the write door is missing while core is live: a silent
+      // skip would re-open the stale-width race with no signal.
+      if (!coalesce) {
+        throw new Error(
+          "Xterm applyFit: coalesce missing while core is live — write-door invariant broken",
+        );
+      }
+      coalesce.flush();
       core.addons.fit.fit();
     }
     // Read the grid back off the terminal rather than trusting `proposed`: fit()
@@ -318,7 +330,10 @@ export const Xterm: Component<
       coalesce = outputCoalesce;
       onCleanup(() => {
         outputCoalesce.dispose();
-        if (coalesce === outputCoalesce) coalesce = null;
+        // Same lifetime as core: assigned in this ready callback, nulled here
+        // and in the component-level onCleanup. createXtermLifecycle fires
+        // ready once — no second-ready identity guard.
+        coalesce = null;
       });
       createEffect(
         on(

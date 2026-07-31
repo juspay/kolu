@@ -272,3 +272,78 @@ describe("clearWriteQueue", () => {
     }
   });
 });
+
+/**
+ * CONTRACT PIN — xterm resize flushSync-parses the write queue at the *old*
+ * cols before reflowing. applyFit's coalesce.flush() before fit() is only
+ * correct because of this ordering: flush only term.write()s (async); if a
+ * future @xterm/xterm beta dropped flushSync from resize, old-grid bytes would
+ * parse after reflow and the multi-tile coalesce resize fix would silently
+ * become a no-op. Name of the failure is the contract.
+ */
+describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols before reflow", () => {
+  function lineText(term: XTerm, row: number): string {
+    return (
+      term as unknown as {
+        _core: {
+          buffers: {
+            normal: {
+              lines: {
+                get(i: number): { translateToString(trim: boolean): string };
+              };
+            };
+          };
+        };
+      }
+    )._core.buffers.normal.lines
+      .get(row)
+      .translateToString(true);
+  }
+
+  it("drains a still-queued write at the pre-resize width (flushSync before reflow)", async () => {
+    const { Terminal: XTermCtor } = await import("@xterm/xterm");
+    const term = new XTermCtor({
+      cols: 80,
+      rows: 10,
+      scrollback: 10,
+      allowProposedApi: true,
+    });
+    try {
+      // 80×'A' + 'B' wraps at 80 cols (B on next line) but fits on one line at 120.
+      const payload = `${"A".repeat(80)}B`;
+      let parsed = false;
+      // Queue without awaiting — leave the chunk on WriteBuffer's async path so
+      // only resize's flushSync can land it before cols change.
+      term.write(payload, () => {
+        parsed = true;
+      });
+      expect(
+        parsed,
+        "precondition: write must still be queued before resize (async path)",
+      ).toBe(false);
+
+      term.resize(120, 10);
+
+      expect(
+        parsed,
+        "@xterm/xterm resize must flushSync-parse the write queue before reflow — " +
+          "applyFit coalesce.flush()→term.write depends on this; without it, " +
+          "old-grid unfocused bytes parse after cols change",
+      ).toBe(true);
+
+      const line0 = lineText(term, 0);
+      const line1 = lineText(term, 1);
+      // Parsed at cols=80 (pre-resize), not at 120: B is wrapped, not on line 0.
+      expect(
+        line0.length,
+        "queued payload must wrap at OLD cols=80 (flushSync before reflow). " +
+          "If this fails, @xterm/xterm likely stopped drain-before-reflow and " +
+          "the applyFit coalesce.flush-before-fit fix is a silent no-op.",
+      ).toBe(80);
+      expect(line0).toBe("A".repeat(80));
+      expect(line1).toContain("B");
+    } finally {
+      term.dispose();
+    }
+  });
+});
