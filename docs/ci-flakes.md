@@ -170,6 +170,7 @@ and is fixed in this PR before the campaign resumes.
 | `d3441b4#1` | `d3441b4c2` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `4900aa0#1` | `4900aa05d` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `8eddf56#1` | `8eddf56cd` | Failed only `ci::dev-smoke@x86_64-linux`; both e2e lanes passed with 0 retries; streak reset | `0/5` |
+| `916c362#1` | `916c362f2` | Every GitHub check passed, including both repaired `dev-smoke` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 
 ### `8eddf56#1`: Linux dev-smoke opened the app before its server was ready
 
