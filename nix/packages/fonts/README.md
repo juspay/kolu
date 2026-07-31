@@ -38,4 +38,6 @@ Edit `dmSansSubsets` or `firacode` in `nix/packages/fonts/default.nix`. To get a
 nix hash convert --to sri --hash-algo sha256 $(nix-prefetch-url <url>)
 ```
 
-The `@font-face` CSS is generated from the same data — no separate file to keep in sync.
+The `@font-face` CSS is generated from the same data and passed through the
+repository-pinned Nixpkgs Biome inside the derivation — no separate file or
+hand-maintained formatter layout to keep in sync.

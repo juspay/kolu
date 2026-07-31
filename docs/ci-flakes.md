@@ -147,57 +147,37 @@ osfacts-live fix prompted by `3a6c829#1`.
 - **Fix verification:** targeted Darwin run `907acfd#1` passed
   `ci::osfacts-live` and its dependency closure on `ci@petit`.
 
-### `7594e7d#1`: Linux fmt, unformatted generated font CSS
+### Generated font CSS formatting
 
-- **Failure:** Biome included the generated Nix-store `fonts.css` and rejected
-  its source formatting even though `packages/client/public/fonts` is ignored
-  explicitly in `biome.jsonc`.
-- **Root cause:** the Nix font generator emits CSS that does not satisfy
-  Biome's formatter. A full concurrent CI traversal can reach the symlink's
-  canonical Nix-store target despite the repository-path ignore, making that
-  latent formatting defect part of the checked file set.
-- **Evidence:** the failure names the canonical Nix-store file rather than
-  `packages/client/public/fonts/fonts.css`. The CI checkout has the ignored
-  repository path as a symlink to that exact store directory, and rerunning the
-  same Biome command after the symlink stabilized checked 1,732 files and
-  passed. The failing concurrent run checked 1,733 files. The formatter's
-  proposed output identifies the two long `unicode-range` declarations and a
-  trailing blank line produced by `nix/packages/fonts/default.nix`. The same
-  generated-output failure later recurred on Darwin after the atomic-symlink
-  experiment, ruling out the replacement window as the cause. See
-  `.ci/7594e7d/x86_64-linux/ci::fmt.log` and
-  `.ci/67b890f/aarch64-darwin/ci::fmt.log`.
-- **Proposed fix:** generate `fonts.css` in Biome-normal form: split each long
-  `unicode-range` declaration at the property boundary and remove the extra
-  trailing newline. Then the file passes regardless of whether traversal sees
-  the ignored repository symlink or its canonical store target.
-- **Implementation:** the generator now emits each long `unicode-range` in
-  Biome's multiline form and removes the Nix indented string's extra trailing
-  newline. The atomic-symlink experiment was removed because the Darwin
-  recurrence disproved it as a fix.
-- **Fix verification:** the rebuilt `kolu-fonts` derivation's `fonts.css`
-  passed a direct Biome format check, ends with exactly one newline, and local
-  full-repository formatting passed over 1,732 files. Targeted two-platform run
-  `de8c863#5` then passed `ci::fmt` on `ci@petit` and `kolu-ci-1`.
+Two runs observed the same generator-owned defect:
 
-### `67b890f#1`: Darwin fmt, same generated font CSS defect
+| Run | Platform | Evidence |
+| --- | --- | --- |
+| `7594e7d#1` | `x86_64-linux` | `.ci/7594e7d/x86_64-linux/ci::fmt.log` |
+| `67b890f#1` | `aarch64-darwin` | `.ci/67b890f/aarch64-darwin/ci::fmt.log` |
 
-- **Failure:** `ci::fmt@aarch64-darwin` checked the generated
-  `/nix/store/...-kolu-fonts/fonts.css` and rejected the same two
-  `unicode-range` declarations and trailing blank line seen on Linux.
-- **Root cause:** the Nix font generator emits CSS outside Biome's normal form,
-  and this run's traversal included its canonical Nix-store output.
-- **Evidence:** the log names the canonical store target, reports 1,733 checked
-  files, and prints the exact generator-owned edits for both `unicode-range`
-  declarations plus the final blank line. This recurrence happened with the
-  atomic symlink code in place, directly ruling out the earlier replacement
-  race diagnosis. See `.ci/67b890f/aarch64-darwin/ci::fmt.log`.
-- **Proposed fix:** make `nix/packages/fonts/default.nix` emit the exact
-  Biome-normal layout and verify that generated output directly before
-  restarting the full-CI streak.
-- **Implementation:** the generator now emits the exact formatter-normal
-  layout. The generated derivation passed direct local formatting, followed by
-  `ci::fmt` on both platforms in targeted run `de8c863#5`.
+- **Failure:** Biome traversed the canonical Nix-store `fonts.css` and rejected
+  two long `unicode-range` declarations plus a trailing blank line, even though
+  the repository symlink at `packages/client/public/fonts` is ignored.
+- **Root cause:** `nix/packages/fonts/default.nix` generated CSS outside the
+  repository formatter's normal form. The Linux occurrence first suggested a
+  symlink replacement window, but the Darwin occurrence reproduced the exact
+  formatter edits with the atomic-symlink experiment in place and ruled that
+  hypothesis out.
+- **Evidence:** both logs name the canonical store target, report 1,733 checked
+  files, and propose the same generator-owned edits. The Linux rerun after the
+  symlink stabilized checked 1,732 files and passed, showing why the latent
+  output defect appeared only when traversal reached the store target.
+- **Proposed fix:** keep semantic CSS generation independent of formatter
+  layout, then run the repository-pinned Nixpkgs Biome on `fonts.css` inside the
+  derivation.
+- **Implementation:** the font derivation now generates semantic declarations
+  and formats the artifact with the same pinned Biome implementation used by
+  the repository gate. The disproven atomic-symlink experiment remains removed.
+- **Fix verification:** before formatter ownership moved into the derivation,
+  the rebuilt artifact passed direct Biome formatting and targeted
+  two-platform run `de8c863#5` passed `ci::fmt` on `ci@petit` and `kolu-ci-1`.
+  The derivation itself is now the durable enforcement point.
 
 ### `37cebaa#1`: Darwin unit workspace fanout killed
 
@@ -218,8 +198,9 @@ osfacts-live fix prompted by `3a6c829#1`.
   `--workspace-concurrency=1`, the same explicit resource bound already used by
   the heavier daemon-test node. Preserve the existing per-package Vitest
   parallelism.
-- **Implementation:** `ci::unit` now applies that package-level concurrency
-  bound.
+- **Implementation:** the root `test-unit` recipe owns that package-level
+  concurrency bound, and `ci::unit` reuses it with `just --no-deps` after the
+  CI install funnel. The daemon lane reuses `test-daemon` the same way.
 - **Fix verification:** targeted Darwin run `5a8461c#1` passed `ci::unit` on
   `ci@petit`.
 

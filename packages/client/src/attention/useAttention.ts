@@ -42,6 +42,7 @@ import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
+  hostKeysEqual as sameHost,
 } from "kolu-common/hostKey";
 import {
   type AgentInfo,
@@ -64,7 +65,7 @@ import { useAttentionFacts } from "./useAttentionFacts";
 import { nextAfter } from "../ui/nextAfter";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
-import { hostLabel, sameHost } from "../host/hostChipTone";
+import { hostLabel } from "../host/hostChipTone";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { activeHost, preferences, setActiveHost } from "../wire";
 

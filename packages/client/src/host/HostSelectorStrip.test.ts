@@ -5,13 +5,12 @@
 
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
-import { HostKeySchema } from "kolu-common/hostKey";
+import { HostKeySchema, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import {
   chipStatusDot,
   hostGlance,
   hostRowContext,
-  sameHost,
   statusLabelShort,
 } from "./hostChipTone";
 

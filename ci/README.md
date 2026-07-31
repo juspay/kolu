@@ -63,14 +63,25 @@ just ci::pool-ensure
 
 ## Pipeline nodes
 
-The current DAG covers four kinds of work:
+The [`default` recipe](./mod.just) is the executable inventory of required
+nodes. Do not copy that membership into documentation: odu expands the recipes
+reachable from that root, applies the platform attributes in the same file, and
+uses the resulting set for protected statuses.
 
-| Area | Required nodes |
-| --- | --- |
-| Nix and packaging | `nix`, `agent-flake-nix`, `website-nix`, `website-pnpm-hash-fresh`, `surface-examples-nix`, `solid-browser-example-nix`, `odu-nix`, `home-manager`, `smoke`, `dev-smoke`, `pnpm-hash-fresh`, `upgrade-window` |
-| Code quality | `fmt`, `biome`, `unit`, `daemon`, `osfacts`, `osfacts-live` |
-| Browser behavior | `e2e`, `e2e-governance` |
-| Living docs and examples | `surface-example-build`, `surface-app-example-build`, `atlas-sync` |
+The DAG groups work by responsibility:
+
+- Nix and packaging recipes build the root flake, independent subflakes,
+  package hashes, smoke targets, and upgrade windows.
+- Code-quality recipes own formatting, linting, unit/daemon coverage, and the
+  osfacts checks.
+- Browser recipes own end-to-end behavior and its append-only governance
+  ledger.
+- Living-documentation and example recipes prove Surface examples and Atlas
+  output remain buildable and synchronized.
+
+For the exact current membership and dependency edges, inspect
+[`ci/mod.just`](./mod.just); local entry points and their dependency-bearing
+wrappers live in the root [`justfile`](../justfile).
 
 `nix` builds every runnable-Kolu flake output for the lane's system and runs
 that flake's evaluation gate. The independent website, Surface examples, Solid

@@ -209,13 +209,11 @@ e2e: install nix
 e2e-governance: install
     {{ nix_shell }} just --no-deps test-e2e-governance
 
-# Run vitest unit tests — FORK-FREE (the daemon suites are gated OFF by default;
-# `describeDaemon` keys on KOLU_DAEMON_TESTS). Keeps ONE meaning: no real daemon fork.
-# Packages run serially because this node already overlaps the rest of the CI
-# fanout; unconstrained workspace fanout can push the top-level pnpm process
-# into an external signal kill before Vitest reports any assertion.
+# Run the canonical fork-free unit recipe after this CI process's install. The
+# root recipe owns package concurrency; `--no-deps` preserves CI's single-install
+# funnel rather than replaying the root recipe's install dependency.
 unit: install
-    {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    {{ nix_shell }} just --no-deps test-unit
 
 # The daemon-forking unit suites as their OWN required node (juspay/kolu#1375 A7).
 # Default-OFF gating means `unit` alone would silently skip every daemon suite
@@ -224,7 +222,7 @@ unit: install
 # refactor. Sets the gate + the run-bind leash (a spawned daemon dies with the run);
 # CI boxes are leased/contained, so the fork storm cannot reach production.
 daemon: install
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    {{ nix_shell }} just --no-deps test-daemon
 
 # Mixed-version daemon upgrade-window — the REAL previous-release e2e (boot the
 # previous tag's kaval, current padi against it, Restart kaval). Slow by design:

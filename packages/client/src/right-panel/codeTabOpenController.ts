@@ -1,5 +1,9 @@
 import type { CodeTabView } from "@kolu/padi/surface";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysEqual,
+} from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
@@ -15,7 +19,7 @@ export interface CodeTabScope {
 /** Stable equality for the complete owner of a Code-tab request. */
 export function codeTabScopesEqual(a: CodeTabScope, b: CodeTabScope): boolean {
   return (
-    encodeHostKey(a.host) === encodeHostKey(b.host) &&
+    hostKeysEqual(a.host, b.host) &&
     a.terminalId === b.terminalId &&
     a.repoRoot === b.repoRoot &&
     a.mode === b.mode
@@ -49,6 +53,7 @@ export interface CodeTabOpenSnapshot<Paths> {
   scope: CodeTabScope | null;
   paths: Paths;
   inventoryPending: boolean;
+  includeIgnored: boolean;
 }
 
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
@@ -56,6 +61,7 @@ interface CodeTabOpenControllerOptions<Paths, Resolved> {
   resolve: (request: OpenInCodeTabRequest, paths: Paths) => Resolved | null;
   readFresh: (
     request: OpenInCodeTabRequest,
+    includeIgnored: boolean,
     signal: AbortSignal,
   ) => Promise<Paths>;
   onResolved: (request: OpenInCodeTabRequest, resolved: Resolved) => void;
@@ -68,6 +74,7 @@ type OpenAttempt =
   | {
       kind: "refreshing";
       request: OpenInCodeTabRequest;
+      includeIgnored: boolean;
       controller: AbortController;
     }
   | { kind: "complete"; request: OpenInCodeTabRequest };
@@ -97,11 +104,13 @@ export function createCodeTabOpenController<Paths, Resolved>(
 
   const isCurrent = (
     request: OpenInCodeTabRequest,
+    includeIgnored: boolean,
     controller: AbortController,
   ): boolean => {
     if (
       attempt.kind !== "refreshing" ||
       attempt.request !== request ||
+      attempt.includeIgnored !== includeIgnored ||
       attempt.controller !== controller ||
       controller.signal.aborted
     ) {
@@ -111,7 +120,8 @@ export function createCodeTabOpenController<Paths, Resolved>(
     return (
       current.request === request &&
       current.scope !== null &&
-      codeTabScopesEqual(current.scope, request.scope)
+      codeTabScopesEqual(current.scope, request.scope) &&
+      current.includeIgnored === includeIgnored
     );
   };
 
@@ -136,7 +146,9 @@ export function createCodeTabOpenController<Paths, Resolved>(
 
     if (
       attempt.kind === "refreshing" &&
-      (attempt.request !== request || current.inventoryPending)
+      (attempt.request !== request ||
+        attempt.includeIgnored !== current.includeIgnored ||
+        current.inventoryPending)
     ) {
       retire();
     }
@@ -151,16 +163,18 @@ export function createCodeTabOpenController<Paths, Resolved>(
 
     if (attempt.kind === "refreshing") return;
 
+    const includeIgnored = current.includeIgnored;
     const controller = new AbortController();
     attempt = {
       kind: "refreshing",
       request,
+      includeIgnored,
       controller,
     };
     void options
-      .readFresh(request, controller.signal)
+      .readFresh(request, includeIgnored, controller.signal)
       .then((paths) => {
-        if (!isCurrent(request, controller)) return;
+        if (!isCurrent(request, includeIgnored, controller)) return;
         const freshResolved = options.resolve(request, paths);
         if (freshResolved === null) {
           complete(request, () => options.onNotFound(request));
@@ -169,7 +183,7 @@ export function createCodeTabOpenController<Paths, Resolved>(
         }
       })
       .catch((raw: unknown) => {
-        if (!isCurrent(request, controller)) return;
+        if (!isCurrent(request, includeIgnored, controller)) return;
         const error = raw instanceof Error ? raw : new Error(String(raw));
         complete(request, () => options.onError(request, error));
       });

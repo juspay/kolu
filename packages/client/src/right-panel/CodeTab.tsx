@@ -509,10 +509,16 @@ const CodeTab: Component<{
       scope: currentScope(),
       paths: treePaths(),
       inventoryPending: treeInventory().pending,
+      includeIgnored: showIgnoredFiles(),
     }),
     resolve: resolveOpenRequest,
-    readFresh: (request, signal) =>
-      readFreshCodePaths(request.scope.host, request.scope.repoRoot, signal),
+    readFresh: (request, includeIgnored, signal) =>
+      readFreshCodePaths(
+        request.scope.host,
+        request.scope.repoRoot,
+        includeIgnored,
+        signal,
+      ),
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);

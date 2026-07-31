@@ -342,9 +342,9 @@ export const codeFileContent = windowedSub(
 export async function readFreshCodePaths(
   host: HostKey,
   repoPath: string,
+  includeIgnored: boolean,
   signal: AbortSignal,
 ): Promise<string[]> {
-  const includeIgnored = showIgnoredFiles();
   const rpc = padiMap.entry(host).procedures;
   const [tracked, ignored] = await Promise.all([
     rpc.fs.listAll({ repoPath }, { signal }),

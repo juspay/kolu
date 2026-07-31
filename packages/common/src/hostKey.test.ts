@@ -3,6 +3,7 @@ import {
   decodeHostKey,
   encodeHostKey,
   HostKeySchema,
+  hostKeysEqual,
   LOCAL_HOST,
   parseHostInput,
 } from "./hostKey.ts";
@@ -89,5 +90,19 @@ describe("encodeHostKey / decodeHostKey — the canonical wire codec round-trips
 
   it("decodeHostKey rejects a 'remote:' prefix with an empty target", () => {
     expect(() => decodeHostKey("remote:")).toThrow();
+  });
+});
+
+describe("hostKeysEqual — canonical structured-key equality", () => {
+  it("compares independently decoded keys by canonical identity", () => {
+    expect(
+      hostKeysEqual(
+        { kind: "remote", target: "srid@zest" },
+        { kind: "remote", target: "srid@zest" },
+      ),
+    ).toBe(true);
+    expect(
+      hostKeysEqual(LOCAL_HOST, { kind: "remote", target: "srid@zest" }),
+    ).toBe(false);
   });
 });
