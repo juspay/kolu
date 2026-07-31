@@ -29,6 +29,7 @@ import {
   splitProps,
 } from "solid-js";
 import { sameGrid, type TerminalGrid } from "./grid";
+import { clearWriteQueue } from "../internals";
 import { createOutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
@@ -351,8 +352,12 @@ export const Xterm: Component<
         scrollLock,
         write: (data, onParsed) => coalesce.write(data, onParsed),
         clearPendingOutput: () => {
+          // Outer buffers first, then xterm's own async write queue — otherwise
+          // a coalesced batch already past `term.write` still parses after
+          // `terminal.reset()` and contaminates the replacement snapshot.
           coalesce.clear();
           scrollLock.dropPending();
+          clearWriteQueue(term);
         },
         webgl,
         recovery,

@@ -127,9 +127,9 @@ coalescing does; paint can go to zero while main-thread FunctionCall remains.
 ### 6. After fix — unfocused write coalesce
 
 Code: `packages/xterm-kit/src/solid/outputCoalesce.ts` (`UNFOCUSED_COALESCE_MS =
-100`), wired from `packages/client/src/terminal/Terminal.tsx` attach sink.
-Focused tile passthrough; unfocused batches chunks and flushes on timer or
-focus.
+100`), composed into `<Xterm>` so `handle.write` is the single door; Terminal
+passes `fullRate={isFocused}`. Unfocused batches chunks and flushes on timer or
+focus; fresh-snapshot reset drops coalesce + scroll-lock + xterm write queue.
 
 | Metric | Before (dense flood) | After (equal-or-harder flood) | Δ |
 |---|---:|---:|---|

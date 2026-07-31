@@ -53,6 +53,29 @@ export function renderService(term: XTerm): RenderInternals | null {
   return rs ?? null;
 }
 
+/** Drop unparsed chunks in xterm's WriteBuffer without parsing them.
+ *
+ *  `term.write` is async (queued on WriteBuffer + setTimeout). A synchronous
+ *  `term.reset()` only clears the screen buffer — queued chunks still parse
+ *  afterward and contaminate a fresh-snapshot re-attach. Fail-soft: if the
+ *  private shape moved, this is a no-op (same class as `renderService`). */
+export function clearWriteQueue(term: XTerm): boolean {
+  const wb = core<{
+    _writeBuffer?: {
+      _writeBuffer?: unknown[];
+      _callbacks?: unknown[];
+      _pendingData?: number;
+      _bufferOffset?: number;
+    };
+  }>(term)?._writeBuffer;
+  if (!wb?._writeBuffer) return false;
+  wb._writeBuffer.length = 0;
+  if (Array.isArray(wb._callbacks)) wb._callbacks.length = 0;
+  if (typeof wb._pendingData === "number") wb._pendingData = 0;
+  if (typeof wb._bufferOffset === "number") wb._bufferOffset = 0;
+  return true;
+}
+
 /** A DEC private mode (e.g. DEC 2026 synchronized-output): true/false if we
  *  can read it; null if xterm's shape changed under us. */
 export function readDecPrivateMode(
