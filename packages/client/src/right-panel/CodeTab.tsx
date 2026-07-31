@@ -79,6 +79,7 @@ import {
   codeDiff,
   codeIgnoredPaths,
   codeLocalStatus,
+  readFreshCodePaths,
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
@@ -412,6 +413,9 @@ const CodeTab: Component<{
   // (non-reactive) variable: it is only read/written inside the effect and
   // must survive the effect's re-runs, so it is not a tracked dependency.
   let consumedRequest: OpenInCodeTabRequest | null = null;
+  let refreshingRequest: OpenInCodeTabRequest | null = null;
+  let refreshController: AbortController | null = null;
+  onCleanup(() => refreshController?.abort());
 
   // Highlight-session record for the latest handled pendingOpen tick. Holds
   // the full request object (reference identity discriminates two
@@ -439,13 +443,78 @@ const CodeTab: Component<{
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
+  const finishOpenRequest = (
+    req: OpenInCodeTabRequest,
+    resolved: ReturnType<typeof resolveRef>,
+  ): void => {
+    // Commit before any reactive writes below. Those writes can re-run the
+    // effect, but this request has now reached an authoritative verdict.
+    consumedRequest = req;
+    if (resolved === null) {
+      toast.error(`File reference not found: ${req.ref.path}`);
+      setHandled({ request: req, resolvedPath: null });
+      return;
+    }
+    if (resolved.kind === "directory") {
+      // A folder ref reveals (expands + scrolls to) the directory in the
+      // tree without changing the shown file — selection stays put, and
+      // the request leaves no line highlight, mirroring the not-found
+      // branch. The reveal isn't a content navigation, so it's not
+      // recorded in back/forward history.
+      //
+      // Resolution ran against the full `treePaths()`, but the mounted
+      // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
+      // browse search is active. A folder outside the current filter has no
+      // row to reveal, so the request would be silently consumed with
+      // nothing on screen. Clear the search first: the projection falls
+      // back to the full tree, the target row exists, and the reveal lands.
+      setSearchQuery("");
+      setRevealDir({ path: resolved.path });
+      setHandled({ request: req, resolvedPath: null });
+      return;
+    }
+    const rel = resolved.path;
+    // Record the front-door open in history *with* its line ref, so a
+    // later back() re-issues it through this same pipeline and repaints
+    // the highlight (cheap-v1 "restore where you were"). Idempotent on
+    // mode+path, so a re-click of the same path:line refreshes the entry
+    // in place rather than deepening history. A programmatic
+    // `select(..., rel)` no longer echoes back through `onSelect` — the
+    // #1841 provenance gate drops any selection no user gesture caused — so
+    // this ref is safe; only a later USER re-click of the same file reaches
+    // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
+    select(req.targetMode, rel, {
+      ref:
+        req.ref.startLine !== null && req.ref.endLine !== null
+          ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+          : undefined,
+    });
+    setHandled({ request: req, resolvedPath: rel });
+  };
+
+  const resolveOpenRequest = (
+    req: OpenInCodeTabRequest,
+    repo: string,
+    paths: readonly string[],
+  ): ReturnType<typeof resolveRef> =>
+    resolveRef({
+      rawPath: req.ref.path,
+      repoRoot: repo,
+      cwd: req.cwd,
+      repoPaths: paths,
+      allowBasenameFallback: req.allowBasenameFallback,
+      // A `:N` line suffix means the user pointed at a *file* line — a
+      // directory match would wrongly reveal the folder and drop the line,
+      // so gate the folder-reveal step off when a line is present.
+      hasLine: req.ref.startLine !== null,
+    });
+
   // Honor every `openInCodeTab` request — terminal file-ref clicks,
-  // right-click "Open path:N" entries, and any future producer. The
-  // effect waits for the live `fsListAll` stream to settle so
-  // resolution can validate against a complete file list — otherwise
-  // a request fired during boot would toast "not found" on a path
-  // that just hasn't been enumerated yet. `openInCodeTab` flips the
-  // panel to browse mode itself; this effect only sets `selectedPath`.
+  // right-click "Open path:N" entries, and any future producer. The effect
+  // first waits for the retained `fsListAll` stream to settle. A miss against
+  // that stable-on-screen snapshot gets one direct authoritative read before
+  // the request is consumed: a file created just before the click may not have
+  // reached the retained query's repo-change pulse yet.
   createEffect(
     on(
       () => {
@@ -459,62 +528,32 @@ const CodeTab: Component<{
         if (consumedRequest === req) return;
         if (repo === null || repo !== req.repoRoot) return;
         if (view() !== req.targetMode || isPending) return;
-        // Committed to handling this request on this tick — mark it consumed
-        // before resolution so any re-run (terminal round-trip, treePaths
-        // settling) can't reprocess it, even after a manual tree-click has
-        // reset `handled`.
-        consumedRequest = req;
-        const resolved = resolveRef({
-          rawPath: req.ref.path,
-          repoRoot: repo,
-          cwd: req.cwd,
-          repoPaths: paths,
-          allowBasenameFallback: req.allowBasenameFallback,
-          // A `:N` line suffix means the user pointed at a *file* line — a
-          // directory match would wrongly reveal the folder and drop the line,
-          // so gate the folder-reveal step off when a line is present.
-          hasLine: req.ref.startLine !== null,
-        });
-        if (resolved === null) {
-          toast.error(`File reference not found: ${req.ref.path}`);
-          setHandled({ request: req, resolvedPath: null });
+        const resolved = resolveOpenRequest(req, repo, paths);
+        if (resolved !== null) {
+          finishOpenRequest(req, resolved);
           return;
         }
-        if (resolved.kind === "directory") {
-          // A folder ref reveals (expands + scrolls to) the directory in the
-          // tree without changing the shown file — selection stays put, and
-          // the request leaves no line highlight, mirroring the not-found
-          // branch. The reveal isn't a content navigation, so it's not
-          // recorded in back/forward history.
-          //
-          // Resolution ran against the full `treePaths()`, but the mounted
-          // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
-          // browse search is active. A folder outside the current filter has no
-          // row to reveal, so the request would be silently consumed with
-          // nothing on screen. Clear the search first: the projection falls
-          // back to the full tree, the target row exists, and the reveal lands.
-          setSearchQuery("");
-          setRevealDir({ path: resolved.path });
-          setHandled({ request: req, resolvedPath: null });
-          return;
-        }
-        const rel = resolved.path;
-        // Record the front-door open in history *with* its line ref, so a
-        // later back() re-issues it through this same pipeline and repaints
-        // the highlight (cheap-v1 "restore where you were"). Idempotent on
-        // mode+path, so a re-click of the same path:line refreshes the entry
-        // in place rather than deepening history. A programmatic
-        // `select(..., rel)` no longer echoes back through `onSelect` — the
-        // #1841 provenance gate drops any selection no user gesture caused — so
-        // this ref is safe; only a later USER re-click of the same file reaches
-        // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-        select(req.targetMode, rel, {
-          ref:
-            req.ref.startLine !== null && req.ref.endLine !== null
-              ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
-              : undefined,
-        });
-        setHandled({ request: req, resolvedPath: rel });
+        if (refreshingRequest === req) return;
+
+        refreshingRequest = req;
+        refreshController?.abort();
+        const controller = new AbortController();
+        refreshController = controller;
+        void readFreshCodePaths(repo, controller.signal)
+          .then((freshPaths) => {
+            if (controller.signal.aborted || consumedRequest === req) return;
+            if (pendingOpen() !== req || repoPath() !== repo) return;
+            if (view() !== req.targetMode) return;
+            finishOpenRequest(req, resolveOpenRequest(req, repo, freshPaths));
+          })
+          .catch((raw: unknown) => {
+            if (controller.signal.aborted || consumedRequest === req) return;
+            if (pendingOpen() !== req || repoPath() !== repo) return;
+            consumedRequest = req;
+            const err = raw instanceof Error ? raw : new Error(String(raw));
+            toast.error(`File list refresh: ${err.message}`);
+            setHandled({ request: req, resolvedPath: null });
+          });
       },
       { defer: true },
     ),

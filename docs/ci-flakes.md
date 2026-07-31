@@ -58,6 +58,11 @@ root cause has been identified from the run logs and supporting evidence.
   authoritative inventory also proves the path absent. Add an e2e regression
   that creates a file immediately before clicking its terminal reference and
   verifies that the request survives the initial stale settled snapshot.
+- **Implementation:** the Code-tab open pipeline now checks an initial miss
+  against a direct fresh browse inventory before consuming the request. The
+  existing file-ref scenarios already create each target immediately before
+  clicking it, including the exact-path and unique-basename cases that exposed
+  this race. Client unit tests pass; Linux e2e verification is pending.
 
 ### `fba3b95#4`: Darwin atlas-sync, TypeScript-Go parser panic
 

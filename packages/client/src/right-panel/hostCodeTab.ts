@@ -66,6 +66,7 @@ import { windowedSub } from "../hostScope/windowedSub.ts";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
+import { mergeBrowseInventory } from "./browseInventory";
 import { showIgnoredFiles } from "./showIgnoredFiles";
 import { useRightPanel } from "./useRightPanel";
 
@@ -326,3 +327,30 @@ export const codeFileContent = windowedSub(
   (v) => v,
   undefined,
 );
+
+/** Read a fresh authoritative browse inventory for a user-initiated open.
+ *
+ * The retained `codeAllPaths` window is intentionally allowed to stay visible
+ * while its repo-change pulse refreshes in place. That makes the tree stable,
+ * but also means a terminal link can arrive in the short interval after a file
+ * was created and before the pulse's requery lands. A not-found verdict must
+ * therefore confirm against a direct read before consuming the navigation
+ * request. Keep that read beside the retained query so both paths use the same
+ * padi procedures and ignored-file partition. */
+export async function readFreshCodePaths(
+  repoPath: string,
+  signal: AbortSignal,
+): Promise<string[]> {
+  const includeIgnored = showIgnoredFiles();
+  const [tracked, ignored] = await Promise.all([
+    activePadiRpc.fs.listAll({ repoPath }, { signal }),
+    includeIgnored
+      ? activePadiRpc.fs.listIgnored({ repoPath }, { signal })
+      : Promise.resolve(undefined),
+  ]);
+  return mergeBrowseInventory(tracked.paths, ignored?.paths, {
+    trackedPending: false,
+    ignoredPending: false,
+    showIgnored: includeIgnored,
+  }).paths;
+}
