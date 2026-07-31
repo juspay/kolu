@@ -154,7 +154,8 @@ osfacts-live fix prompted by `3a6c829#1`.
 - **Implementation:** the shell hook now fails loudly if the generated path is
   a real directory, leaves the correct symlink untouched, and atomically
   renames a process-unique temporary link when replacement is necessary.
-  Targeted Linux fmt verification is pending.
+- **Fix verification:** targeted Linux run `e00cbe5#1` passed `ci::fmt` on
+  `kolu-ci-1`.
 
 ## Targeted verification runs
 
@@ -164,3 +165,4 @@ full two-platform green streak.
 | Run | Commit | Scope | Host | Result |
 | --- | --- | --- | --- | --- |
 | `907acfd#1` | `907acfd2f` | `osfacts-live@aarch64-darwin` and dependencies | `ci@petit` | Passed |
+| `e00cbe5#1` | `e00cbe551` | `fmt@x86_64-linux` | `kolu-ci-1` | Passed |
