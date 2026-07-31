@@ -53,12 +53,16 @@ export function pickAutoSwitchTarget(
 }
 
 /** The side-effecting seams `evictTerminal` drives — the store, the sub-panel,
- *  the right-panel, the find-bar, and the promote RPC. Bundled so the cleanup
- *  body is a pure function of (ports, id, parentId, order): unit-testable with
- *  plain spies, and wired ONCE in useTerminalCrud. */
+ *  the right-panel, the find-bar, and the promote/rehome RPCs. Bundled so the
+ *  cleanup body is a pure function of (ports, id, parentId, order): unit-testable
+ *  with plain spies, and wired ONCE in useTerminalCrud. */
 export interface TerminalEvictionPorts {
-  /** Sub-terminal ids for a parent, read LIVE (list-driven). */
+  /** True one-hop children (Dock / rehome targets), read LIVE. */
   getSubTerminalIds: (parentId: TerminalId) => readonly TerminalId[];
+  /** Flat descendants of a root tile (canvas tab strip), read LIVE. */
+  getSplitPaneIds: (rootId: TerminalId) => readonly TerminalId[];
+  /** Root ancestor of a live id (`null` when the walk finds no root). */
+  rootAncestor: (id: TerminalId) => TerminalId | null;
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
   /** Pan-and-activate a survivor (or `null`). */
@@ -67,6 +71,8 @@ export interface TerminalEvictionPorts {
   dropFromMru: (id: TerminalId) => void;
   /** Promote a sub-terminal to top-level (server `setParent(id, null)`). */
   promoteToTopLevel: (subId: TerminalId) => void;
+  /** Re-home a surviving child under a still-live parent (`setParent`). */
+  rehomeUnder: (subId: TerminalId, newParentId: TerminalId) => void;
   subPanel: {
     collapse: (parentId: TerminalId) => void;
     collapseChrome: (parentId: TerminalId) => void;
@@ -96,38 +102,47 @@ export function evictTerminal(
   departing: ReadonlySet<TerminalId>,
 ) {
   if (parentId !== null) {
-    // Sub-terminal: always repair the parent's remembered chrome, but move DOM
-    // and keyboard focus only when the departing sub actually held it. A
-    // background split exit must not steal focus from the tile being used.
+    // Closing a middle (or leaf) split: re-home its true children under the
+    // ROOT tile — never kill them, never leave them dangling at the dead id.
+    // Canvas chrome is keyed on that root, so tab repair runs there too.
+    const root = ports.rootAncestor(parentId) ?? parentId;
+    for (const child of ports.getSubTerminalIds(id)) {
+      if (child === id) continue;
+      ports.rehomeUnder(child, root);
+    }
+    // Flat remaining tabs of the tile (canvas strip), excluding the departed.
+    // True one-hop siblings under `parentId` would miss cousins already under
+    // the root and would key chrome on a middle node that has no panel.
     const wasFocused = ports.focusedTerminalId() === id;
-    const subs = ports.getSubTerminalIds(parentId).filter((x) => x !== id);
-    if (subs.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(parentId);
-      else ports.subPanel.collapseChrome(parentId);
-      // Clear the active tab too: the parent's last split is gone, so `activeSubTab`
+    const remaining = ports.getSplitPaneIds(root).filter((x) => x !== id);
+    if (remaining.length === 0) {
+      if (wasFocused) ports.subPanel.collapse(root);
+      else ports.subPanel.collapseChrome(root);
+      // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
       // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
-      // null or a LIVE sub of this parent" global lets consumers trust a plain
+      // null or a LIVE sub of this tile" global lets consumers trust a plain
       // null-check for "no active split" instead of each re-deriving liveness —
       // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
       // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(parentId, null);
+      ports.subPanel.setActiveSubTab(root, null);
     } else {
-      if (ports.subPanel.activeSubTab(parentId) === id) {
-        const replacement = subs[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(parentId, replacement);
-        else ports.subPanel.setActiveSubTab(parentId, replacement);
+      if (ports.subPanel.activeSubTab(root) === id) {
+        const replacement = remaining[0] ?? null;
+        if (wasFocused) ports.subPanel.selectSubTab(root, replacement);
+        else ports.subPanel.setActiveSubTab(root, replacement);
       }
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore
       // it while the still-focused pane repairs DOM focus after removal.
-      ports.subPanel.requestRefocus(parentId);
+      ports.subPanel.requestRefocus(root);
     }
     return;
   }
 
-  // Top-level tile — promote its sub-terminals to top-level, shed its chrome,
-  // and auto-switch focus if it was active.
+  // Top-level tile — promote its TRUE one-hop children to top-level (each
+  // keeps its own subtree intact), shed its chrome, and auto-switch focus if
+  // it was active. Nested grandchildren ride with the promoted middles.
   for (const subId of ports.getSubTerminalIds(id))
     ports.promoteToTopLevel(subId);
   ports.subPanel.remove(id);

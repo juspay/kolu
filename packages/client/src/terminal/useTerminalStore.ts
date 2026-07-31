@@ -88,14 +88,19 @@ export const useTerminalStore = createSharedRoot(() => {
    *  that still drives zoom and `data-focused`. */
   function holdsWebgl(id: TerminalId): boolean {
     const budget = webglTileBudget();
-    const parentId = metadata.getMetadata(id)?.parentId ?? null;
-    if (parentId === null) return budget.includes(id);
-    const panel = subPanel.peekSubPanel(parentId);
+    const meta = metadata.getMetadata(id);
+    if (!meta) return false;
+    // Chrome (sub-panel state, WebGL budget) is keyed on the ROOT tile — a
+    // nested grandchild rides its root's slot, not its true parent's.
+    if (!meta.parentId) return budget.includes(id);
+    const root = metadata.rootAncestor(id);
+    if (root === null) return budget.includes(id); // cycle/orphan as top-level
+    const panel = subPanel.peekSubPanel(root);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the
     // budgeted count can't drift apart.
-    return budget.includes(parentId) && isActiveSplit(panel, id);
+    return budget.includes(root) && isActiveSplit(panel, id);
   }
 
   // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
@@ -175,7 +180,10 @@ export const useTerminalStore = createSharedRoot(() => {
       subPanel.focusMainPane(id);
       return;
     }
-    subPanel.focusSubTab(parentId, id);
+    // Sub-panel chrome is keyed on the root tile; a nested split must open
+    // that tile's tab strip, not a middle node's non-existent panel.
+    const root = metadata.rootAncestor(id) ?? parentId;
+    subPanel.focusSubTab(root, id);
   }
 
   /** Land on any terminal and ask the desktop canvas to center its tile. */

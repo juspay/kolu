@@ -36,6 +36,7 @@ import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
+import { descendantsByRoot, rootAncestorOf } from "./terminalTree";
 
 /** Whether two top-level terminal-id lists are identical — the same ids in the
  *  same order. Serves as the `equals` gate on the `terminalIds` memo below: a
@@ -277,8 +278,23 @@ export function useTerminalMetadata(deps: {
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
+  /** Live parent edge for the pure tree walks (`rootAncestorOf` /
+   *  `descendantsByRoot`). Raw (not reprojected): only `parentId` + presence,
+   *  both clock-free. `undefined` when the id is absent or parked so a dangling
+   *  parentId cannot invent a fake root. */
+  function parentEdge(id: TerminalId): TerminalId | null | undefined {
+    const tile = rawTile(id);
+    if (tile === undefined) return undefined;
+    return tile.parentId ?? null;
+  }
+
   /** Top-level terminal IDs in server-provided order.
    *  Terminals whose metadata hasn't arrived yet are excluded (still loading).
+   *
+   *  A terminal with no resolvable root (cycle, or parentId dangling at a
+   *  missing node) paints as top-level too — otherwise it would fall out of
+   *  both this set and every root's flat split list, which is the exact
+   *  invisibility bug #2059 is about. True descendants of a live root stay out.
    *
    *  The `equals` gate keeps the prior array reference whenever a metadata
    *  change leaves the top-level id set unchanged (the common case), so
@@ -290,16 +306,20 @@ export function useTerminalMetadata(deps: {
     () =>
       keys().filter((id) => {
         // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
-        // record, so presence alone excludes restore-card rows. Raw (not reprojected):
-        // ordering reads only `parentId`, clock-free.
-        const a = rawTile(id);
-        return a !== undefined && !a.parentId;
+        // record, so presence alone excludes restore-card rows.
+        if (rawTile(id) === undefined) return false;
+        const root = rootAncestorOf(id, parentEdge);
+        // Root of its own tree, or no root at all (cycle / dangling) → tile.
+        return root === id || root === null;
       }),
     [],
     { equals: sameTerminalIdOrder },
   );
 
-  /** The parent→children relation, indexed ONCE per invalidation.
+  /** The TRUE parent→children relation, indexed ONCE per invalidation.
+   *
+   *  This is the Dock's tree: one hop, exact `parentId` edges. Canvas split
+   *  rendering uses {@link getSplitPaneIds} (root-ancestor flattening) instead.
    *
    *  Every reader of that relation used to walk EVERY terminal per parent:
    *  `getSubTerminalIds` filtered `keys()` for one parentId, and
@@ -307,8 +327,7 @@ export function useTerminalMetadata(deps: {
    *  relation was scanned quadratically. One O(T) grouping walk answers every
    *  reader in O(1) per parent. Server-provided `keys()` order is
    *  preserved by construction: the walk appends in `keys()` order, so each
-   *  parent's list is the same sequence the old filter produced — which
-   *  `useSubPanel`'s tab order and `Cmd`-cycling depend on. */
+   *  parent's list is the same sequence the old filter produced. */
   const childrenByParent = createMemo<Map<TerminalId, TerminalId[]>>(() => {
     const byParent = new Map<TerminalId, TerminalId[]>();
     for (const id of keys()) {
@@ -325,14 +344,36 @@ export function useTerminalMetadata(deps: {
     return byParent;
   });
 
-  /** Sub-terminal IDs for a parent, in server-provided order. Reads the shared
-   *  index above; the returned array is the index's own and must be treated as
-   *  read-only by callers (none mutate it). */
+  /** Every descendant of a root tile, flattened, in server-provided order.
+   *
+   *  The canvas paints these as the tile's split tab strip — a grandchild looks
+   *  like a direct child; no indent, no breadcrumb. Built in one O(T) walk with
+   *  a path memo so a deep chain is not re-walked per node. */
+  const splitsByRoot = createMemo<Map<TerminalId, TerminalId[]>>(() =>
+    descendantsByRoot(keys(), parentEdge),
+  );
+
+  /** True one-hop children of `parentId` (Dock / real structure). Server order.
+   *  The returned array is the index's own and must be treated as read-only. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return childrenByParent().get(parentId) ?? NO_SUB_IDS;
   }
 
-  /** The PANES of a tile — its root plus its splits, in server order.
+  /** Flat split-pane ids for a canvas tile (every descendant under its root).
+   *  Server order. Read-only — the index's own array. */
+  function getSplitPaneIds(rootId: TerminalId): TerminalId[] {
+    return splitsByRoot().get(rootId) ?? NO_SUB_IDS;
+  }
+
+  /** Root ancestor of `id`, or `null` when the walk finds no root (cycle /
+   *  dangling). A true root returns itself. Used by focus, WebGL budget, and
+   *  adopt so chrome keyed on the tile (not the true parent edge) stays right
+   *  for nested splits. */
+  function rootAncestor(id: TerminalId): TerminalId | null {
+    return rootAncestorOf(id, parentEdge);
+  }
+
+  /** The PANES of a tile — its root plus its flat splits, in server order.
    *
    *  A tile is ONE thing to the user and SEVERAL PTYs to the daemon, so every
    *  surface that speaks about "this terminal" in the user's sense reads this:
@@ -340,16 +381,17 @@ export function useTerminalMetadata(deps: {
    *  in a split is the default case, not the exotic one — observed on a real
    *  deployment), and PRT2's forwarded-port group. Stated here once, beside the
    *  parent/child relation the store already owns, rather than re-derived with a
-   *  fresh explanatory comment at every call site. */
+   *  fresh explanatory comment at every call site. Nested descendants count —
+   *  the canvas flattens them into this tile's pane set. */
   function getTilePaneIds(tileId: TerminalId): TerminalId[] {
-    return [tileId, ...getSubTerminalIds(tileId)];
+    return [tileId, ...getSplitPaneIds(tileId)];
   }
 
   /** True if any terminal outside of `excludeId`'s tree is also on
    *  `worktreePath`. Callers use this to decide whether removing the
    *  worktree would yank it out from under a live terminal.
    *
-   *  A sub-terminal of a different top-level must also count: its git
+   *  A nested descendant of a different top-level must also count: its git
    *  metadata is derived from its own CWD and it survives when
    *  `excludeId` dies. */
   function isWorktreeShared(
@@ -360,14 +402,16 @@ export function useTerminalMetadata(deps: {
       getMetadata(id)?.git?.worktreePath === worktreePath;
     return terminalIds().some((otherId) => {
       if (otherId === excludeId) return false;
-      return onWorktree(otherId) || getSubTerminalIds(otherId).some(onWorktree);
+      return onWorktree(otherId) || getSplitPaneIds(otherId).some(onWorktree);
     });
   }
 
   // --- Derived accessors ---
 
+  // Tile badge / subCount is the FLAT descendant count (what the canvas shows),
+  // not the one-hop Dock relation.
   const displayInfos = createMemo(() =>
-    buildTerminalDisplayInfos(terminalIds(), getMetadata, getSubTerminalIds),
+    buildTerminalDisplayInfos(terminalIds(), getMetadata, getSplitPaneIds),
   );
 
   function getDisplayInfo(id: TerminalId): TerminalDisplayInfo | undefined {
@@ -385,6 +429,8 @@ export function useTerminalMetadata(deps: {
     recordPhases,
     terminalIds,
     getSubTerminalIds,
+    getSplitPaneIds,
+    rootAncestor,
     getTilePaneIds,
     isWorktreeShared,
     getDisplayInfo,

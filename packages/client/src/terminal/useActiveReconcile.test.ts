@@ -38,16 +38,20 @@ describe("pickAutoSwitchTarget", () => {
   });
 });
 
-/** Spy ports for `evictTerminal`. `getSubTerminalIds` / `activeId` /
- *  `activeSubTab` are supplied per-test; the mutating seams are spies. */
+/** Spy ports for `evictTerminal`. `getSubTerminalIds` / `getSplitPaneIds` /
+ *  `rootAncestor` / `activeId` / `activeSubTab` are supplied per-test; the
+ *  mutating seams are spies. */
 function makePorts(over: {
   getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
+  getSplitPaneIds?: (rootId: TerminalId) => readonly TerminalId[];
+  rootAncestor?: (id: TerminalId) => TerminalId | null;
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
     promoteToTopLevel: vi.fn<(id: TerminalId) => void>(),
+    rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
     collapse: vi.fn<(id: TerminalId) => void>(),
@@ -63,11 +67,16 @@ function makePorts(over: {
   };
   const ports: TerminalEvictionPorts = {
     getSubTerminalIds: over.getSubTerminalIds ?? (() => []),
+    // Default: one-hop == flat (pre-nesting fixtures). Nested tests override.
+    getSplitPaneIds:
+      over.getSplitPaneIds ?? over.getSubTerminalIds ?? (() => []),
+    rootAncestor: over.rootAncestor ?? ((id) => id),
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
     activate: calls.activate,
     dropFromMru: calls.dropFromMru,
     promoteToTopLevel: calls.promoteToTopLevel,
+    rehomeUnder: calls.rehomeUnder,
     subPanel: {
       collapse: calls.collapse,
       collapseChrome: calls.collapseChrome,
@@ -191,6 +200,29 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.selectSubTab).not.toHaveBeenCalled();
     expect(calls.requestRefocus).toHaveBeenCalledExactlyOnceWith(T("P"));
   });
+
+  it("re-homes a middle terminal's children to the root (does not kill them)", () => {
+    // R ← M ← G; close M. G must become a child of R, chrome repaired on R.
+    const { ports, calls } = makePorts({
+      getSubTerminalIds: (p) => {
+        if (p === T("M")) return [T("G")];
+        if (p === T("R")) return [T("M")];
+        return [];
+      },
+      getSplitPaneIds: (root) => (root === T("R") ? [T("M"), T("G")] : []),
+      rootAncestor: (id) => {
+        if (id === T("G") || id === T("M") || id === T("R")) return T("R");
+        return id;
+      },
+      activeSubTab: () => T("M"),
+      focusedTerminalId: () => T("M"),
+    });
+    evictTerminal(ports, T("M"), T("R"), [T("R")], new Set([T("M")]));
+    expect(calls.rehomeUnder).toHaveBeenCalledExactlyOnceWith(T("G"), T("R"));
+    // Flat remaining under R after M leaves: G (and the departed M filtered out).
+    expect(calls.selectSubTab).toHaveBeenCalledWith(T("R"), T("G"));
+    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
 });
 
 describe("createEvictionDedup", () => {
@@ -257,9 +289,26 @@ function setupReconcile(init: {
     const [parents, setParents] = createSignal(init.parents);
     const [connected, setConnected] = createSignal(init.connected ?? true);
     const [host, setHost] = createSignal(init.host ?? "local");
+    const parentOf = (id: TerminalId) => parents()[id] ?? null;
+    const rootOf = (id: TerminalId): TerminalId | null => {
+      const seen = new Set<TerminalId>();
+      let cur = id;
+      for (;;) {
+        if (seen.has(cur)) return null;
+        seen.add(cur);
+        const p = parentOf(cur);
+        if (p === null) return cur;
+        cur = p;
+      }
+    };
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (pid) =>
-        rawIds().filter((id) => (parents()[id] ?? null) === pid),
+      getSubTerminalIds: (pid) => rawIds().filter((id) => parentOf(id) === pid),
+      getSplitPaneIds: (root) =>
+        rawIds().filter((id) => {
+          if (parentOf(id) === null) return false;
+          return rootOf(id) === root;
+        }),
+      rootAncestor: rootOf,
       activeId: () => state.active,
       focusedTerminalId: () => state.focused,
       activeSubTab: (pid) => state.activeSubTab[pid] ?? null,

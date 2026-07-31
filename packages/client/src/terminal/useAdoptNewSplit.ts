@@ -94,13 +94,25 @@ export function useAdoptNewSplit(deps: {
       // Arrivals are curr − prev: a sub in the live map absent from last tick's.
       for (const [subId, parentId] of curr.map) {
         if (prev.map.has(subId)) continue;
-        deps.ports.expandPanel(parentId);
+        // Sub-panel chrome is keyed on the ROOT tile. A nested create
+        // (`parentId` = a middle split) must expand that tile's panel, not a
+        // middle node that has no canvas chrome of its own.
+        let tileId = parentId;
+        const seen = new Set<TerminalId>();
+        for (;;) {
+          if (seen.has(tileId)) break;
+          seen.add(tileId);
+          const up = deps.parentOf(tileId);
+          if (up === null) break;
+          tileId = up;
+        }
+        deps.ports.expandPanel(tileId);
         // Don't-steal: select the arrival only when no split is currently active.
         // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when
-        // a parent's last split departs), so a plain null-check IS the liveness
+        // a tile's last split departs), so a plain null-check IS the liveness
         // test — an active tab is always a real split you're working in.
-        if (deps.ports.activeSubTab(parentId) === null) {
-          deps.ports.setActiveSubTab(parentId, subId);
+        if (deps.ports.activeSubTab(tileId) === null) {
+          deps.ports.setActiveSubTab(tileId, subId);
         }
       }
     }),

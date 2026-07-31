@@ -57,7 +57,9 @@ const TerminalContent: Component<{
   const isLive = () =>
     sleepingArm(store.getMetadata(props.terminalId)) === undefined;
 
-  const subTerminalIds = () => store.getSubTerminalIds(props.terminalId);
+  // Flat descendants under this root tile — nested splits paint as peers in
+  // the tab strip (the canvas flattens; the Dock keeps the true tree).
+  const subTerminalIds = () => store.getSplitPaneIds(props.terminalId);
   const panelState = () => subPanel.peekSubPanel(props.terminalId);
   const hasSubs = () => subTerminalIds().length > 0;
   const isExpanded = () => hasSubs() && !panelState().collapsed;
@@ -67,12 +69,13 @@ const TerminalContent: Component<{
   // *open* split has a live pane, folded directly from the one focus fact.
   // Undefined when collapsed or when this tile isn't focused, so no unfocused
   // tile lights a pane. The cue and keyboard routing both read this fold.
+  // Membership is the flat split set (not `parentId === tile`), so a nested
+  // grandchild focused via the Dock still lights the sub pane.
   const livePane = (): "main" | "sub" | undefined => {
     if (!props.focused || !isExpanded()) return undefined;
     const focusedId = store.focusedTerminalId();
     if (focusedId === props.terminalId) return "main";
-    return focusedId !== null &&
-      store.getMetadata(focusedId)?.parentId === props.terminalId
+    return focusedId !== null && subTerminalIds().includes(focusedId)
       ? "sub"
       : undefined;
   };

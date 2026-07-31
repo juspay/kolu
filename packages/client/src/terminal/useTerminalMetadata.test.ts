@@ -116,6 +116,68 @@ const tids = (...xs: string[]) => xs as TerminalId[];
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+describe("root-ancestor flatten vs true one-hop (#2059)", () => {
+  // Canvas paints every descendant under a root as a flat split tab; Dock keeps
+  // the true parent→child edge. Both accessors ride the same metadata bag.
+  function meta(overrides: TestMeta = {}): TestMeta {
+    return { cwd: "/home/user/p", parentId: undefined, ...overrides };
+  }
+
+  function drive(parents: Record<string, string | undefined>): {
+    terminalIds: () => TerminalId[];
+    getSubTerminalIds: (id: TerminalId) => TerminalId[];
+    getSplitPaneIds: (id: TerminalId) => TerminalId[];
+    dispose: () => void;
+  } {
+    return createRoot((dispose) => {
+      const ids = tids(...Object.keys(parents));
+      bag.keys = () => ids;
+      bag.metaOf = (id) =>
+        meta({
+          parentId: parents[id as string] as TerminalId | undefined,
+        });
+      const { terminalIds, getSubTerminalIds, getSplitPaneIds } =
+        useTerminalMetadata({
+          list: () => ids.map((id) => ({ id }) as TerminalInfo),
+        });
+      return { terminalIds, getSubTerminalIds, getSplitPaneIds, dispose };
+    });
+  }
+
+  it("flattens a 3-deep chain under the root in server order; Dock one-hop is untouched", () => {
+    // Server order: R, M, G, C (C is a direct child of R after G).
+    const h = drive({ R: undefined, M: "R", G: "M", C: "R" });
+    expect(h.terminalIds()).toEqual(tids("R"));
+    // Canvas flat: every descendant of R.
+    expect(h.getSplitPaneIds(tids("R")[0]!)).toEqual(tids("M", "G", "C"));
+    // Dock true one-hop.
+    expect(h.getSubTerminalIds(tids("R")[0]!)).toEqual(tids("M", "C"));
+    expect(h.getSubTerminalIds(tids("M")[0]!)).toEqual(tids("G"));
+    expect(h.getSubTerminalIds(tids("G")[0]!)).toEqual([]);
+    h.dispose();
+  });
+
+  it("paints a cycle as top-level tiles (never hides them)", () => {
+    const h = drive({ A: "B", B: "A" });
+    expect(h.terminalIds()).toEqual(tids("A", "B"));
+    expect(h.getSplitPaneIds(tids("A")[0]!)).toEqual([]);
+    expect(h.getSplitPaneIds(tids("B")[0]!)).toEqual([]);
+    // True edges remain for the Dock.
+    expect(h.getSubTerminalIds(tids("A")[0]!)).toEqual(tids("B"));
+    expect(h.getSubTerminalIds(tids("B")[0]!)).toEqual(tids("A"));
+    h.dispose();
+  });
+
+  it("keeps descendants of a sleeping middle under the live root (canvas never swallows them)", () => {
+    // Construction bonus from #2059: TerminalContent only paints splits when the
+    // ROOT tile is live. A sleeping intermediate used to hide its children when
+    // they hung off it; with root-ancestor grouping they hang off R instead.
+    const h = drive({ R: undefined, M: "R", G: "M" });
+    expect(h.getSplitPaneIds(tids("R")[0]!)).toEqual(tids("M", "G"));
+    h.dispose();
+  });
+});
+
 describe("sameTerminalIdOrder", () => {
   it("is true for the same ids in the same order", () => {
     expect(sameTerminalIdOrder(tids("a", "b", "c"), tids("a", "b", "c"))).toBe(
