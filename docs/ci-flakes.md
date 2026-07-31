@@ -176,6 +176,7 @@ and is fixed in this PR before the campaign resumes.
 | `0365d16#1` | `0365d16de` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `a322964#1` | `a32296464` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `cd70a6e#1` | `cd70a6ea3` | Every GitHub check passed, but macOS and Linux e2e each needed 1 scenario retry; streak reset | `0/5` flake-free |
+| `eaf0816#1` | `eaf0816aa` | Every GitHub check passed under full concurrent load; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 
 ### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
 
@@ -230,12 +231,13 @@ and is fixed in this PR before the campaign resumes.
   instrumented scenario passed 20 consecutive isolated executions, then the
   complete 114-scenario Code-tab feature passed five consecutive times under
   the CI-shaped four-worker load (570 executions, 570 attempts, zero retries).
-  Three complete Linux e2e lanes then passed on the same host without a
-  scenario retry budget (1,521 executions, 1,521 attempts, zero retries). This
-  rules out a deterministic source-view failure and a readily repeatable
-  suite-load interaction but does not identify the rare failure's root cause,
-  so the item remains unresolved and no product or interaction change is
-  claimed as its fix yet.
+  Ten complete Linux e2e lanes then passed on the same host without a scenario
+  retry budget (5,070 executions, 5,070 attempts, zero retries). Strict
+  two-platform CI run `eaf0816#1` also passed under the full concurrent-node
+  load with zero e2e retries. This rules out a deterministic source-view
+  failure and a readily repeatable suite-load interaction but does not identify
+  the rare failure's root cause, so the item remains unresolved and no product
+  or interaction change is claimed as its fix yet.
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
