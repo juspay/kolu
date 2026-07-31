@@ -1,7 +1,20 @@
-# Build the default package on linux + darwin and push each closure to the
-# shared Attic cache (https://cache.nixos.asia/oss). The flake already lists
-# this cache as a substituter, so a green push here warms CI boxes and local
-# `nix build`s on both platforms.
+# Build every output this flake exposes, on linux + darwin, and push each
+# closure to the shared Attic cache (https://cache.nixos.asia/oss). The flake
+# already lists this cache as a substituter, so a green push here warms CI
+# boxes and local `nix build`s on both platforms.
+#
+# The build set is DERIVED, never hand-listed, and derived by the one script
+# that already answers "what does this repo build" — `ci/flake-build`. This job
+# used to run a bare `nix build` (= `.#default` alone) and push whatever new
+# store paths appeared, so coverage was an emergent property of `default`'s
+# closure rather than a decision. `padi-agent` and `vazhi` sat outside it and
+# were never warmed at all; `kaval-tui`, `padi-tui` and `osfacts` were warmed
+# only incidentally, and would have gone quietly cold the day they left that
+# closure. Nothing declared the intent, and nothing would have gone red.
+#
+# Sharing the script with `ci::nix` makes the gap impossible to express rather
+# than merely detectable: a newly exposed output is warmed the day it lands,
+# and the cache job cannot disagree with CI about what this repo builds.
 name: nix-cache
 
 on:
@@ -56,20 +69,85 @@ jobs:
         run: |
           nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
           attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
-          nix path-info --all | sort > "$RUNNER_TEMP/pre-build-paths"
 
-      - name: Build
-        run: nix build -L --print-out-paths
-
-      # Push every store path the build produced (post minus pre snapshot,
-      # minus .drv/.check/.lock clutter) — same set attic-action pushed from
-      # its post step, without the action.
-      - name: Push to Attic
-        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in
-        # the pipe fails the step — not just the final `attic push`.
+      # Discovery is `ci/flake-build` — the SAME script every `ci::*-nix` node
+      # already uses (ci/mod.just:90, :124, :148). It enumerates attrNames of
+      # the flake's own outputs, dies loudly when a required kind is empty, and
+      # ends in `nix build -L --no-link --print-out-paths`, so its stdout IS the
+      # list of built artifacts (`-L` logs go to stderr). Warming the cache and
+      # building in CI are therefore the same question with one answer; a job
+      # that spelled the question itself could drift from `ci::nix` again, which
+      # is exactly how `padi-agent`/`vazhi` stayed cold and unnoticed.
+      #
+      # We push the closures of the built outputs, NOT a before/after diff of
+      # `nix path-info --all`. The diff inferred "what this build produced" from
+      # ambient global store state, which was wrong in both directions: it
+      # over-pushed anything unrelated that touched the store inside the window
+      # (the whole nixpkgs build-time toolchain, republished into a project
+      # cache), and silently EXCLUDED genuine closure members that happened to
+      # predate the snapshot — every path attic-client's own install shares with
+      # kolu. Naming the artifact directly is both smaller and correct, and
+      # needs no `.drv`/`.check`/`.lock` blocklist to filter clutter that never
+      # arrives.
+      #
+      # This leans on two `attic push` DEFAULTS, named here so the dependency is
+      # deliberate rather than lucky (`attic push --help`):
+      #   * it pushes CLOSURES, not bare paths — `--no-closure` is the opt-out,
+      #     so the out-paths alone are a complete instruction;
+      #   * it applies an upstream cache filter, so paths already substitutable
+      #     from cache.nixos.org are skipped — `--ignore-upstream-cache-filter`
+      #     is the opt-out. That is what keeps nixpkgs out of a project cache,
+      #     and it is a decision we can now name instead of an emergent effect.
+      - name: Build and push every flake output
         shell: bash
         run: |
-          nix path-info --all | sort \
-            | comm -13 "$RUNNER_TEMP/pre-build-paths" - \
-            | grep -Ev '\.(drv|drv\.chroot|check|lock)$' \
-            | attic push --stdin oss
+          # Written out rather than inherited from `shell: bash`. Relying on the
+          # implicit `-eo pipefail` is what let the old pre-snapshot step run a
+          # pipe unprotected: `nix path-info | sort` would exit 0 on a failed
+          # path-info, silently truncating the file the whole push set rode on.
+          set -euo pipefail
+
+          # Only the BUILD is folded. `::group::` collapses by default, so
+          # wrapping the push in it too buried the one thing this job exists to
+          # report behind ~870 lines of nix build log — you had to expand and
+          # scroll to learn whether anything reached the cache. The build chatter
+          # is what deserves folding; the push is the result. Leaving `attic` to
+          # write outside the group means its own per-path output is visible by
+          # default, with no parsing of another tool's format to go wrong.
+          warm() {
+            local label="$*"
+            echo "::group::build $label"
+            local paths
+            paths=$(bash ci/flake-build "$@")
+            printf '%s\n' "$paths"
+            echo "::endgroup::"
+            # A positive assertion, not dressing. Without it a run that built
+            # and pushed NOTHING is indistinguishable from a healthy one: the
+            # step stays green and the only symptom is everyone's builds
+            # quietly going cold. Green must mean "warmed", not "ran".
+            if [ -z "$paths" ]; then
+              echo "::error::ci/flake-build produced no output paths for: $label"
+              exit 1
+            fi
+            echo "push $label → $(printf '%s\n' "$paths" | wc -l | tr -d ' ') outputs:"
+            # `--stdin` rather than `xargs`: xargs may silently split a long
+            # list across several invocations, which is a behaviour we would be
+            # relying on without saying so. One process, one list.
+            printf '%s\n' "$paths" | attic push --stdin oss
+          }
+          warm .
+          # The nested flakes, with the SAME --kinds their own CI nodes use
+          # (ci/mod.just:124, :148). These have closures that share nothing with
+          # the root flake — ./ci pins its own nixpkgs — so nothing else warms
+          # them and they were being rebuilt cold on every run, forever.
+          # `pages.yml` reads this cache but never writes it, so the website's
+          # closure in particular had no writer at all.
+          #
+          # ./osfacts is absent because it builds the SAME derivation as
+          # `.#osfacts` (ci/mod.just:369, the vazhi pattern), so `warm .` has
+          # already covered it. The two example subflakes are absent for a
+          # different and weaker reason — they are genuinely uncovered, but they
+          # only build docsites that nobody substitutes locally. If that stops
+          # being true, add them here; do not assume they are warm.
+          warm --kinds packages,checks ./website
+          warm --kinds packages ./ci
