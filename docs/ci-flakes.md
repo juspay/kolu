@@ -187,20 +187,26 @@ and is fixed in this PR before the campaign resumes.
 - **Failure:** the first attempt of `Context tokens do not double-count cached
   input tokens` failed in `updateCodexRollout` with `database is locked`. The
   scenario retry passed.
-- **Root cause:** under investigation. The failing line begins the mock
-  fixture's noisy SQLite write transaction. That writer has no busy timeout,
-  while the Kolu server concurrently consumes the same WAL database, but this
-  causal chain will not be accepted until a controlled lock reproduction
-  demonstrates it.
+- **Root cause:** the synthetic Codex writer used node:sqlite's zero-wait
+  default while the Kolu server concurrently consumed the same WAL database.
+  Any transient SQLite writer lock therefore made the fixture's transaction
+  fail immediately instead of waiting for the bounded lock to clear.
 - **Evidence:** `.ci/eebf0ee/x86_64-linux/ci::e2e.log` records the exact
   `database is locked` exception at
   `packages/tests/support/agent-mock-codex.ts:191`. Source inspection shows
   that line executes `BEGIN; INSERT; DELETE; COMMIT` synchronously with no
-  `busy_timeout`.
-- **Proposed fix:** reproduce the lock with a second SQLite connection, then
-  give the synthetic Codex writer a bounded busy timeout and add a regression
-  proving a transient lock is waited out. Keep the change in the test fixture;
-  no application behavior failed.
+  `busy_timeout`. A controlled two-process reproduction held
+  `BEGIN IMMEDIATE` for 300 ms on a second connection; the unchanged
+  `updateCodexRollout` failed with the same `database is locked` after 1 ms.
+- **Proposed fix:** give the synthetic Codex writer a bounded busy timeout and
+  add a regression proving a transient lock is waited out. Keep the change in
+  the test fixture; no application behavior failed.
+- **Implementation:** every synthetic Codex database connection now installs a
+  5-second SQLite busy timeout before enabling WAL. A unit regression holds a
+  real write lock from a child process for 300 ms and proves
+  `updateCodexRollout` waits, writes the updated token payload, and completes.
+- **Fix verification:** all 18 e2e-governance unit tests passed, including the
+  real two-process SQLite lock regression.
 
 ### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
 
