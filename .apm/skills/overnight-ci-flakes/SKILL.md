@@ -5,6 +5,9 @@ description: Run an autonomous overnight campaign to find, prove, fix, and docum
 
 # Overnight CI flakes
 
-Before starting, ask the user for the exact macOS and Linux machine hosts and wait for their answer; never infer or reuse hosts from another session.
-
-Open a draft PR and keep a concise `docs/ci-flakes.md` current with every run and, for each failure, its evidence-proven root cause, proposed or applied fix, and present state; never guess, retry a failed step, or hide a failure. Fix every repository-addressable failure, including `osfacts-live`, run `/be-review`, and finish only after five consecutive green full-pipeline runs on the current PR head on both hosts.
+- Ask for the exact macOS and Linux machine hosts and wait; never infer or reuse them.
+- Open a draft PR and keep a concise `docs/ci-flakes.md` current with every run.
+- Run `/ci` 5 times on both hosts without step retries.
+- For every failure, record evidence, proven root cause, proposed or applied fix, and present state; never guess or hide failures.
+- Fix every repository-addressable failure, then run `/be-review`.
+- Run `/ci` 5 more times on both hosts and finish only when those runs and GitHub CI are green on the current PR head.
