@@ -27,6 +27,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
+  batch,
   type Component,
   createEffect,
   createMemo,
@@ -74,9 +75,11 @@ import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
 import {
+  type CodeTabOpenResolutionSource,
   type CodeTabScope,
   codeTabScopeKey,
   codeTabScopesEqual,
+  codeTabSelectionInventoryVerdict,
   createCodeTabOpenController,
   type OpenInCodeTabRequest,
 } from "./codeTabOpenController";
@@ -436,6 +439,10 @@ const CodeTab: Component<{
     request: OpenInCodeTabRequest;
     resolvedPath: string | null;
   } | null>(null);
+  const [freshSelection, setFreshSelection] = createSignal<{
+    request: OpenInCodeTabRequest;
+    path: string;
+  } | null>(null);
 
   // Directory-reveal target for the terminal folder-link front door. A folder
   // ref (`packages/client/`) isn't a selectable file, so instead of `select`ing
@@ -454,6 +461,7 @@ const CodeTab: Component<{
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
     resolved: Exclude<ReturnType<typeof resolveRef>, null>,
+    source: CodeTabOpenResolutionSource,
   ): void => {
     if (resolved.kind === "directory") {
       // A folder ref reveals (expands + scrolls to) the directory in the
@@ -470,6 +478,7 @@ const CodeTab: Component<{
       // back to the full tree, the target row exists, and the reveal lands.
       setSearchQuery("");
       setRevealDir({ path: resolved.path });
+      setFreshSelection(null);
       setHandled({ request: req, resolvedPath: null });
       return;
     }
@@ -483,13 +492,18 @@ const CodeTab: Component<{
     // #1841 provenance gate drops any selection no user gesture caused — so
     // this ref is safe; only a later USER re-click of the same file reaches
     // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-    select(req.scope.mode, rel, {
-      ref:
-        req.ref.startLine !== null && req.ref.endLine !== null
-          ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
-          : undefined,
+    batch(() => {
+      setFreshSelection(
+        source === "fresh" ? { request: req, path: rel } : null,
+      );
+      select(req.scope.mode, rel, {
+        ref:
+          req.ref.startLine !== null && req.ref.endLine !== null
+            ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+            : undefined,
+      });
+      setHandled({ request: req, resolvedPath: rel });
     });
-    setHandled({ request: req, resolvedPath: rel });
   };
 
   // The controller owns the volatile open lifecycle. This presenter exposes
@@ -525,10 +539,12 @@ const CodeTab: Component<{
     onResolved: finishOpenRequest,
     onNotFound: (request) => {
       toast.error(`File reference not found: ${request.ref.path}`);
+      setFreshSelection(null);
       setHandled({ request, resolvedPath: null });
     },
     onError: (request, error) => {
       toast.error(`File list refresh: ${error.message}`);
+      setFreshSelection(null);
       setHandled({ request, resolvedPath: null });
     },
   });
@@ -670,7 +686,11 @@ const CodeTab: Component<{
   // "selected file is missing" would null `selectedPath` on every
   // resubscribe and lose the selection across tab toggles. Once the stream
   // has delivered (`!pending()`), an empty paths set IS authoritative —
-  // the file truly went away (commit cleared local diff, rm deleted it).
+  // the file truly went away (commit cleared local diff, rm deleted it) —
+  // except for a path a direct fresh read just proved exists. That result can
+  // beat the retained stream's repo-change pulse, so `freshSelection` pins the
+  // path until the retained inventory first contains it. From that point the
+  // normal removal rule is authoritative again.
   //
   // Bail on the tick where `slotKey` itself just changed: the shared
   // `treePaths()` / `pending()` signals can momentarily expose the
@@ -685,11 +705,27 @@ const CodeTab: Component<{
         const s = selectedPath();
         const sk = slotKey();
         const { paths, pending: isPending } = treeInventory();
-        return { s, sk, pathExists: !s || isPending || paths.includes(s) };
+        const fresh = freshSelection();
+        const freshPath =
+          fresh !== null && fresh.request === pendingOpen() ? fresh.path : null;
+        return {
+          s,
+          sk,
+          verdict: codeTabSelectionInventoryVerdict(
+            s,
+            isPending,
+            paths,
+            freshPath,
+          ),
+        };
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
-        if (cur.s && !cur.pathExists) select(view(), null, { record: false });
+        if (cur.verdict === "confirm-fresh") {
+          setFreshSelection(null);
+        } else if (cur.s && cur.verdict === "clear") {
+          select(view(), null, { record: false });
+        }
       },
       { defer: true },
     ),

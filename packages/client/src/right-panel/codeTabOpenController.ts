@@ -67,9 +67,41 @@ interface CodeTabOpenControllerOptions<Paths, Resolved> {
     includeIgnored: boolean,
     signal: AbortSignal,
   ) => Promise<Paths>;
-  onResolved: (request: OpenInCodeTabRequest, resolved: Resolved) => void;
+  onResolved: (
+    request: OpenInCodeTabRequest,
+    resolved: Resolved,
+    source: CodeTabOpenResolutionSource,
+  ) => void;
   onNotFound: (request: OpenInCodeTabRequest) => void;
   onError: (request: OpenInCodeTabRequest, error: Error) => void;
+}
+
+export type CodeTabOpenResolutionSource = "inventory" | "fresh";
+
+export type CodeTabSelectionInventoryVerdict =
+  | "keep"
+  | "confirm-fresh"
+  | "clear";
+
+/**
+ * Reconcile the selected file with the retained tree inventory.
+ *
+ * A direct fresh read can resolve a just-created file before the retained tree
+ * catches up. That fresh verdict pins the selection through the stale window;
+ * once the retained inventory contains the path, the pin is consumed and later
+ * removal is authoritative again.
+ */
+export function codeTabSelectionInventoryVerdict(
+  selectedPath: string | null,
+  inventoryPending: boolean,
+  inventoryPaths: readonly string[],
+  freshSelectionPath: string | null,
+): CodeTabSelectionInventoryVerdict {
+  if (selectedPath === null || inventoryPending) return "keep";
+  if (inventoryPaths.includes(selectedPath)) {
+    return freshSelectionPath === selectedPath ? "confirm-fresh" : "keep";
+  }
+  return freshSelectionPath === selectedPath ? "keep" : "clear";
 }
 
 type OpenAttempt =
@@ -185,7 +217,9 @@ export function createCodeTabOpenController<Paths, Resolved>(
     ) {
       const resolved = options.resolve(request, current.paths);
       if (resolved !== null) {
-        complete(request, () => options.onResolved(request, resolved));
+        complete(request, () =>
+          options.onResolved(request, resolved, "inventory"),
+        );
         return;
       }
     }
@@ -208,7 +242,9 @@ export function createCodeTabOpenController<Paths, Resolved>(
         if (freshResolved === null) {
           complete(request, () => options.onNotFound(request));
         } else {
-          complete(request, () => options.onResolved(request, freshResolved));
+          complete(request, () =>
+            options.onResolved(request, freshResolved, "fresh"),
+          );
         }
       })
       .catch((raw: unknown) => {

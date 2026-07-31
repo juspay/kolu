@@ -1,6 +1,7 @@
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
+  codeTabSelectionInventoryVerdict,
   type CodeTabOpenSnapshot,
   type CodeTabScope,
   createCodeTabOpenController,
@@ -71,6 +72,23 @@ function createHarness(options?: {
 }
 
 describe("createCodeTabOpenController", () => {
+  it("labels retained and fresh resolutions", async () => {
+    const retained = createHarness({ snapshot: { paths: ["new.ts"] } });
+    await tick();
+    expect(retained.onResolved).toHaveBeenCalledWith(
+      retained.req,
+      "new.ts",
+      "inventory",
+    );
+    retained.dispose();
+
+    const fresh = createHarness({ readFresh: async () => ["new.ts"] });
+    await tick();
+    await tick();
+    expect(fresh.onResolved).toHaveBeenCalledWith(fresh.req, "new.ts", "fresh");
+    fresh.dispose();
+  });
+
   it("waits through null and mismatched scope, then resolves on the owner", async () => {
     const h = createHarness({ snapshot: { scope: null } });
     await tick();
@@ -84,7 +102,7 @@ describe("createCodeTabOpenController", () => {
     h.patchSnapshot({ scope: h.req.scope, paths: ["new.ts"] });
     await tick();
     expect(h.onResolved).toHaveBeenCalledOnce();
-    expect(h.onResolved).toHaveBeenCalledWith(h.req, "new.ts");
+    expect(h.onResolved).toHaveBeenCalledWith(h.req, "new.ts", "inventory");
     h.dispose();
   });
 
@@ -254,5 +272,25 @@ describe("createCodeTabOpenController", () => {
     await tick();
     expect(onResolved).toHaveBeenCalledOnce();
     dispose();
+  });
+});
+
+describe("codeTabSelectionInventoryVerdict", () => {
+  it("pins a freshly resolved path until the retained inventory catches up", () => {
+    expect(
+      codeTabSelectionInventoryVerdict("new.ts", false, [], "new.ts"),
+    ).toBe("keep");
+    expect(
+      codeTabSelectionInventoryVerdict("new.ts", false, ["new.ts"], "new.ts"),
+    ).toBe("confirm-fresh");
+    expect(codeTabSelectionInventoryVerdict("new.ts", false, [], null)).toBe(
+      "clear",
+    );
+  });
+
+  it("keeps any selection while its inventory is pending", () => {
+    expect(codeTabSelectionInventoryVerdict("old.ts", true, [], null)).toBe(
+      "keep",
+    );
   });
 });

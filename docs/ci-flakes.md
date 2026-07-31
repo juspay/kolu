@@ -178,7 +178,9 @@ retries.
   `kolu-pty.composeSpawnEnv` and adds only `GIT_OPTIONAL_LOCKS=0`.
 - **Fix verification:** all 110 `kolu-git` tests pass, including a new
   end-to-end spawn guard for the bounded environment, and the package
-  typecheck passes. macOS e2e verification remains required.
+  typecheck passes. Targeted macOS e2e run `64ff556#1` completed all 506
+  scenarios with no status-128 or `.git/index.lock` retry, directly verifying
+  that background Git reads no longer race fixture mutations.
 
 ### `aea6cc3#1`: two macOS file-reference opens did not settle
 
@@ -193,10 +195,47 @@ retries.
   No narrower cause is asserted without those facts.
 - **Evidence:** `.ci/aea6cc3/aarch64-darwin/ci::e2e.log` records the exact
   locator and selection timeouts after the file-ref link action, followed by
-  successful retries.
+  successful retries. Diagnostic run `64ff556#1` reproduced the same missing
+  selection on `Bare basename without a line number resolves via
+  unique-basename fallback`: the panel was open in browse mode, but
+  `selectedTreePaths` was empty, neither Pierre view was mounted, and the
+  content area still read `Select a file to view its content`. The exact facts
+  are preserved in `.ci/64ff556/aarch64-darwin/ci::e2e.log`.
 - **Proposed fix:** capture the Code-tab's scope, selected path, pending/error
   state, and rendered-view presence in these timeout errors, reproduce on
   `ci@petit`, then fix the state transition named by that evidence.
+
+### `64ff556#1`: fresh file-reference selection was cleared by stale inventory
+
+- **Failure:** `Bare basename without a line number resolves via
+  unique-basename fallback` failed its first attempt after the file-reference
+  click; its retry passed. The targeted node completed 506 scenarios in 507
+  attempts.
+- **Root cause:** the request's direct fresh inventory read can find and select
+  a just-created file before the retained tree receives its repository-change
+  update. The independent selection-membership effect treated the retained
+  tree's settled-but-stale path set as authoritative and immediately cleared
+  that freshly proven selection.
+- **Evidence:** `.ci/64ff556/aarch64-darwin/ci::e2e.log` captured an open browse
+  panel with no selected tree path, neither Pierre viewer mounted, and the
+  fallback `Select a file to view its content`. The production path has the
+  exact contradictory sequence: `readFreshCodePaths` exists specifically
+  because the retained tree can lag a just-created file; its success calls
+  `select`, while the separate membership effect clears any selected path
+  absent from the retained paths whenever that inventory is not pending. The
+  new regression test pins all three states: keep while only the fresh read
+  contains the path, consume that pin when retained inventory catches up, then
+  clear on a later authoritative removal.
+- **Proposed fix:** identify whether an open resolved from retained or fresh
+  inventory. Pin only a fresh-resolved file selection through the stale
+  retained window; consume the pin as soon as the retained tree contains the
+  path so future deletion keeps its existing clear-selection behavior.
+- **Implementation:** the open controller now labels resolution provenance.
+  Code-tab batches the fresh pin with selection, and its membership verdict
+  preserves that exact request/path until retained inventory confirms it.
+  All 1,195 client unit tests (including the 12 focused controller and
+  membership tests) plus the client typecheck pass. Targeted macOS e2e
+  verification remains required.
 
 ### `4bffcc5#1`: diagnostic macOS e2e retries
 
@@ -475,3 +514,4 @@ full two-platform green streak.
 | `de8c863#5` | `de8c86315` | `fmt` and `atlas-sync` on both platforms | `ci@petit`, `kolu-ci-1` | Passed |
 | `ba374cf#1` | `ba374cfb2` | `dev-smoke` on both platforms plus post-run daemon process audit | `ci@petit`, `kolu-ci-1` | Passed; no daemon from the run survived |
 | `4bffcc5#1` | `4bffcc577` | `e2e@aarch64-darwin` with bounded flake diagnostics | `ci@petit` | Passed all scenarios after 3 retries; failures recorded above |
+| `64ff556#1` | `64ff5562a` | `e2e@aarch64-darwin` after background-Git lock fix | `ci@petit` | Passed all 506 scenarios after 1 file-reference retry; failure recorded above |
