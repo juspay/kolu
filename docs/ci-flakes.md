@@ -98,3 +98,22 @@ and a proposed fix; fixes in this PR remain limited to e2e failures.
 
 | Attempt | Commit | Result | Consecutive green |
 | --- | --- | --- | --- |
+| `3a6c829#1` | `3a6c8295f` | Failed: `ci::osfacts-live@aarch64-darwin`; both e2e nodes passed | `0/5` |
+
+### `3a6c829#1`: Darwin osfacts-live process-exit race
+
+- **Failure:** the live-host oracle selected 12 foreign processes from `ps`,
+  then asserted that osfacts returned 12 process rows. It received 11.
+- **Root cause:** PID 266 exited between the `ps` candidate snapshot and the
+  osfacts read. The test treats that expected live-host disappearance as a
+  product mismatch before reaching its per-process assertions.
+- **Evidence:** osfacts explicitly returned `ESRCH` for every requested facet
+  of PID 266 (`proc`, `mem`, `start_time`, `cpu_time`, and `uid`) and returned
+  facts for each of the other 11 candidates. The failing assertion compared 11
+  `P` rows with all 12 earlier `ps` rows. See
+  `.ci/3a6c829/aarch64-darwin/ci::osfacts-live.log`.
+- **Proposed fix:** make the live oracle re-read `ps` after osfacts and exclude
+  only candidates that both disappeared from `ps` and received `ESRCH` for
+  their process facet. Continue requiring exact identity and start facts for
+  every surviving candidate. This is not an e2e failure, so it is recorded but
+  not fixed in this PR.
