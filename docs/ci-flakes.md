@@ -144,6 +144,7 @@ retries.
 | `aea6cc3#1` | `aea6cc331` | Passed all CI nodes, but macOS e2e needed 7 scenario retries | `0/5` flake-free |
 | `a1ae2f2#1` | `a1ae2f242` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `0f6f4ac#1` | `0f6f4ac85` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
+| `a638755#1` | `a638755ec` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 
 ### `aea6cc3#1`: five macOS Git fixture commits returned status 128
 
