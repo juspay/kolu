@@ -139,8 +139,8 @@ export function createTerminal(
   // One-level splits only (#2059) — the id is minted FIRST so the generative
   // write runs the ONE total rule, not a subset of it (a fresh uuid can be
   // neither its own parent nor a non-leaf, and that is the point: one rule, no
-  // per-door special case). Session restore uses `restoreSpawn` and reconciles
-  // unpaintable edges through `promoteUnpaintableRestoreChildren` instead.
+  // per-door special case). Rehydration takes `restoreSpawn` instead and repairs
+  // what it cannot paint — {@link flattenUnpaintableParentEdges}.
   if (parentId !== undefined) requireFlatParentEdge(id, parentId);
   // P3 will select the endpoint per create — e.g. a sub-terminal
   // inheriting its parent's endpoint; today every terminal is local.
@@ -217,23 +217,38 @@ export function setTerminalParent(
 }
 
 /** Lift every registry entry whose parent can never paint it back to TOP-LEVEL,
- *  returning the ids it moved. The repair sweep for a graph that entered the
- *  registry WITHOUT passing {@link createTerminal}'s fence — i.e. rehydration:
+ *  returning the ids it moved. THE repair for a graph that entered the registry
+ *  WITHOUT passing {@link createTerminal}'s fence — i.e. every rehydration door:
  *  `adoptSurvivingSession` adopts each saved record wholesale from a surviving
- *  kaval, which is the NORMAL kolu upgrade path, so a split-of-a-split written by
- *  a pre-fence daemon would otherwise ride through every restart untouched and
- *  stay invisible forever (#2059).
+ *  kaval (the NORMAL kolu upgrade path, so a split-of-a-split written by a
+ *  pre-fence daemon would otherwise ride through every restart untouched and stay
+ *  invisible forever), and `settleRestoreRespawns` re-runs it as each cold-restore
+ *  spawn settles, when a parent that failed and re-parked has just made its
+ *  children unpaintable (#2059).
  *
- *  Idempotent and order-independent: it reads
+ *  Reading the LIVE registry rather than a caller-supplied candidate list is what
+ *  makes it total: a restored SLEEPING sub never joins the respawn list, so a
+ *  batch-scoped version could not see it when its parent re-parked. It reads
  *  {@link isPermanentlyUnpaintableParent}, so a DORMANT parent's splits survive
- *  (wake repaints them) and only edges no later event can rescue are undone. Run
- *  it once the registry is fully seeded and BEFORE the converged snapshot is
- *  persisted, so the repair — not the defect — is what reaches disk. */
+ *  (wake repaints them) and only edges no later event can rescue are undone.
+ *
+ *  PARKED children are skipped: a parked record is a restore-card placeholder
+ *  standing in for a saved terminal, and its `parentId` is how the card will
+ *  restore the split — flattening it would silently un-group the user's saved
+ *  layout, the same hole `requireMutableTerminal` closes for client writes.
+ *
+ *  Idempotent. It is ONE HOP, not a transitive resolve: in a legacy chain
+ *  `A ← B ← C` whose top is unpaintable, whether C ends up under a lifted B or
+ *  lifted itself depends on registry order. Both outcomes are visible, which is
+ *  the bar; nothing here promises the deeper arrangement is preserved. Run it once
+ *  the registry is seeded and BEFORE the snapshot is persisted, so the repair —
+ *  not the defect — is what reaches disk. */
 export function flattenUnpaintableParentEdges(): TerminalId[] {
   const lifted: TerminalId[] = [];
   for (const [id, entry] of terminalEntries()) {
     const parentId = entry.meta.parentId;
     if (parentId === undefined) continue;
+    if (entry.meta.state === "parked") continue;
     if (!isPermanentlyUnpaintableParent(parentId)) continue;
     setTerminalParent(id, null);
     lifted.push(id);

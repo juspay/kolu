@@ -10,7 +10,12 @@
  * `@kolu/log/loggerStubs.testutil`).
  */
 
-import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import {
+  seedSnapshot,
+  type TerminalId,
+  type TerminalSnapshot,
+} from "@kolu/terminal-vocab/schema";
+import { ORPCError } from "@orpc/server";
 import type { Logger } from "pino";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
@@ -66,15 +71,10 @@ export function padiDeps(opts: {
 }
 
 /** A neutral `TerminalSnapshot` — the awareness half every seeded registry entry
- *  needs and no #2059/parked assertion reads. */
-export const snapshot = (): TerminalSnapshot => ({
-  cwd: "/w",
-  git: null,
-  pr: { kind: "absent" },
-  agent: null,
-  foreground: null,
-  ports: { status: "unknown" },
-});
+ *  needs and no #2059/parked assertion reads. Off `seedSnapshot`, the vocab
+ *  package's own "ONE home for the snapshot-default set", so a new snapshot field
+ *  cannot leave this fixture behind. */
+export const snapshot = (): TerminalSnapshot => seedSnapshot("/w");
 
 /** Seed an ACTIVE registry entry, optionally as a split of `parentId`. The one
  *  spelling of `AuthoredActiveTerminal`'s required fields for the suites that
@@ -93,6 +93,38 @@ export function seedActive(id: TerminalId, parentId?: string): void {
   });
 }
 
+/** Seed a SLEEPING (dormant) registry entry — {@link seedActive}'s sibling for
+ *  the arm with no PTY handle. */
+export function seedSleeping(id: TerminalId, parentId?: string): void {
+  registerTerminal(id, {
+    info: { id, pid: 1 },
+    meta: {
+      state: "sleeping",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      sleptAt: 1,
+      ...(parentId !== undefined ? { parentId } : {}),
+    },
+    snapshot: snapshot(),
+  });
+}
+
+/** Seed a PARKED restore-card placeholder — {@link seedActive}'s sibling for the
+ *  arm client mutations must read as absent. */
+export function seedParked(id: TerminalId, parentId?: string): void {
+  registerTerminal(id, {
+    info: { id, pid: 1 },
+    meta: {
+      state: "parked",
+      location: LOCAL_LOCATION,
+      lastActivityAt: 1,
+      parkedAt: 1,
+      ...(parentId !== undefined ? { parentId } : {}),
+    },
+    snapshot: snapshot(),
+  });
+}
+
 /** Run `fn` and return whatever it threw (or `undefined` if it didn't) — the
  *  suites assert on the fault's TYPE and message, which `expect().toThrow` can't
  *  express in one shot. */
@@ -103,4 +135,13 @@ export function caught(fn: () => unknown): unknown {
   } catch (e) {
     return e;
   }
+}
+
+/** The oRPC fault CODE `fn` threw, as a plain string — for the many assertions
+ *  that pin only "which typed fault", without the `instanceof` + cast dance
+ *  {@link caught} needs when the MESSAGE is also under test. */
+export function thrownCode(fn: () => unknown): string {
+  const err = caught(fn);
+  if (err === undefined) return "<did not throw>";
+  return err instanceof ORPCError ? err.code : "<not an ORPCError>";
 }

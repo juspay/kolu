@@ -298,7 +298,7 @@ export function terminalNotFound(
  *  {@link terminalNotFound}, so the create door and the setParent door can't
  *  drift on the wire shape. Typed (not a bare Error) because oRPC scrubs bare
  *  errors to an opaque "Internal server error". */
-export function invalidParentEdge(
+function invalidParentEdge(
   childId: string,
   parentId: string,
   reason: string,
@@ -338,20 +338,24 @@ export function isPaintableParent(id: string): boolean {
  *  user's split arrangement. Every other way an edge is unpaintable is permanent:
  *  the parent is absent, it is a parked restore-card placeholder that will never
  *  become this parent again, or it is itself a split child (which no wake can fix,
- *  since the canvas paints one hop and no more). */
+ *  since the canvas paints one hop and no more).
+ *
+ *  Stated as the DELTA on {@link isPaintableParent} rather than as its own walk of
+ *  the registry arms, so the two predicates cannot drift: everything unpaintable is
+ *  permanent EXCEPT the one dormant-top-level exception. */
 export function isPermanentlyUnpaintableParent(id: string): boolean {
+  if (isPaintableParent(id)) return false;
   const parent = getTerminal(id);
-  if (parent === undefined) return true; // absent
-  if (parent.meta.parentId !== undefined) return true; // itself a split — wake won't help
-  if (parent.meta.state === "sleeping") return false; // dormant: wake repaints it
-  return !isPaintableParent(id); // parked, or otherwise not a live tile
+  return !(
+    parent?.meta.state === "sleeping" && parent.meta.parentId === undefined
+  );
 }
 
 /** The id of the first registry entry whose parent is `id`, or `undefined` — the
  *  "is this tile a leaf?" query, a cheap early-out over the map (same shape as
  *  {@link hasParkedTerminals}). The one parent-edge CHILD query: callers never walk
  *  `terminalEntries()` for it themselves. */
-export function firstChildOf(id: string): string | undefined {
+function firstChildOf(id: string): string | undefined {
   for (const [childId, entry] of terminals)
     if (entry.meta.parentId === id) return childId;
   return undefined;
@@ -382,6 +386,38 @@ function rootAncestorId(id: string): string {
   }
 }
 
+/** Why {@link isPaintableParent} said no, as the fault to throw. Split out so the
+ *  rule below reads as its three guards rather than as one of them plus a
+ *  case analysis.
+ *
+ *  Absent and PARKED share one answer, deliberately: a parked record is an
+ *  invisible restore-card placeholder, and `requireMutableTerminal` already makes
+ *  every client mutation read it as `terminalNotFound`. Naming it in a BAD_REQUEST
+ *  would leak a record the same client is told does not exist. Exhaustively, what
+ *  remains after absent / parked / nested is a top-level SLEEPING record — the one
+ *  tile a client can see that still paints no splits. (No handle-less "active" arm
+ *  falls through: `ActiveTerminalProcess` requires the handle, and sleep / unwind /
+ *  kill each replace or unregister the whole entry atomically.) */
+function parentEdgeFault(
+  childId: string,
+  parentId: string,
+): ORPCError<"BAD_REQUEST" | "NOT_FOUND", undefined> {
+  const parent = getTerminal(parentId);
+  if (!parent || parent.meta.state === "parked")
+    return terminalNotFound(parentId);
+  if (parent.meta.parentId !== undefined)
+    return invalidParentEdge(
+      childId,
+      parentId,
+      `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
+    );
+  return invalidParentEdge(
+    childId,
+    parentId,
+    "it is dormant, and a dormant tile paints no splits — wake it first",
+  );
+}
+
 /** The ONE rule both generative parent writes share (#2059): the edge
  *  `childId → parentId` must leave the tile graph at depth ≤ 1 AND land somewhere
  *  the canvas paints. TOTAL — it names every way an edge breaks that (self-edge;
@@ -390,11 +426,11 @@ function rootAncestorId(id: string): string {
  *  the create / setParent wire shape but never painted, and the silent-invisible
  *  middle is the worst outcome.
  *
- *  Session restore does NOT call this — it rehydrates saved graphs and reconciles
- *  permanently unpaintable edges through `promoteUnpaintableRestoreChildren`
- *  instead. That door tolerates a DORMANT parent (wake repaints its splits) where
- *  this one refuses it: a caller asking for a pane it would not see right now gets
- *  told to wake the tile first, rather than a live PTY it cannot find. */
+ *  Session restore does NOT call this — it rehydrates saved graphs and then repairs
+ *  what it cannot paint (`flattenUnpaintableParentEdges`). That door reconciles
+ *  rather than throwing, and tolerates a DORMANT parent where this one refuses it:
+ *  a caller asking for a pane it would not see right now is told to wake the tile,
+ *  whereas a saved edge under a dormant tile is simply left to reappear on wake. */
 export function requireFlatParentEdge(childId: string, parentId: string): void {
   if (parentId === childId)
     throw invalidParentEdge(
@@ -402,35 +438,7 @@ export function requireFlatParentEdge(childId: string, parentId: string): void {
       parentId,
       "a terminal cannot be its own parent",
     );
-  if (!isPaintableParent(parentId)) {
-    // The predicate above is the FACT; this only names WHICH of its clauses
-    // failed — and, for the two arms a client cannot see, which FAULT CODE says so.
-    const parent = getTerminal(parentId);
-    // Absent and PARKED are one answer, deliberately: a parked record is an
-    // invisible restore-card placeholder, and `requireMutableTerminal` already
-    // makes every client mutation read it as `terminalNotFound`. Naming it in a
-    // BAD_REQUEST here would leak a record the same client is told does not
-    // exist — and would reclassify a fault the create door has always answered
-    // NOT_FOUND.
-    if (!parent || parent.meta.state === "parked")
-      throw terminalNotFound(parentId);
-    if (parent.meta.parentId !== undefined)
-      throw invalidParentEdge(
-        childId,
-        parentId,
-        `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
-      );
-    // Exhaustively, the remaining arm is a top-level SLEEPING record — the one
-    // tile a client can see that still paints no splits. (There is no
-    // handle-less "active" arm to fall through here: `ActiveTerminalProcess`
-    // requires the handle, and sleep / unwind / kill each replace or unregister
-    // the whole entry atomically rather than stripping one.)
-    throw invalidParentEdge(
-      childId,
-      parentId,
-      "it is dormant, and a dormant tile paints no splits — wake it first",
-    );
-  }
+  if (!isPaintableParent(parentId)) throw parentEdgeFault(childId, parentId);
   const orphan = firstChildOf(childId);
   if (orphan !== undefined)
     throw invalidParentEdge(

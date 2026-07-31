@@ -13,21 +13,7 @@
  * by neither) keeps the graph acyclic.
  */
 
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
-import {
-  type AutosaveFreeze,
-  cancelPendingAutosave,
-  freezeAutosave,
-  unfreezeAutosave,
-} from "./autosaveGate.ts";
-import { resumableTerminalIds } from "./resumable.ts";
-import {
-  clearSavedSession,
-  getSavedSession,
-  saveSession,
-  setSavedSession,
-} from "./session.ts";
 import { log } from "../log.ts";
 import {
   getActiveTerminal,
@@ -42,9 +28,9 @@ import {
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
 import {
+  flattenUnpaintableParentEdges,
   restoreActiveTerminalId,
   restoreSpawn,
-  setTerminalParent,
   snapshotSession,
 } from "../terminals.ts";
 import type {
@@ -53,6 +39,19 @@ import type {
   SavedTerminal,
 } from "../vocab.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
+import {
+  type AutosaveFreeze,
+  cancelPendingAutosave,
+  freezeAutosave,
+  unfreezeAutosave,
+} from "./autosaveGate.ts";
+import { resumableTerminalIds } from "./resumable.ts";
+import {
+  clearSavedSession,
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+} from "./session.ts";
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
@@ -256,15 +255,15 @@ export async function restoreSession(
         unrestored.push(t);
         continue;
       }
-      // #2059's legacy-data half, repaired at the SEED: a blob written before the
-      // generative writes were fenced can hold a split of a split, and the parent
-      // it maps onto is by then already in the registry (an active respawn registers
-      // synchronously; a sleeper is seeded by the loop above). Restoring the record
-      // under a PERMANENTLY unpaintable parent would rehydrate exactly the invisible
-      // live pane this PR exists to make impossible — and the post-settle sweep below
-      // would not catch it, since that one only walks the ACTIVE respawns. So restore
-      // it TOP-LEVEL instead: the terminal comes back, visible, one level up. A
-      // DORMANT parent is left alone (wake repaints its splits).
+      // #2059's legacy-data half, repaired at the SEED rather than by the sweep
+      // below: a blob written before the generative writes were fenced can hold a
+      // split of a split, and repairing it HERE keeps the diagnostic (it can still
+      // name the SAVED parent id, which no post-hoc sweep can recover) and never
+      // publishes the nested edge to connected clients in the first place. The
+      // mapped parent is already registered by now — an active respawn registers
+      // synchronously, a sleeper was seeded by the loop above — so the check has no
+      // window to race. `isPermanentlyUnpaintableParent` is the shared repair rule
+      // (`terminal-registry.ts`); a dormant parent is left alone by it.
       if (isPermanentlyUnpaintableParent(parentId)) {
         log.warn(
           { terminal: t.id, savedParent: t.parentId, mappedParent: parentId },
@@ -367,7 +366,7 @@ export async function restoreSession(
  *  The eager {@link persistSettledRestoreSnapshot} RETAINS the re-parked record (which
  *  `snapshotSession` skips) alongside every live sibling's freshest metadata.
  *
- *  {@link promoteUnpaintableRestoreChildren} lifts children orphaned by a failed/parked parent
+ *  {@link flattenUnpaintableParentEdges} lifts children orphaned by a failed/parked parent
  *  (F2) and a merge is persisted after EACH spawn settles — NOT once after the whole batch.
  *  That incrementality matters: a parent A can reject and re-park while an UNRELATED spawn C
  *  never settles; if promotion waited on the batch `Promise.all`, C's wedge would keep A's
@@ -406,49 +405,25 @@ export async function settleRestoreRespawns(
           reparked.push(record);
         }
       }
-      // Reconcile orphans across ALL respawns the INSTANT this one settles — NOT gated
-      // behind the whole batch's `Promise.all` (F2). A parent that just parked/removed
-      // itself here has orphaned any live child of its own; promoting incrementally means
-      // an UNRELATED never-settling sibling spawn can no longer strand that child under a
-      // hidden parent for the process lifetime. Then persist the merged live+re-parked
-      // (+ retained unrestored) snapshot so the promotion (and any re-park) reaches disk
-      // without awaiting the batch.
-      promoteUnpaintableRestoreChildren(respawns);
+      // Reconcile orphans across the WHOLE registry the INSTANT this one settles —
+      // NOT gated behind the batch's `Promise.all` (F2). A parent that just
+      // parked/removed itself here has orphaned any child of its own; repairing
+      // incrementally means an UNRELATED never-settling sibling spawn can no longer
+      // strand that child under a hidden parent for the process lifetime. It is the
+      // same one repair the adoption door runs — reading the LIVE registry rather
+      // than this batch's respawn list, so a restored SLEEPING sub (seeded
+      // synchronously, never a respawn) is covered when its parent re-parks. Then
+      // persist the merged live+re-parked (+ retained unrestored) snapshot so the
+      // repair and any re-park reach disk without awaiting the batch.
+      const lifted = flattenUnpaintableParentEdges();
+      if (lifted.length > 0)
+        log.warn(
+          { terminals: lifted },
+          "lifted restored splits whose parent cannot paint them to top-level (#2059)",
+        );
       persistSettledRestoreSnapshot(reparked, retained);
     }),
   );
-}
-
-/** Promote restored children the canvas could never paint to TOP-LEVEL (F2). A
- *  restored ACTIVE child whose parent is not a PAINTABLE parent must not dangle
- *  invisibly: its parent respawn may have failed for a PER-RECORD reason (a removed
- *  cwd, a pre-ready lifecycle race) and been re-parked, a second client may have
- *  killed the parent mid-restore, or — the #2059 legacy-data case — the saved blob
- *  may hold a split of a split, written by a daemon from before the generative
- *  writes were fenced. Spawn failures are NOT monotonic (a parent can reject while
- *  its later-queued child succeeds), so reparent the live child to TOP-LEVEL,
- *  keeping its live PTY + agent visible.
- *
- *  The "will this parent EVER paint a child?" fact is
- *  `isPermanentlyUnpaintableParent` in `terminal-registry.ts` — the repair
- *  counterpart of the `isPaintableParent` the create / setParent doors reject off.
- *  This door reconciles rather than throwing: restore rehydrates whatever is on
- *  disk, then repairs it, so it must only undo edges no later event can rescue. A
- *  SLEEPING (dormant) parent is left alone — waking it re-mounts its split panel
- *  with the child still in place, and promoting would destroy that arrangement for
- *  good. */
-export function promoteUnpaintableRestoreChildren(
-  respawns: {
-    newId: string;
-    parentIdMapped: string | undefined;
-  }[],
-): void {
-  for (const r of respawns) {
-    if (!getActiveTerminal(r.newId as TerminalId)) continue; // failed / re-parked
-    if (r.parentIdMapped === undefined) continue; // already top-level
-    if (isPermanentlyUnpaintableParent(r.parentIdMapped))
-      setTerminalParent(r.newId as TerminalId, null);
-  }
 }
 
 /** Persist the merged live+re-parked snapshot after a respawn settles — part of the F5

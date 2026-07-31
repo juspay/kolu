@@ -223,10 +223,9 @@ export async function adoptSurvivingSession(): Promise<void> {
   // Adoption rehydrates saved records WHOLESALE — it never passes `createTerminal`'s
   // parent-edge fence — so a split of a split written by a pre-fence daemon would ride
   // this, the NORMAL upgrade path, straight back into the registry and be re-persisted
-  // by the converge below, invisible on the canvas for as long as the terminal lives
-  // (#2059). Repair it here, once everything (adopted actives, adopted orphans, seeded
-  // sleepers) is in the registry and BEFORE the snapshot: a dormant parent's splits are
-  // left alone, every permanently unpaintable edge is lifted to top-level.
+  // by the converge below, invisible for as long as the terminal lives (#2059). Run the
+  // shared repair here: everything (adopted actives, adopted orphans, seeded sleepers)
+  // is in the registry by now, and the snapshot has not been taken yet.
   const lifted = flattenUnpaintableParentEdges();
   if (lifted.length > 0)
     log.warn(

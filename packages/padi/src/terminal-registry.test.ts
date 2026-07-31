@@ -19,18 +19,22 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { caught, seedActive, snapshot } from "./servePadi.testlib.ts";
+import {
+  caught,
+  seedActive,
+  seedParked,
+  seedSleeping,
+  thrownCode,
+} from "./servePadi.testlib.ts";
 import {
   isPaintableParent,
   isPermanentlyUnpaintableParent,
-  registerTerminal,
   requireFlatParentEdge,
   requireMutableTerminal,
   requireTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { LOCAL_LOCATION } from "./vocab.ts";
 
 const ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" as TerminalId;
 const ROOT = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" as TerminalId;
@@ -38,42 +42,14 @@ const MID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc" as TerminalId;
 const LEAF = "dddddddd-dddd-4ddd-8ddd-dddddddddddd" as TerminalId;
 const FRESH = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" as TerminalId;
 
-function seedSleeping(): void {
-  registerTerminal(ID, {
-    info: { id: ID, pid: 1 },
-    meta: {
-      state: "sleeping",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 1,
-      sleptAt: 1,
-    },
-    snapshot: snapshot(),
-  });
-}
-
-function seedParked(): void {
-  registerTerminal(ID, {
-    info: { id: ID, pid: 1 },
-    meta: {
-      state: "parked",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 1,
-      parkedAt: 1,
-    },
-    snapshot: snapshot(),
-  });
-}
-
 afterEach(() => {
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
 });
 
 describe("requireMutableTerminal — parked records are immutable", () => {
   it("REJECTS a mutation targeting a PARKED record (typed NOT_FOUND)", () => {
-    seedParked();
-    const err = caught(() => requireMutableTerminal(ID));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    seedParked(ID);
+    expect(thrownCode(() => requireMutableTerminal(ID))).toBe("NOT_FOUND");
     // ...yet the read/query guard STILL accepts it — the restore card reads it.
     expect(requireTerminal(ID).meta.state).toBe("parked");
   });
@@ -84,14 +60,12 @@ describe("requireMutableTerminal — parked records are immutable", () => {
   });
 
   it("ALLOWS a mutation on a SLEEPING record (chrome edit on a dormant tile is valid)", () => {
-    seedSleeping();
+    seedSleeping(ID);
     expect(requireMutableTerminal(ID).meta.state).toBe("sleeping");
   });
 
   it("REJECTS an absent id (typed NOT_FOUND)", () => {
-    const err = caught(() => requireMutableTerminal(ID));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(thrownCode(() => requireMutableTerminal(ID))).toBe("NOT_FOUND");
   });
 });
 
@@ -131,9 +105,9 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
   it("REJECTS an ABSENT parent with the typed NOT_FOUND fault", () => {
     // Presence is the rule's own floor — NOT a guard the caller must remember
     // one layer up, so an in-process create can't mint a dangling parent edge.
-    const err = caught(() => requireFlatParentEdge(FRESH, "nope"));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(thrownCode(() => requireFlatParentEdge(FRESH, "nope"))).toBe(
+      "NOT_FOUND",
+    );
   });
 
   it("REJECTS a PARKED parent as NOT_FOUND — same answer an absent id gets", () => {
@@ -141,10 +115,10 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
     // `requireMutableTerminal` already makes every client mutation read it as
     // `terminalNotFound`, so naming it in a BAD_REQUEST would leak a record the
     // same client is told does not exist.
-    seedParked();
-    const err = caught(() => requireFlatParentEdge(FRESH, ID));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    seedParked(ID);
+    expect(thrownCode(() => requireFlatParentEdge(FRESH, ID))).toBe(
+      "NOT_FOUND",
+    );
   });
 
   it("REJECTS a SLEEPING parent — a dormant tile paints no splits at all", () => {
@@ -154,7 +128,7 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
     // not. The create door happened to reject this via `requireActiveTerminal`;
     // `chrome.setParent` validates only the SUBJECT, so without this clause it
     // let a caller mint exactly the invisible live pane #2059 is about.
-    seedSleeping();
+    seedSleeping(ID);
     const err = caught(() => requireFlatParentEdge(FRESH, ID));
     expect(err).toBeInstanceOf(ORPCError);
     const orpc = err as ORPCError<string, unknown>;
@@ -200,7 +174,7 @@ describe("isPermanentlyUnpaintableParent — the repair rule (#2059)", () => {
   });
 
   it("is FALSE for a DORMANT top-level tile — wake repaints its splits", () => {
-    seedSleeping();
+    seedSleeping(ID);
     expect(isPaintableParent(ID)).toBe(false); // not paintable NOW…
     expect(isPermanentlyUnpaintableParent(ID)).toBe(false); // …but not forever
   });
@@ -215,22 +189,12 @@ describe("isPermanentlyUnpaintableParent — the repair rule (#2059)", () => {
     // The dormant carve-out must not swallow the nested case: waking a split
     // does not make the canvas paint splits OF that split.
     seedActive(ROOT);
-    registerTerminal(MID, {
-      info: { id: MID, pid: 1 },
-      meta: {
-        state: "sleeping",
-        location: LOCAL_LOCATION,
-        lastActivityAt: 1,
-        sleptAt: 1,
-        parentId: ROOT,
-      },
-      snapshot: snapshot(),
-    });
+    seedSleeping(MID, ROOT);
     expect(isPermanentlyUnpaintableParent(MID)).toBe(true);
   });
 
   it("is TRUE for a parked placeholder and for an absent id", () => {
-    seedParked();
+    seedParked(ID);
     expect(isPermanentlyUnpaintableParent(ID)).toBe(true);
     expect(isPermanentlyUnpaintableParent("nope")).toBe(true);
   });

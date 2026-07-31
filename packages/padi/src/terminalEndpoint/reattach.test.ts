@@ -100,6 +100,18 @@ function active(id: string, cwd: string): SavedActiveTerminal {
   };
 }
 
+function sleeping(id: string, cwd: string, parentId?: string): SavedTerminal {
+  return {
+    ...base,
+    id,
+    state: "sleeping",
+    sleptAt: 111,
+    cwd,
+    lastActivityAt: 3,
+    ...(parentId !== undefined ? { parentId } : {}),
+  };
+}
+
 function savedSession(): SavedSession {
   return {
     terminals: [active(A_ID, "/a"), active(B_ID, "/b")],
@@ -244,16 +256,8 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
       inMemoryStore<PairedDaemon | null>({ startedAt: 1000 }),
     );
     connectDaemon(1000);
-    const sleeper: SavedTerminal = {
-      ...base,
-      id: S_ID,
-      state: "sleeping",
-      sleptAt: 111,
-      cwd: "/s",
-      lastActivityAt: 3,
-    };
     setSavedSession({
-      terminals: [active(A_ID, "/a"), sleeper],
+      terminals: [active(A_ID, "/a"), sleeping(S_ID, "/s")],
       activeTerminalId: A_ID,
       savedAt: 1,
     });
@@ -327,18 +331,6 @@ const C_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
  *  for). The repair reads a record's `parentId`, not its arm, so the active arm
  *  travels the same code. */
 describe("adoptSurvivingSession — nested splits are repaired on adoption (#2059)", () => {
-  function sleeping(id: string, cwd: string, parentId?: string): SavedTerminal {
-    return {
-      ...base,
-      id,
-      state: "sleeping",
-      sleptAt: 111,
-      cwd,
-      lastActivityAt: 3,
-      ...(parentId !== undefined ? { parentId } : {}),
-    };
-  }
-
   it("lifts an adopted split-of-a-split to top-level and PERSISTS the repair", async () => {
     setPadiLastPairedDaemonStore(
       inMemoryStore<PairedDaemon | null>({ startedAt: 1000 }),

@@ -590,6 +590,92 @@ describe("settleRestoreRespawns — independent per-spawn settlement (F2 / F3 / 
     expect(getTerminal(CHILD)?.meta.parentId).toBeUndefined();
   });
 
+  it("F2 — a SLEEPING sub under an infra-failed (re-parked) parent is promoted too", async () => {
+    // The residual the batch-scoped sweep could not reach (#2059): a slept split
+    // (#1651) is seeded SYNCHRONOUSLY during restore and never joins the respawn
+    // list, so a sweep keyed on that list was blind to it. Its parent then fails
+    // and re-parks — and a parked parent is filtered out of the canvas entirely,
+    // so the sleeper became a dormant tile the user could never reach again.
+    // Reading the live REGISTRY rather than the respawn list is what covers it.
+    const parent = mkRecord(
+      "77777777-7777-4777-8777-777777777777",
+      "/p4-parent",
+    );
+    const SLEEPER = "88888888-8888-4888-8888-888888888888";
+    registerTerminal(SLEEPER, {
+      info: { id: SLEEPER, pid: 0 },
+      meta: {
+        state: "sleeping",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        sleptAt: 1,
+        parentId: parent.id,
+      },
+      snapshot: {
+        cwd: "/p4-sleeper",
+        git: null,
+        pr: { kind: "absent" },
+        agent: null,
+        foreground: null,
+        ports: { status: "unknown" },
+      },
+    });
+
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parent.id,
+        record: parent,
+        parentIdMapped: undefined,
+      },
+    ]);
+
+    expect(getTerminal(parent.id)?.meta.state).toBe("parked");
+    // Still dormant — the repair moves a tile, it never wakes or drops one.
+    expect(getTerminal(SLEEPER)?.meta.state).toBe("sleeping");
+    expect(getTerminal(SLEEPER)?.meta.parentId).toBeUndefined();
+  });
+
+  it("F2 — a PARKED child's saved split is NOT flattened", async () => {
+    // A parked record is a restore-card placeholder, and its parentId is how the
+    // card will restore the split. The repair must leave it alone even when its
+    // parent is unpaintable, or the user's saved grouping is silently un-grouped.
+    const parent = mkRecord(
+      "99999999-9999-4999-8999-999999999999",
+      "/p5-parent",
+    );
+    const PARKED_CHILD = "aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa";
+    registerTerminal(PARKED_CHILD, {
+      info: { id: PARKED_CHILD, pid: 0 },
+      meta: {
+        state: "parked",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        parkedAt: 1,
+        parentId: parent.id,
+      },
+      snapshot: {
+        cwd: "/p5-child",
+        git: null,
+        pr: { kind: "absent" },
+        agent: null,
+        foreground: null,
+        ports: { status: "unknown" },
+      },
+    });
+
+    await settleRestoreRespawns([
+      {
+        ready: Promise.reject(new Error("spawn failed — removed cwd")),
+        newId: parent.id,
+        record: parent,
+        parentIdMapped: undefined,
+      },
+    ]);
+
+    expect(getTerminal(PARKED_CHILD)?.meta.parentId).toBe(parent.id);
+  });
+
   it("F2 — a live child under a still-LIVE parent is left untouched", async () => {
     const PARENT = "55555555-5555-4555-8555-555555555555";
     const CHILD = "66666666-6666-4666-8666-666666666666";

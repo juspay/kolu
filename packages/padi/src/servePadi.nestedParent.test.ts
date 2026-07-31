@@ -12,21 +12,34 @@
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-import { caught, padiDeps, seedActive, snapshot } from "./servePadi.testlib.ts";
+import {
+  caught,
+  padiDeps,
+  seedActive,
+  seedParked,
+  seedSleeping,
+  thrownCode,
+} from "./servePadi.testlib.ts";
 import {
   getTerminal,
-  registerTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
-import { LOCAL_LOCATION } from "./vocab.ts";
 
 setDaemonProcessId("nested-parent-test-server");
 
@@ -41,27 +54,17 @@ type SetParentHandler = (a: {
   input: { id: string; parentId: string | null };
 }) => void;
 
-/** A dormant top-level tile: present, awake nowhere. Both doors must refuse it as
- *  a parent, and must SAY that is why. */
-function seedDormant(): void {
-  registerTerminal(DORMANT, {
-    info: { id: DORMANT, pid: 1 },
-    meta: {
-      state: "sleeping",
-      location: LOCAL_LOCATION,
-      lastActivityAt: 1,
-      sleptAt: 1,
-    },
-    snapshot: snapshot(),
-  });
-}
-
-/** ONE deps graph per case, with both handlers derived from it — so "which deps
- *  instance is this asserting against?" has an answer in the test's own text. */
+/** ONE deps graph for the file, with both handlers derived from it — so "which
+ *  deps instance is this asserting against?" has an answer in the test's own
+ *  text. Built once rather than per case: `buildPadiSurfaceDeps` starts a standing
+ *  activity subscription, which in a kaval-less unit env fails and arms a retry
+ *  timer, so a per-case rebuild left one armed loop behind per test. The per-case
+ *  state is the REGISTRY, which `beforeEach` seeds and `afterEach` clears; the
+ *  handlers are stateless closures over it. */
 let create: CreateHandler;
 let setParent: SetParentHandler;
 
-beforeEach(() => {
+beforeAll(() => {
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   const deps = padiDeps({
     stateRoot: "/tmp/padi-nested-parent-test-state-root",
@@ -72,7 +75,9 @@ beforeEach(() => {
   if (!s) throw new Error("padi deps must serve chrome.setParent");
   create = c;
   setParent = s;
+});
 
+beforeEach(() => {
   seedActive(ROOT);
   seedActive(CHILD, ROOT);
   seedActive(SIBLING);
@@ -80,6 +85,9 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+});
+
+afterAll(() => {
   __resetPadiSurfaceCtxForTest();
 });
 
@@ -109,7 +117,7 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     // sleeping parent with a bare NOT_FOUND — "Terminal X not found" for a tile
     // the user can see on the canvas. That narrow is a strict subset of the
     // parent-edge rule now, so the door no longer shadows the accurate fault.
-    seedDormant();
+    seedSleeping(DORMANT);
     const err = caught(() => create({ input: { parentId: DORMANT } }));
     expect(err).toBeInstanceOf(ORPCError);
     const orpc = err as ORPCError<string, unknown>;
@@ -120,11 +128,11 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
   it("lifecycle.create still answers an ABSENT parent with NOT_FOUND", () => {
     // Removing the handler narrow must not change the code for a parent that
     // genuinely is not there — the rule's own presence floor carries it.
-    const err = caught(() =>
-      create({ input: { parentId: "99999999-9999-4999-8999-999999999999" } }),
-    );
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(
+      thrownCode(() =>
+        create({ input: { parentId: "99999999-9999-4999-8999-999999999999" } }),
+      ),
+    ).toBe("NOT_FOUND");
   });
 
   it("lifecycle.create answers a PARKED parent with NOT_FOUND too", () => {
@@ -132,20 +140,11 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     // restore-card placeholder is invisible to clients by repo convention
     // (`requireMutableTerminal`), so it must not be reclassified into a
     // BAD_REQUEST that names a record the client is told does not exist.
-    registerTerminal(PARKED, {
-      info: { id: PARKED, pid: 1 },
-      meta: {
-        state: "parked",
-        location: LOCAL_LOCATION,
-        lastActivityAt: 1,
-        parkedAt: 1,
-      },
-      snapshot: snapshot(),
-    });
+    seedParked(PARKED);
 
-    const err = caught(() => create({ input: { parentId: PARKED } }));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(thrownCode(() => create({ input: { parentId: PARKED } }))).toBe(
+      "NOT_FOUND",
+    );
   });
 
   it("chrome.setParent refuses a DORMANT parent and leaves the child top-level", () => {
@@ -153,7 +152,7 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     // `requireMutableTerminal` on the SUBJECT only, so nothing but the shared
     // rule stands between a caller and a live pane hung off a tile whose body is
     // `DormantTileBody` — painted nowhere.
-    seedDormant();
+    seedSleeping(DORMANT);
 
     const err = caught(() =>
       setParent({ input: { id: SIBLING, parentId: DORMANT } }),
