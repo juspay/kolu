@@ -10,7 +10,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./states": "./src/endpointStates.ts",
-    "./createEndpoint.testlib": "./src/createEndpoint.testlib.ts"
+    "./createEndpoint.testlib": "./src/createEndpoint.testlib.ts",
+    "./createEndpoint.kolu.testlib": "./src/createEndpoint.kolu.testlib.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -19,6 +20,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
+    "osfacts-client": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
   "devDependencies": {

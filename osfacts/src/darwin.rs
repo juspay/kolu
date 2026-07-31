@@ -4,12 +4,13 @@
 
 #![cfg(target_os = "macos")]
 
-use crate::cli::{HostArgs, Scope, SnapshotArgs};
+use crate::cli::{HostArgs, Scope, SnapshotArgs, SocketHoldersArgs};
 use osfacts::{
-    attribute_host_listeners, blind_or_empty, decode_host_listeners, hex_bytes, sanitize_name,
-    slot_from_vflag, source_error, AddressSlot, Cpu, Disk, Facet, HostListener, HostMemory,
-    HostSnapshot, Load, Memory, Network, Proc, ProcessArgv, ProcessCpuTime, ProcessCwd,
-    ProcessStatus, ProcessUid, Snapshot, StartTime, Swap, TCP_STATE_LISTEN,
+    attribute_host_listeners, blind_or_empty, darwin_sockaddr_un_path, decode_host_listeners,
+    hex_bytes, sanitize_name, slot_from_vflag, source_error, AddressSlot, Attribution, Cpu, Disk,
+    Facet, HostListener, HostMemory, HostSnapshot, Load, Memory, Network, Proc, ProcessArgv,
+    ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot, SocketHolders, StartTime,
+    Swap, TCP_STATE_LISTEN,
 };
 // `Port`, the listener merge, and the `pcblist_n` record walk live in
 // `osfacts::pcblist` — pure, and therefore compiled and tested on every
@@ -28,6 +29,10 @@ const PROC_PIDPATHINFO_MAXSIZE: usize = 4 * 1024;
 const PROC_PIDFDSOCKETINFO: c_int = 3;
 const PROX_FDTYPE_SOCKET: u32 = 2;
 const SOCKINFO_TCP: c_int = 2;
+const SOCKINFO_UN: c_int = 3;
+/// `SOCK_MAXADDRLEN` from `<sys/socket.h>` — the size of each address slot in
+/// `struct un_sockinfo`.
+const SOCK_MAXADDRLEN: usize = 255;
 const PROCESSOR_CPU_LOAD_INFO: c_int = 2;
 const PROC_VNODEPATHINFO_SIZE: usize = 2_352;
 const VNODE_CDIR_PATH_OFFSET: usize = 152;
@@ -113,10 +118,24 @@ struct TcpSockInfo {
     _rest: [u8; 36],
 }
 
+/// `struct un_sockinfo` from `<sys/proc_info.h>`: two opaque handles, then the
+/// bound and connected addresses, each a `SOCK_MAXADDRLEN` slot overlaying a
+/// `struct sockaddr_un`. Kept as raw bytes rather than a nested union because
+/// only the bound slot is ever read, and only for its `sun_path`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct UnSockInfo {
+    _unsi_conn_so: u64,
+    _unsi_conn_pcb: u64,
+    unsi_addr: [u8; SOCK_MAXADDRLEN],
+    _unsi_caddr: [u8; SOCK_MAXADDRLEN],
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 union SocketInfoProto {
     pri_tcp: TcpSockInfo,
+    pri_un: UnSockInfo,
     _pad: [u8; 528],
 }
 
@@ -155,6 +174,10 @@ struct SocketFdInfo {
 const _: () = assert!(mem::size_of::<ProcFdInfo>() == 8);
 const _: () = assert!(mem::size_of::<InSockInfo>() == 80);
 const _: () = assert!(mem::size_of::<TcpSockInfo>() == 120);
+// `un_sockinfo` is the WIDEST arm of `soi_proto`, so this assertion is what
+// keeps the union's own `_pad` honest: 8 + 8 + 255 + 255, rounded to the u64
+// alignment the two handles force.
+const _: () = assert!(mem::size_of::<UnSockInfo>() == 528);
 const _: () = assert!(mem::size_of::<SocketInfo>() == 768);
 const _: () = assert!(mem::size_of::<SocketFdInfo>() == 792);
 const _: () = assert!(mem::size_of::<ProcTaskInfo>() == 96);
@@ -388,6 +411,87 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     }
 
     snap
+}
+
+/// Who holds one unix socket PATH.
+///
+/// Darwin has no `/proc/net/unix` — no world-readable table of bound unix
+/// sockets at all — so the only witness is the descriptor walk `lsof` also
+/// does: every process in the BSD census, every socket descriptor, matched on
+/// the bound `sun_path`. That has a consequence the linux reader does not
+/// share, and it is reported rather than hidden: Apple gates another user's
+/// descriptors, so **a walk that named nobody may simply have been blind**.
+/// That is precisely the [`BLIND_OR_EMPTY`](osfacts::BLIND_OR_EMPTY)
+/// condition, and it is emitted whenever the walk named nobody —
+/// UNCONDITIONALLY, not only when some pid was observed to deny us. Gating it
+/// on a witnessed denial made the answer depend on whether an unrelated
+/// inaccessible process happened to exist, and on a host where every process
+/// is readable it would manufacture linux's proof of absence out of a walk
+/// that structurally cannot have it. A walk that named a holder answered the
+/// question; extra hidden holders cannot make that answer wrong, and the
+/// caller's handshake is what picks the listener out of the set.
+///
+/// There is deliberately no `unclaimed` row here. Linux can say "the socket is
+/// bound but no readable pid claims it" because its table is authoritative;
+/// darwin cannot see that the socket is bound at all, so claiming `unclaimed`
+/// would assert a fact this platform never read.
+pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
+    let mut out = SocketHolders::new();
+    let process_table = match read_process_table() {
+        // The sole pid enumeration, so its silence costs the whole answer —
+        // the same totality as the snapshot verb's.
+        Err(err) => {
+            out.errors
+                .push(source_error("kern_proc_all", Facet::SocketHolders, err));
+            return out;
+        }
+        Ok(rows) => rows,
+    };
+    let path = args.path.as_encoded_bytes();
+    let mut claimed: Vec<u32> = Vec::new();
+    for &pid in process_table.keys() {
+        // An `Err` here (a denied fd list) is not "no" — see the header. It is
+        // not counted, either: the row below is emitted whenever the walk named
+        // nobody, denial or not, because on this platform a walk that found
+        // nothing is never proof. One source row, never one `U` row per pid:
+        // the ask names a path, so the pid set searched is the whole host and a
+        // per-pid row would repeat one fact hundreds of times.
+        if matches!(holds_unix_socket(pid, path), Ok(true)) {
+            claimed.push(pid);
+        }
+    }
+    if claimed.is_empty() {
+        // UNCONDITIONAL, and that is the platform contract rather than a
+        // conservative default: darwin has no readable table of bound unix
+        // sockets, so nothing this walk can observe distinguishes "nobody
+        // holds it" from "the holder is one of the processes I may not read".
+        // Emitting the row only when some pid happened to deny us would make
+        // the answer depend on whether an unrelated inaccessible process
+        // existed — and on a host where every process is readable it would
+        // manufacture linux's proof of absence out of a walk that cannot have
+        // it.
+        out.errors
+            .push(blind_or_empty("darwin_proc_fds", Facet::SocketHolders));
+        return out;
+    }
+    out.holders
+        .extend(claimed.iter().map(|&pid| Attribution::Claimed { pid }));
+    if args.procs {
+        // Indexed, not looked up: `claimed` was pushed from `process_table`'s
+        // own keys, so every name is already in hand. A `get(&pid)` here would
+        // carry a `None` arm that cannot fire — and the comment excusing it
+        // would describe a race against the OS that is not being run, since
+        // the map was built by this same function moments earlier.
+        for pid in claimed {
+            let row = &process_table[&pid];
+            out.procs.push(Proc {
+                pid,
+                ppid: row.ppid,
+                name: process_name(pid, &row.name),
+            });
+        }
+    }
+    out
 }
 
 pub fn host(args: &HostArgs) -> HostSnapshot {
@@ -754,7 +858,15 @@ fn cstr_field(buf: &[u8]) -> Option<String> {
     (end != 0).then(|| String::from_utf8_lossy(&buf[..end]).into_owned())
 }
 
-fn listener_claims(pid: u32) -> Result<Vec<HostListener>, i32> {
+/// Every socket descriptor `pid` holds, or the errno that hid them.
+///
+/// One walker for both fd questions this binary asks (which TCP ports does it
+/// listen on; does it hold this unix socket path) — the descriptor listing
+/// dance (size probe, over-allocate, re-read) is the same either way, and the
+/// `errno == 0` arm is the load-bearing part: `proc_pidinfo` returns 0 both
+/// for a process with no descriptors and for one that exited mid-walk, so a
+/// zero return with a clean errno is an empty answer, never a failure.
+fn socket_fds(pid: u32) -> Result<Vec<c_int>, i32> {
     unsafe {
         *libc::__error() = 0;
         let size = proc_pidinfo(pid as c_int, PROC_PIDLISTFDS, 0, std::ptr::null_mut(), 0);
@@ -777,41 +889,79 @@ fn listener_claims(pid: u32) -> Result<Vec<HostListener>, i32> {
             let err = errno();
             return if err == 0 { Ok(Vec::new()) } else { Err(err) };
         }
-        let mut out = Vec::new();
-        for fd in &fds[..used as usize / mem::size_of::<ProcFdInfo>()] {
-            if fd.proc_fdtype != PROX_FDTYPE_SOCKET {
-                continue;
-            }
-            let mut socket = mem::zeroed::<SocketFdInfo>();
-            let got = proc_pidfdinfo(
-                pid as c_int,
-                fd.proc_fd,
-                PROC_PIDFDSOCKETINFO,
-                (&raw mut socket).cast(),
-                mem::size_of::<SocketFdInfo>() as c_int,
-            );
-            if got < mem::size_of::<SocketFdInfo>() as c_int || socket.psi.soi_kind != SOCKINFO_TCP
-            {
-                continue;
-            }
-            let tcp = socket.psi.soi_proto.pri_tcp;
-            if tcp.tcpsi_state != TCP_STATE_LISTEN {
-                continue;
-            }
-            let port = u16::from_be(tcp.tcpsi_ini.insi_lport as u16);
-            if port == 0 {
-                continue;
-            }
-            let address = match slot_from_vflag(socket.psi.soi_family, tcp.tcpsi_ini.insi_vflag) {
-                AddressSlot::V4 => {
-                    hex_bytes(&tcp.tcpsi_ini.insi_laddr.ina_46.i46a_addr4.to_ne_bytes())
-                }
-                AddressSlot::V6 => hex_bytes(&tcp.tcpsi_ini.insi_laddr.ina_6),
-            };
-            out.push((port, address));
-        }
-        Ok(out)
+        Ok(fds[..used as usize / mem::size_of::<ProcFdInfo>()]
+            .iter()
+            .filter(|fd| fd.proc_fdtype == PROX_FDTYPE_SOCKET)
+            .map(|fd| fd.proc_fd)
+            .collect())
     }
+}
+
+/// One descriptor's socket record, or `None` when the kernel returned a short
+/// or unreadable one (the descriptor closed under us; it is not ours to read).
+fn socket_info(pid: u32, fd: c_int) -> Option<SocketInfo> {
+    unsafe {
+        let mut socket = mem::zeroed::<SocketFdInfo>();
+        let got = proc_pidfdinfo(
+            pid as c_int,
+            fd,
+            PROC_PIDFDSOCKETINFO,
+            (&raw mut socket).cast(),
+            mem::size_of::<SocketFdInfo>() as c_int,
+        );
+        (got >= mem::size_of::<SocketFdInfo>() as c_int).then_some(socket.psi)
+    }
+}
+
+fn listener_claims(pid: u32) -> Result<Vec<HostListener>, i32> {
+    let mut out = Vec::new();
+    for fd in socket_fds(pid)? {
+        let Some(psi) = socket_info(pid, fd) else {
+            continue;
+        };
+        if psi.soi_kind != SOCKINFO_TCP {
+            continue;
+        }
+        // SAFETY: `soi_kind` discriminates the union, and it says TCP.
+        let tcp = unsafe { psi.soi_proto.pri_tcp };
+        if tcp.tcpsi_state != TCP_STATE_LISTEN {
+            continue;
+        }
+        let port = u16::from_be(tcp.tcpsi_ini.insi_lport as u16);
+        if port == 0 {
+            continue;
+        }
+        let address = match slot_from_vflag(psi.soi_family, tcp.tcpsi_ini.insi_vflag) {
+            // SAFETY: the slot decision is what picks the union arm.
+            AddressSlot::V4 => unsafe {
+                hex_bytes(&tcp.tcpsi_ini.insi_laddr.ina_46.i46a_addr4.to_ne_bytes())
+            },
+            AddressSlot::V6 => unsafe { hex_bytes(&tcp.tcpsi_ini.insi_laddr.ina_6) },
+        };
+        out.push((port, address));
+    }
+    Ok(out)
+}
+
+/// Does `pid` hold a unix socket bound to exactly `path`?
+///
+/// `Err` is the third answer and the one that matters: an fd list this process
+/// may not read (EPERM on another user's process) is not "no".
+fn holds_unix_socket(pid: u32, path: &[u8]) -> Result<bool, i32> {
+    for fd in socket_fds(pid)? {
+        let Some(psi) = socket_info(pid, fd) else {
+            continue;
+        };
+        if psi.soi_kind != SOCKINFO_UN {
+            continue;
+        }
+        // SAFETY: `soi_kind` discriminates the union, and it says unix domain.
+        let un = unsafe { psi.soi_proto.pri_un };
+        if darwin_sockaddr_un_path(&un.unsi_addr) == Some(path) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn host_listeners() -> Result<Vec<HostListener>, i32> {
