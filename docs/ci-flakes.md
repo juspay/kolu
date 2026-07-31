@@ -145,6 +145,7 @@ retries.
 | `a1ae2f2#1` | `a1ae2f242` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `0f6f4ac#1` | `0f6f4ac85` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `a638755#1` | `a638755ec` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
+| `ecf8f28#1` | `ecf8f280d` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 
 ### `aea6cc3#1`: five macOS Git fixture commits returned status 128
 
