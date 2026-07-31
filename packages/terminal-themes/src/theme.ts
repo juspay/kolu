@@ -36,17 +36,17 @@ export function getThemeByName(name: string | undefined): ITheme {
   return (name ? themesByName.get(name) : undefined) ?? DEFAULT_THEME;
 }
 
-/** Resolve a list of terminal IDs to their background hex strings via
- *  `getThemeName` + the theme map. Drops any IDs whose resolved theme has
- *  no parseable background. Used as the peer-set input for the variegated
- *  picker — both at new-terminal creation and at user-triggered shuffle. */
-export function resolveThemeBgs<Id>(
-  ids: Iterable<Id>,
-  getThemeName: (id: Id) => string | undefined,
+/** Theme NAMES → the backgrounds they render as — the peer-set input for the
+ *  variegated picker, at new-terminal creation and at user-triggered shuffle
+ *  alike. `undefined` is a name too: an unthemed terminal renders in
+ *  `DEFAULT_THEME`, so it resolves to that background rather than being dropped.
+ *  Only a resolved theme with no parseable background drops out. */
+export function resolveThemeBgs(
+  themeNames: Iterable<string | undefined>,
 ): string[] {
   const bgs: string[] = [];
-  for (const id of ids) {
-    const bg = getThemeByName(getThemeName(id)).background;
+  for (const name of themeNames) {
+    const bg = getThemeByName(name).background;
     if (bg) bgs.push(bg);
   }
   return bgs;

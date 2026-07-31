@@ -98,7 +98,7 @@ function init() {
       availableThemes.filter((t) => t.name !== current),
     );
     if (!candidates) return;
-    const excludeBgs = resolveThemeBgs(store.terminalIds(), getThemeName);
+    const excludeBgs = resolveThemeBgs(store.terminalIds().map(getThemeName));
     const mode = shuffleMode(preferences().shuffleBehavior, isDark());
     handleSetTheme(pickTheme(candidates, { excludeBgs, mode }));
   }

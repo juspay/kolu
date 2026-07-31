@@ -1,9 +1,9 @@
 /**
- * `shuffleMode` (in `./surface.ts`) — the single source resolving the candidate
- * pool filter a theme shuffle applies (`light` / `dark` / `colourful` / unrestricted),
- * given the `shuffleBehavior` preference and the app's resolved dark mode. (The
+ * kolu-common's own surface facts: the composed surface registry
+ * (`surfacesWithPadi`), padi convergence, and the forward vocabulary. (The
  * terminal-vocabulary tests — `composeTerminalMetadata` and friends — moved to
- * `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise.)
+ * `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise; `shuffleMode`'s
+ * moved to `@kolu/terminal-vocab`'s `schema.test.ts` with the function.)
  */
 
 import { padiSurface } from "@kolu/padi/surface";
@@ -14,7 +14,6 @@ import {
   KoluForwardSchema,
   PadiConvergenceSchema,
   sameForwards,
-  shuffleMode,
   surfaces,
 } from "./surface.ts";
 import { surfacesWithPadi } from "./surfacesWithPadi.ts";
@@ -30,28 +29,6 @@ describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
       "padi",
     ]);
     expect(surfacesWithPadi.padi).toBe(padiSurface);
-  });
-});
-
-describe("shuffleMode", () => {
-  it("random imposes no family restriction", () => {
-    expect(shuffleMode("random", true)).toBeUndefined();
-    expect(shuffleMode("random", false)).toBeUndefined();
-  });
-
-  it("dark / light force their family regardless of app mode", () => {
-    expect(shuffleMode("dark", false)).toBe("dark");
-    expect(shuffleMode("light", true)).toBe("light");
-  });
-
-  it("auto tracks the app's resolved dark mode", () => {
-    expect(shuffleMode("auto", true)).toBe("dark");
-    expect(shuffleMode("auto", false)).toBe("light");
-  });
-
-  it("colourful is independent of app light/dark", () => {
-    expect(shuffleMode("colourful", true)).toBe("colourful");
-    expect(shuffleMode("colourful", false)).toBe("colourful");
   });
 });
 
