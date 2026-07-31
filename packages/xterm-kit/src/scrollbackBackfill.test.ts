@@ -1194,7 +1194,6 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     expect(norm.lines.get(0)?.translateToString(true)).toBe("hello");
     t.dispose();
   });
-
 });
 
 describe("backfill reset vs pending-seed FIFO", () => {
