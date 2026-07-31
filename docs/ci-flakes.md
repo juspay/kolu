@@ -146,6 +146,34 @@ retries.
 | `0f6f4ac#1` | `0f6f4ac85` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `a638755#1` | `a638755ec` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `ecf8f28#1` | `ecf8f280d` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
+| `0dfaddc#1` | `0dfaddc34` | Failed: `ci::e2e-governance@x86_64-linux`; every other node passed and both e2e lanes had 0 retries | `0/5` |
+
+### `0dfaddc#1`: Linux governance lost Vitest command discovery
+
+- **Failure:** `ci::e2e-governance@x86_64-linux` failed while validating the
+  coverage-ledger reference to
+  `packages/integrations/git/src/index.test.ts`. Its nested command returned
+  `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "vitest" not found`.
+- **Root cause:** governance launched a new
+  `pnpm --dir <owning-package> exec vitest` command for each of 17 referenced
+  test files. One package-local pnpm command lookup transiently failed under
+  the parallel Linux CI fan-out even though Vitest was installed. The check
+  coupled test collection to repeated package-bin discovery it does not need.
+- **Evidence:** `.ci/0dfaddc/x86_64-linux/ci::install.log` shows the frozen
+  workspace install completed successfully before governance started.
+  `.ci/0dfaddc/x86_64-linux/ci::e2e-governance.log` records the exact failed
+  nested command. A read-only audit of that still-live Odu checkout found both
+  root and `packages/integrations/git` Vitest executables present, with their
+  original install timestamps; invoking the declared root Vitest CLI directly
+  from the Git package collected all 69 tests successfully.
+- **Proposed fix:** resolve the root `vitest/vitest.mjs` entry point once and
+  invoke it with the current Node process from each owning package directory.
+  Keep the package cwd, which preserves Vitest's config discovery, while
+  removing all nested pnpm command lookup.
+- **Implementation:** governance now fails fast if the root Vitest entry point
+  is absent, then uses that exact entry point for every collection. The full
+  local governance check and all 17 harness unit tests pass. Targeted
+  two-platform CI verification remains required.
 
 ### `aea6cc3#1`: five macOS Git fixture commits returned status 128
 
