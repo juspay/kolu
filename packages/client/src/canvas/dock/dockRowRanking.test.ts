@@ -153,6 +153,27 @@ describe("rankDockRows — parked bucket precedence", () => {
     expect(bucket(makeMeta(), false)).toBe("none");
   });
 
+  it("an agent with no recency yet ranks idle, not none — `none` means PLAIN shell", () => {
+    // padi publishes the composed record with a fresh agent before it stamps
+    // `lastActivityAt`, so this product is a real frame, not a hypothetical.
+    // Ranking it `none` used to trip `rankSubRow`'s agent fence and throw out of
+    // the dock's memo — the whole Dock, gone, for one split's first frame.
+    const meta = makeMeta({
+      agent: makeAgent("waiting"),
+      lastActivityAt: null,
+    });
+    expect(bucket(meta, false)).toBe("idle");
+    expect(() =>
+      rankDockRows(
+        ["parent"] as TerminalId[],
+        (id) => (id === "parent" ? makeMeta({ lastActivityAt: 1 }) : meta),
+        () => false,
+        classOfMeta(() => meta),
+        () => [{ id: "fresh-agent-split" as TerminalId, children: [] }],
+      ),
+    ).not.toThrow();
+  });
+
   it("classifies a sleeping terminal as its own bucket, not none", () => {
     expect(bucket(makeSleepingMeta(), false)).toBe("sleeping");
   });

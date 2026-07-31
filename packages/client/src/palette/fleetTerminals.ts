@@ -6,8 +6,12 @@
  *  composed terminals collection (same shape as `createHostWire`) and flattens
  *  them into ranked rows carrying the host key.
  *
- *  Entry source matches the Dock: only top-level tiles (`!parentId`) — split
- *  children ride their parent. Ranking: recency-desc across the fleet
+ *  Entry source matches the Dock: only canvas TILES — split children ride their
+ *  parent. "Tile" is the store's own rule (`containingTileOf(id) === id`), not
+ *  `!parentId`: a split whose parent died without a client reconcile keeps a
+ *  dangling `parentId` and is painted as a tile by the canvas and the Dock, so
+ *  the cheaper test would drop it from the switcher alone — findable nowhere.
+ *  Ranking: recency-desc across the fleet
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
@@ -31,6 +35,7 @@ import { hostScopeOf } from "../hostScope/hostScopes";
 import { windowOption } from "../terminal/activityWindow";
 import { reprojectTerminalClock } from "../terminal/reprojectClock";
 import { isStale as isStaleAt } from "../terminal/staleness";
+import { containingTileOf, type ParentEdge } from "../terminal/terminalTree";
 import { isParked } from "../terminal/useTerminalMetadata";
 import { getClockNow } from "../time/clock";
 import { hostKeys, interpretClientError, padiMap } from "../wire";
@@ -54,13 +59,13 @@ export function rankFleetTerminalRows(
   });
 }
 
-/** Whether a terminal is a switcher/dock row — same rule as
- *  `useTerminalMetadata.terminalIds`: split children (`parentId` set) ride
- *  their parent tile and must not appear as independent entries. */
-export function isTopLevelTerminal(meta: {
-  parentId?: string | null;
-}): boolean {
-  return !meta.parentId;
+/** Whether a terminal is a switcher/dock row — the SAME walk
+ *  `useTerminalMetadata.terminalIds` uses, over this host's census: a genuine
+ *  split rides its parent tile, while a node with no resolvable root (cycle, or
+ *  a parent that is gone) is its own tile. Sharing the walk is what keeps the
+ *  two lists from disagreeing about which terminals exist. */
+export function isTileTerminal(id: TerminalId, parentOf: ParentEdge): boolean {
+  return containingTileOf(id, parentOf) === id;
 }
 
 /** Group a recency-ranked fleet list by host, preserving first-seen host order
@@ -163,12 +168,20 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
         const now = getClockNow()();
         const thresholdMs = thresholdMsForHost(host);
         const out: FleetTerminalRow[] = [];
+        // Live parent edge over THIS host's census. A parked or not-yet-arrived
+        // record is `undefined` (absent), exactly as the active host's store
+        // reads it, so the shared walk answers the same question here.
+        const parentOf = (id: TerminalId) => {
+          const record = terminals.byKey(id)?.();
+          if (record === undefined || isParked(record)) return undefined;
+          return (record.parentId as TerminalId | undefined) ?? null;
+        };
         for (const id of keys()) {
           // Bound collection: `byKey` is a method on the use() result (not a signal).
           const raw = terminals.byKey(id)?.();
           if (raw === undefined || isParked(raw)) continue;
           // Match Dock / `terminalIds`: splits are not independent rows.
-          if (!isTopLevelTerminal(raw)) continue;
+          if (!isTileTerminal(id, parentOf)) continue;
           const meta = reprojectOnHost(host, raw);
           const recencyAt = rowRecencyAt(meta);
           if (isStaleAt(recencyAt, now, thresholdMs)) continue;

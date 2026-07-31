@@ -31,7 +31,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
-import { containingTileOf } from "./terminalTree";
+import { containingTileOf, type ParentEdge } from "./terminalTree";
 
 /** The sub-panel seams a new split drives — read live, mutated to adopt. Bundled
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
@@ -50,8 +50,11 @@ export interface SplitAdoptPorts {
 export function useAdoptNewSplit(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
   rawList: Accessor<TerminalId[]>;
-  /** Live parentId for a listed id (`null` for top-level). */
-  parentOf: (id: TerminalId) => TerminalId | null;
+  /** The store's live parent EDGE: `null` for a top-level tile, `undefined`
+   *  when the id is absent from the census. Three-valued on purpose — the walk
+   *  below must stop at a departed ancestor instead of climbing through it and
+   *  expanding a dead tile's panel. */
+  parentOf: ParentEdge;
   /** The canonical ACTIVE-host key. Carried in the snapshot so a host SWITCH
    *  rebaselines (its existing splits are not mass arrivals) — the same disjoint
    *  id-space concern useActiveReconcile guards. */
@@ -72,7 +75,9 @@ export function useAdoptNewSplit(deps: {
       const m = new Map<TerminalId, TerminalId>();
       for (const id of ids) {
         const parentId = deps.parentOf(id);
-        if (parentId !== null) m.set(id, parentId);
+        // Both non-sub answers skip: `null` is a top-level tile, `undefined` is
+        // an id whose record has not arrived — neither is a split arrival.
+        if (parentId != null) m.set(id, parentId);
       }
       return m;
     },
@@ -98,7 +103,7 @@ export function useAdoptNewSplit(deps: {
         // Sub-panel chrome is keyed on the ROOT tile. A nested create
         // (`parentId` = a middle split) must expand that tile's panel, not a
         // middle node that has no canvas chrome of its own.
-        const tileId = containingTileOf(parentId, (id) => deps.parentOf(id));
+        const tileId = containingTileOf(parentId, deps.parentOf);
         deps.ports.expandPanel(tileId);
         // Don't-steal: select the arrival only when no split is currently active.
         // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when

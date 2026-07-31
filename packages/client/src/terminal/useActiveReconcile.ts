@@ -58,8 +58,6 @@ export function pickAutoSwitchTarget(
  *  cleanup body is a pure function of (ports, id, parentId, order): unit-testable
  *  with plain spies, and wired ONCE in useTerminalCrud. */
 export interface TerminalEvictionPorts {
-  /** True one-hop children (rehome targets / top-level promote). LIVE. */
-  getSubTerminalIds: (parentId: TerminalId) => readonly TerminalId[];
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
   /** Pan-and-activate a survivor (or `null`). */
@@ -100,32 +98,25 @@ export type RemovalGraph = {
  *  frame — just `id` for a single close, the whole batch for a list-driven
  *  multi-departure — so the auto-switch survivor set is `topLevelBefore` minus all
  *  of them: a frame that empties the top level clamps focus to null instead of a
- *  still-departing sibling. `removal` is the pre-removal parent graph (required
- *  for nested rehome + remaining-tab repair when live state already dropped `id`). */
+ *  still-departing sibling. `removal` is the pre-removal parent graph — REQUIRED,
+ *  and the only census this function reads. Both callers pass it: list-driven
+ *  because live metadata already dropped `id` (grandchildren would look like
+ *  orphans), imperative because it still has the intact census at kill time.
+ *  There is deliberately no live-index fallback: a synthesized graph could only
+ *  guess one hop, which is exactly the answer #2059 proved wrong — it would
+ *  rehome a grandchild under the departing node's immediate parent instead of
+ *  the highest surviving ancestor, and its census would omit live siblings. */
 export function evictTerminal(
   ports: TerminalEvictionPorts,
   id: TerminalId,
   parentId: TerminalId | null,
   topLevelBefore: readonly TerminalId[],
   departing: ReadonlySet<TerminalId>,
-  removal?: RemovalGraph,
+  removal: RemovalGraph,
 ) {
   if (parentId !== null) {
-    // Both callers pass the pre-removal graph: list-driven because live
-    // metadata already dropped `id` (grandchildren would look like orphans);
-    // imperative because it still has the intact census at kill time.
-    const graph = removal ?? {
-      ids: [id, parentId, ...ports.getSubTerminalIds(id)],
-      parentOf: (x: TerminalId) => {
-        if (x === id) return parentId;
-        if (x === parentId) return null;
-        // Best-effort for one-hop children of id (imperative without full census).
-        if (ports.getSubTerminalIds(id).includes(x)) return id;
-        return undefined;
-      },
-    };
-    const edge = graph.parentOf;
-    const census = graph.ids;
+    const edge = removal.parentOf;
+    const census = removal.ids;
     // Surviving containing tile: walk the full pre-removal ancestor chain and
     // take the HIGHEST still-live ancestor (canvas chrome keys on the root, not
     // a live middle). If none survive, promote to top-level.
@@ -191,11 +182,7 @@ export function evictTerminal(
   // Top-level tile — promote its TRUE one-hop children to top-level (each
   // keeps its own subtree intact), shed its chrome, and auto-switch focus if
   // it was active. Nested grandchildren ride with the promoted middles.
-  // Prefer the pre-removal graph when present (list-driven); else live index.
-  const oneHop =
-    removal !== undefined
-      ? removal.ids.filter((x) => removal.parentOf(x) === id)
-      : ports.getSubTerminalIds(id);
+  const oneHop = removal.ids.filter((x) => removal.parentOf(x) === id);
   for (const subId of oneHop) {
     if (departing.has(subId)) continue;
     ports.promoteToTopLevel(subId);
@@ -268,8 +255,11 @@ export function createEvictionDedup(
 export function useActiveReconcile(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
   rawList: Accessor<TerminalId[]>;
-  /** Live parentId for a listed id (`null` for top-level). */
-  parentOf: (id: TerminalId) => TerminalId | null;
+  /** The store's live parent EDGE (`null` top-level, `undefined` absent) — the
+   *  same one every other walk runs on. The snapshot below stores the absent
+   *  case as `null`: an id in the list whose record has not arrived has no
+   *  parent to reconcile yet. */
+  parentOf: ParentEdge;
   /** The canonical ACTIVE-host key. The list is host-scoped (`terminalListSub`
    *  re-keys on switch), so a host SWITCH replaces the WHOLE list with a disjoint
    *  id space. Without this the reconcile would read every prior-host id as a mass
@@ -309,7 +299,7 @@ export function useActiveReconcile(deps: {
     deps.activeHostKey,
     (ids) => {
       const m = new Map<TerminalId, TerminalId | null>();
-      for (const id of ids) m.set(id, deps.parentOf(id));
+      for (const id of ids) m.set(id, deps.parentOf(id) ?? null);
       return m;
     },
   );

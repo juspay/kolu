@@ -127,14 +127,23 @@ function classifyDockRow(
   // a given state identically to every `agentProjection` consumer (pinned by the
   // parity test). `awaiting_user` → need, the working states → work, and
   // everything else — a `waiting` post-turn agent, an unknown state, or no
-  // agent at all — → idle. A never-touched plain shell (`lastActivityAt === 0`,
-  // no agent) keeps its quieter `none` bucket below idle.
-  switch (agentUrgency(activeArm(meta)?.agent)) {
+  // agent at all — → idle. A never-touched plain shell (no agent, no recency)
+  // keeps its quieter `none` bucket below idle.
+  const agent = activeArm(meta)?.agent;
+  switch (agentUrgency(agent)) {
     case "need":
       return "awaiting";
     case "work":
       return "working";
     case "idle":
+      // `none` means a never-touched PLAIN SHELL, so the agent test is part of
+      // the rule — not just the recency clock. A terminal that HAS an agent is
+      // never that, whatever its clock says, and the two facts arrive on
+      // separate padi writes: the composed record carries a fresh agent before
+      // `lastActivityAt` is stamped. Reading recency alone put that frame's row
+      // in `none`, a bucket `rankSubRow` asserts an agent split cannot reach —
+      // and the throw escapes the dock's memo, taking the whole Dock down.
+      if (agent) return "idle";
       return meta.lastActivityAt !== null ? "idle" : "none";
   }
 }

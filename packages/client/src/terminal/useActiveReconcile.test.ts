@@ -38,10 +38,10 @@ describe("pickAutoSwitchTarget", () => {
   });
 });
 
-/** Spy ports for `evictTerminal`. `getSubTerminalIds` / `activeId` /
- *  `activeSubTab` are supplied per-test; the mutating seams are spies. */
+/** Spy ports for `evictTerminal`. `activeId` / `focusedTerminalId` /
+ *  `activeSubTab` are supplied per-test; the mutating seams are spies. The
+ *  census is NOT a port — it always arrives as the required `RemovalGraph`. */
 function makePorts(over: {
-  getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
@@ -63,7 +63,6 @@ function makePorts(over: {
     removeSearch: vi.fn<(id: TerminalId) => void>(),
   };
   const ports: TerminalEvictionPorts = {
-    getSubTerminalIds: over.getSubTerminalIds ?? (() => []),
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
     activate: calls.activate,
@@ -103,11 +102,15 @@ function graph(
 
 describe("evictTerminal — top-level branch", () => {
   it("promotes subs, sheds chrome, and auto-switches when active", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
-      activeId: () => T("P"),
-    });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    const { ports, calls } = makePorts({ activeId: () => T("P") });
+    evictTerminal(
+      ports,
+      T("P"),
+      null,
+      [T("P"), T("Q")],
+      new Set([T("P")]),
+      graph({ P: null, Q: null, S1: "P", S2: "P" }),
+    );
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
     expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
@@ -120,7 +123,14 @@ describe("evictTerminal — top-level branch", () => {
 
   it("does not auto-switch when the removed tile was not active", () => {
     const { ports, calls } = makePorts({ activeId: () => T("Q") });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(
+      ports,
+      T("P"),
+      null,
+      [T("P"), T("Q")],
+      new Set([T("P")]),
+      graph({ P: null, Q: null }),
+    );
     expect(calls.activate).not.toHaveBeenCalled();
   });
 
@@ -134,6 +144,7 @@ describe("evictTerminal — top-level branch", () => {
       null,
       [T("A"), T("B"), T("C")],
       new Set([T("A"), T("B"), T("C")]),
+      graph({ A: null, B: null, C: null }),
     );
     expect(calls.activate).toHaveBeenCalledWith(null);
   });
@@ -148,6 +159,7 @@ describe("evictTerminal — top-level branch", () => {
       null,
       [T("A"), T("B"), T("C"), T("D")],
       new Set([T("A"), T("B")]),
+      graph({ A: null, B: null, C: null, D: null }),
     );
     expect(calls.activate).toHaveBeenCalledWith(T("C"));
   });
@@ -156,7 +168,6 @@ describe("evictTerminal — top-level branch", () => {
 describe("evictTerminal — sub-terminal branch", () => {
   it("collapses, clears the tab, and focuses the parent when the focused last sub departs", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [], // no siblings remain
       focusedTerminalId: () => T("S"),
     });
     evictTerminal(
@@ -178,7 +189,6 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("keeps a background tile's focus untouched when its last sub departs", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [],
       focusedTerminalId: () => T("OTHER"),
     });
 
@@ -199,7 +209,6 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("switches the active sub-tab to a sibling and refocuses", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
       activeSubTab: () => T("S1"),
       focusedTerminalId: () => T("S1"),
     });
@@ -218,7 +227,6 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("keeps main-pane focus while repairing a departed active sub tab", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
       activeSubTab: () => T("S1"),
       focusedTerminalId: () => T("P"),
     });
@@ -241,11 +249,6 @@ describe("evictTerminal — sub-terminal branch", () => {
   it("re-homes a middle terminal's children to the root (does not kill them)", () => {
     // R ← M ← G; close M. G must become a child of R, chrome repaired on R.
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => {
-        if (p === T("M")) return [T("G")];
-        if (p === T("R")) return [T("M")];
-        return [];
-      },
       activeSubTab: () => T("M"),
       focusedTerminalId: () => T("M"),
     });
@@ -267,11 +270,6 @@ describe("evictTerminal — sub-terminal branch", () => {
   it("promotes grandchildren when the whole ancestor chain departs in one frame", () => {
     // R and M leave together; G survives → promote G, no chrome under dead R.
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => {
-        if (p === T("M")) return [T("G")];
-        if (p === T("R")) return [T("M")];
-        return [];
-      },
       focusedTerminalId: () => T("M"),
     });
     evictTerminal(
@@ -291,7 +289,6 @@ describe("evictTerminal — sub-terminal branch", () => {
   it("re-homes under the root even when a middle parent survives", () => {
     // R ← P ← M ← G; only M closes. G rehomes to R (not P); chrome on R.
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("M") ? [T("G")] : []),
       activeSubTab: () => T("M"),
       focusedTerminalId: () => T("M"),
     });
@@ -384,7 +381,6 @@ function setupReconcile(init: {
     const [host, setHost] = createSignal(init.host ?? "local");
     const parentOf = (id: TerminalId) => parents()[id] ?? null;
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (pid) => rawIds().filter((id) => parentOf(id) === pid),
       activeId: () => state.active,
       focusedTerminalId: () => state.focused,
       activeSubTab: (pid) => state.activeSubTab[pid] ?? null,

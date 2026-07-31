@@ -15,7 +15,7 @@ import {
 import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
-import { containingTileOf } from "./terminalTree";
+import { containingTileOf, descendantsByRoot } from "./terminalTree";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the composed record having arrived on padi's
@@ -135,14 +135,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
 
     // Initialize sub-panel active tabs on ROOT tiles — flat descendants, not
     // true one-hop (a remembered grandchild is a valid tab of R, not only of M).
-    const byRoot = new Map<TerminalId, TerminalId[]>();
-    for (const { t } of entries) {
-      const root = containingTileOf(t.id, parentEdge);
-      if (root === t.id) continue; // the tile itself is not a tab
-      const list = byRoot.get(root);
-      if (list) list.push(t.id);
-      else byRoot.set(root, [t.id]);
-    }
+    // The SAME grouping the live store's pane index uses, from the module that
+    // owns it: hydration must seed exactly the tabs the canvas will then paint.
+    const byRoot = descendantsByRoot(
+      entries.map(({ t }) => t.id),
+      parentEdge,
+    );
     for (const [rootId, subIds] of byRoot) {
       const activeSubTab = subPanel.peekSubPanel(rootId).activeSubTab;
       if (!activeSubTab || !subIds.includes(activeSubTab)) {

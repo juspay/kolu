@@ -92,7 +92,10 @@ export function assignColors(keys: Iterable<string>): Map<string, string> {
 export function buildTerminalDisplayInfos(
   ids: TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
-  getSubTerminalIds: (id: TerminalId) => TerminalId[],
+  /** Every PANE of the tile — the whole subtree, not the one-hop children. The
+   *  split badge counts what the canvas tab strip shows, so a grandchild
+   *  counts; a one-hop reader here silently undercounts a nested tile. */
+  getPaneIds: (id: TerminalId) => TerminalId[],
 ): Map<TerminalId, TerminalDisplayInfo> {
   const entries = ids.flatMap((id) => {
     const meta = getMeta(id);
@@ -121,7 +124,7 @@ export function buildTerminalDisplayInfos(
     result.set(id, {
       repoColor,
       annotationColor,
-      subCount: getSubTerminalIds(id).length,
+      subCount: getPaneIds(id).length,
       key,
     });
   }

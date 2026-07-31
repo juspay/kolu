@@ -117,17 +117,16 @@ const tids = (...xs: string[]) => xs as TerminalId[];
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-describe("root-ancestor flatten vs true one-hop (#2059)", () => {
+describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
   // Canvas paints every descendant under a root as a flat split tab; the Dock
-  // indents the SAME panes by their true parent→child edge. All three accessors
-  // ride the same metadata bag and the same resolved index.
+  // indents the SAME panes by their true parent→child edge. Both accessors ride
+  // the same metadata bag and the same resolved index.
   function meta(overrides: TestMeta = {}): TestMeta {
     return { cwd: "/home/user/p", parentId: undefined, ...overrides };
   }
 
   function drive(parents: Record<string, string | undefined>): {
     terminalIds: () => TerminalId[];
-    getSubTerminalIds: (id: TerminalId) => TerminalId[];
     getSplitPaneIds: (id: TerminalId) => TerminalId[];
     getPaneTree: (id: TerminalId) => readonly PaneNode[];
     dispose: () => void;
@@ -139,30 +138,21 @@ describe("root-ancestor flatten vs true one-hop (#2059)", () => {
         meta({
           parentId: parents[id as string] as TerminalId | undefined,
         });
-      const { terminalIds, getSubTerminalIds, getSplitPaneIds, getPaneTree } =
-        useTerminalMetadata({
+      const { terminalIds, getSplitPaneIds, getPaneTree } = useTerminalMetadata(
+        {
           list: () => ids.map((id) => ({ id }) as TerminalInfo),
-        });
-      return {
-        terminalIds,
-        getSubTerminalIds,
-        getSplitPaneIds,
-        getPaneTree,
-        dispose,
-      };
+        },
+      );
+      return { terminalIds, getSplitPaneIds, getPaneTree, dispose };
     });
   }
 
-  it("flattens a 3-deep chain under the root in server order; Dock one-hop is untouched", () => {
+  it("flattens a 3-deep chain under the root in server order", () => {
     // Server order: R, M, G, C (C is a direct child of R after G).
     const h = drive({ R: undefined, M: "R", G: "M", C: "R" });
     expect(h.terminalIds()).toEqual(tids("R"));
     // Canvas flat: every descendant of R.
     expect(h.getSplitPaneIds(tids("R")[0]!)).toEqual(tids("M", "G", "C"));
-    // Dock true one-hop.
-    expect(h.getSubTerminalIds(tids("R")[0]!)).toEqual(tids("M", "C"));
-    expect(h.getSubTerminalIds(tids("M")[0]!)).toEqual(tids("G"));
-    expect(h.getSubTerminalIds(tids("G")[0]!)).toEqual([]);
     h.dispose();
   });
 
@@ -171,9 +161,9 @@ describe("root-ancestor flatten vs true one-hop (#2059)", () => {
     expect(h.terminalIds()).toEqual(tids("A", "B"));
     expect(h.getSplitPaneIds(tids("A")[0]!)).toEqual([]);
     expect(h.getSplitPaneIds(tids("B")[0]!)).toEqual([]);
-    // True edges remain for the Dock.
-    expect(h.getSubTerminalIds(tids("A")[0]!)).toEqual(tids("B"));
-    expect(h.getSubTerminalIds(tids("B")[0]!)).toEqual(tids("A"));
+    // A cycle member is a tile, so it is nobody's pane on EITHER shape.
+    expect(h.getPaneTree(tids("A")[0]!)).toEqual([]);
+    expect(h.getPaneTree(tids("B")[0]!)).toEqual([]);
     h.dispose();
   });
 
