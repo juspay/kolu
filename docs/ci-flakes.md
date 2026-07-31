@@ -189,6 +189,14 @@ retries.
   the environment passed to `just dev`. The existing padi-to-kaval forwarding
   and `boundToPid` lifetime then reap the detached tree when the smoke process
   ends, without changing normal developer `just dev` persistence.
+- **Implementation:** `startDevServer` now overrides the spawned smoke
+  environment with `KOLU_DAEMON_BIND_PID: String(process.pid)`. An always-on
+  daemon-gate test prevents that leash from being removed while leaving normal
+  developer `just dev` untouched.
+- **Fix verification:** all 22 daemon-gate tests pass. Targeted two-platform run
+  `ba374cf#1` passed `ci::dev-smoke` on `ci@petit` and `kolu-ci-1`; after both
+  nodes settled, neither host had a padi or kaval process whose command named
+  that run's `ba374cf` Odu snapshot.
 
 ### `03c8122#1`: duplicate macOS unit workspaces externally killed
 
@@ -383,3 +391,4 @@ full two-platform green streak.
 | `e00cbe5#1` | `e00cbe551` | `fmt@x86_64-linux` | `kolu-ci-1` | Passed |
 | `5a8461c#1` | `5a8461cb7` | `unit@aarch64-darwin` | `ci@petit` | Passed |
 | `de8c863#5` | `de8c86315` | `fmt` and `atlas-sync` on both platforms | `ci@petit`, `kolu-ci-1` | Passed |
+| `ba374cf#1` | `ba374cfb2` | `dev-smoke` on both platforms plus post-run daemon process audit | `ci@petit`, `kolu-ci-1` | Passed; no daemon from the run survived |
