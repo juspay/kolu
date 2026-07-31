@@ -34,6 +34,7 @@ const ROOT = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const CHILD = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const SIBLING = "33333333-3333-4333-8333-333333333333" as TerminalId;
 const DORMANT = "44444444-4444-4444-8444-444444444444" as TerminalId;
+const PARKED = "55555555-5555-4555-8555-555555555555" as TerminalId;
 
 type CreateHandler = (a: { input: { parentId?: string } }) => { id: string };
 type SetParentHandler = (a: {
@@ -122,6 +123,27 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     const err = caught(() =>
       create({ input: { parentId: "99999999-9999-4999-8999-999999999999" } }),
     );
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+  });
+
+  it("lifecycle.create answers a PARKED parent with NOT_FOUND too", () => {
+    // The other arm the removed handler guard used to answer NOT_FOUND. A parked
+    // restore-card placeholder is invisible to clients by repo convention
+    // (`requireMutableTerminal`), so it must not be reclassified into a
+    // BAD_REQUEST that names a record the client is told does not exist.
+    registerTerminal(PARKED, {
+      info: { id: PARKED, pid: 1 },
+      meta: {
+        state: "parked",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        parkedAt: 1,
+      },
+      snapshot: snapshot(),
+    });
+
+    const err = caught(() => create({ input: { parentId: PARKED } }));
     expect(err).toBeInstanceOf(ORPCError);
     expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
   });

@@ -403,25 +403,29 @@ export function requireFlatParentEdge(childId: string, parentId: string): void {
       "a terminal cannot be its own parent",
     );
   if (!isPaintableParent(parentId)) {
-    // The predicate above is the FACT; this only names WHICH of its clauses failed.
+    // The predicate above is the FACT; this only names WHICH of its clauses
+    // failed — and, for the two arms a client cannot see, which FAULT CODE says so.
     const parent = getTerminal(parentId);
-    if (!parent) throw terminalNotFound(parentId);
+    // Absent and PARKED are one answer, deliberately: a parked record is an
+    // invisible restore-card placeholder, and `requireMutableTerminal` already
+    // makes every client mutation read it as `terminalNotFound`. Naming it in a
+    // BAD_REQUEST here would leak a record the same client is told does not
+    // exist — and would reclassify a fault the create door has always answered
+    // NOT_FOUND.
+    if (!parent || parent.meta.state === "parked")
+      throw terminalNotFound(parentId);
     if (parent.meta.parentId !== undefined)
       throw invalidParentEdge(
         childId,
         parentId,
         `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
       );
-    if (parent.meta.state === "sleeping")
-      throw invalidParentEdge(
-        childId,
-        parentId,
-        "it is dormant, and a dormant tile paints no splits — wake it first",
-      );
+    // The remaining arm is a tile the client CAN see but that paints no splits:
+    // dormant, or an active record whose PTY is gone (a half-unwound spawn).
     throw invalidParentEdge(
       childId,
       parentId,
-      "it is a parked restore-card placeholder, not a tile the canvas paints",
+      "it is dormant, and a dormant tile paints no splits — wake it first",
     );
   }
   const orphan = firstChildOf(childId);

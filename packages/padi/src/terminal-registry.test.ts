@@ -136,11 +136,15 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
     expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
   });
 
-  it("REJECTS a PARKED parent (a restore-card placeholder is never painted)", () => {
+  it("REJECTS a PARKED parent as NOT_FOUND — same answer an absent id gets", () => {
+    // A parked record is an invisible restore-card placeholder:
+    // `requireMutableTerminal` already makes every client mutation read it as
+    // `terminalNotFound`, so naming it in a BAD_REQUEST would leak a record the
+    // same client is told does not exist.
     seedParked();
     const err = caught(() => requireFlatParentEdge(FRESH, ID));
     expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
+    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
   });
 
   it("REJECTS a SLEEPING parent — a dormant tile paints no splits at all", () => {
