@@ -201,8 +201,10 @@ function pickSpread(
   mode?: ThemePickMode,
 ): string {
   const pool = filterEligible(candidates, undefined, mode);
+  // Deduped: the scoring below is O(pool × peers) taking a MIN, so a repeated
+  // background can only re-derive the distance it already contributed.
   const peerLabs: OkLab[] = [];
-  for (const hex of peerBgs) {
+  for (const hex of new Set(peerBgs)) {
     const lab = getLab(hex);
     if (lab) peerLabs.push(lab);
   }
