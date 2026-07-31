@@ -139,8 +139,11 @@ export function createCodeTabOpenController<Paths, Resolved>(
       current.scope === null ||
       !codeTabScopesEqual(current.scope, request.scope)
     ) {
-      // Leaving any member of the request's scope permanently supersedes it.
-      complete(request, () => {});
+      // A scope mismatch can be transient: the producer may have selected a
+      // different terminal in the same batch, while this consumer still sees
+      // the prior projection. Abort work tied to the departed scope, but keep
+      // the latest request eligible for the matching scope to arrive.
+      retire();
       return;
     }
 

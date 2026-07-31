@@ -21,7 +21,128 @@ const request = (terminalId: string): OpenInCodeTabRequest => ({
 
 const tick = () => Promise.resolve();
 
+type Paths = readonly string[];
+type Snapshot = CodeTabOpenSnapshot<Paths>;
+
+function createHarness(options?: {
+  snapshot?: Partial<Snapshot>;
+  readFresh?: (
+    request: OpenInCodeTabRequest,
+    includeIgnored: boolean,
+    signal: AbortSignal,
+  ) => Promise<Paths>;
+}) {
+  const req = request("t1");
+  const [snapshot, setSnapshot] = createSignal<Snapshot>({
+    request: req,
+    scope: req.scope,
+    paths: [],
+    inventoryPending: false,
+    includeIgnored: false,
+    ...options?.snapshot,
+  });
+  const readFresh = vi.fn(options?.readFresh ?? (async () => []));
+  const onResolved = vi.fn();
+  const onNotFound = vi.fn();
+  const onError = vi.fn();
+  const dispose = createRoot((dispose) => {
+    createCodeTabOpenController<Paths, string>({
+      snapshot,
+      resolve: (_request, paths) =>
+        paths.includes("new.ts") ? "new.ts" : null,
+      readFresh,
+      onResolved,
+      onNotFound,
+      onError,
+    });
+    return dispose;
+  });
+  return {
+    req,
+    readFresh,
+    onResolved,
+    onNotFound,
+    onError,
+    patchSnapshot: (patch: Partial<Snapshot>) =>
+      setSnapshot((current) => ({ ...current, ...patch })),
+    dispose,
+  };
+}
+
 describe("createCodeTabOpenController", () => {
+  it("waits through null and mismatched scope, then resolves on the owner", async () => {
+    const h = createHarness({ snapshot: { scope: null } });
+    await tick();
+    expect(h.readFresh).not.toHaveBeenCalled();
+
+    h.patchSnapshot({ scope: scope("t2") });
+    await tick();
+    expect(h.readFresh).not.toHaveBeenCalled();
+    expect(h.onNotFound).not.toHaveBeenCalled();
+
+    h.patchSnapshot({ scope: h.req.scope, paths: ["new.ts"] });
+    await tick();
+    expect(h.onResolved).toHaveBeenCalledOnce();
+    expect(h.onResolved).toHaveBeenCalledWith(h.req, "new.ts");
+    h.dispose();
+  });
+
+  it("resolves a retained inventory hit without a fresh read", async () => {
+    const h = createHarness({ snapshot: { paths: ["new.ts"] } });
+    await tick();
+    expect(h.onResolved).toHaveBeenCalledOnce();
+    expect(h.readFresh).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("resolves a retained miss from the fresh inventory", async () => {
+    const h = createHarness({ readFresh: async () => ["new.ts"] });
+    await tick();
+    await tick();
+    expect(h.readFresh).toHaveBeenCalledOnce();
+    expect(h.onResolved).toHaveBeenCalledOnce();
+    expect(h.onNotFound).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("consumes a confirmed fresh miss as not found", async () => {
+    const h = createHarness({ readFresh: async () => [] });
+    await tick();
+    await tick();
+    expect(h.onNotFound).toHaveBeenCalledOnce();
+    expect(h.onResolved).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("consumes a current fresh-read error exactly once", async () => {
+    const failure = new Error("fresh inventory failed");
+    const h = createHarness({
+      readFresh: async () => {
+        throw failure;
+      },
+    });
+    await tick();
+    await tick();
+    expect(h.onError).toHaveBeenCalledOnce();
+    expect(h.onError).toHaveBeenCalledWith(h.req, failure);
+
+    h.patchSnapshot({ paths: ["new.ts"] });
+    await tick();
+    expect(h.onResolved).not.toHaveBeenCalled();
+    h.dispose();
+  });
+
+  it("waits for the retained inventory before starting a fresh read", async () => {
+    const h = createHarness({ snapshot: { inventoryPending: true } });
+    await tick();
+    expect(h.readFresh).not.toHaveBeenCalled();
+
+    h.patchSnapshot({ inventoryPending: false });
+    await tick();
+    expect(h.readFresh).toHaveBeenCalledOnce();
+    h.dispose();
+  });
+
   it("retires a late fresh read when the owning terminal changes", async () => {
     const req = request("t1");
     const [currentScope, setCurrentScope] = createSignal<CodeTabScope | null>(

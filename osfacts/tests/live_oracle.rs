@@ -108,7 +108,8 @@ struct ForeignProcessOracle {
 #[cfg(target_os = "macos")]
 #[derive(Debug)]
 struct ForeignProcessSnapshot {
-    observed_at: Instant,
+    started_at: Instant,
+    finished_at: Instant,
     rows: Vec<ForeignProcessOracle>,
 }
 
@@ -138,12 +139,13 @@ fn parse_ps_elapsed(value: &str) -> Option<u64> {
 
 #[cfg(target_os = "macos")]
 fn foreign_processes_from_ps(own_uid: u32) -> ForeignProcessSnapshot {
+    let started_at = Instant::now();
     let output = Command::new("ps")
         .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
         .output()
         .expect("ps must be on PATH for the live oracle");
     assert!(output.status.success(), "ps failed: {}", output.status);
-    let observed_at = Instant::now();
+    let finished_at = Instant::now();
     let rows = String::from_utf8(output.stdout)
         .expect("ps output is utf8")
         .lines()
@@ -164,7 +166,11 @@ fn foreign_processes_from_ps(own_uid: u32) -> ForeignProcessSnapshot {
             })
         })
         .collect();
-    ForeignProcessSnapshot { observed_at, rows }
+    ForeignProcessSnapshot {
+        started_at,
+        finished_at,
+        rows,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -512,8 +518,11 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
         let cpu_times = rows("C");
         let unreadable = rows("U");
         let own_uid = unsafe { libc::geteuid() };
-        let current = foreign_processes_from_ps(own_uid)
+        let current_snapshot = foreign_processes_from_ps(own_uid);
+        let current = current_snapshot
             .rows
+            .iter()
+            .cloned()
             .into_iter()
             .map(|process| (process.pid, process))
             .collect::<HashMap<_, _>>();
@@ -521,7 +530,20 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
             .foreign_process_snapshot
             .as_ref()
             .expect("foreign process snapshot");
-        let elapsed_since_first_ps = first_ps.observed_at.elapsed().as_secs();
+        // `ps etime` is whole-second resolution, and each process can be
+        // sampled anywhere between the command's start and finish. Compare the
+        // observed age increase against that complete interval rather than a
+        // fixed skew allowance that becomes false on a slow/noisy host.
+        let minimum_age_increase = current_snapshot
+            .started_at
+            .saturating_duration_since(first_ps.finished_at)
+            .as_secs()
+            .saturating_sub(1);
+        let maximum_age_increase = current_snapshot
+            .finished_at
+            .saturating_duration_since(first_ps.started_at)
+            .as_secs()
+            .saturating_add(1);
         let retired = first_ps
             .rows
             .iter()
@@ -530,16 +552,17 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                 if procs.iter().any(|row| row.get(1) == Some(&pid.as_str())) {
                     return None;
                 }
-                let same_process_is_live = current.get(&expected.pid).is_some_and(|process| {
-                    process.uid == expected.uid
-                        && process.ppid == expected.ppid
-                        && process.name == expected.name
-                        && process.elapsed_seconds.abs_diff(
-                            expected
-                                .elapsed_seconds
-                                .saturating_add(elapsed_since_first_ps),
-                        ) <= 2
-                });
+                let same_process_is_live =
+                    current.get(&expected.pid).is_some_and(|process| {
+                        let age_increase = process
+                            .elapsed_seconds
+                            .saturating_sub(expected.elapsed_seconds);
+                        process.uid == expected.uid
+                            && process.ppid == expected.ppid
+                            && process.name == expected.name
+                            && (minimum_age_increase..=maximum_age_increase)
+                                .contains(&age_increase)
+                    });
                 assert!(
                     !same_process_is_live,
                     "osfacts omitted still-live foreign process {}:\n{body}",

@@ -19,8 +19,7 @@ pkgs.mkShell {
 
   shellHook = ''
     if root=$(git rev-parse --show-toplevel 2>/dev/null); then
-      fonts_link="$root/packages/client/public/fonts"
-      ln -sfn "$KOLU_FONTS_DIR" "$fonts_link"
+      ln -sfn "$KOLU_FONTS_DIR" "$root/packages/client/public/fonts"
     fi
   '';
 

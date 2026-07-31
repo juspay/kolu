@@ -2,8 +2,8 @@
  *  — terminal-link click, right-click "Open path:N" context-menu entry,
  *  future surfaces — calls `openInCodeTab(...)` instead of writing the
  *  preferences patch and pending-request signal separately. The function
- *  encapsulates the paired writes (tab + browse-mode + visibility
- *  uncollapse + pending request) so the SolidJS effect-ordering
+ *  encapsulates the coordinated writes (terminal focus + tab/browse-mode +
+ *  visibility uncollapse + pending request) so the SolidJS effect-ordering
  *  invariant lives here, not at every call site.
  *
  *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
@@ -26,6 +26,7 @@
 import type { CodeTabView } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { LineRef } from "../ui/lineRef";
 import { activeHost } from "../wire";
 import type { OpenInCodeTabRequest } from "./codeTabOpenController";
@@ -79,12 +80,14 @@ const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null, {
 export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
- *  Three reactive writes wrapped in `batch()` so downstream effects see
- *  the changes in one reactive transaction: per-terminal tab/mode
- *  (`openCodeAt`), workspace visibility (`rp.reveal()` — uncollapse desktop or
- *  open the mobile drawer), and the producer signal (`setPending`). */
+ *  Four reactive writes wrapped in `batch()` so downstream effects see
+ *  the changes in one reactive transaction: the issuing terminal becomes the
+ *  panel owner, its tab/mode changes (`openCodeAt`), workspace visibility
+ *  changes (`rp.reveal()` — uncollapse desktop or open the mobile drawer), and
+ *  the producer signal fires (`setPending`). */
 export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
+  const terminals = useTerminalStore();
   const request: OpenInCodeTabRequest = {
     ref: req.ref,
     cwd: req.cwd,
@@ -97,6 +100,7 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     },
   };
   batch(() => {
+    terminals.focusTerminalSilently(request.scope.terminalId);
     rp.openCodeAt(request.scope.mode);
     rp.reveal();
     setPending(request);
