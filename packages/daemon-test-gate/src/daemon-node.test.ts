@@ -5,10 +5,11 @@
  * `KOLU_DAEMON_TESTS`), so the fork-free `unit` node alone would run them as EMPTY
  * with CI still green — the coverage this whole package exists to enforce would
  * silently evaporate in a recipe refactor. `ci/mod.just` therefore carries a distinct
- * `daemon` node that sets `KOLU_DAEMON_TESTS=1`, wired into the `default` DAG. This
- * always-on test (no daemon fork, so it runs in the plain `unit` lane) is the backstop
- * `ci/mod.just` names: it fails loudly if the node is dropped from the DAG or stops
- * setting the gate, rather than letting daemon coverage vanish unnoticed.
+ * `daemon` node that delegates to the canonical `test-daemon` recipe, wired into the
+ * `default` DAG. That root recipe sets `KOLU_DAEMON_TESTS=1`. This always-on test (no
+ * daemon fork, so it runs in the plain `unit` lane) is the backstop `ci/mod.just`
+ * names: it fails loudly if the node is dropped from the DAG, stops delegating, or
+ * the canonical recipe stops setting the gate.
  */
 
 import { readFileSync } from "node:fs";
@@ -24,6 +25,25 @@ const REPO_ROOT = join(
   "..",
 );
 const CI = readFileSync(join(REPO_ROOT, "ci", "mod.just"), "utf8");
+const ROOT = readFileSync(join(REPO_ROOT, "justfile"), "utf8");
+const DEV_SMOKE = readFileSync(
+  join(REPO_ROOT, "packages", "tests", "devSmoke.ts"),
+  "utf8",
+);
+
+function recipeBody(source: string, recipe: string): string {
+  const lines = source.split("\n");
+  const start = lines.findIndex((line) => new RegExp(`^${recipe}:`).test(line));
+  expect(start, `must declare a \`${recipe}:\` recipe`).toBeGreaterThanOrEqual(
+    0,
+  );
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s+\S/.test(line) || line.trim() === "") body.push(line);
+    else break;
+  }
+  return body.join("\n");
+}
 
 test("ci/mod.just wires `daemon` into the default DAG", () => {
   // The `default` target lists every node the runner expands `depends_on` from.
@@ -38,24 +58,42 @@ test("ci/mod.just wires `daemon` into the default DAG", () => {
   ).toContain("daemon");
 });
 
-test("the `daemon` recipe turns the gate ON (KOLU_DAEMON_TESTS=1)", () => {
-  // The recipe body is the indented line(s) after the `daemon:` target header.
-  const lines = CI.split("\n");
-  const start = lines.findIndex((l) => /^daemon:/.test(l));
+test("the `daemon` node waits for the fork-free `unit` workspace", () => {
+  const daemonTarget = CI.split("\n").find((line) =>
+    line.startsWith("daemon:"),
+  );
   expect(
-    start,
-    "ci/mod.just must declare a `daemon:` recipe",
-  ).toBeGreaterThanOrEqual(0);
-  // The recipe body is the CONSECUTIVE indented lines after the header; it ends at the
-  // first line that is neither indented nor blank (the next recipe/comment). Collect
-  // only those so an unrelated later recipe's `KOLU_DAEMON_TESTS` can't satisfy this.
-  const body: string[] = [];
-  for (const line of lines.slice(start + 1)) {
-    if (/^\s+\S/.test(line) || line.trim() === "") body.push(line);
-    else break;
-  }
+    daemonTarget,
+    "ci/mod.just must declare a `daemon:` DAG target",
+  ).toBeDefined();
   expect(
-    body.join("\n"),
-    "the `daemon` recipe must set KOLU_DAEMON_TESTS=1 so the gated suites actually run",
+    daemonTarget?.split(/\s+/),
+    "`daemon` must not run a second 63-package workspace beside `unit`",
+  ).toContain("unit");
+});
+
+test("the `daemon` recipe delegates to the canonical daemon-test recipe", () => {
+  expect(
+    recipeBody(CI, "daemon"),
+    "the CI node must reuse the canonical bounded daemon-test recipe",
+  ).toContain("just --no-deps test-daemon");
+});
+
+test("the canonical daemon-test recipe turns the gate and spawn leash ON", () => {
+  const body = recipeBody(ROOT, "test-daemon");
+  expect(
+    body,
+    "`test-daemon` must set KOLU_DAEMON_TESTS=1 so the gated suites actually run",
   ).toContain("KOLU_DAEMON_TESTS=1");
+  expect(
+    body,
+    "`test-daemon` must bind spawned daemon lifetimes to the recipe process",
+  ).toContain("KOLU_DAEMON_BIND_PID=$$");
+});
+
+test("the dev smoke binds its detached daemon tree to the smoke process", () => {
+  expect(
+    DEV_SMOKE,
+    "`dev-smoke` must not leave its detached padi/kaval tree alive after CI",
+  ).toContain("KOLU_DAEMON_BIND_PID: String(process.pid)");
 });

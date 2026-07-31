@@ -9,6 +9,7 @@
 
 import { activeArm } from "@kolu/padi/surface";
 import { parseLoopbackUrl } from "@kolu/url-shape";
+import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { portReach } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -32,7 +33,7 @@ import {
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { portAction } from "../forwards/portAction";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
-import { hostDisplayName, sameHost } from "../host/hostChipTone";
+import { hostDisplayName } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { surface } from "../ui/Surface";

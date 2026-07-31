@@ -2,7 +2,11 @@
  *  unified switcher. Lives next to the fleet index so `createCommands` only
  *  registers the results (not presentation/keying). */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysEqual as sameHost,
+} from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
   computeTerminalKeys,
@@ -15,7 +19,7 @@ import type {
   PaletteItem,
 } from "../CommandPalette";
 import { workspaceSearchText } from "../canvas/dockModel";
-import { hostLabel, hostRowContext, sameHost } from "../host/hostChipTone";
+import { hostLabel, hostRowContext } from "../host/hostChipTone";
 import { assignColors } from "../terminal/terminalDisplay";
 import {
   useVisitRecency,

@@ -27,6 +27,7 @@ import { makeEventListener } from "@solid-primitives/event-listener";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
 import {
+  batch,
   type Component,
   createEffect,
   createMemo,
@@ -69,9 +70,19 @@ import SegmentedControl, {
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
+import { activeHost } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
+import {
+  type CodeTabOpenResolutionSource,
+  type CodeTabScope,
+  codeTabScopeKey,
+  codeTabScopesEqual,
+  codeTabSelectionInventoryVerdict,
+  createCodeTabOpenController,
+  type OpenInCodeTabRequest,
+} from "./codeTabOpenController";
 import {
   codeActiveStatus,
   codeAllPaths,
@@ -79,14 +90,11 @@ import {
   codeDiff,
   codeIgnoredPaths,
   codeLocalStatus,
+  readFreshCodePaths,
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
-import {
-  type OpenInCodeTabRequest,
-  openInCodeTab,
-  pendingOpen,
-} from "./openInCodeTab";
+import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
@@ -279,9 +287,28 @@ const CodeTab: Component<{
   // a terminal restores that mode's last file; switching terminals
   // restores that terminal's last (file, mode) pair.
   //
-  // The `slotKey` memo doubles as the source of truth for the
-  // search-reset effect below; collision-safe by construction since
-  // `view()` is a typed enum and `repoPath()` is absolute-or-null.
+  // The complete Code-tab owner is one value. Navigation requests, async
+  // completion guards, and slot resets all use this same host + terminal + repo
+  // + mode identity, so switching between equivalent-looking terminal slots
+  // still retires terminal-scoped work.
+  const currentScope = (): CodeTabScope | null => {
+    const terminalId = props.terminalId;
+    const repoRoot = repoPath();
+    if (terminalId === null || repoRoot === null) return null;
+    return {
+      host: activeHost(),
+      terminalId,
+      repoRoot,
+      mode: view(),
+    };
+  };
+  const commentContext = createMemo(() => {
+    const terminalId = props.terminalId;
+    const repoRoot = repoPath();
+    return terminalId === null || repoRoot === null
+      ? null
+      : { terminalId, repoRoot };
+  });
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
   // The single selection funnel: set the shown file AND record it in history.
   // Recording can never drift from selection because they are one call —
@@ -301,7 +328,7 @@ const CodeTab: Component<{
     if (opts?.record === false || path === null) return;
     rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
-  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
+  const slotKey = createMemo(() => codeTabScopeKey(currentScope()));
 
   // Dismiss any open comment composer when the user navigates away from the
   // terminal / file / mode / repo the draft was anchored to. Without this, the
@@ -401,18 +428,6 @@ const CodeTab: Component<{
     ),
   );
 
-  // Consume-once guard for the resolution effect below, keyed on request
-  // identity. Kept SEPARATE from the `handled` highlight session: a manual
-  // tree-click resets `handled` to end the line-highlight, but that reset
-  // must not re-arm this effect. `pendingOpen` is a never-cleared module
-  // singleton ("latest request wins; callers don't clear it"), so a later
-  // terminal round-trip re-runs the effect with the same stale `req`; were
-  // the guard still riding on `handled`, the resurrected request would
-  // re-select the clicked file and clobber the user's manual pick. A plain
-  // (non-reactive) variable: it is only read/written inside the effect and
-  // must survive the effect's re-runs, so it is not a tracked dependency.
-  let consumedRequest: OpenInCodeTabRequest | null = null;
-
   // Highlight-session record for the latest handled pendingOpen tick. Holds
   // the full request object (reference identity discriminates two
   // structurally-identical clicks — `openInCodeTab` mints a fresh object per
@@ -423,6 +438,10 @@ const CodeTab: Component<{
   const [handled, setHandled] = createSignal<{
     request: OpenInCodeTabRequest;
     resolvedPath: string | null;
+  } | null>(null);
+  const [freshSelection, setFreshSelection] = createSignal<{
+    request: OpenInCodeTabRequest;
+    path: string;
   } | null>(null);
 
   // Directory-reveal target for the terminal folder-link front door. A folder
@@ -439,86 +458,96 @@ const CodeTab: Component<{
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
 
-  // Honor every `openInCodeTab` request — terminal file-ref clicks,
-  // right-click "Open path:N" entries, and any future producer. The
-  // effect waits for the live `fsListAll` stream to settle so
-  // resolution can validate against a complete file list — otherwise
-  // a request fired during boot would toast "not found" on a path
-  // that just hasn't been enumerated yet. `openInCodeTab` flips the
-  // panel to browse mode itself; this effect only sets `selectedPath`.
-  createEffect(
-    on(
-      () => {
-        const req = pendingOpen();
-        const paths = treePaths();
-        const isPending = treeInventory().pending;
-        return { req, repo: repoPath(), paths, isPending };
-      },
-      ({ req, repo, paths, isPending }) => {
-        if (!req) return;
-        if (consumedRequest === req) return;
-        if (repo === null || repo !== req.repoRoot) return;
-        if (view() !== req.targetMode || isPending) return;
-        // Committed to handling this request on this tick — mark it consumed
-        // before resolution so any re-run (terminal round-trip, treePaths
-        // settling) can't reprocess it, even after a manual tree-click has
-        // reset `handled`.
-        consumedRequest = req;
-        const resolved = resolveRef({
-          rawPath: req.ref.path,
-          repoRoot: repo,
-          cwd: req.cwd,
-          repoPaths: paths,
-          allowBasenameFallback: req.allowBasenameFallback,
-          // A `:N` line suffix means the user pointed at a *file* line — a
-          // directory match would wrongly reveal the folder and drop the line,
-          // so gate the folder-reveal step off when a line is present.
-          hasLine: req.ref.startLine !== null,
-        });
-        if (resolved === null) {
-          toast.error(`File reference not found: ${req.ref.path}`);
-          setHandled({ request: req, resolvedPath: null });
-          return;
-        }
-        if (resolved.kind === "directory") {
-          // A folder ref reveals (expands + scrolls to) the directory in the
-          // tree without changing the shown file — selection stays put, and
-          // the request leaves no line highlight, mirroring the not-found
-          // branch. The reveal isn't a content navigation, so it's not
-          // recorded in back/forward history.
-          //
-          // Resolution ran against the full `treePaths()`, but the mounted
-          // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
-          // browse search is active. A folder outside the current filter has no
-          // row to reveal, so the request would be silently consumed with
-          // nothing on screen. Clear the search first: the projection falls
-          // back to the full tree, the target row exists, and the reveal lands.
-          setSearchQuery("");
-          setRevealDir({ path: resolved.path });
-          setHandled({ request: req, resolvedPath: null });
-          return;
-        }
-        const rel = resolved.path;
-        // Record the front-door open in history *with* its line ref, so a
-        // later back() re-issues it through this same pipeline and repaints
-        // the highlight (cheap-v1 "restore where you were"). Idempotent on
-        // mode+path, so a re-click of the same path:line refreshes the entry
-        // in place rather than deepening history. A programmatic
-        // `select(..., rel)` no longer echoes back through `onSelect` — the
-        // #1841 provenance gate drops any selection no user gesture caused — so
-        // this ref is safe; only a later USER re-click of the same file reaches
-        // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-        select(req.targetMode, rel, {
-          ref:
-            req.ref.startLine !== null && req.ref.endLine !== null
-              ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
-              : undefined,
-        });
-        setHandled({ request: req, resolvedPath: rel });
-      },
-      { defer: true },
-    ),
-  );
+  const finishOpenRequest = (
+    req: OpenInCodeTabRequest,
+    resolved: Exclude<ReturnType<typeof resolveRef>, null>,
+    source: CodeTabOpenResolutionSource,
+  ): void => {
+    if (resolved.kind === "directory") {
+      // A folder ref reveals (expands + scrolls to) the directory in the
+      // tree without changing the shown file — selection stays put, and
+      // the request leaves no line highlight, mirroring the not-found
+      // branch. The reveal isn't a content navigation, so it's not
+      // recorded in back/forward history.
+      //
+      // Resolution ran against the full `treePaths()`, but the mounted
+      // tree shows `treeSearch().projectedPaths` — a *filtered* set when a
+      // browse search is active. A folder outside the current filter has no
+      // row to reveal, so the request would be silently consumed with
+      // nothing on screen. Clear the search first: the projection falls
+      // back to the full tree, the target row exists, and the reveal lands.
+      setSearchQuery("");
+      setRevealDir({ path: resolved.path });
+      setFreshSelection(null);
+      setHandled({ request: req, resolvedPath: null });
+      return;
+    }
+    const rel = resolved.path;
+    // Record the front-door open in history *with* its line ref, so a
+    // later back() re-issues it through this same pipeline and repaints
+    // the highlight (cheap-v1 "restore where you were"). Idempotent on
+    // mode+path, so a re-click of the same path:line refreshes the entry
+    // in place rather than deepening history. A programmatic
+    // `select(..., rel)` no longer echoes back through `onSelect` — the
+    // #1841 provenance gate drops any selection no user gesture caused — so
+    // this ref is safe; only a later USER re-click of the same file reaches
+    // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
+    batch(() => {
+      setFreshSelection(
+        source === "fresh" ? { request: req, path: rel } : null,
+      );
+      select(req.scope.mode, rel, {
+        ref:
+          req.ref.startLine !== null && req.ref.endLine !== null
+            ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
+            : undefined,
+      });
+      setHandled({ request: req, resolvedPath: rel });
+    });
+  };
+
+  // The controller owns the volatile open lifecycle. This presenter exposes
+  // current facts and atomic UI outcomes; it does not carry request/controller
+  // slots or reconstruct supersession in promise callbacks.
+  createCodeTabOpenController({
+    snapshot: () => ({
+      request: pendingOpen(),
+      scope: currentScope(),
+      inventoryScope: treeInventory().scope,
+      paths: treePaths(),
+      inventoryPending: treeInventory().pending,
+      includeIgnored: showIgnoredFiles(),
+    }),
+    resolve: (request, paths) =>
+      resolveRef({
+        rawPath: request.ref.path,
+        repoRoot: request.scope.repoRoot,
+        cwd: request.cwd,
+        repoPaths: paths,
+        allowBasenameFallback: request.allowBasenameFallback,
+        // A `:N` line suffix means the user pointed at a *file* line — a
+        // directory match would wrongly reveal the folder and drop the line.
+        hasLine: request.ref.startLine !== null,
+      }),
+    readFresh: (request, includeIgnored, signal) =>
+      readFreshCodePaths(
+        request.scope.host,
+        request.scope.repoRoot,
+        includeIgnored,
+        signal,
+      ),
+    onResolved: finishOpenRequest,
+    onNotFound: (request) => {
+      toast.error(`File reference not found: ${request.ref.path}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+    onError: (request, error) => {
+      toast.error(`File list refresh: ${error.message}`);
+      setFreshSelection(null);
+      setHandled({ request, resolvedPath: null });
+    },
+  });
 
   // Highlight range derives from the consume-once record: if the
   // request we last handled matches the latest pending one AND its
@@ -565,7 +594,9 @@ const CodeTab: Component<{
    *  The overlay's `pending` leg is gated on the toggle because an idle query
    *  reports `pending` forever (`createPolledQuery`'s `blank()` on a null
    *  input) — with the toggle off it is idle by design, not loading. */
-  const treeInventory = createMemo<BrowseInventory>(() => {
+  const treeInventory = createMemo<
+    BrowseInventory & { scope: CodeTabScope | null }
+  >(() => {
     // Copy `paths` out rather than returning the store proxy directly:
     // `fsListAll` lands in a reconciled store whose `paths` array is
     // mutated in place, so the proxy's reference is stable across an
@@ -585,16 +616,30 @@ const CodeTab: Component<{
     // overlap, readiness covers only the consulted sources) live in
     // `mergeBrowseInventory`, where a table test pins each one.
     if (view() === "browse") {
-      return mergeBrowseInventory(allPaths()?.paths, ignoredPaths()?.paths, {
+      const tracked = allPaths();
+      const ignored = ignoredPaths();
+      const showIgnored = showIgnoredFiles();
+      const inventory = mergeBrowseInventory(tracked?.paths, ignored?.paths, {
         trackedPending: allPaths.pending(),
         ignoredPending: ignoredPaths.pending(),
-        showIgnored: showIgnoredFiles(),
+        showIgnored,
       });
+      const scope =
+        tracked !== undefined &&
+        (!showIgnored ||
+          (ignored !== undefined &&
+            codeTabScopesEqual(tracked.scope, ignored.scope)))
+          ? tracked.scope
+          : null;
+      return { ...inventory, scope };
     }
     return {
       paths: status()?.files.map((f) => f.path) ?? [],
       ignored: [],
       pending: statusPending(),
+      // Diff-status results are not owner-stamped. A user open in these modes
+      // takes the fixed-host fresh-read path instead of trusting this inventory.
+      scope: null,
     };
   });
 
@@ -641,7 +686,11 @@ const CodeTab: Component<{
   // "selected file is missing" would null `selectedPath` on every
   // resubscribe and lose the selection across tab toggles. Once the stream
   // has delivered (`!pending()`), an empty paths set IS authoritative —
-  // the file truly went away (commit cleared local diff, rm deleted it).
+  // the file truly went away (commit cleared local diff, rm deleted it) —
+  // except for a path a direct fresh read just proved exists. That result can
+  // beat the retained stream's repo-change pulse, so `freshSelection` pins the
+  // path until the retained inventory first contains it. From that point the
+  // normal removal rule is authoritative again.
   //
   // Bail on the tick where `slotKey` itself just changed: the shared
   // `treePaths()` / `pending()` signals can momentarily expose the
@@ -656,11 +705,27 @@ const CodeTab: Component<{
         const s = selectedPath();
         const sk = slotKey();
         const { paths, pending: isPending } = treeInventory();
-        return { s, sk, pathExists: !s || isPending || paths.includes(s) };
+        const fresh = freshSelection();
+        const freshPath =
+          fresh !== null && fresh.request === pendingOpen() ? fresh.path : null;
+        return {
+          s,
+          sk,
+          verdict: codeTabSelectionInventoryVerdict(
+            s,
+            isPending,
+            paths,
+            freshPath,
+          ),
+        };
       },
       (cur, prev) => {
         if (prev && prev.sk !== cur.sk) return;
-        if (cur.s && !cur.pathExists) select(view(), null, { record: false });
+        if (cur.verdict === "confirm-fresh") {
+          setFreshSelection(null);
+        } else if (cur.s && cur.verdict === "clear") {
+          select(view(), null, { record: false });
+        }
       },
       { defer: true },
     ),
@@ -721,14 +786,15 @@ const CodeTab: Component<{
   const applyLocation = (loc: BrowserLocation) => {
     if (loc.ref && loc.path !== null) {
       const repo = repoPath();
-      if (repo === null) return;
+      const terminalId = props.terminalId;
+      if (repo === null || terminalId === null) return;
       openInCodeTab({
+        terminalId,
         ref: {
           path: loc.path,
           startLine: loc.ref.startLine,
           endLine: loc.ref.endLine,
         },
-        repoRoot: repo,
         targetMode: loc.mode,
         allowBasenameFallback: false,
       });
@@ -1177,6 +1243,7 @@ const CodeTab: Component<{
                               lineAnchored={true}
                             >
                               <BrowseDiffView
+                                terminalId={tid}
                                 path={path}
                                 hunk={d().hunks[0] ?? ""}
                                 theme={diffTheme()}
@@ -1259,14 +1326,12 @@ const CodeTab: Component<{
             </Show>
           </Resizable.Panel>
         </Resizable>
-        <Show when={repoPath() !== null && props.terminalId !== null}>
-          {(_present) => (
+        <Show when={commentContext()}>
+          {(present) => (
             <>
               <CommentsTray
-                terminalId={props.terminalId as string}
+                terminalId={present().terminalId}
                 onJumpTo={(comment) => {
-                  const repo = repoPath();
-                  if (repo === null) return;
                   // Two complementary highlights on land:
                   //   1. Pierre's blue line bar (full-row selection)
                   //      via `openInCodeTab` when we have a stored
@@ -1280,12 +1345,12 @@ const CodeTab: Component<{
                   // re-find disagree on the row.
                   if (comment.lineRange) {
                     openInCodeTab({
+                      terminalId: present().terminalId,
                       ref: {
                         path: comment.path,
                         startLine: comment.lineRange.start,
                         endLine: comment.lineRange.end,
                       },
-                      repoRoot: repo,
                       targetMode: "browse",
                     });
                   } else {
@@ -1314,7 +1379,7 @@ const CodeTab: Component<{
                   });
                 }}
               />
-              <CommentComposer terminalId={props.terminalId as string} />
+              <CommentComposer terminalId={present().terminalId} />
             </>
           )}
         </Show>

@@ -14,6 +14,7 @@ import {
   diffItem,
   useCodeViewSelection,
 } from "@kolu/solid-pierre";
+import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { koluCodeViewProps } from "../ui/pierreTheme";
@@ -21,6 +22,8 @@ import CodeMenuFrame from "./CodeMenuFrame";
 import { openInCodeTab } from "./openInCodeTab";
 
 export type BrowseDiffViewProps = {
+  /** Terminal whose per-terminal Code-tab selection the open mutates. */
+  terminalId: TerminalId;
   /** Repo-relative path the diff is for — anchors the line-selection menu. */
   path: string;
   /** The unified-diff hunk text for this file (Pierre parses it). */
@@ -45,7 +48,11 @@ const BrowseDiffView: Component<BrowseDiffViewProps> = (props) => {
     <CodeMenuFrame
       path={props.path}
       onOpen={(ref) =>
-        openInCodeTab({ ref, repoRoot: props.repoRoot, targetMode: "browse" })
+        openInCodeTab({
+          terminalId: props.terminalId,
+          ref,
+          targetMode: "browse",
+        })
       }
     >
       {(selection) => {

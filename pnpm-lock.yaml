@@ -486,6 +486,9 @@ importers:
       kolu-io:
         specifier: workspace:*
         version: link:../io
+      kolu-pty:
+        specifier: workspace:*
+        version: link:../pty
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared

@@ -203,8 +203,11 @@ export class KoluWorld extends World {
 
     await this.page.keyboard.press(`${MOD_KEY}+Enter`);
 
-    // Poll until a new id shows up.
-    await this.page.waitForFunction(
+    // Poll until a new id shows up, and return that exact observation. Reading
+    // the ids again after the poll is a check/use race: the mobile empty-state
+    // → tile transition can briefly unmount every `data-terminal-id` node
+    // between the two browser evaluations even though creation succeeded.
+    const newIdHandle = await this.page.waitForFunction(
       (prev) => {
         const nodes = Array.from(
           document.querySelectorAll("[data-terminal-id]"),
@@ -215,17 +218,17 @@ export class KoluWorld extends World {
             .filter((id): id is string => !!id),
         );
         for (const id of ids) {
-          if (!prev.includes(id)) return true;
+          if (!prev.includes(id)) return id;
         }
-        return false;
+        return null;
       },
       beforeIds,
       { timeout },
     );
-
-    const afterIds = await this.terminalIds();
-    const newId = afterIds.find((id) => !beforeIds.includes(id));
-    if (!newId) throw new Error("Created terminal but no new id appeared");
+    const newId = await newIdHandle.jsonValue();
+    await newIdHandle.dispose();
+    if (newId === null)
+      throw new Error("Terminal ID poll resolved without an ID");
 
     await this.canvas.waitFor({ state: "visible", timeout });
     // Desktop auto-focuses xterm's textarea on mount — the signal that a
@@ -350,8 +353,20 @@ export class KoluWorld extends World {
     const buffer = (await handle.jsonValue()) ?? "";
     const status = buffer.match(new RegExp(`${marker}(\\d+)`))?.[1];
     if (status !== "0") {
+      // The numeric shell status identifies only a broad failure class (Git,
+      // for example, uses 128 for many unrelated fatal errors). Preserve a
+      // bounded tail ending at our marker so CI records the command's actual
+      // diagnostic without dumping an entire scenario's terminal scrollback.
+      const markerOffset = buffer.lastIndexOf(marker);
+      const diagnosticEnd =
+        markerOffset === -1 ? buffer.length : markerOffset + marker.length + 3;
+      const diagnostic = buffer.slice(
+        Math.max(0, diagnosticEnd - 2_000),
+        diagnosticEnd,
+      );
       throw new Error(
-        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}`,
+        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}` +
+          `\nTerminal buffer tail:\n${diagnostic}`,
       );
     }
   }

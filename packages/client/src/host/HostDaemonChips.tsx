@@ -14,7 +14,7 @@ import {
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
-import type { HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
@@ -55,7 +55,7 @@ import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
-import { hostGlance, hostLabel, sameHost } from "./hostChipTone";
+import { hostGlance, hostLabel } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
