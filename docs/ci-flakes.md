@@ -261,8 +261,8 @@ retries.
   it.
 - **Implementation:** the poll now returns the first new ID as its value and
   the helper reads that value from the Playwright handle before continuing.
-  All 17 test-harness unit tests pass. Targeted macOS e2e verification remains
-  required.
+  All 17 test-harness unit tests pass. Targeted macOS e2e run `8dd5b31#1`
+  completed all 506 scenarios in exactly 506 attempts with zero retries.
 
 ### `4bffcc5#1`: diagnostic macOS e2e retries
 
@@ -543,3 +543,4 @@ full two-platform green streak.
 | `4bffcc5#1` | `4bffcc577` | `e2e@aarch64-darwin` with bounded flake diagnostics | `ci@petit` | Passed all scenarios after 3 retries; failures recorded above |
 | `64ff556#1` | `64ff5562a` | `e2e@aarch64-darwin` after background-Git lock fix | `ci@petit` | Passed all 506 scenarios after 1 file-reference retry; failure recorded above |
 | `407e56b#1` | `407e56b1d` | `e2e@aarch64-darwin` after fresh-selection fix | `ci@petit` | Passed all scenarios after 1 terminal-creation retry; failure recorded above |
+| `8dd5b31#1` | `8dd5b31d9` | `e2e@aarch64-darwin` after atomic terminal-ID fix | `ci@petit` | Passed: 506 scenarios, 506 attempts, 0 retries |
