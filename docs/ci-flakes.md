@@ -172,8 +172,8 @@ retries.
   removing all nested pnpm command lookup.
 - **Implementation:** governance now fails fast if the root Vitest entry point
   is absent, then uses that exact entry point for every collection. The full
-  local governance check and all 17 harness unit tests pass. Targeted
-  two-platform CI verification remains required.
+  local governance check and all 17 harness unit tests pass. Targeted run
+  `00b3b08#1` passed `ci::e2e-governance` on both required platforms.
 
 ### `aea6cc3#1`: five macOS Git fixture commits returned status 128
 
@@ -576,3 +576,4 @@ full two-platform green streak.
 | `64ff556#1` | `64ff5562a` | `e2e@aarch64-darwin` after background-Git lock fix | `ci@petit` | Passed all 506 scenarios after 1 file-reference retry; failure recorded above |
 | `407e56b#1` | `407e56b1d` | `e2e@aarch64-darwin` after fresh-selection fix | `ci@petit` | Passed all scenarios after 1 terminal-creation retry; failure recorded above |
 | `8dd5b31#1` | `8dd5b31d9` | `e2e@aarch64-darwin` after atomic terminal-ID fix | `ci@petit` | Passed: 506 scenarios, 506 attempts, 0 retries |
+| `00b3b08#1` | `00b3b08df` | `e2e-governance` on both platforms after direct-Vitest fix | `ci@petit`, `kolu-ci-1` | Passed |
