@@ -103,8 +103,9 @@ failure fixable in this repository is in scope.
 | `dd08e43#1` | `dd08e434d` | Passed | `1/5` |
 | `3b57b1f#1` | `3b57b1f9c` | Passed | `2/5` |
 | `de10685#1` | `de1068524` | Passed | `1/5` |
+| `a454147#1` | `a4541473f` | Passed | `2/5` |
 
-**Current active streak: `1/5`.** The first two green runs above predate the
+**Current active streak: `2/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
