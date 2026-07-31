@@ -21,8 +21,10 @@ import {
   daemonMain,
   lifetimeInfo,
   type Logger,
+  type ProcessIdentity,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
+import { processIdentityFromEnv } from "osfacts-client";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
 import {
@@ -30,6 +32,20 @@ import {
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "./socketPath.ts";
+
+function readProcessIdentity(pid: number): ProcessIdentity | undefined {
+  return processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
+}
+
+function selfIdentity(): ProcessIdentity {
+  const identity = readProcessIdentity(process.pid);
+  if (identity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this kaval process (${process.pid})`,
+    );
+  }
+  return identity;
+}
 
 export interface KavalDaemonOptions {
   /** Override the default socket path (`--socket`). The gate and rcDir are
@@ -118,6 +134,8 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
 
   return daemonMain({
     home,
+    processIdentity: selfIdentity(),
+    readProcessIdentity,
     router: servedRouter,
     // The same lifetime resolved above (reused, never re-derived) — so the value
     // served on `system.version` is provably the one governing the daemon.

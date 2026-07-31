@@ -1,11 +1,12 @@
 //! Linux readers. OS failures stay typed: per-pid failures become `U`, global
 //! requested-source failures become `E` and a non-zero command exit.
 
-use crate::cli::{HostArgs, Scope, SnapshotArgs};
+use crate::cli::{HostArgs, Scope, SnapshotArgs, SocketHoldersArgs};
 use osfacts::{
     blind_or_empty, decode_proc_hex, hex_bytes, sanitize_name, source_error, Attribution, Cpu,
     Disk, Facet, HostMemory, HostSnapshot, Load, Memory, Network, Port, Proc, ProcessArgv,
-    ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot, StartTime, Swap,
+    unix_socket_inodes, ProcessCpuTime, ProcessCwd, ProcessStatus, ProcessUid, Snapshot,
+    SocketHolders, StartTime, Swap,
 };
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -101,11 +102,7 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
                 .as_deref()
                 .map_err(|err| *err);
             match stat.and_then(|stat| read_proc(pid, stat, cmdline)) {
-                Ok(row) => snap.procs.push(Proc {
-                    pid,
-                    ppid: row.ppid,
-                    name: row.name,
-                }),
+                Ok(row) => snap.procs.push(row),
                 Err(err) => snap.push_unreadable(pid, Facet::Proc, err),
             }
         }
@@ -218,6 +215,100 @@ pub fn snapshot(args: &SnapshotArgs) -> Snapshot {
     }
 
     snap
+}
+
+/// Who holds one unix socket PATH.
+///
+/// Linux answers this authoritatively in two reads. `/proc/net/unix` is
+/// world-readable and lists EVERY bound unix socket, so the path's absence
+/// from it is proof that nobody holds it — never a shrug. The inode it carries
+/// is then the socket's identity, and a walk of `/proc/<pid>/fd` says which
+/// pids hold that identity.
+///
+/// An fd directory this process may not read is NOT reported per pid. The ask
+/// names a path, so the pid set searched is the whole host — one `U` row per
+/// foreign-uid process would be hundreds of rows saying the same thing, and
+/// would drown the answer on a boot path. The blindness is reported where it
+/// is decision-relevant instead: a bound socket that no readable pid claims
+/// emits `unclaimed`, exactly as an unattributed listener does under OSF6.
+pub fn socket_holders(args: &SocketHoldersArgs) -> SocketHolders {
+    let mut out = SocketHolders::new();
+    // BYTES, not a `String`: the table is host-wide and a socket path is
+    // whatever some process handed `bind(2)`, so a strict UTF-8 decode would
+    // let one process with a non-UTF-8 socket name blind this verb for every
+    // path on the host. See `unix_socket_inodes`.
+    let table = match read_bytes("/proc/net/unix") {
+        Ok(body) => body,
+        // The only source of the bound-socket table on linux; its silence
+        // costs the whole answer.
+        Err(err) => {
+            out.errors
+                .push(source_error("proc_net_unix", Facet::SocketHolders, err));
+            return out;
+        }
+    };
+    let inodes = match unix_socket_inodes(&table, args.path.as_encoded_bytes()) {
+        Ok(inodes) => inodes,
+        // The read succeeded but what came back is not the table — an empty
+        // file, a truncated one, a kernel whose format drifted. Absence is
+        // only provable against a document we recognize, so this is blindness,
+        // reported the same way the listener reader reports a `/proc/net/tcp`
+        // it cannot frame.
+        Err(()) => {
+            out.errors.push(source_error(
+                "proc_net_unix",
+                Facet::SocketHolders,
+                libc::EINVAL,
+            ));
+            return out;
+        }
+    };
+    if inodes.is_empty() {
+        return out; // proof of absence: the table lists every bound socket
+    }
+
+    let pids = match host_pids() {
+        Ok(pids) => pids,
+        // We know the socket IS bound but cannot search for its holder — the
+        // attribution half went blind, and saying "unclaimed" would assert a
+        // search that never happened.
+        Err(err) => {
+            out.errors
+                .push(source_error("proc_readdir", Facet::SocketHolders, err));
+            return out;
+        }
+    };
+    let mut claimed: Vec<u32> = Vec::new();
+    for (pid, result) in socket_inodes_for_pids(&pids) {
+        // A pid whose fds we cannot read is why `unclaimed` exists — see the
+        // header. Every readable pid holding one of the path's inodes is a
+        // holder, INCLUDING a child that inherited the listening descriptor.
+        if result.is_ok_and(|held| inodes.iter().any(|inode| held.contains(inode))) {
+            claimed.push(pid);
+        }
+    }
+    if claimed.is_empty() {
+        out.holders.push(Attribution::Unclaimed);
+    } else {
+        out.holders
+            .extend(claimed.iter().map(|&pid| Attribution::Claimed { pid }));
+    }
+
+    if args.procs {
+        for pid in claimed {
+            let stat = read_string(&format!("/proc/{pid}/stat"));
+            let cmdline = read_bytes(&format!("/proc/{pid}/cmdline"));
+            match stat
+                .as_deref()
+                .map_err(|err| *err)
+                .and_then(|stat| read_proc(pid, stat, cmdline.as_deref().map_err(|err| *err)))
+            {
+                Ok(row) => out.procs.push(row),
+                Err(err) => out.push_unreadable(pid, Facet::Proc, err),
+            }
+        }
+    }
+    out
 }
 
 pub fn host(args: &HostArgs) -> HostSnapshot {
@@ -356,14 +447,13 @@ fn children_of(pid: u32) -> Result<Vec<u32>, i32> {
     Ok(out)
 }
 
-struct ProcRow {
-    ppid: u32,
-    name: String,
-}
-fn read_proc(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> Result<ProcRow, i32> {
+/// One `P` row. It is handed the pid, so it returns the finished [`Proc`]
+/// rather than a pid-less half of one every caller would have to restate.
+fn read_proc(pid: u32, stat: &str, cmdline: Result<&[u8], i32>) -> Result<Proc, i32> {
     let ppid =
         parse_stat_field(stat, 1).and_then(|value| value.parse().map_err(|_| libc::EINVAL))?;
-    Ok(ProcRow {
+    Ok(Proc {
+        pid,
         ppid,
         name: process_name(pid, stat, cmdline),
     })

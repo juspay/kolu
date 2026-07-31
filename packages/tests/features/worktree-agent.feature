@@ -20,7 +20,7 @@ Feature: Agent-aware worktree creation
     # of whether the command runs successfully.
     When I set up a git repo at "/tmp/kolu-wt-agent-pick"
     And I run "cd /tmp/kolu-wt-agent-pick"
-    And I run "claude --dangerously-skip-permissions"
+    And I start "claude --dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-pick" in the palette
@@ -31,7 +31,7 @@ Feature: Agent-aware worktree creation
   Scenario: Picking an agent creates the worktree and writes the command
     When I set up a git repo at "/tmp/kolu-wt-agent-run"
     And I run "cd /tmp/kolu-wt-agent-run"
-    And I run "claude --dangerously-skip-permissions"
+    And I start "claude --dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-run" in the palette
@@ -46,7 +46,7 @@ Feature: Agent-aware worktree creation
   Scenario: Picking Plain shell creates a plain worktree terminal
     When I set up a git repo at "/tmp/kolu-wt-agent-plain"
     And I run "cd /tmp/kolu-wt-agent-plain"
-    And I run "claude --dangerously-skip-permissions"
+    And I start "claude --dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-plain" in the palette
@@ -58,7 +58,7 @@ Feature: Agent-aware worktree creation
   Scenario: Typing a custom name and picking an agent creates a named worktree with the agent
     When I set up a git repo at "/tmp/kolu-wt-agent-named"
     And I run "cd /tmp/kolu-wt-agent-named"
-    And I run "claude --dangerously-skip-permissions"
+    And I start "claude --dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-named" in the palette

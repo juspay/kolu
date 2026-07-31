@@ -101,6 +101,14 @@ over ssh**: one Nix operation evaluates the exact agent, transfers what the
 machine needs, and realises it there. A cold provision can take **minutes**. You
 don't install anything on the host by hand.
 
+What arrives is the daemon **plus the command-line tools a terminal on that host
+needs** — `kaval-tui`, `padi-tui`, and `kolu` itself. Terminals kolu opens there
+have them on `$PATH` and `$PADI_SOCKET` already set, so an agent working on the
+remote machine can drive its sibling terminals and use the [MCP
+server](/mcp) immediately — again with nothing installed by hand. Because the
+tools ride the same closure as the daemon, they are always the same build as the
+padi they talk to.
+
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a
 **connection pip** so link health is always visible:

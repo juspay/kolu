@@ -30,7 +30,7 @@ function connected(lifetime?: KavalConnectionMetadata["lifetime"]): Connected {
     state: "connected",
     identity: undefined,
     startedAt: 1_000,
-    metadata: { contractVersion: "5.0", lifetime },
+    metadata: { contractVersion: "5.0", lifetime, pid: 4242 },
   };
 }
 

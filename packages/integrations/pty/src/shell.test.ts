@@ -21,6 +21,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import {
+  AGENT_TOOLS_BAKE_ENV,
   cleanEnv,
   composeSpawnEnv,
   koluIdentityEnv,
@@ -29,11 +30,16 @@ import {
   OSC2_PREEXEC_BASH_GUARD,
   OSC2_PREEXEC_FN,
   OSC7_FN,
+  PATH_PREPEND_CASES,
+  PATH_REASSERT,
   prepareShellInit,
+  prependPathEntries,
+  readAgentToolsBake,
   SPAWN_ENV_ALLOWLIST,
   SPAWN_ENV_FUNCTIONAL,
   SPAWN_ENV_OPERATIONAL,
   SPAWN_ENV_PRESENTATION,
+  TERMINAL_TOOLS_PATH_ENV,
 } from "./shell.ts";
 
 const shellSubprocessHome = mkdtempSync(
@@ -375,14 +381,38 @@ describe("cleanEnv — composes from the allowlist; identity/leaked/arbitrary en
     expect(env.PTY_TEST_USER_VAR).toBeUndefined();
     expect(Object.keys(env).some((k) => k.startsWith("KOLU_"))).toBe(false);
 
-    // the allowlisted base is kept.
+    // the allowlisted base is kept (PATH modulo the empty-entry strip below).
     expect(env.HOME).toBe("/home/x");
-    expect(env.PATH).toBe(process.env.PATH);
+    expect(env.PATH).toBe(
+      (process.env.PATH ?? "")
+        .split(":")
+        .filter((e) => e !== "")
+        .join(":"),
+    );
 
     // every surviving key is on the allowlist (or the SHELL fallback) — no leak.
     for (const k of Object.keys(env)) {
       expect(SPAWN_ENV_ALLOWLIST as readonly string[]).toContain(k);
     }
+  });
+
+  it("drops empty PATH entries — the implicit current-directory hazard, killed once", () => {
+    // POSIX reads an empty PATH entry as "the current directory", so a daemon that
+    // inherited one would hand every hosted shell a PATH that resolves commands out
+    // of whatever tree the user cd'd into. This is the single place that fixes it:
+    // sanitizing at the env boundary means it happens once, over the composed
+    // value, instead of being re-implemented by every downstream transform — and
+    // notably NOT by prependPathEntries / PATH_REASSERT, whose contract is just
+    // "prepend these dirs, skipping any already present".
+    process.env.PATH = ":/usr/bin::/bin:";
+
+    expect(cleanEnv().PATH).toBe("/usr/bin:/bin");
+  });
+
+  it("leaves a PATH with no empty entries byte-identical", () => {
+    process.env.PATH = "/usr/bin:/bin";
+
+    expect(cleanEnv().PATH).toBe("/usr/bin:/bin");
   });
 });
 
@@ -750,6 +780,218 @@ describeDaemon("prepareShellInit zsh wrapper", () => {
       rmSync(rcDir, { recursive: true, force: true });
     }
   });
+});
+
+describe("readAgentToolsBake", () => {
+  // Where a daemon's client toolchain comes from — the fact it is TOLD, never
+  // derives. These pin the parsing AND the deliberate absence: a daemon with no
+  // baked toolchain must report `[]` (and so inject nothing) rather than guess a
+  // path from `process.execPath` / `argv[1]` / a PATH search. A guess would
+  // resolve to the tsx loader or to whatever build happens to be installed on
+  // the host, which is exactly the skew this indirection makes unspellable.
+  it("splits the colon-joined bake, preserving priority order", () => {
+    expect(
+      readAgentToolsBake({
+        [AGENT_TOOLS_BAKE_ENV]: "/nix/store/aaa/bin:/nix/store/bbb/bin",
+      }),
+    ).toEqual(["/nix/store/aaa/bin", "/nix/store/bbb/bin"]);
+  });
+
+  it("reports NO toolchain when unset or empty — never a guessed default", () => {
+    // The from-source (`just dev` / e2e) daemon: no wrapper, so nothing baked.
+    expect(readAgentToolsBake({})).toEqual([]);
+    expect(readAgentToolsBake({ [AGENT_TOOLS_BAKE_ENV]: "" })).toEqual([]);
+  });
+
+  it("drops empty segments so no entry can mean 'the current directory'", () => {
+    // An empty PATH entry is CWD to a POSIX shell — a real hazard, not cosmetic.
+    expect(readAgentToolsBake({ [AGENT_TOOLS_BAKE_ENV]: "/a::/b:" })).toEqual([
+      "/a",
+      "/b",
+    ]);
+  });
+
+  it("reads the BAKE name and never the terminal STAMP", () => {
+    // The whole point of two names: a daemon started inside a kolu terminal sees
+    // that terminal's stamp and must NOT mistake it for its own build's tools.
+    expect(
+      readAgentToolsBake({ [TERMINAL_TOOLS_PATH_ENV]: "/foreign/bin" }),
+    ).toEqual([]);
+  });
+});
+
+describe("prependPathEntries", () => {
+  // Driven from the shared oracle, which the real-shell block below asserts the
+  // SHELL half against — so the rule cannot be changed in one language only.
+  for (const c of PATH_PREPEND_CASES) {
+    it(`PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}] → ${c.expect}`, () => {
+      expect(prependPathEntries(c.path, c.dirs)).toBe(c.expect);
+    });
+  }
+
+  it("treats an absent PATH as empty", () => {
+    expect(prependPathEntries(undefined, ["/a"])).toBe("/a");
+  });
+
+  it("never introduces an empty entry from the dirs it was asked to add", () => {
+    // An empty entry in PATH means "the current directory" to a POSIX shell, so
+    // this function must not create one. Filtering the INCOMING dirs is the whole
+    // of that duty — the caller's own PATH is passed through untouched (pinned by
+    // the "/usr/bin::/bin" row of the shared oracle above), because sanitizing
+    // somebody else's PATH belongs to cleanEnv, which does it once for everyone.
+    // The shell half filters the incoming dirs the same way.
+    expect(prependPathEntries("/usr/bin:/bin", ["", "/a", ""])).toBe(
+      "/a:/usr/bin:/bin",
+    );
+  });
+});
+
+describe("prepareShellInit — PATH re-assert", () => {
+  it("emits the re-assert AFTER the dotfile replay (the ordering is the point)", () => {
+    // A user dotfile doing an absolute `export PATH=…` is exactly what the replay
+    // re-runs, so a re-assert placed before it would be silently undone. Pin the
+    // ordering, not just the presence.
+    const init = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-order",
+      rcDir: "/r",
+    });
+    const content = onlyInitFile(init).content;
+    expect(content).toContain(TERMINAL_TOOLS_PATH_ENV);
+    expect(content.indexOf("/home/x/.bashrc")).toBeLessThan(
+      content.indexOf(TERMINAL_TOOLS_PATH_ENV),
+    );
+  });
+
+  it("carries no caller data — the dirs are read from the env at runtime", () => {
+    // The block is a FIXED string: paths arrive in a variable, never interpolated
+    // into shell source, so no quoting question (and no injection) can arise.
+    const a = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-a",
+      rcDir: "/r",
+    });
+    const b = prepareShellInit({
+      shell: "/bin/bash",
+      home: "/home/x",
+      terminalId: "T-b",
+      rcDir: "/r",
+    });
+    const reassert = (init: ReturnType<typeof prepareShellInit>) =>
+      onlyInitFile(init).content.slice(
+        onlyInitFile(init).content.indexOf("__kolu_path_reassert"),
+      );
+    expect(reassert(a)).toBe(reassert(b));
+  });
+});
+
+describeDaemon("prepareShellInit PATH re-assert (real shells)", () => {
+  // The behavioral proof, and the reason the rcfile half exists at all: a spawn
+  // env alone does NOT survive a user dotfile that assigns PATH absolutely. This
+  // spawns a real shell against a fake home whose rc clobbers PATH, and asserts
+  // the toolchain is still reachable afterward. A string-match on the generated
+  // rcfile cannot catch an unreachable or mis-quoted block; this can.
+  const TOOLS = "/opt/kolu-tools-fixture/bin";
+
+  async function pathAfterClobber(
+    shell: "/bin/bash" | "/bin/zsh",
+    rcName: string,
+  ): Promise<string | null> {
+    const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    try {
+      // The hostile case: an ABSOLUTE assignment, not a prepend.
+      writeFileSync(join(fakeHome, rcName), 'export PATH="/usr/bin:/bin"\n');
+      const init = prepareShellInit({
+        shell,
+        home: fakeHome,
+        terminalId: `test-path-${process.pid}`,
+        rcDir,
+      });
+      materialise(rcDir, init);
+      const rcPath =
+        shell === "/bin/zsh"
+          ? join(init.env.ZDOTDIR as string, ".zshrc")
+          : join(rcDir, init.initFiles[0]?.name as string);
+      const script = `export ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(TOOLS)}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`;
+      return shell === "/bin/zsh"
+        ? await runZsh(script)
+        : await runBash(script);
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(rcDir, { recursive: true, force: true });
+    }
+  }
+
+  it("bash: the toolchain survives a dotfile that overwrites PATH", async () => {
+    const out = await pathAfterClobber("/bin/bash", ".bashrc");
+    if (out === null) return;
+    expect(out.split(":")).toContain(TOOLS);
+    // The user's own PATH is still there — we merged, we did not replace.
+    expect(out.split(":")).toContain("/usr/bin");
+  });
+
+  it("zsh: the toolchain survives a dotfile that overwrites PATH", async () => {
+    const out = await pathAfterClobber("/bin/zsh", ".zshrc");
+    if (out === null) return;
+    expect(out.split(":")).toContain(TOOLS);
+    expect(out.split(":")).toContain("/usr/bin");
+  });
+
+  it("no-ops when the daemon baked no toolchain (from-source parity)", async () => {
+    // With the var unset the block must leave PATH exactly as the dotfiles left
+    // it — a from-source padi spawns the env it does today, not an empty entry.
+    const fakeHome = mkdtempSync(join(tmpdir(), "kolu-shell-"));
+    const rcDir = mkdtempSync(join(tmpdir(), "kolu-rc-"));
+    try {
+      writeFileSync(join(fakeHome, ".bashrc"), 'export PATH="/usr/bin:/bin"\n');
+      const init = prepareShellInit({
+        shell: "/bin/bash",
+        home: fakeHome,
+        terminalId: `test-path-none-${process.pid}`,
+        rcDir,
+      });
+      materialise(rcDir, init);
+      const rcPath = join(rcDir, init.initFiles[0]?.name as string);
+      const out = await runBash(
+        `unset ${TERMINAL_TOOLS_PATH_ENV}; source ${shQuote(rcPath)} >/dev/null 2>&1; printf '%s' "$PATH"`,
+      );
+      expect(out).toBe("/usr/bin:/bin");
+    } finally {
+      rmSync(fakeHome, { recursive: true, force: true });
+      rmSync(rcDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describeDaemon("PATH_PREPEND_CASES — one oracle, both implementations", () => {
+  // The rule "prepend without duplicating" is written twice, in two languages:
+  // `prependPathEntries` (TS, the spawn env) and `PATH_REASSERT` (POSIX shell,
+  // the rcfile — the only carrier for a `fish` user, who gets no wrapper rc from
+  // selectShellInit). Co-locating them in one file does not keep them equal; one
+  // shared table does. The TS half is asserted against these same rows above, so
+  // adding a row here is asserted against BOTH halves, and editing either
+  // implementation alone goes red.
+  for (const c of PATH_PREPEND_CASES) {
+    const label = `PATH=${JSON.stringify(c.path)} + [${c.dirs.join(", ")}]`;
+
+    it(`bash: ${label}`, async () => {
+      const out = await runBash(
+        `PATH=${shQuote(c.path)}; ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(c.dirs.join(":"))}\n${PATH_REASSERT}\nprintf '%s' "$PATH"`,
+      );
+      expect(out).toBe(c.expect);
+    });
+
+    it(`zsh: ${label}`, async () => {
+      const out = await runZsh(
+        `PATH=${shQuote(c.path)}; ${TERMINAL_TOOLS_PATH_ENV}=${shQuote(c.dirs.join(":"))}\n${PATH_REASSERT}\nprintf '%s' "$PATH"`,
+      );
+      if (out === null) return; // zsh unavailable — skip
+      expect(out).toBe(c.expect);
+    });
+  }
 });
 
 describeDaemon("OSC2_PRECMD_ZSH", () => {

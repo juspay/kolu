@@ -19,6 +19,7 @@ import { join } from "node:path";
 import {
   HOST_SOURCE_FACETS,
   SNAPSHOT_SOURCE_FACETS,
+  SOCKET_HOLDERS_SOURCE_FACETS,
   UNREADABLE_FACETS,
   snapshotFacetNames,
   type SnapshotFacets,
@@ -27,6 +28,7 @@ import {
 const contract: {
   unreadable: string[];
   snapshotSource: string[];
+  socketHoldersSource: string[];
   hostSource: string[];
 } = JSON.parse(
   readFileSync(join(import.meta.dirname, "..", "..", "facets.json"), "utf8"),
@@ -39,6 +41,12 @@ describe("the facet vocabulary is one declaration", () => {
 
   it("matches the Rust enum's snapshot-source projection", () => {
     expect([...SNAPSHOT_SOURCE_FACETS]).toEqual(contract.snapshotSource);
+  });
+
+  it("matches the Rust enum's socket-holders-source projection", () => {
+    expect([...SOCKET_HOLDERS_SOURCE_FACETS]).toEqual(
+      contract.socketHoldersSource,
+    );
   });
 
   it("matches the Rust enum's host-source projection", () => {

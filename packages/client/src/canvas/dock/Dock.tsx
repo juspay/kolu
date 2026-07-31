@@ -113,6 +113,7 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
+import { DockShortcutHint } from "./DockShortcutHint";
 import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
@@ -654,7 +655,6 @@ const DockRow: Component<{
   // terminal-attention, stays on the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
-  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
@@ -731,15 +731,11 @@ const DockRow: Component<{
               textSize="text-[0.6rem]"
               mode={mode()}
             />
-            <Show when={showShortcutHint()}>
-              <span
-                data-testid="dock-row-shortcut-hint"
-                class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
-                aria-hidden="true"
-              >
-                {props.flatIndex + 1}
-              </span>
-            </Show>
+            <DockShortcutHint
+              flatIndex={props.flatIndex}
+              modHeld={modHeld}
+              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
+            />
             {/* Second line — flex row spanning the branch column → end.
              *  Leads with the PR pip (left edge anchored to the branch
              *  column's left, so PR icons align across every section)
@@ -900,7 +896,6 @@ const RailChip: Component<{
   // the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
-  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
@@ -929,15 +924,11 @@ const RailChip: Component<{
             title={chipTooltip(c().info, props.pip)}
             aria-label={chipTooltip(c().info, props.pip)}
           >
-            <Show when={showShortcutHint()}>
-              <span
-                data-testid="dock-row-shortcut-hint"
-                class="dock-rail-chip-hint"
-                aria-hidden="true"
-              >
-                {props.flatIndex + 1}
-              </span>
-            </Show>
+            <DockShortcutHint
+              flatIndex={props.flatIndex}
+              modHeld={modHeld}
+              class="dock-rail-chip-hint"
+            />
             <span class="dock-rail-chip-text" aria-hidden="true">
               {labels().repo}
               <span

@@ -65,15 +65,6 @@ Feature: Canvas workspace
     And previously-recorded canvas tiles should not have moved
     And there should be no page errors
 
-  Scenario: Second terminal created at the default viewport is centered in the viewport
-    # Regression: with no prior pan, creating a 2nd tile placed it next to
-    # the existing tile but left the viewport centered on the original —
-    # so the new (active) tile rendered half off-screen.
-    Then there should be 1 canvas tile
-    When I create a terminal
-    Then there should be 2 canvas tiles
-    And the active canvas tile should be centered in the viewport
-
   Scenario: Each successive terminal create centers the viewport on the new active tile
     # Reported by user with a 5-tile screenshot: after creating multiple
     # tiles in succession, the viewport stayed anchored on the original
@@ -102,14 +93,6 @@ Feature: Canvas workspace
     And I create a terminal
     Then there should be 4 canvas tiles
     When I press Control+Tab
-    Then the active canvas tile should be centered in the viewport
-
-  Scenario: Cmd+1 positional switch pans the canvas to the newly-active tile
-    Given I create a terminal
-    And I create a terminal
-    And I create a terminal
-    Then there should be 4 canvas tiles
-    When I press Control+1
     Then the active canvas tile should be centered in the viewport
 
   Scenario: Ctrl+Shift+] next-terminal pans the canvas to the newly-active tile

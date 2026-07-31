@@ -15,8 +15,7 @@
 
 import { dirname } from "node:path";
 import {
-  acquirePidGate,
-  confirmHeldGate,
+  claimPidGate,
   type DaemonExit,
   type DaemonBuildIdentity,
   type DaemonLifetimeInfo,
@@ -25,7 +24,9 @@ import {
   type GateAcquisition,
   lifetimeInfo,
   type Logger,
+  type ProcessIdentity,
 } from "@kolu/surface-daemon";
+import { processIdentityFromEnv } from "osfacts-client";
 
 import { buildCommit } from "@kolu/surface/identity";
 import {
@@ -147,7 +148,7 @@ export interface PadiDaemonOptions {
 // compiler-checked edge; the win is that those setters are grouped into one phase
 // instead of scattered across the boot the way they used to be.
 
-/** Padi's HELD single-instance gate — the `acquired` arm of `acquirePidGate`,
+/** Padi's HELD single-instance gate — the `acquired` arm of `claimPidGate`,
  *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
  *  that must run UNDER the gate, so a phase reachable before the claim would not
  *  type-check (the loser of a state-root race can't clobber the winner's disk). */
@@ -408,24 +409,35 @@ export async function runPadiDaemon(
   // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
-  let gate = acquirePidGate(home.gatePath);
-  if (gate.kind === "held") {
-    gate = await confirmHeldGate(gate, home.gatePath, home.socketPath);
+  const readProcessIdentity = (pid: number): ProcessIdentity | undefined =>
+    processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
+  const selfIdentity = readProcessIdentity(process.pid);
+  if (selfIdentity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this padi process (${process.pid})`,
+    );
   }
-  if (gate.kind === "held") {
+  const claimed = await claimPidGate(
+    home.gatePath,
+    home.socketPath,
+    selfIdentity,
+    readProcessIdentity,
+  );
+  if (claimed.kind === "held") {
     log.info(
-      { gatePath: home.gatePath, pid: gate.pid },
+      { gatePath: home.gatePath, pid: claimed.pid },
       "padi already running for this state-root; yielding to the live instance",
     );
-    return { kind: "already-running", pid: gate.pid };
+    return { kind: "already-running", pid: claimed.pid };
   }
-  if (gate.kind === "dir-not-private") {
+  if (claimed.kind === "dir-not-private") {
     log.error(
-      { gatePath: home.gatePath, dir: gate.dir },
+      { gatePath: home.gatePath, dir: claimed.dir },
       "padi gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
+  const gate = claimed;
 
   // Gate → stores → identity: each phase takes the prior's token, so none can run
   // before the gate is claimed above (a lost gate-race returns before reaching here).
@@ -514,6 +526,8 @@ export async function runPadiDaemon(
     return await daemonMain({
       // Full home — gate+socket from one resolve; override absorbed at construction.
       home,
+      processIdentity: selfIdentity,
+      readProcessIdentity,
       // The router is the serve phase's output — read it straight off `served` rather
       // than re-threading it through the endpoint token that neither owns nor touches it.
       router: served.router,

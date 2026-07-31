@@ -53,16 +53,6 @@ Feature: Session restore
     And the active canvas tile should be centered in the viewport
     And there should be no page errors
 
-  Scenario: Active terminal persists across refresh
-    When I open the app
-    And I create a terminal
-    And I create a terminal
-    And I select terminal 2 in the workspace switcher
-    And I wait for the session auto-save
-    And I reload the page and wait for ready
-    Then workspace switcher entry 2 should be active
-    And there should be no page errors
-
   # Regression guard for the centering side of refresh persistence. The
   # production bug is a race: on cold load the canvas first-mount centring
   # effect (`TerminalCanvas.tsx:331`) fires on the initial `terminalList`
@@ -94,6 +84,38 @@ Feature: Session restore
     When I reload the page and wait for ready
     Then the saved active canvas tile should still be active
     And the active canvas tile should be centered in the viewport
+    And there should be no page errors
+
+  # Split / parented terminals are first-class restore rows: their agents resume
+  # with the rest of the session, and the restore card lists every saved terminal
+  # (no "+N splits" collapse). The host owns the resumable set; the client only
+  # opts out. Regression: the client used to filter `!parentId` out of the resume
+  # opt-in, so a split's agent was never resumed and its restoreTarget was wiped.
+  @codex-mock @kaval-restart
+  Scenario: A split terminal's agent resumes on session restore
+    # Agent is mocked in the focused SPLIT (create-sub focuses it). Tile
+    # titlebar chrome only paints the main pane's agent, and a split's agent
+    # reaches NO client chrome at all, so the tile-chrome gate every other
+    # codex scenario uses cannot stand in here — the saved session itself is
+    # the gate. It has to be: `restoreTarget: exact` (what makes the split
+    # resumable) exists only once padi has OBSERVED the agent, and the
+    # 500 ms-debounced autosave then persists whatever the fold holds. Kill
+    # kaval before both have happened and the frozen blob offers
+    # "Restore 2 terminals" with no agent to resume, for as long as you poll.
+    Given the terminal is ready
+    When I create a sub-terminal via command palette
+    And a Codex session is mocked with state "waiting"
+    Then the saved session should list 1 resumable agents
+    When the kaval daemon is killed
+    Then the degraded canvas is shown
+    When I restart kaval from the degraded canvas
+    Then the daemon returns to running
+    And the session restore card should be visible
+    And the restore button should mention "resume 1 agent"
+    When I click the restore button
+    Then there should be 1 workspace switcher entries
+    And the restored split sub-terminal should be visible
+    And a restored terminal should replay the agent resume invocation "codex resume 00000000-0000-0000-0000-000000000001"
     And there should be no page errors
 
   # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)

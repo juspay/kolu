@@ -51,7 +51,7 @@ Feature: Right panel (Code + Inspector)
     And there should be no page errors
 
   Scenario: Inspector shows git branch in a git repo
-    When I run "git init /tmp/kolu-inspector-git && cd /tmp/kolu-inspector-git"
+    When I run "rm -rf /tmp/kolu-inspector-git && git init /tmp/kolu-inspector-git && cd /tmp/kolu-inspector-git"
     When I press the toggle inspector shortcut
     Then the right panel should be visible
     When I click the right panel tab "inspector"
@@ -206,6 +206,55 @@ Feature: Right panel (Code + Inspector)
     # Switch forward to terminal 2 — Code again
     When I press the switch to terminal 2 shortcut
     Then the Code tab should be active
+    And there should be no page errors
+
+  Scenario: Inspector Work chips follow the active terminal across repos
+    # Regression cover for #2037: the branch/repo chips painted once for
+    # whichever terminal was active when the Inspector first mounted, then
+    # never repainted on a terminal switch — while the directory line right
+    # below them (read inline, not memoized) kept updating. Two terminals in
+    # two DIFFERENT repos/branches, switched back and forth, asserting all
+    # three read the ACTIVE terminal's own facts each time — not merely
+    # non-empty, which stale text from the other terminal satisfies just as
+    # well (see packages/client/src/right-panel/WorkSection.test.tsx).
+    When I run "rm -rf /tmp/kolu-inspector-alpha && git init /tmp/kolu-inspector-alpha && cd /tmp/kolu-inspector-alpha && git checkout -b alpha-feature"
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector branch chip should contain "alpha-feature"
+    And the inspector repo chip should contain "kolu-inspector-alpha"
+    And the inspector directory should contain "/tmp/kolu-inspector-alpha"
+    When I create a terminal
+    And I run "rm -rf /tmp/kolu-inspector-beta && git init /tmp/kolu-inspector-beta && cd /tmp/kolu-inspector-beta && git checkout -b beta-feature"
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector branch chip should contain "beta-feature"
+    And the inspector repo chip should contain "kolu-inspector-beta"
+    And the inspector directory should contain "/tmp/kolu-inspector-beta"
+    When I press the switch to terminal 1 shortcut
+    Then the inspector branch chip should contain "alpha-feature"
+    And the inspector repo chip should contain "kolu-inspector-alpha"
+    And the inspector directory should contain "/tmp/kolu-inspector-alpha"
+    When I press the switch to terminal 2 shortcut
+    Then the inspector branch chip should contain "beta-feature"
+    And the inspector repo chip should contain "kolu-inspector-beta"
+    And the inspector directory should contain "/tmp/kolu-inspector-beta"
+    And there should be no page errors
+
+  @mobile
+  Scenario: Inspector Work chips read correctly in the mobile drawer
+    # The Inspector also renders inside RightPanelDrawer at phone widths
+    # (coarse pointer + narrow viewport) — same WorkSection subtree, same
+    # testids. Confirms the chips aren't a desktop-only fix.
+    When I run "rm -rf /tmp/kolu-inspector-mobile && git init /tmp/kolu-inspector-mobile && cd /tmp/kolu-inspector-mobile && git checkout -b mobile-feature"
+    When I tap the mobile pull handle
+    And I tap the mobile inspector toggle
+    Then the right panel should be visible
+    When I click the right panel tab "inspector"
+    Then the inspector branch chip should contain "mobile-feature"
+    And the inspector repo chip should contain "kolu-inspector-mobile"
+    And the inspector directory should contain "/tmp/kolu-inspector-mobile"
     And there should be no page errors
 
   Scenario: Collapsed state is per-terminal (the panel follows the terminal)

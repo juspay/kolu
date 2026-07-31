@@ -76,15 +76,30 @@ async function waitForHttp(url: string, timeoutMs: number, proc: ChildProcess) {
   throw new Error(`timed out after ${timeoutMs}ms waiting for ${url}`);
 }
 
-/** `just dev` forks a server and a client in parallel, so the child is a process
- *  GROUP. `detached: true` + `kill(-pid)` is what reaches both halves; killing
- *  the `just` pid alone orphans a Vite that keeps holding the port. */
+/** `_dev-parallel` is the server/client half of `just dev`, without its
+ *  workspace-install dependency. The caller (`test-dev`, and CI's install
+ *  funnel above it) already owns installation; starting another `pnpm install`
+ *  here races every concurrent consumer of `node_modules/.bin`.
+ *
+ *  The recipe forks a server and a client in parallel, so the child is a
+ *  process GROUP. `detached: true` + `kill(-pid)` is what reaches both halves;
+ *  killing the `just` pid alone orphans a Vite that keeps holding the port. */
 function startDevServer(ports: { server: number; client: number }) {
-  return spawn("just", ["dev", String(ports.server), String(ports.client)], {
+  return spawn("just", ["_dev-parallel"], {
     cwd: REPO_ROOT,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env: process.env,
+    // `just dev` deliberately detaches padi (and padi detaches kaval) so a
+    // normal developer server can restart without killing terminal sessions.
+    // A one-shot smoke run has the opposite lifetime: bind both daemons to this
+    // process so its exit reaps the detached tree as well as the foreground
+    // process group stopped below.
+    env: {
+      ...process.env,
+      KOLU_DEV_SERVER_PORT: String(ports.server),
+      KOLU_DEV_CLIENT_PORT: String(ports.client),
+      KOLU_DAEMON_BIND_PID: String(process.pid),
+    },
   });
 }
 
@@ -119,9 +134,15 @@ async function main() {
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
   try {
-    const url = `http://localhost:${ports.client}/`;
-    await waitForHttp(url, DEV_READY_TIMEOUT_MS, dev);
-    console.log(`dev-smoke: dev server serving ${url}`);
+    const clientUrl = `http://localhost:${ports.client}/`;
+    const serverHealthUrl = `http://localhost:${ports.server}/api/health`;
+    await Promise.all([
+      waitForHttp(clientUrl, DEV_READY_TIMEOUT_MS, dev),
+      waitForHttp(serverHealthUrl, DEV_READY_TIMEOUT_MS, dev),
+    ]);
+    console.log(
+      `dev-smoke: dev stack serving ${clientUrl} (health ${serverHealthUrl})`,
+    );
 
     browser = await chromium.launch();
     const page = await browser.newPage();
@@ -132,7 +153,7 @@ async function main() {
     // A module-load crash arrives as an uncaught exception, not a console call.
     page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
 
     // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
     // page with an empty body, which a status-code check would have called

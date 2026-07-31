@@ -1,1 +1,4 @@
-["kaval", "padi"]
+{
+  "expose": ["kaval", "padi", "padi-agent"],
+  "prove": ["kaval", "padi"]
+}

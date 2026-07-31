@@ -87,7 +87,12 @@ import {
   type Session,
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
-import { composeSpawnEnv } from "kolu-pty";
+import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -168,6 +173,24 @@ export function daemonEnv(
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  // The client toolchain a terminal must be able to run (`kaval-tui`, `padi-tui`,
+  // `kolu mcp`), baked onto the `kolu` wrapper by nix. A REMOTE padi gets this
+  // from its own provisioned closure's wrapper — there is no env channel across
+  // ssh — so this forward is what gives a LOCALLY-supervised padi the same fact,
+  // and thus local and remote terminals one behaviour instead of two. Forwarded,
+  // not re-derived: kolu-server and padi must name the SAME build's tools (see
+  // kolu-pty's `readAgentToolsBake`).
+  //
+  // Forwarded UNCONDITIONALLY, and that is now safe by construction: the bake
+  // name is written only by a wrapper and is never stamped into a terminal (the
+  // stamp is `KOLU_TERMINAL_TOOLS_PATH`). A from-source kolu started inside a
+  // kolu terminal therefore inherits no bake, forwards none, and its terminals
+  // carry none — explicit absence, no discriminator needed. This used to be
+  // gated on `KOLU_PADI_BIN`, an unrelated variable pressed into service as a
+  // proxy for "is my own value a bake or somebody's stamp?"; splitting the two
+  // names deleted the question.
+  if (process.env[AGENT_TOOLS_BAKE_ENV])
+    env[AGENT_TOOLS_BAKE_ENV] = process.env[AGENT_TOOLS_BAKE_ENV];
   // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
   // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its
   // closure knows them at build time; see default.nix), so a production padi already
@@ -630,6 +653,7 @@ export function ensurePadiBindingWith(
       opts.verbose ?? false,
       opts.legacyKavalSocket,
     );
+  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiHelloIdentity,
@@ -637,6 +661,13 @@ export function ensurePadiBindingWith(
   >({
     hostId: PADI_HOST_ID,
     home,
+    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+    // boot failure, never a surprise during a squatter recovery that is already
+    // coping with a wedged endpoint. Two spellings of the env var and two
+    // resolution timings on adjacent lines is how the two drift apart.
+    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+    readSocketHolders: osfactsSocketHolders(osfactsBin),
     // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
     // `converge(ep)`; boot methods are internal.
     policy: deps.policy,

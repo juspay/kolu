@@ -1,100 +1,55 @@
 ---
-title: E2E graduation — the browser suite's package-level future
-description: "A completed read-only review of all 53 feature files / 492 scenarios, classified against the step implementations: ~26% of the browser suite asserts behavior a package API exposes and graduates to padi/kaval/integrations/client-unit tests — mostly by deleting re-proofs the packages already cover — while ~360 scenarios genuinely assert rendered UI and stay. The classification table, the graduation order, the surprises, the #1751 intersection, and the execution done-criteria."
+title: E2E Graduation — Faster Without Losing User Journeys
+description: "How Kolu moved redundant browser assertions to lower layers while retaining every distinct user-level journey and making future removals auditable."
 parents: [analysis, padi]
-status: proposed
-maturity: seedling
-updated: 2026-07-10
+status: implemented
+maturity: evergreen
+updated: 2026-07-30
 ---
 
 import Svg from "../../components/Svg.astro";
 import PrLink from "../../components/PrLink.astro";
-import layers from "../../diagrams/e2e-graduation-layers.svg?raw";
+import governance from "../../diagrams/e2e-graduation-layers.svg?raw";
 
-**The principle: a test lives at the lowest layer that can honestly assert it.** A browser e2e worker pays Xvfb, the built kolu-server binary, a spawned padi, a kaval daemon, and a Chromium context — then 20–60s DOM/hydration polls per scenario (`packages/tests/support/hooks.ts`/`world.ts`); a package integration test pays a vitest boot and at most an in-process PTY (`packages/kaval/src/inProcessPtyHost.test.ts` precedent). Reviewed at `ff1c0bd22`, grounded in the step implementations (not the Gherkin prose): of **492 scenario executions across 53 feature files, ~130 (~26%) assert behavior a package API exposes** and graduate or collapse to a thin smoke; **~360 genuinely assert rendered UI and stay**. The headline: **graduation is mostly deletion** — padi/kaval/solid-markdown/integrations already test most graduatable halves, and several e2e scenarios are 1:1 duplicates of existing package tests (named below). Execution is a separate future PR; this note is the reviewed map.
+**A test should live at the lowest layer that can honestly assert its promise, but “a lower test exists” is not proof that it asserts the same thing.** <PrLink pr={2064} /> applied that rule to all 58 feature files. The suite moved from **530 Gherkin declarations and 546 expanded executions** to **494 declarations and 508 executions**. Default CI moved from 541 to 503 Linux executions and from 540 to 502 Darwin executions: 38 browser executions removed without removing a distinct user journey.
 
-<Svg svg={layers} caption="The move. ~130 of 492 executions graduate from the browser stack to package tests (mostly deletion — the covering test already exists), leaving thin browser smokes; ~360 rendered-UI scenarios stay." />
+<Svg svg={governance} caption="The graduation gate. CI preserves scenario history, checks complete ledger rows, collects every named replacement test, and requires current browser survivors. Human review—not the schema—decides whether a lower replacement or stronger retained journey covers the same defect surface." />
 
-## The classification, file by file
+## What was safe to graduate
 
-File-level: **31 browser-bound · 9 graduatable · 13 mixed.**
+The removed scenarios repeated assertions already owned more directly by pure logic, component, fork-free integration tests, or a strictly stronger retained browser journey. Each retirement names its historical scenario revision, user promise, defect surface, independent browser survivor, and—when its action is `replace`—lower-layer evidence with declared platforms. The lower tests include production reducers and state machines, real temporary files and watchers, real SQLite, short-lived Git repositories, and render-from-state component tests.
 
-| Feature file | Scen. | Classification | Target package | Seam |
-|---|---:|---|---|---|
-| claude-code.feature | 20 | GRADUATABLE (keep ~2 smokes) | padi + integrations/claude-code | `terminalWorkspace/sensors.ts` `startSensors` over real temp dirs + in-process PTY |
-| codex.feature | 6 | GRADUATABLE (keep 1 smoke) | padi + integrations/codex | same; mock already writes real SQLite (`support/agent-mock-codex.ts`, `node:sqlite`) |
-| opencode.feature | 7 | GRADUATABLE (keep 1 smoke) | padi + integrations/opencode | same |
-| grok.feature | 6 | GRADUATABLE (keep 1 smoke) | padi + integrations/grok | same |
-| recent-agents.feature | 6 | MIXED | integrations/anyagent (largely covered) + padi | normalization = `agent-cli.test.ts` dup; OSC 633;E→MRU = padi sensors `commandRun`; palette UX stays |
-| activity-alerts.feature | 5 | BROWSER-BOUND | — | `window.__koluSimulateAlert` hook, Badging API, switcher glow — pure client wiring |
-| foreground-process.feature | 2 | GRADUATABLE (keep 1 smoke) | kaval (+padi compose) | OSC 0/2 title + foregroundPid — ALREADY in `kaval/src/ptyHost.test.ts` |
-| cwd.feature | 2 | GRADUATABLE (keep 1 smoke) | kaval (+padi compose) | OSC 7 cwd — ALREADY in `kaval/src/ptyHost.test.ts` |
-| kill.feature | 8 | MIXED | padi/kaval | PTY-exit removal + stays-gone-after-refresh = kaval inventory deltas + `padi/reconcile.test.ts`, `session.test.ts`; dialogs/auto-switch stay |
-| kaval-daemon.feature | 5 | MIXED | padi | recycle-preserves-session + fresh-pid = `restartLocal.test.ts` + kaval `socketDaemon.test.ts`; degraded/warming UI stays |
-| sleeping-terminals.feature | 9 | MIXED | padi | sleep/wake/resume-by-id/malformed-drop/no-orphan = `sleepWake.test.ts` + `reconcile.test.ts`; dormant render/dock filters/PTY-replay-in-xterm stay |
-| session-restore.feature | 9 | MIXED | padi | restore mechanism = `sessionRestore.test.ts` + `session.test.ts`; viewport-centering races, theme, heading UI stay |
-| reconnect.feature | 1 | BROWSER-BOUND | — | client oRPC `ClientRetryPlugin` re-subscribe over the page's own WebSocket |
-| terminal.feature | 13 | BROWSER-BOUND | — | xterm fit/zoom/focus/client scrollback (server-mirror half already in kaval `ptyHost.test.ts`) |
-| sub-terminal.feature | 17 | BROWSER-BOUND | — | split panes/focus routing; restore-re-parent half already in `sessionRestore.test.ts` |
-| terminal-resize.feature | 1 | BROWSER-BOUND | — | per-terminal cols sovereignty on mobile — client fit |
-| inherit-size.feature | 2 | BROWSER-BOUND | — | client `resolveReferenceLayout` placement |
-| code-tab.feature | 101 | MIXED (~40 graduate/thin) | integrations/git, solid-markdown, padi, solid-browser, client units | markdown cluster → `render.test.ts`/`wikilink.test.ts` (+ new `sanitize.test.ts`); filter Outlines → `fileSearch.ts`/`pathReconcile.ts` units; status/binary → `review.test.ts`; listAll/readFile → `browse.test.ts`; history → `createBrowser` |
-| file-ref-link.feature | 15 | MIXED (~9 graduate) | client `ui/lineRef.test.ts` (exists) | resolver variants; keep xterm hit-test/touch/re-click canaries |
-| git-context.feature | 9 | MIXED (mostly graduates) | integrations/git | `resolve.ts` + head/cwd watchers: branch, worktree naming, `.worktrees` collapse |
-| recent-repos.feature | 3 | MIXED | padi | MRU tracking graduates; palette picker render stays (1 smoke) |
-| worktree.feature | 10 | MIXED | integrations/git + padi | `worktree.ts` create/remove, collision, validation, shared-blocker; confirm-dialog UI stays |
-| worktree-agent.feature | 4 | BROWSER-BOUND (trim to 2-3) | — | agent command written into new PTY + sub-palette; MRU/worktree seams graduate via other files |
-| settings.feature | 4 | BROWSER-BOUND (trim to 1-2) | — | popover + aria-pressed; overlaps preferences |
-| preferences.feature | 4 | MIXED (3 of 4 graduate) | padi | confStore write→re-read persistence; keep renderer-swap-live-tile smoke |
-| terminal-intent.feature | 8 | MIXED (~4 graduate) | padi + solid-markdown | `chrome.setIntent` persistence; links-off inert render = `render.test.ts` dup; editor UX stays |
-| smoke.feature | 3 | MIXED | server | `/api/health` = plain Hono route (`packages/server/src/index.ts:542`); title + WS-open stay |
-| chrome-memory.feature | 2 | GRADUATABLE (mostly) | padi + kaval | `memorySampler.ts` `processMemory` cell; kaval `surface.system.processMemory` |
-| clipboard.feature | 1 | GRADUATABLE (thin residue) | padi | upload/`scratch.write`; paste-event origination is the only browser fact |
-| file-drop.feature | 2 | GRADUATABLE (thin residue) | padi | upload gate incl. `.mov` allowlist — policy ALREADY in `servePadi.test.ts` (F1) |
-| canvas.feature | 48 | BROWSER-BOUND | — | tile geometry, WebGL budget, minimap, pan/zoom, maximize |
-| canvas-selection.feature | 1 | BROWSER-BOUND | — | xterm hit-testing under CSS transform |
-| dock.feature | 15 | BROWSER-BOUND | — | rendered dock; ranking is pure (`terminal-vocab/agentProjection.ts`) and separately unit-testable |
-| workspace-switcher.feature | 17 | BROWSER-BOUND | — | cards/buckets render; bucket taxonomy graduable to terminal-vocab units |
-| command-palette.feature | 23 | BROWSER-BOUND | — | palette DOM/focus/chords |
-| keyboard-shortcuts.feature | 9 | BROWSER-BOUND | — | chords, MRU cycling, `__wsSent` leak-guards |
-| right-panel.feature | 20 | BROWSER-BOUND | — | panel render; kaval-tui command-string derivation could gain a padi assertion |
-| theme.feature | 13 | BROWSER-BOUND | — | rendered theme + localStorage |
-| scroll_lock.feature | 10 | BROWSER-BOUND | — | xterm viewport scrollTop state machine |
-| mobile-*.feature (8 files) | 39 | BROWSER-BOUND | — | touch gestures, soft keyboard/iOS focus, drawers, swipe |
-| compact-layout.feature | 3 | BROWSER-BOUND | — | responsive layoutMode render |
-| copy-pane-text.feature | 3 | BROWSER-BOUND | — | client buffer serialization + navigator.clipboard |
-| osc52-clipboard.feature | 2 | BROWSER-BOUND | — | xterm ClipboardAddon + clipboard fallback |
-| terminal-screenshot.feature | 5 | BROWSER-BOUND | — | client canvas capture to clipboard PNG |
-| render_recovery.feature | 1 | BROWSER-BOUND | — | xterm renderService rAF recovery |
-| welcome.feature | 1 | BROWSER-BOUND | — | static render (could be a component test) |
-| recordings.feature | 1 | BROWSER-BOUND | — | marketing capture, no assertion |
+The perfection review restored candidates whenever the browser contributed a fact the lower test did not own. That kept the full Code-tab `local` / `branch` / `browse` behavior matrix, Markdown sanitization and rich-render composition, real agent-token lifecycle paint, terminal switcher dismissal and split exclusion, subterminal resize, intent slot selection, file-drop size and media boundaries, canvas close-pan, theme shuffling, recent-agent filtering, Kaval PID behavior, and the other distinct composition seams found during the sweep.
 
-## The graduation order
+The result is deliberately conservative. A scenario stayed in E2E if its promise emerged from browser or system composition: deep links, printed URLs, mobile gestures and the soft keyboard, reconnect, xterm behavior, canvas geometry/WebGL, focus and chord journeys, worktree composition, or any boundary for which the lower test could remain green while the user path broke.
 
-Speed win × risk, biggest first. The named duplicates are the deletion proof: sleeping-terminals' malformed-record scenario is a 1:1 dup of `sleepWake.test.ts`; file-drop's `.mov` allowlist duplicates `servePadi.test.ts` F1; recent-agents' quote re-quoting duplicates `anyagent/src/agent-cli.test.ts`; terminal-intent's inert-markdown duplicates `solid-markdown/render.test.ts`.
+## What the guardrail actually proves
 
-1. **Agent detection → padi sensors + integrations** (≈35 retired, ~5 smokes). The suite's slowest, flakiest band — every scenario pays full-stack boot plus fs-watch nudge polls under `HYDRATION_TIMEOUT`. The pure derivations are already unit-tested (`integrations/*/index.test.ts`, `screen.test.ts`); the one genuinely new surface is the composition — real fs events → watcher → sensors' `TerminalEvent` emission against a real PTY. Shape: kaval's in-process PTY + `startSensors` + the e2e mock builders ported to a testlib (`gitRepo.testlib.ts` precedent); the mocks already write real artifacts (real SQLite via `node:sqlite`) with no Playwright dependency beyond a shell-PID probe an in-process PTY replaces.
-2. **Lifecycle redundancy trim → padi/kaval** (≈16 retired from kill · kaval-daemon · sleeping-terminals · session-restore · foreground-process · cwd). Near-zero risk: the package tests already exist (`sleepWake.test.ts`, `sessionRestore.test.ts`, `reconcile.test.ts`, `restartLocal.test.ts`, kaval `ptyHost.test.ts:282/327/338` for OSC 7 / OSC 0-2 / foregroundPid) — this is deleting re-proofs and keeping named smokes. No new code.
-3. **code-tab markdown + filter + resolver variants** (≈25–30). Markdown cluster → solid-markdown (dup-deletion + one new `sanitize.test.ts`); filter Outlines → `fileSearch`/`pathReconcile` units, collapsing the 3×-mode Outlines to one mode; file-ref resolver variants → `lineRef.test.ts`. Cheap, mechanical.
-4. **git facts → `integrations/git`** (≈15): git-context + code-tab status/diff/binary clusters extend `review.test.ts`/`browse.test.ts`; new `resolve.test.ts` assertions and a new `worktree.test.ts` (create/remove, collision, validation, shared-worktree blocker). Moderate new-test work on well-precedented seams.
-5. **The <PrLink pr={1751} /> real-agent lane → integrations/codex + padi real-CLI test**, done *with* W3.4 rather than after — the highest per-scenario speed win in the repo (a real ollama model turn + the browser stack + DOM polls today). See the intersection note below.
-6. **Small server stowaways:** upload-gate residue (file-drop/clipboard — already covered, keep one smoke), chrome-memory → padi/kaval, `/api/health` → a server HTTP test, preferences/intent persistence → padi store tests.
+| Mechanism | Source of truth | Mechanical guarantee |
+|---|---|---|
+| Scenario inventory | `packages/tests/scenario-inventory.json` | Every revision fingerprints backgrounds, steps, tags, data tables, doc strings, and expanded Examples values. CI compares the current file with every committed version reachable from `HEAD`, so historical records cannot be edited or removed. |
+| Coverage ledger | `packages/tests/coverage-ledger.yaml` | Every revision absent from the live suite has exactly one landed row naming its promise, defect surface, destination, and current browser survivors. A `replace` action must also name replacement evidence. |
+| Test collection | `packages/tests/governance/ledger.ts` | Every named replacement and review-evidence test is currently collected, with at least one declared platform and a stated realism boundary. The platform list is a declaration, not proof that this check ran the test there. |
+| Attempt timing | Cucumber message stream → `reports/e2e-timing.json` | Every attempt is retained with status, duration, retry verdict, final-attempt totals, and per-feature totals. A passing retry cannot erase the failed attempt's cost. |
+| Starting census | `packages/tests/baseline-census.json` | The original 58 / 530 / 546 suite and its 541 Linux / 540 Darwin default counts remain pinned. |
 
-## The surprises
+The ledger is an audit index, not an equivalence oracle. CI proves immutable history, ledger completeness, active test collection, non-empty platform declarations, and retained current scenario identities. Human review verifies that each replacement exercises the same promise and defect surface; `reviewEvidence.note` records that judgment explicitly as non-executable evidence. This is more honest than a generic “counterfactual” sentence that no tool actually ran.
 
-- **The 3×-mode Scenario Outlines in code-tab multiply mode-independent behavior** (filtering, selection persistence) — collapsing them to one mode is a free ~15-execution cut with zero graduation work.
-- **chrome-memory is a server-sampler test in UI dress:** "RSS numbers visibly change under load" asserts `packages/padi/src/memorySampler.ts` publishing the `processMemory` cell (sampling kaval via `surface.system.processMemory`); the UI's share is one aria-label smoke at most.
-- **Two server-looking suites are genuinely browser-bound.** reconnect.feature tests the *client's* oRPC `ClientRetryPlugin` re-subscribing over the page's own WebSocket — no server seam exists (the steps note CDP couldn't even simulate the drop). terminal.feature's scrollback scenarios assert the *client xterm buffer*, a different buffer from kaval's already-tested server mirror — not redundant.
+## The runtime lesson
 
-## The #1751 intersection
+The exact macOS CI host exposed a harness defect before it supplied a useful baseline. Its interactive shell resolved `/usr/bin/git`, an Xcode command-line-tools stub, so strict commands failed and retried for more than an hour. The E2E dev shell now carries Nix's Git, and the fixture shell restores the inherited Nix `PATH` after macOS `/etc/zprofile`. Command helpers again fail on nonzero status; intentionally interactive or failing commands use an explicit start-only step. This changed no product behavior, but made false-green setup failures impossible in the test harness.
 
-<PrLink pr={1751} /> adds `codex-real.feature`: a real `codex` CLI (pinned 0.130.0 — nixpkgs' 0.114 predates the `threads` schema kolu's detector requires) against a private ollama, asserting thinking→waiting plus artifacts at the real default paths. **Every assertion except the DOM readout is server-observable.** The natural home once real: an integrations/codex (or padi) package test — codex in a kaval in-process PTY with the ollama env + throwaway `HOME`, the real watcher over the real `~/.codex`, asserting the sensors state stream flips and the artifacts land — keeping the PR's determinism work intact and removing Xvfb + Chromium + DOM polls from the lane that combines a real model turn with the flakiest wait in the suite. Browser residue: none beyond the mock smoke (the UI indicator is proven there; real-CLI detection is not a UI fact). This is **deliberately not redirected into the in-flight PR** — it composes with the PR's own open question (W3.4 decides whether the real lane subsumes the mocks): real lane → package test; mock lane → padi state-machine tests + one browser smoke. The codex nix pin and the linux-only constraint travel with the graduation.
+The campaign therefore has a censored baseline—**the original strict Petit suite did not settle within one hour**—rather than a fabricated five-sample median. The final suite's settled measurements live in `docs/e2e-runtime-ralph-report.md`.
 
-## Done-criteria for the execution PR(s)
+## The durable decision rule
 
-- **Step 1:** a padi integration test drives every agent state-machine scenario (interrupted→waiting, fork→running_background, orphaned workflow, compact, stale-JSONL, token counting, OSC 633;E npm-shim, task progress, session-end clear) plus the two screen-scrape promotions, through a real in-process PTY; the mock builders live in a shared testlib; ≤5 agent smokes remain in e2e.
-- **Step 2:** each retired lifecycle scenario names its covering package test in the deleting PR's description; the kept smokes are named; no new package code.
-- **Step 3:** `sanitize.test.ts` exists; the code-tab Outlines run one mode; the markdown/resolver dups are deleted with their covering tests named.
-- **Step 4:** `worktree.test.ts` covers create/remove/collision/validation/shared-blocker; git-context keeps ~2 smokes.
-- **Step 5:** the real-codex assertions run as a package test in W3.4's lane; the browser never enters the real-model-turn path.
-- **Globally:** the suite drops ~130 scenario executions; both-platform e2e wall time is measured before/after; no rendered-UI assertion is deleted without a named replacement or a kept smoke.
+For a future retirement:
+
+1. Name the exact immutable revision and user promise.
+2. Add the lowest-layer test that crosses the same real defect surface.
+3. Retain an independent browser scenario that still walks the user path.
+4. Record the human equivalence review without claiming CI performed it.
+5. Land a complete ledger row and remove only that revision.
+6. Measure the whole pipeline, and restore the browser proof if either coverage review or runtime evidence fails.
+
+There is no target retirement count. The count is an output of evidence, never a quota.

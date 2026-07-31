@@ -56,6 +56,11 @@ export type KavalConnection = DaemonConnection<
 
 export type KavalConnectionMetadata = {
   contractVersion: string;
+  /** The connected daemon's own pid from the already-validated
+   * `system.version` handshake. Kept internal to padi's endpoint metadata so
+   * process-local consumers can identify this exact connection generation;
+   * never projected onto `DaemonStatus` or added to a wire shape. */
+  pid: number;
   /** kaval's serialized lifetime (`forever` in production; `boundToPid` under a
    *  test/smoke run), read off `system.version` — mirrored into `DaemonStatus`
    *  for the Kaval dialog's lifetime row. Optional: a survivor predating the
@@ -227,6 +232,7 @@ export async function connectKaval(
     metadata: {
       contractVersion: projected.contractVersion,
       lifetime: version.lifetime,
+      pid: version.pid,
     },
     dispose: () => socket.destroy(),
     onClose: (cb) => {

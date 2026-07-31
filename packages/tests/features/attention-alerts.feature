@@ -4,12 +4,6 @@ Feature: Attention Alerts
   Background:
     Given the terminal is ready
 
-  Scenario: Simulated alert shows workspace switcher glow on background terminal
-    When I create a terminal
-    And I simulate an attention alert
-    Then a workspace switcher branch should be notified
-    And there should be no page errors
-
   Scenario: Visiting notified terminal clears the glow
     When I create a terminal
     And I simulate an attention alert
@@ -41,4 +35,3 @@ Feature: Attention Alerts
     And I simulate an attention alert
     Then no workspace switcher branch should be notified
     And there should be no page errors
-

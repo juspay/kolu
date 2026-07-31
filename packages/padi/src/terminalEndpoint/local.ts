@@ -40,6 +40,7 @@ import type {
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
+  EndpointGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
@@ -200,12 +201,32 @@ class PtyHostTerminalProxy implements TerminalHandle {
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
-  resize(cols: number, rows: number): void {
-    void this.ready
-      .then(() =>
-        this.client.surface.terminal.resize({ id: this.id, cols, rows }),
-      )
-      .catch((err) => log.error({ terminal: this.id, err }, "pty-host resize"));
+  /** AWAITED, unlike `write`: a resize is a CLAIM about the consumer's grid, and
+   *  a claim that silently failed to land leaves that consumer rendering against
+   *  a size the PTY does not have — the exact wrong-grid screen this subsystem
+   *  exists to prevent, with no way for the caller to know. So the rejection
+   *  propagates to the caller instead of collapsing into a server-side log.
+   *
+   *  `ok: false` is the ONE quiet outcome: kaval had no such PTY, i.e. the
+   *  process exited on its side before padi observed the exit and tore this
+   *  proxy down. That is the same expected killed-terminal race the surrounding
+   *  design deliberately quiet-drops (see `servePadi`'s `getActiveTerminal`
+   *  drop), not a failure — there is no consumer left to render at the wrong
+   *  size. Returning here keeps it out of the caller's error path; anything that
+   *  REJECTS (transport, handler throw) still propagates, which is the failure
+   *  the client's toast exists for. */
+  async resize(cols: number, rows: number): Promise<void> {
+    await this.ready;
+    const { ok } = await this.client.surface.terminal.resize({
+      id: this.id,
+      cols,
+      rows,
+    });
+    if (!ok)
+      log.debug(
+        { terminal: this.id, cols, rows },
+        "resize dropped: pty already exited on kaval's side",
+      );
   }
 
   async getScreenState(): Promise<string> {
@@ -1350,6 +1371,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   async attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
+    resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment> {
     // Wait for the PTY to actually exist before opening the attach stream —
     // otherwise a tile attaching off the sync shadow races the in-flight
@@ -1363,9 +1385,22 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // then deltas; a first frame that isn't a snapshot is a contract violation —
     // throw rather than silently paint a blank terminal (the same fail-loud
     // stance as `getScreenState`'s NOT_FOUND).
-    const open = async (): Promise<OpenedAttach> => {
+    // The resize is a PARAMETER of the open, not state: only the initial attach
+    // below passes one, and the overflow-driven re-attaches call `open()` bare.
+    //
+    // `resizeTo` is a VALUE captured when this attach was requested, but the
+    // consumer's real grid is a live fact: after any resize it travels on
+    // `lifecycle.resize`, which this closure never hears about. Replaying the
+    // captured value on a re-attach would therefore drag the PTY BACK to a size
+    // the consumer no longer has — and because `attach` performs a real resize,
+    // that lands a SIGWINCH and a snapshot laid out for the stale grid,
+    // recreating the exact defect this change closes. Re-attaching WITHOUT it is
+    // correct precisely because the initial attach already sized the terminal
+    // and `lifecycle.resize` has owned every change since, so the PTY is already
+    // at the consumer's current size and the fresh snapshot serializes there.
+    const open = async (openAt?: EndpointGrid): Promise<OpenedAttach> => {
       const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id },
+        { id, resizeTo: openAt },
         { signal },
       );
       const iter = stream[Symbol.asyncIterator]();
@@ -1396,7 +1431,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       };
     };
 
-    const initial = await open();
+    const initial = await open(resizeTo);
     // The deltas survive a slow-subscriber drop: on kaval's `overflow` frame the
     // loop re-attaches for a fresh snapshot instead of ending (which would freeze
     // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
@@ -1404,7 +1439,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
-      deltas: reattachingDeltas(open, initial.iter),
+      // Re-attaches carry NO resize (see above) — `open()` with no argument.
+      deltas: reattachingDeltas(() => open(), initial.iter),
     };
   }
 }

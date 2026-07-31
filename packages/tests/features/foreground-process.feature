@@ -8,9 +8,6 @@ Feature: Foreground process detection
     Given the terminal is ready
 
   Scenario: Workspace switcher shows terminal title at startup
-    # kolu's injected bash/zsh precmd hook sets OSC 2 to the current dir.
-    # In bare-bash test envs this ends up being "~" (home abbreviation).
-    # In richer shell configs (starship, oh-my-zsh) it can be "user@host: ~/dir".
     Then the workspace switcher process name should be non-empty
     And there should be no page errors
 

@@ -21,11 +21,16 @@ import {
   type Accessor,
   type Component,
   createEffect,
+  createMemo,
+  createSignal,
   type JSX,
   on,
   onCleanup,
   splitProps,
 } from "solid-js";
+import { sameGrid, type TerminalGrid } from "./grid";
+import { clearWriteQueue } from "../internals";
+import { createOutputCoalesce, type OutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
@@ -41,6 +46,16 @@ import { createXtermLifecycle, type XtermCore } from "./xtermLifecycle";
 /** The scroll-lock latch instance shape (structural — no exported nominal). */
 export type ScrollLock = ReturnType<typeof createScrollLock>;
 
+// The grid value + its equality (`./grid`), re-exported here so `TerminalGrid`
+// still reads as the component's own vocabulary at every import site.
+export { sameGrid, type TerminalGrid } from "./grid";
+
+/** `@xterm/addon-fit`'s own clamp floor (`MINIMUM_COLS` / `MINIMUM_ROWS`).
+ *  `proposeDimensions()` never returns anything below it, so a proposal AT the
+ *  floor carries no information about the box — see `applyFit`. */
+const FIT_ADDON_MIN_COLS = 2;
+const FIT_ADDON_MIN_ROWS = 1;
+
 /** What `<Xterm onReady>` hands the consumer — the live terminal plus every
  *  mechanism it wires policy against, all inside the component's reactive owner. */
 export interface XtermHandle {
@@ -49,13 +64,37 @@ export interface XtermHandle {
   container: HTMLElement;
   addons: { fit: FitAddon; search: SearchAddon; serialize: SerializeAddon };
   scrollLock: ScrollLock;
-  /** `scrollLock.writeData` bound to this terminal — the buffer-through-the-lock
-   *  write the consumer's stream drives, `onParsed` firing when the chunk lands. */
+  /** Single write door: unfocused rate-coalesce → scroll-lock → term.write.
+   *  `onParsed` fires when the chunk lands in xterm. */
   write: (data: string, onParsed?: () => void) => void;
+  /** Drop coalesced + scroll-lock pending bytes without writing (fresh snapshot). */
+  clearPendingOutput: () => void;
   webgl: WebglHandle;
   recovery: RenderRecovery;
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
   refit: () => void;
+  /** The grid this pane has actually MEASURED against its own box — `null`
+   *  until it has one, and the ONE door this fact leaves the kit through.
+   *
+   *  Read this before doing anything that depends on the grid being REAL.
+   *  `terminal.cols/rows` is never null: an unmeasured xterm reports the 80×24
+   *  its constructor invents, and a hidden pane (`display:none`, a 0×0 box) can
+   *  never be measured, so it keeps reporting that invented grid indefinitely.
+   *  Rendering host-serialized bytes against it paints a screen laid out for a
+   *  width the terminal does not have. Gating on `grid()` makes that
+   *  unrepresentable: no grid, no bytes.
+   *
+   *  Compared by value, so it notifies once per REAL grid change and never for
+   *  a re-fit that measured nothing new — which is what lets a consumer drive
+   *  its PTY-resize publish straight off this signal. */
+  grid: Accessor<TerminalGrid | null>;
+  /** Run `fn` ONCE, with the first genuinely measured grid — immediately if one
+   *  already exists, otherwise the moment the box first measures.
+   *
+   *  The kit owns this latch so no consumer re-derives "no grid, no bytes" by
+   *  hand out of `grid()` plus a mutable boolean. Call it from `onReady` (it
+   *  registers a reactive computation in the caller's owner). */
+  onceMeasured: (fn: (grid: TerminalGrid) => void) => void;
 }
 
 interface XtermOwnProps {
@@ -63,13 +102,20 @@ interface XtermOwnProps {
   theme: ITheme;
   /** Live refit + atlas clear. */
   fontSize: number;
-  /** Fit gate — a hidden pane can't be measured, so it waits at xterm's 80×24. */
+  /** Reveal gate — scroll-lock reset + scroll-to-bottom + refit on show, and
+   *  the render-recovery gate. NOT the fit gate: whether this pane can be
+   *  measured is read off its own box inside `applyFit`, so a `visible` that
+   *  disagrees with the layout (a `true` pane under a `display:none` ancestor)
+   *  can no longer decide it. */
   visible: boolean;
   /** Renderer gate — an accessor, never a snapshot: WHICH panes hold a GPU
    *  context is the consumer's budget policy. */
   webgl: Accessor<boolean>;
   /** The scroll-lock enable gate (e.g. a preference) — an accessor. */
   scrollLockEnabled: Accessor<boolean>;
+  /** Full-rate paint gate (e.g. focused tile). Required — omitting it would
+   *  silently restore pre-fix full-rate painting on every tile. */
+  fullRate: Accessor<boolean>;
   /** The face awaited before construction, and xterm's `fontFamily`. */
   fontFamily: string;
   /** Extra xterm constructor options (scrollback, cursor, allowProposedApi …).
@@ -80,8 +126,6 @@ interface XtermOwnProps {
   >;
   /** Keystrokes out (query-response filtering / sticky modifiers are policy). */
   onData: (data: string) => void;
-  /** Grid → PTY. */
-  onResize: (size: { cols: number; rows: number }) => void;
   /** The live handle, inside the reactive owner — wire policy here. */
   onReady: (handle: XtermHandle) => void;
   /** Touch tap resolver: return true if the tap was consumed (e.g. a ref was
@@ -102,10 +146,10 @@ const OWN_KEYS = [
   "visible",
   "webgl",
   "scrollLockEnabled",
+  "fullRate",
   "fontFamily",
   "terminalOptions",
   "onData",
-  "onResize",
   "onReady",
   "onTap",
   "webglHooks",
@@ -113,17 +157,113 @@ const OWN_KEYS = [
 ] as const satisfies readonly (keyof XtermOwnProps)[];
 
 export const Xterm: Component<
-  // Omit the HTML attributes the component's own props shadow (e.g. the DOM
-  // `onResize` UIEvent handler), so the typed grid-resize prop wins instead of
-  // intersecting into an unusable handler; everything else spreads onto the div.
+  // Omit any HTML attribute the component's own props shadow, so the kit's typed
+  // prop wins instead of intersecting into an unusable handler; everything else
+  // (including the DOM `onResize` UIEvent handler, which the kit no longer
+  // shadows) spreads onto the div.
   XtermOwnProps & Omit<JSX.HTMLAttributes<HTMLDivElement>, keyof XtermOwnProps>
 > = (props) => {
   const [own, rest] = splitProps(props, OWN_KEYS);
   let container!: HTMLDivElement;
   let fitRaf = 0;
+
+  // The measured grid (see `XtermHandle.grid`). Compared by value so a fit that
+  // lands on the same cols×rows doesn't notify — consumers gate real work on
+  // this, and a re-fit that measured nothing new is not an event.
+  const [grid, setGrid] = createSignal<TerminalGrid | null>(null, {
+    equals: (a, b) => (a && b ? sameGrid(a, b) : a === b),
+  });
+
+  /** Fit to the container's current box, and record the grid IF one could be
+   *  genuinely measured.
+   *
+   *  Two ways the addon answers without measuring anything, and BOTH are
+   *  declined here — a fabricated grid is precisely what `grid()` promises never
+   *  to contain, and since the attach now carries the grid and the host performs
+   *  a real resize, publishing a fabrication would SIGWINCH a live PTY to it.
+   *
+   *  ① No box at all. Gated on `clientWidth/clientHeight`, NOT
+   *  `getBoundingClientRect()`: the addon reads the LAYOUT box off
+   *  `getComputedStyle(parentElement)`, which CSS transforms do not scale, while
+   *  the bounding rect is the VISUAL box, which they do. kolu's canvas tiles
+   *  render under a transform, so the two are different facts — gating the
+   *  addon's decision on a quantity the addon never reads lets the guard and the
+   *  measurement disagree.
+   *
+   *  ② A present-but-degenerate box (a split dragged nearly closed, a panel
+   *  mid-collapse, a tile mid-layout-transition). `proposeDimensions()` returns
+   *  undefined only when there is no renderer/element at all; for a sliver box
+   *  it still returns a grid, because the addon CLAMPS its answer up to its own
+   *  {@link FIT_ADDON_MIN_COLS}×{@link FIT_ADDON_MIN_ROWS} floor. A clamped
+   *  answer is the addon's floor, not a measurement, so it is refused in the
+   *  same class as a 0×0 box.
+   *
+   *  (`fit()` no-ops on an unmeasurable box too; asking separately is what lets
+   *  us tell "measured" from "declined to measure", which `fit()`'s void return
+   *  cannot.) */
+  const applyFit = () => {
+    if (!core) return;
+    if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
+    const proposed = core.addons.fit.proposeDimensions();
+    if (
+      !proposed ||
+      !Number.isFinite(proposed.cols) ||
+      !Number.isFinite(proposed.rows) ||
+      proposed.cols <= FIT_ADDON_MIN_COLS ||
+      proposed.rows <= FIT_ADDON_MIN_ROWS
+    )
+      return;
+    // Only call `fit()` when the proposal actually differs from what the
+    // terminal already has: `fit()` re-runs `proposeDimensions()` internally and
+    // then no-ops on unchanged dims, so an unguarded call resolves styles twice
+    // per animation frame per visible pane on the resize / divider-drag hot path
+    // to reach the same outcome.
+    if (
+      proposed.cols !== core.terminal.cols ||
+      proposed.rows !== core.terminal.rows
+    ) {
+      // Push coalesced unfocused bytes into term.write BEFORE fit()/resize
+      // changes cols/rows. Those bytes were generated for the OLD grid;
+      // xterm's resize flushSync-parses its write queue at the *current* cols
+      // (CONTRACT PIN in internals.test.ts) so this lands them at the old
+      // width. Canvas zoom / divider drag can fire every frame and the
+      // coalesce window widens the race to ~100ms. Snapshot frames have a
+      // second grid check at the write callback; delta frames do not.
+      // No-op under an engaged scroll lock: flush → writeData buffers into
+      // scrollLock.pending instead of term.write, so flushSync never sees
+      // those bytes (pre-existing wider lock hazard — not this PR).
+      // Fail loud if the write door is missing while core is live: a silent
+      // skip would re-open the stale-width race with no signal.
+      if (!coalesce) {
+        throw new Error(
+          "Xterm applyFit: coalesce missing while core is live — write-door invariant broken",
+        );
+      }
+      coalesce.flush();
+      core.addons.fit.fit();
+    }
+    // Read the grid back off the terminal rather than trusting `proposed`: fit()
+    // is the one authority on what it applied, so the fact we publish is the
+    // grid the terminal actually HAS.
+    setGrid({ cols: core.terminal.cols, rows: core.terminal.rows });
+  };
+
   const refit = () => {
     cancelAnimationFrame(fitRaf);
-    fitRaf = requestAnimationFrame(() => core?.addons.fit.fit());
+    fitRaf = requestAnimationFrame(applyFit);
+  };
+
+  // See `XtermHandle.onceMeasured`. The one-shot-ness is latched in the DATA,
+  // not in a mutable boolean the reader has to correlate with the effect body:
+  // once the memo holds a grid it returns that same object by reference, so it
+  // never notifies again.
+  const onceMeasured = (fn: (measured: TerminalGrid) => void) => {
+    const first = createMemo<TerminalGrid | null>((prev) => prev ?? grid());
+    createEffect(
+      on(first, (measured) => {
+        if (measured) fn(measured);
+      }),
+    );
   };
 
   // The constructed core (terminal + addons), built asynchronously and read by
@@ -132,6 +272,9 @@ export const Xterm: Component<
   // sourced from the WebGL handle, so it stays a separate ref.
   let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
+  // Write-door coalesce — same owner as applyFit so a resize can flush old-grid
+  // bytes before fit() mutates cols/rows (see applyFit).
+  let coalesce: OutputCoalesce | null = null;
 
   // This component's OWN retained refs, released synchronously on disposal so no
   // leaked owner closure keeps the xterm graph reachable (#606). The lifecycle
@@ -145,6 +288,7 @@ export const Xterm: Component<
     cancelAnimationFrame(fitRaf);
     core = null;
     clearAtlas = null;
+    coalesce = null;
   });
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
@@ -178,6 +322,29 @@ export const Xterm: Component<
       // Wheel + pointer-held scroll inputs arm the latch (#1272).
       wireScrollIntent(container, scrollLock);
 
+      // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.
+      const fullRate = () => own.fullRate();
+      const outputCoalesce = createOutputCoalesce(fullRate, (data, onParsed) =>
+        scrollLock.writeData(term, data, onParsed),
+      );
+      coalesce = outputCoalesce;
+      onCleanup(() => {
+        outputCoalesce.dispose();
+        // Same lifetime as core: assigned in this ready callback, nulled here
+        // and in the component-level onCleanup. createXtermLifecycle fires
+        // ready once — no second-ready identity guard.
+        coalesce = null;
+      });
+      createEffect(
+        on(
+          fullRate,
+          (fr) => {
+            if (fr) outputCoalesce.flush();
+          },
+          { defer: true },
+        ),
+      );
+
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
       // null off a coarse pointer, so tap routing is desktop-inert; the scroll
       // bridge is always wired (harmless without touch events).
@@ -203,36 +370,40 @@ export const Xterm: Component<
 
       // Keystrokes out — the consumer's callback owns any filtering/rewriting.
       term.onData(own.onData);
-      // Grid → PTY. Attach BEFORE the initial fit so the first sizing publishes
-      // through the same path as every later resize.
-      term.onResize(own.onResize);
-      createResizeObserver(
-        () => container,
-        () => {
-          // display:none triggers a 0×0 resize; skip fitting when hidden.
-          if (own.visible) refit();
-        },
-      );
+      // No `own.visible` gate: `applyFit` already declines an unmeasurable box
+      // (display:none reports a 0 client box), so a second, weaker predicate
+      // for the same question could only ever disagree with the real one.
+      createResizeObserver(() => container, refit);
 
       const handle: XtermHandle = {
         terminal: term,
         container,
         addons: c.addons,
         scrollLock,
-        write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
+        write: (data, onParsed) => outputCoalesce.write(data, onParsed),
+        clearPendingOutput: () => {
+          // Outer buffers first, then xterm's own async write queue — otherwise
+          // a coalesced batch already past `term.write` still parses after
+          // `terminal.reset()` and contaminates the replacement snapshot.
+          outputCoalesce.clear();
+          scrollLock.dropPending();
+          clearWriteQueue(term);
+        },
         webgl,
         recovery,
         refit,
+        grid,
+        onceMeasured,
       };
-      // Initial fit BEFORE onReady, so the initial resize RPC (grid → PTY) fires
-      // before the consumer's onReady subscribes anything that depends on the
-      // grid (e.g. an attach stream) — the pre-cut "size before stream" order.
-      // onResize is already wired above; if xterm's default grid already matched
-      // the fit target, onResize won't fire, so publish the current grid manually.
-      if (own.visible) {
-        c.addons.fit.fit();
-        own.onResize({ cols: term.cols, rows: term.rows });
-      }
+      // Initial fit BEFORE onReady, so `grid` already carries this pane's real
+      // measurement by the time the consumer wires policy against it. A hidden
+      // pane measures NOTHING here and `grid()` stays null — which is the point:
+      // the consumer then has no grid to attach against and waits, instead of
+      // attaching at the invented 80×24. Nothing is published imperatively: the
+      // grid signal is the one door this fact leaves through, so the consumer's
+      // own effect over `grid` covers the initial sizing and every later one
+      // with no ordering to get right.
+      applyFit();
 
       own.onReady(handle);
     },

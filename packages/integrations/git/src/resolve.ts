@@ -8,7 +8,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
-import { simpleGit, type SimpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
+import { backgroundGit } from "./background.ts";
 import { watchGitConfig } from "./config-watcher.ts";
 import { watchCwdForGitDir } from "./cwd-git-watcher.ts";
 import { err, type GitResult, ok } from "./errors.ts";
@@ -70,7 +71,7 @@ export async function resolveGitInfo(
   log?: Logger,
 ): Promise<GitResult<GitInfo>> {
   try {
-    const git = simpleGit(cwd);
+    const git = backgroundGit(cwd);
     // Bare repos (core.bare=true) have no work tree, so `--show-toplevel`
     // throws on them. Detect up front and return a GitInfo rooted at the
     // bare repo's own location — the palette consumer treats the result as

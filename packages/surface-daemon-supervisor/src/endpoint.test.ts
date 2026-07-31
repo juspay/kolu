@@ -6,11 +6,14 @@ import { join, dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
-  createEndpoint,
   type DaemonConnection,
   DaemonContractSkewError,
   type EndpointStatus,
+  isSocketSquatterForeignError,
+  SocketSquatterForeignError,
 } from "./endpoint.ts";
+import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
+
 import { endpointPrivate } from "./endpoint.private.ts";
 import { serializeRestart } from "./restart.ts";
 
@@ -73,6 +76,41 @@ function dir(): string {
   return mkdtempSync(join(tmpdir(), "sds-endpoint-"));
 }
 
+/**
+ * The brand guard attests EVERY field its narrowed type promises, so a foreign
+ * brand-carrier cannot narrow to a type whose fields a consumer then renders.
+ * `detail` — the operator-facing reason a holder could not be named — arrived
+ * with OSF4 and has to be attested like the rest.
+ */
+describe("isSocketSquatterForeignError attests the whole payload", () => {
+  const branded = (over: Record<string, unknown>): unknown => ({
+    isSocketSquatterForeign: true,
+    socketPath: "/run/x.sock",
+    holders: [{ pid: 7, command: "kaval" }],
+    ...over,
+  });
+
+  it("accepts a real error and a payload with no detail", () => {
+    expect(
+      isSocketSquatterForeignError(
+        new SocketSquatterForeignError("/run/x.sock", [
+          { pid: 7, command: "kaval" },
+        ]),
+      ),
+    ).toBe(true);
+    expect(isSocketSquatterForeignError(branded({}))).toBe(true);
+    expect(isSocketSquatterForeignError(branded({ detail: "gated" }))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a brand-carrier whose detail is not a string", () => {
+    for (const detail of [42, null, {}, ["gated"]]) {
+      expect(isSocketSquatterForeignError(branded({ detail }))).toBe(false);
+    }
+  });
+});
+
 describeDaemon("createEndpoint — boot, status, death", () => {
   it("with no survivor: connecting → connected with identity + startedAt", async () => {
     const d = dir();
@@ -131,6 +169,61 @@ describeDaemon("createEndpoint — boot, status, death", () => {
     expect(connected?.metadata).toEqual({ contractVersion: "5.0" });
     expect(endpoint.current()).toBe(conn);
     expect(closeCb).toBeTypeOf("function");
+  });
+
+  /**
+   * A rendezvous socket served BY THIS PROCESS is still a held socket.
+   *
+   * The recovery excludes our own pid from the KILL decision — it may never
+   * SIGTERM the supervisor — and that exclusion used to happen one step too
+   * early, when the holder set was first read: an in-process serve produced an
+   * empty set, which the recovery reported as `free`, and `free` is what sends
+   * the caller to spawn. A second daemon onto a live socket, from a
+   * self-exclusion rule applied to the wrong question.
+   */
+  it("never reports a socket THIS process is serving as free — the driver is not reached", async () => {
+    const d = dir();
+    const socketPath = join(d, "x.sock");
+    const gatePath = join(d, "x.pid");
+    // Serving, in THIS process, with no gate naming a holder: the exact
+    // gate-less state the recovery arm exists for.
+    const fake = fakeDaemon(socketPath);
+    servers.push(fake.server);
+    await fake.listen();
+
+    let spawns = 0;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: { dir: dirname(socketPath), gatePath, socketPath },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          spawns += 1;
+        },
+      },
+      // Never completes: the holder cannot be proven a daemon we can serve
+      // through, so the recovery has no actionable arm left.
+      connect: async () => {
+        throw new Error("unreachable");
+      },
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    await expect(endpointPrivate(endpoint).ensure()).rejects.toSatisfy(
+      isSocketSquatterForeignError,
+    );
+    expect(spawns).toBe(0);
   });
 
   it("flips to degraded when the connection closes mid-session", async () => {
@@ -502,7 +595,13 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     await endpointPrivate(endpoint).ensure(); // boot ok
     statuses.length = 0;
 
-    await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow("skew");
+    // WHICH error surfaces is scaffolding, not the guarantee: this fake's
+    // second connect throws a plain `Error`, so the recovery reads it as
+    // unreachable rather than as a proven skew, and the socket it cannot
+    // handshake is this very process's own in-process server. The guarantee
+    // under test is that a failed recycle ENDS — reported `dead`, rejected to
+    // the caller — instead of being coerced into a stuck `restarting`.
+    await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow();
 
     const seq = statuses.map((s) => s.state);
     expect(seq[0]).toBe("restarting");

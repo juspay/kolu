@@ -134,6 +134,9 @@ re-enable watchman deliberately (with a `WATCHMAN_SOCK` that avoids the probe).
 - **`cancelled` guard** on the `.then` — if the last subscriber unsubscribed
   before parcel resolved, late-unsubscribe the AsyncSubscription instead of
   storing it.
+- **Per-`repoRoot` call chain** (`parcelCallChains`) — every `subscribe` and
+  `unsubscribe` for a repo runs one at a time, in issue order. **Never let two
+  parcel calls for the same directory overlap**; see the hazard below.
 
 ## What Kolu logs
 
@@ -177,7 +180,30 @@ debounce path swallows event paths silently.
    (`index.js:5`). The Nix build needs the matching native binary in
    `node_modules` — confirm `@parcel/watcher-linux-x64-glibc` is present
    under `node_modules/.pnpm/`.
-4. **`dontFixup = true` in `default.nix`** skips patchELF on the native `.node`
+4. **Overlapping `subscribe`/`unsubscribe` for the same key silently kills the
+   watcher** (juspay/kolu#2065) — the worst failure mode here, because nothing
+   reports it. Parcel keys its process-global `Watcher` registry
+   (`Watcher::getShared`) AND its backend subscription set (`Backend::watch` /
+   `Backend::unwatch`) on `(dir, ignorePaths, ignoreGlobs)`, and runs each
+   call's backend half on a libuv threadpool thread. Two overlapping calls for
+   the same key therefore land in arbitrary order, and one order loses: the new
+   `subscribe` finds the retiring watcher still registered (equal by key) and
+   installs **no OS watches**, then the retiring `unsubscribe` tears the
+   existing ones down. The new subscription resolves, holds its callbacks, logs
+   `watcher installed`, and receives **nothing, forever**.
+
+   Measured on `@parcel/watcher@2.5.6`: an un-awaited `unsubscribe()` followed
+   by an immediate re-`subscribe()` of the same dir + ignore set produced a dead
+   watcher in 18/25 idle runs, and 10/10 when the libuv pool was saturated (at
+   rebuild delays from 15ms to 200ms). Awaiting the teardown first: 0/25 and
+   0/10. On an idle process the teardown usually wins on its own, which is why
+   this hides in single-scenario runs and only bites a loaded parallel suite.
+
+   Rule: **serialize a directory's parcel calls** (kolu does this in
+   `sequenceParcelCall`). Pinned by
+   `working-tree-watcher.churn.test.ts`, which loads the threadpool to force
+   the lossy ordering.
+5. **`dontFixup = true` in `default.nix`** skips patchELF on the native `.node`
    binary. Today the `@parcel/watcher` binary loads its own libstdc++ via
    fallback paths and works, but if a future parcel-watcher version pulls in
    a harder dynamic-link requirement, expect to revisit this.

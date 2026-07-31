@@ -211,6 +211,14 @@ while kaval handles terminal survival.
     recent screenful, so a cold or cross-host attach paints instantly instead of
     replaying the whole 10,000-line mirror; older history streams in on demand as
     the client scrolls up (`getHistory`).
+
+    A serialized screen only means anything at the width it was drawn for, so the
+    attach carries **your** grid: the daemon resizes the terminal to it and
+    serializes as one act, and what comes back is always laid out for the screen
+    that will paint it. Because a terminal has one size shared by everyone
+    attached to it, this is **last-attach-wins** — attaching from a differently
+    sized window resizes the terminal for every other viewer too, exactly as
+    resizing your window would.
   </Card>
   <Card title="drop-slow-subscriber">
     A wedged client that stops draining its output is dropped rather than pinning

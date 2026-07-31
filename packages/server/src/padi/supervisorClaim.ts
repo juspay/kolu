@@ -32,7 +32,13 @@ import { dirname, join } from "node:path";
 // Reach padi ONLY through its `/assembly` barrel — the package-boundary seal
 // (`seal.test.ts`) forbids a deep `@kolu/padi/stateRoot` import from kolu-server.
 import { padiSocketPath, residentPadiSocket } from "@kolu/padi/assembly";
-import { acquirePidGate, type GateAcquisition } from "@kolu/surface-daemon";
+import {
+  acquirePidGate,
+  type GateAcquisition,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
+} from "@kolu/surface-daemon";
+import { processIdentityFromEnv } from "osfacts-client";
 
 /** The supervisor gate filename — sits BESIDE padi's own `padi.pid` in the
  *  ephemeral `$XDG_RUNTIME_DIR/padi-<digest>/` runtime dir, so it is boot-wiped
@@ -64,12 +70,32 @@ export type SupervisorClaim =
   | { kind: "foreign"; pid: number }
   | { kind: "dir-not-private"; dir: string };
 
-/** Injection seam for tests — a fake gate acquirer and/or gate-path resolver so a
- *  two-supervisor war can be exercised without a real padi runtime dir. Defaults
- *  are the real {@link acquirePidGate} / {@link supervisorGatePath}. */
+/**
+ * Injection seam for tests — a fake gate acquirer and/or gate-path resolver so a
+ * two-supervisor war can be exercised without a real padi runtime dir. Defaults
+ * are the real {@link acquirePidGate} / {@link supervisorGatePath}.
+ *
+ * Optional identity fields **extend this pre-existing deps seam** (same class as
+ * `acquire?` / `resolveGatePath?`). They are **not** the gate API's optional
+ * inject (ruling 4 bans that on acquirePidGate/DaemonSpec/EndpointSpec). The
+ * default when omitted is the **strong** production osfacts reader — omission
+ * cannot silently run weaker (opposite of the banned degrade pattern). This
+ * module is server-internal wiring, not the shared gate surface.
+ */
 export interface SupervisorClaimDeps {
-  acquire?: (gatePath: string) => GateAcquisition;
+  acquire?: (
+    gatePath: string,
+    self: ProcessIdentity,
+    readProcessIdentity: ReadProcessIdentity,
+  ) => GateAcquisition;
   resolveGatePath?: (stateRoot: string) => string;
+  /**
+   * Optional identity inject for tests. Default: osfacts via
+   * `KOLU_OSFACTS_BIN` (strong production path — see interface doc).
+   */
+  readProcessIdentity?: ReadProcessIdentity;
+  /** Optional self identity for tests. Default: osfacts of `process.pid`. */
+  processIdentity?: ProcessIdentity;
 }
 
 /** Claim the local supervisor gate for `stateRoot`. A thin, total mapping over
@@ -81,7 +107,21 @@ export function claimLocalSupervisor(
 ): SupervisorClaim {
   const acquire = deps.acquire ?? acquirePidGate;
   const gatePath = (deps.resolveGatePath ?? supervisorGatePath)(stateRoot);
-  const acq = acquire(gatePath);
+  const readIdentity =
+    deps.readProcessIdentity ??
+    ((pid: number) => processIdentityFromEnv("KOLU_OSFACTS_BIN", pid));
+  const self =
+    deps.processIdentity ??
+    (() => {
+      const identity = readIdentity(process.pid);
+      if (identity === undefined) {
+        throw new Error(
+          `osfacts could not resolve kolu-server pid ${process.pid}`,
+        );
+      }
+      return identity;
+    })();
+  const acq = acquire(gatePath, self, readIdentity);
   switch (acq.kind) {
     case "acquired":
       return { kind: "self", release: acq.release };

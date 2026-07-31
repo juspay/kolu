@@ -29,10 +29,11 @@ import type { Router } from "@orpc/server";
 import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {
-  acquirePidGate,
-  confirmHeldGate,
+  claimPidGate,
   type GateAcquisition,
   isHolderLive,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
 } from "./pidGate.ts";
 
 /** How long the daemon stays up once serving. `forever` waits for a signal or
@@ -259,13 +260,26 @@ export interface DaemonSpec {
   /** Fired once, after the gate is held and the socket is listening — the boot
    *  log's hook and the readiness point a test awaits before connecting. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
-  /** A gate the caller ALREADY acquired. Hand this in when the single-instance
-   *  gate must be claimed BEFORE the caller's own boot side effects — padi claims
-   *  it first so a daemon that lost the race never runs the legacy import, recycles
-   *  the shared kaval, or writes the state manifests. `daemonMain` then serves under
-   *  this gate and releases it on teardown, exactly as if it had acquired it.
-   *  Omitted → `daemonMain` acquires the gate itself (kaval's path). */
-  gate?: GateAcquisition;
+  /** A gate the caller ALREADY claimed (the `acquired` arm only). Hand this in
+   *  when the single-instance gate must be claimed BEFORE the caller's own boot
+   *  side effects — padi claims it first so a daemon that lost the race never
+   *  runs the legacy import, recycles the shared kaval, or writes the state
+   *  manifests. `daemonMain` then serves under this gate and releases it on
+   *  teardown, exactly as if it had claimed it. Omitted → `daemonMain` claims
+   *  via {@link claimPidGate} (kaval's path). */
+  gate?: Extract<GateAcquisition, { kind: "acquired" }>;
+  /**
+   * This daemon's OS identity, supplied by the composition root. **Always
+   * required** so the inject can never be forgotten when the gate is pre-claimed
+   * today and the spine claims tomorrow. Consumed by the spine only when it
+   * claims (`gate` omitted → {@link claimPidGate}); pre-claimed callers still
+   * pass identity so the requirement is uniform. The spine never reads platform
+   * process state itself.
+   */
+  processIdentity: ProcessIdentity;
+  /** Resolve a PID to its current start-qualified identity. Injected — never
+   *  defaulted. Always required (same uniformity as {@link processIdentity}). */
+  readProcessIdentity: ReadProcessIdentity;
 }
 
 /** Run the daemon: take the gate, serve the router over the socket, then wait
@@ -278,31 +292,35 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   const anchor = spec.anchor ?? (() => home.dir);
 
   // The caller may have claimed the gate already (padi, to fence its boot side
-  // effects behind it); otherwise acquire it here (kaval). Always confirm a
-  // held gate against the co-located socket so a reboot-stale PID reuse cannot
-  // strand us as already-running with no listener.
-  let gate = spec.gate ?? acquirePidGate(gatePath);
-  if (gate.kind === "held") {
-    gate = await confirmHeldGate(gate, gatePath, socketPath);
-  }
-  if (gate.kind === "held") {
+  // effects behind it); otherwise claim it here (kaval) via the one named
+  // sequence — acquire + one-field socket confirm.
+  const claimed =
+    spec.gate ??
+    (await claimPidGate(
+      gatePath,
+      socketPath,
+      spec.processIdentity,
+      spec.readProcessIdentity,
+    ));
+  if (claimed.kind === "held") {
     log.info(
-      { gatePath, pid: gate.pid },
+      { gatePath, pid: claimed.pid },
       "daemon already running; yielding to the live instance",
     );
-    return { kind: "already-running", pid: gate.pid };
+    return { kind: "already-running", pid: claimed.pid };
   }
-  if (gate.kind === "dir-not-private") {
+  if (claimed.kind === "dir-not-private") {
     // The gate's parent dir is not owner-only — another local user could have
     // pre-created it (the stable `/tmp/<app>-$UID` fallback) and seeded a gate.
     // Refuse rather than honor a gate we can't trust; the socket-side privacy
     // check would refuse the same dir, so report it as a serve failure.
     log.error(
-      { gatePath, dir: gate.dir },
+      { gatePath, dir: claimed.dir },
       "daemon gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
+  const gate = claimed;
 
   const listener = await serveOverUnixSocket({ socketPath, router, log });
   if (listener.outcome.kind !== "listening") {

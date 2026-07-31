@@ -82,17 +82,47 @@ let
   # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
   # the prove fails without it). Not a workspace package (no typecheck script);
   # listed here because the agent graph needs the source, not the pnpm tree.
+  #
+  # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
+  # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
+  # lists, not one. `mkProvenAgentSource` proves an attr by re-importing this
+  # file from the assembled tree, so — per its own comment — a proven attr must
+  # never reach the `agentFlakeSrc` thunk below, or the prove re-enters itself
+  # forever. `padi-agent` reaches it (it contains `kolu` and both TUIs, all of
+  # which bake the flake ref), so it is exposed but NOT proven.
+  #
+  # Be honest about what that costs. `padi-agent` IS what both dial paths now
+  # resolve (`@kolu/padi/dial`'s `PADI_REMOTE_DIAL`), so the build-input gate no
+  # longer covers the dialed attr — it covers the daemon graph that closure is
+  # composed out of, which is where a thin fileset actually shows up. What covers
+  # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every
+  # `expose` entry's `drvPath` from this same assembled tree
+  # (`ci#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
+  # remote provisioning, not a nicety: delete it and a fileset gap reaching only
+  # `default` / the TUIs surfaces on a user's box at dial time.
+  #
+  # `prove` is a strict subset of `expose`, ASSERTED rather than remembered: a
+  # proven-but-unexposed attr passes this build and then 404s at dial time on a
+  # remote host — the exact failure `mkProvenAgentSource` exists to abolish.
+  agentPackages =
+    let m = pkgs.lib.importJSON ./nix/agent-packages.json;
+    in
+    assert pkgs.lib.assertMsg
+      (pkgs.lib.all (p: pkgs.lib.elem p m.expose) m.prove)
+      "nix/agent-packages.json: every `prove` entry must also be in `expose` (a proven attr no remote can resolve)";
+    m;
   agentSource = mkProvenAgentSource {
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
       fileset
+      ./biome.jsonc
       ./default.nix
       ./nix
       ./npins
       ./osfacts
     ];
     inherit pkgs commitHash;
-    agents = pkgs.lib.importJSON ./nix/agent-packages.json;
+    agents = agentPackages.prove;
     flakeNix = ./nix/agent-flake.nix;
   };
   agentFlakeSrc = agentSource.flakeSrc;
@@ -532,6 +562,22 @@ let
   # corruption bug #530/#531 fixed: tests build `.#koluBin` (justfile:122),
   # which has no KOLU_STATE_DIR / KOLU_PADI_STATE_DIR and crashes if unset, and
   # so never go through this wrapper.
+  #
+  # `KOLU_AGENT_TOOLS_PATH` — the BAKE: what this build tells the padi it
+  # supervises about the client CLIs a terminal must be able to run. THIS wrapper
+  # is the SINGLE setter for the local arm, and it `--set`s the COMPLETE value:
+  # its own `bin/` (the `kolu` whose `mcp` face an agent's `.mcp.json` invokes,
+  # nameable only here — koluBin cannot carry it without a cycle, since that env
+  # would reference the wrapper that references it) plus `koluAgentTools` (the
+  # two TUIs).
+  #
+  # One `--set`, not two merging wrappers, because a merge has no fixed point:
+  # an inner `--set` clobbers an outer `--prefix` (that one-word bug shipped),
+  # and `--prefix`/`--suffix` fold in whatever the process already carried. A
+  # single assertion cannot be clobbered, cannot accumulate, and raises no
+  # ordering question. A bare `.#koluBin` — the binary the tests build — therefore
+  # carries NO toolchain at all, by design: it is not a wrapper a user runs.
+  # The remote arm asserts the same fact the same way — see `padi-agent` below.
   default = pkgs.runCommand "kolu"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -539,7 +585,70 @@ let
     } ''
     mkdir -p $out/bin
     makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
+      --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" \
       --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
+
+    # ── The composed-wrapper proof, IN the derivation it proves ───────────────
+    # The toolchain a LOCAL terminal ends up with is a property of the two nested
+    # production wrappers COMPOSED — this one wraps `koluBin` — and nothing in
+    # the TypeScript suite exercises that composition: every unit test injects
+    # the variable directly. That gap shipped a real defect green (koluBin's
+    # `--set` silently discarding this wrapper's value, so every locally-spawned
+    # terminal lost `kolu`), invisible to `just check`, `nix build`, and every
+    # unit test.
+    #
+    # So assert it here rather than in a sibling derivation: `nix build .#default`,
+    # `nix run .`, the home-manager module and the NixOS service all realise this
+    # wrapper, and each of them now realises its proof. A separate check attr
+    # could only be a build input of something ELSE (it must read `${"$"}{default}`,
+    # so `default` depending on it is a cycle) — which is how the guarantee for a
+    # purely local property came to hang off the remote closure.
+    #
+    # Neutralise each wrapper's final `exec …` so sourcing runs only the env
+    # prelude, then chain them in the real order: outer (this) → inner (koluBin).
+    # Assert the shape BEFORE relying on it: if nixpkgs' makeWrapper ever stops
+    # emitting exactly one `^exec ` line, the `sed` would match nothing and the
+    # sourcings would run the real `kolu` inside the sandbox instead of asserting
+    # anything — a guard that exists because a one-word change shipped green must
+    # not itself be able to fail open on a one-word upstream change.
+    for w in $out/bin/kolu ${koluBin}/bin/kolu; do
+      if [ "$(grep -c '^exec ' "$w")" != 1 ]; then
+        echo "FAIL: $w has no single '^exec ' line — makeWrapper's output shape" >&2
+        echo "changed, and this check would silently fail open. Fix the sed." >&2
+        exit 1
+      fi
+    done
+    sed 's|^exec .*||' $out/bin/kolu > outer.sh
+    sed 's|^exec .*||' ${koluBin}/bin/kolu > inner.sh
+    . ./outer.sh
+    . ./inner.sh
+
+    echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
+    IFS=: read -ra dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+    # One loop over a name→message table, so the check is written once but each
+    # binary keeps its OWN failure message — they name exactly what a local
+    # terminal loses, and each was falsified separately.
+    #
+    # Both TUIs, not just one: they arrive together from `agentToolPackages`
+    # today, so a proof that names only `kaval-tui` would stay green if
+    # `padi-tui` were dropped from that list — leaving local terminals able to
+    # run `kaval-tui` and `kolu mcp` but not the `padi-tui wait` loop.
+    for b in kolu kaval-tui padi-tui; do
+      case "$b" in
+        kolu) why="a local terminal could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+        kaval-tui) why="a local terminal could not attach to its siblings." ;;
+        padi-tui) why="a local terminal could not run the 'padi-tui wait' done-signal loop." ;;
+      esac
+      found=0
+      for d in "''${dirs[@]}"; do
+        [ -z "$d" ] && continue
+        [ -e "$d/$b" ] && found=1
+      done
+      if [ "$found" != 1 ]; then
+        echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH — $why" >&2
+        exit 1
+      fi
+    done
   '';
 
   # kaval (R-4 Phase B): the standalone PTY daemon — owns the node-pty children,
@@ -577,6 +686,7 @@ let
       --add-flags "--import ${runtimeTsxLoader}" \
       --add-flags "${kolu}/packages/kaval/src/bin.ts" \
       ${kavalIdentity.bakeArgs} \
+      ${osfactsBakeArg} \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
@@ -676,6 +786,136 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
+  # The client CLIs a kolu TERMINAL must be able to run, named ONCE. Both arms
+  # derive from this list — `koluAgentTools` (local) and `padi-agent` (remote) —
+  # so adding a fourth tool cannot give local terminals something remote ones
+  # lack, which is the same "one host, two behaviours" class one level down.
+  #
+  # `kolu` itself is deliberately NOT here and cannot be: it is what each arm
+  # adds by SELF-reference (`$out/bin`), the only spelling that avoids a cycle
+  # through the wrapper that would reference it.
+  agentToolPackages = [ kaval-tui padi-tui ];
+
+  # The local arm's tools as ONE directory, so `default`'s single `--set` can
+  # name the whole toolchain in one string. kolu-server forwards that bake onto
+  # the padi it spawns, so a LOCAL terminal's PATH carries the tools from the
+  # same build as the daemon that owns it.
+  koluAgentTools = pkgs.buildEnv {
+    name = "kolu-agent-tools";
+    paths = agentToolPackages;
+  };
+
+  # padi-agent — what a REMOTE HOST is provisioned with: `padi` plus the client
+  # toolchain a terminal that daemon spawns must be able to run (`kaval-tui`,
+  # `padi-tui`, and the `kolu` whose `mcp` face an agent's `.mcp.json` invokes).
+  # Nothing is installed on the host; these ride the closure kolu already copies.
+  #
+  # It closes the remote gap with ONE property, and no new mechanism anywhere:
+  # the wrapper bakes `KOLU_AGENT_TOOLS_PATH` to its OWN `$out/bin` (a
+  # self-reference, resolved at build time). A padi reached as
+  # `ssh <host> <agentPath>/bin/padi --stdio` therefore reports the closure that
+  # was actually copied to that host — with no env channel (ssh has none) and
+  # nothing threaded through argv or `@kolu/surface-remote`. The tools a terminal
+  # gets and the daemon that spawned it are the same store path BY CONSTRUCTION,
+  # so the tool/daemon version skew `PADI_BUILD_ID` exists to catch cannot arise
+  # here at all.
+  #
+  # **It is a separate attr from `padi`, and it must stay OUT of the `agents`
+  # PROVE list in `nix/agent-packages.json`.** `mkProvenAgentSource` proves an
+  # agent by re-importing this very `default.nix` from the assembled tree and
+  # forcing that attr's `drvPath`; its own comment records the invariant that
+  # makes the recursion terminate — a proven attr must never reach the
+  # `agentFlakeSrc` thunk. This closure reaches it three ways (`default` →
+  # `koluBin`, and both TUI wrappers, all of which bake the flake ref), so
+  # proving it is an infinite regress — a real `error: stack overflow` this
+  # composition was first written into. The rule belongs to the mechanism, not to
+  # kolu: see `packages/surface-daemon/nix/agent-source.nix`'s header. `padi` and
+  # `kaval` stay the proven pair — the daemon graph THIS closure is composed out
+  # of — and `ci::agent-flake-nix` is what evaluates the exposed attrs
+  # themselves; see the `expose`/`prove` note at the top of this file.
+  #
+  # Composed with `pkgs.buildEnv` — the same idiom `koluAgentTools` above uses,
+  # not a hand-rolled `mkdir` + `ln -s` set. One mechanism for "compose a `bin/`
+  # out of several packages", and buildEnv's collision detection comes free.
+  # The self-reference forces a wrapper step, which `postBuild` supplies.
+  padi-agent = pkgs.buildEnv {
+    name = "padi-agent";
+    paths = [ padi default ] ++ agentToolPackages;
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+    postBuild = ''
+      wrapProgram $out/bin/padi --set KOLU_AGENT_TOOLS_PATH "$out/bin"
+
+      # ── The composed-wrapper proof, IN the derivation that is DIALED ─────────
+      # `padi-agent` — not `padi`, not `default` — is what BOTH dial paths
+      # provision onto a host, so it is where the remote guarantee has to be
+      # proven. Without this, dropping `default` (the `kolu` binary) or a TUI
+      # from `paths=` above still BUILDS, still evaluates green in
+      # `ci::agent-flake-nix` (which only forces `drvPath`), and still passes
+      # every TypeScript test (they all inject the bake directly) — failing only
+      # much later, on a real remote host, when an agent's `.mcp.json` cannot
+      # run `kolu mcp`. That is the same class of hole the LOCAL `default` arm
+      # closed after a one-word wrapper bug shipped green; the remote arm is the
+      # primary product of this change and gets the same proof, at the same
+      # altitude, spelled the same way.
+      #
+      # Two facts, because the bake is a self-reference and either half can rot
+      # independently: (1) `$out/bin` really carries the three programs, and
+      # (2) the wrapped `padi` a remote actually execs resolves a bake that
+      # NAMES a directory carrying them — an inner `--set` that clobbers the
+      # outer one would leave (1) true and (2) false.
+      for b in kolu kaval-tui padi-tui; do
+        if [ ! -e "$out/bin/$b" ]; then
+          echo "FAIL: padi-agent has no '$b' in its own bin/ — a REMOTE agent" >&2
+          echo "provisioned with this closure could not run it. Check that" >&2
+          echo "'paths' still carries 'default' and every agentToolPackages entry." >&2
+          exit 1
+        fi
+      done
+
+      # Neutralise each wrapper's final `exec …` so sourcing runs only the env
+      # prelude, then chain them in the real order: outer (wrapProgram's, above)
+      # → inner (the `padi` wrapper it wraps). Assert the shape BEFORE relying
+      # on it — the same guard the local proof uses: if nixpkgs' makeWrapper ever
+      # stops emitting exactly one `^exec ` line the `sed` would match nothing
+      # and this proof would fail OPEN, running the real `padi` in the sandbox
+      # instead of asserting anything.
+      for w in $out/bin/padi $out/bin/.padi-wrapped; do
+        if [ "$(grep -c '^exec ' "$w")" != 1 ]; then
+          echo "FAIL: $w has no single '^exec ' line — makeWrapper's output shape" >&2
+          echo "changed, and this check would silently fail open. Fix the sed." >&2
+          exit 1
+        fi
+      done
+      sed 's|^exec .*||' $out/bin/padi > "$TMPDIR/padi-agent-outer.sh"
+      sed 's|^exec .*||' $out/bin/.padi-wrapped > "$TMPDIR/padi-agent-inner.sh"
+      . "$TMPDIR/padi-agent-outer.sh"
+      . "$TMPDIR/padi-agent-inner.sh"
+
+      echo "resolved KOLU_AGENT_TOOLS_PATH=$KOLU_AGENT_TOOLS_PATH"
+      IFS=: read -ra agent_dirs <<< "$KOLU_AGENT_TOOLS_PATH"
+      # Same shape as the local proof: one loop over a name→message table, so
+      # each binary keeps its OWN failure message naming exactly what a remote
+      # agent loses. Each was falsified separately.
+      for b in kolu kaval-tui padi-tui; do
+        case "$b" in
+          kolu) why="an agent in a terminal on a remote host could not run 'kolu mcp'. An inner-wrapper --set that clobbers this one is the known cause." ;;
+          kaval-tui) why="a terminal on a remote host could not attach to its siblings." ;;
+          padi-tui) why="a terminal on a remote host could not run the 'padi-tui wait' done-signal loop." ;;
+        esac
+        found=0
+        for d in "''${agent_dirs[@]}"; do
+          [ -z "$d" ] && continue
+          [ -e "$d/$b" ] && found=1
+        done
+        if [ "$found" != 1 ]; then
+          echo "FAIL: no '$b' on the composed KOLU_AGENT_TOOLS_PATH of the padi a remote host is dialed with — $why" >&2
+          exit 1
+        fi
+      done
+    '';
+    meta.mainProgram = "padi";
+  };
+
   # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
   # port-forwarding). Its derivation lives next to its source (it has its OWN
   # flake.nix for a later move to its own repo, and that flake wants one
@@ -695,5 +935,5 @@ let
   osfacts = import ./osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }

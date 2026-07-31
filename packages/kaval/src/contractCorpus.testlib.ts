@@ -45,7 +45,6 @@ export const CONTRACT_COVERAGE = {
     "terminal.getHistory",
     "system.version",
     "system.heartbeat",
-    "system.processMemory",
     "system.info",
   ],
   streams: [
@@ -266,14 +265,6 @@ export function runContractCorpus(opts: {
     it("system.heartbeat: returns a timestamp", async () => {
       const { ts } = await client().surface.system.heartbeat({});
       expect(typeof ts).toBe("number");
-    });
-
-    it("system.processMemory: returns the daemon's own process RSS", async () => {
-      // The 3.2 addition — its own atomic verb so the daemon measures its own
-      // process RSS, independent of the pure liveness heartbeat.
-      const { rss } = await client().surface.system.processMemory({});
-      expect(typeof rss).toBe("number");
-      expect(rss).toBeGreaterThan(0);
     });
 
     it("system.info: host facts a client composes spawn policy against", async () => {

@@ -449,9 +449,17 @@ work on them. The website, Surface examples, Solid Browser example, and Odu CI
 coordinator each have an independent subflake. They reuse one canonical
 workspace source and pnpm closure, but none enters `nix run .`'s evaluation
 graph. Remote provisioning uses a separate exact-source flake that exposes only
-the daemon packages named by Kolu's agent manifest. `@kolu/surface-remote`
-probes the target system, evaluates just the daemon it needs, and gives one Nix
-process ownership of evaluation, transfer, and remote realisation.
+the packages named by Kolu's agent manifest. `@kolu/surface-remote`
+probes the target system, evaluates just the closure it needs, and gives one Nix
+process ownership of evaluation, transfer, and remote realisation. That closure
+is the daemon **plus the client CLIs a terminal on that host must be able to
+run** (`kaval-tui`, `padi-tui`, `kolu`) — so an agent working on a remote machine
+can drive its sibling terminals and reach the [MCP server](/mcp) with nothing
+installed there. Tool and daemon arrive together, so they are the same build by
+construction. The manifest separates what the flake **exposes** from what it
+**proves**: the prove step evaluates an attr by re-importing the composer, so it
+covers the daemons a dial must resolve and cannot cover a closure that
+transitively references the baked source itself.
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 

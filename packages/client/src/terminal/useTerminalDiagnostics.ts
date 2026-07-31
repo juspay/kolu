@@ -34,6 +34,11 @@ export interface TerminalDiagnostics {
   id: TerminalId;
   cols: number;
   rows: number;
+  /** Whether `cols`/`rows` are a real MEASUREMENT of this pane's own box, or
+   *  the 80×24 an unmeasured xterm invents. False means no attach stream has
+   *  opened yet ("no grid, no bytes") — a state that looks exactly like an
+   *  attached-and-idle terminal on screen. */
+  measured: boolean;
   renderer: Renderer;
   scrollLock: ScrollLockDiagnostics;
 }
@@ -68,10 +73,12 @@ export function registerDiagnostics(
   {
     xterm,
     renderer,
+    measured,
     scrollLock,
   }: {
     xterm: XTerm;
     renderer: Accessor<Renderer>;
+    measured: Accessor<boolean>;
     scrollLock: {
       locked: Accessor<boolean>;
       pendingChunks: Accessor<number>;
@@ -83,6 +90,7 @@ export function registerDiagnostics(
     id,
     cols: xterm.cols,
     rows: xterm.rows,
+    measured: measured(),
     renderer: renderer(),
     scrollLock: scrollLockSnapshot(scrollLock),
   });
@@ -98,6 +106,9 @@ export function registerDiagnostics(
   const disposeRoot = createRoot((dispose) => {
     createEffect(() => {
       setStore(id, "renderer", renderer());
+    });
+    createEffect(() => {
+      setStore(id, "measured", measured());
     });
     createEffect(() => {
       setStore(id, "scrollLock", scrollLockSnapshot(scrollLock));

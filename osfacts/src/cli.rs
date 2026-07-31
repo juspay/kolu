@@ -7,7 +7,22 @@ use std::ffi::OsString;
 #[derive(Debug)]
 pub enum Command {
     Snapshot(SnapshotArgs),
+    SocketHolders(SocketHoldersArgs),
     Host(HostArgs),
+}
+
+/// The `socket-holders` ask: one unix socket PATH, and whether to name the
+/// holders as well as count them.
+///
+/// The path is positional and mandatory, not a facet: the holder set IS this
+/// verb's answer, so — unlike `snapshot` and `host` — there is no "at least
+/// one facet required" rule to enforce. `--procs` is the one composable facet,
+/// and it costs holder *identity*, never the holder set.
+#[derive(Debug)]
+pub struct SocketHoldersArgs {
+    pub path: OsString,
+    pub procs: bool,
+    pub json: bool,
 }
 
 #[derive(Debug, Default)]
@@ -95,6 +110,7 @@ osfacts — scoped, honest OS process & socket facts
 
 Usage:
   osfacts snapshot [--roots PIDS|--pids PIDS] [--procs] [--ports] [--mem] [--start-time] [--cpu-time] [--uid] [--cwd] [--status] [--argv] [--json]
+  osfacts socket-holders PATH [--procs] [--json]
   osfacts host [--load] [--mem] [--cpu] [--net] [--disk] [--json]
 ";
 
@@ -102,6 +118,9 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     let mut parser = lexopt::Parser::from_args(args);
     match parser.next().map_err(lex)? {
         Some(Value(v)) if v == "snapshot" => Ok(Command::Snapshot(parse_snapshot(&mut parser)?)),
+        Some(Value(v)) if v == "socket-holders" => Ok(Command::SocketHolders(
+            parse_socket_holders(&mut parser)?,
+        )),
         Some(Value(v)) if v == "host" => Ok(Command::Host(parse_host(&mut parser)?)),
         Some(Value(v)) if v == "help" || v == "--help" || v == "-h" => {
             Err(CliError::Help(HELP.into()))
@@ -175,6 +194,32 @@ fn parse_snapshot(parser: &mut lexopt::Parser) -> Result<SnapshotArgs, CliError>
         _ => unreachable!(),
     };
     Ok(out)
+}
+
+fn parse_socket_holders(parser: &mut lexopt::Parser) -> Result<SocketHoldersArgs, CliError> {
+    let (mut path, mut procs, mut json) = (None, false, false);
+    while let Some(arg) = parser.next().map_err(lex)? {
+        match arg {
+            // The path arrives as the raw `OsString`: a socket path is a byte
+            // string the kernel bound verbatim, and lossy UTF-8 conversion here
+            // would silently ask about a DIFFERENT path than the caller named.
+            Value(v) if path.is_none() => path = Some(v),
+            Value(_) => {
+                return Err(CliError::Usage(format!(
+                    "socket-holders takes exactly one PATH\n\n{HELP}"
+                )))
+            }
+            Long("procs") => procs = true,
+            Long("json") => json = true,
+            Short('h') | Long("help") => return Err(CliError::Help(HELP.into())),
+            _ => return Err(CliError::Usage(format!("unexpected argument\n\n{HELP}"))),
+        }
+    }
+    let path = path.ok_or_else(|| CliError::Usage(format!("socket-holders needs a PATH\n\n{HELP}")))?;
+    if path.is_empty() {
+        return Err(CliError::Usage("socket path must not be empty".into()));
+    }
+    Ok(SocketHoldersArgs { path, procs, json })
 }
 
 fn parse_host(parser: &mut lexopt::Parser) -> Result<HostArgs, CliError> {

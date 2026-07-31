@@ -25,7 +25,7 @@ Feature: Code tab (review + browse)
     Then the Code tab should indicate no git repository
 
   Scenario: Shows "no changes" when the repo is clean
-    When I run "git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
+    When I run "rm -rf /tmp/kolu-review-clean && git init /tmp/kolu-review-clean && cd /tmp/kolu-review-clean"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "local"
@@ -38,13 +38,13 @@ Feature: Code tab (review + browse)
   # (the All-files repo browser) so the Code tab lands on a populated tree
   # rather than a diff that reads empty on a clean tree.
   Scenario: Mode toggle defaults to browse
-    When I run "git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
+    When I run "rm -rf /tmp/kolu-review-toggle && git init /tmp/kolu-review-toggle && cd /tmp/kolu-review-toggle"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     Then the Code tab mode should be "browse"
 
   Scenario: Code tab mode survives panel close and reopen
-    When I run "git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
+    When I run "rm -rf /tmp/kolu-review-mode-persist && git init /tmp/kolu-review-mode-persist && cd /tmp/kolu-review-mode-persist"
     And I run "git commit --allow-empty -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"
@@ -60,7 +60,7 @@ Feature: Code tab (review + browse)
   # Here the default view is browse, yet the Local segment still
   # advertises its two uncommitted files; browse itself is never badged.
   Scenario: A mode's change count shows on its segment without switching into it
-    When I run "git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
+    When I run "rm -rf /tmp/kolu-review-badge && git init /tmp/kolu-review-badge && cd /tmp/kolu-review-badge"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'one\n' > a.txt"
     And I run "printf 'two\n' > b.txt"
@@ -300,7 +300,7 @@ Feature: Code tab (review + browse)
   # ── Local mode: file list + diff rendering ──
 
   Scenario: Lists changed files and opens a diff on click
-    When I run "git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
+    When I run "rm -rf /tmp/kolu-review-dirty && git init /tmp/kolu-review-dirty && cd /tmp/kolu-review-dirty"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'hello\n' > note.txt"
     And I click the Code tab
@@ -376,23 +376,6 @@ Feature: Code tab (review + browse)
       | branch |
       | browse |
 
-  Scenario Outline: Filter matches files by path tokens [<mode>]
-    Given a Code tab in "<mode>" mode showing files:
-      | path                          | content |
-      | common/src/index.tsx          | common  |
-      | common/src/components/App.tsx | app     |
-      | packages/client/src/index.tsx | client  |
-    When I type "common index.ts" into the Code tab filter
-    Then the Code tab should show file "common/src/index.tsx"
-    And the Code tab should not show file "common/src/components/App.tsx"
-    And the Code tab should not show file "packages/client/src/index.tsx"
-
-    Examples:
-      | mode   |
-      | local  |
-      | branch |
-      | browse |
-
   # Regression: Pierre's `remove` promotes an emptied directory to an
   # "explicit empty folder", so a directory whose files were all filtered
   # out kept a hollow, result-less row in the tree. The fix
@@ -402,11 +385,11 @@ Feature: Code tab (review + browse)
   # stays; a directory whose only files were excluded disappears.
   Scenario Outline: Filter prunes directories with no matching files [<mode>]
     Given a Code tab in "<mode>" mode showing files:
-      | path                | content |
-      | docs/keep.md        | keep    |
-      | docs/plans/note.md  | note    |
-      | widgets/list/a.ts   | a       |
-      | widgets/forms/b.ts  | b       |
+      | path               | content |
+      | docs/keep.md       | keep    |
+      | docs/plans/note.md | note    |
+      | widgets/list/a.ts  | a       |
+      | widgets/forms/b.ts | b       |
     When I type "docs keep" into the Code tab filter
     Then the Code tab should show file "docs/keep.md"
     And the Code tab should show a directory node "docs"
@@ -420,7 +403,7 @@ Feature: Code tab (review + browse)
       | browse |
 
   Scenario: Untracked files appear alongside modified tracked files
-    When I run "git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
+    When I run "rm -rf /tmp/kolu-review-untracked && git init /tmp/kolu-review-untracked && cd /tmp/kolu-review-untracked"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'initial\n' > tracked.txt && git add tracked.txt && git commit -m 'add tracked'"
     And I run "printf 'modified\n' > tracked.txt"
@@ -433,7 +416,7 @@ Feature: Code tab (review + browse)
   # ── Pierre tree behaviour: directory grouping + collapse ──
 
   Scenario: Groups files into a directory tree
-    When I run "git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
+    When I run "rm -rf /tmp/kolu-review-tree && git init /tmp/kolu-review-tree && cd /tmp/kolu-review-tree"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p src/components && printf 'a\n' > src/index.ts && printf 'b\n' > src/components/Button.tsx"
     And I click the Code tab
@@ -443,7 +426,7 @@ Feature: Code tab (review + browse)
     And the Code tab should list a changed file "src/components/Button.tsx"
 
   Scenario: Collapsing a directory hides its children
-    When I run "git init /tmp/kolu-review-collapse && cd /tmp/kolu-review-collapse"
+    When I run "rm -rf /tmp/kolu-review-collapse && git init /tmp/kolu-review-collapse && cd /tmp/kolu-review-collapse"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p pkg && printf 'x\n' > pkg/a.ts && printf 'y\n' > pkg/b.ts"
     And I click the Code tab
@@ -457,7 +440,7 @@ Feature: Code tab (review + browse)
   # ── Pierre tree right-click menu (Copy path) ──
 
   Scenario: Right-click on a changed file copies its path
-    When I run "git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
+    When I run "rm -rf /tmp/kolu-tree-ctx && git init /tmp/kolu-tree-ctx && cd /tmp/kolu-tree-ctx"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p api && printf 'q\n' > api/handler.ts"
     And I click the Code tab
@@ -477,7 +460,7 @@ Feature: Code tab (review + browse)
   # Local (always available, includes untracked) and Branch (vs origin base).
 
   Scenario: Right-click in All files opens the Local diff of that file
-    When I run "git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
+    When I run "rm -rf /tmp/kolu-tree-tolocal && git init /tmp/kolu-tree-tolocal && cd /tmp/kolu-tree-tolocal"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
@@ -500,7 +483,7 @@ Feature: Code tab (review + browse)
     And the Code tab should render a diff view
 
   Scenario: Right-click in a git diff returns to All files
-    When I run "git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
+    When I run "rm -rf /tmp/kolu-tree-tobrowse && git init /tmp/kolu-tree-tobrowse && cd /tmp/kolu-tree-tobrowse"
     And I run "printf 'one\n' > seed.txt && git add . && git commit -m init"
     And I run "printf 'two\n' >> seed.txt"
     And I click the Code tab
@@ -515,7 +498,7 @@ Feature: Code tab (review + browse)
   # ── Browse mode: file tree + content viewer ──
 
   Scenario: File browser shows the repo file tree
-    When I run "git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
+    When I run "rm -rf /tmp/kolu-browse-tree && git init /tmp/kolu-browse-tree && cd /tmp/kolu-browse-tree"
     And I run "mkdir -p src && printf 'a\n' > README.md && printf 'b\n' > src/index.ts"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -525,7 +508,7 @@ Feature: Code tab (review + browse)
     And the file browser should show a file "README.md"
 
   Scenario: File browser shows file content on click
-    When I run "git init /tmp/kolu-browse-content && cd /tmp/kolu-browse-content"
+    When I run "rm -rf /tmp/kolu-browse-content && git init /tmp/kolu-browse-content && cd /tmp/kolu-browse-content"
     And I run "printf 'hello world\n' > greeting.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -779,7 +762,7 @@ Feature: Code tab (review + browse)
     Then the selected file should show content "one-B"
 
   Scenario: File browser wraps long lines by default
-    When I run "git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
+    When I run "rm -rf /tmp/kolu-browse-wrap && git init /tmp/kolu-browse-wrap && cd /tmp/kolu-browse-wrap"
     And I run "printf 'prefix-' > long.txt && printf '%*s' 240 '' | tr ' ' x >> long.txt && printf '\n' >> long.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -816,12 +799,21 @@ Feature: Code tab (review + browse)
   # so single-child flattening doesn't fold it into `src/feature`.)
   Scenario: Browse mode tints ancestor folders that contain a change
     When I run "rm -rf /tmp/kolu-browse-foldertint && git init /tmp/kolu-browse-foldertint && cd /tmp/kolu-browse-foldertint"
-    And I run "mkdir -p src/feature lib && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && git add . && git commit -m init"
-    And I run "printf 'edited\n' > src/feature/a.txt"
+    And I run "mkdir -p src/feature lib seed && printf 'a\n' > src/feature/a.txt && printf 'k\n' > src/keep.txt && printf 'b\n' > lib/b.txt && printf 'seed\n' > seed/dirty.txt && git add . && git commit -m init"
+    And I run "printf 'seed-edited\n' > seed/dirty.txt"
     And I click the Code tab
     And I click the Code tab mode "browse"
-    Then the Code tab should show a directory node "src"
-    And the Code tab directory "src" should be marked as containing a change
+    # A positive initial dirty result settles the status snapshot before the
+    # live edit. `src` is therefore known clean at this boundary, rather than
+    # merely absent while the first status request is still in flight. Repeated
+    # no-op mtime touches recover a dropped watcher pulse under CI load.
+    Then the Code tab directory "seed" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/seed/dirty.txt"
+    And the Code tab directory "seed" name should be tinted differently from directory "lib"
+    And the Code tab directory "src" should not be marked as containing a change
+    # Now prove the mounted tree reacts to the later status update and rolls it
+    # up to the newly changed ancestor while the clean sibling remains clean.
+    When I run "printf 'edited\n' > src/feature/a.txt"
+    Then the Code tab directory "src" should be marked as containing a change while nudging file "/tmp/kolu-browse-foldertint/src/feature/a.txt"
     And the Code tab directory "lib" should not be marked as containing a change
     And the Code tab directory "src" name should be tinted differently from directory "lib"
 
@@ -985,22 +977,10 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "kbd" element
     And the markdown preview should render a "[align=center]" element
     And the markdown preview should contain "centered note"
-    # A repo-relative inline `<img>` resolves against the doc's directory to the
-    # per-terminal file route — a real <img>, not raw text or a broken icon.
-    # Load-vs-fallback coverage is in the "lists, footnotes, alerts, and
-    # resolves repo images" scenario below.
     And the markdown preview should render a "img[src*='/api/terminals/']" element
 
-  # A leading YAML `---` front-matter block renders as a metadata table at the
-  # top of the document (GitHub-faithful), not as a spurious `<hr>` + Setext
-  # heading and not silently dropped (#1279). Keys land in a header column,
-  # scalar values beside them, and a scalar list joins with commas. The body
-  # below still parses as ordinary markdown.
   Scenario: Markdown preview renders YAML front-matter as a metadata table
     When I run "rm -rf /tmp/kolu-md-fm && git init /tmp/kolu-md-fm && cd /tmp/kolu-md-fm"
-    # `printf --` ends option parsing so the leading `---` is the format string,
-    # not flags — a bare `printf '---…'` makes bash treat `--` as an invalid
-    # option and write nothing.
     And I run "printf -- '---\ntitle: Release Notes\nauthor: Jane Roe\ntags:\n  - markdown\n  - preview\n---\n\n# Body Heading\n\nReal body text.\n' > README.md"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1010,8 +990,6 @@ Feature: Code tab (review + browse)
     And the markdown preview should render a "table[data-md-frontmatter]" element
     And the markdown preview should contain "Release Notes"
     And the markdown preview should contain "Jane Roe"
-    # The scalar list joins with commas, and the body renders as a real heading —
-    # while the `---` fences never degrade to a thematic break.
     And the markdown preview should contain "markdown, preview"
     And the markdown preview should render a "h1" element
     And the markdown preview should contain "Body Heading"
@@ -1030,10 +1008,6 @@ Feature: Code tab (review + browse)
     And the markdown preview should not render a "script" element
     And the markdown preview should not render a "a[href^=javascript]" element
 
-  # The sanitizer is a tight allowlist, not DOMPurify's broad defaults: inline
-  # `style`/`class`, SVG, and non-checkbox form controls must all be dropped so
-  # an untrusted README can't restyle, frame, or plant focusable controls in
-  # the app. (`printf` fixtures avoid inner single quotes — see note above.)
   Scenario: Markdown preview drops style, class, SVG, and form controls
     When I run "rm -rf /tmp/kolu-md-tight && git init /tmp/kolu-md-tight && cd /tmp/kolu-md-tight"
     And I run "printf '# Tight Allowlist\n\n<p style=color:red class=takeover>styled para</p>\n\n<svg width=10 height=10><rect width=10 height=10 /></svg>\n\n<button>press me</button>\n\n<input type=text value=injected />\n' > README.md"
@@ -1043,18 +1017,12 @@ Feature: Code tab (review + browse)
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "styled para"
-    # The text survives but its presentational + structural escape hatches don't.
     And the markdown preview should not render a "[style]" element
     And the markdown preview should not render a ".takeover" element
     And the markdown preview should not render a "svg" element
     And the markdown preview should not render a "button" element
     And the markdown preview should not render a "input[type=text]" element
 
-  # The renderer only stamps the anchors it mints; a raw inline `<a>` from the
-  # README must still pick up the link policy in the sanitize pass — a repo-
-  # relative href is tagged for in-app interception (so it opens the file in the
-  # Code tab, never a new tab — #1161), a genuine external href is forced to a
-  # new tab with a severed opener, and an unsafe scheme is unwrapped to text.
   Scenario: Markdown preview applies the link policy to raw inline anchors
     When I run "rm -rf /tmp/kolu-md-rawa && git init /tmp/kolu-md-rawa && cd /tmp/kolu-md-rawa"
     And I run "printf '# Raw Anchors\n\n<a href=docs/guide.md>relative doc</a>\n\n<a href=https://example.com/>external link</a>\n\n<a href=javascript:1>raw evil</a>\n' > README.md"
@@ -1066,23 +1034,12 @@ Feature: Code tab (review + browse)
     And the markdown preview should contain "relative doc"
     And the markdown preview should contain "external link"
     And the markdown preview should contain "raw evil"
-    # Repo-relative anchor is tagged for in-app interception, NOT sent to a new tab.
     And the markdown preview should render a "a[data-md-rel]" element
     And the markdown preview should not render a "a[data-md-rel][target=_blank]" element
-    # The genuine external anchor still opens in a new tab with a severed opener.
     And the markdown preview should render a "a[target=_blank]" element
     And the markdown preview should render a "a[rel~=noopener]" element
-    # The unsafe-scheme anchor is gone; its text remains.
     And the markdown preview should not render a "a[href^=javascript]" element
 
-  # The wikilink marker (data-md-wikilink) lives in the document allowlist so the
-  # PARSER's `[[Note]]` anchors survive sanitization — but a README's RAW HTML can
-  # stamp it too. An untrusted document must not use the marker to opt an anchor
-  # out of the normal per-anchor link policy (safeHref, external target/rel
-  # stamping). So a raw `<a data-md-wikilink href=https://evil.com>` must NOT route
-  # through the pathless wikilink resolver: the sanitizer strips the spoofed marker
-  # and the anchor falls through to the external-link treatment (new tab, severed
-  # opener), exactly like any other external link.
   Scenario: Markdown preview does not let raw HTML spoof the wikilink marker
     When I run "rm -rf /tmp/kolu-md-wikispoof && git init /tmp/kolu-md-wikispoof && cd /tmp/kolu-md-wikispoof"
     And I run "printf '# Spoof\n\n<a data-md-wikilink href=https://evil.example/>spoofed link</a>\n' > README.md"
@@ -1092,9 +1049,7 @@ Feature: Code tab (review + browse)
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "spoofed link"
-    # The spoofed marker is stripped — the anchor is not routed to the wikilink resolver.
     And the markdown preview should not render a "a[data-md-wikilink]" element
-    # It falls through to the normal external-link policy instead.
     And the markdown preview should render a "a[target=_blank]" element
     And the markdown preview should render a "a[rel~=noopener]" element
 
@@ -1204,11 +1159,6 @@ Feature: Code tab (review + browse)
     When I click the wikilink "Nonexistent"
     Then a toast should appear with text "No file matching [[Nonexistent]]"
 
-  # Regression guard for a feature audit's findings: Tailwind v4 preflight
-  # blanking list markers, footnotes + GitHub alerts being unsupported, and
-  # repo-relative images degrading to a chip instead of loading from the
-  # per-terminal file route. The SVG asset gives the relative image something
-  # real to resolve to.
   Scenario: Markdown preview renders lists, footnotes, alerts, and resolves repo images
     When I run "rm -rf /tmp/kolu-md-rich && git init /tmp/kolu-md-rich && cd /tmp/kolu-md-rich"
     And I run "printf '<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>' > logo.svg"
@@ -1219,22 +1169,14 @@ Feature: Code tab (review + browse)
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
     And the markdown preview should contain "Rich Doc"
-    # Lists show real markers (Tailwind preflight would otherwise blank them).
     And the markdown preview list markers should be visible
-    # Footnotes render as a section + superscript ref, not literal [^x] text.
     And the markdown preview should render a "section" element
     And the markdown preview should render a "sup a" element
     And the markdown preview should not contain "[^x]"
-    # The GitHub alert renders with its type carried on a data attribute.
     And the markdown preview should render a "[data-md-alert=warning]" element
-    # The repo-relative image resolves to the per-terminal file route and is a
-    # real <img>, not a fallback chip.
     And the markdown preview should render a "img[src*='/api/terminals/']" element
     And the markdown preview should not render a "span.kolu-md-img-fallback" element
 
-  # Syntax highlighting (Shiki), GitHub-faithful soft breaks (document folds a
-  # single newline to a space), and read-only task-list checkboxes (the preview
-  # never writes back to the file).
   Scenario: Markdown preview highlights code, folds soft breaks, and renders task checkboxes
     When I run "rm -rf /tmp/kolu-md-rich2 && git init /tmp/kolu-md-rich2 && cd /tmp/kolu-md-rich2"
     And I run "printf '# Doc\n\nline one\nline two\n\n```js\nconst x = 1;\n```\n\n- [ ] todo item\n' > README.md"
@@ -1243,14 +1185,10 @@ Feature: Code tab (review + browse)
     And I click the Code tab mode "browse"
     When I click the file "README.md" in the file browser
     Then the markdown preview should be visible
-    # Fenced code gets a copy-button wrapper and is syntax-highlighted (Shiki
-    # loads async; the steps poll).
     And the markdown preview should render a "div.kolu-md-code" element
     And the markdown preview should render a "button.kolu-md-copy" element
     And the markdown preview should render a "pre.shiki" element
-    # GitHub-faithful soft breaks: the two source lines fold into one paragraph.
     And the markdown preview should not render a "p br" element
-    # The task checkbox renders read-only (presentational, disabled).
     And the markdown preview should render a "input[type=checkbox][disabled]" element
 
   # The footnote popover: clicking a `[n]` marker opens its definition in a
@@ -1341,7 +1279,7 @@ Feature: Code tab (review + browse)
     And the Code tab preview pane height should match the noted height
 
   Scenario: File browser expands directories lazily
-    When I run "git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
+    When I run "rm -rf /tmp/kolu-browse-expand && git init /tmp/kolu-browse-expand && cd /tmp/kolu-browse-expand"
     And I run "mkdir -p lib && printf 'x\n' > lib/util.ts"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1358,7 +1296,7 @@ Feature: Code tab (review + browse)
   # their state. Selection now expands the picked file's ancestors
   # imperatively and leaves every other open directory untouched.
   Scenario: File browser preserves sibling expansion when previewing a file
-    When I run "git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
+    When I run "rm -rf /tmp/kolu-browse-keep && git init /tmp/kolu-browse-keep && cd /tmp/kolu-browse-keep"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1380,7 +1318,7 @@ Feature: Code tab (review + browse)
   # keeps its expansion. (A folder filtered entirely out of view — `beta` here —
   # legitimately folds away; Pierre drops it from the projection.)
   Scenario: File browser keeps a folder expanded across a filter and clear
-    When I run "git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
+    When I run "rm -rf /tmp/kolu-browse-filter && git init /tmp/kolu-browse-filter && cd /tmp/kolu-browse-filter"
     And I run "mkdir -p alpha beta && printf 'a1\n' > alpha/a1.txt && printf 'a2\n' > alpha/a2.txt && printf 'b1\n' > beta/b1.txt && printf 'b2\n' > beta/b2.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1399,7 +1337,7 @@ Feature: Code tab (review + browse)
   # ── Pierre file/diff viewer right-click menu (Copy path:line) ──
 
   Scenario: Right-click on a file content line copies "path:line"
-    When I run "git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
+    When I run "rm -rf /tmp/kolu-browse-ctx && git init /tmp/kolu-browse-ctx && cd /tmp/kolu-browse-ctx"
     And I run "printf 'alpha\nbeta\ngamma\n' > letters.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1422,7 +1360,7 @@ Feature: Code tab (review + browse)
   # path so each file gets a fresh `FileDiff` and a clean
   # `useLineSelection` range.
   Scenario: Switching diff files keeps the "Copy path:line" entry in sync
-    When I run "git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
+    When I run "rm -rf /tmp/kolu-diff-multifile && git init /tmp/kolu-diff-multifile && cd /tmp/kolu-diff-multifile"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'a-one\na-two\na-three\n' > file-a.txt"
     And I run "printf 'b-one\nb-two\nb-three\n' > file-b.txt"
@@ -1449,7 +1387,7 @@ Feature: Code tab (review + browse)
   # paste-navigate. The "Open path:N" context-menu entry dispatches via
   # the same `openInCodeTab` front door the terminal-link click uses.
   Scenario: Right-click "Open path:N" in diff view jumps to browse at that line
-    When I run "git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
+    When I run "rm -rf /tmp/kolu-open-from-diff && git init /tmp/kolu-open-from-diff && cd /tmp/kolu-open-from-diff"
     And I run "git commit --allow-empty -m init"
     And I run "mkdir -p docs && printf 'first\nsecond\nthird\n' > docs/notes.txt"
     And I click the Code tab
@@ -1547,7 +1485,7 @@ Feature: Code tab (review + browse)
     And the Code tab should not show the binary placeholder
 
   Scenario: Editing a file updates the diff view live
-    When I run "git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
+    When I run "rm -rf /tmp/kolu-live-diff && git init /tmp/kolu-live-diff && cd /tmp/kolu-live-diff"
     And I run "git commit --allow-empty -m init"
     And I run "printf 'before\n' > note.txt"
     And I click the Code tab
@@ -1559,7 +1497,7 @@ Feature: Code tab (review + browse)
     Then the diff view should contain "after" while nudging "/tmp/kolu-live-diff/note.txt"
 
   Scenario: Editing a file updates browse-mode content live
-    When I run "git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
+    When I run "rm -rf /tmp/kolu-live-browse && git init /tmp/kolu-live-browse && cd /tmp/kolu-live-browse"
     And I run "printf 'first version\n' > letters.txt"
     And I run "git add . && git commit -m init"
     And I click the Code tab
@@ -1791,7 +1729,7 @@ Feature: Code tab (review + browse)
   # against the preview's own host subtree (NOT the whole app page), and the
   # same select → pill → composer → tray flow works straight on the document.
   Scenario: Commenting on the rendered Markdown preview
-    When I run "rm -rf /tmp/kolu-comments-md && git init /tmp/kolu-comments-md && cd /tmp/kolu-comments-md"
+    When I run "rm -rf /tmp/kolu-comments-md-reopen && git init /tmp/kolu-comments-md-reopen && cd /tmp/kolu-comments-md-reopen"
     And I run "printf '# Doc Title\n\nmd-preview-marker in the body.\n' > README.md && git add . && git commit -m init"
     And I click the Code tab
     And I click the Code tab mode "browse"

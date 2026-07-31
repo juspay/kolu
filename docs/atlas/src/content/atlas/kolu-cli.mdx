@@ -111,8 +111,9 @@ hardcoded docs — same rule for the `?` help overlay.</Footnote>
   TUI multiplexer converges on, for this reason.</Footnote>
 - **Enter attaches**: full-screen raw passthrough to that terminal — keystrokes
   in, bytes out, exactly the `kaval-tui attach` UX (same detach chord, same
-  resize-then-attach discipline) but riding `padiSurface`'s `terminalAttach`
-  stream. Detach returns to the canvas.
+  grid-carrying attach — the snapshot comes back laid out for the local tty,
+  because the grid rides on the request) but riding `padiSurface`'s
+  `terminalAttach` stream. Detach returns to the canvas.
 - **`c` creates** a terminal (prompted command, default shell) **without
   stealing focus** by default — spawning a helper must not yank your view;
   **`x` kills** the focused one, and the confirm states the blast radius
@@ -285,8 +286,8 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.
   `connectPadiViaHost` composition was proposed and REFUTED — padi-tui's
   wrapper carries padi-specific probe/scoping the CLI client may diverge from;
   compose in-app, extract only if a byte-identical twin actually emerges.</Footnote>
-- **One `surfaceClient`, `STREAM_RETRY` mounted.** The flaky-tracker's #1827
-  lesson binds: a raw client without the retry plugin flakes on
+- **One `surfaceClient`, `STREAM_RETRY` mounted.** The #1827 flake's lesson
+  binds: a raw client without the retry plugin flakes on
   attach-vs-reconnect races that production consumers survive. The CLI client mounts
   the same plugin production mounts — both faces share the one client, so the
   MCP face inherits it.
@@ -300,7 +301,7 @@ in-gap tool call fails typed, and the compat-gate failure path exits loudly.
   from kolu-cli — a copy here would be two lockstep owners of a detach grammar.
 - **The attach passthrough scaffold is a PORT, not an extraction** (confirmed):
   kaval-tui's `attach.ts` pattern (ordered write queue, snapshot-first-frame,
-  resize-then-attach, tty-less test harness via the `AttachTty` seam) carries
+  the grid-carrying attach, tty-less test harness via the `AttachTty` seam) carries
   over, but its call sites bind kaval's `ptyHostSurface` members while the tui face
   rides `padiSurface` — non-verbatim twins. No `@kolu/tui-kit` receptacle now;
   the recorded gate: after the tui face's loop lands, diff the two scaffolds — if
@@ -413,7 +414,7 @@ Steps, in build order (PR1 = the kolu-cli package + dispatch + boot-function ext
 5. **Graduate the escape scanner**: move `kaval-tui/escape.ts` (verbatim,
    143 lines) into `@kolu/terminal-protocol`, repoint kaval-tui, add nothing.
 6. **Attach loop**: full-screen passthrough pumping stdin → send intent and
-   `terminalAttach` `{seq}` frames → stdout; resize-then-attach, ordered write
+   `terminalAttach` `{seq}` frames → stdout; the grid-carrying attach, ordered write
    queue, snapshot-first-frame, and exit-stream discrimination PORTED from
    `kaval-tui/attach.ts` (call sites re-bound from `ptyHostSurface` members to
    `padiSurface`'s; the `AttachTty` seam + tty-less test harness come along);

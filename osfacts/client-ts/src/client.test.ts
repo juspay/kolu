@@ -11,11 +11,39 @@ import {
   OsfactsClientError,
   parseHostOutput,
   parseSnapshotOutput,
+  parseSocketHoldersOutput,
   OSFACTS_FORMAT_VERSION,
   snapshotHost,
+  snapshotPidsSync,
+  socketHolders,
+  foldSocketOccupancy,
+  type SocketHoldersReading,
 } from "./client.ts";
 
 const V4_MAPPED_LOOPBACK = "00000000000000000000ffff7f000001";
+
+/**
+ * Run `run` against a throwaway executable whose whole body is `body`, and
+ * delete it afterwards however `run` ends.
+ *
+ * A REAL child, not a mock: every rule these pins are about — the exit status,
+ * the stderr line, the document written before a non-zero exit — is something
+ * only an actual process produces, and a stubbed `execFile` would let the
+ * client agree with a fiction. One helper because the mkdtemp → write → chmod →
+ * run → `finally` rm dance was written out at every such site, and a site that
+ * forgot the `finally` leaks a temp dir per run.
+ */
+async function withStub<T>(body: string, run: (bin: string) => T): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
+  const bin = join(dir, "osfacts-stub");
+  try {
+    await writeFile(bin, body);
+    await chmod(bin, 0o755);
+    return await run(bin);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 const SNAPSHOT_SAMPLE = [
   "V\t2",
@@ -33,6 +61,16 @@ const SNAPSHOT_SAMPLE = [
   `L\tunclaimed\t-\t0\t8081\t${V4_MAPPED_LOOPBACK}`,
   "U\t991\tports\tEACCES",
   "E\tdarwin_tcp_pcblist\tports_unclaimed\tBLIND_OR_EMPTY",
+  "",
+].join("\n");
+
+const HOLDERS_SAMPLE = [
+  "V\t2",
+  "H\tclaimed\t4242",
+  "H\tunclaimed\t-",
+  "P\t4242\t4200\tkaval",
+  "U\t4243\tproc\tESRCH",
+  "E\tdarwin_proc_fds\tsocket_holders\tBLIND_OR_EMPTY",
   "",
 ].join("\n");
 
@@ -98,20 +136,13 @@ describe("parseSnapshotOutput", () => {
   });
 
   it("offers a host-wide process snapshot without a fake pid scope", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-fixture");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = snapshot ] && [ "$2" = --uid ] || exit 9\nprintf "V\\t2\\nUID\\t1\\t0\\n"\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { uid: true })).resolves.toMatchObject({
-        uids: [{ pid: 1, uid: 0 }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\n[ "$#" = 2 ] && [ "$1" = snapshot ] && [ "$2" = --uid ] || exit 9\nprintf "V\\t2\\nUID\\t1\\t0\\n"\n',
+      (bin) =>
+        expect(snapshotHost(bin, { uid: true })).resolves.toMatchObject({
+          uids: [{ pid: 1, uid: 0 }],
+        }),
+    );
   });
 
   it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
@@ -119,35 +150,22 @@ describe("parseSnapshotOutput", () => {
     // E rows, then exit 1". That document is the only place the answer to
     // *which source went blind* exists; discarding it for the exit status left
     // every consumer an opaque "non-zero exit".
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-blind");
-    try {
-      await writeFile(
-        bin,
-        '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
-      );
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { procs: true })).resolves.toMatchObject({
-        procs: [],
-        errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
-      });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
+      (bin) =>
+        expect(snapshotHost(bin, { procs: true })).resolves.toMatchObject({
+          procs: [],
+          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+        }),
+    );
   });
 
   it("still fails loudly when a non-zero exit produced no document", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "osfacts-client-"));
-    const bin = join(dir, "osfacts-broken");
-    try {
-      await writeFile(bin, '#!/bin/sh\necho "boom" >&2\nexit 3\n');
-      await chmod(bin, 0o755);
-      await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+    await withStub('#!/bin/sh\necho "boom" >&2\nexit 3\n', (bin) =>
+      expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
         OsfactsClientError,
-      );
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
+      ),
+    );
   });
 
   it("refuses a version it does not speak", () => {
@@ -176,6 +194,11 @@ describe("parseSnapshotOutput", () => {
       "V\t2\nL\towned\t1\t-\t8080\t00000000\n",
       "V\t2\nL\tclaimed\t-\t-\t8080\t00000000\n",
       "V\t2\nL\tunclaimed\t1\t-\t8080\t00000000\n",
+      // pid 0 is the kernel's swapper, never a userspace listener. The `H`
+      // row refused it from the start; the `L` row let it through, because
+      // the same rule was written twice and the copies drifted. One
+      // `attribution` reader now states it once.
+      "V\t2\nL\tclaimed\t0\t-\t8080\t00000000\n",
       "V\t2\nL\tclaimed\t1\t-\t70000\t00000000\n",
       "V\t2\nL\tclaimed\t1\t-\t8080\tzz000000\n",
       "V\t2\nU\tnotapid\tports\tEACCES\n",
@@ -234,5 +257,303 @@ describe("parseHostOutput", () => {
     expect(() =>
       parseHostOutput("V\t2\nE\tdarwin_tcp_pcblist\tports_unclaimed\tX\n"),
     ).toThrow(OsfactsClientError);
+  });
+});
+
+describe("parseSocketHoldersOutput", () => {
+  it("reads the v2 H/P/U/E contract", () => {
+    const r = parseSocketHoldersOutput(HOLDERS_SAMPLE);
+    expect(r.holders).toEqual([
+      { status: "claimed", pid: 4242 },
+      { status: "unclaimed" },
+    ]);
+    expect(r.procs).toEqual([{ pid: 4242, ppid: 4200, name: "kaval" }]);
+    expect(r.unreadable).toEqual([
+      { pid: 4243, facet: "proc", errno: "ESRCH" },
+    ]);
+    expect(r.errors).toEqual([
+      {
+        source: "darwin_proc_fds",
+        facet: "socket_holders",
+        code: "BLIND_OR_EMPTY",
+      },
+    ]);
+  });
+
+  /** The three answers a consumer must never collapse into one another. */
+  it("keeps nobody-holds-it, cannot-name-it, and could-not-look apart", () => {
+    expect(parseSocketHoldersOutput("V\t2\n")).toEqual({
+      holders: [],
+      procs: [],
+      unreadable: [],
+      errors: [],
+    });
+    expect(parseSocketHoldersOutput("V\t2\nH\tunclaimed\t-\n").holders).toEqual(
+      [{ status: "unclaimed" }],
+    );
+    expect(
+      parseSocketHoldersOutput(
+        "V\t2\nE\tproc_net_unix\tsocket_holders\tEACCES\n",
+      ),
+    ).toMatchObject({ holders: [], errors: [{ facet: "socket_holders" }] });
+  });
+
+  it("fails loudly on every row it cannot read", () => {
+    const bad = [
+      "V\t2\nH\tclaimed\t-\n",
+      "V\t2\nH\tunclaimed\t4242\n",
+      "V\t2\nH\theld\t4242\n",
+      "V\t2\nH\tclaimed\t0\n",
+      "V\t2\nH\tclaimed\tnotapid\n",
+      "V\t2\nH\tclaimed\n",
+      "V\t2\nH\tclaimed\t4242\textra\n",
+      "V\t2\nU\t1\tunknown\tEACCES\n",
+      // A snapshot's own facet vocabulary — the verbs are separate contracts.
+      "V\t2\nE\tproc_net_tcp\tports\tEACCES\n",
+    ];
+    for (const body of bad) {
+      expect(() => parseSocketHoldersOutput(body)).toThrow(OsfactsClientError);
+    }
+  });
+
+  it("refuses the other verbs' documents", () => {
+    expect(() => parseSocketHoldersOutput(SNAPSHOT_SAMPLE)).toThrow(
+      OsfactsClientError,
+    );
+    expect(() => parseSocketHoldersOutput(HOST_SAMPLE)).toThrow(
+      OsfactsClientError,
+    );
+  });
+});
+
+describe("socketHolders", () => {
+  it("spawns the verb with the path, and pays for --procs only when asked", async () => {
+    // The stub echoes its own argv back as the holder's NAME, so the
+    // assertions below are about the real command line, not a mock's idea of it.
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nH\\tclaimed\\t7\\nP\\t7\\t1\\t%s\\n" "$*"\n',
+      async (bin) => {
+        await expect(
+          socketHolders(bin, "/run/user/1000/kaval.sock"),
+        ).resolves.toMatchObject({
+          holders: [{ status: "claimed", pid: 7 }],
+          procs: [{ name: "socket-holders /run/user/1000/kaval.sock" }],
+        });
+        await expect(
+          socketHolders(bin, "/run/user/1000/kaval.sock", { procs: true }),
+        ).resolves.toMatchObject({
+          procs: [{ name: "socket-holders /run/user/1000/kaval.sock --procs" }],
+        });
+      },
+    );
+  });
+
+  it("refuses an empty path rather than asking about some other socket", async () => {
+    await expect(socketHolders("/bin/true", "")).rejects.toThrow(
+      OsfactsClientError,
+    );
+  });
+
+  it("keeps the E rows of a blind walk that exited non-zero", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tdarwin_proc_fds\\tsocket_holders\\tBLIND_OR_EMPTY\\n"\nexit 1\n',
+      (bin) =>
+        expect(socketHolders(bin, "/run/a.sock")).resolves.toMatchObject({
+          holders: [],
+          errors: [{ facet: "socket_holders", code: "BLIND_OR_EMPTY" }],
+        }),
+    );
+  });
+});
+
+describe("a refused ask is never an empty answer", () => {
+  /**
+   * The binary writes its version line on the USAGE path too, so a document
+   * shape alone cannot tell an answer from a refusal. An older binary that
+   * does not have the verb the caller asked for exits 2 after that version
+   * line — and reading it as a well-formed "nothing found" is how a supervisor
+   * would conclude a live socket is free.
+   */
+  it("refuses a usage-error document (exit 2) rather than parsing it as nothing-found", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command \'socket-holders\'" >&2\nexit 2\n',
+      async (bin) => {
+        await expect(socketHolders(bin, "/run/a.sock")).rejects.toThrow(
+          /unknown command/,
+        );
+        await expect(snapshotHost(bin, { procs: true })).rejects.toThrow(
+          OsfactsClientError,
+        );
+      },
+    );
+  });
+});
+
+/**
+ * The sync twin must obey the SAME exit-status rule as the async one.
+ *
+ * It nearly did not: `promisify(execFile)` reports the exit status on `.code`,
+ * but `execFileSync` throws the raw spawnSync result, whose status is
+ * `.status` and which carries no `.code` at all. A guard reading only `.code`
+ * is therefore silently inert here — it discards the binary's documented
+ * exit-1 document (losing the `E` rows that name which source went blind) and
+ * would equally have failed to refuse an exit-2 usage document. These pins
+ * exist so the twins cannot drift apart again.
+ */
+describe("the sync twin obeys the same exit-status rule", () => {
+  it("keeps the E rows of a totally-blind probe that exited non-zero", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\nE\\tproc_readdir\\tproc\\tEACCES\\n"\nexit 1\n',
+      (bin) =>
+        expect(snapshotPidsSync(bin, [1], { startTime: true })).toMatchObject({
+          startTimes: [],
+          errors: [{ source: "proc_readdir", facet: "proc", code: "EACCES" }],
+        }),
+    );
+  });
+
+  it("refuses a usage-error document (exit 2) rather than parsing it as nothing-found", async () => {
+    await withStub(
+      '#!/bin/sh\nprintf "V\\t2\\n"\necho "osfacts: unknown command" >&2\nexit 2\n',
+      (bin) =>
+        expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+          /unknown command/,
+        ),
+    );
+  });
+
+  it("names the exit status when the failure is not a spawn errno", async () => {
+    await withStub("#!/bin/sh\nexit 2\n", (bin) =>
+      expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+        /exit 2/,
+      ),
+    );
+  });
+
+  it("still fails loudly when a non-zero exit produced no document", async () => {
+    await withStub("#!/bin/sh\necho boom >&2\nexit 3\n", (bin) =>
+      expect(() => snapshotPidsSync(bin, [1], { startTime: true })).toThrow(
+        OsfactsClientError,
+      ),
+    );
+  });
+});
+
+/** A wire-faithful `socket-holders` document, one field at a time. */
+function reading(over: Partial<SocketHoldersReading>): SocketHoldersReading {
+  return { holders: [], procs: [], unreadable: [], errors: [], ...over };
+}
+
+describe("foldSocketOccupancy — three answers, never one", () => {
+  it("names every claimed holder, with its command", () => {
+    expect(
+      foldSocketOccupancy(
+        reading({
+          holders: [
+            { status: "claimed", pid: 4242 },
+            { status: "claimed", pid: 4243 },
+          ],
+          procs: [{ pid: 4242, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({
+      kind: "held",
+      holders: [
+        { pid: 4242, command: "kaval" },
+        // Named by the OS, but its identity read lost the race — still a
+        // holder, and still a kill candidate the handshake may confirm. The
+        // name is ABSENT, not `"?"`: a sentinel inside the value would be
+        // indistinguishable from a process whose name really is `?`.
+        { pid: 4243, command: undefined },
+      ],
+    });
+  });
+
+  it("reports a proven-empty document as `none`, the ONLY proof of freedom", () => {
+    expect(foldSocketOccupancy(reading({}))).toEqual({ kind: "none" });
+  });
+
+  /** The linux shape: the socket IS bound, and no pid we may inspect holds it. */
+  it("keeps a bound-but-unnameable holder out of `none`", () => {
+    const folded = foldSocketOccupancy(
+      reading({ holders: [{ status: "unclaimed" }] }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).not.toEqual({ kind: "none" });
+  });
+
+  /** The darwin shape: the search itself could not complete. */
+  it("keeps a blind search out of `none`", () => {
+    const folded = foldSocketOccupancy(
+      reading({
+        errors: [
+          {
+            source: "darwin_proc_fds",
+            facet: "socket_holders",
+            code: "BLIND_OR_EMPTY",
+          },
+        ],
+      }),
+    );
+
+    expect(folded.kind).toBe("unattributed");
+    expect(folded).toMatchObject({
+      detail: expect.stringContaining("darwin_proc_fds"),
+    });
+  });
+
+  /** A named holder is an answer even when its NAME could not be read. That
+   *  loss is the shape the verb really emits — a per-pid `U` row, not an
+   *  `E … proc …` source error (which `SOCKET_HOLDERS_SOURCE_FACETS` no
+   *  longer promises, because no reader can write one). */
+  it("still names holders when the identity read lost one pid", () => {
+    expect(
+      foldSocketOccupancy(
+        reading({
+          holders: [{ status: "claimed", pid: 7 }],
+          unreadable: [{ pid: 7, facet: "proc", errno: "EACCES" }],
+        }),
+      ),
+    ).toEqual({ kind: "held", holders: [{ pid: 7, command: undefined }] });
+  });
+
+  /** An unclaimed row beside a claimed one does not weaken the claim: the
+   *  recovery has a pid to handshake, which is what it needs. */
+  it("prefers a named holder over an unattributed sibling row", () => {
+    expect(
+      foldSocketOccupancy(
+        reading({
+          holders: [{ status: "unclaimed" }, { status: "claimed", pid: 9 }],
+          procs: [{ pid: 9, ppid: 1, name: "kaval" }],
+        }),
+      ),
+    ).toEqual({ kind: "held", holders: [{ pid: 9, command: "kaval" }] });
+  });
+});
+
+describe("foldSocketOccupancy refuses a contradictory document", () => {
+  /**
+   * `none` is the most dangerous answer this fold can give, so it is given
+   * only for a document that says nothing at all. A `P` or `U` row names the
+   * identity of a holder — both exist only for a pid an `H` row already
+   * claimed — so a document carrying one while carrying neither an `H` row nor
+   * a blind source is a contradiction, and reading it as an unheld socket
+   * would assert absence out of a shape the binary cannot emit.
+   */
+  it("throws rather than folding a holder-identity-without-a-holder to `none`", () => {
+    for (const body of [
+      "V\t2\nP\t7\t1\tkaval\n",
+      "V\t2\nU\t7\tproc\tEACCES\n",
+    ]) {
+      const reading = parseSocketHoldersOutput(body);
+      expect(() => foldSocketOccupancy(reading)).toThrow(OsfactsClientError);
+    }
+  });
+
+  it("still folds a genuinely empty document to `none`", () => {
+    expect(foldSocketOccupancy(parseSocketHoldersOutput("V\t2\n"))).toEqual({
+      kind: "none",
+    });
   });
 });

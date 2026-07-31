@@ -737,6 +737,10 @@ export function createBackfillController(
   return {
     reset() {
       pauseLifecycle();
+      // Drop seed FIFO entries whose seam never parsed (e.g. drop-without-write
+      // on fresh-snapshot reset). Leaving them makes a later seam's token miss
+      // the front entry and backfill never re-seeds.
+      pendingSeeds.length = 0;
     },
     consumeSnapshotFrame(topLine, reflowEpoch, carriesReset) {
       // Invalidate NOW: forget the cursor + bump the generation so an in-flight

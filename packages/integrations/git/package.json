@@ -18,6 +18,7 @@
   "dependencies": {
     "@parcel/watcher": "^2.5.1",
     "kolu-io": "workspace:*",
+    "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",
     "memorable-names": "workspace:*",
     "simple-git": "^3.36.0",
