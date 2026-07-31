@@ -234,16 +234,33 @@ test-agent-bake:
     [[ "$saw_agent_source" == 1 ]] \
       || { echo "agent-bake: nothing exported points at an agent-source store path" >&2; exit 1; }
 
-    # A working snippet no entrypoint calls is still the bug. `--dry-run`
-    # expands each recipe without running it.
-    for entry in dev server; do
-      found=$(just --dry-run "$entry" 2>&1 | grep -c 'agent-flake-env' || true)
-      [[ "$found" == 1 ]] \
-        || { echo "agent-bake: \`just $entry\` expands to $found bakes, want exactly 1" >&2; exit 1; }
-    done
-    found=$(just --dry-run _dev-parallel 2>&1 | grep -c 'agent-flake-env' || true)
-    [[ "$found" == 0 ]] \
-      || { echo "agent-bake: _dev-parallel must stay nix-free for ci::dev-smoke, found $found" >&2; exit 1; }
+    # A working snippet no entrypoint calls is still the bug. `--dry-run` expands
+    # a recipe without running it; match the WHOLE expanded line against the
+    # `agent_bake` variable itself, so a line that merely mentions the
+    # derivation — a bare `nix build .#agent-flake-env` that sources nothing —
+    # does not count. The expectation is never re-spelled here: it comes from the
+    # same variable the entrypoints interpolate, so editing the snippet moves the
+    # guard with it.
+    expected={{ quote(agent_bake) }}
+    check_bakes() {
+      local recipe="$1" want="$2" out found
+      # A dry-run that FAILS must not read as "zero bakes" — that is how an
+      # unexpandable recipe would sail through the zero-bake assertion below.
+      if ! out=$(just --dry-run "$recipe" 2>&1); then
+        echo "agent-bake: \`just --dry-run $recipe\` failed:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+      fi
+      # `|| true` here covers ONLY grep's no-match exit, which is a real count of 0.
+      found=$(printf '%s\n' "$out" | grep -Fxc -- "$expected" || true)
+      [[ "$found" == "$want" ]] || {
+        echo "agent-bake: \`just $recipe\` expands to $found bake line(s), want $want" >&2
+        return 1
+      }
+    }
+    check_bakes dev 1
+    check_bakes server 1
+    check_bakes _dev-parallel 0
     echo "agent-bake: dev + server bake once each; _dev-parallel nix-free"
 
 # Run client with Vite dev server (HMR)
