@@ -206,7 +206,9 @@ and is fixed in this PR before the campaign resumes.
   real write lock from a child process for 300 ms and proves
   `updateCodexRollout` waits, writes the updated token payload, and completes.
 - **Fix verification:** all 18 e2e-governance unit tests passed, including the
-  real two-process SQLite lock regression.
+  real two-process SQLite lock regression. On the exact Linux venue
+  `kolu-ci-1`, the formerly failing scenario then passed 10 consecutive
+  executions with 10 attempts and zero retries.
 
 ### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
 
