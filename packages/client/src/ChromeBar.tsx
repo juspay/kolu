@@ -21,7 +21,7 @@
 
 import { type Component, createMemo, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
-import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import { useFocusTile } from "./canvas/useFocusTile";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
@@ -53,28 +53,22 @@ const ChromeBar: Component<{
   onOpenPalette: () => void;
 }> = (props) => {
   const rightPanel = useRightPanel();
-  const posture = useViewPosture();
+  const focusTile = useFocusTile();
   let settingsTriggerRef!: HTMLButtonElement;
 
-  // True when the terminal is maximized. The header is full-width docked in
-  // BOTH postures now (see the module comment), so this no longer gates
-  // positioning — it only drives the `data-maximized` marker and the
-  // maximize/restore toggle's active state and icon below.
-  const docked = createMemo(() => posture.mode() === "maximized");
-
-  // Gate the maximize affordance on a tile existing (posture's single
-  // source of truth) so the button never disagrees with `mode()`'s guard.
-  const canMaximize = posture.canMaximize;
-
-  // The maximize toggle's affordance describes the action a click performs,
-  // so both the tooltip and the aria-label read from one source and can't
-  // drift out of sync with the posture.
-  const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
+  // Whether the camera is currently held on the active tile, and whether
+  // focusing is meaningful at all — both read from the one focus verb so the
+  // button can never disagree with what a click would do.
+  const held = createMemo(() => focusTile.isFocused());
+  const canFocus = focusTile.canFocus;
+  const focusLabel = createMemo(() =>
+    held() ? "Release focus (Esc)" : "Focus tile",
+  );
 
   return (
     <header
       data-testid="chrome-bar"
-      data-maximized={docked() ? "" : undefined}
+      data-focused={held() ? "" : undefined}
       // Solid chrome owns this strip's pointer area. Individual controls still
       // carry their own pointer/focus classes, but empty header space should
       // behave like header, not click through to the canvas behind it.
@@ -109,24 +103,24 @@ const ChromeBar: Component<{
        *  centre. */}
       <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
-        <Tip label={maximizeLabel()}>
+        <Tip label={focusLabel()}>
           <button
             type="button"
-            data-testid="maximize-toggle"
+            data-testid="focus-toggle"
             class={toggleBtnClass}
             classList={{
-              "bg-surface-2 text-fg": docked(),
+              "bg-surface-2 text-fg": held(),
               "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                !docked() && canMaximize(),
-              "text-fg-3/40 cursor-not-allowed": !canMaximize(),
+                !held() && canFocus(),
+              "text-fg-3/40 cursor-not-allowed": !canFocus(),
             }}
-            data-active={docked() ? "" : undefined}
-            disabled={!canMaximize()}
-            onClick={() => posture.toggle()}
-            aria-label={maximizeLabel()}
+            data-active={held() ? "" : undefined}
+            disabled={!canFocus()}
+            onClick={() => focusTile.toggle()}
+            aria-label={focusLabel()}
           >
             <Show
-              when={docked()}
+              when={held()}
               fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
             >
               <RestoreIcon class="w-3.5 h-3.5" />

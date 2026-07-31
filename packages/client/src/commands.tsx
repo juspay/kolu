@@ -16,7 +16,7 @@ import type {
   PaletteLabel,
   PaletteValueInput,
 } from "./CommandPalette";
-import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import { useFocusTile } from "./canvas/useFocusTile";
 import { showsWelcome, supportsSpatialCanvas } from "./capabilities";
 import { diagnosticDialog } from "./DiagnosticInfo";
 import {
@@ -145,13 +145,10 @@ export interface CommandDeps extends ActionContext {
 }
 
 export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
-  // Canvas posture — same reactive reader pattern as ChromeBar/Dock. The
-  // memo reads `mode()`/`canMaximize()` so the command's label and
-  // visibility track posture reactively. The *write* path stays on
-  // `deps.toggleCanvasPosture` (the shared `ActionContext` seam the keyboard
-  // shortcut also uses), so the two surfaces never drift if App later wraps
-  // the toggle with a guard or telemetry.
-  const posture = useViewPosture();
+  // Camera focus — the reader half. Visibility tracks `canFocus()`; the
+  // *write* path stays on `deps.focusActiveTile` (the shared `ActionContext`
+  // seam the keyboard shortcut also uses), so the two surfaces never drift.
+  const focusTile = useFocusTile();
   const tileStore = useTileStore();
   const crud = useTerminalCrud();
   // Fleet-wide terminal index — every connected host's terminals, ranked by
@@ -430,18 +427,15 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
     // --- Canvas (desktop only — spatial tile actions) ---
     ...(supportsSpatialCanvas()
       ? [
-          // Maximize / restore — gated on a tile existing (posture's own
-          // `canMaximize`, matching the ChromeBar button being disabled at
-          // zero terminals). The label describes the action a select
-          // performs, so when already maximized it reads "Restore canvas",
-          // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. Carries the keybind chip so the palette advertises
-          // the Mod+Shift+M shortcut from one source of truth.
-          ...(posture.canMaximize()
+          // Focus the camera on the active tile — gated on there being one to
+          // focus, matching the ChromeBar button being disabled at zero
+          // terminals. Carries the keybind chip so the palette advertises the
+          // Mod+Shift+M shortcut from one source of truth.
+          ...(focusTile.canFocus()
             ? [
-                actionPaletteCommand("toggleCanvasPosture", deps, {
+                actionPaletteCommand("focusActiveTile", deps, {
                   section: "canvas",
-                  name: posturedActionLabel(posture.mode()),
+                  name: focusTile.isFocused() ? "Release focus" : "Focus tile",
                 }),
               ]
             : []),

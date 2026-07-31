@@ -39,12 +39,11 @@ describe("CanvasTile shell selection", () => {
         <CanvasTile
           id="tile"
           active
-          mode="tiled"
           theme={{ bg: "black", fg: "white" }}
           repoColor="white"
           onSelect={onSelect}
           onClose={vi.fn()}
-          onToggleMaximize={vi.fn()}
+          onToggleFocus={vi.fn()}
           renderTitle={() => <span>Tile</span>}
           renderBody={() => (
             <div data-visible="" data-terminal-id="inner-terminal">

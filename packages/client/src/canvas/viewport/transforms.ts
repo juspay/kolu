@@ -2,6 +2,8 @@
  *  Encapsulates the zoom/pan algorithm so it can evolve (easing, constraints,
  *  undo) without touching gesture input or CSS generation. */
 
+import type { Camera } from "../../useViewState";
+
 export const MIN_ZOOM = 0.15;
 export const MAX_ZOOM = 3;
 export const GRID_SIZE = 24;
@@ -42,16 +44,6 @@ export function computeCenterPan(
     panX: centerX - viewportW / (2 * zoom),
     panY: centerY - viewportH / (2 * zoom),
   };
-}
-
-/** A complete camera pose — the canvas's only notion of "where you are
- *  looking". Focus is a camera move (TR1: maximized mode is deleted), so a
- *  pose is a value that can be computed, tweened toward, and remembered for
- *  the flight back. */
-export interface CameraPose {
-  panX: number;
-  panY: number;
-  zoom: number;
 }
 
 /** Screen-space breathing room left around a focused box, in px. */
@@ -95,7 +87,7 @@ export function fitBox(
   viewportW: number,
   viewportH: number,
   paddingPx: number = FIT_PADDING_PX,
-): CameraPose {
+): Camera {
   // A degenerate (zero-area) box would divide by zero; floor both extents at
   // one canvas unit so a fit is always defined.
   const boxW = Math.max(1, maxX - minX);

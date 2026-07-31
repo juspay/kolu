@@ -55,11 +55,11 @@ export interface ActionContext {
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
   toggleDock: () => void;
-  /** Flip the canvas between tiled and maximized posture. Wired to
-   *  `useViewPosture().toggle`, whose own write guard makes it a no-op
-   *  off the spatial canvas (mobile / narrow) or with zero terminals — so
-   *  the keybind needs no extra guard. */
-  toggleCanvasPosture: () => void;
+  /** Hold the camera on the active tile, or release it. Wired to
+   *  `useFocusTile().toggle`, whose own guards make it a no-op off the
+   *  spatial canvas (mobile / narrow) or with no active tile — so the
+   *  keybind needs no extra guard. */
+  focusActiveTile: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -327,14 +327,14 @@ const _ACTIONS = {
     keybind: { key: "B", code: "KeyB", mod: true, shift: true },
     handler: (ctx) => ctx.toggleDock(),
   },
-  toggleCanvasPosture: {
-    label: "Maximize / restore terminal",
-    // Mod+Shift+M — M for maximize. The shifted form matches the
+  focusActiveTile: {
+    label: "Focus tile",
+    // Mod+Shift+M — M for maximize, the gesture this replaced. The shifted form matches the
     // Mod+Shift+<letter> convention shared by toggleDock, shuffleTheme,
     // and screenshotTerminal, and stays clear of the in-PTY chords in
     // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
     keybind: { key: "M", code: "KeyM", mod: true, shift: true },
-    handler: (ctx) => ctx.toggleCanvasPosture(),
+    handler: (ctx) => ctx.focusActiveTile(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

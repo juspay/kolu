@@ -3,14 +3,11 @@
  *  title bar, resize handles. Content is injected via render props — the
  *  canvas module has no knowledge of what renders inside a tile.
  *
- *  Two display modes:
- *  - **Tiled** (default): absolute-positioned at the saved canvas layout,
- *    draggable + resizable. Pan/zoom is composed into each tile's own
- *    `transform` rather than a shared wrapper, so the maximized branch can
- *    sit as a sibling without remounting on every active-id change (#988).
- *  - **Maximized**: `inset-0 z-40` covering the canvas viewport. Drag/resize
- *    disabled. The maximize signal lives in `TerminalCanvas`, exposed here
- *    so chrome reflects state and double-click toggles it. */
+ *  ONE display mode: absolute-positioned at its canvas layout, draggable and
+ *  resizable, with pan/zoom composed into the tile's own `transform` rather
+ *  than a shared wrapper (#988). There is no maximized/covered branch — the
+ *  camera focuses a tile instead of the tile taking over the viewport, so a
+ *  tile's geometry never changes with what the user is looking at. */
 
 import { createDraggable } from "@thisbeyond/solid-dnd";
 import {
@@ -23,7 +20,6 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { match } from "ts-pattern";
 import { CHROME_ICON_BUTTON_CLASS } from "../ui/chromeSpacing";
 import { MaximizeIcon, RestoreIcon } from "../ui/Icons";
 import {
@@ -46,20 +42,13 @@ import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };
 
-/** Per-tile render mode — one tile is in `"maximized"` (fills the viewport,
- *  drag/resize disabled), all others are in `"covered"` when the canvas is
- *  maximized (mounted, streaming, but visually behind the z-40 cover and
- *  hidden from assistive tech), or `"tiled"` when the canvas is not
- *  maximized (normal pan/zoom rendering). Unifying these into one union
- *  makes the impossible state `maximized && covered` unrepresentable. */
-export type CanvasTileMode = "tiled" | "maximized" | "covered";
-
 const CanvasTile: Component<{
   id: string;
   active: boolean;
-  /** Per-tile render mode. Derived in `TerminalCanvas` from the canvas-wide
-   *  posture (`useViewPosture`) and `activeId`. */
-  mode: CanvasTileMode;
+  /** Is the camera currently held on this tile? Purely a chrome cue — the
+   *  tile's geometry is identical either way, because focusing moves the
+   *  CAMERA rather than the tile (there is no maximized mode). */
+  focused?: boolean;
   /** Presentational hint — when true and the tile is not active, render
    *  faded so an inactive ("parked") tile recedes visually. The decision
    *  itself lives in the caller; the tile shell only honors the bit. */
@@ -72,8 +61,9 @@ const CanvasTile: Component<{
   repoColor: string;
   onSelect: () => void;
   onClose: () => void;
-  /** Toggle between tiled and maximized. Bound to title-bar double-click. */
-  onToggleMaximize: () => void;
+  /** Hold the camera on this tile, or release it. Bound to the title-bar
+   *  double-click and the focus button. */
+  onToggleFocus: () => void;
   renderTitle: () => JSX.Element;
   /** Optional actions rendered in the title bar between the title and the
    *  close button. For domain-specific, tile-type-variable capabilities
@@ -106,8 +96,7 @@ const CanvasTile: Component<{
    *  `bucketDescriptor` and does not share this tier. */
   auraTier?: () => TileAura;
 }> = (props) => {
-  const isMaximized = () => props.mode === "maximized";
-  const isCovered = () => props.mode === "covered";
+  const isFocused = () => props.focused === true;
   const { id } = props;
   const draggable = createDraggable(id);
   const layout = () =>
@@ -120,15 +109,14 @@ const CanvasTile: Component<{
   const [landing, setLanding] = createSignal(false);
   const spendLanding = () => setLanding(false);
   onMount(() => {
-    if (prefersReducedMotion() || props.sleeping || props.mode !== "tiled")
-      return;
+    if (prefersReducedMotion() || props.sleeping) return;
     setLanding(true);
   });
   createEffect(() => {
     // Mid-entrance loss of eligibility cancels CSS without animationend —
     // spend so a later restore/wake never re-plays.
     if (!landing()) return;
-    if (props.sleeping || props.mode !== "tiled" || prefersReducedMotion()) {
+    if (props.sleeping || prefersReducedMotion()) {
       spendLanding();
     }
   });
@@ -167,13 +155,9 @@ const CanvasTile: Component<{
     );
   });
   // One decision — "is the aura showing" — so the `data-aura` host attribute
-  // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
-  // maximized tile mutes its own aura, a covered tile (behind a maximized
-  // sibling) is hidden, and an off-screen tile is gated out — none should burn
-  // a frame animating a border nobody can see.
-  const showAura = createMemo(
-    () => aura() !== "none" && props.mode === "tiled" && onScreen(),
-  );
+  // and the `.tile-aura` child can't drift. An off-screen tile is gated out:
+  // none should burn a frame animating a border nobody can see.
+  const showAura = createMemo(() => aura() !== "none" && onScreen());
 
   // One-shot finished **exhale** — armed only when the tier *transitions*
   // into finished while the motion is observable. Any cancel (off-screen
@@ -252,78 +236,15 @@ const CanvasTile: Component<{
     };
   };
 
-  // Per-mode presentation: ONE switch on `props.mode` is the sole place that
-  // decides geometry + layer + decoration + visibility, returning a complete,
-  // self-sufficient box. `maximized` and `covered` literally reuse the same
-  // `fullViewportBox` (`position: absolute; inset: 0`), so "covered shares the
-  // maximized tile's box" is one source of truth a reader verifies at a glance
-  // rather than an invariant assembled from `inset-0` (classList) agreeing with
-  // a deliberately-geometry-less `style`. The style object alone is always a
-  // legal box — no mode's geometry depends on a second structure firing in
-  // lockstep. Two invariants ride on the maximized/covered equality:
-  //
-  //  - A covered tile hides INTRINSICALLY (`visibility: hidden`), not by relying
-  //    on the maximized tile's `z-40` cover. During the window where `activeId`
-  //    already points at a just-created tile that hasn't entered `terminalIds`
-  //    yet, no maximized tile exists — a covered tile carrying only `inert`
-  //    would paint, flashing the canvas for a frame (regressed in #989, which
-  //    dropped the pre-#988 `visibility: hidden`). Keep the subtree mounted
-  //    (`visibility`, not `display`) so xterm keeps writing its buffer and the
-  //    dock previews stay populated (#904).
-  //  - A covered tile is the SAME SIZE as the maximized tile (both are
-  //    `fullViewportBox`). Switching the active terminal in maximized posture is
-  //    then a pure visibility/z-index swap: no tile changes border-box size, so
-  //    `Terminal`'s ResizeObserver never fires `fit()` — no xterm grid reflow,
-  //    no repaint, and no server PTY resize on switch. (Were covered tiles sized
-  //    to their small canvas-layout rect — as they are when `tiled` — every
-  //    switch would resize BOTH the revealed and the hidden xterm and refit
-  //    them: the per-switch "re-render".) Tradeoff: ENTERING maximized posture
-  //    now sizes every covered tile's PTY to the viewport grid once — a one-time
-  //    SIGWINCH per tile on the posture toggle, not a per-switch cost.
-  const presentation = createMemo(
-    (): {
-      style: JSX.CSSProperties;
-      classes: Record<string, boolean>;
-    } => {
-      // The full canvas viewport box, shared verbatim by maximized and covered so
-      // their border-box is structurally identical. Since #988 dropped the
-      // pan/zoom wrapper div, the nearest positioned ancestor is `canvas-grid-bg`
-      // (real viewport rect, untransformed), so `inset: 0` resolves cleanly to the
-      // canvas's screen-space without any inverse-transform tricks. The dock sits
-      // outside this container as a flex sibling in maximized posture
-      // (TerminalCanvas), so the tile naturally fills the remaining viewport
-      // without needing a left-inset (#904).
-      const fullViewportBox: JSX.CSSProperties = {
-        position: "absolute",
-        inset: 0,
-        "background-color": bg(),
-      };
-      // `match(...).exhaustive()` (the repo's `prefer-ts-pattern` idiom for a
-      // value-returning dispatch on a string-literal union — cf. Terminal.tsx's
-      // `shouldUseWebgl`) compile-fails if `CanvasTileMode` ever grows a fourth
-      // mode, instead of silently rendering it as a tiled tile. This switch is
-      // load-bearing geometry/layering, so a new mode MUST be a deliberate
-      // decision here, not a default fall-through.
-      return match(props.mode)
-        .with("maximized", () => ({
-          // Only the maximized tile takes `z-40`, so it paints above its hidden
-          // covered siblings.
-          style: { ...fullViewportBox, "z-index": 40 },
-          classes: { "border-transparent": true },
-        }))
-        .with("covered", () => ({
-          style: { ...fullViewportBox, visibility: "hidden" as const },
-          classes: { "border-transparent": true },
-        }))
-        .with("tiled", () => ({
-          // Absolute-positioned at the saved canvas layout, with rounded corners
-          // and a repo-colour border.
-          style: tiledStyle(),
-          classes: { "rounded-xl": true },
-        }))
-        .exhaustive();
-    },
-  );
+  // A tile has exactly ONE geometry: absolute-positioned at its layout, with
+  // pan/zoom and any drag delta composed into its own transform. The old
+  // three-way switch (tiled / maximized / covered) is gone with maximized
+  // mode — focusing a tile now moves the CAMERA, so no tile ever swaps to a
+  // full-viewport box, nothing is ever covered, and the invariants that used
+  // to tie those two boxes together (equal size so switching didn't refit
+  // xterm; intrinsic `visibility: hidden` so a covered tile couldn't flash)
+  // have nothing left to protect. A tile that is off-camera is simply
+  // off-camera, exactly like a tile panned out of view has always been.
 
   return (
     <div
@@ -332,11 +253,11 @@ const CanvasTile: Component<{
       data-canvas-tile=""
       data-terminal-id={id}
       data-active={props.active ? "" : undefined}
-      data-maximized={isMaximized() ? "true" : undefined}
+      data-focused={isFocused() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
       data-sleeping={props.sleeping ? "" : undefined}
       data-landing={
-        landing() && props.mode === "tiled" && !props.sleeping ? "" : undefined
+        landing() && !props.sleeping ? "" : undefined
       }
       data-exhale={
         exhale() && showAura() && aura() === "finished" ? "" : undefined
@@ -355,16 +276,14 @@ const CanvasTile: Component<{
       // DOM focus the instant a tile is covered), logging a WAI-ARIA console
       // warning. `inert` is the spec's recommended replacement precisely
       // because it hides *and* prevents focus without that conflict.
-      inert={isCovered()}
       // Clip model is tier-independent: outer shell always overflow-visible so
       // outside-paint auras (working outer rail, future rings) are free; the
       // inner shell always clips title/body. Geometry does not branch on aura.
       class="relative border transition-shadow duration-200 overflow-visible"
-      // Geometry, layer, and visibility all live in `presentation().style` (one
-      // complete box per mode); the classList carries only non-geometric,
-      // mode-specific decoration (rounded corners vs. transparent border).
-      classList={presentation().classes}
-      style={presentation().style}
+      // One box, always: geometry and layer live in `tiledStyle()`; the
+      // classList carries only decoration.
+      classList={{ "rounded-xl": true }}
+      style={tiledStyle()}
       onMouseDown={(event) => {
         // A live terminal owns the more precise pane landing (main vs split).
         // Letting this shell-level tile selection run afterward would resolve
@@ -401,7 +320,7 @@ const CanvasTile: Component<{
           data-testid="canvas-tile-titlebar"
           class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
-            "cursor-grab active:cursor-grabbing": !isMaximized(),
+            "cursor-grab active:cursor-grabbing": !isFocused(),
           }}
           style={{
             "background-color": tileTitleBarBg(props.theme),
@@ -423,16 +342,16 @@ const CanvasTile: Component<{
           onMouseDown={(e) => e.preventDefault()}
           onDblClick={(e) => {
             e.stopPropagation();
-            props.onToggleMaximize();
+            props.onToggleFocus();
           }}
-          {...(props.mode === "tiled" ? draggable.dragActivators : {})}
+          {...draggable.dragActivators}
         >
           <div class="contents">{props.renderTitle()}</div>
           <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
             {props.renderTitleActions?.()}
             <button
               type="button"
-              data-testid="canvas-tile-maximize"
+              data-testid="canvas-tile-focus"
               class={`${CHROME_ICON_BUTTON_CLASS} pointer-events-auto hover:bg-black/20`}
               style={{
                 color: tileChromeButton(props.theme),
@@ -440,11 +359,11 @@ const CanvasTile: Component<{
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
-                props.onToggleMaximize();
+                props.onToggleFocus();
               }}
-              title={isMaximized() ? "Restore to canvas" : "Maximize"}
+              title={isFocused() ? "Release focus (Esc)" : "Focus this tile"}
             >
-              <Show when={isMaximized()} fallback={<MaximizeIcon />}>
+              <Show when={isFocused()} fallback={<MaximizeIcon />}>
                 <RestoreIcon />
               </Show>
             </button>
@@ -473,22 +392,20 @@ const CanvasTile: Component<{
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the
        *  affordance. Corners are declared after edges in the record so DOM
-       *  order paints them on top of the edge strips they overlap. Only in
-       *  `tiled` mode — maximized has nothing to resize against, covered tiles
-       *  are inert and should not have interactive handles in the DOM.
+       *  order paints them on top of the edge strips they overlap. Always
+       *  present now: a tile has exactly one geometry, and focusing it moves
+       *  the camera rather than replacing its box.
        *  Outside the clip shell so edge hit-targets aren't rounded away. */}
-      <Show when={props.mode === "tiled"}>
-        <For each={Object.entries(RESIZE_HANDLES)}>
-          {([direction, handle]) => (
-            <div
-              class={`absolute ${handle.position} ${handle.cursor}`}
-              onPointerDown={(e) =>
-                props.startResize(id, direction as ResizeDirection, e)
-              }
-            />
-          )}
-        </For>
-      </Show>
+      <For each={Object.entries(RESIZE_HANDLES)}>
+        {([direction, handle]) => (
+          <div
+            class={`absolute ${handle.position} ${handle.cursor}`}
+            onPointerDown={(e) =>
+              props.startResize(id, direction as ResizeDirection, e)
+            }
+          />
+        )}
+      </For>
 
       {/* Language C · Run / sweep — agent run-state as MOTION in repo colour
        *  (`--aura-c`): working = double moat + rotating outer arc; needs-you =

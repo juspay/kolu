@@ -11,11 +11,7 @@
  *  snapping. A pure pan — `from.zoom === to.zoom` — reduces to the old
  *  two-axis tween exactly, since the ratio is 1 at every t. */
 
-export interface CameraPose {
-  panX: number;
-  panY: number;
-  zoom: number;
-}
+import type { Camera } from "../../useViewState";
 
 export interface AnimateCameraOptions {
   durationMs?: number;
@@ -41,8 +37,8 @@ export function prefersReducedMotion(): boolean {
 }
 
 export function animateCamera(
-  from: CameraPose,
-  to: CameraPose,
+  from: Camera,
+  to: Camera,
   onTick: (panX: number, panY: number, zoom: number) => void,
   opts: AnimateCameraOptions = {},
 ): AbortController {

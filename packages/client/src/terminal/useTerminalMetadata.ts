@@ -277,24 +277,27 @@ export function useTerminalMetadata(deps: {
 
   // --- Order: server Map insertion order, filtered by parent relationship ---
 
-  /** Top-level terminal IDs in server-provided order.
-   *  Terminals whose metadata hasn't arrived yet are excluded (still loading).
+  /** EVERY live terminal ID, in server-provided order — parents and children
+   *  alike, at any depth.
+   *
+   *  This used to filter to `!parentId`, which is precisely where terminals
+   *  went to die: a record whose parent was itself a child matched no render
+   *  rule and simply vanished from the canvas while running perfectly well
+   *  (#2059). The tree is the tiling now — a child is a first-class tile
+   *  placed beside its parent, so membership here is liveness alone and the
+   *  set is TOTAL over the roster. Nothing can be alive and unrenderable.
    *
    *  The `equals` gate keeps the prior array reference whenever a metadata
-   *  change leaves the top-level id set unchanged (the common case), so
-   *  dependants keyed off the reference skip the no-op recompute an unchanged
-   *  set would otherwise trigger — the reactivity keystone of the performance
-   *  map. The accessor re-runs cheaply on each metadata change; what it no
-   *  longer does is *notify* downstream when the set is identical. */
+   *  change leaves the id set unchanged (the common case), so dependants keyed
+   *  off the reference skip the no-op recompute an unchanged set would
+   *  otherwise trigger — the reactivity keystone of the performance map. The
+   *  accessor re-runs cheaply on each metadata change; what it no longer does
+   *  is *notify* downstream when the set is identical. */
   const terminalIds = createMemo<TerminalId[]>(
     () =>
-      keys().filter((id) => {
-        // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
-        // record, so presence alone excludes restore-card rows. Raw (not reprojected):
-        // ordering reads only `parentId`, clock-free.
-        const a = rawTile(id);
-        return a !== undefined && !a.parentId;
-      }),
+      // `rawTile` already returns `undefined` for a parked (or not-yet-arrived)
+      // record, so presence alone excludes restore-card rows.
+      keys().filter((id) => rawTile(id) !== undefined),
     [],
     { equals: sameTerminalIdOrder },
   );

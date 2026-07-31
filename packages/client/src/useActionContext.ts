@@ -7,7 +7,7 @@
 
 import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
-import { useViewPosture } from "./canvas/useViewPosture";
+import { useFocusTile } from "./canvas/useFocusTile";
 import { showsWorkspaceSwitcher } from "./capabilities";
 import type { ActionContext } from "./input/actions";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
@@ -29,7 +29,7 @@ export function useActionContext(): ActionContext {
   const crud = useTerminalCrud();
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
-  const posture = useViewPosture();
+  const focusTile = useFocusTile();
   const commandPalette = useCommandPalette();
   const terminalSearch = useTerminalSearch();
   const { handleShuffleTheme } = useThemeManager();
@@ -79,7 +79,7 @@ export function useActionContext(): ActionContext {
     },
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,
-    toggleCanvasPosture: posture.toggle,
+    focusActiveTile: focusTile.toggle,
     // Lazy `useRecorder()` defers recorder init to the first toggle, not boot.
     toggleRecordingPause: () => useRecorder().togglePause(),
   };

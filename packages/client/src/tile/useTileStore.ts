@@ -24,6 +24,9 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
+import { createMemo } from "solid-js";
+import { activeArm } from "@kolu/padi/surface";
+import { derivedTileSize, layoutTree } from "../canvas/layoutTree";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistCanvasLayout } from "../terminal/persistCanvasLayout";
@@ -55,16 +58,44 @@ export const useTileStore = createSharedRoot(() => {
   const contentOf = (id: TileId): TileContent | undefined =>
     tileIds().includes(id) ? { kind: "terminal", terminalId: id } : undefined;
 
-  /** A tile's saved position/size. The registry HIDES where layout lives: for a
-   *  terminal tile it reads `TerminalMetadata.canvasLayout` (no schema change —
-   *  the note's lowy sequencing); PR 2's sleeping arm reads layout off the
-   *  sleeping record. Callers (canvas `getLayout`, arrange, the switcher) stop
-   *  knowing layout is a field on the terminal. */
-  const getLayout = (id: TileId): TileLayout | undefined => {
+  /** A tile's MANUAL PIN — the position a human dragged it to, or nothing.
+   *
+   *  `canvasLayout` present ⇔ pinned is the whole rule: there is no
+   *  `layoutMode` flag to keep in sync and no "Autoarrange" command to undo a
+   *  hand placement, because auto-arrangement is the resting state rather than
+   *  an action. A tile the user has never moved simply has no pin and takes
+   *  its place from the tree.
+   *
+   *  The registry HIDES where a pin lives: for a terminal tile it reads
+   *  `TerminalMetadata.canvasLayout`. */
+  const pinnedLayout = (id: TileId): TileLayout | undefined => {
     const content = contentOf(id);
     if (content?.kind !== "terminal") return undefined;
     return store.getMetadata(content.terminalId)?.canvasLayout;
   };
+
+  /** Where the tree puts every unpinned tile. A memo because the canvas's
+   *  `layoutOf`, the minimap, the edge overlay and the focus camera all read
+   *  it — one walk per invalidation instead of one per reader. */
+  const derivedLayouts = createMemo(() =>
+    layoutTree(
+      tileIds().map((id) => ({
+        id,
+        parentId: store.getMetadata(id)?.parentId as TileId | undefined,
+      })),
+      pinnedLayout,
+      (id) =>
+        derivedTileSize(
+          activeArm(store.getMetadata(id))?.agent != null,
+        ),
+    ),
+  );
+
+  /** A tile's effective position/size: its pin if it has one, otherwise the
+   *  box the tree derives for it. Callers (canvas, arrange, the switcher)
+   *  neither know nor care which of the two answered. */
+  const getLayout = (id: TileId): TileLayout | undefined =>
+    pinnedLayout(id) ?? derivedLayouts().get(id);
 
   /** Persist a tile's position/size — the single tile-layout write seam.
    *  Dispatches by content kind to the right sink: today `persistCanvasLayout`
@@ -99,8 +130,11 @@ export const useTileStore = createSharedRoot(() => {
     tileIds,
     tileCount,
     contentOf,
-    // Layout — the registry hides the storage home (terminal metadata today).
+    // Layout — the registry hides the storage home (terminal metadata today)
+    // and the pin-vs-derived split.
     getLayout,
+    pinnedLayout,
+    derivedLayouts,
     setLayout,
     // Selection — re-exposed from view state (one source of truth). The
     // active TILE may be any content kind; a terminal-content consumer that

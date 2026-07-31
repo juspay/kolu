@@ -37,6 +37,26 @@ export interface HostCamera {
    *  `setZoom`), so a pose can never be written without the camera becoming
    *  positioned. */
   positioned: Accessor<boolean>;
+
+  // ── Focus: the camera held on one tile (what "maximize" became) ──
+  //
+  // Focusing is a camera move, not a mode — no second layout, no covered
+  // tiles, no persisted posture flag. It lives HERE, beside the pose, because
+  // it is per-host state for exactly the same reason the pose is: switching
+  // hosts must show that host's own camera, focused or not, with no restore
+  // step to race the incoming tiles.
+
+  /** The tile the camera is currently held on, or null when free. */
+  focusedTileId: Accessor<string | null>;
+  /** Hold focus on a tile. `restore` is the pose to fly back to, remembered
+   *  only on the FIRST entry — hopping focus from tile to tile keeps the
+   *  original escape hatch, so leaving focus returns to the fleet view you
+   *  started from rather than to the previously focused tile. */
+  focusTile: (id: string, restore: Camera) => void;
+  /** Release focus. The remembered pose survives until `takeRestorePose`. */
+  releaseFocus: () => void;
+  /** Read-and-clear the pose to fly back to; null when there is none. */
+  takeRestorePose: () => Camera | null;
 }
 
 export function createCamera(): HostCamera {
@@ -44,6 +64,11 @@ export function createCamera(): HostCamera {
   const [panY, setPanY] = createSignal(0);
   const [zoom, setZoom] = createSignal(1);
   const [positioned, setPositioned] = createSignal(false);
+  const [focusedTileId, setFocusedTileId] = createSignal<string | null>(null);
+  // Deliberately NOT written through the pose setters above: remembering where
+  // to fly back to is not itself a camera placement, so it must not mark the
+  // host `positioned`.
+  const [restorePose, setRestorePose] = createSignal<Camera | null>(null);
 
   // Writing a pose IS the fact "this camera has now been placed", so every
   // setter marks `positioned` — the invariant is folded into the atomic verb
@@ -68,5 +93,16 @@ export function createCamera(): HostCamera {
     },
     snapshot: () => ({ panX: panX(), panY: panY(), zoom: zoom() }),
     positioned,
+    focusedTileId,
+    focusTile: (id: string, restore: Camera) => {
+      if (restorePose() === null) setRestorePose(restore);
+      setFocusedTileId(id);
+    },
+    releaseFocus: () => setFocusedTileId(null),
+    takeRestorePose: () => {
+      const pose = restorePose();
+      if (pose !== null) setRestorePose(null);
+      return pose;
+    },
   };
 }

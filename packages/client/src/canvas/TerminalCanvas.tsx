@@ -40,8 +40,10 @@ import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
 import { savedSessionSub } from "../hostScope/activeWire";
 import CanvasMinimap from "./CanvasMinimap";
-import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
+import CanvasTile from "./CanvasTile";
 import Dock from "./dock/Dock";
+import TileEdges, { type TileEdge } from "./TileEdges";
+import { childrenByParent, descendantIds } from "./layoutTree";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
 import type { TileLayout } from "./TileLayout";
 import {
@@ -55,7 +57,6 @@ import { useCanvasFocus } from "./useCanvasFocus";
 import { usePendingLayouts } from "./usePendingLayouts";
 import { useTileAura } from "./useTileAura";
 import { useTileTheme } from "./useTileTheme";
-import { useViewPosture } from "./useViewPosture";
 import { capturePointerGesture } from "./viewport/capturePointerGesture";
 import { useCanvasViewport } from "./viewport/useCanvasViewport";
 
@@ -108,7 +109,6 @@ const TerminalCanvas: Component<{
   const tileStore = useTileStore();
   const focus = useCanvasFocus();
   const tileTheme = useTileTheme();
-  const posture = useViewPosture();
   const isStale = useStaleCheck();
   const tileAuraOf = useTileAura();
 
@@ -128,8 +128,32 @@ const TerminalCanvas: Component<{
   // rule. `getLayout` is captured in a stable closure so SolidJS's
   // fine-grained tracking re-runs the effect when either input shifts.
   createEffect(() => {
-    pendingLayouts.dropEvicted(new Set(props.tileIds), props.getLayout);
+    // The PIN, not the effective layout: a pending drag is waiting for the
+    // server to echo a *persisted* position back. Comparing it against a
+    // derived box would look like the echo had arrived and drop the pending
+    // entry a frame early, snapping the tile back to its tree spot mid-drag.
+    pendingLayouts.dropEvicted(new Set(props.tileIds), tileStore.pinnedLayout);
   });
+
+  /** The parent→child index over the tiles currently on the canvas. */
+  const tileTree = createMemo(() =>
+    childrenByParent(
+      props.tileIds.map((id) => ({
+        id,
+        parentId: store.getMetadata(id)?.parentId as TileId | undefined,
+      })),
+    ),
+  );
+
+  /** A tile is a ROOT when nothing on the canvas is its parent — either it has
+   *  no `parentId`, or its parent hasn't arrived (or has gone). The second case
+   *  matters: such a tile must still get a place, and the tree can't derive one
+   *  for it, so the cascade below owns it. This predicate and `layoutTree`'s
+   *  notion of a root are deliberately the same rule. */
+  const isRootTile = (id: TileId): boolean => {
+    const parentId = store.getMetadata(id)?.parentId as TileId | undefined;
+    return !parentId || !props.tileIds.includes(parentId);
+  };
 
   // Pending lives at module scope (singleton, shared with useCanvasArrange).
   // Flush on canvas unmount so a mobile↔desktop remount never inherits a
@@ -149,6 +173,29 @@ const TerminalCanvas: Component<{
       if (l) result[id] = l;
     }
     return result;
+  });
+
+  /** One edge per parent→child relation, in the child's identity colour.
+   *  Skips a pair whose boxes aren't both resolved yet — an edge to nowhere
+   *  would be a line into the void during the load window. */
+  const edges = createMemo<TileEdge[]>(() => {
+    const boxes = layouts();
+    const out: TileEdge[] = [];
+    for (const [parentId, childIds] of tileTree()) {
+      const from = boxes[parentId];
+      if (!from) continue;
+      for (const childId of childIds) {
+        const to = boxes[childId];
+        if (!to) continue;
+        out.push({
+          id: childId,
+          from,
+          to,
+          color: store.getDisplayInfo(childId)?.repoColor ?? "currentColor",
+        });
+      }
+    }
+    return out;
   });
 
   // Per-host camera center-on-active on host switch. The decision (seed a
@@ -195,7 +242,12 @@ const TerminalCanvas: Component<{
   createEffect(
     on(
       () => [props.tileIds, allRecordsSettled()] as const,
-      ([ids]) => {
+      ([allIds]) => {
+        // ROOTS ONLY. A child's box is derived from its parent (`layoutTree`),
+        // so it must never be cascade-placed and — the load-bearing half —
+        // never PERSISTED: persisting it would mint a manual pin nobody asked
+        // for, and the tile would stop following its parent forever after.
+        const ids = allIds.filter(isRootTile);
         const center = viewport.viewportCenter();
         // Container not mounted yet — defer placement; the effect re-runs when
         // the tile list next changes (post-mount, with real dimensions).
@@ -205,8 +257,13 @@ const TerminalCanvas: Component<{
         if (!center) return;
         const { x: cx, y: cy } = center;
 
-        const plan = planTilePlacements(ids, layoutOf, (id) =>
-          isMetadataRecordPresent(id),
+        // Classify against the PIN, not the effective layout: `layoutOf` now
+        // folds in derived boxes, and a derived box would mask a genuinely-new
+        // root as "existing" so it never gets its cascade position.
+        const plan = planTilePlacements(
+          ids,
+          (id) => pendingLayouts.resolveLayout(id, tileStore.pinnedLayout(id)),
+          (id) => isMetadataRecordPresent(id),
         );
 
         // Consume the inherited size only when there are new tiles that need
@@ -357,6 +414,42 @@ const TerminalCanvas: Component<{
     }),
   );
 
+  /** Focus is a camera move — this effect IS what replaced maximized mode.
+   *
+   *  Focusing a tile flies the camera until it fills the viewport; focusing a
+   *  tile that has children fits the whole SUBTREE, so a supervisor and its
+   *  helpers are framed together (the job the old maximized sub-panel did).
+   *  Releasing focus flies back to the pose the camera held on the way in.
+   *  Nothing is mounted, unmounted, hidden or re-laid-out by any of it. */
+  createEffect(
+    on(viewport.focusedTileId, (id, prevId) => {
+      if (id) {
+        const boxes = [id as TileId, ...descendantIds(id as TileId, tileTree())]
+          .map(layoutOf)
+          .filter((l): l is TileLayout => l !== undefined);
+        // rAF so a tile focused in the same tick it was created fits the box
+        // its pending layout just produced, not the frame before it existed.
+        if (boxes.length > 0) requestAnimationFrame(() => viewport.fitTo(boxes));
+        return;
+      }
+      // Released: fly back to where we came from. `prevId` guards the initial
+      // run (nothing was focused, so there is nothing to return from).
+      if (!prevId) return;
+      const pose = viewport.takeRestorePose();
+      if (pose) requestAnimationFrame(() => viewport.flyTo(pose));
+    }),
+  );
+
+  /** Escape releases focus — but ONLY when the key didn't land in a terminal.
+   *  Esc belongs to whatever is running in the PTY (vim, a pager, an agent's
+   *  prompt); stealing it would break every one of them. The same rule the
+   *  wheel handler applies to scroll (`isWheelTargetTerminal`). */
+  function handleCanvasKeyDown(e: KeyboardEvent) {
+    if (e.key !== "Escape" || !viewport.focusedTileId()) return;
+    if (e.target instanceof Element && e.target.closest(".xterm")) return;
+    viewport.releaseFocus();
+  }
+
   // On first mount at the default origin, pan so the persisted active tile
   // is centered (matches what a workspace-switcher click does). If there's no
   // active tile, fall back to centering the bounding box of all tiles so
@@ -426,22 +519,24 @@ const TerminalCanvas: Component<{
     terminalId: TerminalId,
   ): JSX.Element {
     const active = () => tileStore.isActiveTile(tileId);
-    const mode = (): CanvasTileMode =>
-      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
     return (
       <Show when={store.getDisplayInfo(terminalId)}>
         {(info) => (
           <CanvasTile
             id={tileId}
             active={active()}
-            mode={mode()}
+            focused={viewport.focusedTileId() === tileId}
             dimmed={isStale(store.getMetadata(terminalId)?.lastActivityAt ?? 0)}
             sleeping={sleepingArm(store.getMetadata(terminalId)) !== undefined}
             theme={tileTheme(terminalId)}
             repoColor={info().repoColor}
             onSelect={() => props.onSelect(tileId)}
             onClose={() => props.onClose(tileId)}
-            onToggleMaximize={posture.toggle}
+            onToggleFocus={() =>
+              viewport.focusedTileId() === tileId
+                ? viewport.releaseFocus()
+                : viewport.focusTile(tileId)
+            }
             renderTitle={() => props.renderTileTitle(tileId)}
             renderTitleActions={
               props.renderTileTitleActions
@@ -465,20 +560,12 @@ const TerminalCanvas: Component<{
   return (
     <DragDropProvider onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <DragDropSensors />
-      {/* Outer flex container — single mount point for the activity
-       *  dock. The dock owns its own posture-conditional positioning:
-       *  in maximized mode it's `relative shrink-0` (real left-panel
-       *  flex sibling — the canvas takes the remaining width via
-       *  `flex-1`); in tiled mode it's `absolute z-30 top-16 left-4`
-       *  (floats over the canvas). The wrapper is `relative` so the
-       *  dock's absolute coordinates in tiled mode resolve to the same
-       *  `top: 5rem, left: 1rem` they did when mounted inside the
-       *  canvas div.
-       *  Mounting the dock once instead of toggling between two
-       *  `<Show>` branches avoids tearing down its reactive scope on
-       *  posture flips — the prior split-mount approach left the dock
-       *  invisible until full page reload after enough toggles
-       *  (#909 follow-up bug report). */}
+      {/* Outer flex container — single mount point for the activity dock,
+       *  which floats over the canvas (`absolute z-30 top-16 left-4`). The
+       *  wrapper is `relative` so those absolute coordinates resolve here.
+       *  There is only ONE dock posture now: the flush-sidebar arm belonged
+       *  to maximized mode, and focus is a camera move, so nothing about the
+       *  chrome changes when you focus a tile. */}
       <div class="flex-1 min-h-0 overflow-hidden flex relative">
         <Dock
           onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
@@ -505,7 +592,24 @@ const TerminalCanvas: Component<{
           onDblClick={(e) => {
             if (e.target === e.currentTarget) props.onCreate();
           }}
+          // A click on the bare surface releases a held camera — the spatial
+          // way out of focus, matching Esc. Guarded to the background exactly
+          // like the create gesture above, so clicking a tile never does it.
+          onClick={(e) => {
+            if (e.target === e.currentTarget && viewport.focusedTileId())
+              viewport.releaseFocus();
+          }}
+          onKeyDown={handleCanvasKeyDown}
         >
+          {/* The tree, drawn: one curve per parent→child edge, painted under
+           *  every tile and inert to the pointer. It is the only place the
+           *  canvas states a relationship that containment used to imply. */}
+          <TileEdges
+            edges={edges()}
+            panX={viewport.panX}
+            panY={viewport.panY}
+            zoom={viewport.zoom}
+          />
           {/* All tiles render in one stable list, every render. Pan/zoom
            *  composes into each tile's own `transform` (CanvasTile), so
            *  there's no wrapper transform — which means the active tile in
@@ -544,10 +648,10 @@ const TerminalCanvas: Component<{
             }}
           </For>
 
-          {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
-           *  since there's nothing spatial to summarize. */}
-          <Show when={posture.mode() === "tiled"}>
-            <CanvasMinimap
+          {/* Minimap: spatial dashboard. Always mounted now — there is no
+           *  fullscreen mode to hide it in, and while the camera is held on a
+           *  tile it is exactly what tells you where you are in the fleet. */}
+          <CanvasMinimap
               tileIds={props.tileIds}
               layouts={layouts()}
               onSelect={props.onSelect}
@@ -573,8 +677,7 @@ const TerminalCanvas: Component<{
                   },
                 };
               }}
-            />
-          </Show>
+          />
         </div>
       </div>
     </DragDropProvider>
