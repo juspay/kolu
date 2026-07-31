@@ -150,6 +150,7 @@ retries.
 | `82d72ed#1` | `82d72ede0` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `fce3b0a#1` | `fce3b0a53` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `7299111#1` | `729911162` | Passed both platforms, including both `osfacts-live` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
+| `92ec01a#1` | `92ec01a93` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
