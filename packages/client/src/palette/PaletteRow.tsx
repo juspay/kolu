@@ -11,7 +11,11 @@
 import type { TerminalMetadata } from "@kolu/padi/surface";
 import { StatePip } from "@kolu/solid-statepip";
 import { TITLE_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysEqual as sameHost,
+} from "kolu-common/hostKey";
 import { DASH, type TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
@@ -23,7 +27,6 @@ import {
   hostHue,
   hostLabel,
   hostRowContext,
-  sameHost,
   statusTitle,
 } from "../host/hostChipTone";
 import { formatKeybind, type Keybind } from "../input/keyboard";

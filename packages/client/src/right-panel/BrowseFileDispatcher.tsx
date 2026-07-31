@@ -142,8 +142,8 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
   // a fallback would silently open a same-basename file in another folder.
   const openPreviewPath = (path: string) =>
     openInCodeTab({
+      terminalId: props.terminalId,
       ref: { path, startLine: null, endLine: null },
-      repoRoot: props.repoPath,
       targetMode: "browse",
       allowBasenameFallback: false,
     });

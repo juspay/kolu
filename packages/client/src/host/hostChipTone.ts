@@ -13,12 +13,6 @@ import type { EntryState } from "@kolu/surface-map";
 import { hostHueFor } from "kolu-common/hostHue";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 
-/** Whether two `HostKey`s name the SAME host — compared by their CANONICAL
- *  string (`encodeHostKey`), never `===`. */
-export function sameHost(a: HostKey, b: HostKey): boolean {
-  return encodeHostKey(a) === encodeHostKey(b);
-}
-
 /** The host's identity hue (a palette hex). */
 export function hostHue(host: HostKey): string {
   return hostHueFor(encodeHostKey(host));

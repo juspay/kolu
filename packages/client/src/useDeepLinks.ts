@@ -136,8 +136,8 @@ export function useDeepLinks(): void {
             "deep-link: code route enacted without a sensed repoRoot",
           );
         openInCodeTab({
+          terminalId: id,
           ref: { path: r.path, startLine: r.line, endLine: r.line },
-          repoRoot,
           cwd: anchorMeta.cwd,
           targetMode: "browse",
           // A deep-link path is explicit (GitHub-style exact), never a bare

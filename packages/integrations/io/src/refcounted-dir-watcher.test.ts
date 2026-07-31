@@ -3,7 +3,10 @@ import type { FSWatcher } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createDirFilenameWatcher } from "./refcounted-dir-watcher.ts";
+import {
+  createDirFilenameWatcher,
+  DIR_FILENAME_POLL_MS,
+} from "./refcounted-dir-watcher.ts";
 
 /** A promise plus its resolver — lets a test hold a `resolveDir` open and
  *  release it on demand, so the async-install window is observable. */
@@ -104,6 +107,33 @@ describe("createDirFilenameWatcher async install", () => {
     // Exactly one reconcile tick after the handle attaches.
     expect(fires).toBe(1);
 
+    stop();
+  });
+
+  it("reconciles a changed file when the fs.watch edge is dropped", async () => {
+    const head = path.join(tmpDir, "HEAD");
+    fs.writeFileSync(head, "ref: refs/heads/master\n");
+    const onChange = vi.fn();
+    const w = createDirFilenameWatcher({
+      resolveDir: async (cwd) => cwd,
+      filename: "HEAD",
+      debounceMs: 10,
+      logLabel: "test",
+    });
+
+    const stop = w.watch(tmpDir, onChange);
+    await w._whenSettled();
+    expect(onChange).toHaveBeenCalledTimes(1); // install reconciliation
+    onChange.mockClear();
+
+    // `beforeEach` replaced fs.watch with a no-op handle, so only the stat
+    // floor can observe this post-install branch-identity rewrite.
+    fs.writeFileSync(head, "ref: refs/heads/watcher-test\n");
+    await new Promise((resolve) =>
+      setTimeout(resolve, DIR_FILENAME_POLL_MS + 500),
+    );
+
+    expect(onChange).toHaveBeenCalledTimes(1);
     stop();
   });
 

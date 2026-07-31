@@ -170,11 +170,12 @@ server:
 client:
     cd packages/client && {{ nix_shell }} pnpm dev
 
-# Run unit tests (vitest) — FORK-FREE by default. The daemon-forking suites are
-# gated OFF (`describeDaemon` keys on KOLU_DAEMON_TESTS); this is the safe reach a
-# workstation can run beside a live kolu. Use `test-daemon` for the gated suites.
+# Run unit tests (vitest) — FORK-FREE by default and bounded to one workspace
+# package at a time. The daemon-forking suites are gated OFF (`describeDaemon`
+# keys on KOLU_DAEMON_TESTS); this is the safe reach a workstation can run beside
+# a live kolu. Use `test-daemon` for the gated suites.
 test-unit: install
-    {{ nix_shell }} pnpm test:unit
+    {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
 
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
 # deliberately separate from test-unit: it reads every committed inventory

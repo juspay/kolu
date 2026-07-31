@@ -21,7 +21,11 @@
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  encodeHostKey,
+  type HostKey,
+  hostKeysEqual as sameHost,
+} from "kolu-common/hostKey";
 import {
   type Component,
   createMemo,
@@ -37,13 +41,7 @@ import { activeHost, padiMap, setActiveHost } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostIdentityLabel } from "./HostIdentityLabel";
-import {
-  chipStatusDot,
-  hostGlance,
-  hostHue,
-  hostLabel,
-  sameHost,
-} from "./hostChipTone";
+import { chipStatusDot, hostGlance, hostHue, hostLabel } from "./hostChipTone";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */

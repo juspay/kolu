@@ -53,6 +53,45 @@ const DIFF_VIEW = '[data-testid="pierre-diff-view"]';
 const FILE_VIEW = '[data-testid="pierre-file-view"]';
 const DIFF_CONTENT = '[data-testid="diff-content"]';
 
+/** Bounded DOM facts for a Code-tab timeout. A bare Playwright timeout says
+ *  only what never appeared; these facts distinguish an unopened panel, a
+ *  missing selection, a loading/error state, and a mounted Pierre view. */
+async function codeTabTimeoutDiagnostic(world: KoluWorld): Promise<string> {
+  // String evaluation is deliberate: tsx injects a `__name` helper into
+  // serialized argument functions, but that helper does not exist in the
+  // browser realm (the same constraint as SHADOW_DFS_FN_SRC below).
+  const facts = await world.page.evaluate(`(() => {
+    const text = (selector) => {
+      const node = document.querySelector(selector);
+      return node?.textContent?.slice(0, 500) ?? null;
+    };
+    return {
+      rightPanelCollapsed:
+        document.querySelector('[data-testid="right-panel"][data-collapsed]') !== null,
+      codeTabActive:
+        document.querySelector('[data-testid="right-panel-tab-code"]')
+          ?.getAttribute("aria-selected") ?? null,
+      activeMode:
+        [...document.querySelectorAll('[data-testid^="diff-mode-"]')]
+          .find((node) =>
+            node.getAttribute("aria-pressed") === "true" ||
+            node.getAttribute("data-selected") !== null
+          )?.getAttribute("data-testid") ?? null,
+      selectedTreePaths:
+        [...document.querySelectorAll(
+          '[data-testid="pierre-file-tree"] [data-item-path][aria-selected="true"]'
+        )].map((node) => node.getAttribute("data-item-path")),
+      diffContent: text('[data-testid="diff-content"]'),
+      diffError: text('[data-testid="diff-error"]'),
+      diffViewMounted:
+        document.querySelector('[data-testid="pierre-diff-view"]') !== null,
+      fileViewMounted:
+        document.querySelector('[data-testid="pierre-file-view"]') !== null,
+    };
+  })()`);
+  return JSON.stringify(facts);
+}
+
 function fileRow(path: string): string {
   return `${TREE} [data-item-path="${path}"][data-item-type="file"]:not([data-file-tree-sticky-row])`;
 }
@@ -235,20 +274,27 @@ When(
 Then(
   "line {int} should be selected in the file content",
   async function (this: KoluWorld, line: number) {
-    await this.page.waitForFunction(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        const root = document.querySelector('${FILE_VIEW}');
-        if (!root) return false;
-        return shadowDfs(root, (node) =>
-          node.nodeType === 1 &&
-          node.hasAttribute('data-selected-line') &&
-          node.getAttribute('data-column-number') === '${line}'
-        ) === true;
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    try {
+      await this.page.waitForFunction(
+        `(() => {
+          ${SHADOW_DFS_FN_SRC}
+          const root = document.querySelector('${FILE_VIEW}');
+          if (!root) return false;
+          return shadowDfs(root, (node) =>
+            node.nodeType === 1 &&
+            node.hasAttribute('data-selected-line') &&
+            node.getAttribute('data-column-number') === '${line}'
+          ) === true;
+        })()`,
+        undefined,
+        { timeout: POLL_TIMEOUT },
+      );
+    } catch (err) {
+      throw new Error(
+        `line ${line} was not selected; Code-tab facts: ${await codeTabTimeoutDiagnostic(this)}`,
+        { cause: err },
+      );
+    }
   },
 );
 
@@ -1952,27 +1998,34 @@ Then(
     // pre-#955 shape carried both axes against POLL_TIMEOUT — text never
     // got a fair chance once a slow runner spent most of the budget on
     // the view mount.
-    await this.page
-      .locator(`${DIFF_VIEW}, ${FILE_VIEW}`)
-      .first()
-      .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
-    await this.page.waitForFunction(
-      `(() => {
-        ${SHADOW_DFS_FN_SRC}
-        for (const sel of ['${DIFF_VIEW}', '${FILE_VIEW}']) {
-          const root = document.querySelector(sel);
-          if (!root) continue;
-          let text = '';
-          shadowDfs(root, (node) => {
-            if (node.nodeType === 3) text += node.nodeValue || '';
-          });
-          if (text.includes(${JSON.stringify(expected)})) return true;
-        }
-        return false;
-      })()`,
-      undefined,
-      { timeout: POLL_TIMEOUT },
-    );
+    try {
+      await this.page
+        .locator(`${DIFF_VIEW}, ${FILE_VIEW}`)
+        .first()
+        .waitFor({ state: "visible", timeout: HYDRATION_TIMEOUT });
+      await this.page.waitForFunction(
+        `(() => {
+          ${SHADOW_DFS_FN_SRC}
+          for (const sel of ['${DIFF_VIEW}', '${FILE_VIEW}']) {
+            const root = document.querySelector(sel);
+            if (!root) continue;
+            let text = '';
+            shadowDfs(root, (node) => {
+              if (node.nodeType === 3) text += node.nodeValue || '';
+            });
+            if (text.includes(${JSON.stringify(expected)})) return true;
+          }
+          return false;
+        })()`,
+        undefined,
+        { timeout: POLL_TIMEOUT },
+      );
+    } catch (err) {
+      throw new Error(
+        `selected file did not show ${JSON.stringify(expected)}; Code-tab facts: ${await codeTabTimeoutDiagnostic(this)}`,
+        { cause: err },
+      );
+    }
   },
 );
 
@@ -1988,6 +2041,57 @@ Then(
 const COMMENTS_TRAY = '[data-testid="kolu-comments-tray"]';
 const COMMENT_PILL = '[data-testid="kolu-comment-pill"]';
 const COMMENT_COMPOSER = '[data-testid="kolu-comment-composer"]';
+
+type NativeSelectionDiagnostic = {
+  target: string;
+  rect: { startX: number; startY: number; endX: number; endY: number };
+  selections: Array<{
+    root: string;
+    rangeCount: number;
+    collapsed: boolean;
+    text: string;
+  }>;
+};
+
+const lastNativeSelection = new WeakMap<object, NativeSelectionDiagnostic>();
+
+async function readNativeSelections(
+  world: KoluWorld,
+): Promise<NativeSelectionDiagnostic["selections"]> {
+  return (await world.page.evaluate(`(() => {
+    const rows = [];
+    const record = (root, label) => {
+      const getSelection = root && root.getSelection;
+      const selection =
+        typeof getSelection === "function" ? getSelection.call(root) : null;
+      rows.push({
+        root: label,
+        rangeCount: selection ? selection.rangeCount : 0,
+        collapsed: selection ? selection.isCollapsed : true,
+        text: selection ? selection.toString() : "",
+      });
+    };
+    record(window, "document");
+    let index = 0;
+    const visit = (node) => {
+      if (!node) return;
+      if (node.nodeType === 1 && node.shadowRoot) {
+        const host = node;
+        const label =
+          "shadow[" + index++ + "]<" + host.tagName.toLowerCase() +
+          (host.getAttribute("data-testid")
+            ? '[data-testid="' + host.getAttribute("data-testid") + '"]'
+            : "") +
+          ">";
+        record(node.shadowRoot, label);
+        visit(node.shadowRoot);
+      }
+      for (const child of node.childNodes || []) visit(child);
+    };
+    visit(document.documentElement);
+    return rows;
+  })()`)) as NativeSelectionDiagnostic["selections"];
+}
 
 Then(
   "the comments tray should not be visible",
@@ -2130,6 +2234,19 @@ async function dragSelectText(
   await world.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
   await world.page.mouse.up();
   await world.waitForFrame();
+
+  const selections = await readNativeSelections(world);
+  const diagnostic = { target, rect, selections };
+  lastNativeSelection.set(world, diagnostic);
+  if (
+    !selections.some(
+      (selection) => !selection.collapsed && selection.text.includes(target),
+    )
+  ) {
+    throw new Error(
+      `Mouse drag did not create the requested native selection: ${JSON.stringify(diagnostic)}`,
+    );
+  }
 }
 
 When(
@@ -2151,9 +2268,18 @@ When(
 );
 
 Then("the comment pill should be visible", async function (this: KoluWorld) {
-  await this.page
-    .locator(COMMENT_PILL)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  try {
+    await this.page
+      .locator(COMMENT_PILL)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  } catch (error) {
+    const immediate = lastNativeSelection.get(this) ?? null;
+    const atTimeout = await readNativeSelections(this);
+    throw new Error(
+      `Comment pill did not appear after a native selection: ${JSON.stringify({ immediate, atTimeout })}`,
+      { cause: error },
+    );
+  }
 });
 
 Then(

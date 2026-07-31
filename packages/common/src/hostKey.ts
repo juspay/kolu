@@ -66,6 +66,11 @@ export function encodeHostKey(k: HostKey): string {
   return k.kind === "local" ? "local" : `${REMOTE_WIRE_PREFIX}${k.target}`;
 }
 
+/** Whether two independently decoded keys name the same canonical host. */
+export function hostKeysEqual(a: HostKey, b: HostKey): boolean {
+  return encodeHostKey(a) === encodeHostKey(b);
+}
+
 /** THE membership-equality authority: is `key` a member of `keys`? Compared by
  *  `encodeHostKey` — a `HostKey` is an object with no reference identity across
  *  independent decodes, so it is never `===`. The single edit site for "how a
@@ -80,8 +85,7 @@ export function hostKeysInclude(
   keys: readonly HostKey[],
   key: HostKey,
 ): boolean {
-  const enc = encodeHostKey(key);
-  return keys.some((k) => encodeHostKey(k) === enc);
+  return keys.some((candidate) => hostKeysEqual(candidate, key));
 }
 
 /** DECODE — the CANONICAL wire form's inverse: `"local"` → the local variant,

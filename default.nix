@@ -115,6 +115,7 @@ let
     root = ./.;
     fileset = pkgs.lib.fileset.unions [
       fileset
+      ./biome.jsonc
       ./default.nix
       ./nix
       ./npins

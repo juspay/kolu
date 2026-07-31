@@ -13,13 +13,15 @@
 //!
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
-use cucumber::{given, then, when, World};
+use cucumber::{World, given, then, when};
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::time::Instant;
 
 // The extra-facet cost has TWO drivers, not one.
 //
@@ -59,7 +61,8 @@ struct LiveWorld {
     cpu_time_first: Option<u64>,
     cpu_time_second: Option<u64>,
     cpu_time_oracle_delta: Option<u64>,
-    foreign_processes: Vec<ForeignProcessOracle>,
+    #[cfg(target_os = "macos")]
+    foreign_process_snapshot: Option<ForeignProcessSnapshot>,
     linux_perf_baseline_samples: Vec<Duration>,
     linux_perf_samples: Vec<Duration>,
     linux_perf_process_count: Option<usize>,
@@ -92,6 +95,7 @@ struct ListenerRow {
     canon: CanonAddr,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Debug, Clone)]
 struct ForeignProcessOracle {
     pid: u32,
@@ -99,6 +103,14 @@ struct ForeignProcessOracle {
     ppid: u32,
     elapsed_seconds: u64,
     name: String,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Debug)]
+struct ForeignProcessSnapshot {
+    started_at: Instant,
+    finished_at: Instant,
+    rows: Vec<ForeignProcessOracle>,
 }
 
 #[cfg(target_os = "macos")]
@@ -123,6 +135,42 @@ fn parse_ps_elapsed(value: &str) -> Option<u64> {
             .saturating_add(minutes.saturating_mul(60))
             .saturating_add(seconds),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn foreign_processes_from_ps(own_uid: u32) -> ForeignProcessSnapshot {
+    let started_at = Instant::now();
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
+        .output()
+        .expect("ps must be on PATH for the live oracle");
+    assert!(output.status.success(), "ps failed: {}", output.status);
+    let finished_at = Instant::now();
+    let rows = String::from_utf8(output.stdout)
+        .expect("ps output is utf8")
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse::<u32>().ok()?;
+            let uid = fields.next()?.parse::<u32>().ok()?;
+            let ppid = fields.next()?.parse::<u32>().ok()?;
+            let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
+            let command = fields.collect::<Vec<_>>().join(" ");
+            let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
+            (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
+                pid,
+                uid,
+                ppid,
+                elapsed_seconds,
+                name,
+            })
+        })
+        .collect();
+    ForeignProcessSnapshot {
+        started_at,
+        finished_at,
+        rows,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -416,47 +464,26 @@ fn snapshot_foreign_processes(_world: &mut LiveWorld) {
         let world = _world;
         let own_uid = unsafe { libc::geteuid() };
         assert_ne!(own_uid, 0, "fixture requires a non-root user");
-        let output = Command::new("ps")
-            .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
-            .output()
-            .expect("ps must be on PATH for the live oracle");
-        assert!(output.status.success(), "ps failed: {}", output.status);
-        let mut rows = String::from_utf8(output.stdout)
-            .expect("ps output is utf8")
-            .lines()
-            .filter_map(|line| {
-                let mut fields = line.split_whitespace();
-                let pid = fields.next()?.parse::<u32>().ok()?;
-                let uid = fields.next()?.parse::<u32>().ok()?;
-                let ppid = fields.next()?.parse::<u32>().ok()?;
-                let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
-                let command = fields.collect::<Vec<_>>().join(" ");
-                let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
-                (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
-                    pid,
-                    uid,
-                    ppid,
-                    elapsed_seconds,
-                    name,
-                })
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by_key(|row| row.pid);
-        rows.truncate(12);
+        let mut process_snapshot = foreign_processes_from_ps(own_uid);
+        process_snapshot.rows.sort_by_key(|row| row.pid);
+        process_snapshot.rows.truncate(12);
         assert!(
-            rows.len() >= 5,
-            "need at least five stable foreign processes, found {rows:?}"
+            process_snapshot.rows.len() >= 5,
+            "need at least five stable foreign processes, found {:?}",
+            process_snapshot.rows
         );
         assert!(
-            rows.iter().any(|row| row.name.len() > 16),
-            "fixture must include a name longer than kern.proc p_comm: {rows:?}"
+            process_snapshot.rows.iter().any(|row| row.name.len() > 16),
+            "fixture must include a name longer than kern.proc p_comm: {:?}",
+            process_snapshot.rows
         );
-        let pids = rows
+        let pids = process_snapshot
+            .rows
             .iter()
             .map(|row| row.pid.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        world.foreign_processes = rows;
+        world.foreign_process_snapshot = Some(process_snapshot);
         world.snapshot = Some(world.run_osfacts(&[
             "snapshot",
             "--pids",
@@ -490,16 +517,89 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
         let memory = rows("M");
         let cpu_times = rows("C");
         let unreadable = rows("U");
+        let own_uid = unsafe { libc::geteuid() };
+        let current_snapshot = foreign_processes_from_ps(own_uid);
+        let current = current_snapshot
+            .rows
+            .iter()
+            .cloned()
+            .map(|process| (process.pid, process))
+            .collect::<HashMap<_, _>>();
+        let first_ps = world
+            .foreign_process_snapshot
+            .as_ref()
+            .expect("foreign process snapshot");
+        // `ps etime` is whole-second resolution, and each process can be
+        // sampled anywhere between the command's start and finish. Compare the
+        // observed age increase against that complete interval rather than a
+        // fixed skew allowance that becomes false on a slow/noisy host.
+        let minimum_age_increase = current_snapshot
+            .started_at
+            .saturating_duration_since(first_ps.finished_at)
+            .as_secs()
+            .saturating_sub(1);
+        let maximum_age_increase = current_snapshot
+            .finished_at
+            .saturating_duration_since(first_ps.started_at)
+            .as_secs()
+            .saturating_add(1);
+        let retired = first_ps
+            .rows
+            .iter()
+            .filter_map(|expected| {
+                let pid = expected.pid.to_string();
+                if procs.iter().any(|row| row.get(1) == Some(&pid.as_str())) {
+                    return None;
+                }
+                let same_process_is_live =
+                    current.get(&expected.pid).is_some_and(|process| {
+                        let age_increase = process
+                            .elapsed_seconds
+                            .saturating_sub(expected.elapsed_seconds);
+                        process.uid == expected.uid
+                            && process.ppid == expected.ppid
+                            && process.name == expected.name
+                            && (minimum_age_increase..=maximum_age_increase)
+                                .contains(&age_increase)
+                    });
+                assert!(
+                    !same_process_is_live,
+                    "osfacts omitted still-live foreign process {}:\n{body}",
+                    expected.pid
+                );
+                assert!(
+                    unreadable.iter().any(|row| {
+                        row.get(1) == Some(&pid.as_str())
+                            && row.get(2) == Some(&"proc")
+                            && row.get(3) == Some(&"ESRCH")
+                    }),
+                    "retired foreign process {} lacks explicit proc ESRCH:\n{body}",
+                    expected.pid
+                );
+                Some(expected.pid)
+            })
+            .collect::<HashSet<_>>();
         assert_eq!(
-            procs.len(),
-            world.foreign_processes.len(),
-            "foreign process count diverged from ps:\n{body}"
+            procs.len() + retired.len(),
+            first_ps.rows.len(),
+            "foreign process accounting diverged from ps:\n{body}"
         );
+        let now_instant = Instant::now();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_micros() as u64;
-        for expected in &world.foreign_processes {
+        let minimum_elapsed_delay = now_instant
+            .saturating_duration_since(first_ps.finished_at)
+            .as_secs();
+        let maximum_elapsed_increase = now_instant
+            .saturating_duration_since(first_ps.started_at)
+            .as_secs()
+            .saturating_add(1);
+        for expected in &first_ps.rows {
+            if retired.contains(&expected.pid) {
+                continue;
+            }
             let pid = expected.pid.to_string();
             let ppid = expected.ppid.to_string();
             let uid = expected.uid.to_string();
@@ -520,11 +620,21 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
                 .unwrap_or_else(|| panic!("missing S row for {}:\n{body}", expected.pid));
             let start = start[2].parse::<u64>().expect("start time");
             let elapsed = now.saturating_sub(start) / 1_000_000;
+            // Darwin `ps etime` advances to the next displayed second before
+            // a monotonic stopwatch reaches it. Apply that one-second ceiling
+            // allowance after adding the measured delay: subtracting it from
+            // a sub-second delay first would saturate at zero and lose it.
+            let expected_elapsed = expected
+                .elapsed_seconds
+                .saturating_add(minimum_elapsed_delay)
+                .saturating_sub(1)
+                ..=expected
+                        .elapsed_seconds
+                        .saturating_add(maximum_elapsed_increase);
             assert!(
-                elapsed.abs_diff(expected.elapsed_seconds) <= 3,
-                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps elapsed={}s",
+                expected_elapsed.contains(&elapsed),
+                "start time for {} differs from ps: osfacts elapsed={elapsed}s, ps expected={expected_elapsed:?}",
                 expected.pid,
-                expected.elapsed_seconds
             );
             for facet in ["proc", "uid", "start_time"] {
                 assert!(

@@ -88,6 +88,18 @@ export interface CodexFixture {
   threadId: string;
 }
 
+const CODEX_FIXTURE_BUSY_TIMEOUT_MS = 5_000;
+
+function configureFixtureDatabase(db: DatabaseSync): void {
+  // The server reads this same WAL database while the fixture writes it.
+  // SQLite locks are therefore a normal, bounded concurrency event, not a
+  // failed assertion. node:sqlite otherwise waits 0 ms and throws
+  // SQLITE_BUSY immediately, which made the synthetic writer flake under
+  // full-suite load.
+  db.exec(`PRAGMA busy_timeout = ${CODEX_FIXTURE_BUSY_TIMEOUT_MS};`);
+  db.exec("PRAGMA journal_mode = WAL;");
+}
+
 /** Create Codex's threads SQLite DB and rollout JSONL under `codexDir`.
  *  `state_5.sqlite` is the fallback path the config picks when the dir
  *  is empty, so tests and production agree on the same filename without
@@ -119,7 +131,7 @@ export function writeCodexFixture(opts: {
     // Enable WAL so (a) the server's reader and our writer don't block
     // each other, and (b) the WAL sidecar file the codex WAL watcher
     // listens on actually exists. Real Codex uses WAL too.
-    db.exec("PRAGMA journal_mode = WAL;");
+    configureFixtureDatabase(db);
     db.exec(`
       CREATE TABLE IF NOT EXISTS threads (
         id TEXT PRIMARY KEY,
@@ -182,7 +194,7 @@ export function updateCodexRollout(
   fs.writeFileSync(fixture.rolloutPath, buildCodexRollout(opts));
   const db = new DatabaseSync(fixture.dbPath);
   try {
-    db.exec("PRAGMA journal_mode = WAL;");
+    configureFixtureDatabase(db);
     // Noisy write: a brief INSERT/DELETE forces a new WAL frame big
     // enough for the server's fs.watch on the WAL file to reliably
     // fire. A bare UPDATE on the same row is a no-op at the page level

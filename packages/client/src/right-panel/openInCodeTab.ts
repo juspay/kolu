@@ -2,8 +2,8 @@
  *  — terminal-link click, right-click "Open path:N" context-menu entry,
  *  future surfaces — calls `openInCodeTab(...)` instead of writing the
  *  preferences patch and pending-request signal separately. The function
- *  encapsulates the paired writes (tab + browse-mode + visibility
- *  uncollapse + pending request) so the SolidJS effect-ordering
+ *  encapsulates the coordinated writes (terminal focus + tab/browse-mode +
+ *  visibility uncollapse + pending request) so the SolidJS effect-ordering
  *  invariant lives here, not at every call site.
  *
  *  Visibility (desktop uncollapse / mobile drawer open) is dispatched
@@ -24,20 +24,25 @@
  *  their `ref` content matches and re-paint the highlight. */
 
 import type { CodeTabView } from "@kolu/padi/surface";
+import type { TerminalId } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
+import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { LineRef } from "../ui/lineRef";
+import { activeHost } from "../wire";
+import type { OpenInCodeTabRequest } from "./codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 
-export interface OpenInCodeTabRequest {
+export type { OpenInCodeTabRequest } from "./codeTabOpenController";
+
+interface OpenInCodeTabInput {
+  /** The terminal whose per-terminal selection and history this request owns. */
+  terminalId: TerminalId;
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
-   *  relative to `repoRoot` (or, when present, cwd-relative under
-   *  `repoRoot`) by `CodeTab` via `resolveRef` — which also recognises a
-   *  folder path and reveals it in the tree instead of opening a file. */
+   *  relative to the panel-owning tile's repository (or, when present,
+   *  cwd-relative under it) by `CodeTab` via `resolveRef` — which also
+   *  recognises a folder path and reveals it in the tree instead of opening a
+   *  file. */
   ref: LineRef;
-  /** Per-terminal git repo root that `ref.path` is relative to (when
-   *  relative). Absolute paths beneath this root are also accepted —
-   *  the resolver normalizes both shapes. */
-  repoRoot: string;
   /** Terminal cwd at the time of the request. Drives the "user typed
    *  `bar.ts:42` while standing in a subdirectory of the repo" case;
    *  undefined falls back to repo-relative interpretation only. */
@@ -72,15 +77,46 @@ const [pending, setPending] = createSignal<OpenInCodeTabRequest | null>(null, {
 export const pendingOpen = pending;
 
 /** Open the right panel's Code tab at `req.targetMode` showing `req.ref`.
- *  Three reactive writes wrapped in `batch()` so downstream effects see
- *  the changes in one reactive transaction: per-terminal tab/mode
- *  (`openCodeAt`), workspace visibility (`rp.reveal()` — uncollapse desktop or
- *  open the mobile drawer), and the producer signal (`setPending`). */
-export function openInCodeTab(req: OpenInCodeTabRequest): void {
+ *  Four reactive writes wrapped in `batch()` so downstream effects see
+ *  the changes in one reactive transaction: the issuing terminal becomes the
+ *  panel owner, its tab/mode changes (`openCodeAt`), workspace visibility
+ *  changes (`rp.reveal()` — uncollapse desktop or open the mobile drawer), and
+ *  the producer signal fires (`setPending`). */
+export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
+  const terminals = useTerminalStore();
+  const target = terminals.getMetadata(req.terminalId);
+  if (target === undefined)
+    throw new Error(
+      `openInCodeTab: no terminal metadata for ${req.terminalId}`,
+    );
+  const panelOwnerId = target.parentId ?? req.terminalId;
+  const panelOwner =
+    panelOwnerId === req.terminalId
+      ? target
+      : terminals.getMetadata(panelOwnerId);
+  if (panelOwner === undefined)
+    throw new Error(
+      `openInCodeTab: no panel-owner metadata for ${panelOwnerId}`,
+    );
+  const repoRoot = panelOwner.git?.repoRoot;
+  if (repoRoot === undefined)
+    throw new Error(`openInCodeTab: panel owner ${panelOwnerId} has no repo`);
+  const request: OpenInCodeTabRequest = {
+    ref: req.ref,
+    cwd: req.cwd,
+    allowBasenameFallback: req.allowBasenameFallback,
+    scope: {
+      host: activeHost(),
+      terminalId: panelOwnerId,
+      repoRoot,
+      mode: req.targetMode,
+    },
+  };
   batch(() => {
-    rp.openCodeAt(req.targetMode);
+    terminals.focusTerminalSilently(req.terminalId);
+    rp.openCodeAt(request.scope.mode);
     rp.reveal();
-    setPending(req);
+    setPending(request);
   });
 }

@@ -21,7 +21,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
-import { type SimpleGit, simpleGit } from "simple-git";
+import type { SimpleGit } from "simple-git";
+import { backgroundGit, backgroundGitEnv } from "./background.ts";
 import { err, type GitResult, ok } from "./errors.ts";
 import { assertRealpathUnder, resolveUnder } from "./safe-path.ts";
 import {
@@ -85,7 +86,7 @@ async function resolveBase(
 ): Promise<GitResult<GitBaseRef | null>> {
   const defaultBranch = await detectDefaultBranch(repoPath);
   const ref = `origin/${defaultBranch}`;
-  const git = simpleGit(repoPath);
+  const git = backgroundGit(repoPath);
   try {
     await git.raw(["rev-parse", "--verify", `${ref}^{commit}`]);
   } catch {
@@ -169,7 +170,7 @@ async function getLocalStatus(repoPath: string): Promise<{
   branch: GitBranchStatus;
   workingTree: GitWorkingTreeSummary;
 }> {
-  const git = simpleGit(repoPath);
+  const git = backgroundGit(repoPath);
   const status = await git.status();
 
   // `files` covers tracked changes; `not_added` covers untracked paths.
@@ -324,6 +325,7 @@ async function gitOutput(cwd: string, args: string[]): Promise<string> {
       {
         cwd,
         maxBuffer: 128 * 1024 * 1024,
+        env: backgroundGitEnv(),
       },
     );
     return stdout;

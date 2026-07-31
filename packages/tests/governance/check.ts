@@ -81,6 +81,10 @@ validateLedger(inventory, current.records, ledger);
 const collectionRoot = mkdtempSync(
   path.join(os.tmpdir(), "kolu-e2e-governance-"),
 );
+const vitestCli = path.join(repoRoot, "node_modules", "vitest", "vitest.mjs");
+if (!existsSync(vitestCli)) {
+  throw new Error(`root Vitest entry point does not exist: ${vitestCli}`);
+}
 try {
   validateCollectedTests(ledger, (file) => {
     const absolute = path.resolve(repoRoot, file);
@@ -104,10 +108,10 @@ try {
     }
     const relative = path.relative(packageDir, absolute);
     const output = execFileSync(
-      "pnpm",
-      ["--dir", packageDir, "exec", "vitest", "list", relative, "--json"],
+      process.execPath,
+      [vitestCli, "list", relative, "--json"],
       {
-        cwd: repoRoot,
+        cwd: packageDir,
         encoding: "utf8",
         env: {
           ...process.env,
