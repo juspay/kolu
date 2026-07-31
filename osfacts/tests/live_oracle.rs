@@ -13,13 +13,13 @@
 //!
 //! Cucumber MSRV is 1.88 (crate 0.23, edition 2024); our pin is ≥1.93 — cleared.
 
-use cucumber::{given, then, when, World};
+use cucumber::{World, given, then, when};
 use std::collections::{HashMap, HashSet};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // The extra-facet cost has TWO drivers, not one.
 //
@@ -60,6 +60,7 @@ struct LiveWorld {
     cpu_time_second: Option<u64>,
     cpu_time_oracle_delta: Option<u64>,
     foreign_processes: Vec<ForeignProcessOracle>,
+    foreign_ps_at: Option<Instant>,
     linux_perf_baseline_samples: Vec<Duration>,
     linux_perf_samples: Vec<Duration>,
     linux_perf_process_count: Option<usize>,
@@ -123,6 +124,35 @@ fn parse_ps_elapsed(value: &str) -> Option<u64> {
             .saturating_add(minutes.saturating_mul(60))
             .saturating_add(seconds),
     )
+}
+
+#[cfg(target_os = "macos")]
+fn foreign_processes_from_ps(own_uid: u32) -> Vec<ForeignProcessOracle> {
+    let output = Command::new("ps")
+        .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
+        .output()
+        .expect("ps must be on PATH for the live oracle");
+    assert!(output.status.success(), "ps failed: {}", output.status);
+    String::from_utf8(output.stdout)
+        .expect("ps output is utf8")
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse::<u32>().ok()?;
+            let uid = fields.next()?.parse::<u32>().ok()?;
+            let ppid = fields.next()?.parse::<u32>().ok()?;
+            let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
+            let command = fields.collect::<Vec<_>>().join(" ");
+            let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
+            (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
+                pid,
+                uid,
+                ppid,
+                elapsed_seconds,
+                name,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -416,31 +446,8 @@ fn snapshot_foreign_processes(_world: &mut LiveWorld) {
         let world = _world;
         let own_uid = unsafe { libc::geteuid() };
         assert_ne!(own_uid, 0, "fixture requires a non-root user");
-        let output = Command::new("ps")
-            .args(["-axo", "pid=,uid=,ppid=,etime=,comm="])
-            .output()
-            .expect("ps must be on PATH for the live oracle");
-        assert!(output.status.success(), "ps failed: {}", output.status);
-        let mut rows = String::from_utf8(output.stdout)
-            .expect("ps output is utf8")
-            .lines()
-            .filter_map(|line| {
-                let mut fields = line.split_whitespace();
-                let pid = fields.next()?.parse::<u32>().ok()?;
-                let uid = fields.next()?.parse::<u32>().ok()?;
-                let ppid = fields.next()?.parse::<u32>().ok()?;
-                let elapsed_seconds = parse_ps_elapsed(fields.next()?)?;
-                let command = fields.collect::<Vec<_>>().join(" ");
-                let name = PathBuf::from(command).file_name()?.to_str()?.to_owned();
-                (pid > 0 && pid < 10_000 && uid != own_uid).then_some(ForeignProcessOracle {
-                    pid,
-                    uid,
-                    ppid,
-                    elapsed_seconds,
-                    name,
-                })
-            })
-            .collect::<Vec<_>>();
+        let mut rows = foreign_processes_from_ps(own_uid);
+        world.foreign_ps_at = Some(Instant::now());
         rows.sort_by_key(|row| row.pid);
         rows.truncate(12);
         assert!(
@@ -490,16 +497,64 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
         let memory = rows("M");
         let cpu_times = rows("C");
         let unreadable = rows("U");
+        let own_uid = unsafe { libc::geteuid() };
+        let current = foreign_processes_from_ps(own_uid)
+            .into_iter()
+            .map(|process| (process.pid, process))
+            .collect::<HashMap<_, _>>();
+        let elapsed_since_first_ps = world
+            .foreign_ps_at
+            .expect("foreign ps timestamp")
+            .elapsed()
+            .as_secs();
+        let retired = world
+            .foreign_processes
+            .iter()
+            .filter_map(|expected| {
+                let pid = expected.pid.to_string();
+                if procs.iter().any(|row| row.get(1) == Some(&pid.as_str())) {
+                    return None;
+                }
+                let same_process_is_live = current.get(&expected.pid).is_some_and(|process| {
+                    process.uid == expected.uid
+                        && process.ppid == expected.ppid
+                        && process.name == expected.name
+                        && process.elapsed_seconds.abs_diff(
+                            expected
+                                .elapsed_seconds
+                                .saturating_add(elapsed_since_first_ps),
+                        ) <= 2
+                });
+                assert!(
+                    !same_process_is_live,
+                    "osfacts omitted still-live foreign process {}:\n{body}",
+                    expected.pid
+                );
+                assert!(
+                    unreadable.iter().any(|row| {
+                        row.get(1) == Some(&pid.as_str())
+                            && row.get(2) == Some(&"proc")
+                            && row.get(3) == Some(&"ESRCH")
+                    }),
+                    "retired foreign process {} lacks explicit proc ESRCH:\n{body}",
+                    expected.pid
+                );
+                Some(expected.pid)
+            })
+            .collect::<HashSet<_>>();
         assert_eq!(
-            procs.len(),
+            procs.len() + retired.len(),
             world.foreign_processes.len(),
-            "foreign process count diverged from ps:\n{body}"
+            "foreign process accounting diverged from ps:\n{body}"
         );
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_micros() as u64;
         for expected in &world.foreign_processes {
+            if retired.contains(&expected.pid) {
+                continue;
+            }
             let pid = expected.pid.to_string();
             let ppid = expected.ppid.to_string();
             let uid = expected.uid.to_string();

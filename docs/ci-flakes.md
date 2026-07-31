@@ -93,14 +93,18 @@ root cause has been identified from the run logs and supporting evidence.
 
 The streak starts after the first e2e-flake fix above. Every run covers both
 platforms on `ci@petit` and `kolu-ci-1`. Any red full-CI run resets the
-consecutive-green count. Every failure is recorded with evidence, root cause,
-and a proposed fix; fixes in this PR remain limited to e2e failures.
+consecutive-green count, and any subsequent code change starts a fresh streak.
+Every failure is recorded with evidence, root cause, and a proposed fix; every
+failure fixable in this repository is in scope.
 
 | Attempt | Commit | Result | Consecutive green |
 | --- | --- | --- | --- |
 | `3a6c829#1` | `3a6c8295f` | Failed: `ci::osfacts-live@aarch64-darwin`; both e2e nodes passed | `0/5` |
 | `dd08e43#1` | `dd08e434d` | Passed | `1/5` |
 | `3b57b1f#1` | `3b57b1f9c` | Passed | `2/5` |
+
+**Current active streak: `0/5`.** The two green runs above predate the
+osfacts-live fix prompted by `3a6c829#1`.
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
 
@@ -117,5 +121,9 @@ and a proposed fix; fixes in this PR remain limited to e2e failures.
 - **Proposed fix:** make the live oracle re-read `ps` after osfacts and exclude
   only candidates that both disappeared from `ps` and received `ESRCH` for
   their process facet. Continue requiring exact identity and start facts for
-  every surviving candidate. This is not an e2e failure, so it is recorded but
-  not fixed in this PR.
+  every surviving candidate.
+- **Implementation:** the Darwin oracle now takes the second `ps` snapshot,
+  distinguishes a retired or reused PID from the same live process, and accepts
+  a missing process row only when osfacts also emitted `proc ESRCH`. All facts
+  remain mandatory for every surviving process. Verification on `ci@petit` is
+  pending.
