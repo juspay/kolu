@@ -106,6 +106,7 @@ failure fixable in this repository is in scope.
 | `a454147#1` | `a4541473f` | Passed | `2/5` |
 | `7594e7d#1` | `7594e7d1a` | Failed: `ci::fmt@x86_64-linux`; all other nodes passed | `0/5` |
 | `37cebaa#1` | `37cebaafc` | Failed: `ci::unit@aarch64-darwin`; all other nodes passed | `0/5` |
+| `67b890f#1` | `67b890fff` | Failed: `ci::fmt@aarch64-darwin`; all other nodes passed | `0/5` |
 
 **Current active streak: `0/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
@@ -133,30 +134,57 @@ osfacts-live fix prompted by `3a6c829#1`.
 - **Fix verification:** targeted Darwin run `907acfd#1` passed
   `ci::osfacts-live` and its dependency closure on `ci@petit`.
 
-### `7594e7d#1`: Linux fmt, transient generated-font symlink
+### `7594e7d#1`: Linux fmt, unformatted generated font CSS
 
 - **Failure:** Biome included the generated Nix-store `fonts.css` and rejected
   its source formatting even though `packages/client/public/fonts` is ignored
   explicitly in `biome.jsonc`.
-- **Root cause:** every concurrent `nix develop` shell hook runs `ln -sfn` on
-  the same ignored font symlink. That unlink-and-recreate window let Biome
-  discover the canonical `/nix/store/...-kolu-fonts/fonts.css` path outside the
-  ignored repository path.
+- **Root cause:** the Nix font generator emits CSS that does not satisfy
+  Biome's formatter. A full concurrent CI traversal can reach the symlink's
+  canonical Nix-store target despite the repository-path ignore, making that
+  latent formatting defect part of the checked file set.
 - **Evidence:** the failure names the canonical Nix-store file rather than
   `packages/client/public/fonts/fonts.css`. The CI checkout has the ignored
   repository path as a symlink to that exact store directory, and rerunning the
   same Biome command after the symlink stabilized checked 1,732 files and
-  passed. The failing concurrent run checked 1,733 files. See
-  `.ci/7594e7d/x86_64-linux/ci::fmt.log`.
-- **Proposed fix:** have the shell hook replace an incorrect font link by
-  atomically renaming a process-unique temporary symlink. Leave an already
-  correct link untouched, so concurrent shell entries never expose a missing
-  path during Biome traversal.
-- **Implementation:** the shell hook now fails loudly if the generated path is
-  a real directory, leaves the correct symlink untouched, and atomically
-  renames a process-unique temporary link when replacement is necessary.
-- **Fix verification:** targeted Linux run `e00cbe5#1` passed `ci::fmt` on
-  `kolu-ci-1`.
+  passed. The failing concurrent run checked 1,733 files. The formatter's
+  proposed output identifies the two long `unicode-range` declarations and a
+  trailing blank line produced by `nix/packages/fonts/default.nix`. The same
+  generated-output failure later recurred on Darwin after the atomic-symlink
+  experiment, ruling out the replacement window as the cause. See
+  `.ci/7594e7d/x86_64-linux/ci::fmt.log` and
+  `.ci/67b890f/aarch64-darwin/ci::fmt.log`.
+- **Proposed fix:** generate `fonts.css` in Biome-normal form: split each long
+  `unicode-range` declaration at the property boundary and remove the extra
+  trailing newline. Then the file passes regardless of whether traversal sees
+  the ignored repository symlink or its canonical store target.
+- **Implementation:** the generator now emits each long `unicode-range` in
+  Biome's multiline form and removes the Nix indented string's extra trailing
+  newline. The atomic-symlink experiment was removed because the Darwin
+  recurrence disproved it as a fix.
+- **Fix verification:** the rebuilt `kolu-fonts` derivation's `fonts.css`
+  passed a direct Biome format check, ends with exactly one newline, and local
+  full-repository formatting passed over 1,732 files. Full two-platform
+  verification is pending.
+
+### `67b890f#1`: Darwin fmt, same generated font CSS defect
+
+- **Failure:** `ci::fmt@aarch64-darwin` checked the generated
+  `/nix/store/...-kolu-fonts/fonts.css` and rejected the same two
+  `unicode-range` declarations and trailing blank line seen on Linux.
+- **Root cause:** the Nix font generator emits CSS outside Biome's normal form,
+  and this run's traversal included its canonical Nix-store output.
+- **Evidence:** the log names the canonical store target, reports 1,733 checked
+  files, and prints the exact generator-owned edits for both `unicode-range`
+  declarations plus the final blank line. This recurrence happened with the
+  atomic symlink code in place, directly ruling out the earlier replacement
+  race diagnosis. See `.ci/67b890f/aarch64-darwin/ci::fmt.log`.
+- **Proposed fix:** make `nix/packages/fonts/default.nix` emit the exact
+  Biome-normal layout and verify that generated output directly before
+  restarting the full-CI streak.
+- **Implementation:** the generator now emits the exact formatter-normal
+  layout. The generated derivation passed direct local formatting; full
+  two-platform verification is pending.
 
 ### `37cebaa#1`: Darwin unit workspace fanout killed
 
