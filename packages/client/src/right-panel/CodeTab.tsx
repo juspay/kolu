@@ -44,7 +44,6 @@ import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
-import { sameHost } from "../host/hostChipTone";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
 import { filterChipAccent } from "../ui/filterChip";
@@ -75,6 +74,12 @@ import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
 import {
+  type CodeTabScope,
+  codeTabScopeKey,
+  createCodeTabOpenController,
+  type OpenInCodeTabRequest,
+} from "./codeTabOpenController";
+import {
   codeActiveStatus,
   codeAllPaths,
   codeBranchStatus,
@@ -85,11 +90,7 @@ import {
 } from "./hostCodeTab";
 import FileSearchInput from "./FileSearchInput";
 import { projectFileTreeSearch } from "./fileSearch";
-import {
-  type OpenInCodeTabRequest,
-  openInCodeTab,
-  pendingOpen,
-} from "./openInCodeTab";
+import { openInCodeTab, pendingOpen } from "./openInCodeTab";
 import { attachPierreTouchScroll } from "./pierreTouchScroll";
 import { setShowIgnoredFiles, showIgnoredFiles } from "./showIgnoredFiles";
 import { type BrowserLocation, useRightPanel } from "./useRightPanel";
@@ -282,9 +283,21 @@ const CodeTab: Component<{
   // a terminal restores that mode's last file; switching terminals
   // restores that terminal's last (file, mode) pair.
   //
-  // The `slotKey` memo doubles as the source of truth for the
-  // search-reset effect below; collision-safe by construction since
-  // `view()` is a typed enum and `repoPath()` is absolute-or-null.
+  // The complete Code-tab owner is one value. Navigation requests, async
+  // completion guards, and slot resets all use this same host + terminal + repo
+  // + mode identity, so switching between equivalent-looking terminal slots
+  // still retires terminal-scoped work.
+  const currentScope = (): CodeTabScope | null => {
+    const terminalId = props.terminalId;
+    const repoRoot = repoPath();
+    if (terminalId === null || repoRoot === null) return null;
+    return {
+      host: activeHost(),
+      terminalId,
+      repoRoot,
+      mode: view(),
+    };
+  };
   const selectedPath = (): string | null => rightPanel.selectedFile(view());
   // The single selection funnel: set the shown file AND record it in history.
   // Recording can never drift from selection because they are one call —
@@ -304,7 +317,7 @@ const CodeTab: Component<{
     if (opts?.record === false || path === null) return;
     rightPanel.recordNavigation({ mode, path, ref: opts?.ref });
   };
-  const slotKey = createMemo(() => `${repoPath() ?? ""}::${view()}`);
+  const slotKey = createMemo(() => codeTabScopeKey(currentScope()));
 
   // Dismiss any open comment composer when the user navigates away from the
   // terminal / file / mode / repo the draft was anchored to. Without this, the
@@ -404,37 +417,6 @@ const CodeTab: Component<{
     ),
   );
 
-  // Consume-once guard for the resolution effect below, keyed on request
-  // identity. Kept SEPARATE from the `handled` highlight session: a manual
-  // tree-click resets `handled` to end the line-highlight, but that reset
-  // must not re-arm this effect. `pendingOpen` is a never-cleared module
-  // singleton ("latest request wins; callers don't clear it"), so a later
-  // terminal round-trip re-runs the effect with the same stale `req`; were
-  // the guard still riding on `handled`, the resurrected request would
-  // re-select the clicked file and clobber the user's manual pick. A plain
-  // (non-reactive) variable: it is only read/written inside the effect and
-  // must survive the effect's re-runs, so it is not a tracked dependency.
-  let consumedRequest: OpenInCodeTabRequest | null = null;
-  let refreshingRequest: OpenInCodeTabRequest | null = null;
-  let refreshController: AbortController | null = null;
-  onCleanup(() => refreshController?.abort());
-
-  const retireRefresh = (req: OpenInCodeTabRequest): void => {
-    if (refreshingRequest !== req) return;
-    refreshingRequest = null;
-    refreshController?.abort();
-    refreshController = null;
-  };
-
-  const releaseRefresh = (
-    req: OpenInCodeTabRequest,
-    controller: AbortController,
-  ): void => {
-    if (refreshingRequest !== req || refreshController !== controller) return;
-    refreshingRequest = null;
-    refreshController = null;
-  };
-
   // Highlight-session record for the latest handled pendingOpen tick. Holds
   // the full request object (reference identity discriminates two
   // structurally-identical clicks — `openInCodeTab` mints a fresh object per
@@ -463,17 +445,8 @@ const CodeTab: Component<{
 
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
-    resolved: ReturnType<typeof resolveRef>,
+    resolved: Exclude<ReturnType<typeof resolveRef>, null>,
   ): void => {
-    retireRefresh(req);
-    // Commit before any reactive writes below. Those writes can re-run the
-    // effect, but this request has now reached an authoritative verdict.
-    consumedRequest = req;
-    if (resolved === null) {
-      toast.error(`File reference not found: ${req.ref.path}`);
-      setHandled({ request: req, resolvedPath: null });
-      return;
-    }
     if (resolved.kind === "directory") {
       // A folder ref reveals (expands + scrolls to) the directory in the
       // tree without changing the shown file — selection stays put, and
@@ -502,7 +475,7 @@ const CodeTab: Component<{
     // #1841 provenance gate drops any selection no user gesture caused — so
     // this ref is safe; only a later USER re-click of the same file reaches
     // `handleSelect`, whose `record` guard keeps it from clobbering the ref.
-    select(req.targetMode, rel, {
+    select(req.scope.mode, rel, {
       ref:
         req.ref.startLine !== null && req.ref.endLine !== null
           ? { startLine: req.ref.startLine, endLine: req.ref.endLine }
@@ -513,12 +486,11 @@ const CodeTab: Component<{
 
   const resolveOpenRequest = (
     req: OpenInCodeTabRequest,
-    repo: string,
     paths: readonly string[],
   ): ReturnType<typeof resolveRef> =>
     resolveRef({
       rawPath: req.ref.path,
-      repoRoot: repo,
+      repoRoot: req.scope.repoRoot,
       cwd: req.cwd,
       repoPaths: paths,
       allowBasenameFallback: req.allowBasenameFallback,
@@ -528,81 +500,29 @@ const CodeTab: Component<{
       hasLine: req.ref.startLine !== null,
     });
 
-  // Honor every `openInCodeTab` request — terminal file-ref clicks,
-  // right-click "Open path:N" entries, and any future producer. The effect
-  // first waits for the retained `fsListAll` stream to settle. A miss against
-  // that stable-on-screen snapshot gets one direct authoritative read before
-  // the request is consumed: a file created just before the click may not have
-  // reached the retained query's repo-change pulse yet.
-  createEffect(
-    on(
-      () => {
-        const req = pendingOpen();
-        const paths = treePaths();
-        const isPending = treeInventory().pending;
-        return {
-          req,
-          host: activeHost(),
-          repo: repoPath(),
-          paths,
-          isPending,
-          currentView: view(),
-        };
-      },
-      ({ req, host, repo, paths, isPending, currentView }) => {
-        if (!req) {
-          if (refreshingRequest !== null) retireRefresh(refreshingRequest);
-          return;
-        }
-        if (refreshingRequest !== null && refreshingRequest !== req) {
-          retireRefresh(refreshingRequest);
-        }
-        if (consumedRequest === req) return;
-        if (
-          !sameHost(host, req.host) ||
-          repo === null ||
-          repo !== req.repoRoot ||
-          currentView !== req.targetMode ||
-          isPending
-        ) {
-          retireRefresh(req);
-          return;
-        }
-        const resolved = resolveOpenRequest(req, repo, paths);
-        if (resolved !== null) {
-          finishOpenRequest(req, resolved);
-          return;
-        }
-        if (refreshingRequest === req) return;
-
-        refreshingRequest = req;
-        refreshController?.abort();
-        const controller = new AbortController();
-        refreshController = controller;
-        void readFreshCodePaths(req.host, repo, controller.signal)
-          .then((freshPaths) => {
-            releaseRefresh(req, controller);
-            if (controller.signal.aborted || consumedRequest === req) return;
-            if (pendingOpen() !== req || repoPath() !== repo) return;
-            if (!sameHost(activeHost(), req.host)) return;
-            if (view() !== req.targetMode) return;
-            finishOpenRequest(req, resolveOpenRequest(req, repo, freshPaths));
-          })
-          .catch((raw: unknown) => {
-            releaseRefresh(req, controller);
-            if (controller.signal.aborted || consumedRequest === req) return;
-            if (pendingOpen() !== req || repoPath() !== repo) return;
-            if (!sameHost(activeHost(), req.host)) return;
-            if (view() !== req.targetMode) return;
-            consumedRequest = req;
-            const err = raw instanceof Error ? raw : new Error(String(raw));
-            toast.error(`File list refresh: ${err.message}`);
-            setHandled({ request: req, resolvedPath: null });
-          });
-      },
-      { defer: true },
-    ),
-  );
+  // The controller owns the volatile open lifecycle. This presenter exposes
+  // current facts and atomic UI outcomes; it does not carry request/controller
+  // slots or reconstruct supersession in promise callbacks.
+  createCodeTabOpenController({
+    snapshot: () => ({
+      request: pendingOpen(),
+      scope: currentScope(),
+      paths: treePaths(),
+      inventoryPending: treeInventory().pending,
+    }),
+    resolve: resolveOpenRequest,
+    readFresh: (request, signal) =>
+      readFreshCodePaths(request.scope.host, request.scope.repoRoot, signal),
+    onResolved: finishOpenRequest,
+    onNotFound: (request) => {
+      toast.error(`File reference not found: ${request.ref.path}`);
+      setHandled({ request, resolvedPath: null });
+    },
+    onError: (request, error) => {
+      toast.error(`File list refresh: ${error.message}`);
+      setHandled({ request, resolvedPath: null });
+    },
+  });
 
   // Highlight range derives from the consume-once record: if the
   // request we last handled matches the latest pending one AND its
@@ -805,8 +725,10 @@ const CodeTab: Component<{
   const applyLocation = (loc: BrowserLocation) => {
     if (loc.ref && loc.path !== null) {
       const repo = repoPath();
-      if (repo === null) return;
+      const terminalId = props.terminalId;
+      if (repo === null || terminalId === null) return;
       openInCodeTab({
+        terminalId,
         ref: {
           path: loc.path,
           startLine: loc.ref.startLine,
@@ -1261,6 +1183,7 @@ const CodeTab: Component<{
                               lineAnchored={true}
                             >
                               <BrowseDiffView
+                                terminalId={tid}
                                 path={path}
                                 hunk={d().hunks[0] ?? ""}
                                 theme={diffTheme()}
@@ -1364,6 +1287,7 @@ const CodeTab: Component<{
                   // re-find disagree on the row.
                   if (comment.lineRange) {
                     openInCodeTab({
+                      terminalId: props.terminalId as TerminalId,
                       ref: {
                         path: comment.path,
                         startLine: comment.lineRange.start,

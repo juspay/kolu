@@ -184,7 +184,13 @@ const Terminal: Component<{
     const meta = terminalStore.getMetadata(props.terminalId);
     const repoRoot = meta?.git?.repoRoot ?? null;
     if (!repoRoot) return;
-    openInCodeTab({ ref, repoRoot, cwd: meta?.cwd, targetMode: "browse" });
+    openInCodeTab({
+      terminalId: props.terminalId,
+      ref,
+      repoRoot,
+      cwd: meta?.cwd,
+      targetMode: "browse",
+    });
   }
 
   // The touch-tap → file-ref decision (policy): resolve the tapped cell through

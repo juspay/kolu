@@ -24,17 +24,18 @@
  *  their `ref` content matches and re-paint the highlight. */
 
 import type { CodeTabView } from "@kolu/padi/surface";
-import type { HostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
 import { batch, createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
 import { activeHost } from "../wire";
+import type { OpenInCodeTabRequest } from "./codeTabOpenController";
 import { useRightPanel } from "./useRightPanel";
 
-export interface OpenInCodeTabRequest {
-  /** Host that owned the terminal when the request was dispatched. This
-   *  prevents an asynchronous file-inventory confirmation from one host
-   *  landing after the user switches to another host with the same repo path. */
-  host: HostKey;
+export type { OpenInCodeTabRequest } from "./codeTabOpenController";
+
+interface OpenInCodeTabInput {
+  /** The terminal whose per-terminal selection and history this request owns. */
+  terminalId: TerminalId;
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
    *  relative to `repoRoot` (or, when present, cwd-relative under
    *  `repoRoot`) by `CodeTab` via `resolveRef` — which also recognises a
@@ -60,8 +61,6 @@ export interface OpenInCodeTabRequest {
   allowBasenameFallback?: boolean;
 }
 
-type OpenInCodeTabInput = Omit<OpenInCodeTabRequest, "host">;
-
 // Module-level singleton. Right-panel state is a singleton in Kolu —
 // one panel, one CodeTab — and the navigation request is meant for
 // the unique consumer. If kolu ever mounts multiple CodeTab instances
@@ -86,9 +85,19 @@ export const pendingOpen = pending;
  *  open the mobile drawer), and the producer signal (`setPending`). */
 export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
-  const request: OpenInCodeTabRequest = { ...req, host: activeHost() };
+  const request: OpenInCodeTabRequest = {
+    ref: req.ref,
+    cwd: req.cwd,
+    allowBasenameFallback: req.allowBasenameFallback,
+    scope: {
+      host: activeHost(),
+      terminalId: req.terminalId,
+      repoRoot: req.repoRoot,
+      mode: req.targetMode,
+    },
+  };
   batch(() => {
-    rp.openCodeAt(request.targetMode);
+    rp.openCodeAt(request.scope.mode);
     rp.reveal();
     setPending(request);
   });
