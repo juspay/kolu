@@ -194,6 +194,8 @@ and is fixed in this PR before the campaign resumes.
   bounds.
 - **Implementation:** the smoke harness now waits concurrently for the Vite
   page and the Kolu server's health endpoint before launching Chromium.
+- **Fix verification:** targeted two-platform run `4b2630b#1` passed
+  `ci::dev-smoke` on `ci@petit` and `kolu-ci-1`.
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
@@ -643,3 +645,4 @@ full two-platform green streak.
 | `407e56b#1` | `407e56b1d` | `e2e@aarch64-darwin` after fresh-selection fix | `ci@petit` | Passed all scenarios after 1 terminal-creation retry; failure recorded above |
 | `8dd5b31#1` | `8dd5b31d9` | `e2e@aarch64-darwin` after atomic terminal-ID fix | `ci@petit` | Passed: 506 scenarios, 506 attempts, 0 retries |
 | `00b3b08#1` | `00b3b08df` | `e2e-governance` on both platforms after direct-Vitest fix | `ci@petit`, `kolu-ci-1` | Passed |
+| `4b2630b#1` | `4b2630ba3` | `dev-smoke` on both platforms after dual-server readiness fix | `ci@petit`, `kolu-ci-1` | Passed |
