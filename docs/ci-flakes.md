@@ -100,6 +100,7 @@ and a proposed fix; fixes in this PR remain limited to e2e failures.
 | --- | --- | --- | --- |
 | `3a6c829#1` | `3a6c8295f` | Failed: `ci::osfacts-live@aarch64-darwin`; both e2e nodes passed | `0/5` |
 | `dd08e43#1` | `dd08e434d` | Passed | `1/5` |
+| `3b57b1f#1` | `3b57b1f9c` | Passed | `2/5` |
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
 
