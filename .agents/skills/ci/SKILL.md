@@ -7,6 +7,19 @@ description: Run this repo's CI end-to-end — the kolu-specific operational pro
 
 **Drive CI through the odu MCP server — it is the single front door.** The runner is **odu** ([github.com/juspay/odu](https://github.com/juspay/odu), npins-pinned by `ci/flake.nix` and exposed as `nix run ./ci#odu`), which replaced justci — same status contexts, same per-SHA logs, same flag table. Start and watch a run with the MCP tools, not a shell wrapper: `mcp__odu__run` (spawns the background coordinator), `mcp__odu__wait_for_settle` (block until settle / first red node — it fails loud when no run is live, and its verdict is stamped with the run's `sha7#seq` identity; pass `expected_sha` to hard-check it), the `surface://collections/logs/{id}` MCP **resource** (drill into a failure — there is no log tool), `mcp__odu__node_rerun` (close a red check). Use the `/odu` skill for the underlying runner mechanics (subcommands, flags, modes, the socket surface). Two Kolu-specific operational notes layered on top of it:
 
+> **`root` is a recipe name, not a path — omit it.** `mcp__odu__run`'s schema
+> exposes a bare, undescribed `root: string`, which reads like "the checkout to
+> run in". It isn't: `root` selects a different **DAG root recipe** (`--root
+> ci::e2e`), so passing a directory dies on `odu: no recipe named
+> "/home/srid/code/kolu/.worktrees/<name>" in the justfile` and starts nothing.
+> There is no path parameter to reach for, because there is no ambiguity to
+> resolve — the MCP server runs `odu` in the checkout it was launched from, and
+> one run per checkout is the model. For a normal full-pipeline run pass only
+> `platforms` (plus `hosts`/`no_wait` when the pool notes below call for them).
+> This is the single most-repeated wasted call in the corpus — **26 distinct
+> sessions** burned their first CI start on it, each retrying successfully with
+> `root` simply dropped.
+
 > **Banned flags: never pass `--no-post`, `--no-strict`, or `--no-snapshot`.** CI on this repo is **always strict and always posts** GitHub commit statuses. A run that doesn't post statuses doesn't update the PR's checks — so it isn't CI, it's a private dry-run that leaves the PR looking unverified. Every CI invocation here (PR runs *and* the master pool-warming runs below) runs strict and posts. If you catch yourself reaching for an opt-out flag to "avoid disturbing the checks," that's exactly the run the PR needs.
 
 **Push before CI.** odu's remote lanes `git fetch` the pinned HEAD SHA from origin (no git-bundle transport) — an unpushed commit cannot run on a remote CI host. The `/do` flow pushes before the CI step anyway; keep it that way.

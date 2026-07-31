@@ -74,6 +74,21 @@ screen_text        { id, tail: 40 }                                     # 5. rea
   `surface://collections/terminals/<id>`. **`surface://cells/urgency`** lists
   the terminals whose agent awaits a human right now.
 
+> **Never scan the roster to find *yourself* — `$KAVAL_TERMINAL_ID` already is
+> your id.** Every terminal kolu spawns exports it (alongside `$KAVAL_SOCKET`,
+> your daemon) into the agent's own environment, so one `echo
+> "$KAVAL_TERMINAL_ID"` answers "which terminal am I?" outright. These are plain
+> PTY env vars, not a CLI feature — they are just as available on the MCP path,
+> and they are the **only** reliable answer: the collection returns bare ids, so
+> self-identifying without them means reading `surface://collections/terminals/<id>`
+> one id at a time and matching on `cwd`/`agent.sessionId` — and `cwd` alone does
+> not discriminate when a sibling agent shares your worktree. One run burned 23
+> resource reads and 62s on exactly that scan to land on the id its own
+> environment already held. You need this whenever you spawn a split beside
+> yourself (`--parent "$KAVAL_TERMINAL_ID"`) or hand a peer an address to ping you
+> back on — both `/agent-debate` moves. See [TUI.md](TUI.md) *Reach* for the full
+> treatment.
+
 > **Interrupt a runaway** before redirecting it:
 > `lifecycle_sendInput { id, key: "Escape" }` (stop Claude Code mid-stream),
 > `{ key: "C-c" }` (SIGINT whatever's running).
