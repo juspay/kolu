@@ -198,6 +198,8 @@ and is fixed in this PR before the campaign resumes.
   `KOLU_DEV_SERVER_PORT` and `KOLU_DEV_CLIENT_PORT` and launches
   `_dev-parallel` directly. The public `just dev` installation path remains
   unchanged.
+- **Fix verification:** targeted two-platform run `39cb543#1` passed `unit` and
+  `dev-smoke` concurrently on both `ci@petit` and `kolu-ci-1`.
 
 ### `8eddf56#1`: Linux dev-smoke opened the app before its server was ready
 
@@ -674,3 +676,4 @@ full two-platform green streak.
 | `8dd5b31#1` | `8dd5b31d9` | `e2e@aarch64-darwin` after atomic terminal-ID fix | `ci@petit` | Passed: 506 scenarios, 506 attempts, 0 retries |
 | `00b3b08#1` | `00b3b08df` | `e2e-governance` on both platforms after direct-Vitest fix | `ci@petit`, `kolu-ci-1` | Passed |
 | `4b2630b#1` | `4b2630ba3` | `dev-smoke` on both platforms after dual-server readiness fix | `ci@petit`, `kolu-ci-1` | Passed |
+| `39cb543#1` | `39cb5436a` | `unit` and `dev-smoke` concurrently on both platforms after single-install fix | `ci@petit`, `kolu-ci-1` | Passed |
