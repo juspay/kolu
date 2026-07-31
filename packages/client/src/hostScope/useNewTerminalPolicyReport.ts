@@ -15,7 +15,9 @@
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import type { NewTerminalPolicy } from "kolu-common/surface";
 import { createEffect, createMemo, mapArray } from "solid-js";
+import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { hostLabel } from "../host/hostChipTone";
 import { useColorScheme } from "../settings/useColorScheme";
 import { hostKeys, padiMap, preferencesLoaded } from "../wire";
 
@@ -63,11 +65,21 @@ export const useNewTerminalPolicyReport = createSharedRoot(() => {
           void entry.procedures.chrome
             .setNewTerminalPolicy(p)
             .catch((err: Error) => {
-              // Bookkeeping, not a user action — no toast. But it must not
-              // vanish silently: a persistent failure means new terminals on
-              // this host quietly stop following the setting.
-              console.error(
-                `useNewTerminalPolicyReport: failed to report to ${encHost}: ${err.message}`,
+              // SURFACE it. A failed report leaves this host's padi on its
+              // "nobody has told me" default, so new terminals there quietly
+              // stop following the setting — and the effect won't fire again
+              // until the policy changes or the link bounces, so the silence
+              // can last the whole session. That is exactly the invisible
+              // wrong-theme confusion #2045 was about, and a console line is
+              // not a user surface.
+              //
+              // The twin (`createViewState`'s `chrome.setActive`) logs instead
+              // of toasting because it fires on EVERY tile activation, where a
+              // toast would be spam. That reasoning doesn't reach here: this
+              // report fires only when the preference changes or a host's link
+              // comes back, so it is rare enough to say out loud.
+              toast.error(
+                `Host ${hostLabel(host)}: new terminals may not follow your theme setting — ${err.message}`,
               );
             });
         });
