@@ -235,7 +235,34 @@ retries.
   preserves that exact request/path until retained inventory confirms it.
   All 1,195 client unit tests (including the 12 focused controller and
   membership tests) plus the client typecheck pass. Targeted macOS e2e
-  verification remains required.
+  run `407e56b#1` then completed every file-reference scenario without a retry.
+
+### `407e56b#1`: terminal fixture creation returned no new ID
+
+- **Failure:** the first attempt of `Clicking the dock handle (mouse path)
+  opens the drawer without errors` failed in its `Given the terminal is ready`
+  setup. `KoluWorld.createTerminal` threw
+  `Created terminal but no new id appeared`; the scenario retry passed. The
+  targeted node completed 506 scenarios in 507 attempts.
+- **Root cause:** `KoluWorld.createTerminal` detected a new terminal ID in one
+  browser evaluation, discarded that value, then took a second DOM snapshot to
+  rediscover it. The mobile empty-state → tile transition can briefly unmount
+  all `data-terminal-id` nodes between those evaluations, so successful
+  creation was reported as missing.
+- **Evidence:** `.ci/407e56b/aarch64-darwin/ci::e2e.log` records the exact
+  first-attempt stack at `packages/tests/support/world.ts:228`, followed by a
+  successful retry. The first `waitForFunction` can return only after finding
+  an ID absent from `beforeIds`; the subsequent `newId` check threw only because
+  the separate `terminalIds()` evaluation no longer contained it. Those two
+  facts prove the loss occurs between the helper's check and use, not in
+  terminal creation. No file-reference scenario retried in this run.
+- **Proposed fix:** return the newly observed ID from the existing browser poll
+  and use that exact value; do not resnapshot the transitioning DOM to recover
+  it.
+- **Implementation:** the poll now returns the first new ID as its value and
+  the helper reads that value from the Playwright handle before continuing.
+  All 17 test-harness unit tests pass. Targeted macOS e2e verification remains
+  required.
 
 ### `4bffcc5#1`: diagnostic macOS e2e retries
 
@@ -515,3 +542,4 @@ full two-platform green streak.
 | `ba374cf#1` | `ba374cfb2` | `dev-smoke` on both platforms plus post-run daemon process audit | `ci@petit`, `kolu-ci-1` | Passed; no daemon from the run survived |
 | `4bffcc5#1` | `4bffcc577` | `e2e@aarch64-darwin` with bounded flake diagnostics | `ci@petit` | Passed all scenarios after 3 retries; failures recorded above |
 | `64ff556#1` | `64ff5562a` | `e2e@aarch64-darwin` after background-Git lock fix | `ci@petit` | Passed all 506 scenarios after 1 file-reference retry; failure recorded above |
+| `407e56b#1` | `407e56b1d` | `e2e@aarch64-darwin` after fresh-selection fix | `ci@petit` | Passed all scenarios after 1 terminal-creation retry; failure recorded above |
