@@ -209,12 +209,18 @@ _server-raw:
 test-agent-bake:
     #!/usr/bin/env bash
     set -euo pipefail
-    # What the bake newly EXPORTS, measured rather than parsed out of the file:
-    # `compgen -e` is the export list itself, so this stays correct however
-    # `toShellVars` quotes a value and however many pairs `agentBakedEnv` grows.
-    before=$(compgen -e | sort)
+    # What the bake newly EXPORTS or CHANGES, measured rather than parsed out of
+    # the file: `compgen -e` is the export list itself, so this stays correct
+    # however `toShellVars` quotes a value and however many pairs `agentBakedEnv`
+    # grows. Snapshotting NAME=value pairs (not just names) matters because this
+    # recipe can run in a shell that already has e.g. SURFACE_AGENT_FLAKE_REF
+    # exported from a parent process — a name-only diff would see no new name
+    # and wrongly report "exported nothing" even though the bake just overwrote
+    # the value.
+    snapshot() { compgen -e | while read -r n; do printf '%s=%s\n' "$n" "${!n}"; done | sort; }
+    before=$(snapshot)
     {{ agent_bake }}
-    exported=$(comm -13 <(printf '%s\n' "$before") <(compgen -e | sort))
+    exported=$(comm -13 <(printf '%s\n' "$before") <(snapshot) | cut -d= -f1 | sort -u)
     [[ -n "$exported" ]] || { echo "agent-bake: the bake exported nothing" >&2; exit 1; }
 
     # Confirm each one reaches a CHILD — a child is what `_server-raw` and
