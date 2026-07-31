@@ -495,19 +495,16 @@ export const connectionInfo = (): ConnectionInfo | undefined =>
 // imports both and is imported by neither, keeping the graph acyclic. Consumers import
 // those facades from `./hostScope/activeWire`, not from here.
 
-/** Local-store accessor for user preferences — authoritative after the first server yield. */
+/** Local-store accessor for user preferences — authoritative after the first server yield.
+ *  FLOORS an unyielded cell to `DEFAULT_PREFERENCES`, so a renderer always has
+ *  something to paint. A reader that must not mistake "not loaded yet" for a
+ *  choice the user made wants {@link preferencesLoaded} instead. */
 export const preferences = (): Preferences =>
   hostScoped.preferences.value() ?? DEFAULT_PREFERENCES;
 
-/** The preferences cell UNFLOORED — `undefined` until the cell has actually
- *  yielded. `preferences()` above floors to `DEFAULT_PREFERENCES` so a renderer
- *  always has something to paint; this one KEEPS the absence, for the readers
- *  that must not mistake "not loaded yet" for a choice the user made. The
- *  new-terminal policy report is one: reporting a floored default during the
- *  connect window would tell padi a confident `shuffle`/`auto` nobody chose —
- *  which is #2045's failure class (a terminal ignoring the real setting) all
- *  over again. padi's `null` = ABSENT branch is the correct answer there, and
- *  it only stays reachable if this side reports nothing. */
+/** The same cell UNFLOORED — `undefined` until it has actually yielded, so
+ *  absence stays absence. Painting off this leaves a hole; use
+ *  {@link preferences} for that. */
 export const preferencesLoaded = (): Preferences | undefined =>
   hostScoped.preferences.value();
 

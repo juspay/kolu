@@ -170,9 +170,7 @@ export function parkedTerminalIds(): TerminalId[] {
  *  the candidate pool while a restore card is up. ACTIVE and SLEEPING records DO
  *  render a tile, and SUB-terminals render inside their parent's, so both stay.
  *
- *  An `undefined` `themeName` is KEPT, not dropped: an unthemed terminal renders
- *  as the default theme, so it must repel a spread exactly like an explicitly
- *  default-themed one (`resolveThemeBgs` maps it to that background). */
+ *  An `undefined` `themeName` is KEPT, not dropped — `resolveThemeBgs` says why. */
 export function visibleTerminalThemeNames(): (string | undefined)[] {
   const names: (string | undefined)[] = [];
   for (const entry of terminals.values())

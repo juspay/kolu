@@ -290,16 +290,8 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *
  *  4.6 (additive · minor): a NEW `chrome.setNewTerminalPolicy` procedure — the
  *  app chrome's report of the user's RESOLVED new-terminal preferences, the twin
- *  of `chrome.setActive`'s active-terminal report. padi resolves every new
- *  terminal's theme at `lifecycle.create` so an out-of-band create (MCP, a TUI, a
- *  script) honours the setting, and this is the channel that tells it what the
- *  setting IS — over the same surface on the local and the remote arm alike
- *  (#2045). Named for the VOLATILITY (which preferences seed a fresh terminal),
- *  not for its single field today, so the next such preference rides it
- *  additively. Purely additive, the plainest minor there is; the minor suffices
- *  for the usual reason — a newer binder against an old 4.5 padi fails
- *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
- *  surface, so a 4.6 client never calls the procedure on a padi that lacks it. */
+ *  of `chrome.setActive` (#2045; see `README.md` § preferences). Purely
+ *  additive, so the minor suffices for the reason 4.1–4.4 give. */
 export const PADI_SURFACE_VERSION = "4.6";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -739,12 +731,6 @@ export const PadiSetActiveInputSchema = z.object({
   id: TerminalIdSchema.nullable(),
 });
 
-/** The user's new-terminal preferences, REPORTED by the app chrome — the twin of
- *  `setActive`'s active-terminal report. THE SAME declaration padi holds the
- *  report in (`NewTerminalPolicySchema`, in the shared browser-safe vocabulary),
- *  so the wire shape and the held cell cannot drift. */
-export const PadiSetNewTerminalPolicyInputSchema = NewTerminalPolicySchema;
-
 export const PadiSetCanvasLayoutInputSchema = z.object({
   id: TerminalIdSchema,
   layout: CanvasLayoutSchema,
@@ -1112,7 +1098,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       setIntent: { input: PadiSetIntentInputSchema },
       setParent: { input: PadiSetParentInputSchema },
       setActive: { input: PadiSetActiveInputSchema },
-      setNewTerminalPolicy: { input: PadiSetNewTerminalPolicyInputSchema },
+      // The SAME declaration padi holds the report in, so the wire shape and
+      // the held cell cannot drift.
+      setNewTerminalPolicy: { input: NewTerminalPolicySchema },
       setCanvasLayout: { input: PadiSetCanvasLayoutInputSchema },
       setSubPanel: { input: PadiSetSubPanelInputSchema },
       setRightPanel: { input: PadiSetRightPanelInputSchema },

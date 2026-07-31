@@ -180,10 +180,8 @@ const App: Component = () => {
   const actionContext = useActionContext();
   useShortcuts(actionContext);
 
-  // One reporter for the whole app — every member host's padi is told what the
-  // new-terminal preference resolves to, so an out-of-band create (MCP, a TUI, a
-  // script) honours it (#2045). App-lifetime, not a terminal-CRUD concern: it
-  // must be live whether or not anything has touched the CRUD façade.
+  // App-lifetime, not a terminal-CRUD concern: every member host must stay
+  // seeded whether or not anything has touched the CRUD façade.
   useNewTerminalPolicyReport();
 
   /** One definition of "Dock → palette": how the receptacle reaches the

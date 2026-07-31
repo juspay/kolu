@@ -166,8 +166,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     const info = await activePadiRpc.lifecycle
       .create({
         cwd,
-        // `themeName` is a caller OVERRIDE only (session restore, worktree) —
-        // padi resolves the preference at `lifecycle.create` (#2045).
+        // `themeName` is a caller OVERRIDE only (an MCP / out-of-band caller
+        // that named a theme) — padi resolves the preference at its create
+        // door (#2045). No client call site supplies it today.
         themeName: initial?.themeName,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,

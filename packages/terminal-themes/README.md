@@ -35,9 +35,7 @@ const colourful = pickTheme(availableThemes, {
 });
 
 // Project theme NAMES onto the backgrounds they RENDER as, ready to feed
-// `peerBgs`. An `undefined` name is not skipped — it resolves to
-// `DEFAULT_THEME_NAME`'s background, because an unthemed terminal is drawn in
-// the default theme.
+// `peerBgs` (see the function's own note on `undefined` names).
 const peerBgs = resolveThemeBgs(terminals.map((t) => t.themeName));
 ```
 
@@ -48,7 +46,7 @@ const peerBgs = resolveThemeBgs(terminals.map((t) => t.themeName));
   `pickTheme`, `DEFAULT_THEME_NAME`, plus the OkLab perceptual distance and the
   light / dark / colourful classification `pickTheme`'s `mode` selects on (all
   in `picker.ts`). Consumed by the kolu client AND by `@kolu/padi`, which
-  resolves each new terminal's theme at `lifecycle.create` — so this entry point
+  resolves each new terminal's theme at `createTerminal` — so this entry point
   is daemon behaviour and rides padi's hashed build closure. Keep it that way:
   moving any of the pick maths out of here would move code padi executes out of
   padi's build identity.
