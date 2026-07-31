@@ -420,8 +420,11 @@ export function requireFlatParentEdge(childId: string, parentId: string): void {
         parentId,
         `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
       );
-    // The remaining arm is a tile the client CAN see but that paints no splits:
-    // dormant, or an active record whose PTY is gone (a half-unwound spawn).
+    // Exhaustively, the remaining arm is a top-level SLEEPING record — the one
+    // tile a client can see that still paints no splits. (There is no
+    // handle-less "active" arm to fall through here: `ActiveTerminalProcess`
+    // requires the handle, and sleep / unwind / kill each replace or unregister
+    // the whole entry atomically rather than stripping one.)
     throw invalidParentEdge(
       childId,
       parentId,
