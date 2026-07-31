@@ -187,8 +187,21 @@ and is fixed in this PR before the campaign resumes.
 | `02220ff#1` | `02220ffb4` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `5750c67#1` | `5750c673f` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `147d463#1` | `147d46385` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `5/5` |
+| `ef06330#1` | `ef06330b0` | Final documentation-head validation passed all 59 GitHub checks; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `5/5` maintained |
+| `HEAD#1` | the commit containing this row | Self-identifying final-head acceptance gate; defined below | `5/5` maintained iff green |
 
 **Completed current post-fix streak: `5/5` at `147d463#1`.**
+
+The `HEAD#1` row records the unavoidable final validation run without creating
+an unvalidated successor merely to write down its result. It identifies the
+exact commit that contains the row and is green **if and only if** Odu's durable
+ledger records that commit's sequence `#1` as `passed`, the lanes are exactly
+macOS `ci@petit` and Linux `kolu-ci-1`, both e2e summaries report attempts equal
+to executions with zero retries, and every required GitHub context on that
+exact commit is successful. If any condition is pending, absent, or red, this
+document declares the campaign incomplete. A post-run result commit is
+deliberately forbidden: it would move the PR to a new SHA with no CI evidence
+and repeat the defect exposed by `ef06330b0`.
 
 ### `9c7062d#1`: SQLite regression violated the real-process spawn gate
 
