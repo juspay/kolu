@@ -21,6 +21,8 @@ import { ORPCError } from "@orpc/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { caught, seedActive, snapshot } from "./servePadi.testlib.ts";
 import {
+  isPaintableParent,
+  isPermanentlyUnpaintableParent,
   registerTerminal,
   requireFlatParentEdge,
   requireMutableTerminal,
@@ -141,6 +143,21 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
     expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
   });
 
+  it("REJECTS a SLEEPING parent — a dormant tile paints no splits at all", () => {
+    // `TerminalContent` swaps its whole body for `DormantTileBody` behind
+    // `<Show when={isLive()}>`, and the split `Resizable` lives INSIDE that
+    // branch — so a pane hung off a dormant tile is not painted, top-level or
+    // not. The create door happened to reject this via `requireActiveTerminal`;
+    // `chrome.setParent` validates only the SUBJECT, so without this clause it
+    // let a caller mint exactly the invisible live pane #2059 is about.
+    seedSleeping();
+    const err = caught(() => requireFlatParentEdge(FRESH, ID));
+    expect(err).toBeInstanceOf(ORPCError);
+    const orpc = err as ORPCError<string, unknown>;
+    expect(orpc.code).toBe("BAD_REQUEST");
+    expect(orpc.message).toMatch(/dormant/i);
+  });
+
   it("REJECTS a non-leaf child — the move would push its splits to depth 2", () => {
     seedActive(ROOT);
     seedActive(MID, ROOT);
@@ -164,5 +181,53 @@ describe("requireFlatParentEdge — the one parent-edge rule (#2059)", () => {
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(ORPCError);
     expect((err as Error).message).toMatch(/cycle/i);
+  });
+});
+
+/** The REPAIR counterpart of the reject rule. The two doors want different
+ *  questions answered — "would this paint NOW" (refuse if not) versus "will it
+ *  EVER" (promote if not) — and the difference is exactly the dormant arm: a
+ *  sleeping tile repaints its splits on wake, so a restore/adopt sweep that
+ *  promoted its children would destroy the user's arrangement for good. */
+describe("isPermanentlyUnpaintableParent — the repair rule (#2059)", () => {
+  it("is FALSE for a live top-level tile (nothing to repair)", () => {
+    seedActive(ROOT);
+    expect(isPermanentlyUnpaintableParent(ROOT)).toBe(false);
+  });
+
+  it("is FALSE for a DORMANT top-level tile — wake repaints its splits", () => {
+    seedSleeping();
+    expect(isPaintableParent(ID)).toBe(false); // not paintable NOW…
+    expect(isPermanentlyUnpaintableParent(ID)).toBe(false); // …but not forever
+  });
+
+  it("is TRUE for a parent that is itself a split child — no wake fixes depth 2", () => {
+    seedActive(ROOT);
+    seedActive(MID, ROOT);
+    expect(isPermanentlyUnpaintableParent(MID)).toBe(true);
+  });
+
+  it("is TRUE for a DORMANT parent that is itself a split child", () => {
+    // The dormant carve-out must not swallow the nested case: waking a split
+    // does not make the canvas paint splits OF that split.
+    seedActive(ROOT);
+    registerTerminal(MID, {
+      info: { id: MID, pid: 1 },
+      meta: {
+        state: "sleeping",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        sleptAt: 1,
+        parentId: ROOT,
+      },
+      snapshot: snapshot(),
+    });
+    expect(isPermanentlyUnpaintableParent(MID)).toBe(true);
+  });
+
+  it("is TRUE for a parked placeholder and for an absent id", () => {
+    seedParked();
+    expect(isPermanentlyUnpaintableParent(ID)).toBe(true);
+    expect(isPermanentlyUnpaintableParent("nope")).toBe(true);
   });
 });

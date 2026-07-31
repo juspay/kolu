@@ -308,25 +308,43 @@ export function invalidParentEdge(
   });
 }
 
-/** Can `id` carry a split — i.e. would the canvas actually PAINT a child hung
- *  off it? Only a present, non-PARKED, TOP-LEVEL record is drawn as a tile: the
- *  client keeps exactly those ids in `terminalIds` and hangs exactly ONE hop of
- *  `childrenByParent` off each (`packages/client/src/terminal/useTerminalMetadata.ts`
- *  — if the canvas ever paints deeper, that hop and THIS predicate move together).
- *  A parked placeholder, an absent id, or a record that is itself a split gives a
- *  child the canvas can never show (#2059).
+/** Can `id` carry a split RIGHT NOW — i.e. would the canvas actually PAINT a
+ *  child hung off it? Only a LIVE, TOP-LEVEL tile does. Two client facts, both
+ *  load-bearing:
+ *  - `useTerminalMetadata` keeps top-level ids in `terminalIds` and hangs exactly
+ *    ONE hop of `childrenByParent` off each, so a record that is itself a split
+ *    never paints children of its own (#2059);
+ *  - `TerminalContent` renders the whole split `Resizable` inside
+ *    `<Show when={isLive()}>` — a SLEEPING (or parked) tile swaps its entire body
+ *    for `DormantTileBody`, so its splits are not painted at all.
  *
- *  The ONE statement of that fact, with each door composing its own POLICY on top:
- *  {@link requireFlatParentEdge} REJECTS below (the generative writes), and
- *  `promoteUnpaintableRestoreChildren` (`session/sessionRestore.ts`) PROMOTES the
- *  child to top-level (the restore door reconciles, it does not throw). */
+ *  Hence the ACTIVE-arm narrow (`getActiveTerminal`, the same live-PTY seam every
+ *  handle-touching path uses) rather than a hand-listed state check. If the canvas
+ *  ever paints deeper — or paints a dormant tile's splits — that rendering and THIS
+ *  predicate move together.
+ *
+ *  This is "paintable NOW", which is what the REJECT door wants: refusing an edge
+ *  the caller would not see. The RESTORE door wants "paintable EVER" — see
+ *  {@link isPermanentlyUnpaintableParent}. */
 export function isPaintableParent(id: string): boolean {
+  const parent = getActiveTerminal(id);
+  return parent !== undefined && parent.meta.parentId === undefined;
+}
+
+/** Will `id` EVER paint a child hung off it? The repair counterpart of
+ *  {@link isPaintableParent}: a DORMANT top-level tile is only *temporarily*
+ *  unpaintable — waking it re-mounts its split panel with the child still there —
+ *  so a restore/adopt sweep must leave that edge alone rather than destroy the
+ *  user's split arrangement. Every other way an edge is unpaintable is permanent:
+ *  the parent is absent, it is a parked restore-card placeholder that will never
+ *  become this parent again, or it is itself a split child (which no wake can fix,
+ *  since the canvas paints one hop and no more). */
+export function isPermanentlyUnpaintableParent(id: string): boolean {
   const parent = getTerminal(id);
-  return (
-    parent !== undefined &&
-    parent.meta.state !== "parked" &&
-    parent.meta.parentId === undefined
-  );
+  if (parent === undefined) return true; // absent
+  if (parent.meta.parentId !== undefined) return true; // itself a split — wake won't help
+  if (parent.meta.state === "sleeping") return false; // dormant: wake repaints it
+  return !isPaintableParent(id); // parked, or otherwise not a live tile
 }
 
 /** The id of the first registry entry whose parent is `id`, or `undefined` — the
@@ -365,14 +383,18 @@ function rootAncestorId(id: string): string {
 }
 
 /** The ONE rule both generative parent writes share (#2059): the edge
- *  `childId → parentId` must leave the tile graph at depth ≤ 1. TOTAL — it names
- *  every way an edge breaks that (self-edge, absent/parked/nested parent, a child
- *  that still carries splits of its own), so no door can enforce a subset. A
- *  nested split is accepted by the create / setParent wire shape but never painted
- *  on the canvas, and the silent-invisible middle is the worst outcome.
+ *  `childId → parentId` must leave the tile graph at depth ≤ 1 AND land somewhere
+ *  the canvas paints. TOTAL — it names every way an edge breaks that (self-edge;
+ *  an absent, parked, dormant, or itself-nested parent; a child that still carries
+ *  splits of its own), so no door can enforce a subset. Such an edge is accepted by
+ *  the create / setParent wire shape but never painted, and the silent-invisible
+ *  middle is the worst outcome.
  *
  *  Session restore does NOT call this — it rehydrates saved graphs and reconciles
- *  unpaintable edges through `promoteUnpaintableRestoreChildren` instead. */
+ *  permanently unpaintable edges through `promoteUnpaintableRestoreChildren`
+ *  instead. That door tolerates a DORMANT parent (wake repaints its splits) where
+ *  this one refuses it: a caller asking for a pane it would not see right now gets
+ *  told to wake the tile first, rather than a live PTY it cannot find. */
 export function requireFlatParentEdge(childId: string, parentId: string): void {
   if (parentId === childId)
     throw invalidParentEdge(
@@ -389,6 +411,12 @@ export function requireFlatParentEdge(childId: string, parentId: string): void {
         childId,
         parentId,
         `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
+      );
+    if (parent.meta.state === "sleeping")
+      throw invalidParentEdge(
+        childId,
+        parentId,
+        "it is dormant, and a dormant tile paints no splits — wake it first",
       );
     throw invalidParentEdge(
       childId,

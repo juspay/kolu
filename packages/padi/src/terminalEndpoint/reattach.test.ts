@@ -312,3 +312,65 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
     expect(getTerminal(B_ID)?.meta.state).toBe("parked");
   });
 });
+
+const C_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+/** #2059's legacy-data half on the path most upgrades actually take. Adoption
+ *  rehydrates saved records WHOLESALE — it never runs `createTerminal`'s
+ *  parent-edge fence — so a split of a split written by a pre-fence daemon would
+ *  otherwise survive every restart, invisible on the canvas (the client paints
+ *  top-level tiles plus ONE hop), and be re-persisted by the converge.
+ *
+ *  Driven on the DORMANT arm: a sleeping record is seeded straight into the
+ *  registry with no PTY, so the whole real `adoptSurvivingSession` runs here
+ *  (`seedSleepingTerminal` needs no sensor wiring, which the unit env has no kaval
+ *  for). The repair reads a record's `parentId`, not its arm, so the active arm
+ *  travels the same code. */
+describe("adoptSurvivingSession — nested splits are repaired on adoption (#2059)", () => {
+  function sleeping(id: string, cwd: string, parentId?: string): SavedTerminal {
+    return {
+      ...base,
+      id,
+      state: "sleeping",
+      sleptAt: 111,
+      cwd,
+      lastActivityAt: 3,
+      ...(parentId !== undefined ? { parentId } : {}),
+    };
+  }
+
+  it("lifts an adopted split-of-a-split to top-level and PERSISTS the repair", async () => {
+    setPadiLastPairedDaemonStore(
+      inMemoryStore<PairedDaemon | null>({ startedAt: 1000 }),
+    );
+    connectDaemon(1000);
+    // S ← B ← C, exactly what a pre-fence daemon could write. C is the one the
+    // canvas can never show, at any depth of wake.
+    setSavedSession({
+      terminals: [
+        sleeping(S_ID, "/s"),
+        sleeping(B_ID, "/b", S_ID),
+        sleeping(C_ID, "/c", B_ID),
+      ],
+      activeTerminalId: S_ID,
+      savedAt: 1,
+    });
+
+    await adoptSurvivingSession();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Every record is still adopted — the repair moves a tile, it never drops one.
+    expect(getTerminal(S_ID)).toBeDefined();
+    expect(getTerminal(B_ID)).toBeDefined();
+    expect(getTerminal(C_ID)).toBeDefined();
+    // B is a legal one-level split and stays put — a DORMANT top-level parent
+    // repaints its splits on wake, so its edge is temporarily unpaintable, not
+    // permanently. C is lifted out of depth 2, which no wake could ever fix.
+    expect(getTerminal(B_ID)?.meta.parentId).toBe(S_ID);
+    expect(getTerminal(C_ID)?.meta.parentId).toBeUndefined();
+    // The repair — not the defect — is what reaches disk.
+    const saved = getSavedSession()?.terminals ?? [];
+    expect(saved.find((t) => t.id === C_ID)?.parentId).toBeUndefined();
+    expect(saved.find((t) => t.id === B_ID)?.parentId).toBe(S_ID);
+  });
+});

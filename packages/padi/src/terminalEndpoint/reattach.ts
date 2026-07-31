@@ -50,7 +50,11 @@ import {
   saveSession,
 } from "../session/session.ts";
 import { getTerminal } from "../terminal-registry.ts";
-import { restoreActiveTerminalId, snapshotSession } from "../terminals.ts";
+import {
+  flattenUnpaintableParentEdges,
+  restoreActiveTerminalId,
+  snapshotSession,
+} from "../terminals.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
   adoptLocalOrphan,
@@ -215,6 +219,20 @@ export async function adoptSurvivingSession(): Promise<void> {
         log.error({ err, terminal: orphan.id }, "reap of sleeping PTY failed"),
       );
   }
+
+  // Adoption rehydrates saved records WHOLESALE — it never passes `createTerminal`'s
+  // parent-edge fence — so a split of a split written by a pre-fence daemon would ride
+  // this, the NORMAL upgrade path, straight back into the registry and be re-persisted
+  // by the converge below, invisible on the canvas for as long as the terminal lives
+  // (#2059). Repair it here, once everything (adopted actives, adopted orphans, seeded
+  // sleepers) is in the registry and BEFORE the snapshot: a dormant parent's splits are
+  // left alone, every permanently unpaintable edge is lifted to top-level.
+  const lifted = flattenUnpaintableParentEdges();
+  if (lifted.length > 0)
+    log.warn(
+      { terminals: lifted },
+      "lifted adopted splits whose parent cannot paint them to top-level (#2059)",
+    );
 
   // Converge the saved session to exactly what is now live or dormant: exited
   // terminals drop out (no stale restore card), and the active marker is kept iff

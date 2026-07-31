@@ -20,6 +20,7 @@ import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import {
   getTerminal,
+  isPermanentlyUnpaintableParent,
   requireFlatParentEdge,
   requireTerminal,
   terminalEntries,
@@ -213,6 +214,31 @@ export function setTerminalParent(
   updateClientMetadata(entry, id, (m) => {
     m.parentId = newParent;
   });
+}
+
+/** Lift every registry entry whose parent can never paint it back to TOP-LEVEL,
+ *  returning the ids it moved. The repair sweep for a graph that entered the
+ *  registry WITHOUT passing {@link createTerminal}'s fence — i.e. rehydration:
+ *  `adoptSurvivingSession` adopts each saved record wholesale from a surviving
+ *  kaval, which is the NORMAL kolu upgrade path, so a split-of-a-split written by
+ *  a pre-fence daemon would otherwise ride through every restart untouched and
+ *  stay invisible forever (#2059).
+ *
+ *  Idempotent and order-independent: it reads
+ *  {@link isPermanentlyUnpaintableParent}, so a DORMANT parent's splits survive
+ *  (wake repaints them) and only edges no later event can rescue are undone. Run
+ *  it once the registry is fully seeded and BEFORE the converged snapshot is
+ *  persisted, so the repair — not the defect — is what reaches disk. */
+export function flattenUnpaintableParentEdges(): TerminalId[] {
+  const lifted: TerminalId[] = [];
+  for (const [id, entry] of terminalEntries()) {
+    const parentId = entry.meta.parentId;
+    if (parentId === undefined) continue;
+    if (!isPermanentlyUnpaintableParent(parentId)) continue;
+    setTerminalParent(id, null);
+    lifted.push(id);
+  }
+  return lifted;
 }
 
 /** Store a terminal's canvas layout position (client-reported).

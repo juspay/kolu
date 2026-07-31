@@ -19,18 +19,21 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "./padiSurfaceCtx.ts";
-import { caught, padiDeps, seedActive } from "./servePadi.testlib.ts";
+import { caught, padiDeps, seedActive, snapshot } from "./servePadi.testlib.ts";
 import {
   getTerminal,
+  registerTerminal,
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
+import { LOCAL_LOCATION } from "./vocab.ts";
 
 setDaemonProcessId("nested-parent-test-server");
 
 const ROOT = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const CHILD = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const SIBLING = "33333333-3333-4333-8333-333333333333" as TerminalId;
+const DORMANT = "44444444-4444-4444-8444-444444444444" as TerminalId;
 
 type CreateHandler = (a: { input: { parentId?: string } }) => { id: string };
 type SetParentHandler = (a: {
@@ -82,6 +85,31 @@ describe("the wire doors run the parent-edge rule (#2059)", () => {
     expect(err).toBeInstanceOf(ORPCError);
     expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
     // The bad write must not land — the sibling stays top-level.
+    expect(getTerminal(SIBLING)?.meta.parentId).toBeUndefined();
+  });
+
+  it("chrome.setParent refuses a DORMANT parent and leaves the child top-level", () => {
+    // The door-level half of the sleeping hole: `chrome.setParent` runs
+    // `requireMutableTerminal` on the SUBJECT only, so nothing but the shared
+    // rule stands between a caller and a live pane hung off a tile whose body is
+    // `DormantTileBody` — painted nowhere. `lifecycle.create` is covered one
+    // layer up by `requireActiveTerminal`; this door is not.
+    registerTerminal(DORMANT, {
+      info: { id: DORMANT, pid: 1 },
+      meta: {
+        state: "sleeping",
+        location: LOCAL_LOCATION,
+        lastActivityAt: 1,
+        sleptAt: 1,
+      },
+      snapshot: snapshot(),
+    });
+
+    const err = caught(() =>
+      setParent({ input: { id: SIBLING, parentId: DORMANT } }),
+    );
+    expect(err).toBeInstanceOf(ORPCError);
+    expect((err as ORPCError<string, unknown>).code).toBe("BAD_REQUEST");
     expect(getTerminal(SIBLING)?.meta.parentId).toBeUndefined();
   });
 

@@ -822,3 +822,49 @@ describe("persistSettledRestoreSnapshot — post-settle persistence (F5)", () =>
     expect(saved.some((t) => t.cwd === "/f5-mixed-parked")).toBe(true);
   });
 });
+
+const GRANDCHILD_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+
+/** #2059's legacy-data half on the cold-restore path. A blob written before the
+ *  generative writes were fenced can hold a split of a split; rehydrating it
+ *  verbatim would put a terminal back exactly where the canvas cannot show it
+ *  (top-level tiles plus ONE hop). The sleeping arm matters on its own: a sleeper
+ *  is seeded SYNCHRONOUSLY and never joins `activeRespawns`, so the post-settle
+ *  sweep would not see it — the repair has to happen at the seed. */
+describe("restoreSession — a saved split of a split comes back visible (#2059)", () => {
+  const nestedSleeper: SavedTerminal = {
+    ...base,
+    id: GRANDCHILD_ID,
+    state: "sleeping",
+    sleptAt: 333,
+    cwd: "/grandchild",
+    parentId: SUB_ID, // …which is itself parented under PARENT_ID
+    lastActivityAt: 11,
+  };
+
+  it("restores a SLEEPING grandchild TOP-LEVEL instead of under the split", async () => {
+    setSavedSession({
+      terminals: [parentRecord, subRecord, nestedSleeper],
+      activeTerminalId: PARENT_ID,
+      savedAt: 1,
+    });
+    expect(seedParkedTerminal(parentRecord)).toBe(true);
+    expect(seedParkedTerminal(subRecord)).toBe(true);
+
+    const done = restoreSession({});
+
+    // The one-level split is untouched: it still hangs off the fresh parent.
+    const parent = activeByCwd("/parent");
+    const sub = activeByCwd("/sub");
+    expect(sub?.parentId).toBe(parent?.id);
+
+    // The grandchild came back — dormant, on its stable id, and TOP-LEVEL. It is
+    // not dropped (that would lose a terminal) and not left at depth 2 (that
+    // would leave it unpaintable for the life of the process).
+    const grandchild = getTerminal(GRANDCHILD_ID);
+    expect(grandchild?.meta.state).toBe("sleeping");
+    expect(grandchild?.meta.parentId).toBeUndefined();
+
+    await done;
+  });
+});

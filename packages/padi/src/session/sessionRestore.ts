@@ -28,10 +28,11 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
+import { log } from "../log.ts";
 import {
   getActiveTerminal,
   getTerminal,
-  isPaintableParent,
+  isPermanentlyUnpaintableParent,
 } from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
@@ -255,6 +256,27 @@ export async function restoreSession(
         unrestored.push(t);
         continue;
       }
+      // #2059's legacy-data half, repaired at the SEED: a blob written before the
+      // generative writes were fenced can hold a split of a split, and the parent
+      // it maps onto is by then already in the registry (an active respawn registers
+      // synchronously; a sleeper is seeded by the loop above). Restoring the record
+      // under a PERMANENTLY unpaintable parent would rehydrate exactly the invisible
+      // live pane this PR exists to make impossible — and the post-settle sweep below
+      // would not catch it, since that one only walks the ACTIVE respawns. So restore
+      // it TOP-LEVEL instead: the terminal comes back, visible, one level up. A
+      // DORMANT parent is left alone (wake repaints its splits).
+      if (isPermanentlyUnpaintableParent(parentId)) {
+        log.warn(
+          { terminal: t.id, savedParent: t.parentId, mappedParent: parentId },
+          "restoring a saved split whose parent cannot paint it as TOP-LEVEL (#2059)",
+        );
+        // Strip the saved edge rather than merely omitting the argument: the
+        // sleeping arm seeds the RECORD, so a leftover `parentId` would rehydrate
+        // the nesting anyway — naming an id that no longer exists.
+        const { parentId: _nested, ...flat } = t;
+        restoreRecord(flat);
+        continue;
+      }
       restoreRecord(t, parentId);
     }
 
@@ -407,11 +429,14 @@ export async function settleRestoreRespawns(
  *  its later-queued child succeeds), so reparent the live child to TOP-LEVEL,
  *  keeping its live PTY + agent visible.
  *
- *  The "would the canvas paint a child here?" fact is `isPaintableParent` in
- *  `terminal-registry.ts` — the SAME predicate `requireFlatParentEdge` rejects off
- *  at the create / setParent doors. This door reconciles rather than throwing:
- *  restore rehydrates whatever is on disk, then repairs it. A SLEEPING (dormant)
- *  parent is paintable and is left alone. */
+ *  The "will this parent EVER paint a child?" fact is
+ *  `isPermanentlyUnpaintableParent` in `terminal-registry.ts` — the repair
+ *  counterpart of the `isPaintableParent` the create / setParent doors reject off.
+ *  This door reconciles rather than throwing: restore rehydrates whatever is on
+ *  disk, then repairs it, so it must only undo edges no later event can rescue. A
+ *  SLEEPING (dormant) parent is left alone — waking it re-mounts its split panel
+ *  with the child still in place, and promoting would destroy that arrangement for
+ *  good. */
 export function promoteUnpaintableRestoreChildren(
   respawns: {
     newId: string;
@@ -421,7 +446,7 @@ export function promoteUnpaintableRestoreChildren(
   for (const r of respawns) {
     if (!getActiveTerminal(r.newId as TerminalId)) continue; // failed / re-parked
     if (r.parentIdMapped === undefined) continue; // already top-level
-    if (!isPaintableParent(r.parentIdMapped))
+    if (isPermanentlyUnpaintableParent(r.parentIdMapped))
       setTerminalParent(r.newId as TerminalId, null);
   }
 }
