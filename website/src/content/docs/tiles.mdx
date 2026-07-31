@@ -30,8 +30,10 @@ the new split is selected, no click needed (unless you're already working in
 another split of that tile, which it won't yank you off).
 `--parent` must name a **top-level tile** (not another split): nesting a split
 under a split is refused with an error that names the root tile to re-parent
-against, so a nested create never leaves a live terminal the canvas cannot
-show.
+against, so a create never leaves a live terminal the canvas cannot show. A
+session saved before that rule existed still restores — a terminal that was
+nested under a split comes back as its own top-level tile rather than as an
+invisible one.
 
 In a split, the pane that does **not** have focus recedes slightly, so the one
 your keystrokes are going to always reads as the foreground.

@@ -28,7 +28,11 @@ import {
   saveSession,
   setSavedSession,
 } from "./session.ts";
-import { getActiveTerminal, getTerminal } from "../terminal-registry.ts";
+import {
+  getActiveTerminal,
+  getTerminal,
+  isPaintableParent,
+} from "../terminal-registry.ts";
 import {
   discardAllLocalParked,
   discardLocalParked,
@@ -341,7 +345,7 @@ export async function restoreSession(
  *  The eager {@link persistSettledRestoreSnapshot} RETAINS the re-parked record (which
  *  `snapshotSession` skips) alongside every live sibling's freshest metadata.
  *
- *  {@link promoteOrphanedRestoreChildren} lifts children orphaned by a failed/parked parent
+ *  {@link promoteUnpaintableRestoreChildren} lifts children orphaned by a failed/parked parent
  *  (F2) and a merge is persisted after EACH spawn settles — NOT once after the whole batch.
  *  That incrementality matters: a parent A can reject and re-park while an UNRELATED spawn C
  *  never settles; if promotion waited on the batch `Promise.all`, C's wedge would keep A's
@@ -387,21 +391,28 @@ export async function settleRestoreRespawns(
       // hidden parent for the process lifetime. Then persist the merged live+re-parked
       // (+ retained unrestored) snapshot so the promotion (and any re-park) reaches disk
       // without awaiting the batch.
-      promoteOrphanedRestoreChildren(respawns);
+      promoteUnpaintableRestoreChildren(respawns);
       persistSettledRestoreSnapshot(reparked, retained);
     }),
   );
 }
 
-/** Promote children orphaned by a failed/parked parent to TOP-LEVEL (F2). A restored
- *  ACTIVE child whose parent is NO LONGER a live terminal — its parent respawn failed for a
- *  PER-RECORD reason (a removed cwd, a pre-ready lifecycle race) and was re-parked, or a
- *  second client killed the parent mid-restore — must not dangle under a parked/absent
- *  parent (which the canvas would hide). Spawn failures are NOT monotonic (a parent can
- *  reject while its later-queued child succeeds), so reparent the live child to TOP-LEVEL,
- *  keeping its live PTY + agent visible. A SLEEPING (dormant) parent is a valid parent and
- *  is left alone. */
-export function promoteOrphanedRestoreChildren(
+/** Promote restored children the canvas could never paint to TOP-LEVEL (F2). A
+ *  restored ACTIVE child whose parent is not a PAINTABLE parent must not dangle
+ *  invisibly: its parent respawn may have failed for a PER-RECORD reason (a removed
+ *  cwd, a pre-ready lifecycle race) and been re-parked, a second client may have
+ *  killed the parent mid-restore, or — the #2059 legacy-data case — the saved blob
+ *  may hold a split of a split, written by a daemon from before the generative
+ *  writes were fenced. Spawn failures are NOT monotonic (a parent can reject while
+ *  its later-queued child succeeds), so reparent the live child to TOP-LEVEL,
+ *  keeping its live PTY + agent visible.
+ *
+ *  The "would the canvas paint a child here?" fact is `isPaintableParent` in
+ *  `terminal-registry.ts` — the SAME predicate `requireFlatParentEdge` rejects off
+ *  at the create / setParent doors. This door reconciles rather than throwing:
+ *  restore rehydrates whatever is on disk, then repairs it. A SLEEPING (dormant)
+ *  parent is paintable and is left alone. */
+export function promoteUnpaintableRestoreChildren(
   respawns: {
     newId: string;
     parentIdMapped: string | undefined;
@@ -410,10 +421,8 @@ export function promoteOrphanedRestoreChildren(
   for (const r of respawns) {
     if (!getActiveTerminal(r.newId as TerminalId)) continue; // failed / re-parked
     if (r.parentIdMapped === undefined) continue; // already top-level
-    const parent = getTerminal(r.parentIdMapped as TerminalId);
-    if (!parent || parent.meta.state === "parked") {
+    if (!isPaintableParent(r.parentIdMapped))
       setTerminalParent(r.newId as TerminalId, null);
-    }
   }
 }
 
