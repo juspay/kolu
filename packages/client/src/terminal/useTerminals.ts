@@ -88,12 +88,13 @@ export function useTerminals() {
   // keyed to the server list so kills/exits dispose it. See useTerminalExits.
   // `allTerminalIds` is the ONE memoized projection of the list ids — also fed to
   // the reconcile + adopt hooks below (not re-mapped per hook). `parentOf` is the
-  // ONE live parentId reader both hooks share, and `activeHostKey` the ONE
-  // host-scope key both host-scope their snapshot on.
+  // store's OWN 3-valued edge (absent ≠ root), shared by both hooks so their
+  // walks answer exactly what the canvas and the Dock see, and `activeHostKey`
+  // the ONE host-scope key both host-scope their snapshot on.
   const allTerminalIds = createMemo(
     () => store.listSub()?.map((t) => t.id) ?? [],
   );
-  const parentOf = (id: TerminalId) => store.getMetadata(id)?.parentId ?? null;
+  const parentOf = store.parentEdge;
   const activeHostKey = () => encodeHostKey(activeHost());
   useTerminalExits({ ids: allTerminalIds, subscribe: subscribeExit });
 

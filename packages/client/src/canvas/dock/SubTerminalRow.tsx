@@ -1,4 +1,6 @@
-/** A split terminal, indented directly beneath the dock row for its parent.
+/** A split terminal, indented directly beneath the dock row for its parent —
+ * its REAL parent, which may itself be a split: `row.depth` steps the indent in
+ * one notch per hop, so a split of a split reads as one.
  *
  * Every split gets a landing row and the same StatePip fold a top-level row
  * uses — identity glyph, paint, motion, unread. Unread passthrough matters
@@ -61,7 +63,15 @@ export const SubTerminalRow: Component<{
               unread: unread(),
             })}
             data-parent-id={parentId}
-            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+            data-depth={props.row.depth}
+            // Sub-entries are flat DOM siblings inside the section grid, so the
+            // indent IS the tree: a split of a split steps one notch further in,
+            // under the split it actually belongs to. Inline (not a Tailwind
+            // class) because depth is unbounded — no class list can enumerate it.
+            style={{
+              "padding-left": `${1.75 + (props.row.depth - 1) * 0.75}rem`,
+            }}
+            class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             onPointerDown={(event) => {
               if (props.surface === "touch") event.stopPropagation();
             }}

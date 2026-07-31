@@ -1,5 +1,5 @@
 import type { TerminalId } from "kolu-common/surface";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   activeTileOf,
   type TerminalFocus,
@@ -24,27 +24,38 @@ describe("activeTileOf", () => {
     expect(activeTileOf(focus, () => ({ kind: "top-level" }))).toBe(SUB);
   });
 
-  it("uses the live parent for a split", () => {
-    expect(
-      activeTileOf(focus, () => ({ kind: "split", parentId: TILE_A })),
-    ).toBe(TILE_A);
+  it("uses the live parent for a one-hop split", () => {
+    const placementOf = (id: TerminalId): TerminalPlacement => {
+      if (id === SUB) return { kind: "split", parentId: TILE_A };
+      if (id === TILE_A) return { kind: "top-level" };
+      return { kind: "missing" };
+    };
+    expect(activeTileOf(focus, placementOf)).toBe(TILE_A);
+  });
+
+  it("walks a nested chain to the root tile (not the middle parent)", () => {
+    const MID = "mid" as TerminalId;
+    const GRAND = "grand" as TerminalId;
+    const nestedFocus: TerminalFocus = { id: GRAND, tileHint: TILE_A };
+    const placementOf = (id: TerminalId): TerminalPlacement => {
+      if (id === GRAND) return { kind: "split", parentId: MID };
+      if (id === MID) return { kind: "split", parentId: TILE_A };
+      if (id === TILE_A) return { kind: "top-level" };
+      return { kind: "missing" };
+    };
+    expect(activeTileOf(nestedFocus, placementOf)).toBe(TILE_A);
   });
 
   it("lets streamed re-parenting override the write-time hint", () => {
     let placement: TerminalPlacement = { kind: "missing" };
-    const placementOf = () => placement;
+    const placementOf = (id: TerminalId): TerminalPlacement => {
+      if (id === SUB) return placement;
+      if (id === TILE_A || id === TILE_B) return { kind: "top-level" };
+      return { kind: "missing" };
+    };
 
     expect(activeTileOf(focus, placementOf)).toBe(TILE_A);
     placement = { kind: "split", parentId: TILE_B };
     expect(activeTileOf(focus, placementOf)).toBe(TILE_B);
-  });
-
-  it("is a pure one-read fold", () => {
-    const placementOf = vi.fn(
-      (): TerminalPlacement => ({ kind: "split", parentId: TILE_A }),
-    );
-
-    expect(activeTileOf(focus, placementOf)).toBe(TILE_A);
-    expect(placementOf).toHaveBeenCalledExactlyOnceWith(SUB);
   });
 });

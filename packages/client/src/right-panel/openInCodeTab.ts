@@ -90,7 +90,9 @@ export function openInCodeTab(req: OpenInCodeTabInput): void {
     throw new Error(
       `openInCodeTab: no terminal metadata for ${req.terminalId}`,
     );
-  const panelOwnerId = target.parentId ?? req.terminalId;
+  // Right-panel chrome is keyed on the ROOT tile — a nested split's true
+  // parent may itself be a middle node with no panel state.
+  const panelOwnerId = terminals.containingTile(req.terminalId);
   const panelOwner =
     panelOwnerId === req.terminalId
       ? target

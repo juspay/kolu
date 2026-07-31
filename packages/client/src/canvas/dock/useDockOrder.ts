@@ -53,7 +53,11 @@ export const useDockOrder = createSharedRoot<Accessor<DockTree>>(() => {
       store.getMetadata,
       isStale,
       (id) => facts.classOf(encActiveHost(), id),
-      store.getSubTerminalIds,
+      // The store's pane index — the SAME fact the canvas flattens into its tab
+      // strip, handed over nested so the dock can indent it. Never the raw
+      // one-hop `getSubTerminalIds`: that is the eviction path's edge, and
+      // walking it here is what left a split of a split with no dock row.
+      store.getPaneTree,
     ),
   );
   return createMemo(() =>

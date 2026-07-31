@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   type FleetTerminalRow,
   groupFleetByHost,
-  isTopLevelTerminal,
+  isTileTerminal,
   orderHostsActiveFirst,
   rankFleetTerminalRows,
 } from "./fleetTerminals";
@@ -54,16 +54,38 @@ describe("rankFleetTerminalRows", () => {
   });
 });
 
-describe("isTopLevelTerminal — split children are not switcher rows", () => {
-  it("includes root tiles (no parentId / null / undefined)", () => {
-    expect(isTopLevelTerminal({})).toBe(true);
-    expect(isTopLevelTerminal({ parentId: undefined })).toBe(true);
-    expect(isTopLevelTerminal({ parentId: null })).toBe(true);
-    expect(isTopLevelTerminal({ parentId: "" })).toBe(true);
+describe("isTileTerminal — split children are not switcher rows", () => {
+  /** Parent edge from a partial map: missing key → absent from the census. */
+  const edge =
+    (parents: Record<string, string | null>) =>
+    (id: TerminalId): TerminalId | null | undefined => {
+      if (!(id in parents)) return undefined;
+      const p = parents[id as string];
+      return p === null ? null : (p as TerminalId);
+    };
+
+  it("includes a root tile", () => {
+    expect(isTileTerminal("R" as TerminalId, edge({ R: null }))).toBe(true);
   });
 
-  it("excludes split children that carry a parentId", () => {
-    expect(isTopLevelTerminal({ parentId: "agent-tile" })).toBe(false);
+  it("excludes a split child, at any depth", () => {
+    const parentOf = edge({ R: null, M: "R", G: "M" });
+    expect(isTileTerminal("M" as TerminalId, parentOf)).toBe(false);
+    expect(isTileTerminal("G" as TerminalId, parentOf)).toBe(false);
+  });
+
+  it("includes a split whose parent is GONE — it paints as a tile everywhere else", () => {
+    // The parent was killed or parked with no browser attached to re-home the
+    // child, so its `parentId` dangles. The canvas and the Dock both paint it as
+    // a top-level tile; a `!parentId` test would hide it from the switcher only,
+    // making a live terminal findable from nowhere.
+    expect(isTileTerminal("G" as TerminalId, edge({ G: "gone" }))).toBe(true);
+  });
+
+  it("includes cycle members — they are painted as tiles, never hidden", () => {
+    const parentOf = edge({ A: "B", B: "A" });
+    expect(isTileTerminal("A" as TerminalId, parentOf)).toBe(true);
+    expect(isTileTerminal("B" as TerminalId, parentOf)).toBe(true);
   });
 });
 

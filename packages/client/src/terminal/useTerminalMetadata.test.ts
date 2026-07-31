@@ -107,6 +107,7 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
+import type { PaneNode } from "./terminalTree";
 import {
   sameTerminalIdOrder,
   useTerminalMetadata,
@@ -115,6 +116,84 @@ import {
 const tids = (...xs: string[]) => xs as TerminalId[];
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe("root-ancestor flatten vs nested pane tree (#2059)", () => {
+  // Canvas paints every descendant under a root as a flat split tab; the Dock
+  // indents the SAME panes by their true parent→child edge. Both accessors ride
+  // the same metadata bag and the same resolved index.
+  function meta(overrides: TestMeta = {}): TestMeta {
+    return { cwd: "/home/user/p", parentId: undefined, ...overrides };
+  }
+
+  function drive(parents: Record<string, string | undefined>): {
+    terminalIds: () => TerminalId[];
+    getSplitPaneIds: (id: TerminalId) => TerminalId[];
+    getPaneTree: (id: TerminalId) => readonly PaneNode[];
+    dispose: () => void;
+  } {
+    return createRoot((dispose) => {
+      const ids = tids(...Object.keys(parents));
+      bag.keys = () => ids;
+      bag.metaOf = (id) =>
+        meta({
+          parentId: parents[id as string] as TerminalId | undefined,
+        });
+      const { terminalIds, getSplitPaneIds, getPaneTree } = useTerminalMetadata(
+        {
+          list: () => ids.map((id) => ({ id }) as TerminalInfo),
+        },
+      );
+      return { terminalIds, getSplitPaneIds, getPaneTree, dispose };
+    });
+  }
+
+  it("flattens a 3-deep chain under the root in server order", () => {
+    // Server order: R, M, G, C (C is a direct child of R after G).
+    const h = drive({ R: undefined, M: "R", G: "M", C: "R" });
+    expect(h.terminalIds()).toEqual(tids("R"));
+    // Canvas flat: every descendant of R.
+    expect(h.getSplitPaneIds(tids("R")[0]!)).toEqual(tids("M", "G", "C"));
+    h.dispose();
+  });
+
+  it("paints a cycle as top-level tiles (never hides them)", () => {
+    const h = drive({ A: "B", B: "A" });
+    expect(h.terminalIds()).toEqual(tids("A", "B"));
+    expect(h.getSplitPaneIds(tids("A")[0]!)).toEqual([]);
+    expect(h.getSplitPaneIds(tids("B")[0]!)).toEqual([]);
+    // A cycle member is a tile, so it is nobody's pane on EITHER shape.
+    expect(h.getPaneTree(tids("A")[0]!)).toEqual([]);
+    expect(h.getPaneTree(tids("B")[0]!)).toEqual([]);
+    h.dispose();
+  });
+
+  it("hands the Dock the SAME panes as the canvas, nested by their real parent", () => {
+    // The pair the #2059 follow-up bug lived between: the canvas flattens, the
+    // Dock indents, and both must cover every descendant. The Dock's own walk
+    // stopped at depth 1, so G had a canvas tab and no dock row at all.
+    const h = drive({ R: undefined, M: "R", G: "M", C: "R" });
+    const root = tids("R")[0]!;
+    expect(h.getPaneTree(root)).toEqual([
+      { id: "M", children: [{ id: "G", children: [] }] },
+      { id: "C", children: [] },
+    ]);
+    const flattened = (nodes: readonly PaneNode[]): TerminalId[] =>
+      nodes.flatMap((n) => [n.id, ...flattened(n.children)]);
+    expect(flattened(h.getPaneTree(root)).sort()).toEqual(
+      [...h.getSplitPaneIds(root)].sort(),
+    );
+    h.dispose();
+  });
+
+  it("keeps descendants of a sleeping middle under the live root (canvas never swallows them)", () => {
+    // Construction bonus from #2059: TerminalContent only paints splits when the
+    // ROOT tile is live. A sleeping intermediate used to hide its children when
+    // they hung off it; with root-ancestor grouping they hang off R instead.
+    const h = drive({ R: undefined, M: "R", G: "M" });
+    expect(h.getSplitPaneIds(tids("R")[0]!)).toEqual(tids("M", "G"));
+    h.dispose();
+  });
+});
 
 describe("sameTerminalIdOrder", () => {
   it("is true for the same ids in the same order", () => {

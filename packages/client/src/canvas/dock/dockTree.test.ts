@@ -22,19 +22,24 @@ function row(
 
 type SubRow = RankedDockRow["subRows"][number];
 
-function shellSubRow(id: string): Extract<SubRow, { kind: "shell" }> {
+function shellSubRow(
+  id: string,
+  depth = 1,
+): Extract<SubRow, { kind: "shell" }> {
   return {
     id: id as TerminalId,
     kind: "shell",
     bucket: "idle",
     pip: "idle",
     ts: 1,
+    depth,
   };
 }
 
 function agentSubRow(
   id: string,
   bucket: Extract<SubRow, { kind: "agent" }>["bucket"] = "idle",
+  depth = 1,
 ): Extract<SubRow, { kind: "agent" }> {
   return {
     id: id as TerminalId,
@@ -42,6 +47,7 @@ function agentSubRow(
     bucket,
     pip: "idle",
     ts: 1,
+    depth,
   };
 }
 
