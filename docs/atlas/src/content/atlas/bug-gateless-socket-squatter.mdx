@@ -15,6 +15,19 @@ import flow from "../../diagrams/squatter-recovery-flow.svg?raw";
 
 <PrLink pr={1887} />
 
+<Callout kind="note" title="Superseded mechanism, unchanged design">
+The IDENTIFY step below described a hand-rolled OS reader — a `/proc/net/unix`
+parse plus an fd walk on linux, an `lsof` shell-out on darwin. **OSF4 replaced
+it with one `osfacts socket-holders` call** ([the osfacts
+plan](./os-facts-tool.html)), so the platform split and the parse rules moved
+into the tool that owns them. The recovery's *design* is unchanged — identify
+over the OS, prove by handshake, never kill what the handshake did not
+attest — with one strengthening: the reader now answers three ways (*nobody
+holds it* · *held, unnameable* · *could not look*) where it used to return an
+empty list for all three. Read the shape below as the design; read
+`socketHolder.ts` for today's mechanism.
+</Callout>
+
 srid's ruling, verbatim: *"I want the bug to be fixed. WHY is a stray process
 breaking kolu?"* The field incident was closed by hand-killing pid 25494 on
 `sincereintent` after it had wedged the box for **8 days** — but a hand-reap is
@@ -168,7 +181,12 @@ and dials `node:net`), so a new sibling leaf is a clean fit:
 
 - **`socketHolder.ts`** — a new leaf next to `waitForPidGone.ts`: `socketHolders(socketPath)
   → SocketHolder[]` (each `{ pid, command }`), platform-dispatched (`/proc` on linux, `lsof`
-  on darwin), fail-fast on an unsupported platform. It returns *every* pid the OS reports
+  on darwin), fail-fast on an unsupported platform.<Footnote>Since OSF4 this leaf holds
+  neither the reader nor the fold: the platform dispatch is one `osfacts socket-holders`
+  call, the fold from that document to the three-way `SocketOccupancy` lives in
+  `osfacts-client` beside the parser, and what remains here is the shape of the ask —
+  `ReadSocketHolders`, injected on `EndpointSpec`.</Footnote>
+  It returns *every* pid the OS reports
   holding the path — a **list**, not a single pid: linux's `/proc/net/unix` names the bound
   listener exactly, but darwin's `lsof` can report the listener *plus* connected clients, so
   the caller's handshake-reported pid selects the true listener from the set (the recovery
@@ -199,8 +217,9 @@ are therefore:
 
 - `pid?: number` on `DaemonContractSkewError` — the skewed daemon's self-reported pid, so
   the gate-less-squatter recovery has its third identity attestation (**additive, optional**);
-- `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `socketHolders` /
-  `SocketHolder` — genuinely new exports.
+- `SocketSquatterForeignError` / `isSocketSquatterForeignError` and `ReadSocketHolders` /
+  `SocketHolder` / `SocketOccupancy` — genuinely new exports (the last two re-exported
+  from `osfacts-client`, which owns the fold that builds them).
 
 A `pid` on the *connection* (`DaemonConnection`) was **not** added: a compatible holder is
 adopted, never killed, so nothing would ever read it — a dead field is worse than none.<Footnote>Caught

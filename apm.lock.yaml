@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-07-29T04:32:28.693445+00:00'
+generated_at: '2026-07-30T22:51:16.811336+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: _local/agents
@@ -510,7 +510,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
+  content_hash: sha256:bc3da0d9ff0e372b2701adbcc9a262227b8af21dc1a61022a2b86437af3b5d43
 - kind: project-relative
   target: agents
   value: .agents/skills/perf-diagnose
@@ -808,7 +808,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:0ed3402945fdeb4f6d6c7bf3ba4a635576bbe71efcf2499d87d270a2dfe18863
+  content_hash: sha256:2584df42a2ef230a6bfabe7950195498670fc01f9dfc813f5b185fe23f15adcf
 - kind: project-relative
   target: claude
   value: .claude/rules/toast-conventions.md
@@ -1537,7 +1537,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
+  content_hash: sha256:bc3da0d9ff0e372b2701adbcc9a262227b8af21dc1a61022a2b86437af3b5d43
 - kind: project-relative
   target: claude
   value: .claude/skills/perf-diagnose
@@ -2693,7 +2693,7 @@ local_deployed_file_hashes:
   .agents/skills/ci/smoke.sh: sha256:82ffed8708572fba48c231f01bfe6b64a75e8d8523453adc5db3c9c579b2da5d
   .agents/skills/dev-server/SKILL.md: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
   .agents/skills/evidence/SKILL.md: sha256:825c77c039774f15d28acbd4214f4fbe890a647e864c0723ffc4cca5dd24bf34
-  .agents/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
+  .agents/skills/parcel/SKILL.md: sha256:bc3da0d9ff0e372b2701adbcc9a262227b8af21dc1a61022a2b86437af3b5d43
   .agents/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .agents/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .agents/skills/release/SKILL.md: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4
@@ -2717,7 +2717,7 @@ local_deployed_file_hashes:
   .claude/rules/state.md: sha256:4f604dec0848e4d23aed72232107e3070c9b9a7fe44c62f68a230b227a136811
   .claude/rules/streaming.md: sha256:c9dae6d1fccbf7b4b8c032eb485acb9eba495c46e410e3eb3042431c4bc3c2b1
   .claude/rules/surface-reference.md: sha256:0aa3ed458596b2482dea3c6218241755dae429d70b65f89a4d85f1677e21ecbe
-  .claude/rules/surface.md: sha256:0ed3402945fdeb4f6d6c7bf3ba4a635576bbe71efcf2499d87d270a2dfe18863
+  .claude/rules/surface.md: sha256:2584df42a2ef230a6bfabe7950195498670fc01f9dfc813f5b185fe23f15adcf
   .claude/rules/toast-conventions.md: sha256:e987215118a5269b05f064a477ca26ad986b014531dfb00bc7ba6b6bd3dce5bc
   .claude/rules/website-docs.md: sha256:09c4389e0f30d14acdc722e7d0a58486545c03645df4cbc8f9ccbc2df5612512
   .claude/skills/atlas/SKILL.md: sha256:c4def9ff953e276ae337768b3b541b838a0f18430c3e432b53491d01de4f6112
@@ -2728,7 +2728,7 @@ local_deployed_file_hashes:
   .claude/skills/ci/smoke.sh: sha256:82ffed8708572fba48c231f01bfe6b64a75e8d8523453adc5db3c9c579b2da5d
   .claude/skills/dev-server/SKILL.md: sha256:741b9c44068dd35500e0d88a8299240ec154b476b1fbb2a0bcdc79e2d03e3e4f
   .claude/skills/evidence/SKILL.md: sha256:825c77c039774f15d28acbd4214f4fbe890a647e864c0723ffc4cca5dd24bf34
-  .claude/skills/parcel/SKILL.md: sha256:f86f25ebaaf5349542b255b06378ad2b653aa65bb828d6dd7eacea732b9447c3
+  .claude/skills/parcel/SKILL.md: sha256:bc3da0d9ff0e372b2701adbcc9a262227b8af21dc1a61022a2b86437af3b5d43
   .claude/skills/perf-diagnose/SKILL.md: sha256:253d7e174344b2481b2f0a8f0f12ffe206c5f84974bff02b48db297e5023aa0c
   .claude/skills/pierre/SKILL.md: sha256:0c9e0f6c6cb93518bc0fbf5edf22dd57ba0038a35bb6dc757200e0e2327070e8
   .claude/skills/release/SKILL.md: sha256:92e14eb40f9c6c8f39e12c10108d2aaacd671968ed73af1e87df0922df27dee4

@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -95,12 +95,19 @@ nix:
 # and the system comes from Nix itself: no platform or consumer-owned map can
 # drift from the source flake. Keep this CI-only so a fresh `nix run` does not
 # pay to evaluate remote agents it may never provision.
+#
+# LOAD-BEARING, not a nicety. `default.nix`'s build-input prove covers only the
+# manifest's `prove` list — `padi-agent`, the attr both dial paths actually
+# resolve, cannot be proven there (it references the baked source itself; see
+# that file's expose/prove note). This recipe is therefore the ONLY gate on the
+# exposed attrs. Delete it and a fileset gap that reaches `default` or the TUIs
+# surfaces at dial time on a user's box.
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
     agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-    agent_packages="$({{ nix_shell }} jq -r '.[]' nix/agent-packages.json)"
+    agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
     while IFS= read -r package; do
       drv="$(nix eval --accept-flake-config --raw "$agent_flake_ref#packages.$system.$package.drvPath")"
@@ -193,6 +200,14 @@ e2e: install nix
     # and the two races corrupt the shared node_modules/.bin (vitest exit 126).
     # See the funnel rule at the top of this file and the `test` recipe comment.
     CUCUMBER_RETRY=$([ "$(uname)" = Darwin ] && echo 2 || echo 1) {{ nix_shell }} just --no-deps test
+
+# Wave 0's non-browser guard: parse the real Gherkin suite, compare its
+# immutable inventory with every committed inventory reachable from HEAD, and
+# require a landed coverage-ledger row for every scenario revision that
+# disappeared. Runs on both platforms so the platform-specific default counts
+# stay executable facts.
+e2e-governance: install
+    {{ nix_shell }} just --no-deps test-e2e-governance
 
 # Run vitest unit tests — FORK-FREE (the daemon suites are gated OFF by default;
 # `describeDaemon` keys on KOLU_DAEMON_TESTS). Keeps ONE meaning: no real daemon fork.
@@ -318,17 +333,14 @@ surface-example-build: install
 surface-app-example-build: install
     {{ nix_shell }} pnpm --filter @kolu/surface-app-example build:client
 
-# Biome 2.4.15's jemalloc-backed process crashed nondeterministically while
-# idli's Home Manager VM fan-out was active (SIGSEGV/SIGABRT). Both commands
-# that invoke it run after that existing critical path drains.
-fmt: install home-manager
+fmt: install
     {{ nix_shell }} just _fmt-check
 
 # Biome lint — recommended preset with each deliberately-advisory rule
 # explicitly off (with a reason) in biome.jsonc. `--error-on-warnings` makes
 # the gate fail on *any* warning, not just errors, so warning-severity lint
 # debt can no longer accrue invisibly on master (#1362).
-biome: install home-manager
+biome: install
     {{ nix_shell }} biome lint --error-on-warnings .
 
 

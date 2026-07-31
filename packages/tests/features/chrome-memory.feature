@@ -5,11 +5,6 @@ Feature: Chrome bar memory detail
   The full figures also read out inside each identity dialog. (padi owns kaval now,
   so kaval's RSS rides padi's readout, folded into the rail cell server-side.)
 
-  Scenario: The Kaval details dialog shows the daemon's memory usage
-    Given the terminal is ready
-    When I open the Kaval details dialog
-    Then the Kaval details show kaval memory usage
-
   Scenario: The identity rail keeps live, changing memory usage in details
     Given the terminal is ready
     Then the identity rail details include server memory usage

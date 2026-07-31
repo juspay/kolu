@@ -27,8 +27,12 @@
     let
       platform = import ./nix/each-system.nix;
       commitHash = builtins.readFile ./commit-hash;
+      # `expose` — every attr a remote may resolve from this tree. Its sibling
+      # `prove` (a strict subset, read by default.nix) is what must EVALUATE
+      # before the tree is handed out; see that file for why the two differ.
       agentPackages =
-        builtins.fromJSON (builtins.readFile ./nix/agent-packages.json);
+        (builtins.fromJSON
+          (builtins.readFile ./nix/agent-packages.json)).expose;
     in
     {
       packages = platform.withPkgs (pkgs:

@@ -330,6 +330,11 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   expect(oldPid).toBeTypeOf("number");
   if (oldPid === undefined) throw new Error("previous kaval gate has no pid");
   expect(isHolderLive(oldPid)).toBe(true);
+  // Previous binary still writes one-field gates; the current reader must
+  // yield the pid under the pid-first law (the #2011 rollback/forward window).
+  const previousGateBody = readFileSync(kavalGate, "utf8").trim();
+  expect(previousGateBody.includes("\t")).toBe(false);
+  expect(previousGateBody).toBe(String(oldPid));
 
   // 2) Boot CURRENT padi against the same state-root. Compatible contract →
   //    adopt (PTYs would survive); we then force-recycle via recycleKaval.
@@ -533,6 +538,13 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     throw new Error("current kaval gate has no pid");
   }
 
+  // Manual QA: previous supervisor Restart. Contract 6.0 deliberately rejects
+  // the previous padi's 5.3 expectation in this direction, so boot first
+  // recycles the current daemon to the previous wrapper-baked companion kaval.
+  // An env override does not re-point v2.0.0's spawn. We then drive the real
+  // recycleKaval path again; post-restart body asserts are the strongest
+  // available under that bake (pid-first rollback contract), not a false
+  // two-field claim.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     XDG_RUNTIME_DIR: RUNTIME_ROOT,
@@ -570,10 +582,58 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       },
       90_000,
     );
-    // The previous padi reached and adopted the already-running current kaval:
-    // the gate still names the same newer daemon instead of spawning its own.
-    expect(gatePid(kavalGate)).toBe(currentKavalPid);
-    expect(isHolderLive(currentKavalPid)).toBe(true);
+    // The previous padi proved the 6.0/5.3 major skew and replaced the current
+    // daemon with its companion 5.3 kaval. Rollback never adopts a peer whose
+    // removed procedure its client can still call.
+    const previousKavalPid = gatePid(kavalGate);
+    expect(previousKavalPid).toBeTypeOf("number");
+    expect(previousKavalPid).not.toBe(currentKavalPid);
+    expect(isHolderLive(currentKavalPid)).toBe(false);
+    if (previousKavalPid === undefined) {
+      throw new Error("previous padi replacement kaval gate has no pid");
+    }
+
+    // A1-6: drive the PREVIOUS supervisor's Restart path (literal Manual QA
+    // "Restart kaval. Still works"). recycleKaval has been on padi's lifecycle
+    // surface since the previous release tag used here — if a future previous
+    // window drops it, this call fails loud and the comment documents why.
+    const prevPadi = await unixSocketLink<PadiDaemonContract>({
+      socketPath: padiSock,
+    });
+    try {
+      await prevPadi.client.surface.padi.lifecycle.recycleKaval(undefined);
+
+      const recycleDeadline = Date.now() + 60_000;
+      let newPid: number | undefined;
+      while (Date.now() < recycleDeadline) {
+        const p = gatePid(kavalGate);
+        if (p !== undefined && isHolderLive(p) && p !== previousKavalPid) {
+          newPid = p;
+          break;
+        }
+        await sleep(200);
+      }
+      // (a) restart completed — a live replacement holds the gate
+      expect(
+        newPid,
+        `previous padi recycleKaval did not replace kaval (still ${previousKavalPid})`,
+      ).toBeTypeOf("number");
+      if (newPid === undefined) {
+        throw new Error("unreachable: newPid typed after toBeTypeOf number");
+      }
+      // (b) SIGTERM went to the original observation (not a stranger)
+      expect(isHolderLive(previousKavalPid)).toBe(false);
+      // (c) post-restart gate is still pid-first-readable naming the live
+      // replacement. Previous-release kaval writes one-field (wrapper-baked
+      // binary — see env comment above); assert the rollback contract, not
+      // a two-field body previous kaval cannot write.
+      const body = readFileSync(kavalGate, "utf8").trim();
+      expect(Number.parseInt(body, 10)).toBe(newPid);
+      expect(gatePid(kavalGate)).toBe(newPid);
+      expect(isHolderLive(newPid)).toBe(true);
+    } finally {
+      await prevPadi.dispose();
+    }
   } finally {
     for (const gate of [kavalGate, padiGatePath(padiSock)]) {
       const pid = gatePid(gate);

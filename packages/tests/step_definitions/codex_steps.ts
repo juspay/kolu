@@ -237,8 +237,11 @@ Then(
     await pollFor({
       observe: () =>
         this.page.evaluate(() => {
+          // Prefer a focused split's indicator (sub-terminal agents live there),
+          // then the main tile titlebar. Without the sub-terminal arm a split
+          // agent is invisible to this step even when detection is healthy.
           const el = document.querySelector(
-            '[data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
+            '[data-sub-terminal] [data-testid="agent-indicator"], [data-testid="canvas-tile"] [data-testid="agent-indicator"], [data-testid="mobile-tile-titlebar"] [data-testid="agent-indicator"]',
           );
           return {
             state: el?.getAttribute("data-agent-state") ?? null,

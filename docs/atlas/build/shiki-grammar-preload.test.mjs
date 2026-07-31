@@ -1,5 +1,5 @@
-// Teeth for the atlas-sync byte-shrink flake (flaky-test-tracker's
-// "release-workflow.html byte-shrinks under load" row; design note
+// Teeth for the atlas-sync byte-shrink flake ("release-workflow.html
+// byte-shrinks under load"; design note
 // bug-shiki-grammar-load-race): shiki's bundled `mdx` grammar declares its
 // embedded languages LAZILY (`embeddedLangs: []`, `embeddedLangsLazy:
 // ["yaml", ...]`), and astro's shared highlighter loads grammars per code

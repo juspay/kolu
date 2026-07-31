@@ -6,9 +6,9 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 import {
   converge,
-  createEndpoint,
   DaemonContractSkewError,
   type EndpointStatus,
   outcomeAdopted,

@@ -15,6 +15,8 @@ import {
   daemonMain,
   daemonProcessMain,
   frontDaemonOverStdio,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
   reExecAsDetachedDaemon,
   readBakedIdentity,
   stderrLogger,
@@ -34,7 +36,11 @@ const readIdentity = readBakedIdentity("FLEET_TOP");
 
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.
-export function runDaemon(controller: AbortController): void {
+export function runDaemon(
+  controller: AbortController,
+  processIdentity: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): void {
   // #region control-core
   // Serve these deps beside the versioned application surface. `hello` remains
   // readable even when that application contract is skewed; `drain` waits for
@@ -60,6 +66,8 @@ export function runDaemon(controller: AbortController): void {
       daemonMain({
         // gate, socket, anchor — all derived from home inside the spine
         home,
+        processIdentity, // injected (pid, startUnixUs) for this process
+        readProcessIdentity, // injected OS fact reader; the spine only compares
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
         log: stderrLogger(),

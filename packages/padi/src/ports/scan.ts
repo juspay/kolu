@@ -16,6 +16,7 @@ import {
   type SnapshotSourceFacet,
   type UnreadableRow,
   OsfactsClientError,
+  bakedOsFactsBin,
   snapshotFacetNames,
   snapshotSubtree,
 } from "osfacts-client";
@@ -210,16 +211,21 @@ export function unreadablePolicy(
 
 // ── Bake path ───────────────────────────────────────────────────────────
 
-/** Absolute path to the nix-built osfacts binary. Required; no PATH fallback. */
+/** Absolute path to the nix-built osfacts binary. Required; no PATH fallback.
+ *  Resolution is shared ({@link bakedOsFactsBin}); this wrapper keeps the
+ *  port-scan-domain error type callers of the sampler already depend on. */
 export function osfactsBinPath(): string {
-  const v = process.env.KOLU_OSFACTS_BIN;
-  if (!v) {
+  try {
+    return bakedOsFactsBin("KOLU_OSFACTS_BIN");
+  } catch (err) {
     throw new PortScanError(
       "blind",
-      "KOLU_OSFACTS_BIN is not set — it must be baked to the nix-built osfacts store path (run under the Nix wrapper that sets it, or `nix develop`). The port scan has no PATH fallback by design.",
+      err instanceof Error
+        ? `${err.message} The port scan has no PATH fallback by design.`
+        : "KOLU_OSFACTS_BIN is not set — the port scan has no PATH fallback by design.",
+      { cause: err },
     );
   }
-  return v;
 }
 
 // ── Join ────────────────────────────────────────────────────────────────

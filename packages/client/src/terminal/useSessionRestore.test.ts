@@ -228,6 +228,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
               ],
               activeTerminalId: "p0",
               savedAt: 1,
+              resumableIds: [],
             };
             const session = mount();
             // Let the hydration effect flush so the decision runs.
@@ -246,7 +247,7 @@ describe("useSessionRestore — isLoading gate (cold-launch restore race)", () =
 });
 
 describe("useSessionRestore — restore fires ONLY session.restore (respawn loop deleted)", () => {
-  it("issues session.restore with the resume set and ZERO lifecycle.* RPCs", async () => {
+  it("issues session.restore with resume intent and ZERO lifecycle.* RPCs", async () => {
     rpc.restore.mockClear();
     rpc.create.mockClear();
     rpc.sendInput.mockClear();
@@ -275,18 +276,23 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
               ],
               activeTerminalId: "0",
               savedAt: 1,
+              resumableIds: ["0"],
             };
             const session = mount();
             // Let the hydration effect flush so `savedSession()` is populated.
             await new Promise((r) => setTimeout(r, 0));
 
             await session.handleRestoreSession({
-              resumeIds: new Set(["0"]),
+              resumeAgents: true,
+              optOutIds: [],
             });
 
-            // ONE server call — the whole restore.
+            // ONE server call — the whole restore. Intent, not a client id list.
             expect(rpc.restore).toHaveBeenCalledTimes(1);
-            expect(rpc.restore).toHaveBeenCalledWith({ resumeIds: ["0"] });
+            expect(rpc.restore).toHaveBeenCalledWith({
+              resumeAgents: true,
+              optOutIds: undefined,
+            });
             // The deleted client respawn loop: zero of these fire.
             expect(rpc.create).not.toHaveBeenCalled();
             expect(rpc.sendInput).not.toHaveBeenCalled();
@@ -304,8 +310,8 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
 
   it("success toast reports 'Restored N terminals, resumed M agents' counts", async () => {
     // Pre-W1 wording restored (bare "Session restored" was a W1.R6 regression): N =
-    // terminals restored, M = the resume opt-in set's size (the resumable rows the
-    // card offered). Two saved terminals, one opted in → "Restored 2 terminals,
+    // terminals restored, M = host-served resumable set minus opt-outs. Two saved
+    // terminals, host stamps both resumable, one opted out → "Restored 2 terminals,
     // resumed 1 agent" (singular).
     toastSpy.success.mockClear();
     await new Promise<void>((resolve, reject) => {
@@ -329,11 +335,15 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
               terminals: [savedTerminal("0"), savedTerminal("1")],
               activeTerminalId: "0",
               savedAt: 1,
+              resumableIds: ["0", "1"],
             };
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
 
-            await session.handleRestoreSession({ resumeIds: new Set(["0"]) });
+            await session.handleRestoreSession({
+              resumeAgents: true,
+              optOutIds: ["1"],
+            });
 
             expect(toastSpy.success).toHaveBeenCalledWith(
               "Restored 2 terminals, resumed 1 agent",
@@ -381,6 +391,7 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
               ],
               activeTerminalId: "0",
               savedAt: 1,
+              resumableIds: [],
             };
             const session = mount();
             // Let the hydration effect flush so `savedSession()` is populated.
@@ -446,7 +457,12 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
     const activeMeta = (): TerminalMetadata =>
       ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
     h.sessionPending = false;
-    h.savedSession = { terminals: [], activeTerminalId: "B", savedAt: 1 };
+    h.savedSession = {
+      terminals: [],
+      activeTerminalId: "B",
+      savedAt: 1,
+      resumableIds: [],
+    };
     const { store, setActiveSilently, reconcileLiveIds } = makeMetaStore({
       list: [{ id: "A" }, { id: "B" }] as TerminalInfo[],
       meta: { A: activeMeta(), B: activeMeta() },
@@ -514,6 +530,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
       terminals: [],
       activeTerminalId: "P0",
       savedAt: 1,
+      resumableIds: [],
     };
 
     await new Promise<void>((resolve, reject) => {

@@ -34,6 +34,9 @@ assert_cmd = "2"
 predicates = "3"
 insta = { version = "1", features = ["json"] }
 proptest = "1"
+# Already in the lock as a transitive dev dependency — the socket-holders
+# fixtures bind a unix socket in a directory only that test owns.
+tempfile = "3"
 # cucumber MSRV is 1.88 (edition 2024); our pin is ≥1.93 — cleared.
 cucumber = "0.23"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "process", "io-util"] }

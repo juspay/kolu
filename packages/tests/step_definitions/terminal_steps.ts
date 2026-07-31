@@ -36,6 +36,11 @@ Given("the terminal is ready", async function (this: KoluWorld) {
 // ── Actions ──
 
 When("I run {string}", async function (this: KoluWorld, command: string) {
+  await this.terminalRunAndWait(command);
+  await this.waitForFrame();
+});
+
+When("I start {string}", async function (this: KoluWorld, command: string) {
   await this.terminalRun(command);
   await this.waitForFrame();
 });

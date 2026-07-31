@@ -47,6 +47,7 @@ import {
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
   importSession,
@@ -276,11 +277,43 @@ export function buildPadiSurfaceDeps(deps: {
         store: {
           get: () => {
             const s = requirePadiSessionStore().get();
-            return s && s.terminals.length > 0 ? s : null;
+            if (!s || s.terminals.length === 0) return null;
+            // Host stamps the resumable set on every serve — the client renders
+            // this list and may only subtract (opt-out); it never constructs it.
+            return {
+              ...s,
+              resumableIds: resumableTerminalIds(s.terminals),
+            };
           },
-          set: (v) => requirePadiSessionStore().set(v),
+          set: (v) => {
+            if (v === null) {
+              requirePadiSessionStore().set(null);
+              return;
+            }
+            // Stamp on the same object the cell bus will publish (applyAndPublish
+            // publishes `next`, not a post-set get) so every wire push carries
+            // host-owned membership. Persist only the disk shape — resumableIds
+            // is wire-only and recomputed on every get.
+            v.resumableIds = resumableTerminalIds(v.terminals);
+            requirePadiSessionStore().set({
+              terminals: v.terminals,
+              activeTerminalId: v.activeTerminalId,
+              savedAt: v.savedAt,
+            });
+          },
         },
-        equals: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+        // Compare disk shape only — `get()` always stamps `resumableIds`, while
+        // writers often pass the conf blob without it. Equality must not treat
+        // stamp presence as a content change (would defeat byte-identical dedup
+        // and remount the restore card on every re-save).
+        equals: (a, b) => {
+          const disk = (s: typeof a) => {
+            if (s === null) return null;
+            const { resumableIds: _drop, ...rest } = s;
+            return rest;
+          };
+          return JSON.stringify(disk(a)) === JSON.stringify(disk(b));
+        },
         onWrite: () => cancelPendingAutosave(),
       },
       // The activity feed — backed by padi's OWN state-root Conf, set by padi's
@@ -352,12 +385,17 @@ export function buildPadiSurfaceDeps(deps: {
       // remote tile's attach reaches its host (a remote endpoint arrives with the
       // cross-host work); local today.
       terminalAttach: {
-        source: async function* ({ id }, signal) {
+        source: async function* ({ id, resizeTo }, signal) {
           const entry = requireActiveTerminal(id);
+          // The caller's grid rides through to the host verbatim — it arrives as
+          // one composite, so there is nothing to validate or reassemble here.
+          // Note this makes the attach a WRITE: the host resizes the terminal to
+          // it before serializing (see `PadiTerminalAttachInputSchema`).
           const { snapshot, topLine, reflowEpoch, deltas } =
             await resolveTerminalEndpoint(entry.meta.location).attach(
               id,
               signal,
+              resizeTo,
             );
           // First frame is a `snapshot` carrying the backfill seed (`topLine`)
           // and the reflow generation (`reflowEpoch`) alongside the snapshot
@@ -441,8 +479,16 @@ export function buildPadiSurfaceDeps(deps: {
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`
         // (#1628) rather than throwing NOT_FOUND.
-        resize: ({ input }) => {
-          getActiveTerminal(input.id)?.handle.resize(input.cols, input.rows);
+        // AWAITED, unlike `sendInput` below: the quiet-drop on a killed terminal
+        // stays (that race is expected), but once a live terminal HAS been
+        // found, whether the host accepted the new grid is the caller's business
+        // — a client told "resized" while the PTY kept its old size would render
+        // against a size nothing has, silently.
+        resize: async ({ input }) => {
+          await getActiveTerminal(input.id)?.handle.resize(
+            input.cols,
+            input.rows,
+          );
         },
         sendInput: ({ input }) => {
           getActiveTerminal(input.id)?.handle.write(input.data);

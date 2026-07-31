@@ -2,6 +2,43 @@
 
 End-to-end tests using [Cucumber.js](https://github.com/cucumber/cucumber-js) with [Playwright](https://playwright.dev/) for browser automation.
 
+## E2E governance and timing
+
+E2E graduation is auditable before any scenario is deleted:
+
+- `scenario-inventory.json` is an append-only history of executable scenario
+  revisions. A revision fingerprints backgrounds, steps, tags, expanded
+  Examples values, data tables, and doc strings—not merely a scenario title or
+  row count.
+- `coverage-ledger.yaml` must contain a landed row for every revision that
+  disappears. Every row names its real defect surface, retained user journey,
+  and destination lane. A `replace` action also requires collected replacement
+  evidence and the human review note that accepted it as equivalent at the
+  declared defect surface; a `retain-smoke` action is covered by its strictly
+  stronger retained browser journey.
+- `just test-e2e-governance` compares inventory records with every committed
+  version of the inventory reachable from `HEAD`, so deleting or editing
+  history in a later commit fails even in detached CI.
+  New or intentionally
+  revised scenarios are appended with `cd packages/tests && pnpm
+  inventory:update` and then reviewed.
+- Every Cucumber run writes `reports/messages.ndjson` and reduces it to
+  `reports/e2e-timing.json`. The report keeps every attempt, retry, wall-clock
+  duration, final-attempt duration, and per-feature totals; reports remain
+  gitignored run artifacts.
+- `baseline-census.json` records Wave 0's starting census. Collect at least five
+  independently leased runs per platform in a `baseline-samples.json`, then run
+  `pnpm baseline:report baseline-samples.json baseline-summary.json`; the
+  reducer refuses fewer samples and reports medians and IQRs for E2E, unit,
+  daemon, whole-pipeline critical path, attempts, and retries.
+
+The ledger is a guardrail, not an equivalence oracle. CI proves immutable
+history, complete ledger rows, current browser survivors, non-empty platform
+declarations, and collection of every named test. Human review decides whether a
+replacement preserves the same user promise through the same defect surface;
+`reviewEvidence.note` records that non-executable decision without pretending
+CI proved semantic equivalence.
+
 ## Structure
 
 ```

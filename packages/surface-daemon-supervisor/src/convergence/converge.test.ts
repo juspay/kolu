@@ -19,13 +19,14 @@ import {
   type Logger,
 } from "@kolu/surface-daemon";
 import { afterEach, describe, expect, it } from "vitest";
+import { createEndpointForKoluTest as createEndpoint } from "../createEndpoint.kolu.testlib.ts";
+
 import { createConnectorDrainBudget } from "./budget.ts";
 import { convergeAdmit } from "./convergeAdmit.ts";
 import { converge, outcomeAdopted, outcomeAnomaly } from "./converge.ts";
 import { drainAndAwaitExit } from "./drainAndAwaitExit.ts";
 import { type InstanceKey, instanceKeyFromStartedAt } from "./instanceKey.ts";
 import type { ConnectorPolicy, ConvergencePolicy } from "./policy.ts";
-import { createEndpoint } from "../endpoint.ts";
 
 const silent: Logger = { debug() {}, info() {}, warn() {}, error() {} };
 

@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 /**
  * Recycle vs a foreign gate — pins what master actually does when the new
  * supervisor meets a previous-build (or garbage) gate.
@@ -6,9 +5,8 @@ import { dirname } from "node:path";
  * Two arms, both driven through the REAL supervisor endpoint (`createEndpoint`
  * → `ensure` = always-recycle boot) against the yesterday-daemon fixture:
  *
- *   (a) current gate shape + accepting socket → the live holder is SIGTERM'd,
- *       a fresh daemon is spawned, and a fresh gate is written by the spawn
- *       path (here the driver's spawn stands in for that write).
+ *   (a) #2011 one-field legacy gate + accepting socket → the live holder is
+ *       SIGTERM'd, a fresh daemon is spawned.
  *   (b) foreign/garbage gate shape → `gatePid` returns undefined, so
  *       `liveServingHolder` finds no holder; ensure proceeds to spawn WITHOUT
  *       killing the (unrelated) fixture child. The foreign gate is left for
@@ -21,24 +19,38 @@ import { dirname } from "node:path";
  * would die.
  */
 
+import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
+import { dirname } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { acquirePidGate, gatePid, isHolderLive } from "@kolu/surface-daemon";
+import { setSocketProbeDepsForTests } from "@kolu/surface-daemon/pidGate.testlib";
 import {
   plantYesterdayDaemon,
   type YesterdayDaemonOpts,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
 import {
-  createEndpoint,
+  createEndpoint as createEndpointCore,
   destructiveRecycleSteps,
   type EndpointStatus,
+  isSocketProbeIndeterminateError,
   recycle,
 } from "./index.ts";
+import {
+  testAcquireReadIdentity,
+  testReadProcessIdentity,
+  testSelfIdentity,
+  testStartUnixUs,
+} from "./createEndpoint.testlib.ts";
+import {
+  createEndpointForKoluTest as createEndpoint,
+  readSocketHoldersForKoluTests,
+} from "./createEndpoint.kolu.testlib.ts";
 
 const silentLog = {
   debug() {},
@@ -98,7 +110,11 @@ function fakeListen(socketPath: string): {
 }
 
 describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
-  it("(a) current gate shape: ensure recycles the live holder and spawns fresh", async () => {
+  it("(a) #2011: one-field legacy gate — recycle SIGTERMs the right pid", async () => {
+    // The fixture plants a one-field gate (yesterday's format). Under the
+    // pid-first law the current reader must still yield that pid so recycle
+    // can kill the holder — the exact production brick in #2011 was a reader
+    // that refused the shape and silently no-oped the recycle.
     const d = await plantYesterdayDaemon(
       fixtureOptions({ gate: { kind: "current" } }),
     );
@@ -106,6 +122,8 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     if (d.process.kind !== "live") throw new Error("expected live process");
     const survivor = d.process;
     const survivorPid = survivor.pid;
+    expect(readFileSync(d.gatePath, "utf8").trim()).toBe(String(survivorPid));
+    expect(gatePid(d.gatePath)).toBe(survivorPid);
     const survivorExited = new Promise<void>((resolve) => {
       survivor.child.once("exit", () => resolve());
     });
@@ -183,6 +201,76 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     expect(statuses.map((s) => s.state)).toContain("connected");
   });
 
+  it("two-field identity match + socket down: recycle still SIGTERMs the holder", async () => {
+    // Supervisor liveServingHolder two-field arm: identity is truth — socket
+    // need not accept for a kill target (mid-boot / dead socket).
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivor = d.process;
+    const survivorPid = survivor.pid;
+    // Overwrite fixture one-field plant with two-field matching the test
+    // inject (startUnixUs = pid * 1000).
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+    expect(gatePid(d.gatePath)).toBe(survivorPid);
+
+    const survivorExited = new Promise<void>((resolve) => {
+      survivor.child.once("exit", () => resolve());
+    });
+    let spawned = false;
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          expect(isHolderLive(survivorPid)).toBe(false);
+          spawned = true;
+          const fresh = fakeListen(d.socketPath);
+          servers.push(fresh.server);
+          await fresh.listen();
+          writeFileSync(
+            d.gatePath,
+            `${process.pid}\t${testStartUnixUs(process.pid)}\n`,
+          );
+        },
+      },
+      connect: async () => ({
+        client: "fresh",
+        identity: { staleKey: "fresh" },
+        startedAt: Date.now(),
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    await recycle(endpoint, destructiveRecycleSteps());
+    await survivorExited;
+    expect(spawned).toBe(true);
+    expect(isHolderLive(survivorPid)).toBe(false);
+  });
+
   it("(b) foreign gate shape: ensure does NOT kill the fixture child; acquirePidGate reaps the garbage and proceeds", async () => {
     const d = await plantYesterdayDaemon(
       fixtureOptions({
@@ -208,7 +296,11 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     expect(foreignContent).toBe("not-a-pid-at-all\n");
     expect(gatePid(d.gatePath)).toBeUndefined();
 
-    const claim = acquirePidGate(d.gatePath);
+    const claim = acquirePidGate(
+      d.gatePath,
+      testSelfIdentity,
+      testAcquireReadIdentity,
+    );
     expect(claim.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (claim.kind === "acquired") claim.release();
@@ -281,10 +373,366 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     fixtures.push(d);
 
     expect(gatePid(d.gatePath)).toBeUndefined();
-    const gate = acquirePidGate(d.gatePath);
+    const gate = acquirePidGate(
+      d.gatePath,
+      testSelfIdentity,
+      testAcquireReadIdentity,
+    );
     expect(gate.kind).toBe("acquired");
     expect(gatePid(d.gatePath)).toBe(process.pid);
     if (gate.kind === "acquired") gate.release();
     expect(existsSync(d.gatePath)).toBe(false);
+  });
+
+  it("async identity rewrite mid-resolve: SIGTERM targets the original observation (R3-4)", async () => {
+    // liveServingHolder reads the gate once. A deferred reader that rewrites
+    // the gate to a different live pid must not redirect the kill target.
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivor = d.process;
+    const survivorPid = survivor.pid;
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+
+    // Decoy: a second live child whose two-field identity lands on the gate
+    // mid-resolve. Must not be the SIGTERM target.
+    const { spawn } = await import("node:child_process");
+    assertDaemonSpawnAllowed("decoy live child for R3-4");
+    const decoy = spawn(
+      process.execPath,
+      ["-e", "setTimeout(() => {}, 60000)"],
+      {
+        stdio: "ignore",
+      },
+    );
+    if (decoy.pid === undefined) throw new Error("decoy failed to start");
+    const decoyPid = decoy.pid;
+    let decoyDied = false;
+    decoy.once("exit", () => {
+      decoyDied = true;
+    });
+
+    const survivorExited = new Promise<void>((resolve) => {
+      survivor.child.once("exit", () => resolve());
+    });
+
+    let spawned = false;
+    const endpoint = createEndpointCore({
+      hostId: "local",
+      readSocketHolders: readSocketHoldersForKoluTests,
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      readProcessIdentity: async (pid) => {
+        const id = testReadProcessIdentity(pid);
+        if (pid === survivorPid) {
+          // Defer so the rewrite sits between gate read and identity return.
+          await new Promise((r) => setTimeout(r, 5));
+          writeFileSync(
+            d.gatePath,
+            `${decoyPid}\t${testStartUnixUs(decoyPid)}\n`,
+          );
+        }
+        return id;
+      },
+      driver: {
+        spawn: async () => {
+          expect(isHolderLive(survivorPid)).toBe(false);
+          spawned = true;
+          const fresh = fakeListen(d.socketPath);
+          servers.push(fresh.server);
+          await fresh.listen();
+          writeFileSync(
+            d.gatePath,
+            `${process.pid}\t${testStartUnixUs(process.pid)}\n`,
+          );
+        },
+      },
+      connect: async () => ({
+        client: "fresh",
+        identity: { staleKey: "fresh" },
+        startedAt: Date.now(),
+        dispose() {},
+        onClose() {},
+      }),
+      log: silentLog,
+      onStatus: () => {},
+      socketPollMs: 5,
+    });
+
+    try {
+      await recycle(endpoint, destructiveRecycleSteps());
+      await survivorExited;
+      expect(spawned).toBe(true);
+      expect(isHolderLive(survivorPid)).toBe(false);
+      // Decoy must survive — kill target was the original observation only.
+      expect(decoyDied).toBe(false);
+      expect(isHolderLive(decoyPid)).toBe(true);
+    } finally {
+      decoy.kill("SIGKILL");
+    }
+  });
+
+  it("async readProcessIdentity rejection surfaces with connecting→dead (R3-5 / R4-2)", async () => {
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+
+    const boom = new Error("osfacts inject failed (R3-5)");
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpointCore<string, Identity>({
+      hostId: "local",
+      readSocketHolders: readSocketHoldersForKoluTests,
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      readProcessIdentity: async () => {
+        throw boom;
+      },
+      driver: {
+        spawn: async () => {
+          throw new Error("spawn must not run when identity rejects");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run when identity rejects");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await expect(recycle(endpoint, destructiveRecycleSteps())).rejects.toThrow(
+      boom,
+    );
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+  });
+
+  it("one-field + indeterminate socket: spawn never runs, fail loud (R4-1)", async () => {
+    // Boolean collapse would treat indeterminate as free and reach spawn.
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    // One-field gate so the supervisor takes the socket-serve fold.
+    writeFileSync(d.gatePath, `${survivorPid}\n`);
+
+    // Real listening socket (lstat isSocket) + hanging connect → indeterminate.
+    const hangServer = createServer();
+    servers.push(hangServer);
+    await new Promise<void>((resolve, reject) => {
+      hangServer.once("error", reject);
+      hangServer.listen(d.socketPath, () => {
+        hangServer.off("error", reject);
+        resolve();
+      });
+    });
+    const hangConnect = (() => {
+      const fake = new EventEmitter() as Socket;
+      fake.destroy = () => {
+        fake.removeAllListeners();
+        return fake;
+      };
+      return fake;
+    }) as typeof import("node:net").createConnection;
+    setSocketProbeDepsForTests({ connect: hangConnect, probeMs: 30 });
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+          throw new Error("spawn-reached-after-indeterminate");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    try {
+      await expect(
+        recycle(endpoint, destructiveRecycleSteps()),
+      ).rejects.toSatisfy(
+        (err: unknown) =>
+          isSocketProbeIndeterminateError(err) && err.gatePid === survivorPid,
+      );
+      expect(spawned).toBe(false);
+      expect(isHolderLive(survivorPid)).toBe(true);
+      expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    } finally {
+      setSocketProbeDepsForTests();
+    }
+  });
+
+  it("unreadable gate (mode 000) throws at ensure — never spawns (A1-1)", async () => {
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(
+      d.gatePath,
+      `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
+    );
+    const { chmodSync } = await import("node:fs");
+    chmodSync(d.gatePath, 0o000);
+
+    let spawned = false;
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        socketPath: d.socketPath,
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          spawned = true;
+          throw new Error("spawn must not run on unreadable gate");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run on unreadable gate");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    try {
+      await expect(
+        recycle(endpoint, destructiveRecycleSteps()),
+      ).rejects.toThrow(/unreadable/);
+      expect(spawned).toBe(false);
+      expect(isHolderLive(survivorPid)).toBe(true);
+      expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
+    } finally {
+      try {
+        chmodSync(d.gatePath, 0o600);
+      } catch {
+        // restore for fixture dispose
+      }
+    }
+  });
+
+  it("non-ENOENT socket lstat rejection emits connecting→dead (R4-2)", async () => {
+    if (process.platform !== "linux") return;
+    // One-field live holder + ENOTDIR socket path → probe rejects, status must
+    // not wedge on connecting.
+    const d = await plantYesterdayDaemon(
+      fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
+    );
+    fixtures.push(d);
+    if (d.process.kind !== "live") throw new Error("expected live process");
+    const survivorPid = d.process.pid;
+    writeFileSync(d.gatePath, `${survivorPid}\n`);
+
+    const statuses: EndpointStatus<Identity>[] = [];
+    const endpoint = createEndpoint<string, Identity>({
+      hostId: "local",
+      home: {
+        dir: dirname(d.socketPath),
+        gatePath: d.gatePath,
+        // /proc/1/mem/child → ENOTDIR on Linux
+        socketPath: "/proc/1/mem/child",
+      },
+      policy: {
+        capability: "not-drainable",
+        baked: {
+          contractVersion: "test",
+          build: { kind: "known", id: "test-build" },
+        },
+        onContractSkew: { kind: "recycle" },
+        onBuildMismatch: { kind: "nudge-human" },
+      },
+      probe: async () => null,
+      driver: {
+        spawn: async () => {
+          throw new Error("spawn must not run on lstat reject");
+        },
+      },
+      connect: async () => {
+        throw new Error("connect must not run on lstat reject");
+      },
+      log: silentLog,
+      onStatus: (_h, s) => statuses.push(s),
+      socketPollMs: 5,
+    });
+
+    await expect(
+      recycle(endpoint, destructiveRecycleSteps()),
+    ).rejects.toMatchObject({ code: "ENOTDIR" });
+    expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 });

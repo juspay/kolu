@@ -184,6 +184,46 @@ Then(
   },
 );
 
+/** Poll a data-testid element's OWN text until it includes `expected` — used
+ *  to prove the Work chips (branch / repo / directory) repaint when the
+ *  active terminal switches, not merely that they are non-empty (stale text
+ *  from the PREVIOUS terminal is non-empty too — see WorkSection.test.tsx). */
+async function waitForInspectorChipText(
+  world: KoluWorld,
+  testId: string,
+  expected: string,
+): Promise<void> {
+  await world.page.waitForFunction(
+    ({ testId, expected }) => {
+      const el = document.querySelector(`[data-testid="${testId}"]`);
+      return (el?.textContent ?? "").includes(expected);
+    },
+    { testId, expected },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
+Then(
+  "the inspector branch chip should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-branch", expected);
+  },
+);
+
+Then(
+  "the inspector repo chip should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-repo", expected);
+  },
+);
+
+Then(
+  "the inspector directory should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-directory", expected);
+  },
+);
+
 Then(
   "the inspector should show a theme section",
   async function (this: KoluWorld) {

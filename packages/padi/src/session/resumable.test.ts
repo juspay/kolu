@@ -1,13 +1,11 @@
-import { LOCAL_LOCATION, type SavedTerminal } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
-import { resumableTerminalIds } from "./restoreModel.ts";
+import { LOCAL_LOCATION, type SavedTerminal } from "../vocab.ts";
+import { resumableTerminalIds } from "./resumable.ts";
 
 const base = {
   cwd: "/work/repo",
   git: null,
-  // `pr` is restore-relevant now (persisted like `git`); every SavedTerminal
-  // carries it. A pre-cutover record with no resolved PR is `{ kind: "absent" }`.
-  pr: { kind: "absent" },
+  pr: { kind: "absent" as const },
   location: LOCAL_LOCATION,
   lastActivityAt: 0,
 } as const;
@@ -17,8 +15,6 @@ const base = {
  *  resumes rather than waking to a bare shell). */
 const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
 
-/** An `exact` restore target for the given command — what `restoreTargetOf`
- *  produces for a terminal whose agent was live. */
 const exactTarget = (command: string): SavedTerminal["restoreTarget"] => ({
   kind: "exact",
   command,
@@ -37,8 +33,6 @@ const sleepingWithAgent: SavedTerminal = {
   id: "sleeping-agent",
   state: "sleeping",
   sleptAt: 1,
-  // A sleeping record keeps its `restoreTarget` on its persisted base — but it
-  // restores DORMANT, so it must NOT count as a resumable agent.
   lastAgentCommand: "claude --permission-mode auto",
   restoreTarget: exactTarget("claude --permission-mode auto"),
 };
@@ -51,8 +45,6 @@ const activeQuitToShell: SavedTerminal = {
   ...base,
   id: "active-quit",
   state: "active",
-  // Ran an agent, then quit to a shell: `lastAgentCommand` lingers but the fold
-  // wrote `restoreTarget: none`, so wake brings back a bare shell — NOT resumable.
   lastAgentCommand: "claude --permission-mode auto",
   restoreTarget: { kind: "none" },
 };
@@ -65,8 +57,8 @@ const subWithAgent: SavedTerminal = {
   restoreTarget: exactTarget("claude"),
 };
 
-describe("resumableTerminalIds", () => {
-  it("excludes SLEEPING, quit-to-shell, and sub terminals — only a live exact/legacy target resumes", () => {
+describe("resumableTerminalIds (host-owned)", () => {
+  it("includes parented ACTIVE agents — splits resume too", () => {
     const ids = resumableTerminalIds([
       activeWithAgent,
       sleepingWithAgent,
@@ -74,8 +66,9 @@ describe("resumableTerminalIds", () => {
       activeQuitToShell,
       subWithAgent,
     ]);
-    // Only the live, top-level terminal with a resumable target counts.
-    expect(ids).toEqual(["active-agent"]);
+    // Live exact targets only; sleeping / quit-to-shell / bare shell excluded.
+    // The parented sub IS included — that is the bug class this fold closes.
+    expect(ids).toEqual(["active-agent", "sub-agent"]);
   });
 
   it("counts a `legacyMostRecent` target (migrated pre-1.29 record)", () => {
@@ -94,9 +87,6 @@ describe("resumableTerminalIds", () => {
   });
 
   it("excludes an `exact` target whose id can't actually resume (matches wake)", () => {
-    // The count must agree with what wake does: an `exact` id that fails its
-    // shell-safe shape gate yields a bare shell on wake (`resumeFormFor` → null), so
-    // it must NOT inflate the resumable count even though its kind is `exact`.
     const brokenId: SavedTerminal = {
       ...base,
       id: "active-broken-id",

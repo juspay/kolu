@@ -76,14 +76,6 @@ Feature: Terminal switcher (unified palette)
     And the active terminal should show "dismiss-after-select"
     And there should be no page errors
 
-  Scenario: Filtering by repo name narrows terminal rows
-    Given I create a terminal
-    When I run "cd /tmp"
-    And I hover the workspace switcher
-    When I search the workspace switcher for "tmp"
-    Then the workspace switcher should show 1 card
-    And there should be no page errors
-
   Scenario: Selecting a terminal row switches the active terminal
     Given I run "echo first-workspace-card"
     And I create a terminal

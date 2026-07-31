@@ -4,19 +4,19 @@
  * `kaval` owns **only** the PTY: the node-pty children, the
  * `@xterm/headless` screen mirror, and the raw VT-derived taps. It knows
  * nothing of git / PR / agent-detection — that volatile, most-edited code
- * (the provider DAG) runs in kolu-server, which consumes these raw taps and
- * runs detection fresh. This contract is the `PtyHost` interface projected
+ * runs in padi, which consumes these raw taps and runs detection fresh. This
+ * contract is the `PtyHost` interface projected
  * onto a wire: control RPCs (spawn / kill / write / resize / list / screen)
  * plus the raw tap streams (attach bytes · cwd · title · command-run ·
  * foreground · exit).
  *
- * In-process today, kolu-server consumes this contract through the identity
- * link (`directLink` over `servePtyHost`'s router — `implementSurface` with no
- * wire). The point of stating it as a *contract* now
- * is that the consumer is written against `ContractRouterClient<contract>`,
- * so a later step can serve the same shape over a unix socket (a surviving
- * daemon) or ssh stdio (a remote pty-host) by swapping only which morphism
- * builds the client — the consumer is invariant. See
+ * Today the surviving kaval daemon serves this contract over its unix socket;
+ * padi is its supervisor and primary client. `kaval-tui` reaches the same
+ * surface locally, while its ssh stdio front reaches the daemon remotely. The
+ * transport-independent `ContractRouterClient<contract>` keeps those consumers
+ * invariant. The frozen control identity/drain fragment is served beside this
+ * versioned surface, so connection identity is established before this wire is
+ * judged for compatibility. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
@@ -25,8 +25,8 @@
  * from `@kolu/surface/define`; an incompatible skew is the (rare, accepted)
  * forced restart. The *build
  * identity* — a finer per-build key for an "update pending" nudge on a
- * wire-compatible but stale survivor — is a separate concern layered onto
- * `system.version` later; this module defines only the wire shape.
+ * wire-compatible but stale survivor — remains a separate frozen-control
+ * concern; this module defines only the versioned wire shape.
  *
  * Layering note. Co-locating the contract here gives `kaval` a
  * **contract-definition-only** dependency on `@kolu/surface` (just
@@ -180,8 +180,16 @@ import { z } from "zod";
  *  degrades to the status quo), there is no graceful degradation for an absent
  *  stream live-activity cutover depends on — so the minor bump correctly
  *  force-recycles a surviving old kaval (its session parks + restores) rather than
- *  leave a consumer talking to a stream that isn't there. */
-export const PTY_HOST_CONTRACT_VERSION = "5.3";
+ *  leave a consumer talking to a stream that isn't there.
+ *
+ *  Bumped to 6.0 (BREAKING · major): `system.processMemory` is REMOVED after padi
+ *  moved both its own and kaval's RSS reads to one baked osfacts `--mem` call. A
+ *  5.3 client meeting a 6.0 daemon would call a missing procedure; a 6.0 client
+ *  meeting a 5.3 daemon simply leaves a dead member unused. Only a major rejects
+ *  both directions, so rollback never waves the missing-procedure direction
+ *  through. `system.version` is byte-for-byte unchanged — its exact schema pin
+ *  remains the frozen handshake used before compatibility is judged. */
+export const PTY_HOST_CONTRACT_VERSION = "6.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -189,6 +197,48 @@ export const PTY_HOST_CONTRACT_VERSION = "5.3";
 const PtyIdSchema = z.string();
 
 const TerminalIdInputSchema = z.object({ id: PtyIdSchema });
+
+/** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
+ *  surface has: every member that carries a grid reuses it, so tightening the
+ *  rule is one edit rather than a re-derivation per member. */
+export const PtyGridSchema = z.object({
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+});
+export type PtyGrid = z.infer<typeof PtyGridSchema>;
+
+/** Attach input: the PTY, plus — optionally — a grid to RESIZE it to first.
+ *
+ *  `resizeTo` is not a description of the caller; it is a command. The host
+ *  runs the full `resize()` before serializing: SIGWINCH to the child, a reflow
+ *  of the SHARED mirror, and on a width change a reflow-epoch bump that stales
+ *  every other attached client's backfill cursor. Attaching is therefore a
+ *  WRITE to shared, process-visible state whenever this is present and differs
+ *  from the PTY's current grid; the cross-client policy is last-attach-wins.
+ *
+ *  It is fused with the attach on purpose: the snapshot is bytes laid out for a
+ *  specific cols×rows, so resize-and-serialize must be ONE act — rather than
+ *  the consumer publishing its size through a separate `resize` and hoping it
+ *  lands first. When it didn't, nothing repaired the screen: a same-dimensions
+ *  `resize` is (correctly) a no-op, so no SIGWINCH reached the process and the
+ *  consumer was left reflowing a snapshot laid out for a width it never had.
+ *  Omit it only when the caller has no grid of its own (a CLI dumping the
+ *  screen), which reads the PTY at its current size.
+ *
+ *  OPTIONAL, and deliberately carried WITHOUT a contract bump. Absence degrades
+ *  to exactly the previous reading in both skew directions (a 6.0 daemon strips
+ *  it and serializes at its own size; a newer daemon serving an older padi
+ *  receives none and does the same) — the `commandRooted` / `shellJoin` class
+ *  this contract already documents as no-bump, not the emitted-variant class
+ *  that must recycle. Bumping would force-recycle a surviving kaval, killing
+ *  the user's live PTYs, to buy a graceful improvement. */
+const TerminalAttachInputSchema = z.object({
+  id: PtyIdSchema,
+  // ONE optional composite, never two optional scalars — see the note on padi's
+  // mirror of this schema. Half a grid is not a size, so it must not be a
+  // sendable request rather than something each reader remembers to discard.
+  resizeTo: PtyGridSchema.optional(),
+});
 
 /** A file the client wants present on the host before the shell starts — a
  *  wrapper rcfile (bash `--rcfile`, zsh `ZDOTDIR/.zshrc`), named relative to
@@ -244,11 +294,9 @@ const TerminalWriteInputSchema = z.object({
   data: z.string(),
 });
 
-const TerminalResizeInputSchema = z.object({
-  id: PtyIdSchema,
-  cols: z.number().int().positive(),
-  rows: z.number().int().positive(),
-});
+// The SAME grid rule the attach carries — `resize` and `attach` describe one
+// value with one meaning, so they must not derive it twice.
+const TerminalResizeInputSchema = PtyGridSchema.extend({ id: PtyIdSchema });
 
 /** A PTY the pty-host still owns. The minimal shape kolu-server needs to
  *  reattach by id across its own restart. */
@@ -383,15 +431,6 @@ const SystemHeartbeatOutputSchema = z.object({
   ts: z.number(),
 });
 
-/** The daemon's resident-set size (`process.memoryUsage().rss`, bytes) at reply
- *  time — its own atomic verb so it changes for its own reason (what
- *  process-memory facts the rail wants), independent of `system.heartbeat`'s
- *  pure liveness round-trip. The server folds `rss` onto the rail's kaval memory
- *  readout. */
-const SystemProcessMemoryOutputSchema = z.object({
-  rss: z.number(),
-});
-
 /** Host facts a client reads once per connection to compose spawn policy for
  *  *this* host — including one it isn't running on (the R-2 remote enabler).
  *  `shell`/`home` are the host's login shell and `$HOME`; `platform` is its
@@ -415,7 +454,7 @@ export const ptyHostSurface = defineSurface({
   streams: {
     /** Per-terminal output stream — snapshot then live deltas. */
     terminalAttach: {
-      inputSchema: TerminalIdInputSchema,
+      inputSchema: TerminalAttachInputSchema,
       outputSchema: TerminalDataMsgSchema,
     },
     /** OSC 7 cwd reports. */
@@ -495,6 +534,10 @@ export const ptyHostSurface = defineSurface({
         input: TerminalWriteInputSchema,
         output: z.object({ ok: z.boolean() }),
       },
+      // `ok` is a real answer, not a constant: FALSE means the host had no such
+      // PTY (it exited before the call arrived), so the caller's grid claim
+      // landed on nothing. TRUE covers both a real resize and an exact
+      // same-dimensions no-op — either way the PTY now holds that grid.
       resize: {
         input: TerminalResizeInputSchema,
         output: z.object({ ok: z.boolean() }),
@@ -584,12 +627,6 @@ export const ptyHostSurface = defineSurface({
     system: {
       version: { input: z.object({}), output: SystemVersionOutputSchema },
       heartbeat: { input: z.object({}), output: SystemHeartbeatOutputSchema },
-      /** The daemon's own process RSS — its own atomic verb so liveness and
-       *  process-memory observability change for unrelated reasons (3.2). */
-      processMemory: {
-        input: z.object({}),
-        output: SystemProcessMemoryOutputSchema,
-      },
       /** Host facts for client-side spawn-policy composition (B0). */
       info: { input: z.object({}), output: SystemInfoOutputSchema },
     },

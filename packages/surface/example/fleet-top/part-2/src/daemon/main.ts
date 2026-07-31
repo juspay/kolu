@@ -31,6 +31,10 @@ import {
   stderrLogger,
 } from "@kolu/surface-daemon";
 import { HOME } from "../common/paths";
+import {
+  readProcessIdentity,
+  selfProcessIdentity,
+} from "../common/processIdentity";
 import { createTop } from "./top";
 
 daemonProcessMain({
@@ -49,6 +53,8 @@ daemonProcessMain({
       return await daemonMain({
         // gate, socket, anchor — all derived from home inside the spine
         home: HOME,
+        processIdentity: selfProcessIdentity(),
+        readProcessIdentity,
         router: top.router,
         lifetime: { kind: "forever" },
         log: stderrLogger(),

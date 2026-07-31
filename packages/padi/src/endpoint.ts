@@ -59,6 +59,16 @@ import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
  *  `reattachingDeltas` so both sides read the one source of truth. */
 export const TERMINAL_RESET = "\x1bc";
 
+/** A terminal grid — cols × rows. padi's OWN boundary type, deliberately not
+ *  imported from the xterm kit or kaval (this module imports zero kaval/kit
+ *  symbols by design — same rule that makes `PtySpawnOpts` a hand-declaration
+ *  here); it carries a distinct name so padi's grid and the kit's
+ *  identically-shaped grid type never read as one type in a grep. */
+export interface EndpointGrid {
+  cols: number;
+  rows: number;
+}
+
 /** A late-joining client's view of a terminal: the screen state at attach
  *  time plus the live output stream from exactly that point forward. The
  *  endpoint produces both atomically (subscribe-before-serialize) so no
@@ -160,7 +170,11 @@ export interface TerminalHandle {
    *  it. Optional so a handle whose PTY exists at construction can omit it. */
   readonly ready?: Promise<void>;
   write(data: string): void;
-  resize(cols: number, rows: number): void;
+  /** Awaited, unlike `write`: a resize is a CLAIM about the consumer's grid, and
+   *  a claim the host never accepted leaves that consumer rendering against a
+   *  size the PTY does not have. The caller must be able to learn it failed, so
+   *  this rejects rather than logging and resolving. */
+  resize(cols: number, rows: number): Promise<void>;
   /** Serialized screen state (VT escape sequences) for late-joining
    *  clients. Empty string when the PTY hasn't produced output yet. Always a
    *  Promise: even the local handle reads it through the pty-host contract,
@@ -217,10 +231,21 @@ export interface TerminalEndpoint {
    *  and the delta stream subscribed atomically, so the boundary between
    *  them loses and duplicates nothing. Always a Promise — the attach stream
    *  is opened through the pty-host contract (over the wire for a socket/ssh
-   *  endpoint). */
+   *  endpoint).
+   *
+   *  `resizeTo` RESIZES the terminal before serializing — a real resize, with a
+   *  SIGWINCH to the child and a reflow of the mirror every other attached
+   *  client shares, so this "read" is a WRITE whenever it is present and differs
+   *  from the terminal's current grid (policy: last-attach-wins). Fused on
+   *  purpose: the returned bytes are laid out for a specific cols×rows, so the
+   *  size must travel WITH the request instead of racing it through a separate
+   *  resize. Omitted means "serialize at whatever size the PTY currently has",
+   *  which is only correct for a caller that has no grid of its own (a CLI
+   *  dumping the screen). */
   attach(
     id: TerminalId,
     signal: AbortSignal | undefined,
+    resizeTo?: EndpointGrid,
   ): Promise<TerminalAttachment>;
 
   readonly fs: TerminalEndpointFs;

@@ -8,7 +8,8 @@
 
 The TypeScript face of the [osfacts](../) binary. Spawn it at a path you
 supply, refuse a schema version you do not speak, and hand back typed
-process, listener, unreadable, source-error, and host rows. Nothing more.
+process, listener, socket-holder, unreadable, source-error, and host rows.
+Nothing more.
 
 ```ts
 import { snapshotHost } from "osfacts-client";
@@ -30,9 +31,17 @@ if (reading.errors.length > 0) {
 
 No `@kolu` imports. No npm runtime dependencies — only `node:child_process`
 and friends — so a second consumer can pin this package without dragging
-kolu's monorepo graph. kolu (via padi) is the first consumer; drishti is
-the next (replacing a hand-rolled `lsof` path). Policy about what a bind
-*means* (scope, fold, blindness) lives with the consumer, not here.
+kolu's monorepo graph. kolu (via padi and its daemon supervisor) and drishti
+both ship it.
+
+Policy about what a fact *means* — which blindness matters, whether to reject
+or render a partial reading, what to do about a holder — is the consumer's,
+not this package's. The one deliberate exception: where a verb's reading has a
+single honest domain answer every consumer would otherwise hand-write the same
+way, the FOLD ships here beside the parser (`processIdentity*` over the
+start-time reading, `socketHolders`/`foldSocketOccupancy` over the holder
+reading). Both keep an "absent" arm that must never collapse into the others,
+which is exactly the mistake a per-consumer copy makes.
 
 ## What it does
 
@@ -48,12 +57,22 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
   listener rows with explicit
   claimed/unclaimed status and network-order hex addresses; host gauges and
   cumulative counters; unreadable facets; and source errors.
-- Keep the two verbs apart. `snapshot*` returns a `SnapshotReading` and
-  `host` returns a `HostReading` — separate types, separate parsers, separate
-  facet vocabularies. Feeding one verb's output to the other's parser is a
-  loud error, not a silently empty field, and `mem` can mean process RSS in
-  one and host RAM in the other without a consumer matching across them by
-  accident.
+- Ask which processes hold a unix socket path. `socketHolders(bin, path, {
+  procs: true })` returns a `SocketHoldersReading` whose `holders` are
+  discriminated rows — `{ status: "claimed", pid }` or `{ status: "unclaimed"
+  }` — so a bound socket nobody readable claims stays distinct from an empty
+  answer, and a blind search stays distinct from both.
+- Keep the three verbs apart. `snapshot*` returns a `SnapshotReading`,
+  `socketHolders` a `SocketHoldersReading`, and `host` a `HostReading` —
+  separate types, separate parsers, separate facet vocabularies. Feeding one
+  verb's output to another's parser is a loud error, not a silently empty
+  field, and `mem` can mean process RSS in one and host RAM in the other
+  without a consumer matching across them by accident.
+- Refuse a document the binary wrote while REFUSING the ask. The version line
+  is written on the usage path too, so only exit 1 — the documented
+  "V line, then E rows" total failure — is parsed. An older binary that lacks
+  the verb you asked for exits 2, and reading that as "nothing found" is how a
+  caller concludes a live socket is free.
 - Name the facets an ask can be answered with. `snapshotFacetNames({ procs:
   true, ports: true })` returns
   `{ unreadable: ["proc", "ports"], source: ["proc", "ports",
@@ -74,8 +93,8 @@ the next (replacing a hand-rolled `lsof` path). Policy about what a bind
 
 ## The facet vocabulary
 
-`UNREADABLE_FACETS`, `SNAPSHOT_SOURCE_FACETS`, and `HOST_SOURCE_FACETS` are
-not maintained by hand against the binary. `osfacts/facets.json` is checked in
+`UNREADABLE_FACETS`, `SNAPSHOT_SOURCE_FACETS`, `SOCKET_HOLDERS_SOURCE_FACETS`,
+and `HOST_SOURCE_FACETS` are not maintained by hand against the binary. `osfacts/facets.json` is checked in
 beside the Rust crate, a Rust test pins it to the `Facet` enum that produces
 every wire name, and `src/facets.test.ts` pins these three lists to the same
 file. Adding a facet on one side without the other fails the unit lane on both

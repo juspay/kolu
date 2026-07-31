@@ -31,10 +31,20 @@ const ENTRY = resolve(SRC, "index.ts");
 // probeDaemonIdentity is shared supervisor spine, and making every consumer
 // reassemble the same stdio dial/handshake would duplicate the skew boundary
 // this package exists to own. Emphatically NO kolu-* app package.
+// OSF4 admits the `osfacts-client` edge: `ReadSocketHolders` is stated in the
+// tool client's vocabulary (`SocketHolder` / `SocketOccupancy`, re-exported
+// from `socketHolder.ts`), because the fold that produces that answer lives
+// beside the parser there — one home for kolu and drishti both, rather than the
+// same three-way hand-written twice. Type-only today, and the guard counts type
+// imports too, which is why the entry stays. It is admissible for the same
+// reason the surface edge is — a zero-dependency, Node-builtins-only, un-scoped
+// leaf that both consumers already ship, not an app package. Emphatically still
+// NO kolu-* app package.
 const ALLOWED_EXTERNAL = [
   "node:",
   "@kolu/surface",
   "@kolu/surface-daemon",
+  "osfacts-client",
   "ts-pattern",
 ];
 
