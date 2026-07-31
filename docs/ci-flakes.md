@@ -153,19 +153,32 @@ retries.
   and `Truncated Markdown warns and renders task checkboxes read-only`.
   Each `git commit` returned status 128; each retried scenario subsequently
   passed.
-- **Root cause:** under investigation. The current terminal command helper
-  reports only the exit status and command, discarding Git's diagnostic text,
-  so the existing evidence cannot distinguish the possible status-128 causes.
-  No cause is asserted until that text is captured.
+- **Root cause:** Kolu's always-on background local-status query calls
+  `simple-git.status()` without `GIT_OPTIONAL_LOCKS=0`. Git status is allowed
+  to refresh cached index metadata and briefly owns `.git/index.lock`; the
+  user's fixture `git add`/`git commit` races that optional background write.
+  The same race reproduced twice in diagnostic run `4bffcc5#1`.
 - **Evidence:** `.ci/aea6cc3/aarch64-darwin/ci::e2e.log` names all five
-  first-attempt failures and their status 128 result. The harness seeds a
-  per-worker `.gitconfig`, and other commits in the same run passed, which
-  rules out a universally missing fixture identity but does not identify the
-  intermittent failure.
-- **Proposed fix:** include a bounded tail of the active xterm buffer in every
-  nonzero `terminalRunAndWait` error, then reproduce on `ci@petit`. Use Git's
-  captured fatal message—not the numeric status—to select and verify the real
-  fix.
+  first-attempt failures and their status 128 result. After the bounded xterm
+  diagnostic landed, `.ci/4bffcc5/aarch64-darwin/ci::e2e.log` captured Git's
+  exact fatal error twice:
+  `Unable to create '.../.git/index.lock': File exists`. In both cases the
+  scenario had just deleted and freshly initialized that path. The client
+  source shows `hostCodeTab.localStatus` is active independently of the shown
+  view and invokes `getLocalStatus`; that function used an unqualified
+  `simpleGit(repoPath).status()`.
+- **Proposed fix:** run all reactive/background Git reads with
+  `GIT_OPTIONAL_LOCKS=0`, Git's purpose-built contract for background
+  refreshers. Preserve the repository's canonical safe spawn environment and
+  leave required locks for user-requested mutations intact.
+- **Implementation:** the integration package now owns one `backgroundGit`
+  constructor and matching `backgroundGitEnv`. Terminal Git-info resolution,
+  local/branch status, and diff reads use that contract rather than spawning
+  an unqualified background Git process. Its environment reuses
+  `kolu-pty.composeSpawnEnv` and adds only `GIT_OPTIONAL_LOCKS=0`.
+- **Fix verification:** all 110 `kolu-git` tests pass, including a new
+  end-to-end spawn guard for the bounded environment, and the package
+  typecheck passes. macOS e2e verification remains required.
 
 ### `aea6cc3#1`: two macOS file-reference opens did not settle
 
@@ -184,6 +197,30 @@ retries.
 - **Proposed fix:** capture the Code-tab's scope, selected path, pending/error
   state, and rendered-view presence in these timeout errors, reproduce on
   `ci@petit`, then fix the state transition named by that evidence.
+
+### `4bffcc5#1`: diagnostic macOS e2e retries
+
+- **Failures:** the targeted macOS e2e node passed 506 scenarios after three
+  retries. `Browse mode decorates changed files with git status` and
+  `Tree/content split has a draggable handle` each failed a fixture commit
+  with status 128. `Clicking a line-range file-ref selects the whole range`
+  entered the new Code-tab timeout diagnostic, which itself threw
+  `ReferenceError: __name is not defined`.
+- **Root cause:** the two Git failures are the optional-index-lock race proven
+  above. The diagnostic failure is separate and exact: tsx injects its
+  `__name` helper when Playwright serializes an argument function, but that
+  helper does not exist in the browser evaluation realm.
+- **Evidence:** `.ci/4bffcc5/aarch64-darwin/ci::e2e.log` includes the complete
+  terminal buffer for both Git failures, each naming the pre-existing
+  `.git/index.lock`. Its third warning's stack starts in
+  `codeTabTimeoutDiagnostic` and reports `page.evaluate: ReferenceError:
+  __name is not defined`.
+- **Proposed fix:** apply the `GIT_OPTIONAL_LOCKS=0` background-read contract
+  above. Express the browser diagnostic as a string evaluation, matching the
+  existing shadow-DOM diagnostic helpers that already avoid tsx's serializer.
+- **Implementation:** both changes are applied; a repeat macOS e2e run must
+  verify the Git failures are absent and capture the underlying file-ref state
+  if that timeout recurs.
 
 ### `c4ec338#1`: macOS Code-tab live update did not arrive
 
@@ -437,3 +474,4 @@ full two-platform green streak.
 | `5a8461c#1` | `5a8461cb7` | `unit@aarch64-darwin` | `ci@petit` | Passed |
 | `de8c863#5` | `de8c86315` | `fmt` and `atlas-sync` on both platforms | `ci@petit`, `kolu-ci-1` | Passed |
 | `ba374cf#1` | `ba374cfb2` | `dev-smoke` on both platforms plus post-run daemon process audit | `ci@petit`, `kolu-ci-1` | Passed; no daemon from the run survived |
+| `4bffcc5#1` | `4bffcc577` | `e2e@aarch64-darwin` with bounded flake diagnostics | `ci@petit` | Passed all scenarios after 3 retries; failures recorded above |

@@ -57,33 +57,30 @@ const DIFF_CONTENT = '[data-testid="diff-content"]';
  *  only what never appeared; these facts distinguish an unopened panel, a
  *  missing selection, a loading/error state, and a mounted Pierre view. */
 async function codeTabTimeoutDiagnostic(world: KoluWorld): Promise<string> {
-  const facts = await world.page.evaluate(() => {
-    const text = (selector: string): string | null => {
+  // String evaluation is deliberate: tsx injects a `__name` helper into
+  // serialized argument functions, but that helper does not exist in the
+  // browser realm (the same constraint as SHADOW_DFS_FN_SRC below).
+  const facts = await world.page.evaluate(`(() => {
+    const text = (selector) => {
       const node = document.querySelector(selector);
       return node?.textContent?.slice(0, 500) ?? null;
     };
     return {
       rightPanelCollapsed:
-        document.querySelector(
-          '[data-testid="right-panel"][data-collapsed]',
-        ) !== null,
+        document.querySelector('[data-testid="right-panel"][data-collapsed]') !== null,
       codeTabActive:
-        document
-          .querySelector('[data-testid="right-panel-tab-code"]')
+        document.querySelector('[data-testid="right-panel-tab-code"]')
           ?.getAttribute("aria-selected") ?? null,
       activeMode:
         [...document.querySelectorAll('[data-testid^="diff-mode-"]')]
-          .find(
-            (node) =>
-              node.getAttribute("aria-pressed") === "true" ||
-              node.getAttribute("data-selected") !== null,
-          )
-          ?.getAttribute("data-testid") ?? null,
-      selectedTreePaths: [
-        ...document.querySelectorAll(
-          '[data-testid="pierre-file-tree"] [data-item-path][aria-selected="true"]',
-        ),
-      ].map((node) => node.getAttribute("data-item-path")),
+          .find((node) =>
+            node.getAttribute("aria-pressed") === "true" ||
+            node.getAttribute("data-selected") !== null
+          )?.getAttribute("data-testid") ?? null,
+      selectedTreePaths:
+        [...document.querySelectorAll(
+          '[data-testid="pierre-file-tree"] [data-item-path][aria-selected="true"]'
+        )].map((node) => node.getAttribute("data-item-path")),
       diffContent: text('[data-testid="diff-content"]'),
       diffError: text('[data-testid="diff-error"]'),
       diffViewMounted:
@@ -91,7 +88,7 @@ async function codeTabTimeoutDiagnostic(world: KoluWorld): Promise<string> {
       fileViewMounted:
         document.querySelector('[data-testid="pierre-file-view"]') !== null,
     };
-  });
+  })()`);
   return JSON.stringify(facts);
 }
 
