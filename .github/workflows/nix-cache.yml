@@ -107,24 +107,33 @@ jobs:
           # path-info, silently truncating the file the whole push set rode on.
           set -euo pipefail
 
+          # Only the BUILD is folded. `::group::` collapses by default, so
+          # wrapping the push in it too buried the one thing this job exists to
+          # report behind ~870 lines of nix build log — you had to expand and
+          # scroll to learn whether anything reached the cache. The build chatter
+          # is what deserves folding; the push is the result. Leaving `attic` to
+          # write outside the group means its own per-path output is visible by
+          # default, with no parsing of another tool's format to go wrong.
           warm() {
-            echo "::group::warm $*"
+            local label="$*"
+            echo "::group::build $label"
             local paths
             paths=$(bash ci/flake-build "$@")
+            printf '%s\n' "$paths"
+            echo "::endgroup::"
             # A positive assertion, not dressing. Without it a run that built
             # and pushed NOTHING is indistinguishable from a healthy one: the
             # step stays green and the only symptom is everyone's builds
             # quietly going cold. Green must mean "warmed", not "ran".
             if [ -z "$paths" ]; then
-              echo "::error::ci/flake-build produced no output paths for: $*"
+              echo "::error::ci/flake-build produced no output paths for: $label"
               exit 1
             fi
-            printf '%s\n' "$paths"
+            echo "push $label → $(printf '%s\n' "$paths" | wc -l | tr -d ' ') outputs:"
             # `--stdin` rather than `xargs`: xargs may silently split a long
             # list across several invocations, which is a behaviour we would be
             # relying on without saying so. One process, one list.
             printf '%s\n' "$paths" | attic push --stdin oss
-            echo "::endgroup::"
           }
           warm .
           # The nested flakes, with the SAME --kinds their own CI nodes use
