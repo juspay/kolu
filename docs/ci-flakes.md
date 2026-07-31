@@ -168,6 +168,7 @@ and is fixed in this PR before the campaign resumes.
 | `02b18bd#1` | `02b18bd35` | Every required GitHub status passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `48d536d#1` | `48d536ded` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `d3441b4#1` | `d3441b4c2` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
+| `4900aa0#1` | `4900aa05d` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
