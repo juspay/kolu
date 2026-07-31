@@ -121,9 +121,9 @@ failure fixable in this repository is in scope.
 | `222d3f0#1` | `222d3f08f` | Passed | `4/5` |
 | `06ff590#1` | `06ff590dd` | Passed | `5/5` |
 
-**Completed pre-review streak: `5/5` at `06ff590#1`. Current active
-post-review streak: `0/5` — reset by `c4ec338#1`.** The first two green runs
-above predate the osfacts-live fix prompted by `3a6c829#1`.
+**Completed pre-review streak: `5/5` at `06ff590#1`. Completed post-review
+streak: `5/5` at `07b5e88#1`.** The first two green runs above predate the
+osfacts-live fix prompted by `3a6c829#1`.
 
 ## Post-review CI streak
 
@@ -151,6 +151,7 @@ retries.
 | `fce3b0a#1` | `fce3b0a53` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `7299111#1` | `729911162` | Passed both platforms, including both `osfacts-live` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `92ec01a#1` | `92ec01a93` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
+| `07b5e88#1` | `07b5e886b` | Passed every node on both platforms, including both `osfacts-live` nodes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `5/5` |
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
@@ -225,10 +226,11 @@ retries.
   becoming visible. `Clicking a line-range deep in a long file scrolls the
   selection into view` waited 20 seconds without line 161 becoming selected.
   Both first attempts failed and both retries passed.
-- **Root cause:** under investigation. The log proves the open/selection
-  pipeline did not reach its asserted UI state, but it does not record the
-  Code-tab scope, selected path, pending state, or rendered view at timeout.
-  No narrower cause is asserted without those facts.
+- **Root cause:** the direct fresh inventory read could resolve and select each
+  just-created target before the retained tree caught up. The independent
+  selection-membership effect then treated that settled-but-stale tree as
+  authoritative and cleared the selection. With no selected path, no Pierre
+  viewer or line-range selection could remain mounted.
 - **Evidence:** `.ci/aea6cc3/aarch64-darwin/ci::e2e.log` records the exact
   locator and selection timeouts after the file-ref link action, followed by
   successful retries. Diagnostic run `64ff556#1` reproduced the same missing
@@ -236,10 +238,19 @@ retries.
   unique-basename fallback`: the panel was open in browse mode, but
   `selectedTreePaths` was empty, neither Pierre view was mounted, and the
   content area still read `Select a file to view its content`. The exact facts
-  are preserved in `.ci/64ff556/aarch64-darwin/ci::e2e.log`.
-- **Proposed fix:** capture the Code-tab's scope, selected path, pending/error
-  state, and rendered-view presence in these timeout errors, reproduce on
-  `ci@petit`, then fix the state transition named by that evidence.
+  are preserved in `.ci/64ff556/aarch64-darwin/ci::e2e.log`. All three
+  scenarios create their target immediately before the same open pipeline.
+  The regression test reproduces the causal state sequence: a fresh read
+  contains the path while retained inventory does not; the old membership
+  verdict clears it, which also invalidates `selectedRange`.
+- **Proposed fix:** carry retained-versus-fresh resolution provenance and pin
+  an exact fresh-resolved selection until retained inventory first confirms
+  it. Consume the pin at confirmation so a later real deletion still clears
+  the selection.
+- **Implementation:** the provenance and bounded fresh-selection pin described
+  under `64ff556#1` below cover both failures. Targeted run `407e56b#1`
+  completed every file-reference scenario without a retry, and the final five
+  full runs had no file-reference retry on either platform.
 
 ### `64ff556#1`: fresh file-reference selection was cleared by stale inventory
 
@@ -320,32 +331,41 @@ retries.
 - **Proposed fix:** apply the `GIT_OPTIONAL_LOCKS=0` background-read contract
   above. Express the browser diagnostic as a string evaluation, matching the
   existing shadow-DOM diagnostic helpers that already avoid tsx's serializer.
-- **Implementation:** both changes are applied; a repeat macOS e2e run must
-  verify the Git failures are absent and capture the underlying file-ref state
-  if that timeout recurs.
+- **Implementation:** both changes are applied. Targeted macOS run
+  `64ff556#1` had no Git-lock retry and captured the missing-selection state;
+  targeted run `407e56b#1` then completed every file-reference scenario
+  without a retry.
 
-### `c4ec338#1`: macOS Code-tab live update did not arrive
+### `c4ec338#1`: macOS background Git reads raced status and fixture updates
 
-- **Failure:** `ci::e2e@aarch64-darwin` finished 506 scenarios with one
-  failure. `Editing a file updates the diff view live` timed out after 60
-  seconds on attempts 1 and 2 despite rewriting the watched file's timestamp
-  every 500 ms. Attempt 3 failed earlier when its fixture's
-  `git commit --allow-empty -m init` returned status 128. The suite made 513
-  attempts in total, including seven retries.
-- **Root cause:** under investigation. No hypothesis is recorded as a root
-  cause: the evidence below proves a separate `dev-smoke` daemon leak that
-  contaminated both CI hosts, but does not yet prove that the leaked processes
-  caused this exact Code-tab timeout or Git exit.
-- **Evidence:** `.ci/c4ec338/aarch64-darwin/ci::e2e.log` records both
-  60-second live-view timeouts, the third-attempt Git status, the final
-  505-passed/1-failed result, and all seven retries. The durable Odu ledger
-  records every Linux node passing and only macOS e2e failing; macOS
-  `ci::osfacts-live` was dependency-skipped by fail-fast.
-- **Proposed fix:** first stop `dev-smoke` from leaking padi/kaval daemons and
-  remove the proven cross-run contamination. Then reproduce this exact scenario
-  on `ci@petit`; accept the leak as its cause only if direct post-fix evidence
-  establishes that link. Otherwise continue tracing the watcher and terminal
-  command failures from their own diagnostics.
+- **Failures:** macOS e2e made 513 attempts. Five fixture mutations returned
+  Git status 128. The Local-mode count stayed absent for 60 seconds on another
+  attempt. `Editing a file updates the diff view live` stayed on the old diff
+  for 60 seconds on attempts 1 and 2 despite a 500 ms file nudge; its third
+  attempt was the final status-128 fixture failure.
+- **Root cause:** the same always-on `simple-git.status()` path described under
+  `aea6cc3#1` ran without `GIT_OPTIONAL_LOCKS=0`. Its optional index refresh
+  raced user fixture mutations, producing status 128, and concurrent
+  background status consumers could fail their own refresh instead of
+  publishing the Local count and diff input that those two UI assertions
+  awaited.
+- **Evidence:** `.ci/c4ec338/aarch64-darwin/ci::e2e.log` records all five
+  status-128 mutations, the missing Local count (`last saw "null"`), both
+  stale-diff timeouts, and the final 505-passed/1-failed result. Source
+  inspection shows both the passive Local badge and active Local diff are fed
+  by the always-on `hostCodeTab.localStatus`/active-status reads, which used
+  the unqualified background `simpleGit.status()`. Diagnostic run
+  `4bffcc5#1` then captured Git's exact fatal `.git/index.lock` collision twice
+  on that same path, closing the status-128 mechanism rather than inferring it
+  from the numeric exit code alone.
+- **Proposed fix:** make every reactive/background Git read lock-free with
+  `GIT_OPTIONAL_LOCKS=0`, while leaving user-requested mutations unchanged.
+  Preserve bounded timeout diagnostics so a non-Git Code-tab failure would
+  retain its own state facts.
+- **Implementation:** the shared `backgroundGit`/`backgroundGitEnv` contract
+  covers Local status, branch status, Git-info, and diff reads. Targeted run
+  `64ff556#1` had no Git-lock retry; the final five full runs had zero e2e
+  retries on both platforms.
 
 ### Proven during `c4ec338#1`: `dev-smoke` leaks one daemon tree per CI run
 
