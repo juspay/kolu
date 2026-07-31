@@ -228,11 +228,12 @@ and is fixed in this PR before the campaign resumes.
   timeout-time selection state if the pill still fails to render.
 - **Diagnostic progress:** on the exact Linux venue `kolu-ci-1`, the
   instrumented scenario passed 20 consecutive isolated executions, then the
-  complete 114-scenario Code-tab feature passed under the CI-shaped four-worker
-  load (114 executions, 114 attempts, zero retries). This rules out a
-  deterministic source-view failure but does not identify the rare failure's
-  root cause, so the item remains unresolved and no product or interaction
-  change is claimed as its fix yet.
+  complete 114-scenario Code-tab feature passed five consecutive times under
+  the CI-shaped four-worker load (570 executions, 570 attempts, zero retries).
+  This rules out a deterministic source-view failure and a Code-tab-local load
+  interaction but does not identify the rare failure's root cause, so the item
+  remains unresolved and no product or interaction change is claimed as its
+  fix yet.
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
