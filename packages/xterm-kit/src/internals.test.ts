@@ -12,7 +12,7 @@
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it } from "vitest";
-import { cellAtPoint, unscaleEventPoint } from "./internals";
+import { cellAtPoint, clearWriteQueue, unscaleEventPoint } from "./internals";
 
 const rect = (left: number, top: number, width: number, height: number) => ({
   left,
@@ -201,5 +201,27 @@ describe("cellAtPoint", () => {
         1,
       ),
     ).toBeNull();
+  });
+});
+
+describe("clearWriteQueue", () => {
+  it("empties a complete WriteBuffer stand-in", () => {
+    const wb = {
+      _writeBuffer: ["stale", "bytes"] as unknown[],
+      _callbacks: [() => {}, undefined] as unknown[],
+      _pendingData: 11,
+      _bufferOffset: 0,
+    };
+    const term = { _core: { _writeBuffer: wb } } as unknown as XTerm;
+    clearWriteQueue(term);
+    expect(wb._writeBuffer).toEqual([]);
+    expect(wb._callbacks).toEqual([]);
+    expect(wb._pendingData).toBe(0);
+    expect(wb._bufferOffset).toBe(0);
+  });
+
+  it("throws when the private shape is missing", () => {
+    const term = { _core: {} } as unknown as XTerm;
+    expect(() => clearWriteQueue(term)).toThrow(/WriteBuffer private shape/);
   });
 });

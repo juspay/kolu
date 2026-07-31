@@ -57,9 +57,11 @@ export function renderService(term: XTerm): RenderInternals | null {
  *
  *  `term.write` is async (queued on WriteBuffer + setTimeout). A synchronous
  *  `term.reset()` only clears the screen buffer — queued chunks still parse
- *  afterward and contaminate a fresh-snapshot re-attach. Fail-soft: if the
- *  private shape moved, this is a no-op (same class as `renderService`). */
-export function clearWriteQueue(term: XTerm): boolean {
+ *  afterward and contaminate a fresh-snapshot re-attach.
+ *
+ *  **Fail-loud** (unlike diagnostic probes): a private-shape mismatch would
+ *  silently re-open the contamination bug, so this throws rather than no-op. */
+export function clearWriteQueue(term: XTerm): void {
   const wb = core<{
     _writeBuffer?: {
       _writeBuffer?: unknown[];
@@ -68,12 +70,21 @@ export function clearWriteQueue(term: XTerm): boolean {
       _bufferOffset?: number;
     };
   }>(term)?._writeBuffer;
-  if (!wb?._writeBuffer) return false;
+  if (
+    !wb ||
+    !Array.isArray(wb._writeBuffer) ||
+    !Array.isArray(wb._callbacks) ||
+    typeof wb._pendingData !== "number" ||
+    typeof wb._bufferOffset !== "number"
+  ) {
+    throw new Error(
+      "clearWriteQueue: xterm WriteBuffer private shape missing or incomplete; cannot guarantee a clean snapshot reset",
+    );
+  }
   wb._writeBuffer.length = 0;
-  if (Array.isArray(wb._callbacks)) wb._callbacks.length = 0;
-  if (typeof wb._pendingData === "number") wb._pendingData = 0;
-  if (typeof wb._bufferOffset === "number") wb._bufferOffset = 0;
-  return true;
+  wb._callbacks.length = 0;
+  wb._pendingData = 0;
+  wb._bufferOffset = 0;
 }
 
 /** A DEC private mode (e.g. DEC 2026 synchronized-output): true/false if we
