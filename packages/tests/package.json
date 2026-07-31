@@ -22,6 +22,6 @@
     "test:governance": "node --import tsx governance/check.ts",
     "baseline:report": "node --import tsx governance/reportBaseline.ts",
     "inventory:update": "node --import tsx governance/updateInventory.ts",
-    "test:unit": "node --import tsx --test support/*.test.ts governance/*.test.ts"
+    "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts governance/*.test.ts"
   }
 }

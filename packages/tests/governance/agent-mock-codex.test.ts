@@ -4,7 +4,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { updateCodexRollout, writeCodexFixture } from "./agent-mock-codex.ts";
+import {
+  updateCodexRollout,
+  writeCodexFixture,
+} from "../support/agent-mock-codex.ts";
 
 test("Codex fixture waits out a transient SQLite writer lock", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-codex-lock-"));
