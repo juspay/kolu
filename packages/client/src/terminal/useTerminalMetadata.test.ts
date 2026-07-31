@@ -107,6 +107,7 @@ vi.mock("solid-sonner", () => ({
   }),
 }));
 
+import type { PaneNode } from "./terminalTree";
 import {
   sameTerminalIdOrder,
   useTerminalMetadata,
@@ -117,8 +118,9 @@ const tids = (...xs: string[]) => xs as TerminalId[];
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 describe("root-ancestor flatten vs true one-hop (#2059)", () => {
-  // Canvas paints every descendant under a root as a flat split tab; Dock keeps
-  // the true parent→child edge. Both accessors ride the same metadata bag.
+  // Canvas paints every descendant under a root as a flat split tab; the Dock
+  // indents the SAME panes by their true parent→child edge. All three accessors
+  // ride the same metadata bag and the same resolved index.
   function meta(overrides: TestMeta = {}): TestMeta {
     return { cwd: "/home/user/p", parentId: undefined, ...overrides };
   }
@@ -127,6 +129,7 @@ describe("root-ancestor flatten vs true one-hop (#2059)", () => {
     terminalIds: () => TerminalId[];
     getSubTerminalIds: (id: TerminalId) => TerminalId[];
     getSplitPaneIds: (id: TerminalId) => TerminalId[];
+    getPaneTree: (id: TerminalId) => readonly PaneNode[];
     dispose: () => void;
   } {
     return createRoot((dispose) => {
@@ -136,11 +139,17 @@ describe("root-ancestor flatten vs true one-hop (#2059)", () => {
         meta({
           parentId: parents[id as string] as TerminalId | undefined,
         });
-      const { terminalIds, getSubTerminalIds, getSplitPaneIds } =
+      const { terminalIds, getSubTerminalIds, getSplitPaneIds, getPaneTree } =
         useTerminalMetadata({
           list: () => ids.map((id) => ({ id }) as TerminalInfo),
         });
-      return { terminalIds, getSubTerminalIds, getSplitPaneIds, dispose };
+      return {
+        terminalIds,
+        getSubTerminalIds,
+        getSplitPaneIds,
+        getPaneTree,
+        dispose,
+      };
     });
   }
 
@@ -165,6 +174,24 @@ describe("root-ancestor flatten vs true one-hop (#2059)", () => {
     // True edges remain for the Dock.
     expect(h.getSubTerminalIds(tids("A")[0]!)).toEqual(tids("B"));
     expect(h.getSubTerminalIds(tids("B")[0]!)).toEqual(tids("A"));
+    h.dispose();
+  });
+
+  it("hands the Dock the SAME panes as the canvas, nested by their real parent", () => {
+    // The pair the #2059 follow-up bug lived between: the canvas flattens, the
+    // Dock indents, and both must cover every descendant. The Dock's own walk
+    // stopped at depth 1, so G had a canvas tab and no dock row at all.
+    const h = drive({ R: undefined, M: "R", G: "M", C: "R" });
+    const root = tids("R")[0]!;
+    expect(h.getPaneTree(root)).toEqual([
+      { id: "M", children: [{ id: "G", children: [] }] },
+      { id: "C", children: [] },
+    ]);
+    const flattened = (nodes: readonly PaneNode[]): TerminalId[] =>
+      nodes.flatMap((n) => [n.id, ...flattened(n.children)]);
+    expect(flattened(h.getPaneTree(root)).sort()).toEqual(
+      [...h.getSplitPaneIds(root)].sort(),
+    );
     h.dispose();
   });
 

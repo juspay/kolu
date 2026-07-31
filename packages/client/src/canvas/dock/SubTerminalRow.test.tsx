@@ -68,6 +68,7 @@ function shellRankedRow() {
     bucket: "idle" as const,
     pip: "idle" as const,
     ts: 1,
+    depth: 1,
   };
 }
 

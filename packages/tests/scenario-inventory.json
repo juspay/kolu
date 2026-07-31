@@ -7394,6 +7394,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "407589f1504cfc891ea9eec074c1f3ed0bfbde49"
+    },
+    {
+      "revisionId": "revision-06d84396789f9f41d2f8",
+      "scenarioKey": "scenario-3659e9e0f2fae4d7e3d9",
+      "feature": "features/sub-terminal.feature",
+      "scenario": "A split of a split has a row in the Dock",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b29376494a92d1249ef24c6ad7f10a0cdb9b9fe76efcf92a769075f69ad4b5bb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "06c8798df62a27b985bf6f5f9b57a6a8cd198ed2"
     }
   ]
 }

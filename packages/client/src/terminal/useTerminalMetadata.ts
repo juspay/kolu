@@ -36,7 +36,12 @@ import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,
 } from "./terminalDisplay";
-import { descendantsByRoot, rootAncestorOf } from "./terminalTree";
+import {
+  descendantsByRoot,
+  type PaneNode,
+  paneTreeOf,
+  rootAncestorOf,
+} from "./terminalTree";
 
 /** Whether two top-level terminal-id lists are identical — the same ids in the
  *  same order. Serves as the `equals` gate on the `terminalIds` memo below: a
@@ -103,6 +108,9 @@ export function isParked(m: PadiTerminal): m is PadiParkedTerminal {
  *  see a fresh empty array on every read. Never mutated; neither are the
  *  index's own lists. */
 const NO_SUB_IDS: TerminalId[] = [];
+
+/** Same stable-reference contract for the nested shape. */
+const NO_PANE_NODES: PaneNode[] = [];
 
 export function useTerminalMetadata(deps: {
   list: Accessor<{ id: TerminalId }[] | undefined>;
@@ -318,8 +326,9 @@ export function useTerminalMetadata(deps: {
 
   /** The TRUE parent→children relation, indexed ONCE per invalidation.
    *
-   *  This is the Dock's tree: one hop, exact `parentId` edges. Canvas split
-   *  rendering uses {@link getSplitPaneIds} (root-ancestor flattening) instead.
+   *  One hop, exact `parentId` edges — the eviction/rehome question. Both
+   *  PAINT surfaces read the whole subtree instead: {@link getSplitPaneIds}
+   *  flat for the canvas tab strip, {@link getPaneTree} nested for the Dock.
    *
    *  Every reader of that relation used to walk EVERY terminal per parent:
    *  `getSubTerminalIds` filtered `keys()` for one parentId, and
@@ -353,8 +362,30 @@ export function useTerminalMetadata(deps: {
     descendantsByRoot(keys(), parentEdge),
   );
 
-  /** True one-hop children of `parentId` (Dock / real structure). Server order.
-   *  The returned array is the index's own and must be treated as read-only. */
+  /** The SAME panes, re-shaped into the true parent→child tree the Dock
+   *  indents — derived from `splitsByRoot`'s arrays, never from a second walk
+   *  of `parentId`. Membership is therefore one fact with two shapes: the flat
+   *  strip the canvas paints and the tree the Dock lists always cover the same
+   *  terminals. A surface that walks the parent edge itself is how a split of a
+   *  split came to exist in the roster while no surface gave it a row. */
+  const paneTreesByRoot = createMemo<Map<TerminalId, PaneNode[]>>(
+    () =>
+      new Map(
+        [...splitsByRoot()].map(([rootId, flat]) => [
+          rootId,
+          paneTreeOf(rootId, flat, parentEdge),
+        ]),
+      ),
+  );
+
+  /** True one-hop children of `parentId` (real structure). Server order.
+   *  The returned array is the index's own and must be treated as read-only.
+   *
+   *  This is the raw EDGE — the eviction/rehome path's question ("whose
+   *  children must I re-home?"). A surface asking "which panes do I paint for
+   *  this tile" wants `getSplitPaneIds` (flat) or `getPaneTree` (indented)
+   *  instead: those cover the whole subtree, so they cannot silently stop at
+   *  depth 1 the way a hand-rolled walk over this edge did. */
   function getSubTerminalIds(parentId: TerminalId): TerminalId[] {
     return childrenByParent().get(parentId) ?? NO_SUB_IDS;
   }
@@ -363,6 +394,12 @@ export function useTerminalMetadata(deps: {
    *  Server order. Read-only — the index's own array. */
   function getSplitPaneIds(rootId: TerminalId): TerminalId[] {
     return splitsByRoot().get(rootId) ?? NO_SUB_IDS;
+  }
+
+  /** The same panes as `getSplitPaneIds`, nested by their true parent edge —
+   *  what the Dock indents. Read-only — the index's own nodes. */
+  function getPaneTree(rootId: TerminalId): readonly PaneNode[] {
+    return paneTreesByRoot().get(rootId) ?? NO_PANE_NODES;
   }
 
   /** Root ancestor of `id`, or `null` when the walk finds no root (cycle /
@@ -408,8 +445,8 @@ export function useTerminalMetadata(deps: {
 
   // --- Derived accessors ---
 
-  // Tile badge / subCount is the FLAT descendant count (what the canvas shows),
-  // not the one-hop Dock relation.
+  // Tile badge / subCount is the FLAT descendant count (what the canvas shows,
+  // and what the Dock's sub-entries now cover), not the one-hop parent edge.
   const displayInfos = createMemo(() =>
     buildTerminalDisplayInfos(terminalIds(), getMetadata, getSplitPaneIds),
   );
@@ -430,6 +467,7 @@ export function useTerminalMetadata(deps: {
     terminalIds,
     getSubTerminalIds,
     getSplitPaneIds,
+    getPaneTree,
     rootAncestor,
     getTilePaneIds,
     isWorktreeShared,

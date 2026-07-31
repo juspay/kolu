@@ -1,6 +1,11 @@
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { descendantsByRoot, rootAncestorOf } from "./terminalTree";
+import {
+  descendantsByRoot,
+  type PaneNode,
+  paneTreeOf,
+  rootAncestorOf,
+} from "./terminalTree";
 
 const T = (s: string) => s as TerminalId;
 
@@ -77,5 +82,77 @@ describe("descendantsByRoot (canvas flat splits)", () => {
     const byRoot = descendantsByRoot(ids, parentOf);
     expect(byRoot.get(T("R"))).toEqual(undefined);
     expect([...byRoot.keys()]).toEqual([]);
+  });
+});
+
+/** Every id in the tree, depth-first — the fold every tree consumer performs. */
+function flattenPanes(nodes: readonly PaneNode[]): TerminalId[] {
+  return nodes.flatMap((n) => [n.id, ...flattenPanes(n.children)]);
+}
+
+describe("paneTreeOf (Dock indented splits)", () => {
+  it("nests a grandchild under its real parent, not under the root", () => {
+    const ids = [T("R"), T("M"), T("G"), T("C")];
+    const parentOf = edge({ R: null, M: "R", G: "M", C: "R" });
+    const flat = descendantsByRoot(ids, parentOf).get(T("R")) ?? [];
+    expect(paneTreeOf(T("R"), flat, parentOf)).toEqual([
+      { id: T("M"), children: [{ id: T("G"), children: [] }] },
+      { id: T("C"), children: [] },
+    ]);
+  });
+
+  it("keeps siblings in server order", () => {
+    const ids = [T("R"), T("A"), T("B")];
+    const parentOf = edge({ R: null, A: "R", B: "R" });
+    const flat = descendantsByRoot(ids, parentOf).get(T("R")) ?? [];
+    expect(paneTreeOf(T("R"), flat, parentOf).map((n) => n.id)).toEqual([
+      T("A"),
+      T("B"),
+    ]);
+  });
+
+  // THE invariant, and the whole reason the tree is a re-shaping of the flat
+  // list rather than a second walk: the canvas paints `flat`, the Dock folds
+  // the tree, and the two can never cover different terminals. Two independent
+  // traversals is exactly how a split of a split ended up with a canvas tab and
+  // no dock row at all (#2059).
+  it("covers EXACTLY the flat canvas list — same ids, no more, no fewer", () => {
+    const ids = [
+      T("R"),
+      T("M"),
+      T("G"),
+      T("C"),
+      T("GG"),
+      // Cycle + orphan: excluded from the flat list, so excluded from the tree.
+      T("A"),
+      T("B"),
+      T("orphan"),
+    ];
+    const parentOf = edge({
+      R: null,
+      M: "R",
+      G: "M",
+      C: "R",
+      GG: "G",
+      A: "B",
+      B: "A",
+      orphan: "gone",
+    });
+    const byRoot = descendantsByRoot(ids, parentOf);
+    for (const [root, flat] of byRoot) {
+      expect(flattenPanes(paneTreeOf(root, flat, parentOf)).sort()).toEqual(
+        [...flat].sort(),
+      );
+    }
+    expect(byRoot.get(T("R"))).toHaveLength(4);
+  });
+
+  it("throws rather than silently re-homing a pane whose parent is not in the tile", () => {
+    // Unreachable through `descendantsByRoot` (an accepted descendant's whole
+    // chain is accepted too), so a throw here means the index broke — fail
+    // loudly instead of quietly moving the pane up to the root.
+    expect(() =>
+      paneTreeOf(T("R"), [T("G")], edge({ R: null, G: "M", M: "R" })),
+    ).toThrow(/no parent in the tile/);
   });
 });

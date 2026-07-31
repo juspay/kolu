@@ -58,7 +58,7 @@ export function pickAutoSwitchTarget(
  *  cleanup body is a pure function of (ports, id, parentId, order): unit-testable
  *  with plain spies, and wired ONCE in useTerminalCrud. */
 export interface TerminalEvictionPorts {
-  /** True one-hop children (Dock / rehome targets / top-level promote). LIVE. */
+  /** True one-hop children (rehome targets / top-level promote). LIVE. */
   getSubTerminalIds: (parentId: TerminalId) => readonly TerminalId[];
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
