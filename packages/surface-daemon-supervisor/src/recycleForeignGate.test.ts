@@ -42,12 +42,15 @@ import {
   recycle,
 } from "./index.ts";
 import {
-  createEndpointForTest as createEndpoint,
   testAcquireReadIdentity,
   testReadProcessIdentity,
   testSelfIdentity,
   testStartUnixUs,
 } from "./createEndpoint.testlib.ts";
+import {
+  createEndpointForKoluTest as createEndpoint,
+  readSocketHoldersForKoluTests,
+} from "./createEndpoint.kolu.testlib.ts";
 
 const silentLog = {
   debug() {},
@@ -421,6 +424,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     let spawned = false;
     const endpoint = createEndpointCore({
       hostId: "local",
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -502,6 +506,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
+      readSocketHolders: readSocketHoldersForKoluTests,
       home: {
         dir: dirname(d.socketPath),
         gatePath: d.gatePath,
@@ -572,7 +577,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
 
     let spawned = false;
     const statuses: EndpointStatus<Identity>[] = [];
-    const endpoint = createEndpointCore<string, Identity>({
+    const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: {
         dir: dirname(d.socketPath),
@@ -589,7 +594,6 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onBuildMismatch: { kind: "nudge-human" },
       },
       probe: async () => null,
-      readProcessIdentity: testReadProcessIdentity,
       driver: {
         spawn: async () => {
           spawned = true;
@@ -635,7 +639,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
 
     let spawned = false;
     const statuses: EndpointStatus<Identity>[] = [];
-    const endpoint = createEndpointCore<string, Identity>({
+    const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: {
         dir: dirname(d.socketPath),
@@ -652,7 +656,6 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onBuildMismatch: { kind: "nudge-human" },
       },
       probe: async () => null,
-      readProcessIdentity: testReadProcessIdentity,
       driver: {
         spawn: async () => {
           spawned = true;
@@ -696,7 +699,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     writeFileSync(d.gatePath, `${survivorPid}\n`);
 
     const statuses: EndpointStatus<Identity>[] = [];
-    const endpoint = createEndpointCore<string, Identity>({
+    const endpoint = createEndpoint<string, Identity>({
       hostId: "local",
       home: {
         dir: dirname(d.socketPath),
@@ -714,7 +717,6 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onBuildMismatch: { kind: "nudge-human" },
       },
       probe: async () => null,
-      readProcessIdentity: testReadProcessIdentity,
       driver: {
         spawn: async () => {
           throw new Error("spawn must not run on lstat reject");
