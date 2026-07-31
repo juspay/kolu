@@ -83,11 +83,18 @@ root cause has been identified from the run logs and supporting evidence.
   contents are TypeScript declarations. This directly connects the
   extensionless path in the panic to the `.d.mts` input whose script kind was
   lost. See `.ci/fba3b95/aarch64-darwin/ci::atlas-sync.log`.
-- **Proposed fix:** reduce this case to an upstream TypeScript-Go regression
-  test that passes the logical `.d.mts` path through pnpm's hard-linked store,
-  then pin Atlas to the last non-panicking TypeScript release until that
-  regression is fixed. Validate the chosen pin with repeated
-  `atlas::check-sync` runs on `ci@petit`.
+- **Proposed fix:** pin the isolated Atlas project to TypeScript 6.0.3, whose
+  `tsc` entry point is the JavaScript compiler and therefore cannot enter the
+  crashing TypeScript-Go parser. Keep the rest of the repository on TypeScript
+  7, and validate the containment with repeated `atlas::check-sync` runs on
+  `ci@petit`.
+- **Implementation:** Atlas now pins exact TypeScript 6.0.3 rather than the
+  TypeScript 7 Go compiler.
+- **Fix verification:** the installed 6.0.3 `tsc` executable is a Node entry
+  point loading `lib/tsc.js`, so the crashing Go parser is absent from this
+  gate. Local `atlas::check-sync` passed its typecheck, 23 helper tests, fresh
+  build comparison, and scrambled-locale idempotency build. Repeated Darwin
+  verification is pending.
 
 ## E2E stabilization streak
 
