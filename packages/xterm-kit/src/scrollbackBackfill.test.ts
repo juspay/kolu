@@ -1195,12 +1195,21 @@ describe("CONTRACT PIN — @xterm/xterm internal shape", () => {
     t.dispose();
   });
 
+});
+
+describe("backfill reset vs pending-seed FIFO", () => {
   it("reset() drops unparsed pending seeds so a later snapshot can re-seed", async () => {
     // Mirrors drop-without-write on fresh-snapshot re-attach: a snapshot may
     // leave a pending seed whose seam never parsed. reset() must empty that
     // FIFO or the next seam's token misses the front entry and never seeds.
+    const history: HistoryChunk = {
+      kind: "chunk",
+      chunk: "x",
+      topLine: 50,
+      exhausted: false,
+    };
     const f = fakeTerm();
-    const fetch = vi.fn(async () => chunk);
+    const fetch = vi.fn(async () => history);
     const prepend = vi.fn(async () => inserted(1));
     const c = createBackfillController(f.term, {
       fetch,
