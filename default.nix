@@ -97,7 +97,8 @@ let
   # composed out of, which is where a thin fileset actually shows up. What covers
   # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every
   # `expose` entry's `drvPath` from this same assembled tree
-  # (`ci#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
+  # (`.#agent-flake-source` = `agentFlakeSrc`, the same attr `just server` bakes
+  # into a working-tree run). That recipe is load-bearing for
   # remote provisioning, not a nicety: delete it and a fileset gap reaching only
   # `default` / the TUIs surfaces on a user's box at dial time.
   #
