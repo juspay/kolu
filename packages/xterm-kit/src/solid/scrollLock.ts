@@ -234,9 +234,16 @@ export function createScrollLock(
     );
   }
 
-  /** Clear all scroll-lock state, flushing any buffered data first. */
-  function reset() {
-    flush();
+  /** Drop buffered chunks without writing them (snapshot / re-attach reset). */
+  function dropPending(): void {
+    setPending([]);
+  }
+
+  /** Clear all scroll-lock state. Default flushes buffered data first; pass
+   *  `"drop"` to discard pending bytes without writing (fresh-snapshot path). */
+  function reset(pending: "flush" | "drop" = "flush") {
+    if (pending === "flush") flush();
+    else dropPending();
     setLockState(null);
   }
 
@@ -422,6 +429,7 @@ export function createScrollLock(
     releaseUserScrollIntent,
     handleTabVisible,
     reset,
+    dropPending,
     attachToTerminal,
     writeData,
     scrollToBottom,

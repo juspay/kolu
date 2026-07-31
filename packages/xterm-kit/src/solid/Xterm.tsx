@@ -29,6 +29,8 @@ import {
   splitProps,
 } from "solid-js";
 import { sameGrid, type TerminalGrid } from "./grid";
+import { clearWriteQueue } from "../internals";
+import { createOutputCoalesce, type OutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
@@ -62,9 +64,11 @@ export interface XtermHandle {
   container: HTMLElement;
   addons: { fit: FitAddon; search: SearchAddon; serialize: SerializeAddon };
   scrollLock: ScrollLock;
-  /** `scrollLock.writeData` bound to this terminal — the buffer-through-the-lock
-   *  write the consumer's stream drives, `onParsed` firing when the chunk lands. */
+  /** Single write door: unfocused rate-coalesce → scroll-lock → term.write.
+   *  `onParsed` fires when the chunk lands in xterm. */
   write: (data: string, onParsed?: () => void) => void;
+  /** Drop coalesced + scroll-lock pending bytes without writing (fresh snapshot). */
+  clearPendingOutput: () => void;
   webgl: WebglHandle;
   recovery: RenderRecovery;
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
@@ -109,6 +113,9 @@ interface XtermOwnProps {
   webgl: Accessor<boolean>;
   /** The scroll-lock enable gate (e.g. a preference) — an accessor. */
   scrollLockEnabled: Accessor<boolean>;
+  /** Full-rate paint gate (e.g. focused tile). Required — omitting it would
+   *  silently restore pre-fix full-rate painting on every tile. */
+  fullRate: Accessor<boolean>;
   /** The face awaited before construction, and xterm's `fontFamily`. */
   fontFamily: string;
   /** Extra xterm constructor options (scrollback, cursor, allowProposedApi …).
@@ -139,6 +146,7 @@ const OWN_KEYS = [
   "visible",
   "webgl",
   "scrollLockEnabled",
+  "fullRate",
   "fontFamily",
   "terminalOptions",
   "onData",
@@ -213,8 +221,27 @@ export const Xterm: Component<
     if (
       proposed.cols !== core.terminal.cols ||
       proposed.rows !== core.terminal.rows
-    )
+    ) {
+      // Push coalesced unfocused bytes into term.write BEFORE fit()/resize
+      // changes cols/rows. Those bytes were generated for the OLD grid;
+      // xterm's resize flushSync-parses its write queue at the *current* cols
+      // (CONTRACT PIN in internals.test.ts) so this lands them at the old
+      // width. Canvas zoom / divider drag can fire every frame and the
+      // coalesce window widens the race to ~100ms. Snapshot frames have a
+      // second grid check at the write callback; delta frames do not.
+      // No-op under an engaged scroll lock: flush → writeData buffers into
+      // scrollLock.pending instead of term.write, so flushSync never sees
+      // those bytes (pre-existing wider lock hazard — not this PR).
+      // Fail loud if the write door is missing while core is live: a silent
+      // skip would re-open the stale-width race with no signal.
+      if (!coalesce) {
+        throw new Error(
+          "Xterm applyFit: coalesce missing while core is live — write-door invariant broken",
+        );
+      }
+      coalesce.flush();
       core.addons.fit.fit();
+    }
     // Read the grid back off the terminal rather than trusting `proposed`: fit()
     // is the one authority on what it applied, so the fact we publish is the
     // grid the terminal actually HAS.
@@ -245,6 +272,9 @@ export const Xterm: Component<
   // sourced from the WebGL handle, so it stays a separate ref.
   let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
+  // Write-door coalesce — same owner as applyFit so a resize can flush old-grid
+  // bytes before fit() mutates cols/rows (see applyFit).
+  let coalesce: OutputCoalesce | null = null;
 
   // This component's OWN retained refs, released synchronously on disposal so no
   // leaked owner closure keeps the xterm graph reachable (#606). The lifecycle
@@ -258,6 +288,7 @@ export const Xterm: Component<
     cancelAnimationFrame(fitRaf);
     core = null;
     clearAtlas = null;
+    coalesce = null;
   });
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
@@ -290,6 +321,29 @@ export const Xterm: Component<
       scrollLock.attachToTerminal(term);
       // Wheel + pointer-held scroll inputs arm the latch (#1272).
       wireScrollIntent(container, scrollLock);
+
+      // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.
+      const fullRate = () => own.fullRate();
+      const outputCoalesce = createOutputCoalesce(fullRate, (data, onParsed) =>
+        scrollLock.writeData(term, data, onParsed),
+      );
+      coalesce = outputCoalesce;
+      onCleanup(() => {
+        outputCoalesce.dispose();
+        // Same lifetime as core: assigned in this ready callback, nulled here
+        // and in the component-level onCleanup. createXtermLifecycle fires
+        // ready once — no second-ready identity guard.
+        coalesce = null;
+      });
+      createEffect(
+        on(
+          fullRate,
+          (fr) => {
+            if (fr) outputCoalesce.flush();
+          },
+          { defer: true },
+        ),
+      );
 
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
       // null off a coarse pointer, so tap routing is desktop-inert; the scroll
@@ -326,7 +380,15 @@ export const Xterm: Component<
         container,
         addons: c.addons,
         scrollLock,
-        write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
+        write: (data, onParsed) => outputCoalesce.write(data, onParsed),
+        clearPendingOutput: () => {
+          // Outer buffers first, then xterm's own async write queue — otherwise
+          // a coalesced batch already past `term.write` still parses after
+          // `terminal.reset()` and contaminates the replacement snapshot.
+          outputCoalesce.clear();
+          scrollLock.dropPending();
+          clearWriteQueue(term);
+        },
         webgl,
         recovery,
         refit,

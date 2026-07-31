@@ -53,6 +53,40 @@ export function renderService(term: XTerm): RenderInternals | null {
   return rs ?? null;
 }
 
+/** Drop unparsed chunks in xterm's WriteBuffer without parsing them.
+ *
+ *  `term.write` is async (queued on WriteBuffer + setTimeout). A synchronous
+ *  `term.reset()` only clears the screen buffer — queued chunks still parse
+ *  afterward and contaminate a fresh-snapshot re-attach.
+ *
+ *  **Fail-loud** (unlike diagnostic probes): a private-shape mismatch would
+ *  silently re-open the contamination bug, so this throws rather than no-op. */
+export function clearWriteQueue(term: XTerm): void {
+  const wb = core<{
+    _writeBuffer?: {
+      _writeBuffer?: unknown[];
+      _callbacks?: unknown[];
+      _pendingData?: number;
+      _bufferOffset?: number;
+    };
+  }>(term)?._writeBuffer;
+  if (
+    !wb ||
+    !Array.isArray(wb._writeBuffer) ||
+    !Array.isArray(wb._callbacks) ||
+    typeof wb._pendingData !== "number" ||
+    typeof wb._bufferOffset !== "number"
+  ) {
+    throw new Error(
+      "clearWriteQueue: xterm WriteBuffer private shape missing or incomplete; cannot guarantee a clean snapshot reset",
+    );
+  }
+  wb._writeBuffer.length = 0;
+  wb._callbacks.length = 0;
+  wb._pendingData = 0;
+  wb._bufferOffset = 0;
+}
+
 /** A DEC private mode (e.g. DEC 2026 synchronized-output): true/false if we
  *  can read it; null if xterm's shape changed under us. */
 export function readDecPrivateMode(

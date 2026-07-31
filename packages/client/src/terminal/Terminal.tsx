@@ -439,8 +439,11 @@ const Terminal: Component<{
     // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
     // done-criterion (c)).
     const resetForFreshSnapshot = () => {
+      // Drop write-pipeline pending (coalesce + scroll-lock) WITHOUT writing —
+      // a flush would re-paint pre-reset chunks onto the cleared screen.
+      h.clearPendingOutput();
       handle()?.terminal?.reset();
-      h.scrollLock.reset();
+      h.scrollLock.reset("drop");
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
       // the terminal we just reset.
@@ -682,6 +685,8 @@ const Terminal: Component<{
             // chunk, and flush() fires every buffered chunk's callback once the
             // buffered write parses on unlock — so the snapshot re-seed committer
             // that rides this callback survives the lock instead of being dropped.
+            // Single kit write door (coalesce → scroll-lock → term); fullRate is
+            // the focused-tile policy on <Xterm>.
             h.write(data, () => {
               // A superseded (or unmounted) attempt's stashed callback does
               // NOTHING: it would report activity for a stream nobody is reading
@@ -937,6 +942,7 @@ const Terminal: Component<{
         visible={props.visible}
         webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
+        fullRate={isFocused}
         fontFamily={FONT_FAMILY}
         terminalOptions={{
           scrollback: DEFAULT_SCROLLBACK,
