@@ -178,6 +178,7 @@ and is fixed in this PR before the campaign resumes.
 | `cd70a6e#1` | `cd70a6ea3` | Every GitHub check passed, but macOS and Linux e2e each needed 1 scenario retry; streak reset | `0/5` flake-free |
 | `eaf0816#1` | `eaf0816aa` | Every GitHub check passed under full concurrent load; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `3195408#1` | `319540820` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
+| `c94bd9f#1` | `c94bd9fc8` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 
 ### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
 
