@@ -49,9 +49,10 @@ the dev fork), so either path can resolve and provision a remote padi. Prefer
 the **nix-built binary** for this harness: it is production-shaped and pairs
 with the isolation env below. Use `just dev-auto` (see the **dev-server**
 skill) when you need HMR against a remote host — still apply the same
-state-dir / port isolation discipline, and **commit** any padi/kaval change
-first: both paths bake the git-tracked tree, so an uncommitted edit reaches
-your local server but not the padi the remote provisions.
+state-dir / port isolation discipline. Both paths bake the **git-tracked** tree,
+so an uncommitted edit to a tracked file does reach the provisioned padi, but a
+brand-new file must be `git add`ed first, and the bake resolves once at start —
+restart the dev server to pick up an agent-tree edit.
 
 ```sh
 nix build .#default

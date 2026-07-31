@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -184,6 +184,16 @@ smoke: nix
 # (see the funnel rule at the top of this file).
 dev-smoke: install
     {{ nix_shell }} just --no-deps test-dev
+
+# The working-tree agent bake's regression guard (#2039). `nix` above proves the
+# `.#agent-flake-env` derivation BUILDS; nothing proved the recipes that SOURCE
+# it still export the ref, so a typo in `agent_bake` — or a recipe that stops
+# using it — would restore the original "missing its agent source" failure with
+# every CI node green. `dev-smoke` cannot cover this: it enters at
+# `_dev-parallel`, which is deliberately nix-free. Depends on `nix` so the
+# realize is an already-built store lookup, not a concurrent build.
+agent-bake: nix
+    {{ nix_shell }} just --no-deps test-agent-bake
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized

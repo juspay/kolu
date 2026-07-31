@@ -128,15 +128,20 @@ let
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =
     (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
-  agentFlakeRefBakeArg =
-    ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
-  # The bake as sourceable data — the SAME two bindings the wrapper's `--set`
-  # arg is built from, so a working-tree run and the packaged wrapper cannot
-  # export a different pair. Add a second baked env here and every consumer
-  # (wrapper + `just dev`) picks it up without a second edit.
-  agentFlakeEnv = pkgs.writeText "agent-flake-env" ''
-    ${agentFlakeRefEnv}=${agentFlakeSrc}
-  '';
+  # Every (name, value) pair a run must carry to resolve remote agents — ONE
+  # definition, rendered two ways below. A working-tree run and the packaged
+  # wrapper cannot export a different set, because neither spells the pair: add
+  # an entry HERE and both the wrapper's `--set` args and the sourceable file
+  # pick it up with no second edit. (The set is a single pair today; it is an
+  # attrset rather than a scalar so that stays true when it isn't.)
+  agentBakedEnv = { ${agentFlakeRefEnv} = "${agentFlakeSrc}"; };
+  agentFlakeRefBakeArg = pkgs.lib.concatStringsSep " "
+    (pkgs.lib.mapAttrsToList (name: value: ''--set ${name} "${value}"'') agentBakedEnv);
+  # The same set as shell-sourceable data, for working-tree runs (`just dev`,
+  # `just server`) that have no wrapper to bake into.
+  agentFlakeEnv = pkgs.writeText "agent-flake-env"
+    (pkgs.lib.concatStrings
+      (pkgs.lib.mapAttrsToList (name: value: "${name}=${value}\n") agentBakedEnv));
 
   # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper

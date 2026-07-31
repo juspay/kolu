@@ -13,6 +13,15 @@ nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
+# SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
+# source tree so a remote dial can resolve padi for the host's arch. A run from
+# source has no wrapper, so it sources the SAME (name, value) set Nix builds the
+# wrapper's `--set` args from (`default.nix`'s `agentBakedEnv`) — one definition,
+# no parallel path. Kept as ONE snippet because both working-tree entrypoints
+# need it — `dev` before its parallel fork, and the standalone `server` — and
+# `ci::agent-bake` runs this exact string to prove it still exports (#2039).
+agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
+
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
@@ -42,18 +51,16 @@ dev SERVER_PORT="" CLIENT_PORT="":
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
-    # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact
-    # agent source tree so a remote dial can resolve padi for the host's arch.
-    # `just dev` runs from source (no wrapper), so source the SAME (name, value)
-    # pair Nix builds the wrapper's `--set` arg from — one definition, no
-    # parallel path — here in the sequential body, before the fork, for the same
-    # reason the ports are. `_dev-parallel` (ci::dev-smoke's entry point)
-    # deliberately skips this: that node has no `nix` dep and must stay nix-free.
-    # Resolves through the git+file flakeref, so the baked tree is the COMMITTED
-    # source — an uncommitted padi/kaval edit reaches this server but not the
-    # padi a dialed remote provisions. Commit before dialing a remote to test it.
-    set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a
-    echo "→ agent source baked from the COMMITTED tree (commit before dialing a remote)"
+    # Bake the agent source here, in the sequential body before the fork, for
+    # the same reason the ports are (see `agent_bake` at the top of this file).
+    # `_dev-parallel` — ci::dev-smoke's entry point — deliberately does NOT
+    # inherit this: that node has no `nix` dep and must stay nix-free.
+    # Resolved ONCE at start, and `pnpm dev` (node --watch) restarts inherit it,
+    # so re-run `just dev` after editing agent-tree source. Nix reads the
+    # git-TRACKED tree, so an uncommitted edit to a tracked file is baked in but
+    # a brand-new file must be `git add`ed first (same caveat as line 5).
+    {{ agent_bake }}
+    echo "→ agent source baked once, at start (re-run to pick up an agent-tree edit)"
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
     {{ nix_shell }} just _dev
@@ -146,7 +153,7 @@ _dev: install _dev-parallel
 
 [private]
 [parallel]
-_dev-parallel: server client
+_dev-parallel: _server-raw client
 
 # Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate.
 # Typecheck stays inline; the lint half delegates to ci::biome so the gate flag
@@ -175,8 +182,42 @@ lint: install
 # boot beside a live `kolu.service` (its padi is already supervised). A per-port
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
+#
+# Bakes the agent source, because this recipe is a real standalone entrypoint —
+# `just server` + `just client` in two terminals is a supported way to run the
+# stack, and without the bake that pair reaches the same "missing its agent
+# source" wall `just dev` used to. `dev` does NOT route through here (it forks
+# `_server-raw`, having already baked once), so nothing baked twice.
 server:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ agent_bake }}
+    just --no-deps _server-raw
+
+# The server without the bake — what `_dev-parallel` forks, so `just dev` bakes
+# exactly once (in its sequential body) and ci::dev-smoke's entry point stays
+# nix-free. Never a standalone entrypoint; use `just server`.
+[private]
+_server-raw:
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+
+# Assert the working-tree agent bake still exports its ref — the regression
+# guard for #2039. `ci::nix` proves `.#agent-flake-env` BUILDS; only this proves
+# the handoff that consumes it works, so the original bug cannot return with
+# every node green. Runs the same `agent_bake` snippet `dev` and `server` do,
+# and derives the variable's name from the generated file rather than
+# re-spelling it — the spelling this change exists to keep in one place.
+test-agent-bake:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    env_file=$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)
+    name=$(cut -d= -f1 "$env_file")
+    [[ -n "$name" ]] || { echo "agent-bake: $env_file declares no variable" >&2; exit 1; }
+    {{ agent_bake }}
+    [[ -n "${!name:-}" ]] || { echo "agent-bake: sourcing did not export $name" >&2; exit 1; }
+    [[ "${!name}" == /nix/store/*-agent-flake-source ]] \
+      || { echo "agent-bake: $name=${!name} is not an agent-source store path" >&2; exit 1; }
+    echo "agent-bake: $name exported → ${!name}"
 
 # Run client with Vite dev server (HMR)
 client:
