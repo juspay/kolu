@@ -37,10 +37,27 @@ root cause has been identified from the run logs and supporting evidence.
   `[data-testid="pierre-file-view"]` to mount. The run finished with 506 of
   507 scenarios passing. See
   `.ci/fba3b95/x86_64-linux/ci::e2e.log`.
-- **Root cause:** under investigation. The observation above does not prove
-  why the file view failed to mount, so no cause is asserted yet.
-- **Proposed fix:** pending root-cause proof. No implementation is proposed
-  while the causal chain is unresolved.
+- **Root cause:** the Code tab treated a settled but stale `fs.listAll`
+  inventory as authoritative. It consumed the open request before resolving
+  it; resolution returned no match, and the consumed request could not run
+  again when the inventory later refreshed. No Pierre file view was therefore
+  mounted.
+- **Evidence:** a controlled single-scenario run on `kolu-ci-1` reproduced the
+  same timeout with the adjacent exact-path case, `plain.txt`. The file-creation
+  step passed, but instrumentation at the resolution tick recorded
+  `pathCount: 0`, `exactPathPresent: false`, and `isPending: false`, followed by
+  the toast `File reference not found: plain.txt` and no mounted view. Source
+  inspection closes the causal chain: `resolveRef` can resolve that exact path
+  only from `repoPaths`, while `CodeTab` assigns `consumedRequest = req` before
+  calling `resolveRef`; a later inventory update cannot replay the request.
+  This also demonstrates that the failure is not specific to the
+  unique-basename fallback.
+- **Proposed fix:** on a not-found verdict, refresh `fs.listAll` and keep the
+  request eligible until resolution has run against that fresh inventory.
+  Consume the request only after it resolves, or after the refreshed
+  authoritative inventory also proves the path absent. Add an e2e regression
+  that creates a file immediately before clicking its terminal reference and
+  verifies that the request survives the initial stale settled snapshot.
 
 ### `fba3b95#4`: Darwin atlas-sync, TypeScript-Go parser panic
 
