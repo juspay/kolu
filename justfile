@@ -201,23 +201,50 @@ server:
 _server-raw:
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
 
-# Assert the working-tree agent bake still exports its ref — the regression
-# guard for #2039. `ci::nix` proves `.#agent-flake-env` BUILDS; only this proves
-# the handoff that consumes it works, so the original bug cannot return with
-# every node green. Runs the same `agent_bake` snippet `dev` and `server` do,
-# and derives the variable's name from the generated file rather than
-# re-spelling it — the spelling this change exists to keep in one place.
+# Assert the working-tree agent bake still reaches a child process — the
+# regression guard for #2039. `ci::nix` proves `.#agent-flake-env` BUILDS; only
+# this proves the handoff that consumes it works, so the original bug cannot
+# return with every node green. Two halves, because either alone is green while
+# the bug is back: the snippet must export, AND the entrypoints must still run
+# it. Names come from the generated file, never re-spelled here — keeping that
+# spelling in one place is what this whole change is for.
 test-agent-bake:
     #!/usr/bin/env bash
     set -euo pipefail
     env_file=$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)
-    name=$(cut -d= -f1 "$env_file")
-    [[ -n "$name" ]] || { echo "agent-bake: $env_file declares no variable" >&2; exit 1; }
+    [[ -s "$env_file" ]] || { echo "agent-bake: $env_file declares nothing" >&2; exit 1; }
+
     {{ agent_bake }}
-    [[ -n "${!name:-}" ]] || { echo "agent-bake: sourcing did not export $name" >&2; exit 1; }
-    [[ "${!name}" == /nix/store/*-agent-flake-source ]] \
-      || { echo "agent-bake: $name=${!name} is not an agent-source store path" >&2; exit 1; }
-    echo "agent-bake: $name exported → ${!name}"
+
+    # Check through a CHILD, not `${!name}`: shell indirection reads an
+    # unexported variable just as happily, so it would stay green if `set -a`
+    # ever went missing — and a child is what `_server-raw` and `client` are.
+    # Per line, because `agentBakedEnv` is an attrset built to grow.
+    saw_agent_source=0
+    while IFS='=' read -r name value; do
+      [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+        || { echo "agent-bake: '$name' is not a shell identifier" >&2; exit 1; }
+      child=$(bash -c 'printenv "$1"' _ "$name") \
+        || { echo "agent-bake: $name never reached a child process" >&2; exit 1; }
+      [[ "$child" == "$value" ]] \
+        || { echo "agent-bake: child saw $name=$child, the file declares $value" >&2; exit 1; }
+      [[ "$child" == /nix/store/*-agent-flake-source ]] && saw_agent_source=1
+      echo "agent-bake: $name → $child"
+    done < "$env_file"
+    [[ "$saw_agent_source" == 1 ]] \
+      || { echo "agent-bake: nothing exported points at an agent-source store path" >&2; exit 1; }
+
+    # A working snippet no entrypoint calls is still the bug. `--dry-run`
+    # expands each recipe without running it.
+    for entry in dev server; do
+      found=$(just --dry-run "$entry" 2>&1 | grep -c 'agent-flake-env' || true)
+      [[ "$found" == 1 ]] \
+        || { echo "agent-bake: \`just $entry\` expands to $found bakes, want exactly 1" >&2; exit 1; }
+    done
+    found=$(just --dry-run _dev-parallel 2>&1 | grep -c 'agent-flake-env' || true)
+    [[ "$found" == 0 ]] \
+      || { echo "agent-bake: _dev-parallel must stay nix-free for ci::dev-smoke, found $found" >&2; exit 1; }
+    echo "agent-bake: dev + server bake once each; _dev-parallel nix-free"
 
 # Run client with Vite dev server (HMR)
 client:

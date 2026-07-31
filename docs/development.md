@@ -49,7 +49,8 @@ production Nix wrapper applies — so you can add remote hosts from a working-tr
 run without switching to `nix run .#kolu`. Nix reads the **git-tracked** tree, so
 an uncommitted edit to a tracked file is baked in, but a brand-new file must be
 `git add`ed before a dialed remote will see it. The bake resolves once at start,
-so re-run `just dev` after editing agent-tree source.
+so restart whichever entrypoint you are running — `just dev` or `just server` —
+after editing agent-tree source.
 
 The default `just dev` slot is shared across worktrees. If another worktree
 already owns it, this checkout connects to that slot's existing daemons. Prefer
