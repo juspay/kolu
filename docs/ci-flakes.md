@@ -298,7 +298,11 @@ and is fixed in this PR before the campaign resumes.
   Ten complete Linux e2e lanes then passed on the same host without a scenario
   retry budget (5,070 executions, 5,070 attempts, zero retries). Strict
   two-platform CI run `eaf0816#1` also passed under the full concurrent-node
-  load with zero e2e retries. This rules out a deterministic source-view
+  load with zero e2e retries. After the final `5/5` streak, an additional 100
+  isolated executions at `e416c4740` passed on `kolu-ci-1`, each in a fresh
+  browser/server world with Cucumber retries explicitly disabled. The
+  diagnostic found the requested non-collapsed native selection and the pill
+  rendered in every execution. This rules out a deterministic source-view
   failure and a readily repeatable suite-load interaction but does not identify
   the rare failure's root cause, so the item remains unresolved and no product
   or interaction change is claimed as its fix yet.
