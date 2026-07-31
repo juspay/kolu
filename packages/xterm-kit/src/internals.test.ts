@@ -224,4 +224,51 @@ describe("clearWriteQueue", () => {
     const term = { _core: {} } as unknown as XTerm;
     expect(() => clearWriteQueue(term)).toThrow(/WriteBuffer private shape/);
   });
+
+  it("drops scheduled writes on the shipped @xterm/xterm so they never parse after reset", async () => {
+    // Pin the contamination race clearPendingOutput exists for: queue stale
+    // bytes, clear the write queue + reset, write fresh, await parse — only
+    // fresh content remains and the dropped stale callback never fires.
+    const { Terminal: XTermCtor } = await import("@xterm/xterm");
+    const term = new XTermCtor({
+      cols: 40,
+      rows: 10,
+      scrollback: 10,
+      allowProposedApi: true,
+    });
+    try {
+      let staleCb = 0;
+      // Queue without awaiting — leave chunks on WriteBuffer's async path.
+      term.write("STALE_SHOULD_NOT_LAND", () => {
+        staleCb++;
+      });
+      clearWriteQueue(term);
+      term.reset();
+      await new Promise<void>((resolve) =>
+        term.write("FRESH_ONLY", () => resolve()),
+      );
+      // Allow any timer that might have been scheduled before clear to fire.
+      await new Promise((r) => setTimeout(r, 30));
+      expect(staleCb, "dropped stale write callback must not fire").toBe(0);
+      const line0 = (
+        term as unknown as {
+          _core: {
+            buffers: {
+              normal: {
+                lines: {
+                  get(i: number): { translateToString(t: boolean): string };
+                };
+              };
+            };
+          };
+        }
+      )._core.buffers.normal.lines
+        .get(0)
+        .translateToString(true);
+      expect(line0).toContain("FRESH_ONLY");
+      expect(line0).not.toContain("STALE");
+    } finally {
+      term.dispose();
+    }
+  });
 });
