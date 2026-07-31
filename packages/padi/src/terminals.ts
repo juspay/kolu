@@ -15,7 +15,10 @@
  * state-reads + lifecycle from this file as a single module.
  */
 
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  NewTerminalPolicy,
+  TerminalId,
+} from "@kolu/terminal-vocab/schema";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -307,6 +310,25 @@ export function getActiveTerminalId(): TerminalId | null {
 export function setActiveTerminalId(id: TerminalId | null): void {
   assignActiveTerminalId(id);
   if (id !== null) notifyDirty();
+}
+
+// The app chrome's last new-terminal POLICY report — the twin of
+// `activeTerminalId` above, and here for the same reason: it is a client-reported
+// chrome fact, one shared value with last-write-wins across connected clients.
+// `lifecycle.create` resolves every new terminal's look from it
+// (`newTerminalPolicy.ts`). `null` = ABSENT, not a default: a padi nobody has
+// opened a browser against has no user preference to honour, and must not invent
+// one that could drift from kolu-common's.
+let newTerminalPolicy: NewTerminalPolicy | null = null;
+
+/** Record the app chrome's new-terminal policy report (`chrome.setNewTerminalPolicy`). */
+export function setNewTerminalPolicy(policy: NewTerminalPolicy): void {
+  newTerminalPolicy = policy;
+}
+
+/** The last reported new-terminal policy, or `null` if no chrome has reported. */
+export function getNewTerminalPolicy(): NewTerminalPolicy | null {
+  return newTerminalPolicy;
 }
 
 /** Restore the active-terminal marker from a session being adopted at boot

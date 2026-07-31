@@ -22,7 +22,6 @@ import {
   evictTerminal,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
-import { useNewTerminalThemePolicyReport } from "./useNewTerminalThemePolicyReport";
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
@@ -40,10 +39,6 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
-  // Keep every host's padi told what the new-terminal theme preference resolves
-  // to — padi picks the theme for creates from ANY caller, including ones that
-  // never touch this module (MCP, a TUI, a script).
-  useNewTerminalThemePolicyReport();
 
   // --- Handlers ---
 
@@ -137,12 +132,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // The new terminal's theme is resolved SERVER-SIDE by padi's
-    // `lifecycle.create` handler, so every caller — keyboard/palette create,
-    // session restore, and MCP-created terminals — honours the same
-    // `newTerminalTheme` / `shuffleBehavior` preference. The only theme the
-    // client pins explicitly is a caller-provided override (session restore /
-    // worktree), which still wins.
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the
     // canvas placement effect, which consumes the signal. If we set
@@ -177,6 +166,8 @@ export const useTerminalCrud = createSharedRoot(() => {
     const info = await activePadiRpc.lifecycle
       .create({
         cwd,
+        // `themeName` is a caller OVERRIDE only (session restore, worktree) —
+        // padi resolves the preference at `lifecycle.create` (#2045).
         themeName: initial?.themeName,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,

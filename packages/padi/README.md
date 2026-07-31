@@ -198,16 +198,30 @@ reach for as by what it owns:
   "session")`), never the raw conf store, so it carries no dependency on the
   server's `state.ts`.
 
-  This holds even where padi acts ON a preference. padi RESOLVES the theme of
-  every new terminal at its `lifecycle.create` front door, so a create from the
-  MCP server, a TUI or a script honours the **New terminal theme** setting just
-  like a keyboard create ([#2045]). It learns the setting by REPORT, not by
-  reading it: the app chrome calls `chrome.setNewTerminalThemePolicy` and padi
-  holds the last report (`terminalThemePolicy.ts`), the same way it holds the
-  last reported active terminal. That keeps the ownership arrow pointing out —
-  and it is the only shape that works on BOTH arms, since a remote padi has no
-  channel to kolu-server's conf at all. The report carries the browser's
-  RESOLVED `isDark`, never a `"system"` colour scheme padi could not answer.
+  This holds even where padi acts ON a preference — **the one prose home for the
+  new-terminal policy decision; every in-code comment points here rather than
+  restating it.** padi RESOLVES the theme of every new terminal at its
+  `lifecycle.create` front door, so a create from the MCP server, a TUI or a
+  script honours the **New terminal theme** setting just like a keyboard create
+  ([#2045]). It learns the setting by REPORT, not by reading it: the app chrome
+  calls `chrome.setNewTerminalPolicy` and padi holds the last report (the cell in
+  `terminals.ts`, beside the reported active terminal; the decision itself in
+  `newTerminalPolicy.ts`). That keeps the ownership arrow pointing out — and it
+  is the only shape that works on BOTH arms, since a remote padi has no channel
+  to kolu-server's conf at all. The report carries the browser's RESOLVED
+  `isDark`, never a `"system"` colour scheme padi could not answer, and it is
+  only sent once the browser's preferences cell has actually yielded: an
+  unloaded preference is an ABSENT fact on both sides of the hop, and padi's
+  "nobody has reported" branch (no opinion, the caller's own default) is the
+  correct answer to it.
+
+  Three rules the decision carries, each written down once beside the code:
+  **inherit** copies the terminal the user was last in and stops there — an
+  unthemed source means the new terminal is unthemed too, it does not reach
+  further back; the **peer set** a shuffle spreads away from is what is ON SCREEN
+  (`visibleTerminalThemeNames`), not everything in the registry; and the policy
+  governs **top-level creates only** — a split keeps the caller/server default it
+  had before #2045.
 
 [#2045]: https://github.com/juspay/kolu/issues/2045
 

@@ -66,14 +66,14 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
  *  `docs/atlas/src/content/atlas/kaval-heap-oom.mdx`). */
 export const DEFAULT_SCROLLBACK = 50_000;
 
-// ── New-terminal theme preferences ────────────────────────────────────
+// ── New-terminal preferences ──────────────────────────────────────────
 //
-// The vocabulary for "what theme does a NEW terminal get". Like
+// The vocabulary for "what does a NEW terminal look like". Like
 // `DEFAULT_SCROLLBACK` above, these are terminal-DOMAIN facts both the app
 // (client + kolu-common, which re-exports them) AND the per-host daemon
 // (`@kolu/padi`, which RESOLVES the theme at its `lifecycle.create` front door)
 // must agree on — so they live HERE rather than in `kolu-common/surface`: padi
-// validating a theme-policy report must not force the forbidden
+// validating a new-terminal policy report must not force the forbidden
 // `@kolu/padi → kolu-common` back-edge, and the values must ride padi's HASHED
 // build closure so a change flips `PADI_BUILD_ID`.
 
@@ -119,6 +119,27 @@ export function shuffleMode(
     .with("colourful", () => "colourful" as const)
     .exhaustive();
 }
+
+/** The user's new-terminal preferences as the app chrome REPORTS them to padi —
+ *  already resolved (`isDark`, never a raw `"system"` colour scheme padi could
+ *  not answer headless).
+ *
+ *  Named for the VOLATILITY (which preferences seed a fresh terminal), not for
+ *  today's single member: `newTerminalCollapsed` is the same shape of fact and
+ *  will ride this payload additively rather than earning a second procedure.
+ *
+ *  ONE declaration, read by both sides of the padi seal: it is padi's
+ *  `chrome.setNewTerminalPolicy` input schema AND the type of the cell padi
+ *  holds the last report in. See `packages/padi/README.md` for why this is a
+ *  report and not a read. */
+export const NewTerminalPolicySchema = z.object({
+  newTerminalTheme: NewTerminalThemeSchema,
+  shuffleBehavior: ShuffleBehaviorSchema,
+  /** The app's RESOLVED dark mode — `colorScheme` after `"system"` has been
+   *  answered by the browser's media query. */
+  isDark: z.boolean(),
+});
+export type NewTerminalPolicy = z.infer<typeof NewTerminalPolicySchema>;
 
 // ── Agent status ──────────────────────────────────────────────────────
 

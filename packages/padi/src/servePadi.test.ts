@@ -14,7 +14,7 @@
  */
 
 import { inMemoryStore } from "@kolu/surface/server";
-import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setPadiSessionStore } from "./session/confStores.ts";
@@ -41,6 +41,7 @@ import {
   terminalEntries,
   unregisterTerminal,
 } from "./terminal-registry.ts";
+import { setNewTerminalPolicy } from "./terminals.ts";
 import { MAX_UPLOAD_BYTES } from "./upload.ts";
 import {
   type AuthoredActiveTerminal,
@@ -589,5 +590,75 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     // Both the parked entries and the blob are gone, together — one user act.
     expect(getTerminal(PARKED_ID)).toBeUndefined();
     expect(getSavedSession()).toBeNull();
+  });
+});
+
+// ── the new-terminal policy governs TOP-LEVEL creates only ────────────────────
+//
+// Resolution moved to `lifecycle.create` so EVERY caller honours the user's
+// preference (#2045). That door also admits SPLIT creates, which never carried a
+// theme before — and since `shuffle` is the default preference, letting the
+// policy through would start tinting every sub-tab that lives inside its
+// parent's tile. The rule (`newTerminalPolicy.ts`) is that a create with a
+// `parentId` keeps the pre-#2045 behaviour; this pins it through the real door.
+describe("lifecycle.create — new-terminal policy vs. splits", () => {
+  const PARENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+  function createVia(input: {
+    parentId?: string;
+    themeName?: string;
+  }): string | undefined {
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+      lifetime: { kind: "forever" },
+      stateRoot: "/tmp/padi-test-state-root",
+    });
+    const create = deps.procedures?.lifecycle?.create as unknown as (a: {
+      input: Record<string, unknown>;
+    }) => { id: string };
+    return getTerminal(create({ input }).id as TerminalId)?.meta.themeName;
+  }
+
+  function seedParent(): void {
+    registerTerminal(PARENT_ID as TerminalId, {
+      info: { id: PARENT_ID, pid: 1 },
+      meta: activeMeta,
+      snapshot: activeSnapshot,
+      handle: {} as ActiveTerminalProcess["handle"],
+    });
+  }
+
+  beforeEach(() => {
+    setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
+    // The user's setting, as the app chrome reports it: shuffle (the DEFAULT).
+    setNewTerminalPolicy({
+      newTerminalTheme: "shuffle",
+      shuffleBehavior: "dark",
+      isDark: true,
+    });
+  });
+  afterEach(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+    __resetPadiSurfaceCtxForTest();
+  });
+
+  it("a TOP-LEVEL create takes the reported policy's theme", () => {
+    expect(typeof createVia({})).toBe("string");
+  });
+
+  it("a SPLIT create takes NO theme — the policy stops at the tile boundary", () => {
+    seedParent();
+    expect(createVia({ parentId: PARENT_ID })).toBeUndefined();
+  });
+
+  it("a SPLIT create still honours an explicit caller override", () => {
+    seedParent();
+    expect(createVia({ parentId: PARENT_ID, themeName: "Dracula" })).toBe(
+      "Dracula",
+    );
   });
 });

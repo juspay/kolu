@@ -26,6 +26,7 @@ import {
   requireTerminal,
   terminalEntries,
   unregisterTerminal,
+  visibleTerminalThemeNames,
 } from "./terminal-registry.ts";
 import { LOCAL_LOCATION } from "./vocab.ts";
 
@@ -113,5 +114,63 @@ describe("requireMutableTerminal — parked records are immutable", () => {
     const err = caught(() => requireMutableTerminal(ID));
     expect(err).toBeInstanceOf(ORPCError);
     expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+  });
+});
+
+/** The peer set a spread shuffle repels away from is a VISUAL fact — the
+ *  backgrounds already on screen — so its grain is stated in one place rather
+ *  than being whatever the registry happens to hold. */
+describe("visibleTerminalThemeNames — 'on screen', not 'in the registry'", () => {
+  const id = (n: number) =>
+    `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa${n}` as TerminalId;
+
+  function seed(
+    n: number,
+    state: "active" | "sleeping" | "parked",
+    themeName?: string,
+  ): void {
+    registerTerminal(id(n), {
+      info: { id: id(n), pid: 1 },
+      meta:
+        state === "active"
+          ? { state, location: LOCAL_LOCATION, lastActivityAt: 1, themeName }
+          : state === "sleeping"
+            ? {
+                state,
+                location: LOCAL_LOCATION,
+                lastActivityAt: 1,
+                sleptAt: 1,
+                themeName,
+              }
+            : {
+                state,
+                location: LOCAL_LOCATION,
+                lastActivityAt: 1,
+                parkedAt: 1,
+                themeName,
+              },
+      snapshot: snapshot(),
+      ...(state === "active"
+        ? { handle: {} as ActiveTerminalProcess["handle"] }
+        : {}),
+    } as Parameters<typeof registerTerminal>[1]);
+  }
+
+  it("EXCLUDES parked records — a restore-card row renders no background", () => {
+    seed(1, "active", "Dracula");
+    seed(2, "parked", "Nord");
+    // A user who leaves the restore card up would otherwise have every create
+    // shuffling away from N themes nobody can see.
+    expect(visibleTerminalThemeNames()).toEqual(["Dracula"]);
+  });
+
+  it("INCLUDES sleeping records — a dormant tile still renders", () => {
+    seed(1, "sleeping", "Nord");
+    expect(visibleTerminalThemeNames()).toEqual(["Nord"]);
+  });
+
+  it("KEEPS an unthemed entry as `undefined` — it renders as the default theme", () => {
+    seed(1, "active", undefined);
+    expect(visibleTerminalThemeNames()).toEqual([undefined]);
   });
 });

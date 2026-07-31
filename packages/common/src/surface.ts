@@ -148,6 +148,7 @@ export {
   RestoreTargetSchema,
   reasonForSource,
   resumableCommand,
+  NewTerminalPolicySchema,
   NewTerminalThemeSchema,
   ShuffleBehaviorSchema,
   TERMINAL_IDLE_AFTER_MS,
@@ -159,12 +160,12 @@ export {
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
 
-// `NewTerminalThemeSchema` / `ShuffleBehaviorSchema` / `shuffleMode` are OWNED by
+// The new-terminal vocabulary (`NewTerminalThemeSchema` / `ShuffleBehaviorSchema`
+// / `shuffleMode` / `NewTerminalPolicySchema`) is OWNED by
 // `@kolu/terminal-vocab/schema` — the shared browser-safe terminal vocabulary —
-// because padi RESOLVES the new-terminal theme at its `lifecycle.create` front
-// door and so must validate the same literals, which it cannot do by importing
-// `kolu-common` (the arrow runs `kolu-common → @kolu/padi`, never back). Same
-// reason `DEFAULT_SCROLLBACK` lives there. They ride the moved-symbol re-export
+// for the same reason `DEFAULT_SCROLLBACK` lives there: padi must validate the
+// same literals and cannot import `kolu-common` (the arrow runs
+// `kolu-common → @kolu/padi`, never back). It rides the moved-symbol re-export
 // block above, so every existing `kolu-common/surface` import site is unchanged.
 
 /** Right-panel preferences — workspace-level layout chrome: the panel's width
@@ -236,10 +237,10 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 
-// The new-terminal theme vocabulary and its `shuffleMode` pool filter are owned
-// by `@kolu/terminal-vocab/schema` (see the schema re-export above) — padi
-// resolves shuffles too, and cannot import `kolu-common`.
+// See the schema re-export block above for why these live in
+// `@kolu/terminal-vocab/schema`.
 export {
+  type NewTerminalPolicy,
   type NewTerminalTheme,
   type ShuffleBehavior,
   shuffleMode,

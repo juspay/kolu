@@ -160,6 +160,26 @@ export function parkedTerminalIds(): TerminalId[] {
   return ids;
 }
 
+/** Every ON-SCREEN terminal's `themeName`, in canonical insertion order — the
+ *  peer set a spread shuffle repels away from (`newTerminalPolicy.ts`).
+ *
+ *  The GRAIN is stated deliberately: "already on screen", NOT "in the registry".
+ *  PARKED records are boot-produced restore-card rows the client keeps OFF the
+ *  canvas (see {@link ParkedTerminalProcess} — "the client filters it out of the
+ *  tile set"), so they render no background at all and must not shrink or skew
+ *  the candidate pool while a restore card is up. ACTIVE and SLEEPING records DO
+ *  render a tile, and SUB-terminals render inside their parent's, so both stay.
+ *
+ *  An `undefined` `themeName` is KEPT, not dropped: an unthemed terminal renders
+ *  as the default theme, so it must repel a spread exactly like an explicitly
+ *  default-themed one (`resolveThemeBgs` maps it to that background). */
+export function visibleTerminalThemeNames(): (string | undefined)[] {
+  const names: (string | undefined)[] = [];
+  for (const entry of terminals.values())
+    if (entry.meta.state !== "parked") names.push(entry.meta.themeName);
+  return names;
+}
+
 /** Does the registry hold ANY parked entry — i.e. is a restore still PENDING? The
  *  autosave reads this to freeze the saved blob while parked entries stand in for
  *  it: a parked record is not persisted (`snapshotSession` skips it), so an autosave
