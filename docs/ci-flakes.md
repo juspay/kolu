@@ -39,6 +39,8 @@ root cause has been identified from the run logs and supporting evidence.
   `.ci/fba3b95/x86_64-linux/ci::e2e.log`.
 - **Root cause:** under investigation. The observation above does not prove
   why the file view failed to mount, so no cause is asserted yet.
+- **Proposed fix:** pending root-cause proof. No implementation is proposed
+  while the causal chain is unresolved.
 
 ### `fba3b95#4`: Darwin atlas-sync, TypeScript-Go parser panic
 
@@ -56,3 +58,8 @@ root cause has been identified from the run logs and supporting evidence.
   contents are TypeScript declarations. This directly connects the
   extensionless path in the panic to the `.d.mts` input whose script kind was
   lost. See `.ci/fba3b95/aarch64-darwin/ci::atlas-sync.log`.
+- **Proposed fix:** reduce this case to an upstream TypeScript-Go regression
+  test that passes the logical `.d.mts` path through pnpm's hard-linked store,
+  then pin Atlas to the last non-panicking TypeScript release until that
+  regression is fixed. Validate the chosen pin with repeated
+  `atlas::check-sync` runs on `ci@petit`.
