@@ -1,6 +1,9 @@
 /**
- * Terminal registry — the `Map<TerminalId, TerminalProcess>` and the
- * pure read/write accessors around it.
+ * Terminal registry — the `Map<TerminalId, TerminalProcess>`, the pure
+ * read/write accessors around it, the PARENT-EDGE queries over it
+ * (`isPaintableParent`, `firstChildOf`), and the ONE parent-edge POLICY
+ * (`requireFlatParentEdge`) both generative writes share. Parent-edge reads
+ * live here so no caller walks `terminalEntries()` for the graph itself.
  *
  * Endpoint-agnostic: the `TerminalEndpoint` writes to the same registry
  * so consumers downstream (router, surface) iterate one place regardless
@@ -291,32 +294,113 @@ export function terminalNotFound(
   return new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
 }
 
-/** Walk `parentId` → its parent → … until a top-level id (no `parentId`).
- *  Cycle-safe: a loop returns the first revisited id rather than spinning. */
-export function rootAncestorId(id: string): string {
+/** The rejected-parent-edge fault as a typed oRPC error — the sibling of
+ *  {@link terminalNotFound}, so the create door and the setParent door can't
+ *  drift on the wire shape. Typed (not a bare Error) because oRPC scrubs bare
+ *  errors to an opaque "Internal server error". */
+export function invalidParentEdge(
+  childId: string,
+  parentId: string,
+  reason: string,
+): ORPCError<"BAD_REQUEST", undefined> {
+  return new ORPCError("BAD_REQUEST", {
+    message: `Cannot parent ${childId} under ${parentId}: ${reason}`,
+  });
+}
+
+/** Can `id` carry a split — i.e. would the canvas actually PAINT a child hung
+ *  off it? Only a present, non-PARKED, TOP-LEVEL record is drawn as a tile: the
+ *  client keeps exactly those ids in `terminalIds` and hangs exactly ONE hop of
+ *  `childrenByParent` off each (`packages/client/src/terminal/useTerminalMetadata.ts`
+ *  — if the canvas ever paints deeper, that hop and THIS predicate move together).
+ *  A parked placeholder, an absent id, or a record that is itself a split gives a
+ *  child the canvas can never show (#2059).
+ *
+ *  The ONE statement of that fact, with each door composing its own POLICY on top:
+ *  {@link requireFlatParentEdge} REJECTS below (the generative writes), and
+ *  `promoteUnpaintableRestoreChildren` (`session/sessionRestore.ts`) PROMOTES the
+ *  child to top-level (the restore door reconciles, it does not throw). */
+export function isPaintableParent(id: string): boolean {
+  const parent = getTerminal(id);
+  return (
+    parent !== undefined &&
+    parent.meta.state !== "parked" &&
+    parent.meta.parentId === undefined
+  );
+}
+
+/** The id of the first registry entry whose parent is `id`, or `undefined` — the
+ *  "is this tile a leaf?" query, a cheap early-out over the map (same shape as
+ *  {@link hasParkedTerminals}). The one parent-edge CHILD query: callers never walk
+ *  `terminalEntries()` for it themselves. */
+export function firstChildOf(id: string): string | undefined {
+  for (const [childId, entry] of terminals)
+    if (entry.meta.parentId === id) return childId;
+  return undefined;
+}
+
+/** Walk `id` → its parent → … to the TOP-LEVEL id. Module-private: its one
+ *  consumer is {@link requireFlatParentEdge}'s fault message, which names the tile
+ *  the caller should parent against instead.
+ *
+ *  A cycle is CORRUPT state — reachable only through the deliberately-unfenced
+ *  restore door or a hand-edited session blob — so it THROWS rather than handing
+ *  back a nested id dressed up as a root. The old "return the first revisited id"
+ *  made the fault advise parenting against the very id it had just rejected, which
+ *  is unfollowable advice; a bad state must crash loudly, not degrade into a
+ *  plausible-looking value. */
+function rootAncestorId(id: string): string {
+  const seen = new Set<string>([id]);
   let cur = id;
-  const seen = new Set<string>();
-  while (true) {
-    if (seen.has(cur)) return cur;
-    seen.add(cur);
+  for (;;) {
     const parent = getTerminal(cur)?.meta.parentId;
     if (parent === undefined) return cur;
+    if (seen.has(parent))
+      throw new Error(
+        `terminal parent cycle through ${parent} (corrupt session graph)`,
+      );
+    seen.add(parent);
     cur = parent;
   }
 }
 
-/** Refuse a parent that is itself a split child. Nested splits are accepted
- *  by the create / setParent wire shape but never painted on the canvas —
- *  the silent-invisible middle is the worst outcome (#2059). Fail loud with
- *  a typed `BAD_REQUEST` that names the root ancestor so the caller can
- *  re-parent one level up. No-op when `parentId` is top-level or unknown. */
-export function rejectNestedParent(parentId: string): void {
-  const grandparentId = getTerminal(parentId)?.meta.parentId;
-  if (grandparentId === undefined) return;
-  const rootId = rootAncestorId(parentId);
-  throw new ORPCError("BAD_REQUEST", {
-    message:
-      `Nested splits are unsupported: parent ${parentId} is itself a split child. ` +
-      `Parent against the root tile instead (${rootId}).`,
-  });
+/** The ONE rule both generative parent writes share (#2059): the edge
+ *  `childId → parentId` must leave the tile graph at depth ≤ 1. TOTAL — it names
+ *  every way an edge breaks that (self-edge, absent/parked/nested parent, a child
+ *  that still carries splits of its own), so no door can enforce a subset. A
+ *  nested split is accepted by the create / setParent wire shape but never painted
+ *  on the canvas, and the silent-invisible middle is the worst outcome.
+ *
+ *  Session restore does NOT call this — it rehydrates saved graphs and reconciles
+ *  unpaintable edges through `promoteUnpaintableRestoreChildren` instead. */
+export function requireFlatParentEdge(childId: string, parentId: string): void {
+  if (parentId === childId)
+    throw invalidParentEdge(
+      childId,
+      parentId,
+      "a terminal cannot be its own parent",
+    );
+  if (!isPaintableParent(parentId)) {
+    // The predicate above is the FACT; this only names WHICH of its clauses failed.
+    const parent = getTerminal(parentId);
+    if (!parent) throw terminalNotFound(parentId);
+    if (parent.meta.parentId !== undefined)
+      throw invalidParentEdge(
+        childId,
+        parentId,
+        `it is itself a split child — parent against the root tile ${rootAncestorId(parentId)} instead`,
+      );
+    throw invalidParentEdge(
+      childId,
+      parentId,
+      "it is a parked restore-card placeholder, not a tile the canvas paints",
+    );
+  }
+  const orphan = firstChildOf(childId);
+  if (orphan !== undefined)
+    throw invalidParentEdge(
+      childId,
+      parentId,
+      `it still has split children (e.g. ${orphan}), which the move would push to depth 2`,
+    );
 }

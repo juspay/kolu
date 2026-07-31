@@ -16,12 +16,12 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { ORPCError } from "@orpc/server";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import {
   getTerminal,
-  rejectNestedParent,
+  requireFlatParentEdge,
+  requireTerminal,
   terminalEntries,
 } from "./terminal-registry.ts";
 import {
@@ -134,11 +134,13 @@ export function createTerminal(
   parentId?: string,
   initial?: CreateTerminalInput,
 ): TerminalInfo {
-  // One-level splits only (#2059) — fence at the generative write so every
-  // non-restore door that assigns parentId shares the rule. Session restore
-  // uses restoreSpawn and deliberately rehydrates saved graphs (no auto-flatten).
-  if (parentId !== undefined) rejectNestedParent(parentId);
   const id = crypto.randomUUID();
+  // One-level splits only (#2059) — the id is minted FIRST so the generative
+  // write runs the ONE total rule, not a subset of it (a fresh uuid can be
+  // neither its own parent nor a non-leaf, and that is the point: one rule, no
+  // per-door special case). Session restore uses `restoreSpawn` and reconciles
+  // unpaintable edges through `promoteUnpaintableRestoreChildren` instead.
+  if (parentId !== undefined) requireFlatParentEdge(id, parentId);
   // P3 will select the endpoint per create — e.g. a sub-terminal
   // inheriting its parent's endpoint; today every terminal is local.
   return localEndpoint.spawnPty(id, {
@@ -195,40 +197,22 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
   await releaseSleptLocalPty(id);
 }
 
-/** Set or clear a terminal's parent relationship. */
+/** Set or clear a terminal's parent relationship. Presence of the SUBJECT is
+ *  established first and loudly (`requireTerminal`) — validating an edge whose
+ *  child may not exist gave one fault (unknown terminal) three behaviours,
+ *  decided by an unrelated property of the OTHER argument. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
-  // Same one-level fence as createTerminal (#2059) — the other generative
-  // write of a non-null parent edge. Clearing (null) is always legal.
-  // Self-parent invents a cycle; re-parenting a non-leaf under another tile
-  // invents depth ≥ 2 (OTHER → ROOT → CHILD) which the canvas never paints.
-  // rejectNestedParent alone can't see either hole.
-  if (parentId !== null) {
-    if (parentId === id) {
-      throw new ORPCError("BAD_REQUEST", {
-        message: `Cannot parent a terminal against itself (${id}).`,
-      });
-    }
-    rejectNestedParent(parentId);
-    for (const [childId, child] of terminalEntries()) {
-      if (child.meta.parentId === id) {
-        throw new ORPCError("BAD_REQUEST", {
-          message:
-            `Cannot re-parent ${id}: it still has split children (e.g. ${childId}). ` +
-            `Clear or re-parent those children first.`,
-        });
-      }
-    }
-  }
-  const entry = getTerminal(id);
-  if (entry) {
-    const newParent = parentId ?? undefined;
-    updateClientMetadata(entry, id, (m) => {
-      m.parentId = newParent;
-    });
-  }
+  const entry = requireTerminal(id);
+  // The same ONE rule `createTerminal` runs (#2059) — the other generative write
+  // of a non-null parent edge. Clearing (null) is always legal.
+  if (parentId !== null) requireFlatParentEdge(id, parentId);
+  const newParent = parentId ?? undefined;
+  updateClientMetadata(entry, id, (m) => {
+    m.parentId = newParent;
+  });
 }
 
 /** Store a terminal's canvas layout position (client-reported).

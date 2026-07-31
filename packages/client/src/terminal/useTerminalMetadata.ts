@@ -308,7 +308,14 @@ export function useTerminalMetadata(deps: {
    *  reader in O(1) per parent. Server-provided `keys()` order is
    *  preserved by construction: the walk appends in `keys()` order, so each
    *  parent's list is the same sequence the old filter produced — which
-   *  `useSubPanel`'s tab order and `Cmd`-cycling depend on. */
+   *  `useSubPanel`'s tab order and `Cmd`-cycling depend on.
+   *
+   *  ONE hop only — a tile is its root plus its splits, and a split of a split is
+   *  never painted. padi encodes the same limit in `isPaintableParent` /
+   *  `requireFlatParentEdge` (`packages/padi/src/terminal-registry.ts`, #2059): it
+   *  REFUSES a deeper parent edge at create/setParent and lifts one back to
+   *  top-level on restore. Growing the depth here means growing it there — neither
+   *  side moves alone. */
   const childrenByParent = createMemo<Map<TerminalId, TerminalId[]>>(() => {
     const byParent = new Map<TerminalId, TerminalId[]>();
     for (const id of keys()) {
