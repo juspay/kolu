@@ -169,6 +169,31 @@ and is fixed in this PR before the campaign resumes.
 | `48d536d#1` | `48d536ded` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `d3441b4#1` | `d3441b4c2` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `4900aa0#1` | `4900aa05d` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
+| `8eddf56#1` | `8eddf56cd` | Failed only `ci::dev-smoke@x86_64-linux`; both e2e lanes passed with 0 retries; streak reset | `0/5` |
+
+### `8eddf56#1`: Linux dev-smoke opened the app before its server was ready
+
+- **Failure:** `ci::dev-smoke@x86_64-linux` failed after the browser emitted
+  `WebSocket connection to 'ws://localhost:45267/rpc/ws' failed: Connection
+  closed before receiving a handshake response`.
+- **Root cause:** `devSmoke.ts` waited only for the Vite client URL to return
+  HTTP 200 before opening the browser. `just dev` starts Vite and the Kolu
+  server in parallel, so Vite could serve the app while its websocket proxy
+  target was not listening yet. The first app connection then received
+  `ECONNREFUSED`, and the smoke test correctly collected that browser console
+  error but incorrectly attributed this harness startup race to the app.
+- **Evidence:** `.ci/8eddf56/x86_64-linux/ci::dev-smoke.log` records Vite ready
+  and the browser navigation at 07:10:23, Vite's websocket proxy
+  `ECONNREFUSED` at 07:10:26, and `kolu listening` only afterward at
+  07:10:26.578. Source inspection shows the sole readiness call is
+  `waitForHttp(http://localhost:<client>/)`, immediately followed by browser
+  navigation; it never probes the separately assigned server port.
+- **Proposed fix:** before launching the browser, require HTTP 200 from both the
+  Vite client URL and this run's `http://localhost:<server>/api/health`.
+  Continue to use the child-process exit and existing timeout as the fail-fast
+  bounds.
+- **Implementation:** the smoke harness now waits concurrently for the Vite
+  page and the Kolu server's health endpoint before launching Chromium.
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 

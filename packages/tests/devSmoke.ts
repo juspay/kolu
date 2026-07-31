@@ -127,9 +127,15 @@ async function main() {
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 
   try {
-    const url = `http://localhost:${ports.client}/`;
-    await waitForHttp(url, DEV_READY_TIMEOUT_MS, dev);
-    console.log(`dev-smoke: dev server serving ${url}`);
+    const clientUrl = `http://localhost:${ports.client}/`;
+    const serverHealthUrl = `http://localhost:${ports.server}/api/health`;
+    await Promise.all([
+      waitForHttp(clientUrl, DEV_READY_TIMEOUT_MS, dev),
+      waitForHttp(serverHealthUrl, DEV_READY_TIMEOUT_MS, dev),
+    ]);
+    console.log(
+      `dev-smoke: dev stack serving ${clientUrl} (health ${serverHealthUrl})`,
+    );
 
     browser = await chromium.launch();
     const page = await browser.newPage();
@@ -140,7 +146,7 @@ async function main() {
     // A module-load crash arrives as an uncaught exception, not a console call.
     page.on("pageerror", (err) => failures.push(`uncaught: ${err.message}`));
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(clientUrl, { waitUntil: "domcontentloaded" });
 
     // The app must MOUNT, not merely serve HTML: the #2042 crash left a served
     // page with an empty body, which a status-code check would have called
