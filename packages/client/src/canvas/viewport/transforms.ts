@@ -44,6 +44,79 @@ export function computeCenterPan(
   };
 }
 
+/** A complete camera pose — the canvas's only notion of "where you are
+ *  looking". Focus is a camera move (TR1: maximized mode is deleted), so a
+ *  pose is a value that can be computed, tweened toward, and remembered for
+ *  the flight back. */
+export interface CameraPose {
+  panX: number;
+  panY: number;
+  zoom: number;
+}
+
+/** Screen-space breathing room left around a focused box, in px. */
+export const FIT_PADDING_PX = 32;
+
+/** Axis-aligned bounding box of a set of boxes, or `null` for an empty set.
+ *  The single home for the "what does this group of tiles span" walk that the
+ *  camera's fit, the restore-time centering, and the minimap all need — so a
+ *  fit and a fallback-center can never disagree about a subtree's extent. */
+export function boundingBox(
+  boxes: readonly { x: number; y: number; w: number; h: number }[],
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const b of boxes) {
+    minX = Math.min(minX, b.x);
+    minY = Math.min(minY, b.y);
+    maxX = Math.max(maxX, b.x + b.w);
+    maxY = Math.max(maxY, b.y + b.h);
+  }
+  return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null;
+}
+
+/** The pose that fits a canvas-space box into the viewport: the largest zoom
+ *  at which the box (plus `paddingPx` of screen-space margin) still fits, with
+ *  the box centered. This IS "maximize" now — focusing a tile fits that tile,
+ *  focusing a parent fits its whole subtree's `boundingBox`.
+ *
+ *  Zoom is clamped to the canvas's normal `[MIN_ZOOM, MAX_ZOOM]` range, so a
+ *  small tile genuinely magnifies to fill the viewport (the old maximized
+ *  mode's felt behaviour) rather than sitting small in the middle. Centering
+ *  reuses `computeCenterPan` at the *fitted* zoom — the same solver every
+ *  other centering path uses, so a fit and a center can't drift apart. */
+export function fitBox(
+  minX: number,
+  minY: number,
+  maxX: number,
+  maxY: number,
+  viewportW: number,
+  viewportH: number,
+  paddingPx: number = FIT_PADDING_PX,
+): CameraPose {
+  // A degenerate (zero-area) box would divide by zero; floor both extents at
+  // one canvas unit so a fit is always defined.
+  const boxW = Math.max(1, maxX - minX);
+  const boxH = Math.max(1, maxY - minY);
+  // Padding can't eat the whole viewport (a very small container, or a large
+  // pad): floor the usable extent so the ratio stays positive.
+  const availW = Math.max(1, viewportW - 2 * paddingPx);
+  const availH = Math.max(1, viewportH - 2 * paddingPx);
+  const zoom = clampZoom(Math.min(availW / boxW, availH / boxH));
+  const { panX, panY } = computeCenterPan(
+    minX,
+    minY,
+    maxX,
+    maxY,
+    viewportW,
+    viewportH,
+    zoom,
+  );
+  return { panX, panY, zoom };
+}
+
 /** Canvas-space point at the viewport center — the forward projection that is
  *  the inverse of `computeCenterPan` (which solves the opposite direction:
  *  given a desired center, what pan lands it there). */

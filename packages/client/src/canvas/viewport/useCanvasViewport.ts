@@ -7,7 +7,7 @@
 import type { Accessor } from "solid-js";
 import { activeScope } from "../../hostScope/hostScopes";
 import type { TileLayout } from "../TileLayout";
-import { animatePan } from "./animatedPan";
+import { animateCamera, type CameraPose } from "./animatedCamera";
 import {
   canvasTransformCSS,
   gridBgPositionCSS,
@@ -17,13 +17,17 @@ import { installGestures } from "./gestures";
 import {
   accumulateZoom,
   applyGestureBatch,
+  boundingBox,
   computeCenterPan,
+  fitBox,
   type GestureBatch,
   normalizeDelta as normalizeDeltaPure,
   snapToGrid as snapToGridPure,
   viewportCenter as viewportCenterPure,
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
+
+export type { CameraPose };
 
 // ── Per-host camera state (read/written on the ACTIVE host's owner) ──
 //
@@ -159,6 +163,14 @@ export interface CanvasViewport {
   /** Pan so canvas-space point (x, y) is centered in the viewport.
    *  Same animation + cancel semantics as `centerOnTile`. */
   panTo: (x: number, y: number) => void;
+  /** Fly the camera so the given canvas-space boxes fill the viewport — the
+   *  focus gesture that replaced maximized mode. Pass one tile's layout to
+   *  focus it, or a parent plus its descendants to fit the subtree. */
+  fitTo: (boxes: readonly TileLayout[]) => void;
+  /** Fly to an explicit pose — used to return to a remembered camera. */
+  flyTo: (pose: CameraPose) => void;
+  /** The current camera pose, for remembering before a focus move. */
+  pose: () => CameraPose;
   /** Set pan offset directly (canvas-space coordinates). Instant — for
    *  per-frame gesture updates that must not animate. */
   setPan: (x: number, y: number) => void;
@@ -261,26 +273,56 @@ function targetForPoint(
   );
 }
 
-function startAnimatedPan(target: { panX: number; panY: number }) {
+/** The single animated-pose writer. Every programmatic camera move — center,
+ *  pan-to-point, fit-a-subtree, fly-back-to-a-remembered-pose — lands here, so
+ *  they all share one arbitration against gestures and one in-flight tween. */
+function flyTo(target: CameraPose) {
   abortTransientInput();
-  currentAnim = animatePan(
-    { x: panX(), y: panY() },
-    { x: target.panX, y: target.panY },
-    (x, y) => {
+  currentAnim = animateCamera(
+    { panX: panX(), panY: panY(), zoom: zoom() },
+    target,
+    (x, y, z) => {
       setPanX(x);
       setPanY(y);
+      setZoom(z);
     },
   );
 }
 
+/** Current camera pose — the value a caller remembers so it can fly back
+ *  (TR1: Esc returns to where you were before you focused a tile). */
+function pose(): CameraPose {
+  return { panX: panX(), panY: panY(), zoom: zoom() };
+}
+
 function centerOnTile(tile: TileLayout) {
   const t = targetForTile(tile);
-  if (t) startAnimatedPan(t);
+  // Centering keeps the current zoom — only `fitTo` changes it.
+  if (t) flyTo({ ...t, zoom: zoom() });
 }
 
 function panTo(x: number, y: number) {
   const t = targetForPoint(x, y);
-  if (t) startAnimatedPan(t);
+  if (t) flyTo({ ...t, zoom: zoom() });
+}
+
+/** Fly the camera so `boxes` fill the viewport — TR1's "maximize". One box
+ *  fits that tile; a parent's whole subtree fits the group. A no-op with no
+ *  boxes or before the container mounts (no real dimensions to fit into). */
+function fitTo(boxes: readonly TileLayout[]) {
+  if (!containerEl) return;
+  const box = boundingBox(boxes);
+  if (!box) return;
+  flyTo(
+    fitBox(
+      box.minX,
+      box.minY,
+      box.maxX,
+      box.maxY,
+      containerEl.clientWidth,
+      containerEl.clientHeight,
+    ),
+  );
 }
 
 function setPan(x: number, y: number) {
@@ -331,6 +373,9 @@ const viewport: CanvasViewport = {
   normalizeDelta,
   centerOnTile,
   panTo,
+  fitTo,
+  flyTo,
+  pose,
   setPan,
   abortTransientInput,
   viewportSize,

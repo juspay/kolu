@@ -41,7 +41,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
-import { prefersReducedMotion } from "./viewport/animatedPan";
+import { prefersReducedMotion } from "./viewport/animatedCamera";
 import { tileTransformCSS } from "./viewport/coordinates";
 
 export type { TileTheme };

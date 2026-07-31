@@ -10,7 +10,7 @@ vi.mock("@thisbeyond/solid-dnd", () => ({
   }),
 }));
 
-vi.mock("./viewport/animatedPan", () => ({
+vi.mock("./viewport/animatedCamera", () => ({
   prefersReducedMotion: () => true,
 }));
 
