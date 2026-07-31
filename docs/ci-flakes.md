@@ -141,6 +141,49 @@ retries.
 | `6f863c2#1` | `6f863c2ed` | Passed | `1/5` |
 | `03c8122#1` | `03c812280` | Failed: `ci::daemon@aarch64-darwin`; all other nodes passed | `0/5` |
 | `c4ec338#1` | `c4ec33842` | Failed: `ci::e2e@aarch64-darwin`; Linux passed; macOS `ci::osfacts-live` was fail-fast skipped | `0/5` |
+| `aea6cc3#1` | `aea6cc331` | Passed all CI nodes, but macOS e2e needed 7 scenario retries | `0/5` flake-free |
+
+### `aea6cc3#1`: five macOS Git fixture commits returned status 128
+
+- **Failures:** the first attempt of five Code-tab scenarios failed while
+  creating its Git fixture: `Lists changed files and opens a diff on click`,
+  `Folder collapse during active filter persists the filter [browse]`,
+  `Code tab back and forward retrace file navigation`,
+  `Code tab forward history is truncated when navigating after going back`,
+  and `Truncated Markdown warns and renders task checkboxes read-only`.
+  Each `git commit` returned status 128; each retried scenario subsequently
+  passed.
+- **Root cause:** under investigation. The current terminal command helper
+  reports only the exit status and command, discarding Git's diagnostic text,
+  so the existing evidence cannot distinguish the possible status-128 causes.
+  No cause is asserted until that text is captured.
+- **Evidence:** `.ci/aea6cc3/aarch64-darwin/ci::e2e.log` names all five
+  first-attempt failures and their status 128 result. The harness seeds a
+  per-worker `.gitconfig`, and other commits in the same run passed, which
+  rules out a universally missing fixture identity but does not identify the
+  intermittent failure.
+- **Proposed fix:** include a bounded tail of the active xterm buffer in every
+  nonzero `terminalRunAndWait` error, then reproduce on `ci@petit`. Use Git's
+  captured fatal message—not the numeric status—to select and verify the real
+  fix.
+
+### `aea6cc3#1`: two macOS file-reference opens did not settle
+
+- **Failures:** `Clicking a slash-containing path with no line opens the file
+  with no selection` waited 60 seconds without either Pierre file/diff view
+  becoming visible. `Clicking a line-range deep in a long file scrolls the
+  selection into view` waited 20 seconds without line 161 becoming selected.
+  Both first attempts failed and both retries passed.
+- **Root cause:** under investigation. The log proves the open/selection
+  pipeline did not reach its asserted UI state, but it does not record the
+  Code-tab scope, selected path, pending state, or rendered view at timeout.
+  No narrower cause is asserted without those facts.
+- **Evidence:** `.ci/aea6cc3/aarch64-darwin/ci::e2e.log` records the exact
+  locator and selection timeouts after the file-ref link action, followed by
+  successful retries.
+- **Proposed fix:** capture the Code-tab's scope, selected path, pending/error
+  state, and rendered-view presence in these timeout errors, reproduce on
+  `ci@petit`, then fix the state transition named by that evidence.
 
 ### `c4ec338#1`: macOS Code-tab live update did not arrive
 
@@ -196,7 +239,9 @@ retries.
 - **Fix verification:** all 22 daemon-gate tests pass. Targeted two-platform run
   `ba374cf#1` passed `ci::dev-smoke` on `ci@petit` and `kolu-ci-1`; after both
   nodes settled, neither host had a padi or kaval process whose command named
-  that run's `ba374cf` Odu snapshot.
+  that run's `ba374cf` Odu snapshot. Before resuming full CI, the historical
+  Odu-snapshot daemon trees identified above were terminated; a second process
+  audit found zero matching padi or kaval processes on either host.
 
 ### `03c8122#1`: duplicate macOS unit workspaces externally killed
 

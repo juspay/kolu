@@ -350,8 +350,20 @@ export class KoluWorld extends World {
     const buffer = (await handle.jsonValue()) ?? "";
     const status = buffer.match(new RegExp(`${marker}(\\d+)`))?.[1];
     if (status !== "0") {
+      // The numeric shell status identifies only a broad failure class (Git,
+      // for example, uses 128 for many unrelated fatal errors). Preserve a
+      // bounded tail ending at our marker so CI records the command's actual
+      // diagnostic without dumping an entire scenario's terminal scrollback.
+      const markerOffset = buffer.lastIndexOf(marker);
+      const diagnosticEnd =
+        markerOffset === -1 ? buffer.length : markerOffset + marker.length + 3;
+      const diagnostic = buffer.slice(
+        Math.max(0, diagnosticEnd - 2_000),
+        diagnosticEnd,
+      );
       throw new Error(
-        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}`,
+        `terminal command failed${status ? ` with status ${status}` : ""}: ${command}` +
+          `\nTerminal buffer tail:\n${diagnostic}`,
       );
     }
   }
