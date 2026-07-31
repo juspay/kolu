@@ -148,6 +148,7 @@ retries.
 | `ecf8f28#1` | `ecf8f280d` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `0dfaddc#1` | `0dfaddc34` | Failed: `ci::e2e-governance@x86_64-linux`; every other node passed and both e2e lanes had 0 retries | `0/5` |
 | `82d72ed#1` | `82d72ede0` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
+| `fce3b0a#1` | `fce3b0a53` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
