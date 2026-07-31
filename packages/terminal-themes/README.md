@@ -34,23 +34,28 @@ const colourful = pickTheme(availableThemes, {
   mode: "colourful",
 });
 
-// Project a set of terminals onto the backgrounds they RENDER as, ready to feed
-// `peerBgs`. The selector may return `undefined` for a terminal that has no theme
-// set — that is not skipped, it resolves to `DEFAULT_THEME_NAME`'s background,
-// because an unthemed terminal is drawn in the default theme.
-const peerBgs = resolveThemeBgs(terminals, (t) => t.themeName);
+// Project theme NAMES onto the backgrounds they RENDER as, ready to feed
+// `peerBgs`. An `undefined` name is not skipped — it resolves to
+// `DEFAULT_THEME_NAME`'s background, because an unthemed terminal is drawn in
+// the default theme.
+const peerBgs = resolveThemeBgs(terminals.map((t) => t.themeName));
 ```
 
 ## Entry points
 
-- **`terminal-themes`** — the catalog and the picker (`availableThemes`,
-  `getThemeByName`, `resolveThemeBgs`, `pickTheme`, `DEFAULT_THEME_NAME`).
-  Consumed by the kolu client AND by `@kolu/padi`, which resolves each new
-  terminal's theme at `lifecycle.create`.
-- **`terminal-themes/color`** — the colour-math leaf (perceptual distance and
-  the light/dark/colourful classification the picker's `mode` uses). A separate
-  entry point because only the client reaches it; padi's build closure
-  deliberately excludes it (see `default.nix`).
+- **`terminal-themes`** (main) — the catalog, the picker, and the picker's
+  colour maths: `availableThemes`, `getThemeByName`, `resolveThemeBgs`,
+  `pickTheme`, `DEFAULT_THEME_NAME`, plus the OkLab perceptual distance and the
+  light / dark / colourful classification `pickTheme`'s `mode` selects on (all
+  in `picker.ts`). Consumed by the kolu client AND by `@kolu/padi`, which
+  resolves each new terminal's theme at `lifecycle.create` — so this entry point
+  is daemon behaviour and rides padi's hashed build closure. Keep it that way:
+  moving any of the pick maths out of here would move code padi executes out of
+  padi's build identity.
+- **`terminal-themes/color`** — a colour-STRING parser (`parseHexColor` /
+  `parseRgbColor` / `parseColor` → `Result<RGB, ColorParseError>`), used by the
+  client's screenshot capture. A separate entry point because only the client
+  reaches it; padi's closure never does (see `default.nix`).
 
 ## Regenerating themes
 

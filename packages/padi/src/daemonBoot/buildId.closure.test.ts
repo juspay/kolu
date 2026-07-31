@@ -61,9 +61,15 @@ const HASHED_ROOTS: Record<string, string> = {
   "kolu-transcript-html": "transcript-html",
   "memorable-names": "memorable-names",
   nonempty: "nonempty",
-  // terminal-themes — padi's `terminalThemePolicy` imports `pickTheme`,
-  // `availableThemes`, `resolveThemeBgs` from it, so a theme-table or pick-logic
-  // change is daemon BEHAVIOUR that must flip padi's staleKey.
+  // terminal-themes — padi's `newTerminalPolicy` imports `pickTheme`,
+  // `availableThemes`, `resolveThemeBgs` from it, so a pick-logic change is
+  // daemon BEHAVIOUR that must flip padi's staleKey.
+  //
+  // The theme TABLE (`themes.json`, at the package root) is daemon behaviour
+  // too, and `default.nix` lists it explicitly — but THIS mirror cannot see it:
+  // `walkSources` is `.ts`/`.tsx`-only and `resolveSourceFile` returns `null`
+  // for `.json`. Nix is the sole guard for that one file; keep the two in
+  // lockstep by hand (see the note beside the fileset in `default.nix`).
   "terminal-themes": "terminal-themes",
   "kolu-pty": "integrations/pty",
   "kolu-git": "integrations/git",

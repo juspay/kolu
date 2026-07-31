@@ -273,15 +273,25 @@ let
       # fold + fs/git endpoint INTO padi/src/terminalWorkspace, so what remains
       # here is the shared leaf; the whole src still hashes into padi's key).
       (padiPkgRoot ./packages/terminal-vocab)
-      # terminal-themes — padi's terminalThemePolicy imports pickTheme /
-      # availableThemes / resolveThemeBgs from it. A theme-table or pick-logic
-      # change is daemon behaviour, so it hashes into padi's staleKey. MINUS
-      # `color.ts` — a separate entry point (`terminal-themes/color`) only the
-      # client imports; padi's closure never reaches it.
+      # terminal-themes — padi's newTerminalPolicy imports pickTheme /
+      # availableThemes / resolveThemeBgs from it, so a pick-logic change is
+      # daemon behaviour and must flip padi's staleKey. MINUS `color.ts` — a
+      # separate entry point (`terminal-themes/color`) only the client imports;
+      # padi's closure never reaches it.
+      #
+      # `themes.json` is listed EXPLICITLY: `availableThemes` IS that file
+      # (`src/theme.ts` imports it), so it is the candidate pool and every
+      # background hex padi's spread scores against — daemon behaviour by the
+      # same argument as the pick logic. It sits at the package ROOT (outside
+      # `src/`) and is not a `.ts` file, so NEITHER the `isHashedSourcePadi`
+      # filter above NOR `buildId.closure.test.ts` (which walks `.ts`/`.tsx`
+      # only) can see it: this line is the sole guard. Adding it does not
+      # disturb the closure test's set-equality assertion.
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
           (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/terminal-themes/src)
           ./packages/terminal-themes/src/color.ts)
+        ./packages/terminal-themes/themes.json
         ./packages/terminal-themes/package.json
       ])
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
