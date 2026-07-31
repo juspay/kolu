@@ -86,14 +86,27 @@ jobs:
       # (the whole nixpkgs build-time toolchain, republished into a project
       # cache), and silently EXCLUDED genuine closure members that happened to
       # predate the snapshot — every path attic-client's own install shares with
-      # kolu. `attic push` computes the exact closure of a named path, so naming
-      # the artifact directly is both smaller and correct, and needs no
-      # `.drv`/`.check`/`.lock` blocklist to filter clutter that never arrives.
+      # kolu. Naming the artifact directly is both smaller and correct, and
+      # needs no `.drv`/`.check`/`.lock` blocklist to filter clutter that never
+      # arrives.
+      #
+      # This leans on two `attic push` DEFAULTS, named here so the dependency is
+      # deliberate rather than lucky (`attic push --help`):
+      #   * it pushes CLOSURES, not bare paths — `--no-closure` is the opt-out,
+      #     so the out-paths alone are a complete instruction;
+      #   * it applies an upstream cache filter, so paths already substitutable
+      #     from cache.nixos.org are skipped — `--ignore-upstream-cache-filter`
+      #     is the opt-out. That is what keeps nixpkgs out of a project cache,
+      #     and it is a decision we can now name instead of an emergent effect.
       - name: Build and push every flake output
-        # Explicit `shell: bash` turns on pipefail, so a failure anywhere in a
-        # pipe fails the step — not just the last command in it.
         shell: bash
         run: |
+          # Written out rather than inherited from `shell: bash`. Relying on the
+          # implicit `-eo pipefail` is what let the old pre-snapshot step run a
+          # pipe unprotected: `nix path-info | sort` would exit 0 on a failed
+          # path-info, silently truncating the file the whole push set rode on.
+          set -euo pipefail
+
           warm() {
             echo "::group::warm $*"
             local paths
@@ -107,7 +120,10 @@ jobs:
               exit 1
             fi
             printf '%s\n' "$paths"
-            printf '%s\n' "$paths" | xargs attic push oss
+            # `--stdin` rather than `xargs`: xargs may silently split a long
+            # list across several invocations, which is a behaviour we would be
+            # relying on without saying so. One process, one list.
+            printf '%s\n' "$paths" | attic push --stdin oss
             echo "::endgroup::"
           }
           warm .
