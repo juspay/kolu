@@ -24,11 +24,17 @@
  *  their `ref` content matches and re-paint the highlight. */
 
 import type { CodeTabView } from "@kolu/padi/surface";
+import type { HostKey } from "kolu-common/hostKey";
 import { batch, createSignal } from "solid-js";
 import type { LineRef } from "../ui/lineRef";
+import { activeHost } from "../wire";
 import { useRightPanel } from "./useRightPanel";
 
 export interface OpenInCodeTabRequest {
+  /** Host that owned the terminal when the request was dispatched. This
+   *  prevents an asynchronous file-inventory confirmation from one host
+   *  landing after the user switches to another host with the same repo path. */
+  host: HostKey;
   /** Parsed `path:line[-end]` to navigate to. The path is interpreted
    *  relative to `repoRoot` (or, when present, cwd-relative under
    *  `repoRoot`) by `CodeTab` via `resolveRef` — which also recognises a
@@ -54,6 +60,8 @@ export interface OpenInCodeTabRequest {
   allowBasenameFallback?: boolean;
 }
 
+type OpenInCodeTabInput = Omit<OpenInCodeTabRequest, "host">;
+
 // Module-level singleton. Right-panel state is a singleton in Kolu —
 // one panel, one CodeTab — and the navigation request is meant for
 // the unique consumer. If kolu ever mounts multiple CodeTab instances
@@ -76,11 +84,12 @@ export const pendingOpen = pending;
  *  the changes in one reactive transaction: per-terminal tab/mode
  *  (`openCodeAt`), workspace visibility (`rp.reveal()` — uncollapse desktop or
  *  open the mobile drawer), and the producer signal (`setPending`). */
-export function openInCodeTab(req: OpenInCodeTabRequest): void {
+export function openInCodeTab(req: OpenInCodeTabInput): void {
   const rp = useRightPanel();
+  const request: OpenInCodeTabRequest = { ...req, host: activeHost() };
   batch(() => {
-    rp.openCodeAt(req.targetMode);
+    rp.openCodeAt(request.targetMode);
     rp.reveal();
-    setPending(req);
+    setPending(request);
   });
 }

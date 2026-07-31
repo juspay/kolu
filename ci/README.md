@@ -67,9 +67,9 @@ The current DAG covers four kinds of work:
 
 | Area | Required nodes |
 | --- | --- |
-| Nix and packaging | `nix`, `website-nix`, `website-pnpm-hash-fresh`, `surface-examples-nix`, `solid-browser-example-nix`, `odu-nix`, `home-manager`, `smoke`, `pnpm-hash-fresh` |
-| Code quality | `fmt`, `biome`, `unit`, `daemon` |
-| Browser behavior | `e2e` |
+| Nix and packaging | `nix`, `agent-flake-nix`, `website-nix`, `website-pnpm-hash-fresh`, `surface-examples-nix`, `solid-browser-example-nix`, `odu-nix`, `home-manager`, `smoke`, `dev-smoke`, `pnpm-hash-fresh`, `upgrade-window` |
+| Code quality | `fmt`, `biome`, `unit`, `daemon`, `osfacts`, `osfacts-live` |
+| Browser behavior | `e2e`, `e2e-governance` |
 | Living docs and examples | `surface-example-build`, `surface-app-example-build`, `atlas-sync` |
 
 `nix` builds every runnable-Kolu flake output for the lane's system and runs

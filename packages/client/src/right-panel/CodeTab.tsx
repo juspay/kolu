@@ -44,6 +44,7 @@ import { CommentsTray } from "../comments/CommentsTray";
 import { CommentTextSurface } from "../comments/CommentTextSurface";
 import { useComposer } from "../comments/composerState";
 import { useCommentScrollRequest } from "../comments/scrollRequest";
+import { sameHost } from "../host/hostChipTone";
 import { useColorScheme } from "../settings/useColorScheme";
 import { realSizes } from "../ui/corvuResizable";
 import { filterChipAccent } from "../ui/filterChip";
@@ -69,6 +70,7 @@ import SegmentedControl, {
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
+import { activeHost } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
@@ -417,6 +419,22 @@ const CodeTab: Component<{
   let refreshController: AbortController | null = null;
   onCleanup(() => refreshController?.abort());
 
+  const retireRefresh = (req: OpenInCodeTabRequest): void => {
+    if (refreshingRequest !== req) return;
+    refreshingRequest = null;
+    refreshController?.abort();
+    refreshController = null;
+  };
+
+  const releaseRefresh = (
+    req: OpenInCodeTabRequest,
+    controller: AbortController,
+  ): void => {
+    if (refreshingRequest !== req || refreshController !== controller) return;
+    refreshingRequest = null;
+    refreshController = null;
+  };
+
   // Highlight-session record for the latest handled pendingOpen tick. Holds
   // the full request object (reference identity discriminates two
   // structurally-identical clicks — `openInCodeTab` mints a fresh object per
@@ -447,6 +465,7 @@ const CodeTab: Component<{
     req: OpenInCodeTabRequest,
     resolved: ReturnType<typeof resolveRef>,
   ): void => {
+    retireRefresh(req);
     // Commit before any reactive writes below. Those writes can re-run the
     // effect, but this request has now reached an authoritative verdict.
     consumedRequest = req;
@@ -521,13 +540,34 @@ const CodeTab: Component<{
         const req = pendingOpen();
         const paths = treePaths();
         const isPending = treeInventory().pending;
-        return { req, repo: repoPath(), paths, isPending };
+        return {
+          req,
+          host: activeHost(),
+          repo: repoPath(),
+          paths,
+          isPending,
+          currentView: view(),
+        };
       },
-      ({ req, repo, paths, isPending }) => {
-        if (!req) return;
+      ({ req, host, repo, paths, isPending, currentView }) => {
+        if (!req) {
+          if (refreshingRequest !== null) retireRefresh(refreshingRequest);
+          return;
+        }
+        if (refreshingRequest !== null && refreshingRequest !== req) {
+          retireRefresh(refreshingRequest);
+        }
         if (consumedRequest === req) return;
-        if (repo === null || repo !== req.repoRoot) return;
-        if (view() !== req.targetMode || isPending) return;
+        if (
+          !sameHost(host, req.host) ||
+          repo === null ||
+          repo !== req.repoRoot ||
+          currentView !== req.targetMode ||
+          isPending
+        ) {
+          retireRefresh(req);
+          return;
+        }
         const resolved = resolveOpenRequest(req, repo, paths);
         if (resolved !== null) {
           finishOpenRequest(req, resolved);
@@ -539,16 +579,21 @@ const CodeTab: Component<{
         refreshController?.abort();
         const controller = new AbortController();
         refreshController = controller;
-        void readFreshCodePaths(repo, controller.signal)
+        void readFreshCodePaths(req.host, repo, controller.signal)
           .then((freshPaths) => {
+            releaseRefresh(req, controller);
             if (controller.signal.aborted || consumedRequest === req) return;
             if (pendingOpen() !== req || repoPath() !== repo) return;
+            if (!sameHost(activeHost(), req.host)) return;
             if (view() !== req.targetMode) return;
             finishOpenRequest(req, resolveOpenRequest(req, repo, freshPaths));
           })
           .catch((raw: unknown) => {
+            releaseRefresh(req, controller);
             if (controller.signal.aborted || consumedRequest === req) return;
             if (pendingOpen() !== req || repoPath() !== repo) return;
+            if (!sameHost(activeHost(), req.host)) return;
+            if (view() !== req.targetMode) return;
             consumedRequest = req;
             const err = raw instanceof Error ? raw : new Error(String(raw));
             toast.error(`File list refresh: ${err.message}`);

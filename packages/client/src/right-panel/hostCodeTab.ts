@@ -56,7 +56,7 @@ import type { CodeTabView } from "@kolu/padi/surface";
 import { scopedByEntry } from "@kolu/surface-map/client";
 import type { Subscription } from "@kolu/surface/solid";
 import { ORPCError } from "@orpc/client";
-import { encodeHostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
 import type { GitDiffMode } from "kolu-git/schemas";
@@ -335,17 +335,21 @@ export const codeFileContent = windowedSub(
  * but also means a terminal link can arrive in the short interval after a file
  * was created and before the pulse's requery lands. A not-found verdict must
  * therefore confirm against a direct read before consuming the navigation
- * request. Keep that read beside the retained query so both paths use the same
- * padi procedures and ignored-file partition. */
+ * request. The request's captured host selects the padi procedures: an
+ * in-flight confirmation must not follow the active-host projection when the
+ * user switches hosts. Keep that read beside the retained query so both paths
+ * use the same ignored-file partition. */
 export async function readFreshCodePaths(
+  host: HostKey,
   repoPath: string,
   signal: AbortSignal,
 ): Promise<string[]> {
   const includeIgnored = showIgnoredFiles();
+  const rpc = padiMap.entry(host).procedures;
   const [tracked, ignored] = await Promise.all([
-    activePadiRpc.fs.listAll({ repoPath }, { signal }),
+    rpc.fs.listAll({ repoPath }, { signal }),
     includeIgnored
-      ? activePadiRpc.fs.listIgnored({ repoPath }, { signal })
+      ? rpc.fs.listIgnored({ repoPath }, { signal })
       : Promise.resolve(undefined),
   ]);
   return mergeBrowseInventory(tracked.paths, ignored?.paths, {

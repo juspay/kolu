@@ -242,7 +242,10 @@ Two lanes. Two questions. Both block merge.
 
 ### Lane 2 — did the *OS* break osfacts?
 
-- Real noisy host · nix-built binary · oracles: `ss` (linux), `lsof` + `listeners` crate (darwin).
+- Real noisy host · nix-built binary · oracles: `ss` (Linux); `lsof` +
+  `listeners` crate plus a `ps` process snapshot (Darwin). Darwin takes a
+  second `ps` snapshot after the probe and accepts a missing PID only when
+  that process retired or was reused, confirmed by `proc` returning `ESRCH`.
 - CI recipe `ci::osfacts-live` — **not** a phase of `nix build`. Sandbox shuts the world out; this lane *is* the world.
 - Gherkin scenarios (`cucumber`), same idiom as kolu e2e.
 - Live reds block merge on purpose. Advisory reds train people to skip them. OS drift under the tool is exactly when you stop shipping.
