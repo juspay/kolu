@@ -102,8 +102,9 @@ failure fixable in this repository is in scope.
 | `3a6c829#1` | `3a6c8295f` | Failed: `ci::osfacts-live@aarch64-darwin`; both e2e nodes passed | `0/5` |
 | `dd08e43#1` | `dd08e434d` | Passed | `1/5` |
 | `3b57b1f#1` | `3b57b1f9c` | Passed | `2/5` |
+| `de10685#1` | `de1068524` | Passed | `1/5` |
 
-**Current active streak: `0/5`.** The two green runs above predate the
+**Current active streak: `1/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
