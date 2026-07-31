@@ -29,6 +29,13 @@ require=()
 require_set=0
 nixos_toplevels=0
 flake=""
+# Expanded as ${nix_args[@]:+"${nix_args[@]}"} at every use site, never as a
+# bare "${nix_args[@]}". Under `set -u` (line 24), bash BEFORE 4.4 treats an
+# empty array's expansion as an unbound variable and dies. Every caller used to
+# reach this script through a Nix-provided bash 5.x, so the bug was unreachable
+# — until GitHub Actions' macos-latest image, whose /bin/bash is 3.2, became a
+# caller (.github/workflows/nix-cache.yml). Linux passed, darwin died on the
+# first `nix eval`.
 nix_args=()
 
 die() {
@@ -117,7 +124,7 @@ outputs=()
 for kind in "${kinds[@]}"; do
   names="$(
     nix eval --raw "${flake}#${kind}.${system}" \
-      "${nix_args[@]}" \
+      ${nix_args[@]:+"${nix_args[@]}"} \
       --apply 'attrs: builtins.concatStringsSep "\n" (builtins.attrNames attrs)'
   )"
   count=0
@@ -134,7 +141,7 @@ done
 if (( nixos_toplevels )); then
   config_installables="$(
     nix eval --raw "${flake}#nixosConfigurations" \
-      "${nix_args[@]}" \
+      ${nix_args[@]:+"${nix_args[@]}"} \
       --apply "configs: builtins.concatStringsSep \"\\n\" (map (name: \"nixosConfigurations.\" + name + \".config.system.build.toplevel\") (builtins.filter (name: configs.\${name}.pkgs.stdenv.hostPlatform.system == \"$system\") (builtins.attrNames configs)))"
   )"
   while IFS= read -r attr; do
@@ -146,5 +153,5 @@ fi
 (( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
 
 nix build -L --no-link --print-out-paths \
-  "${nix_args[@]}" \
+  ${nix_args[@]:+"${nix_args[@]}"} \
   "${outputs[@]}"
