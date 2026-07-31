@@ -31,14 +31,40 @@
 
 import {
   type DaemonHomePaths,
-  gatePid,
+  identitiesMatch,
   isHolderLive,
   type Logger,
+  type ProcessIdentity,
+  readGateIdentity,
+  type SocketServeState,
+  socketServeState,
 } from "@kolu/surface-daemon";
+import type {
+  BindResult,
+  BoundResidentCharacterization,
+} from "./convergence/bindResult.ts";
+import {
+  instanceKeyFromStartedAt,
+  instanceKeyTag,
+} from "./convergence/instanceKey.ts";
+import {
+  type DrainBudgetHandle,
+  createDrainBudget,
+} from "./convergence/budget.ts";
+import type { ConvergenceProbe } from "./convergence/converge.ts";
+import type {
+  ConvergencePolicy,
+  DrainCapability,
+} from "./convergence/policy.ts";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
+import { registerEndpointPrivate } from "./endpoint.private.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
-import { type SocketHolder, socketHolders } from "./socketHolder.ts";
+import type {
+  ReadSocketHolders,
+  SocketHolder,
+  SocketOccupancy,
+} from "./socketHolder.ts";
 import { waitForPidGone } from "./waitForPidGone.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
@@ -47,6 +73,18 @@ import { waitForPidGone } from "./waitForPidGone.ts";
 // from them without pulling this Node-only module's transport/gate graph. The
 // endpoint re-exports them so existing supervisor consumers keep their import.
 export { ENDPOINT_STATES, type EndpointState };
+
+/**
+ * Supervisor inject for start-qualified process identity. May be async so an
+ * osfacts-backed reader does not block the serving event loop (prefer
+ * `processIdentityAsync(bin)`, with `bin` resolved once at the composition
+ * root). Lives here — beside {@link EndpointSpec} — not in
+ * `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
+ * Canonical {@link ProcessIdentity} still comes from the daemon package.
+ */
+export type ReadProcessIdentityAsync = (
+  pid: number,
+) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
 
 type ConnectedMetadata<M> = [M] extends [undefined]
   ? { metadata?: undefined }
@@ -185,23 +223,40 @@ export class SocketSquatterForeignError extends Error {
   /** Every pid the OS reported holding the socket, each with a readable command
    *  — named so an operator can identify (and deal with) the squatter by hand. */
   readonly holders: readonly SocketHolder[];
-  constructor(socketPath: string, holders: readonly SocketHolder[]) {
+  /** What the OS said INSTEAD of a name, when `holders` is empty — the
+   *  `unattributed` arm's `detail`. The whole point of the three-way answer is
+   *  that a nameless holder is still an explained one ("the socket is bound,
+   *  but its holder is not ours to inspect"; "the holder search could not
+   *  complete (darwin_proc_fds: BLIND_OR_EMPTY)"), and on darwin that is the
+   *  NORMAL path — a descriptor walk denied another user's processes. Dropping
+   *  it here and rendering "an unidentifiable process" would put the exact
+   *  message this feature deleted back in front of the operator. */
+  readonly detail: string | undefined;
+  constructor(
+    socketPath: string,
+    holders: readonly SocketHolder[],
+    detail?: string,
+  ) {
     const who = holders.length
-      ? holders.map((h) => `pid ${h.pid} (${h.command})`).join(", ")
-      : "an unidentifiable process";
+      ? holders
+          .map((h) => `pid ${h.pid} (${h.command ?? "name unavailable"})`)
+          .join(", ")
+      : (detail ?? "an unidentifiable process");
     super(
       `rendezvous socket ${socketPath} is held by ${who}, which did not complete the daemon handshake — refusing to kill a process that is not a verified daemon of this endpoint`,
     );
     this.name = "SocketSquatterForeignError";
     this.socketPath = socketPath;
     this.holders = holders;
+    this.detail = detail;
   }
 }
 
 /** True iff `err` is a {@link SocketSquatterForeignError}. Brand-checked (not
  *  `instanceof`) so it holds across module-instance / realm boundaries — and, like
  *  {@link isContractSkewError}, it attests EVERY field its narrowed type promises
- *  (`socketPath`, and `holders` as `{ pid, command }` records), so a foreign
+ *  (`socketPath`, the optional `detail`, and `holders` as `{ pid, command }`
+ *  records), so a foreign
  *  brand-carrier without the payload cannot narrow to a type whose fields a
  *  consumer would then dereference. */
 export function isSocketSquatterForeignError(
@@ -211,20 +266,87 @@ export function isSocketSquatterForeignError(
     isSocketSquatterForeign?: unknown;
     socketPath?: unknown;
     holders?: unknown;
+    detail?: unknown;
   };
   return (
     typeof err === "object" &&
     err !== null &&
     e.isSocketSquatterForeign === true &&
     typeof e.socketPath === "string" &&
+    // `detail` is optional but attested: the narrowed type promises a string
+    // when present, and a consumer renders it into an operator-facing message.
+    (typeof e.detail === "string" || e.detail === undefined) &&
     Array.isArray(e.holders) &&
     e.holders.every(
       (h) =>
         typeof h === "object" &&
         h !== null &&
         Number.isInteger((h as { pid?: unknown }).pid) &&
-        typeof (h as { command?: unknown }).command === "string",
+        // `command` is OPTIONAL — absent when the identity read lost the race.
+        // The brand attests the shape it promises, and an absent name is part
+        // of that shape rather than a violation of it.
+        (typeof (h as { command?: unknown }).command === "string" ||
+          (h as { command?: unknown }).command === undefined),
     )
+  );
+}
+
+/**
+ * A one-shot socket connect probe timed out (`SocketServeState` =
+ * `"indeterminate"`). That is NOT proof the holder is free or dead — under load
+ * a live listener can leave connect pending. The endpoint must never kill,
+ * unlink, or spawn on this outcome; the caller/human (or convergeAdmit's
+ * budget) decides the next move. Carries the gate observation so the refusal
+ * names who we refused to disturb.
+ */
+export class SocketProbeIndeterminateError extends Error {
+  readonly isSocketProbeIndeterminate = true as const;
+  readonly gatePath: string;
+  readonly socketPath: string;
+  /** Live gate pid from the observation that made us probe, if any. */
+  readonly gatePid?: number;
+  constructor(rv: { gatePath: string; socketPath: string }, gatePid?: number) {
+    const who =
+      gatePid !== undefined
+        ? `gate names live pid ${gatePid}`
+        : "no gate holder named";
+    super(
+      `socket probe indeterminate at ${rv.socketPath} (${who}) — refusing to kill, unlink, or spawn`,
+    );
+    this.name = "SocketProbeIndeterminateError";
+    this.gatePath = rv.gatePath;
+    this.socketPath = rv.socketPath;
+    this.gatePid = gatePid;
+  }
+}
+
+export function isSocketProbeIndeterminateError(
+  err: unknown,
+): err is SocketProbeIndeterminateError {
+  // Fence first — the public type is `unknown`, so null/undefined/primitives
+  // must return false, never throw on field access (R6-1).
+  if (typeof err !== "object" || err === null) return false;
+
+  const e = err as {
+    isSocketProbeIndeterminate?: unknown;
+    gatePath?: unknown;
+    socketPath?: unknown;
+    gatePid?: unknown;
+  };
+  // Attest every field the narrowed type promises — including optional
+  // gatePid (absent/undefined, or a finite positive integer pid). A branded
+  // carrier with gatePid: "not-a-pid" must not narrow (R5-2).
+  const gatePidOk =
+    e.gatePid === undefined ||
+    (typeof e.gatePid === "number" &&
+      Number.isFinite(e.gatePid) &&
+      Number.isInteger(e.gatePid) &&
+      e.gatePid > 0);
+  return (
+    e.isSocketProbeIndeterminate === true &&
+    typeof e.gatePath === "string" &&
+    typeof e.socketPath === "string" &&
+    gatePidOk
   );
 }
 
@@ -249,7 +371,12 @@ export type DaemonConnection<C, I, M = undefined> = {
   onClose(cb: () => void): void;
 } & ConnectedMetadata<M>;
 
-export interface EndpointSpec<C, I, M = undefined> {
+export interface EndpointSpec<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+> {
   /** Which host this endpoint is for. The status is reported per-host so the
    *  shapes stay host-count-agnostic (one local host today; ssh hosts at R-2). */
   hostId: string;
@@ -259,6 +386,35 @@ export interface EndpointSpec<C, I, M = undefined> {
    * strings. Build with `resolveDaemonHome` / `daemonHome`.
    */
   home: DaemonHomePaths;
+  /**
+   * The consumer's entire convergence surface — who I am + how I converge —
+   * stated once here. `converge(endpoint)` is the only public boot verb; the
+   * boot-method trio is internal (chosen by this policy). Cap-gates the drain
+   * arms and `drainBudget` (unspellable on not-drainable).
+   */
+  policy: ConvergencePolicy<Cap>;
+  /**
+   * Read the running daemon's identity over a version-agnostic channel (Pin 3),
+   * or `null` if none answers. The framework hands the primary socket path.
+   * Bound into `converge(endpoint)` — never re-threaded at the call site.
+   */
+  probe: (socketPath: string) => Promise<ConvergenceProbe<Cap> | null>;
+  /**
+   * Resolve a PID to its current start-qualified identity. Required — the
+   * endpoint never performs platform process traversal itself. May be async so
+   * an osfacts-backed reader does not block the serving event loop: prefer
+   * `processIdentityAsync(bin)` over the sync twin, with `bin` resolved ONCE at
+   * the composition root (`bakedOsFactsBin(…)`) rather than per call.
+   */
+  readProcessIdentity: ReadProcessIdentityAsync;
+  /**
+   * Ask the OS which processes hold a unix socket PATH — the gate-less-squatter
+   * recovery's only witness once the gate file is gone. Required, and injected
+   * for the same reason as `readProcessIdentity`: the endpoint performs no
+   * platform traversal itself, and the osfacts binary's path is baked under a
+   * name only the composing program knows (`osfactsSocketHolders(bakedOsFactsBin(…))`).
+   */
+  readSocketHolders: ReadSocketHolders;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
   driver: DaemonDriver;
   /**
@@ -316,43 +472,31 @@ export interface EndpointSpec<C, I, M = undefined> {
   onSpawned?(): void;
 }
 
-export interface Endpoint<C, I, M = undefined> {
-  /** Take the daemon to a live connection under the always-recycle boot policy.
-   *  Throws (after reporting `dead`) if it cannot. */
-  ensure(): Promise<void>;
-  /** Take the daemon to a live connection under the **adopt-or-recycle** boot
-   *  policy (B3.3): a live, handshake-compatible survivor is ADOPTED (connected
-   *  to, never killed) so its PTYs survive a supervisor restart; an absent / dead
-   *  survivor — or a live one that is a genuine contract skew — is recycled. A
-   *  live survivor that merely cannot be reached (a non-skew connect failure that
-   *  outlasts the retries) is left STANDING and reported `degraded`, never killed
-   *  (F4) — preserving its PTYs. Resolves `true` iff it adopted a surviving daemon
-   *  — the caller then reconciles that daemon's live PTYs against its saved
-   *  session; `false` on a fresh / recycled / left-degraded boot, where there is
-   *  nothing to reconcile. Throws (after reporting `dead`) if it cannot bring a
-   *  daemon up at all. */
-  adoptOrEnsure(): Promise<boolean>;
-  /** Take the daemon to a live connection under the **adopt-or-spawn-or-refuse**
-   *  boot policy — the padi binder's policy, distinct from `adoptOrEnsure` in ONE
-   *  way: a live survivor that is a genuine contract SKEW is NOT recycled. Clients
-   *  never kill a running padi (the #1313 inversion — a dev/second binder must not
-   *  SIGTERM the daemon that owns another's PTYs), so a skewed survivor is left
-   *  STANDING and reported `degraded` (the same non-killing shape an unreachable
-   *  survivor already gets), never SIGTERM'd. An absent survivor is spawned fresh;
-   *  a compatible one is adopted. Resolves `true` iff it adopted a surviving daemon
-   *  (the caller then reconciles), `false` on a fresh-spawn / left-degraded boot.
-   *  Throws (after `dead`) only if it cannot bring a daemon up at all. */
-  adoptOrSpawnOrRefuse(): Promise<boolean>;
-  /** The live connection, or `undefined` before `ensure()` or after the daemon
-   *  died (`degraded`). */
+/**
+ * The **public** endpoint — the supervisor's view of one daemon.
+ *
+ * Public surface: the fixed `policy` / `probe` / `budget` / `log` that
+ * `converge(endpoint)` reads, plus `current()` and `holdRestarting` for
+ * `recycle(endpoint, steps)`. The boot-method trio is **not on this type and
+ * not on the runtime object** — private binds live in a package WeakMap keyed
+ * by handles from {@link createEndpoint} (F4 / F12).
+ */
+export interface Endpoint<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+> {
+  readonly policy: ConvergencePolicy<Cap>;
+  probe: () => Promise<ConvergenceProbe<Cap> | null>;
+  readonly budget: Cap extends "drainable"
+    ? DrainBudgetHandle
+    : DrainBudgetHandle | null;
+  readonly log: Logger;
+  /** The live connection, or `undefined` before boot or after the daemon died. */
   current(): DaemonConnection<C, I, M> | undefined;
-  /** Run `body` (a session-preserving restart's inner sequence) with the status
-   *  **held at `restarting`** — the emit-guard. While held, the transient
-   *  transitions the recycle would otherwise surface (the old connection's
-   *  `degraded` close, the fresh daemon's `connecting`) are reported as
-   *  `restarting`, so an observer sees one honest "restarting" rather than a
-   *  degraded→connecting→connected flicker; only the terminal `connected` /
-   *  `dead` pass through to end the hold. */
+  /** Run `body` with the status **held at `restarting`** — the emit-guard used by
+   *  {@link recycle}. */
   holdRestarting(body: () => Promise<void>): Promise<void>;
 }
 
@@ -384,37 +528,56 @@ function waitForSocket(
   });
 }
 
-/** One-shot probe: does `socketPath` accept a connection RIGHT NOW? Dials once
- *  (no polling) and immediately closes — the recycle path uses it to prove a
- *  live gate-pid is actually the daemon (its socket answers) before SIGTERMing
- *  it, so a stale gate over a reused pid can't make us kill a stranger. */
-function socketAccepting(socketPath: string): Promise<boolean> {
-  return dialSocket(socketPath).then(
-    (sock) => {
-      sock.destroy();
-      return true;
-    },
-    () => false,
-  );
+/** Is this holder the supervising process itself? The ONE definition of "our own
+ *  process" in the recovery — every site that asks the question asks it here, so
+ *  if the answer ever needs a second component (a pid AND a start time, as the
+ *  daemon-identity gate already qualifies it) that is one edit rather than a hunt.
+ *  Deliberately NOT applied at identification: see {@link externalHolders}. */
+const isSelf = (h: SocketHolder): boolean => h.pid === process.pid;
+
+/** The named holders of a reading, EXCLUDING the supervisor's own process.
+ *  The supervisor spawns its daemon as a SEPARATE process (the survivable-spawn
+ *  model), so its OWN pid holding the rendezvous is never a squatter — only an
+ *  in-process serve (a test's in-process daemon) would be — and must never be a
+ *  kill target.
+ *
+ *  This is the KILL-corroboration filter specifically, and that is the whole of
+ *  its remit. The PREDICATE it applies is {@link isSelf}, one definition shared
+ *  with the recovery's other self-checks; this helper is the KILL-SIDE
+ *  application of it. Self-detection is legitimate elsewhere and the recovery
+ *  does spell it elsewhere — to REFUSE a skew served by this process, and to
+ *  NAME us in a refusal message — because those are not kill decisions.
+ *  Applying this FILTER at identification is precisely the bug that let an
+ *  in-process serve read as an empty holder set, and be reported `free`.
+ *
+ *  It takes the READING, not the reader, so the caller that must keep the three
+ *  answers apart (`recoverGatelessSquatter`, and the squatter error's `detail`)
+ *  still holds them: this only drops the pids, never the arm. */
+function externalHolders(reading: SocketOccupancy): SocketHolder[] {
+  return reading.kind === "held"
+    ? reading.holders.filter((h) => !isSelf(h))
+    : [];
 }
 
-/** The OS holders of `socketPath`, EXCLUDING the supervisor's own process. The
- *  supervisor spawns its daemon as a SEPARATE process (the survivable-spawn model),
- *  so its OWN pid holding the rendezvous is never a squatter — only an in-process
- *  serve (a test's in-process daemon) would be — and must never be a kill target.
- *  Single source for that self-exclusion safety invariant, so it can't drift across
- *  the recovery's read sites. */
-async function externalHolders(socketPath: string): Promise<SocketHolder[]> {
-  return (await socketHolders(socketPath)).filter((h) => h.pid !== process.pid);
-}
-
-export function createEndpoint<C, I, M = undefined>(
-  spec: EndpointSpec<C, I, M>,
-): Endpoint<C, I, M> {
+export function createEndpoint<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+>(spec: EndpointSpec<C, I, M, Cap>): Endpoint<C, I, M, Cap> {
   const socketReadyMs = spec.socketReadyMs ?? 30_000;
   const socketPollMs = spec.socketPollMs ?? 50;
   const adoptConnectAttempts = spec.adoptConnectAttempts ?? 3;
   const adoptConnectRetryMs = spec.adoptConnectRetryMs ?? 100;
+  // Per-boot budget memory — drainable only. Survives adopts; shared by every
+  // `converge(endpoint)` of this endpoint's life. Not-drainable policies get
+  // `null` (and cannot spell `drainBudget` at the type level). Cap generics don't
+  // narrow on `capability === "drainable"`, so read the budget via a cast once
+  // the runtime discriminant has been checked.
+  const budget: DrainBudgetHandle | null =
+    spec.policy.capability === "drainable"
+      ? createDrainBudget(spec.policy as ConvergencePolicy<"drainable">)
+      : null;
   // How many times the gate-less-squatter recovery re-reads the holder + re-runs the
   // handshake when the holder CHANGES between identify and kill. A bounded backstop
   // on a flapping holder; a stable holder is decided on the first pass.
@@ -510,26 +673,100 @@ export function createEndpoint<C, I, M = undefined>(
   };
 
   // The gate-holder check shared by every boot policy: return the live holder
-  // whose socket is *accepting* (a real daemon — the adopt-or-kill candidate),
-  // or undefined. The gate is PID-ONLY: a hard kill (SIGKILL / power loss)
-  // leaves the pidfile behind and the OS can later reuse that pid for an
-  // UNRELATED process, so a live pid whose socket is dead/absent is a stale gate
-  // over a possibly-reused pid — log it and leave that pid alone (never SIGTERM
-  // a stranger), letting the freshly-spawned daemon's own `acquirePidGate` reap
-  // the stale gate.
+  // that is a safe kill/adopt target, or undefined. Failures (osfacts reject,
+  // non-ENOENT lstat, probe indeterminate) emit `dead` then rethrow — the
+  // endpoint contract "failures report dead before throw" so the UI never
+  // wedges on `connecting` (R4-2). This wrapper is the only spelled path to
+  // the probe from boot policies.
+  //
+  // Identity law: two-field ±2 s match / one-field kill-0, then for one-field
+  // only an exhaustive {@link SocketServeState} fold:
+  //   serving       → occupied (safe kill/adopt target)
+  //   dead / absent → not a safe target (stale / mid-boot); do not SIGTERM
+  //   indeterminate → fail loud (never kill / unlink / spawn) with the gate
+  //                   observation retained (R4-1)
+  // Two-field identity is truth even mid-boot (socket not yet accepting).
   const liveServingHolder = async (rv: {
     gatePath: string;
     socketPath: string;
   }): Promise<number | undefined> => {
-    const holder = gatePid(rv.gatePath);
-    if (holder === undefined || !isHolderLive(holder)) return undefined;
-    if (await socketAccepting(rv.socketPath)) return holder;
-    spec.log.warn(
-      { hostId: spec.hostId, pid: holder, socketPath: rv.socketPath },
-      "gate names a live pid but its socket is dead — treating gate as " +
-        "stale (not killing the pid: it may be an unrelated reused pid)",
-    );
-    return undefined;
+    try {
+      return await liveServingHolderProbe(rv);
+    } catch (err) {
+      if (lastReported !== "dead") emit({ state: "dead" });
+      throw err;
+    }
+  };
+
+  const liveServingHolderProbe = async (rv: {
+    gatePath: string;
+    socketPath: string;
+  }): Promise<number | undefined> => {
+    // One gate read + one identity resolve — never reassemble pid from a
+    // second file read that can race a rewrite (fact-check: wrong SIGTERM).
+    // Three-way law (A1-1): absent/malformed → no holder; unreadable → THROW.
+    const recorded = readGateIdentity(rv.gatePath);
+    switch (recorded.kind) {
+      case "ok":
+        break;
+      case "absent":
+      case "malformed":
+        return undefined;
+      case "unreadable":
+        throw new Error(
+          `gate file unreadable at ${rv.gatePath} — refusing to treat as free or stale (EACCES/EIO is not an observation)`,
+        );
+      default: {
+        const _exhaustive: never = recorded;
+        throw new Error(
+          `unreachable gate read: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
+
+    if (recorded.startUnixUs !== undefined) {
+      const current = await Promise.resolve(
+        spec.readProcessIdentity(recorded.pid),
+      );
+      if (
+        current === undefined ||
+        !identitiesMatch(
+          { pid: recorded.pid, startUnixUs: recorded.startUnixUs },
+          current,
+        )
+      ) {
+        return undefined;
+      }
+      // Two-field: identity is truth even when the socket is not accepting.
+      return recorded.pid;
+    }
+
+    if (!isHolderLive(recorded.pid)) return undefined;
+    const state: SocketServeState = await socketServeState(rv.socketPath);
+    switch (state) {
+      case "serving":
+        return recorded.pid;
+      case "dead":
+      case "absent":
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            pid: recorded.pid,
+            socketPath: rv.socketPath,
+            socketState: state,
+          },
+          "legacy one-field gate names a live pid but its socket is not serving — " +
+            "treating gate as stale (not killing the pid: it may be an unrelated " +
+            "reused pid)",
+        );
+        return undefined;
+      case "indeterminate":
+        throw new SocketProbeIndeterminateError(rv, recorded.pid);
+      default: {
+        const _exhaustive: never = state;
+        throw new Error(`unreachable socket state: ${_exhaustive}`);
+      }
+    }
   };
 
   // SIGTERM a proven-live gate holder and wait for it to actually exit. Reports
@@ -589,30 +826,115 @@ export function createEndpoint<C, I, M = undefined>(
     emit(connectedStatus(next));
   };
 
+  /**
+   * After holding `heldConn` at `socketPath`, probe THAT rendezvous for
+   * ConvergenceIdentity. Four-valued — never catch-to-null. Correlates a NAMED
+   * probe instance key with `instanceKeyFromStartedAt(heldConn.startedAt)`;
+   * mismatch (or connection replaced mid-probe) ⇒ uncorrelated. Never overwrites
+   * the probe's instance key with the connection key.
+   */
+  const characterizeHeld = async (
+    socketPath: string,
+    heldConn: DaemonConnection<C, I, M>,
+  ): Promise<BoundResidentCharacterization> => {
+    let p: ConvergenceProbe<Cap> | null;
+    try {
+      p = await spec.probe(socketPath);
+    } catch (err) {
+      return {
+        kind: "failed",
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    if (p === null) return { kind: "absent" };
+    try {
+      // Connection must still be the one we held (no rebind mid-probe).
+      if (conn !== heldConn) return { kind: "uncorrelated" };
+      // Named probe key must match the held connection's startedAt-derived key.
+      if (p.instanceKey.kind === "instance") {
+        const fromConn = instanceKeyFromStartedAt(heldConn.startedAt);
+        if (
+          fromConn.kind !== "instance" ||
+          instanceKeyTag(p.instanceKey) !== instanceKeyTag(fromConn)
+        ) {
+          return { kind: "uncorrelated" };
+        }
+      }
+      // Always the probe's own key — never overwrite with the connection key.
+      return {
+        kind: "characterized",
+        identity: p.identity,
+        instanceKey: p.instanceKey,
+      };
+    } finally {
+      p.dispose();
+    }
+  };
+
   // Resolve an ACCEPTING-but-unattributable rendezvous to a SAFE outcome: `free`
   // (→ the caller may spawn) ONLY when a fresh probe proves the socket NOT accepting
   // (a holder that just closed); otherwise the socket is still accepting and we
   // cannot name who holds it — NOT proof of freedom, so we fail LOUD rather than let
-  // the caller spawn onto it (F5). The error names "an unidentifiable process" when
-  // the OS still returns no holder.
-  const freeOrFailLoud = async (rv: {
-    gatePath: string;
-    socketPath: string;
-  }): Promise<"free"> => {
-    if (!(await socketAccepting(rv.socketPath))) return "free";
-    const held = await externalHolders(rv.socketPath);
-    spec.log.error(
-      {
-        hostId: spec.hostId,
-        socketPath: rv.socketPath,
-        holders: held.map((h) => h.pid),
-      },
-      // The `holders` field carries whatever the OS now names — a set (a holder that
-      // reappeared after a flap) or empty (unidentifiable) — so the message doesn't
-      // assert which; either way an accepting socket is not proven free.
-      "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
-    );
-    throw new SocketSquatterForeignError(rv.socketPath, held);
+  // the caller spawn onto it (F5). This is the feature's ONE operator-facing exit, so
+  // it carries the reading's `detail` into the error: when the OS names nobody, the
+  // refusal says WHY it could not (a bound-but-uninspectable holder, or a search that
+  // went blind) instead of "an unidentifiable process" — which on darwin, where a
+  // denied descriptor walk is the normal result, would be the normal message.
+  //
+  // `taken` is an ALREADY-TAKEN reading of this same socket, passed by a caller
+  // that read one microseconds ago; absent, we take our own. It only ever fills
+  // the operator-facing `held` / `detail` — the free-vs-throw decision comes
+  // from `socketServeState` and nothing else.
+  const freeOrFailLoud = async (
+    rv: {
+      gatePath: string;
+      socketPath: string;
+    },
+    taken?: SocketOccupancy,
+  ): Promise<"free"> => {
+    // Exhaustive SocketServeState fold — never collapse indeterminate to free
+    // (that boolean collapse is the R4-1 defect).
+    const state: SocketServeState = await socketServeState(rv.socketPath);
+    switch (state) {
+      case "dead":
+      case "absent":
+        return "free";
+      case "indeterminate":
+        throw new SocketProbeIndeterminateError(rv);
+      case "serving": {
+        const reading = taken ?? (await spec.readSocketHolders(rv.socketPath));
+        // EVERY holder the OS named, ourselves included. This is a REFUSAL
+        // message, not a kill decision, so excluding our own pid here would
+        // only rob an operator of the one name the OS actually gave — the
+        // in-process-serve case would read as "an unidentifiable process"
+        // while the holder was known all along.
+        const held: readonly SocketHolder[] =
+          reading.kind === "held" ? reading.holders : [];
+        const detail =
+          reading.kind === "unattributed"
+            ? reading.detail
+            : held.some(isSelf)
+              ? "the socket is served by this very process"
+              : undefined;
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: held.map((h) => h.pid),
+            detail,
+          },
+          // The `holders` field carries whatever the OS now names — a set (a holder
+          // that reappeared after a flap) or empty (nothing nameable) — so the message
+          // doesn't assert which; either way an accepting socket is not proven free.
+          "rendezvous socket is still accepting after recovery — failing loud rather than spawning onto it",
+        );
+        throw new SocketSquatterForeignError(rv.socketPath, held, detail);
+      }
+      default: {
+        const _exhaustive: never = state;
+        throw new Error(`unreachable socket state: ${_exhaustive}`);
+      }
+    }
   };
 
   // The gate-less-squatter recovery (SQUAT1). Run by `recoverGuarded` at exactly
@@ -625,13 +947,16 @@ export function createEndpoint<C, I, M = undefined>(
   // is gate-only, so recycle never targeted the orphan; the fresh spawn couldn't
   // bind and handshaked the orphan into an endless `incompatible`).
   //
-  // It identifies the holder over the OS (`socketHolders`), then proves what it is
+  // It identifies the holder over the OS (`spec.readSocketHolders`, the injected
+  // three-way reading), then proves what it is
   // over the SAME handshake the adopt path trusts, returning a FOUR-way outcome the
   // caller acts on:
-  //   - `free`     → the socket is PROVEN not accepting (nothing holds it), or it is
-  //                  held only by our OWN process (an in-process serve): nothing to
-  //                  recover (the caller spawns, or falls to a next rendezvous). An
-  //                  accepting socket we cannot attribute is NOT `free` — it fails loud.
+  //   - `free`     → the socket is PROVEN not accepting: a fresh probe found it
+  //                  dead or absent, so the caller may spawn (or fall to a next
+  //                  rendezvous). NOTHING else earns this outcome — an accepting
+  //                  socket we cannot attribute fails loud, and so does one held
+  //                  by our OWN process, because `free` is what sends the caller
+  //                  to spawn and a second daemon must never land on a live socket.
   //   - `adopted`  → a COMPATIBLE gate-less holder: its already-proven connection is
   //                  HELD directly (PTYs preserved), so the caller reconciles the session.
   //   - `refused`  → a SKEW under the REFUSE policy (padi #1313): left STANDING and
@@ -656,31 +981,66 @@ export function createEndpoint<C, I, M = undefined>(
     // and the kill only fires when a FRESH handshake — followed by a FRESH OS
     // corroboration — still attests the same skewed daemon.
     for (let attempt = 1; attempt <= RECOVERY_DECISION_ATTEMPTS; attempt++) {
-      if (!(await socketAccepting(rv.socketPath))) return "free"; // nothing holds it
-
-      // Exclude OUR OWN process from the holder set: the supervisor spawns its
-      // daemon as a SEPARATE process (the survivable-spawn model), so a real
-      // squatter is never us — but an in-process serve (a test's in-process daemon)
-      // would be, and "recovering" it means SIGTERMing ourselves. Never a kill.
-      const rawHolders = await socketHolders(rv.socketPath);
-      const heldByUs = rawHolders.some((h) => h.pid === process.pid);
-      const holders = rawHolders.filter((h) => h.pid !== process.pid);
-      if (holders.length === 0) {
-        if (heldByUs) {
-          // The socket is held by OUR OWN process (an in-process serve) — never a
-          // squatter, never a kill. Safe to treat as free.
-          spec.log.warn(
-            { hostId: spec.hostId, socketPath: rv.socketPath },
-            "rendezvous socket is held by our own process — nothing to recover",
-          );
-          return "free";
+      // Exhaustive fold — indeterminate is NOT free (R4-1).
+      const serveState: SocketServeState = await socketServeState(
+        rv.socketPath,
+      );
+      switch (serveState) {
+        case "dead":
+        case "absent":
+          return "free"; // proven not serving
+        case "indeterminate":
+          throw new SocketProbeIndeterminateError(rv);
+        case "serving":
+          break; // occupied — identify the holder below
+        default: {
+          const _exhaustive: never = serveState;
+          throw new Error(`unreachable socket state: ${_exhaustive}`);
         }
-        // Accepting, yet the OS names NO holder at all: a race (it just closed) or a
-        // holder we cannot attribute. That is NOT proof of freedom — do not let the
-        // caller spawn onto it. Re-probe: only a not-accepting socket is `free`;
-        // still-accepting fails loud (F5). Never guess a kill.
-        return await freeOrFailLoud(rv);
       }
+
+      // Exhaustive fold of the reading's three answers — the site that must NOT
+      // flatten them. Only a NAMED holder set is actionable; `none` (nothing
+      // holds it) and `unattributed` (something might, unnameably) both mean we
+      // cannot pick a kill target, and both resolve through `freeOrFailLoud`.
+      const reading: SocketOccupancy = await spec.readSocketHolders(
+        rv.socketPath,
+      );
+      if (reading.kind === "unattributed") {
+        // Accepting, and the OS would not name who holds it. NOT proof of
+        // freedom — do not let the caller spawn onto it. Re-probe: only a
+        // not-accepting socket is `free`; still-accepting fails loud (F5).
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            detail: reading.detail,
+          },
+          "the OS would not name the rendezvous socket's holder — resolving the socket safely rather than guessing",
+        );
+        // Hand over the reading we just took — it is what the refusal reports,
+        // and re-spawning osfacts to recompute the very `detail` logged on the
+        // line above would buy nothing.
+        return await freeOrFailLoud(rv, reading);
+      }
+      if (reading.kind === "none") {
+        // The OS proves nothing holds it, yet the probe above said it was
+        // serving: a race (the holder closed in between). Still not a licence
+        // to spawn on this pass — `freeOrFailLoud` re-probes and only a socket
+        // proven not-accepting comes back `free`. It gets the reading we just
+        // took: no holder to name, and no reason to spawn osfacts again to
+        // re-learn that.
+        return await freeOrFailLoud(rv, reading);
+      }
+      // EVERY holder the OS named, ourselves included. Self-exclusion belongs to
+      // the KILL decision, not to identification: a socket our own process
+      // serves (an in-process daemon) is still a holder to be identified, and
+      // the handshake below is what says whether it is a daemon we can serve
+      // through. Excluding ourselves HERE meant an in-process serve produced an
+      // empty holder set, which was then reported as `free` — and `free` sends
+      // the caller to spawn a second daemon onto a socket that is live and
+      // serving. The kill site refuses our own pid explicitly instead.
+      const holders = reading.holders;
       const holderPids = holders.map((h) => h.pid);
 
       // Prove what the holder is, reusing the adopt path's three-way handshake
@@ -761,6 +1121,31 @@ export function createEndpoint<C, I, M = undefined>(
       // corroborated by the OS as a holder of THIS exact socket (attestation 2). A skew
       // that carries no pid, or a pid the OS does not name, is not a verified daemon of
       // this rendezvous — refuse rather than kill.
+      // The ONE holder identity a recycle policy may never act on: ourselves.
+      // The supervisor spawns its daemon as a separate process, so a real
+      // squatter is never us — but an in-process serve is, and "recycling" it
+      // means SIGTERMing the supervisor. It is a REFUSAL, taking the same arm
+      // a refuse-policy skew takes: left standing, reported `incompatible`.
+      // Not `free` (the caller would spawn a second daemon onto a live socket)
+      // and not foreign (the handshake completed and proved a skew).
+      if (holders.every(isSelf)) {
+        spec.log.error(
+          {
+            hostId: spec.hostId,
+            socketPath: rv.socketPath,
+            holders: holderPids,
+            daemonVersion: verdict.err.daemonVersion,
+            requiredVersion: verdict.err.requiredVersion,
+          },
+          "the gate-less skew is served by THIS process — never recycling ourselves; leaving it standing and reporting incompatible",
+        );
+        emit({
+          state: "incompatible",
+          daemonVersion: verdict.err.daemonVersion,
+          requiredVersion: verdict.err.requiredVersion,
+        });
+        return "refused";
+      }
       const reportedPid = verdict.err.pid;
       if (reportedPid === undefined || !holderPids.includes(reportedPid)) {
         // The skew's self-reported pid is absent, or not (yet) among the OS holders —
@@ -806,8 +1191,12 @@ export function createEndpoint<C, I, M = undefined>(
         continue;
       }
       // OS corroboration AFTER the fresh handshake (F3 order): the just-attested pid
-      // must still be a live holder of THIS socket right now.
-      const finalHolders = await externalHolders(rv.socketPath);
+      // must still be a live holder of THIS socket right now. Flattening the
+      // reading's unnamed arms to `[]` is lossless HERE: the question is "is this
+      // specific pid among the holders", and `none` / `unattributed` both answer no.
+      const finalHolders = externalHolders(
+        await spec.readSocketHolders(rv.socketPath),
+      );
       if (!finalHolders.some((h) => h.pid === reportedPid)) {
         spec.log.warn(
           { hostId: spec.hostId, socketPath: rv.socketPath, pid: reportedPid },
@@ -841,6 +1230,9 @@ export function createEndpoint<C, I, M = undefined>(
       { hostId: spec.hostId, socketPath: rv.socketPath },
       "gate-less squatter kept changing across every recovery attempt — resolving the socket safely",
     );
+    // No reading handed over here, deliberately: reaching this line means the
+    // holder changed under us on every pass, so the last reading we took is by
+    // construction STALE. `freeOrFailLoud` takes a fresh one.
     return await freeOrFailLoud(rv);
   };
 
@@ -1042,13 +1434,13 @@ export function createEndpoint<C, I, M = undefined>(
     onSkew: (
       holder: number,
       err: DaemonContractSkewError,
-    ) => void | Promise<void>,
+    ) => BindResult | Promise<BindResult>,
     // Which rendezvous this adoption is against — `primary` (the digest socket) or
     // `upgrade-hint` (the pre-W2.2 legacy port socket, the migration bridge). Stamped
     // on the adopted log so an operator can grep "did the W2.2 upgrade bridge fire?"
     // without decoding the socket path.
     via: "primary" | "upgrade-hint",
-  ): Promise<boolean> => {
+  ): Promise<BindResult> => {
     held = rv;
     // A single failure is NOT proof of skew (F4): only a `DaemonContractSkewError`
     // raised by the soul's `connect` proves incompatibility. A transport-dial or
@@ -1069,14 +1461,17 @@ export function createEndpoint<C, I, M = undefined>(
         "adopted a surviving daemon (its PTYs are preserved)",
       );
       holdConnection(outcome.conn);
-      return true;
+      // Characterize the held rendezvous (W5) — primary or upgrade-hint socket.
+      return {
+        kind: "adopted-resident",
+        characterization: await characterizeHeld(rv.socketPath, outcome.conn),
+      };
     }
     if (outcome.kind === "skew") {
       // Proven incompatible: `adoptOrEnsure` RECYCLES (kill this holder + respawn at
       // the primary — converging a skewed legacy kaval to the digest keying);
       // `adoptOrSpawnOrRefuse` REFUSES (leave standing + report `incompatible`).
-      await onSkew(holder, outcome.err);
-      return false;
+      return await onSkew(holder, outcome.err);
     }
     // `unreachable`: alive but every NON-skew connect attempt failed. NOT proven
     // incompatible, so must NOT kill it (that would destroy the live PTYs adoption
@@ -1093,7 +1488,7 @@ export function createEndpoint<C, I, M = undefined>(
         "leaving it up to preserve its PTYs; reporting degraded",
     );
     emit({ state: "degraded" });
-    return false;
+    return { kind: "refused-or-failed" };
   };
 
   // The shared survivor-adoption sequence, factored from `adoptOrEnsure` and
@@ -1111,7 +1506,7 @@ export function createEndpoint<C, I, M = undefined>(
     // no-gate-holder branches. One statement of the policy, so the two paths can't
     // drift and the illegal cross-pairing (recycle-here + refuse-there) is unrepresentable.
     policy: GatelessSkewPolicy,
-  ): Promise<boolean> => {
+  ): Promise<BindResult> => {
     // Derived from `policy`, so the gate-recorded skew disposition is the SAME
     // recycle-vs-refuse choice the gate-less path takes — never a hand-synced twin.
     // recycle (kaval): SIGTERM the skewed holder and spawn fresh. refuse (padi):
@@ -1119,30 +1514,31 @@ export function createEndpoint<C, I, M = undefined>(
     const onSkew = async (
       holder: number,
       err: DaemonContractSkewError,
-    ): Promise<void> => {
+    ): Promise<BindResult> => {
       if (policy === "recycle") {
         spec.log.warn(
           { hostId: spec.hostId, pid: holder },
           "live daemon survivor is a contract skew — recycling it",
         );
         await recycle(holder);
-      } else {
-        spec.log.error(
-          { hostId: spec.hostId, pid: holder },
-          "live padi survivor is a contract skew — REFUSING (never killing a " +
-            "running padi); leaving it up and reporting incompatible. Upgrade " +
-            "the binder or drain the daemon via its control core to converge.",
-        );
-        // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
-        // `degraded` made a contract skew indistinguishable on the wire from
-        // "unreachable" / "died mid-session", which is exactly the collapse
-        // this arm exists to kill.
-        emit({
-          state: "incompatible",
-          daemonVersion: err.daemonVersion,
-          requiredVersion: err.requiredVersion,
-        });
+        return { kind: "spawned-fresh" };
       }
+      spec.log.error(
+        { hostId: spec.hostId, pid: holder },
+        "live padi survivor is a contract skew — REFUSING (never killing a " +
+          "running padi); leaving it up and reporting incompatible. Upgrade " +
+          "the binder or drain the daemon via its control core to converge.",
+      );
+      // The verdict is PROVEN skew — name it (SK4). Reporting it as plain
+      // `degraded` made a contract skew indistinguishable on the wire from
+      // "unreachable" / "died mid-session", which is exactly the collapse
+      // this arm exists to kill.
+      emit({
+        state: "incompatible",
+        daemonVersion: err.daemonVersion,
+        requiredVersion: err.requiredVersion,
+      });
+      return { kind: "refused-or-failed" };
     };
     emit({ state: "connecting" });
     const primaryHolder = await liveServingHolder(primaryRv);
@@ -1170,16 +1566,27 @@ export function createEndpoint<C, I, M = undefined>(
     const settle = async (
       outcome: "free" | "refused" | "adopted" | "recycled",
       onAdopted?: () => void,
-    ): Promise<boolean | undefined> => {
+    ): Promise<BindResult | undefined> => {
       switch (outcome) {
         case "adopted":
           runHook(onAdopted, "onAdopted");
-          return true;
+          // held was set in recoverGuarded; characterize that rendezvous (W5).
+          // conn is the just-held connection.
+          if (conn === undefined) {
+            return {
+              kind: "adopted-resident",
+              characterization: { kind: "absent" },
+            };
+          }
+          return {
+            kind: "adopted-resident",
+            characterization: await characterizeHeld(held.socketPath, conn),
+          };
         case "refused":
-          return false;
+          return { kind: "refused-or-failed" };
         case "recycled":
           await spawnConnectHold();
-          return false;
+          return { kind: "spawned-fresh" };
         case "free":
           return undefined; // nothing recovered here — the caller falls through
       }
@@ -1225,10 +1632,11 @@ export function createEndpoint<C, I, M = undefined>(
     }
     // Nothing live anywhere — a fresh boot; spawn fresh at the PRIMARY.
     await spawnConnectHold();
-    return false;
+    return { kind: "spawned-fresh" };
   };
 
-  return {
+  // Public handle — private boot binds live only in the package WeakMap (F12).
+  const endpoint: Endpoint<C, I, M, Cap> = {
     current: () => conn,
 
     async holdRestarting(body: () => Promise<void>): Promise<void> {
@@ -1262,14 +1670,24 @@ export function createEndpoint<C, I, M = undefined>(
       }
     },
 
+    // ── ConvergingEndpoint face — `converge(endpoint)` reads these ──────────
+    policy: spec.policy,
+    probe: () => spec.probe(primaryRv.socketPath),
+    // Drainable policies always mint a budget above; not-drainable leave null.
+    // The Cap generic makes `budget` non-null when Cap is "drainable".
+    budget: budget as Cap extends "drainable"
+      ? DrainBudgetHandle
+      : DrainBudgetHandle | null,
+    log: spec.log,
+  };
+
+  registerEndpointPrivate(endpoint, {
     async ensure(): Promise<void> {
       emit({ state: "connecting" });
       // ALWAYS RECYCLE (B2, "the door"): a live serving survivor is killed,
       // never adopted, so no survival hazard can open (no orphan, no skew older
       // than one boot). `liveServingHolder` proves a holder is really the daemon
       // before we SIGTERM it; a stale gate over a reused pid is left alone.
-      // (Adoption that *preserves* a session is B3's `adoptOrEnsure` — it reuses
-      // these same helpers but connects to the survivor instead of killing it.)
       //
       // Probe the HELD rendezvous — the socket the endpoint currently holds a daemon
       // at, which is the adopt-HINT (legacy port) socket after an upgrade adoption,
@@ -1291,30 +1709,27 @@ export function createEndpoint<C, I, M = undefined>(
       }
     },
 
-    async adoptOrEnsure(): Promise<boolean> {
-      // ADOPT-OR-RECYCLE (B3.3): unlike `ensure`'s always-kill, a live serving
-      // survivor that is handshake-COMPATIBLE is ADOPTED — connected + held, never
-      // killed, so the PTYs it holds (and the session they carry) survive a client
-      // redeploy that did not change the daemon's source. Only an absent / dead /
-      // skewed survivor is recycled. A proven SKEW is RECYCLED here (kill, then spawn
-      // fresh) — the deliberate OPPOSITE of `adoptOrSpawnOrRefuse`, and the only arm
-      // that differs from it; everything else is the shared `adoptSurvivor` sequence.
+    async adoptOrEnsure(): Promise<BindResult> {
+      // ADOPT-OR-RECYCLE (B3.3): a live serving handshake-COMPATIBLE survivor is
+      // ADOPTED; a proven SKEW is RECYCLED. Returns BindResult (F5).
       return adoptSurvivor("recycle");
     },
 
-    async adoptOrSpawnOrRefuse(): Promise<boolean> {
-      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): the padi binder's policy — `adoptOrEnsure`
-      // with ONE deliberate difference: a proven contract SKEW is REFUSED, not
-      // recycled. Clients never kill a running padi: a second binder (a dev kolu,
-      // another worktree) that speaks an incompatible contract must NOT SIGTERM the
-      // padi that owns the real PTYs (the #1313 inversion the state-root identity
-      // exists to enforce). So a skewed survivor is left STANDING and reported
-      // `incompatible` (SK4) — the same NON-KILLING shape an unreachable survivor
-      // gets, under its honest verdict — and the operator
-      // resolves the skew (upgrade the binder, or drain the daemon through the frozen
-      // control core). Only this skew arm differs from `adoptOrEnsure`; the rest is
-      // the shared `adoptSurvivor` sequence.
+    async adoptOrSpawnOrRefuse(): Promise<BindResult> {
+      // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): a proven contract SKEW is REFUSED, not
+      // recycled (#1313). Returns BindResult (F5).
       return adoptSurvivor("refuse");
     },
-  };
+
+    releaseHeld(): void {
+      // W4.2: drop held connection so a non-adopt converge verdict matches reality.
+      if (conn === undefined) return;
+      const c = conn;
+      conn = undefined;
+      c.dispose();
+      emit({ state: "degraded" });
+    },
+  });
+
+  return endpoint;
 }

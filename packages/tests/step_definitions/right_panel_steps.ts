@@ -1,7 +1,12 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  MOD_KEY,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 /** Expand the Inspector's Attach section — it ships COLLAPSED (reference
  *  tier), so any step that reads a kaval command opens the disclosure first,
@@ -176,6 +181,46 @@ Then(
       /^\S+$/.test(text),
       `Expected the inspector branch chip to carry a branch name, got "${text}"`,
     );
+  },
+);
+
+/** Poll a data-testid element's OWN text until it includes `expected` — used
+ *  to prove the Work chips (branch / repo / directory) repaint when the
+ *  active terminal switches, not merely that they are non-empty (stale text
+ *  from the PREVIOUS terminal is non-empty too — see WorkSection.test.tsx). */
+async function waitForInspectorChipText(
+  world: KoluWorld,
+  testId: string,
+  expected: string,
+): Promise<void> {
+  await world.page.waitForFunction(
+    ({ testId, expected }) => {
+      const el = document.querySelector(`[data-testid="${testId}"]`);
+      return (el?.textContent ?? "").includes(expected);
+    },
+    { testId, expected },
+    { timeout: POLL_TIMEOUT },
+  );
+}
+
+Then(
+  "the inspector branch chip should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-branch", expected);
+  },
+);
+
+Then(
+  "the inspector repo chip should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-repo", expected);
+  },
+);
+
+Then(
+  "the inspector directory should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-directory", expected);
   },
 );
 
@@ -478,14 +523,12 @@ Then(
     // `waitForFunction` timeout: it names the exact (x, y) and the
     // covering element so a regression points at its cause.
     await this.waitForFrame();
-    const result = await this.page.evaluate(() => {
+    const result = await this.page.evaluate((activeTileSel) => {
       const handle = document.querySelector(
         '[data-testid="right-panel-handle"]',
       );
       if (!handle) return { ok: false, setupError: "handle missing" } as const;
-      const tile = document.querySelector(
-        '[data-testid="canvas-tile"][data-active="true"]',
-      ) as HTMLElement | null;
+      const tile = document.querySelector(activeTileSel) as HTMLElement | null;
       if (!tile) {
         return {
           ok: false,
@@ -516,7 +559,7 @@ Then(
         }
       }
       return { ok: dead.length === 0, dead } as const;
-    });
+    }, ACTIVE_CANVAS_TILE_SELECTOR);
     if (!result.ok && "setupError" in result) {
       assert.fail(`Setup failed: ${result.setupError}`);
     }

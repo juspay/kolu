@@ -1654,7 +1654,8 @@ function superviseSurface(sources: SurfaceSource[]): {
  *  (tear the terminal down AND settle), so a terminal whose teardown is itself
  *  ASYNCHRONOUS — a full re-served runtime whose `close()` aborts its pump AND
  *  releases its own sources — fits the same socket, not only a sync-abort driver.
- *  Idempotent; always resolves. */
+ *  Both closes are always attempted. One failure is rethrown directly; two are
+ *  surfaced together as an AggregateError. Idempotent. */
 export function superviseTerminalSource(
   runtime: { done: Promise<void>; close: () => Promise<void> },
   terminal: { done: Promise<void>; close: () => Promise<void> },
@@ -1669,8 +1670,24 @@ export function superviseTerminalSource(
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      await terminal.close();
-      await runtime.close();
+      const faults: unknown[] = [];
+      try {
+        await terminal.close();
+      } catch (err) {
+        faults.push(err);
+      }
+      try {
+        await runtime.close();
+      } catch (err) {
+        faults.push(err);
+      }
+      if (faults.length === 1) throw faults[0];
+      if (faults.length > 1) {
+        throw new AggregateError(
+          faults,
+          "terminal-source supervision teardown faulted",
+        );
+      }
     })();
     return closing;
   };

@@ -59,6 +59,7 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import MobileTileView from "./MobileTileView";
+import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
 import RightPanel from "./right-panel/RightPanel";
@@ -101,6 +102,7 @@ const App: Component = () => {
   const focus = useDockFocus();
   const attention = useAttention({
     activeId: store.activeId,
+    focusedId: store.focusedTerminalId,
     activate: focus,
     markUnread: store.markUnread,
     activeSubject: getSubject,
@@ -141,10 +143,11 @@ const App: Component = () => {
   // Dock row order for Cmd+1..9 (active host). The switcher indexes the
   // fleet separately via useFleetTerminalIndex in createCommands.
   const dockTree = useDockOrder();
-  // `dockTree` is already a singleton memo and `.flatRows` is a stable
+  // `dockTree` is already a singleton memo and `.flatShortcutRows` is a stable
   // projection per memo run; the id-only view is computed at read time so the
   // mobile drawer still gets a narrow `TerminalId[]`.
-  const orderedIds = (): TerminalId[] => dockTree().flatRows.map((r) => r.id);
+  const orderedIds = (): TerminalId[] =>
+    dockTree().flatShortcutRows.map((r) => r.id);
 
   // Close confirmation — snapshot ID + meta + split count at open time to prevent
   // stale-target bugs if the user switches terminals while the dialog is open.
@@ -180,7 +183,7 @@ const App: Component = () => {
    *  command palette. Spread into every Dock mount (the empty-branch Dock
    *  and the one TerminalCanvas owns) so the wiring lives in one place. */
   const dockPalette = {
-    onCreate: () => commandPalette.openGroup("New terminal"),
+    onCreate: () => commandPalette.openGroup(NEW_TERMINAL_GROUP),
     // Dock search → host-scoped terminal list (Terminals › $activeHost).
     onOpenWorkspaceSearch: () =>
       commandPalette.openPath([TERMINALS_GROUP_NAME, hostLabel(activeHost())]),

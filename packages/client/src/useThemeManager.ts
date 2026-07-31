@@ -85,10 +85,11 @@ function init() {
    *  see {@link pickTheme} for the rationale.
    *
    *  Draws from the `shuffleBehavior` preference's pool (`dark`/`light`/`auto`
-   *  restrict to a luminance family; `random` uses the whole catalogue) — the
-   *  same pool a `shuffle` new terminal uses. Independent of the
-   *  `newTerminalTheme` creation strategy: ⌘⇧J is an explicit action and always
-   *  shuffles, even when new terminals are set to `inherit`. */
+   *  restrict to a luminance family; `colourful` keeps saturated tints;
+   *  `random` uses the whole catalogue) — the same pool a `shuffle` new
+   *  terminal uses. Independent of the `newTerminalTheme` creation strategy:
+   *  ⌘⇧J is an explicit action and always shuffles, even when new terminals
+   *  are set to `inherit`. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;

@@ -138,16 +138,9 @@ vi.mock("./rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("./right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
-vi.mock("./terminal/useSubPanel", () => ({
-  useSubPanel: () => ({
-    seedPanel: () => {},
-    getSubPanel: () => ({ activeSubTab: null }),
-    setActiveSubTab: () => {},
-  }),
-}));
-
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
+import { useSubPanel } from "./terminal/useSubPanel";
 import type { TerminalStore } from "./terminal/useTerminalStore";
 import { useViewState } from "./useViewState";
 
@@ -217,12 +210,14 @@ function mountTwoHostFixture() {
   const getMetadata = (id: TerminalId) => driveMeta()[id];
 
   const view = useViewState();
+  const subPanel = useSubPanel();
   const store = {
     listSub,
     terminalIds,
     getMetadata,
     recordPhases: () => ({ awaited: 0, parked: 0, live: 0 }),
-    setActiveSilently: view.setActiveSilently,
+    setActiveSilently: (id: TerminalId | null) =>
+      id === null ? subPanel.clearFocus() : subPanel.focusVisiblePane(id),
     activeId: view.activeId,
     reconcileLiveIds: view.reconcileLiveIds,
   } as unknown as TerminalStore;

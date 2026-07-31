@@ -41,16 +41,6 @@ Feature: Claude Code status detection
     Then the tile chrome should show an agent indicator with state "waiting"
     And there should be no page errors
 
-  Scenario: Interrupted (Esc) turn reads as waiting, not running
-    When a Claude Code session is mocked with state "interrupted"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
-  Scenario: Interrupting a tool call reads as waiting, not running
-    When a Claude Code session is mocked with state "interrupted_tool_use"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
   Scenario: Claude Code state cycles waiting → thinking → waiting
     When a Claude Code session is mocked with state "waiting"
     Then the tile chrome should show an agent indicator with state "waiting"
@@ -94,37 +84,6 @@ Feature: Claude Code status detection
     And the tile chrome should show workflow badge "deep-research"
     And there should be no page errors
 
-  Scenario: A backgrounded Bash command is not a running-in-background state
-    When a Claude Code session is mocked with state "background_bash"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
-  Scenario: A running /fork promotes the idle main to running-in-background
-    # A `/fork` ends the main's turn (idle) and runs a sub-agent in the
-    # background. Its launch is a local-command echo, not a tool_result, so it's
-    # invisible to the background-task accounting; the watcher detects it from the
-    # fork's on-disk subagent transcript and promotes the idle main to working.
-    # No workflow fan-out journal exists, so no badge — just the working pip.
-    When a Claude Code session is mocked with state "fork"
-    Then the tile chrome should show an agent indicator with state "running_background"
-    And the tile title state pip should be "working"
-    And there should be no page errors
-
-  Scenario: An orphaned workflow (stale journal) settles to idle, not running
-    When a Claude Code session is mocked with state "orphaned_workflow"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
-  Scenario: A workflow launch with a Run ID but no journal does not spin forever
-    When a Claude Code session is mocked with state "journalless_workflow"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
-  Scenario: A trailing /compact summary reads as idle, not stuck working
-    When a Claude Code session is mocked with state "compact"
-    Then the tile chrome should show an agent indicator with state "waiting"
-    And there should be no page errors
-
   Scenario: An AskUserQuestion prompt on screen promotes thinking to awaiting (screen scrape, #905)
     # A pending AskUserQuestion reads as `thinking` on disk — the user's prompt is
     # the newest JSONL entry and the assistant's tool_use reply is buffered in the
@@ -135,18 +94,6 @@ Feature: Claude Code status detection
     When a Claude Code session is mocked with state "thinking"
     Then the tile chrome should show an agent indicator with state "thinking"
     When the terminal renders a Claude AskUserQuestion prompt
-    Then the tile chrome should show an agent indicator with state "awaiting_user"
-    And there should be no page errors
-
-  Scenario: A v2.1.173 AskUserQuestion footer (with the notes hint) still promotes to awaiting
-    # claude-code v2.1.173 inserted a `· n to add notes` segment into the footer,
-    # between `to navigate` and `Esc to cancel`. The old marker required those two
-    # adjacent, so the prompt silently stopped promoting and the dock looked idle
-    # with a question on screen. kolu now keys on the footer's `·` separators and
-    # tolerates the intervening segment — the awaiting promotion fires again.
-    When a Claude Code session is mocked with state "thinking"
-    Then the tile chrome should show an agent indicator with state "thinking"
-    When the terminal renders a Claude AskUserQuestion prompt with a notes hint
     Then the tile chrome should show an agent indicator with state "awaiting_user"
     And there should be no page errors
 

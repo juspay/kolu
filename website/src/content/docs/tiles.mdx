@@ -19,8 +19,12 @@ everywhere you look.
 ## Splits and tabs
 
 **Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
-<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Open splits show as a `▭ N`
-chip on the dock row. A split made from the shell or by an agent
+<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Every split appears as an
+indented entry beneath its parent in the Dock; click that entry to land in the
+split with the keyboard ready. Every sub-entry shows the same status indicator
+as a top-level dock row — shell identity for a plain shell, agent brand mark and
+attention colour when an agent is running. A split
+made from the shell or by an agent
 ([`padi-tui create --parent`](/padi)) opens the same way — the pane expands and
 the new split is selected, no click needed (unless you're already working in
 another split of that tile, which it won't yank you off).
@@ -50,6 +54,15 @@ reconnects on its own; a repaint queued while the window was in the background
 runs the instant you return; and when a flooding terminal outruns its view, it
 re-attaches and repaints from a fresh snapshot rather than freezing. You should
 never need a keypress or a reload to see output that already happened.
+
+A terminal's screen is drawn for one specific width and height, so a pane waits
+until it has actually been measured before it asks for anything, and asks for the
+screen **at** its own size. That matters most for a **split you open later** — a
+collapsed panel, or a tab that was in the background when the page loaded. It has
+no size on screen to measure yet, so rather than guess one and paint a screen
+drawn for the wrong width, it stays empty until you reveal it and then paints
+once, correctly. You should never have to nudge the divider to fix a split's
+rendering.
 
 ## On touch devices
 

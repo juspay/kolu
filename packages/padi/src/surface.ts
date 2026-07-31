@@ -40,8 +40,9 @@
  *
  * Beside the surface, the frozen {@link padiControlSurface} (hello · version ·
  * drain · clock.now) — version-agnostic, never versions, served for real in
- * W2.2. It lives HERE (not `@kolu/surface-daemon`) and graduates only if a
- * second daemon ever adopts it (electricity test ③: proof before extraction).
+ * W2.2. Its universal hello/drain fragment now comes from
+ * `@kolu/surface-daemon`; padi extends that wire with its frozen legacy
+ * `version` and `clock.now` members.
  *
  * BROWSER-SAFE face: like `koluSurface` this imports
  * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
@@ -59,6 +60,12 @@ import {
   defineSurfaceWithPolicy,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import {
+  CONTROL_CORE_VERSION,
+  type ControlCoreHello,
+  ControlCoreHelloSchema,
+  controlCoreProcedureSpec,
+} from "@kolu/surface-daemon/control-core";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsFileInputSchema,
@@ -269,8 +276,17 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  the usual reason — a newer binder against an old 4.3 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
  *  surface, so a 4.4 client never calls `fs.listIgnored` on a padi that lacks it
- *  (which would be a missing-procedure error, not a graceful absence). */
-export const PADI_SURFACE_VERSION = "4.4";
+ *  (which would be a missing-procedure error, not a graceful absence).
+ *
+ *  4.5 (RESHAPED procedure input · minor): `session.restore` / `session.import`
+ *  replace client-built `resumeIds?: string[]` with host-owned intent
+ *  `{ resumeAgents?: boolean (default true), optOutIds?: string[] }`, and the
+ *  saved-session cell stamps wire-only `resumableIds` (membership the client
+ *  may only subtract from). Not additive — a 4.4 peer that still speaks
+ *  `resumeIds` would silently lose toggle-off / opt-out under non-strict zod
+ *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
+ *  give: convergence + minor-rule drain keeps the two shapes from meeting. */
+export const PADI_SURFACE_VERSION = "4.5";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -360,7 +376,7 @@ export const DEFAULT_PADI_STATUS: PadiStatus = {};
 // second padi at another state-root) is visible AT A GLANCE. (srid hit this dogfooding
 // W2.2: a leaked pre-W2.2 kaval was invisible in the UI — only a `kaval-tui: more than
 // one kaval daemon is running` CLI error surfaced it.) Read-only enumeration: scan the
-// runtime dir, read each gate pid, best-effort probe status — it NEVER kills/reaps.
+// runtime dir, read each gate pid, read-only probe status — it NEVER kills/reaps.
 //
 // These live HERE, in @kolu/padi's browser-safe surface vocabulary, because padi OWNS
 // the daemon domain (it discovers, adopts, and supervises the host's daemons — a kaval
@@ -385,13 +401,13 @@ export const RunningKavalSchema = z.object({
   kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
   /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
   gatePid: z.number().int().nullable(),
-  /** Live terminal count from a best-effort `terminal.list` probe, or null when the
-   *  probe failed / the daemon didn't answer (never a fake 0). */
+  /** Live terminal count from `terminal.list`, or null when the listener is honestly
+   *  absent (never a fake 0 and never a swallowed protocol failure). */
   terminalCount: z.number().int().nullable(),
-  /** The kaval's build commit (`navigableCommit`) from a best-effort `system.version`
-   *  probe, or null when unreadable. */
+  /** The kaval's build commit from the frozen `control.core.hello` identity fragment,
+   *  or null for honest unknown (pre-fragment/off-Nix) or an absent listener. */
   buildCommit: z.string().nullable(),
-  /** The pty-host contract version from the probe, or null when unreadable. */
+  /** The pty-host contract version, or null when the listener is honestly absent. */
   contractVersion: z.string().nullable(),
   /** Whether the scanning host's kolu ACTIVELY owns this kaval ("in use by kolu"), and —
    *  when it does — whether it sits at the pre-padi LEGACY `kaval-<port>/` address (padi
@@ -626,10 +642,62 @@ export const PadiCreateInputSchema = z
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
 export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
 
-export const PadiResizeInputSchema = z.object({
+/** A terminal grid — cols AND rows, together or not at all. The ONE grid rule
+ *  on this surface: every member carrying a grid reuses it, so tightening the
+ *  rule is one edit instead of a re-derivation per member. */
+export const EndpointGridSchema = z.object({
+  cols: z.number().int().positive(),
+  rows: z.number().int().positive(),
+});
+
+/** Attach input: the terminal, plus — optionally — a grid to RESIZE it to
+ *  first.
+ *
+ *  `resizeTo` is a command, not a description of the caller: the host runs its
+ *  full resize before serializing (SIGWINCH to the child, a reflow of the
+ *  shared mirror, and on a width change a reflow-epoch bump that stales every
+ *  other attached client's backfill cursor). Attaching is a WRITE to shared
+ *  state whenever it is present and differs from the terminal's current grid;
+ *  the policy is last-attach-wins.
+ *
+ *  The fusion is the point. The snapshot is bytes laid out for a specific
+ *  cols×rows — cursor moves and wraps only mean anything at the width they were
+ *  serialized for. Carrying the grid on the attach REQUEST means the resize and
+ *  the serialize are one act, so the bytes and the grid can never be two facts
+ *  that raced. Without it the consumer had to publish its size through a
+ *  SEPARATE `lifecycle.resize` and hope it landed first — and when it didn't,
+ *  nothing repaired the screen, because a same-dimensions resize is (correctly)
+ *  a no-op, so no SIGWINCH ever reached the process.
+ *
+ *  OPTIONAL, and deliberately un-versioned. Absence degrades to exactly the
+ *  previous reading in BOTH skew directions — a newer client's grid is stripped
+ *  by an older padi, a newer padi serves an older client at the PTY's current
+ *  size — which is the `commandRooted`/`shellJoin` class this contract already
+ *  carries without a bump, not the emitted-variant class that must recycle. A
+ *  bump here would force-recycle a surviving daemon (killing live PTYs) to buy
+ *  a graceful improvement. */
+export const PadiTerminalAttachInputSchema = z.object({
   id: TerminalIdSchema,
-  cols: z.number(),
-  rows: z.number(),
+  // ONE optional composite, never two optional scalars: a grid is a cols AND a
+  // rows, so `{ cols }` with no `rows` must not be a sendable request. Splitting
+  // it would make half a grid representable on the wire and push the
+  // both-or-neither rule out into hand-written guards at every reader — the very
+  // class of "valid-looking value nobody can act on" this change exists to
+  // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
+  // here is strict, so an older peer strips an unknown `resizeTo` exactly as it
+  // would strip unknown `cols`/`rows`.
+  resizeTo: EndpointGridSchema.optional(),
+});
+
+// The SAME grid rule the attach carries. `resize` and `attach` describe one
+// value with one meaning, reaching the same mutator, so they must not derive it
+// twice — a bare `z.number()` here accepted a float or a negative that kaval
+// rejected one hop later, leaving the boundary that KNOWS what a grid is as the
+// one that didn't enforce it. Tightening rejects only values kaval already
+// refused, so no working call changes behaviour; the loud failure just moves to
+// the boundary that owns the concept.
+export const PadiResizeInputSchema = EndpointGridSchema.extend({
+  id: TerminalIdSchema,
 });
 
 export const PadiSendInputSchema = z.object({
@@ -780,20 +848,27 @@ export const PadiPreviewReadOutputSchema = z.object({
 });
 
 /** `session.restore` — restore the persisted session server-side (padi's boot
- *  reconcile + restore, replacing the client respawn loop in W1.R). `resumeIds`
- *  is the per-terminal agent-resume opt-in set; a terminal absent from it wakes
- *  to a bare shell. */
+ *  reconcile + restore, replacing the client respawn loop in W1.R).
+ *
+ *  The wire carries INTENT, not a client-built id list: the host owns the
+ *  resumable set (stamped on the saved session as `resumableIds`) and the client
+ *  may only subtract from it (opt-outs). Resume yes/no + opt-outs of the
+ *  host-served set — never a client-filtered membership list. */
 export const PadiSessionRestoreInputSchema = z.object({
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** When true, resume every host-resumable agent except those in `optOutIds`.
+   *  Default true so import / bare restore resume all. */
+  resumeAgents: z.boolean().default(true),
+  /** Subset of the host-served resumable set the user opted out of. */
+  optOutIds: z.array(z.string()).optional(),
 });
 
 /** `session.import` — replace the persisted session with an imported blob (the
  *  diagnostic "Import session" flow, moved host-side), then restore it. */
 export const PadiSessionImportInputSchema = z.object({
   session: SavedSessionSchema,
-  /** Ids whose captured agent should be resumed. Absent = resume all. */
-  resumeIds: z.array(z.string()).optional(),
+  /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
+  resumeAgents: z.boolean().default(true),
+  optOutIds: z.array(z.string()).optional(),
 });
 
 // ── The surface ───────────────────────────────────────────────────────────
@@ -852,8 +927,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       client: { onError: { kind: "toast", label: "Host inventory" } },
     },
     /** Live process-memory readout — padi's OWN RSS + its kaval daemon's, each the
-     *  honest three-way {@link ProcessRssSchema}. padi owns kaval now, so padi is
-     *  the source of this pair; its periodic sampler (wired into daemon boot) is the
+     *  honest three-way {@link ProcessRssSchema}. One baked osfacts `--mem` snapshot
+     *  reads both exact pids; padi's periodic sampler (wired into daemon boot) is the
      *  sole writer. Read-only on the client; kolu-server folds it into the rail's
      *  `processMemory` cell. */
     processMemory: {
@@ -946,7 +1021,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  fresh stream, so a mid-chain disconnect must terminate it (the client
      *  re-attaches end-to-end); the shipped overflow frame (#1591) rides it. */
     terminalAttach: {
-      inputSchema: PadiTerminalIdInputSchema,
+      inputSchema: PadiTerminalAttachInputSchema,
       // A discriminated frame, not a bare string (contract) and not an optional
       // field: a `delta` is bytes to write; a `snapshot` frame (the first frame
       // and every overflow re-attach) also carries the absolute mirror-line
@@ -1178,50 +1253,15 @@ export function padiMemberKeys(): string[] {
  *  (persist + exit; PTYs survive in kaval) and spawns its own newer closure, so
  *  two binders at different `padiSurface` versions converge rather than
  *  livelock, and no path ever kill-9s a padi. */
-export const CONTROL_CORE_VERSION = "1.0";
+export { CONTROL_CORE_VERSION };
 
 /** `hello` — the identity handshake a binder reads first: who this padi is and
  *  what `padiSurface` version it serves. Version-agnostic (part of the frozen
  *  core), so a skewed binder still learns the running version to decide
  *  upgrade-me vs drain-you. */
-export const PadiHelloSchema = z.object({
-  /** The padi's identity — its state-root (the `(host, state-root)` identity). */
-  stateRoot: z.string(),
-  /** The `padiSurface` `major.minor` this padi serves (e.g. "1.0"). */
-  surfaceVersion: z.string(),
-  /** The frozen control-core version this padi speaks (always "1.0" today). */
-  controlCoreVersion: z.string(),
-  /** padi's boot time (ms epoch), stamped once at daemon init — the binder reads
-   *  it for HONEST uptime (never `Date.now()` at dial time, which would reset the
-   *  age on every reconnect). Additive to the frozen core's initial served shape
-   *  (the core has never shipped served), so `CONTROL_CORE_VERSION` stays "1.0". */
-  startedAt: z.number(),
-  /** padi's navigable git commit (`PADI_COMMIT_HASH`) — the RUNNING padi's build,
-   *  which the binder surfaces as the Padi dialog's "build commit" (mirroring the
-   *  Kaval dialog's, whose commit rides kaval's `system.version.identity`). padi's
-   *  socket serves no `system.version`-style member, so the hello is padi's identity
-   *  channel; the binder already reads it. Additive like `startedAt` (core never
-   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), but OPTIONAL — a survivor
-   *  padi predating the field omits it and STILL handshakes (its hello validates),
-   *  reading as the honest "—" rather than breaking the bind. Empty `""` off-nix. */
-  commit: z.string().optional(),
-  /** padi's staleKey (`PADI_BUILD_ID`) — the content hash of padi's daemon source
-   *  closure, which flips iff a restart would load DIFFERENT daemon code. This is the
-   *  binder's build-convergence key (#1670): a binder compares it against its OWN baked
-   *  `PADI_BUILD_ID` and, on a same-contract mismatch, drains the survivor once at boot
-   *  and respawns its own build. Distinct from `commit` — the git ref is navigable but
-   *  does NOT capture the closure (two builds off one commit can differ; one commit can
-   *  change nothing padi runs). Additive like `commit` (the frozen core has never
-   *  shipped served → `CONTROL_CORE_VERSION` stays "1.0"), and OPTIONAL so a survivor
-   *  padi predating the field STILL handshakes. But an ABSENT id is NOT "adopt anyway":
-   *  a nix-built binder (which always bakes its own `PADI_BUILD_ID`) reads a missing id
-   *  as "this padi predates the field, so it is by definition an OLDER build" and DRAINS
-   *  it — otherwise the fix would fail to fire on the very first upgrade past a pre-field
-   *  padi (exactly the deploy it exists for). Only an OFF-NIX binder (its own id `""`)
-   *  never drains on build grounds — it cannot judge builds. Empty `""` off-nix. */
-  buildId: z.string().optional(),
-});
-export type PadiHello = z.infer<typeof PadiHelloSchema>;
+export const PadiHelloSchema = ControlCoreHelloSchema;
+/** Padi's byte-identical alias of the generic frozen hello payload. */
+export type PadiHello = ControlCoreHello;
 
 /** `version` — the control core's own version probe (just the frozen core
  *  version), distinct from the surface `version` cell. */
@@ -1259,14 +1299,11 @@ export const padiControlSurface = defineSurface({
     /** The frozen control verbs — the ONE namespace, never versions. Reached as
      *  `surface.control.core.<verb>` (the surface key `control` + this namespace). */
     core: {
+      ...controlCoreProcedureSpec,
       /** Identity handshake — who this padi is (`stateRoot`) + which
        *  `padiSurface` version it serves. Read FIRST by a binder. */
-      hello: { output: PadiHelloSchema },
       /** The frozen core's own version probe (just `controlCoreVersion`). */
       controlVersion: { output: PadiControlVersionSchema },
-      /** Persist state + exit; the PTYs survive in kaval, and the caller observes
-       *  the socket close. Takes no input, returns nothing. */
-      drain: {},
       /** padi's current clock — the binder RTT-halves it once per bind to age
        *  memory against the host's clock (deliberately NOT a ticking cell).
        *

@@ -25,10 +25,28 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const ENTRY = resolve(SRC, "index.ts");
 
 // The stable, kolu-free deps the supervisor legitimately rests on: node
-// builtins and the daemon half (whose gate-format primitives it composes). NO
-// `@kolu/surface` (the handshake/client typing lives in the caller's soul, not
-// here) and emphatically NO `kolu-*` app package.
-const ALLOWED_EXTERNAL = ["node:", "@kolu/surface-daemon"];
+// builtins, the daemon half (whose gate-format primitives it composes),
+// @kolu/surface for the frozen control-core transport, and ts-pattern for
+// exhaustive policy dispatch. UW2 deliberately admits the surface edge:
+// probeDaemonIdentity is shared supervisor spine, and making every consumer
+// reassemble the same stdio dial/handshake would duplicate the skew boundary
+// this package exists to own. Emphatically NO kolu-* app package.
+// OSF4 admits the `osfacts-client` edge: `ReadSocketHolders` is stated in the
+// tool client's vocabulary (`SocketHolder` / `SocketOccupancy`, re-exported
+// from `socketHolder.ts`), because the fold that produces that answer lives
+// beside the parser there — one home for kolu and drishti both, rather than the
+// same three-way hand-written twice. Type-only today, and the guard counts type
+// imports too, which is why the entry stays. It is admissible for the same
+// reason the surface edge is — a zero-dependency, Node-builtins-only, un-scoped
+// leaf that both consumers already ship, not an app package. Emphatically still
+// NO kolu-* app package.
+const ALLOWED_EXTERNAL = [
+  "node:",
+  "@kolu/surface",
+  "@kolu/surface-daemon",
+  "osfacts-client",
+  "ts-pattern",
+];
 
 const isAllowed = (spec: string): boolean =>
   ALLOWED_EXTERNAL.some((p) => spec === p || spec.startsWith(p));

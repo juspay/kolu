@@ -16,6 +16,7 @@ import {
   type PtyHistoryChunk,
   type PtyHost,
 } from "./ptyHost.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 /** Narrow a `getHistory` reply to its `chunk` arm, or fail — the common shape
  *  these tests assert on (the `stale` arm is asserted directly by the F3 test). */
@@ -32,13 +33,6 @@ const { Terminal } =
   require("@xterm/headless") as typeof import("@xterm/headless");
 const { SerializeAddon } =
   require("@xterm/addon-serialize") as typeof import("@xterm/addon-serialize");
-
-const silentLog = {
-  debug() {},
-  info() {},
-  warn() {},
-  error() {},
-} as unknown as Parameters<typeof createPtyHost>[0]["log"];
 
 async function waitFor(fn: () => boolean, ms = 8000): Promise<void> {
   const start = Date.now();

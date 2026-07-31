@@ -39,6 +39,12 @@
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
+  convergeAdmit,
+  createConnectorDrainBudget,
+  daemonBuild,
+  instanceKeyFromStartedAt,
+} from "@kolu/surface-daemon-supervisor";
+import {
   type ClosedInfo,
   type ConnectContext,
   ConnectError,
@@ -46,16 +52,19 @@ import {
   type SessionState,
   type SshProv,
 } from "@kolu/surface-remote";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import { LOCAL_HOST } from "kolu-common/surfacesWithPadi";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PadiSession } from "./padiSession.ts";
 import {
   composePadiExtraArgs,
   ensureRemotePadiBinding,
+  generationBoundAdmitDrainPlugs,
   KOLU_PADI_HOST_ENV,
   parseKoluPadiHostSeed,
   type RemotePadiSessionDeps,
 } from "./remotePadiBinding.ts";
+import { padiConvergencePolicyForBinding } from "./padiConvergence.ts";
 
 // ── Mock the ssh transport ONLY ──────────────────────────────────────────────
 // Replace `sshConnector` with a fake connector the per-test harness drives; keep the
@@ -128,6 +137,9 @@ function servedIdentity(hello: Hello) {
 /** A spawn the connector hands out: a served daemon (its hello + drain behaviour) or a
  *  connector-level rejection (a provision/ssh failure). */
 type ServeOpts = {
+  /** Hold every hello on this gate so a test can settle an old admit after a
+   * newer dial has already been adopted. */
+  helloGate?: Promise<void>;
   /** Drain kills the link (default true). `false` = a wedged daemon that keeps answering
    *  after the drain (the drain did not take). */
   diesOnDrain?: boolean;
@@ -137,6 +149,12 @@ type ServeOpts = {
   /** After the drain, `hello()` HANGS forever (a wedged post-drain link the per-probe
    *  ceiling race must bound). */
   wedgeAfterDrain?: boolean;
+  /**
+   * ClosedInfo kind resolved when the drain "kills" the link (default `"exit"`).
+   * F3: `transport-failed` models ssh link loss — must NOT count as process exit,
+   * so the process oracle stays unsettled and the ceiling yields drain-not-taken.
+   */
+  closeKind?: ClosedInfo["kind"];
 };
 type SpawnSpec =
   | ({ kind: "serve"; hello: Hello } & ServeOpts)
@@ -194,6 +212,7 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
         control: {
           core: {
             hello: async (): Promise<Hello> => {
+              await spec.helloGate;
               if (drained && spec.wedgeAfterDrain)
                 return new Promise<Hello>(() => {}); // wedged: never settles
               if (drained && dies) {
@@ -205,6 +224,28 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
             drain: async (): Promise<void> => {
               handle.drainCount += 1;
               drained = true;
+              // F3 process oracle: resolve `closed` after grace window when the
+              // drain "kills" the link (diesOnDrain) OR when a test injects an
+              // explicit closeKind (e.g. transport-failed while hello still
+              // answers — link loss ≠ process exit).
+              const closeKind = spec.closeKind;
+              if ((!dies && closeKind === undefined) || spec.wedgeAfterDrain) {
+                return;
+              }
+              const graceMs = (spec.graceHellos ?? 0) * 20 + 5;
+              const kind = closeKind ?? "exit";
+              setTimeout(() => {
+                if (kind === "exit") {
+                  resolveClosed({ kind: "exit", code: 0, signal: null });
+                } else if (kind === "spawn-error") {
+                  resolveClosed({
+                    kind: "spawn-error",
+                    message: "spawn failed",
+                  });
+                } else {
+                  resolveClosed({ kind });
+                }
+              }, graceMs);
             },
           },
         },
@@ -266,7 +307,6 @@ async function flush(ms = 0): Promise<void> {
 // Ceilings small enough that a single `flush(CEIL)` covers a drain but not the 2s
 // makeSession reconnect backoff. `RECONNECT` steps past that backoff → the next (re)dial.
 const CEIL = 60;
-const POLL = 10;
 const RECONNECT = 2600;
 
 /** Pin a session that is expected to ADOPT (possibly after a drain that did not take),
@@ -297,6 +337,42 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
+  it("a post-hello superseded generation cannot fire a build-mismatch drain or produce a verdict", async () => {
+    // The hello has resolved and its identity is assembled. Supersede this
+    // generation before convergeAdmit enacts the resulting mismatch decision.
+    await Promise.resolve(helloVals({ buildId: "build-old" }));
+    const generation = new AbortController();
+    const fireDrain = vi.fn(async () => {});
+    const plugs = generationBoundAdmitDrainPlugs(generation.signal, {
+      drain: fireDrain,
+      awaitExit: async () => {},
+    });
+    generation.abort();
+
+    const budget = createConnectorDrainBudget(
+      padiConvergencePolicyForBinding({
+        contractVersion: PADI_SURFACE_VERSION,
+        binderBuildId: "build-current",
+        maxBuildDrainsPerInstance: 1,
+      }),
+    );
+    await expect(
+      convergeAdmit({
+        running: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("build-old"),
+          instanceKey: instanceKeyFromStartedAt(1),
+        },
+        budget,
+        drain: plugs.drain,
+        awaitExit: plugs.awaitExit,
+        ceilingMs: CEIL,
+        log: collectLogger(() => {}),
+      }),
+    ).rejects.toThrow(/superseded/i);
+    expect(fireDrain).not.toHaveBeenCalled();
+  });
+
   it("handshakes a fresh spawn, scopes to .surface.padi, and reads identity", async () => {
     // Off-nix binder ("") never drains on build grounds → a compatible contract ADOPTS
     // deterministically regardless of the survivor's buildId.
@@ -347,7 +423,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     );
 
     // …and the reason is a STANDING, surfaced convergence state so the Padi dialog shows WHY.
-    expect(session.convergence()?.state).toBe("skew-refused");
+    expect(session.convergence()?.kind).toBe("skew-refused");
     expect(session.convergence()?.detail).toMatch(/contract skew|refusing/i);
 
     // THE PROJECTION INVARIANT (`@kolu/surface-map`'s `projectStatus` discriminates the
@@ -382,7 +458,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(session.currentClient()).toBeNull();
     // …but the REASON is a standing, surfaced convergence state.
     const conv = session.convergence();
-    expect(conv?.state).toBe("link-failed");
+    expect(conv?.kind).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
   });
 
@@ -400,7 +476,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const p = session.pin();
     p.catch(() => {});
     await flush(60_000);
-    expect(session.convergence()?.state).toBe("link-failed");
+    expect(session.convergence()?.kind).toBe("link-failed");
 
     const rejections: unknown[] = [];
     const onUnhandled = (r: unknown): void => {
@@ -425,7 +501,6 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "", // off-nix → adopt on bind, no build drain
       drainTeardownCeilingMs: 200,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals())); // dies on drain (graceHellos 0)
     await pinAdopt(session); // adopt → bound
@@ -437,11 +512,48 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(handles[0]!.drainCount).toBe(1);
   });
 
+  it("renew drains the current generation when a superseded admit settles late", async () => {
+    let releaseFirstHello!: () => void;
+    const firstHello = new Promise<void>((resolve) => {
+      releaseFirstHello = resolve;
+    });
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-current",
+      drainTeardownCeilingMs: 200,
+    });
+    enqueue(
+      serve(helloVals({ startedAt: 1, buildId: "build-old" }), {
+        helloGate: firstHello,
+      }),
+    );
+
+    const firstPin = session.pin();
+    firstPin.catch(() => {});
+    await flush();
+    expect(handles).toHaveLength(1);
+
+    enqueue(serve(helloVals({ startedAt: 2, buildId: "build-current" })));
+    session.recheck();
+    await flush(CEIL);
+    await flush();
+    expect(handles).toHaveLength(2);
+    expect(session.currentState().phase).toBe("connected");
+
+    releaseFirstHello();
+    await flush();
+    await expect(firstPin).rejects.toThrow(/superseded/i);
+
+    const renewed = session.renew();
+    renewed.catch(() => {});
+    await flush(200);
+    await renewed;
+    expect(handles.map((handle) => handle.drainCount)).toEqual([0, 1]);
+  });
+
   it("renew() THROWS when the padi does not exit in the window (never a phantom success)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "",
       drainTeardownCeilingMs: 40,
-      drainPollMs: POLL,
     });
     // The daemon keeps answering after drain (the drain did not take) — the fail-fast
     // window elapses and the restart verb THROWS. Never a kill.
@@ -542,7 +654,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-X",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals({ buildId: "build-X" })));
     const scoped = await pinAdopt(session);
@@ -554,7 +665,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // Spawn 1 — an OLD build (instance 1000). The mismatch DRAINS + rejects (the cursor
     // waits) to reconnect. The flagship #1670 redeploy, over ssh.
@@ -577,14 +687,13 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(0);
   });
 
-  it("reset-on-adopt: adopting a matched build CLEARS the instance tracker, so a LATER mismatch drains AFRESH", async () => {
+  it("budget SURVIVES adopts: a drained build reappearing under a foreign instance is cross-supervisor (not a fresh drain)", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
-    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Tracker now:
-    //    drainedInstance=1000, drainAttempts=1.
+    // 1. build-MISMATCH survivor (1000, build-OLD) → drain took → reject. Budget remembers
+    //    the drained (build-OLD, 1000) lineage.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
     const p = session.pin();
     p.catch(() => {});
@@ -592,8 +701,9 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await expect(p).rejects.toThrow(/build mismatch/i);
     expect(handles[0]!.drainCount).toBe(1);
 
-    // 2. reconnect brings up a MATCHED build (2000) → ADOPT → the adopt path CLEARS the
-    //    tracker (drainedInstance=null, drainAttempts=0).
+    // 2. reconnect brings up a MATCHED build (2000) → ADOPT. Budget is NOT reset
+    //    (survives adopts — the old reset-on-adopt wiped the memory needed to notice
+    //    a cross-supervisor fight).
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
@@ -603,17 +713,19 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(scoped.surface.marker).toBe("padi-scoped");
     expect(handles[1]!.drainCount).toBe(0);
 
-    // 3. LATER a NEW mismatched instance (3000, build-OLD) appears. BECAUSE the tracker
-    //    was cleared on adopt, this is a FRESH convergence → DRAIN AFRESH (drainCount 1),
-    //    NOT anti-livelock. A missing reset would instead adopt-stale with drainCount 0.
+    // 3. LATER a NEW instance of the ALREADY-DRAINED build-OLD appears (3000). That is
+    //    another supervisor respawning the old build → cross-supervisor, NOT a fresh
+    //    drain (drainCount stays 0).
     handles[1]!.kill(); // the matched build's link drops → reconnect
     await flush();
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 3000 })));
     await flush(RECONNECT);
     await expect(session.currentClient() as Promise<unknown>).rejects.toThrow(
-      /build mismatch/i,
+      /another supervisor|cross-supervisor|DIFFERENT instance/i,
     );
-    expect(handles[2]!.drainCount).toBe(1);
+    expect(handles[2]!.drainCount).toBe(0);
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
+    expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
   it("a link BLIP misread as an exit → the SAME instance RE-DRAINS, then ADOPTS LOUDLY on budget exhaustion (M4)", async () => {
@@ -621,7 +733,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       maxBuildDrainsPerInstance: 2,
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // Blip 1: build-OLD, instance 5000. drain → reconnect. Drained once, NOT adopted.
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 5000 })));
@@ -649,9 +760,11 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(client).toBeTruthy();
     expect(handles[2]!.drainCount).toBe(0);
     const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
-    expect(conv?.runningBuild).toBe("build-OLD");
-    expect(conv?.expectedBuild).toBe("build-NEW");
+    expect(conv?.kind).toBe("adopted-stale");
+    if (conv?.kind === "adopted-stale") {
+      expect(conv.running.build).toEqual({ kind: "known", id: "build-OLD" });
+      expect(conv.expected.build).toEqual({ kind: "known", id: "build-NEW" });
+    }
     expect(conv?.detail).toMatch(
       /flapping|will not converge|riding the resident/i,
     );
@@ -666,7 +779,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals({ buildId: "build-OLD", startedAt: 1000 })));
     const p = session.pin();
@@ -689,7 +801,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(0);
     // Parked under the `unconverged` convergence banner, but the TYPED map cause is
     // `cross-supervisor` (the dedicated flag wins over `unconverged` in the detail hook).
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -698,7 +810,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderBuildId: "build-NEW",
       maxBuildDrainsPerInstance: 1,
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // Reach adopted-stale via BUDGET exhaustion (a flapping SAME instance — a link blip, NOT
     // a cross-supervisor fight): drain 7000 once, the blip reconnects the SAME 7000 still
@@ -712,7 +823,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     await flush(RECONNECT);
     await flush();
     await session.currentClient(); // adopts-stale the resident (a LIVE daemon)
-    expect(session.convergence()?.state).toBe("adopted-stale");
+    expect(session.convergence()?.kind).toBe("adopted-stale");
 
     // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
     // adopted-stale is a live adopted daemon.
@@ -723,16 +834,20 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(handles[1]!.drainCount).toBe(1);
   });
 
-  it("ABSENT buildId (a pre-field survivor) → drains as an older build", async () => {
+  it("ABSENT identity pair (a pre-field survivor) → drains as an older build", async () => {
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
-    // A hello with NO buildId field (`undefined`) — `?? ""` folds it to off-nix, which
-    // never matches the binder's known id, so it drains (a pre-field padi is an older
-    // build). Omit it via override rather than `delete` (noDelete).
-    const h = { ...helloVals({ startedAt: 1000 }), buildId: undefined };
+    // A hello with neither identity field — `?? ""` folds the honest unknown pair to
+    // off-nix, which never matches the binder's known id, so it drains (a pre-field padi
+    // is an older build). The fields entered the frozen schema together; a one-sided
+    // payload is contradictory, not a historical generation.
+    const h = {
+      ...helloVals({ startedAt: 1000 }),
+      buildId: undefined,
+      commit: undefined,
+    };
     enqueue(serve(h));
     const p = session.pin();
     p.catch(() => {});
@@ -745,7 +860,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals({ buildId: "build-OLD" })));
     await pinAdopt(session);
@@ -756,7 +870,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // `diesOnDrain: false` — the daemon keeps answering after drain (a wedged link). The
     // fail-fast window elapses → could not drain-replace, so ADOPT LOUDLY, never a kill.
@@ -765,9 +878,37 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(client).toBeTruthy();
     expect(handles[0]!.drainCount).toBe(1); // attempted once, no kill
     const conv = session.convergence();
-    expect(conv?.state).toBe("adopted-stale");
+    expect(conv?.kind).toBe("adopted-stale");
     expect(conv?.detail).toMatch(/did not take|kept answering/i);
     expect(session.currentState().phase).toBe("connected"); // canvas stays live
+  });
+
+  it("F3: transport-failed ClosedInfo during drain is NOT process exit → drain-not-taken (real adapter)", async () => {
+    // Drives the REAL remotePadiBinding awaitExitViaProcessOracle over conn.closed
+    // (not a synthetic awaitExit). On drain, closed resolves as transport-failed
+    // while hello still answers — link loss must NOT count as process exit; the
+    // process oracle stays unsettled until the ceiling → drain-not-taken → adopt-stale.
+    const { session, enqueue, handles } = makeArm({
+      binderBuildId: "build-NEW",
+      drainTeardownCeilingMs: CEIL,
+      maxBuildDrainsPerInstance: 1,
+    });
+    enqueue(
+      serve(helloVals({ buildId: "build-OLD" }), {
+        // Keep answering hello (not process death); inject transport-failed close.
+        diesOnDrain: false,
+        closeKind: "transport-failed",
+      }),
+    );
+    const client = await pinAdopt(session);
+    expect(client).toBeTruthy();
+    expect(handles[0]!.drainCount).toBe(1);
+    const conv = session.convergence();
+    // Must NOT have been treated as successful process exit → replaced.
+    expect(conv?.kind).toBe("adopted-stale");
+    if (conv?.kind === "adopted-stale") {
+      expect(conv.detail).toMatch(/did not take|not take|kept answering/i);
+    }
   });
 
   it("contract skew, binder NEWER → drains (newest-wins), instance-keyed bounded", async () => {
@@ -775,7 +916,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderVersion: "9.0",
       binderBuildId: "b",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals({ surfaceVersion: "1.1" })));
     const p = session.pin();
@@ -790,7 +930,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderVersion: "5.0",
       binderBuildId: "", // isolate the CONTRACT axis (off-nix never build-drains)
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // An OLD-contract survivor → binder newer → DRAIN (took) → reconnect.
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
@@ -815,7 +954,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderVersion: "9.0",
       binderBuildId: "b",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     // Drain instance 1000 (old contract 1.1) → took → reconnect.
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 1000 })));
@@ -827,7 +965,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
 
     // reconnect brings up a DIFFERENT instance (2000), STILL old contract — another
     // supervisor is respawning it. Do NOT re-drain: STOP + fail-honest with the TYPED
-    // `cross-supervisor` cause (parked under the `unconverged` banner). The isolation
+    // `cross-supervisor` cause (framework anomaly arm). The isolation
     // lever is KOLU_REMOTE_PADI_STATE_DIR; the client card offers [Switch to local].
     enqueue(serve(helloVals({ surfaceVersion: "1.1", startedAt: 2000 })));
     await flush(RECONNECT);
@@ -836,7 +974,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       /anti-livelock|treadmill|respawning/i,
     );
     expect(handles[1]!.drainCount).toBe(0);
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.kind).toBe("cross-supervisor");
     expect(session.entryFailedDetail()).toEqual({ cause: "cross-supervisor" });
   });
 
@@ -849,7 +987,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(serve(helloVals({ buildId: "build-OLD" })));
     const p = session.pin();
@@ -865,7 +1002,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
       binderVersion: "9.0",
       binderBuildId: "b",
       drainTeardownCeilingMs: CEIL,
-      drainPollMs: POLL,
     });
     enqueue(
       serve(helloVals({ surfaceVersion: "1.1" }), { diesOnDrain: false }),
@@ -882,7 +1018,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     expect(session.identity().kind).toBe("disconnected");
     // Surfaced as a standing `unconverged` state (NOT adopted — an incompatible contract
     // can't be ridden, unlike a build mismatch).
-    expect(session.convergence()?.state).toBe("unconverged");
+    expect(session.convergence()?.kind).toBe("unconverged");
     // THE PROJECTION INVARIANT: `unconverged` is a REFUSE, so it sets a SPECIFIC cause on
     // the down state (→ `failed` + card, never masked as warming).
     expect(session.entryFailedDetail()).toEqual({ cause: "unconverged" });
@@ -917,7 +1053,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: 40,
-      drainPollMs: POLL,
     });
     // After the drain the daemon's `hello` NEVER settles — a wedged ssh link. The per-probe
     // ceiling race must give up within the window and ADOPT the old build (degraded).
@@ -931,7 +1066,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     // `currentClient()` RESOLVING at all (to a live client) is the bound-ceiling proof.
     const client = await p;
     expect(client).toBeTruthy();
-    expect(session.convergence()?.state).toBe("adopted-stale");
+    expect(session.convergence()?.kind).toBe("adopted-stale");
     expect(session.convergence()?.detail).toMatch(
       /did not take|kept answering/i,
     );
@@ -941,7 +1076,6 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     const { session, enqueue, handles } = makeArm({
       binderBuildId: "build-NEW",
       drainTeardownCeilingMs: 500,
-      drainPollMs: POLL,
     });
     // The daemon answers 4 more hellos after the drain, then dies — drainAndAwaitClose must
     // still detect the exit ("took" → reconnect) rather than time out.

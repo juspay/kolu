@@ -21,6 +21,7 @@ import {
   freezeAutosave,
   unfreezeAutosave,
 } from "./autosaveGate.ts";
+import { resumableTerminalIds } from "./resumable.ts";
 import {
   clearSavedSession,
   getSavedSession,
@@ -138,17 +139,20 @@ function respawnActive(
  *  padi's boot reconcile produced (`respawnActive`), so a concurrent/repeat
  *  `session.restore` finds the token gone and no-ops rather than duplicating.
  *
- *  `resumeIds` is the per-terminal agent-resume opt-in set: a terminal absent
- *  from it wakes to a bare shell; ABSENT (`undefined`) resumes all — the SAME
- *  opt-out semantics the restore card offers today. */
-export async function restoreSession(input: {
-  resumeIds?: string[];
-}): Promise<void> {
+ *  Resume intent is host-owned: the host computes the resumable set from each
+ *  record's `restoreTarget` ({@link resumableTerminalIds}); the client may only
+ *  subtract via `optOutIds`. `resumeAgents: false` resumes none; `true` (default)
+ *  resumes every host-resumable id not listed in `optOutIds`. */
+export async function restoreSession(
+  input: { resumeAgents?: boolean; optOutIds?: string[] } = {},
+): Promise<void> {
   const saved = getSavedSession();
   if (!saved) return;
-  const resumeAll = input.resumeIds === undefined;
-  const resumeSet = new Set(input.resumeIds ?? []);
-  const optedIn = (id: string) => resumeAll || resumeSet.has(id);
+  const resumeAgents = input.resumeAgents ?? true;
+  const optOut = new Set(input.optOutIds ?? []);
+  const hostResumable = new Set(resumableTerminalIds(saved.terminals));
+  const optedIn = (id: string) =>
+    resumeAgents && hostResumable.has(id) && !optOut.has(id);
   // Old id → new id: a restored active terminal gets a NEW id, so a sub-terminal
   // re-parents onto the fresh id; a sleeping one keeps its stable id.
   const oldToNew = new Map<string, string>();
@@ -166,6 +170,10 @@ export async function restoreSession(input: {
     record: SavedActiveTerminal;
     ready: Promise<void> | undefined;
   }[] = [];
+  /** Saved records that could not be restored (e.g. parent missing from the
+   *  session). Must stay on disk with their resume tokens and surface as a
+   *  loud error — never silently dropped (fail-fast). */
+  const unrestored: SavedTerminal[] = [];
   const topLevel = saved.terminals.filter((t) => !t.parentId);
   const subTerminals = saved.terminals.filter(
     (t): t is SavedTerminal & { parentId: string } => t.parentId !== undefined,
@@ -232,10 +240,17 @@ export async function restoreSession(input: {
   try {
     for (const t of topLevel) restoreRecord(t);
     for (const t of subTerminals) {
-      // A sub whose parent didn't restore (skipped as a repeat) is dropped —
-      // there is no live parent to hang it off (F3).
+      // A sub whose parent is absent from the session (corrupt blob / missing
+      // parent id) cannot hang off a live parent (F3). Do NOT silently drop it:
+      // keep the record (and its resume token) and fail loudly after the rest
+      // of the restore lands.
       const parentId = oldToNew.get(t.parentId);
-      if (parentId === undefined) continue;
+      if (parentId === undefined) {
+        // Corrupt / missing parent — keep the record on disk (with its resume
+        // token) and fail loudly after the rest of the restore lands.
+        unrestored.push(t);
+        continue;
+      }
       restoreRecord(t, parentId);
     }
 
@@ -250,7 +265,24 @@ export async function restoreSession(input: {
     // synchronous write the common-case (kaval alive) restore and the tests both rely
     // on. This snapshot NAMES every restored terminal, so even if a spawn later fails
     // and unwinds, the saved session still holds it (CONF-6: nothing is deleted).
-    saveSession(snapshotSession());
+    // Unrestored records are MERGED back in so their resume tokens never leave disk
+    // (the silent-drop bug class).
+    const live = snapshotSession();
+    if (unrestored.length > 0) {
+      for (const t of unrestored) {
+        if (t.state === "active") {
+          // Re-park so the restore card can offer them again; seed is idempotent
+          // when the parked token was never consumed.
+          seedParkedTerminal(t);
+        }
+      }
+      saveSession({
+        ...live,
+        terminals: [...live.terminals, ...unrestored],
+      });
+    } else {
+      saveSession(live);
+    }
   } finally {
     unfreezeAutosave(freeze);
     cancelPendingAutosave();
@@ -272,7 +304,18 @@ export async function restoreSession(input: {
         ? oldToNew.get(a.record.parentId)
         : undefined,
     })),
+    // Missing-parent records must ride every settle write — otherwise a
+    // sibling spawn's `persistSettledRestoreSnapshot(live+reparked)` drops
+    // them from disk and erases the resume tokens the optimistic merge kept.
+    unrestored,
   );
+
+  if (unrestored.length > 0) {
+    const ids = unrestored.map((t) => t.id).join(", ");
+    throw new Error(
+      `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (missing parent): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
+    );
+  }
 }
 
 /** Settle the fresh restore respawns INDEPENDENTLY — the ONE place the mixed
@@ -311,6 +354,10 @@ export async function settleRestoreRespawns(
     record: SavedActiveTerminal;
     parentIdMapped: string | undefined;
   }[],
+  /** Records that must survive every settle write (e.g. missing-parent
+   *  unrestored actives re-parked in the optimistic pass). Merged with
+   *  reparked on each persist so a sibling spawn cannot erase them. */
+  retained: readonly SavedTerminal[] = [],
 ): Promise<void> {
   const reparked: SavedActiveTerminal[] = [];
   await Promise.all(
@@ -338,9 +385,10 @@ export async function settleRestoreRespawns(
       // itself here has orphaned any live child of its own; promoting incrementally means
       // an UNRELATED never-settling sibling spawn can no longer strand that child under a
       // hidden parent for the process lifetime. Then persist the merged live+re-parked
-      // snapshot so the promotion (and any re-park) reaches disk without awaiting the batch.
+      // (+ retained unrestored) snapshot so the promotion (and any re-park) reaches disk
+      // without awaiting the batch.
       promoteOrphanedRestoreChildren(respawns);
-      persistSettledRestoreSnapshot(reparked);
+      persistSettledRestoreSnapshot(reparked, retained);
     }),
   );
 }
@@ -392,11 +440,21 @@ export function promoteOrphanedRestoreChildren(
  *  is in NEITHER set → correctly removed from disk. */
 export function persistSettledRestoreSnapshot(
   reparked: SavedActiveTerminal[],
+  retained: readonly SavedTerminal[] = [],
 ): void {
   const live = snapshotSession();
+  // Live wins id collisions; then reparked (spawn failures); then retained
+  // unrestored records (e.g. missing-parent) that snapshotSession never sees.
+  const seen = new Set(live.terminals.map((t) => t.id));
+  const extras: SavedTerminal[] = [];
+  for (const t of [...reparked, ...retained]) {
+    if (seen.has(t.id)) continue;
+    seen.add(t.id);
+    extras.push(t);
+  }
   saveSession({
     ...live,
-    terminals: [...live.terminals, ...reparked],
+    terminals: [...live.terminals, ...extras],
   });
 }
 
@@ -417,14 +475,18 @@ export function forfeitSession(): void {
 /** Import a session blob and restore it host-side — the diagnostic "Import
  *  session" flow moved off the client. Backfills the imported blob to the
  *  current schema (idempotent on an already-current record), persists it as the
- *  saved session, then runs the restore path with the same `resumeIds`. */
+ *  saved session, then runs the restore path with the same resume intent. */
 export async function importSession(input: {
   session: SavedSession;
-  resumeIds?: string[];
+  resumeAgents?: boolean;
+  optOutIds?: string[];
 }): Promise<void> {
   const backfilled = SavedSessionSchema.parse(
     backfillSavedSession(input.session),
   );
   setSavedSession(backfilled);
-  await restoreSession({ resumeIds: input.resumeIds });
+  await restoreSession({
+    resumeAgents: input.resumeAgents,
+    optOutIds: input.optOutIds,
+  });
 }

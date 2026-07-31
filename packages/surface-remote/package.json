@@ -10,8 +10,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./connection": "./src/connection.ts",
-    "./agentDerivation.testutil": "./src/agentDerivation.testutil.ts",
-    "./loggerStubs.testutil": "./src/loggerStubs.testutil.ts"
+    "./agentDerivation.testutil": "./src/agentDerivation.testutil.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

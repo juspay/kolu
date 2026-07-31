@@ -33,8 +33,8 @@
  *     — so one glance reads who is driving and whether they need you.
  *     Agent kind is not labeled in text here — it lives on the terminal
  *     title bar where there's room. PR pip is a link to the PR with the
- *     live checks verdict in its tooltip; the sub-terminal chip surfaces
- *     when there are nested terminals. The active row gets a quiet
+ *     live checks verdict in its tooltip; nested terminals appear as indented
+ *     sub-entries beneath their parent. The active row gets a quiet
  *     highlight (`bg-surface-2` + accent left-edge stripe matching
  *     `--dock-edge-stripe-w`); row geometry stays constant so the dock
  *     never reflows when the active terminal changes. Pip columns share
@@ -67,6 +67,7 @@ import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
 import type { TerminalId } from "kolu-common/surface";
+import { cwdBasename } from "kolu-common/path";
 import {
   type Component,
   createMemo,
@@ -76,11 +77,12 @@ import {
   onMount,
   Show,
 } from "solid-js";
+import { match } from "ts-pattern";
 import { createSharedRoot } from "../../createSharedRoot";
 import { ACTIONS } from "../../input/actions";
 import { isPlatformModifier } from "../../input/keyboard";
 import { IntentMarkdownInline } from "../../intent/IntentMarkdown";
-import { annotationLine } from "../../intent/text";
+import { annotationLine, intentLeadGlyph } from "../../intent/text";
 import { persistedPref } from "../../persistedPref";
 import LiveActivityDot from "../../terminal/LiveActivityDot";
 import { useStatePip } from "../../terminal/statePipBind";
@@ -111,13 +113,16 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
+import { DockShortcutHint } from "./DockShortcutHint";
 import { dockRowAttrs } from "./dockRowAttrs";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { recencyMode } from "./RecencyCell";
-import { createDockRowData, PrPip, SubCountCell } from "./RowPips";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
+import { createDockRowData } from "./dockRowData";
+import { PrPip } from "./PrPip";
 import { rowSubline } from "./rowSubline";
+import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
 import { useDockOrder } from "./useDockOrder";
 import { useSectionAttention } from "./useSectionAttention";
@@ -365,11 +370,11 @@ const RailOrCards: Component<{
   onOpenWorkspaceSearch: () => void;
 }> = (props) => {
   // Pre-built `id → flat position` map. RepoSection used to compute
-  // each row's flat index via `findIndex` over `flatRows`, costing
+  // each row's flat index via `findIndex` over `flatShortcutRows`, costing
   // O(rows²) per render. The map is rebuilt only when the tree
   // changes (one O(n) pass) and every row reads its position in O(1).
   const flatIndexOf = createMemo(
-    () => new Map(props.tree.flatRows.map((r, i) => [r.id, i])),
+    () => new Map(props.tree.flatShortcutRows.map((r, i) => [r.id, i])),
   );
   return (
     <div class="flex flex-col w-full min-h-0">
@@ -395,14 +400,21 @@ const RailOrCards: Component<{
             {(group) => (
               <>
                 <RailSectionMark color={group.color} name={group.name} />
-                <For each={group.rows}>
-                  {(row) => (
-                    <RailChip
-                      id={row.id}
-                      pip={row.pip}
-                      flatIndex={flatIndexOf().get(row.id) ?? -1}
-                    />
-                  )}
+                <For each={group.railEntries}>
+                  {(entry) =>
+                    match(entry)
+                      .with({ kind: "top" }, ({ row }) => (
+                        <RailChip
+                          id={row.id}
+                          pip={row.pip}
+                          flatIndex={flatIndexOf().get(row.id) ?? -1}
+                        />
+                      ))
+                      .with({ kind: "split" }, ({ row }) => (
+                        <RailSubChip row={row} repoColor={group.color} />
+                      ))
+                      .exhaustive()
+                  }
                 </For>
               </>
             )}
@@ -503,7 +515,7 @@ const RepoSection: Component<{
    *  row per render. Built once per tree update by `RailOrCards`. */
   flatIndexOf: ReadonlyMap<TerminalId, number>;
 }> = (props) => {
-  const tileStore = useTileStore();
+  const store = useTerminalStore();
   const focus = useDockFocus();
   // The header's attention summary — the SAME triplet, on the SAME activity
   // predicate, the host tab renders.
@@ -516,20 +528,19 @@ const RepoSection: Component<{
   // rows the activity window parked, which was exactly the case the old click
   // could not reach — a capsule reading "1" that did nothing.
   const jumpTo = (ids: readonly TerminalId[]) => {
-    const next = nextAfter(ids, tileStore.activeId());
+    const next = nextAfter(ids, store.focusedTerminalId());
     if (next === undefined) return;
     focus(next);
   };
-  // Section is the grid container. Four columns (the `DOCK_ROW_GRID`
-  // template): indicator · branch · sub-count · time. The leading
+  // Section is the grid container. Three columns (the `DOCK_ROW_GRID`
+  // template): indicator · branch · time. The leading
   // indicator column is a fixed 20px reserved track holding `StatePip`
   // so the indicator never shifts as its axes flip and pips stay
   // aligned across rows. PR pip is NOT a grid column — it lives inline
   // on line 2 (left of the subline text), anchored to the branch
   // column's left edge so its X stays consistent across every section.
-  // Branch is `minmax(0,1fr)` so it stretches and truncates; sub-count
-  // and time are `auto`, so an empty sub-count column collapses to 0
-  // and gives its width back to the branch. Each DockRow is a subgrid
+  // Branch is `minmax(0,1fr)` so it stretches and truncates; time is `auto`.
+  // Each DockRow is a subgrid
   // item that inherits these columns, keeping the icons aligned
   // vertically across rows in one section.
   return (
@@ -564,9 +575,9 @@ const RepoSection: Component<{
         </span>
         <span
           class="dock-cards-section-count font-mono text-[0.6rem]"
-          title={`${props.group.rows.length} terminals`}
+          title={`${props.group.railEntries.length} terminals`}
         >
-          {props.group.rows.length}
+          {props.group.railEntries.length}
         </span>
         <AttentionTriplet
           active={attn().activeIds.length}
@@ -579,14 +590,22 @@ const RepoSection: Component<{
           class="ml-auto"
         />
       </div>
-      <For each={props.group.rows}>
+      <For each={props.group.topRows}>
         {(row) => (
-          <DockRow
-            id={row.id}
-            bucket={row.bucket}
-            pip={row.pip}
-            flatIndex={props.flatIndexOf.get(row.id) ?? -1}
-          />
+          <>
+            <DockRow
+              id={row.id}
+              bucket={row.bucket}
+              pip={row.pip}
+              recencyAt={row.ts}
+              flatIndex={props.flatIndexOf.get(row.id) ?? -1}
+            />
+            <For each={row.subRows}>
+              {(sub) => (
+                <SubTerminalRow row={sub} surface="desktop" onSelect={focus} />
+              )}
+            </For>
+          </>
         )}
       </For>
     </section>
@@ -595,16 +614,15 @@ const RepoSection: Component<{
 
 /** A row in cards mode — two lines:
  *
- *    Line 1: `indicator · branch · sub-count · time`
+ *    Line 1: `indicator · branch · time`
  *    Line 2: `[PR pip] subline`  (branch col → end)
  *
  *  A single leading status indicator (`StatePip`) folds the old
  *  activity/agent glyphs into one column; the branch column starts at
  *  col 2 (`DOCK_ROW_BRANCH_COL = col-start-2`). The PR pip rides on
  *  line 2 at the leftmost X (anchored to the branch column's left edge,
- *  col 2) so PR icons align across every section. Sub-count cell
- *  is empty when the row has none, collapsing the column back into
- *  branch width. Active row gets a quiet highlight (`bg-accent/15` +
+ *  col 2) so PR icons align across every section. Active row gets a quiet
+ *  highlight (`bg-accent/15` +
  *  3 px accent left stripe) but identical geometry, so the dock
  *  doesn't reflow on activation.
  *
@@ -622,6 +640,8 @@ const DockRow: Component<{
   /** PIP bucket — drives the `StatePip` colour, decoupled from order so the row
    *  pip reads identically to the tile title's pip (both `agentPaintClass`). */
   pip: DockRowBucket;
+  /** Newest activity in the whole tile, including its splits. */
+  recencyAt: number | null;
   /** Position in the dock-wide flat row order. `< 9` qualifies the row
    *  for a `Cmd+(flatIndex+1)` shortcut hint while the platform
    *  modifier is held. */
@@ -635,7 +655,6 @@ const DockRow: Component<{
   // terminal-attention, stays on the terminal store.
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
-  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
@@ -647,6 +666,7 @@ const DockRow: Component<{
           unread,
           () => props.pip,
         );
+        const mode = () => recencyMode(pip());
         return (
           // Row is `<div role="button">` rather than `<button>` so the
           // `<a>` PR pip on line 2 stays valid HTML. Nested interactive
@@ -673,9 +693,6 @@ const DockRow: Component<{
               asking: pip().asking,
               unread: unread(),
             })}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             data-sleeping={pip().sleeping ? "" : undefined}
             onClick={() => tileStore.activate(props.id)}
             onKeyDown={(e) => {
@@ -702,24 +719,23 @@ const DockRow: Component<{
                 markdown={annotationLine(c().meta.intent, c().info.key.label)}
               />
             </span>
-            <SubCountCell subCount={c().info.subCount} />
             {/* Recency — hidden while active; width reserved. On a blocked
              *  row it flips to the violet WAIT chip: how long the agent has
              *  waited on you IS the signal (a 20 h wait must be legible). */}
             <RecencyCell
-              recencyAt={rowRecencyAt(c().meta)}
+              recencyAt={displayRecencyAt(
+                mode(),
+                props.recencyAt,
+                rowRecencyAt(c().meta),
+              )}
               textSize="text-[0.6rem]"
-              mode={recencyMode(pip())}
+              mode={mode()}
             />
-            <Show when={showShortcutHint()}>
-              <span
-                data-testid="dock-row-shortcut-hint"
-                class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
-                aria-hidden="true"
-              >
-                {props.flatIndex + 1}
-              </span>
-            </Show>
+            <DockShortcutHint
+              flatIndex={props.flatIndex}
+              modHeld={modHeld}
+              class="absolute top-0.5 left-0.5 inline-flex items-center justify-center h-3.5 min-w-3.5 px-1 rounded bg-accent text-surface-1 font-mono text-[0.55rem] font-bold tabular-nums pointer-events-none"
+            />
             {/* Second line — flex row spanning the branch column → end.
              *  Leads with the PR pip (left edge anchored to the branch
              *  column's left, so PR icons align across every section)
@@ -787,6 +803,70 @@ const RailSectionMark: Component<{ color: string; name: string }> = (props) => (
   />
 );
 
+/** Split entry in the collapsed rail. It shares the parent's repo tint but has
+ * no numeric shortcut. Same StatePip fold as cards-mode SubTerminalRow / top-
+ * level DockRow — identity, paint, motion, unread — no per-kind re-gate.
+ * Exported for the shell-pip contract test (`RailSubChip.test.tsx`), which pins
+ * that fold. */
+export const RailSubChip: Component<{
+  row: Extract<DockGroup["railEntries"][number], { kind: "split" }>["row"];
+  repoColor: string;
+}> = (props) => {
+  const store = useTerminalStore();
+  const focus = useDockFocus();
+  const meta = () => store.getMetadata(props.row.id);
+  const unread = () => store.isUnread(props.row.id);
+  return (
+    <Show when={meta()}>
+      {(m) => {
+        const label = () => annotationLine(m().intent, cwdBasename(m().cwd));
+        const glyph = () => intentLeadGlyph(label());
+        const pip = useStatePip(
+          encActiveHost,
+          () => props.row.id,
+          m,
+          unread,
+          () => props.row.pip,
+        );
+        return (
+          <button
+            type="button"
+            data-testid="dock-rail-sub"
+            data-terminal-id={props.row.id}
+            data-bucket={props.row.pip}
+            data-motion={pip().motion}
+            data-agent-state={activeArm(m())?.agent?.state}
+            data-active={
+              store.focusedTerminalId() === props.row.id ? "" : undefined
+            }
+            data-unread={unread() ? "" : undefined}
+            onClick={() => focus(props.row.id)}
+            class="dock-rail-chip w-[26px]! h-[26px]! rounded-[7px]! -mt-px"
+            style={{ "--repo-color": props.repoColor }}
+            title={`Split · ${label()}`}
+            aria-label={`Jump to split ${label()}`}
+          >
+            <span class="dock-rail-chip-text text-[11px]!" aria-hidden="true">
+              ↳
+              <Show when={glyph()}>
+                {(value) => <span class="dock-rail-chip-sub">{value()}</span>}
+              </Show>
+            </span>
+            <Show when={pip().bytesLive}>
+              <span class="pointer-events-none absolute -bottom-1 -right-1">
+                <LiveActivityDot />
+              </span>
+            </Show>
+            <Show when={pip().motion !== "none"}>
+              <div class="dock-rail-chip-glow" aria-hidden="true" />
+            </Show>
+          </button>
+        );
+      }}
+    </Show>
+  );
+};
+
 /** Rail-mode chip — 32 px tile carrying two-glyph initials (repo
  *  letter + intent lead grapheme or branch letter). Repo color tints the bg and the
  *  ring; the PAINT bucket animates the ring (breath for `awaiting`,
@@ -814,10 +894,8 @@ const RailChip: Component<{
   // Active-tile highlight follows the TILE registry (so a focused sleeping tile
   // reads as the active row in PR 2); unread is terminal-attention, stays on
   // the terminal store.
-  const active = () => tileStore.activeId() === props.id;
   const unread = () => store.isUnread(props.id);
   const modHeld = useModHeld();
-  const showShortcutHint = () => modHeld() && props.flatIndex < 9;
   return (
     <Show when={combined()}>
       {(c) => {
@@ -838,26 +916,19 @@ const RailChip: Component<{
             data-bucket={props.pip}
             data-motion={pip().motion}
             data-agent-state={activeArm(c().meta)?.agent?.state}
-            data-active={active() ? "" : undefined}
+            data-active={tileStore.isActiveTile(props.id) ? "" : undefined}
             data-unread={unread() ? "" : undefined}
-            data-sub-count={
-              c().info.subCount > 0 ? c().info.subCount : undefined
-            }
             onClick={() => tileStore.activate(props.id)}
             class="dock-rail-chip"
             style={{ "--repo-color": c().info.repoColor }}
             title={chipTooltip(c().info, props.pip)}
             aria-label={chipTooltip(c().info, props.pip)}
           >
-            <Show when={showShortcutHint()}>
-              <span
-                data-testid="dock-row-shortcut-hint"
-                class="dock-rail-chip-hint"
-                aria-hidden="true"
-              >
-                {props.flatIndex + 1}
-              </span>
-            </Show>
+            <DockShortcutHint
+              flatIndex={props.flatIndex}
+              modHeld={modHeld}
+              class="dock-rail-chip-hint"
+            />
             <span class="dock-rail-chip-text" aria-hidden="true">
               {labels().repo}
               <span

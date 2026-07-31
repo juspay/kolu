@@ -39,6 +39,7 @@ import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
 import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
+  type PtyHostIdentity,
   type PtyHostListEntry,
   ptyHostSurface,
 } from "./ptyHostSurface.ts";
@@ -72,6 +73,14 @@ function toWireEntry(e: PtyListEntry): PtyHostListEntry {
 export type PtyHostClient = ContractRouterClient<
   typeof ptyHostSurface.contract
 >;
+
+/** Immutable facts captured once when a pty-host process starts. Both the
+ * legacy `system.version` route and the frozen daemon control channel project
+ * from this record, so they cannot describe different process builds. */
+export interface PtyHostBoot {
+  readonly startedAt: number;
+  readonly identity: Readonly<PtyHostIdentity>;
+}
 
 /** The host's own login-shell fact, with the host-side fallback formula owned
  *  once: the live `$SHELL`, else the passwd entry's shell, else `/bin/sh`. The
@@ -116,7 +125,10 @@ export interface InProcessPtyHostDeps {
 export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, rcDir } = deps;
   const host = createPtyHost({ log, dataMaxQueue: deps.dataMaxQueue });
-  const startedAt = Date.now();
+  const boot: PtyHostBoot = Object.freeze({
+    startedAt: Date.now(),
+    identity: Object.freeze(currentPtyHostIdentity()),
+  });
 
   // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
   // (not `requireEntry`'s opaque internal error). kaval-tui's attach re-attach
@@ -178,8 +190,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           // end (PTY exit / abort), which yields no such frame. A consumer reads
           // it as "re-attach for a fresh snapshot", not "the PTY is gone".
           let overflow = false;
-          const att = host.attach(input.id, signal, () => {
-            overflow = true;
+          const att = host.attach(input.id, signal, {
+            onOverflow: () => {
+              overflow = true;
+            },
+            resizeTo: input.resizeTo,
           });
           yield {
             kind: "snapshot" as const,
@@ -375,10 +390,13 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           host.write(input.id, input.data);
           return { ok: true };
         },
-        resize: async ({ input }) => {
-          host.resize(input.id, input.cols, input.rows);
-          return { ok: true };
-        },
+        // `ok` is the host's own answer, not a constant: FALSE means there was
+        // no such PTY to resize (it exited before this call arrived), so the
+        // caller's grid claim did not land on anything. Callers treat that as
+        // the expected killed-terminal race; a REJECTION is the real failure.
+        resize: async ({ input }) => ({
+          ok: host.resize(input.id, input.cols, input.rows),
+        }),
         // Each host entry mapped into the wire shape via `toWireEntry` — the
         // shared bridge (see its doc) that makes a host/schema drift a compile
         // error rather than a silent zod field-strip. The `inventory` stream's
@@ -409,14 +427,13 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         version: async () => ({
           contractVersion: PTY_HOST_CONTRACT_VERSION,
           pid: process.pid,
-          startedAt,
-          identity: currentPtyHostIdentity(),
+          startedAt: boot.startedAt,
+          identity: boot.identity,
           lifetime: deps.lifetime,
         }),
         heartbeat: async () => ({
           ts: Date.now(),
         }),
-        processMemory: async () => ({ rss: process.memoryUsage().rss }),
         // The host's own facts, read-only — a client composes spawn policy
         // against these (and for a remote host, this is the *only* way it
         // learns the login shell / HOME / rcDir it must target).
@@ -441,6 +458,9 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   // (kaval-heap-oom.mdx), so it's the column to watch.
   return {
     ...surface,
+    // The daemon's frozen control hello and legacy `system.version` must name
+    // the SAME boot. Expose the one captured record to the daemon composition.
+    boot,
     terminalCount: () => host.size(),
     // Shutdown reaps every live PTY. node-pty `setsid`s each PTY into its own
     // session, so a process-group kill of the daemon can NEVER reach the
@@ -482,6 +502,8 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the runtime's router context type doesn't line up, though the runtime shape is exactly what serving wants.
   servedRouter: Router<any, any>;
   client: PtyHostClient;
+  /** The one boot record shared by `system.version` and control-core hello. */
+  readonly boot: PtyHostBoot;
   /** Live-PTY count (sync) — the daemon's diagnostics samples it. */
   terminalCount: () => number;
   /** Rejects on an owned surface fault (inert today — no cell connectors). */
@@ -497,12 +519,13 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   // to the router shape both consumers want.
   // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level router, same cast every serving site uses.
   const router = served.router as Router<any, any>;
-  return {
+  return Object.freeze({
     router,
     servedRouter: router,
     client: directLink<typeof ptyHostSurface.contract>(router),
+    boot: served.boot,
     terminalCount: served.terminalCount,
     done: served.done,
     close: served.close,
-  };
+  });
 }

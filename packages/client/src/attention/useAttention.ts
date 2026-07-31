@@ -42,6 +42,7 @@ import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
+  hostKeysEqual as sameHost,
 } from "kolu-common/hostKey";
 import {
   type AgentInfo,
@@ -51,6 +52,7 @@ import {
 import "kolu-common/test-hooks";
 import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createAttentionCore } from "./attentionCore";
+import { isTerminalWatched } from "./attentionWatched";
 import {
   hostAskingIds,
   hostFrame,
@@ -63,7 +65,7 @@ import { useAttentionFacts } from "./useAttentionFacts";
 import { nextAfter } from "../ui/nextAfter";
 import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
-import { hostLabel, sameHost } from "../host/hostChipTone";
+import { hostLabel } from "../host/hostChipTone";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { activeHost, preferences, setActiveHost } from "../wire";
 
@@ -73,8 +75,10 @@ import { activeHost, preferences, setActiveHost } from "../wire";
  *  gets host-labeled copy and no dock mark — a CONTENT difference from data
  *  availability, never a RULE difference. */
 export interface AttentionDeps {
-  /** The active host's currently-focused tile (for the `watched` predicate). */
+  /** The active host's selected top-level tile (for tile-level navigation). */
   activeId: () => TerminalId | null;
+  /** The terminal actually receiving input, whether a top-level tile or split. */
+  focusedId: () => TerminalId | null;
   /** Focus a terminal on the (post-switch) active host — the notification-click
    *  target, identical to the seam the old cross-host click used. */
   activate: (id: TerminalId) => void;
@@ -113,11 +117,16 @@ export function useAttention(deps: AttentionDeps): {
 
   const isActiveHost = (host: HostKey): boolean => sameHost(host, activeHost());
 
-  // "Seen with your eyes": the active host's focused tile while kolu has focus. A
+  // "Seen with your eyes": the active host's focused terminal while kolu has focus. A
   // background host's terminal is never watched (it's off-screen), so the axis
   // that split the old modules reduces to this one predicate.
   const watched = (host: HostKey, id: TerminalId): boolean =>
-    isActiveHost(host) && id === deps.activeId() && document.hasFocus();
+    isTerminalWatched(
+      isActiveHost(host),
+      id,
+      deps.focusedId(),
+      document.hasFocus(),
+    );
 
   /** Actually reach the user for one terminal: sound + OS popup, plus the dock
    *  unread when it's an active-host background tile. The `WHEN` gate lives in the
@@ -149,8 +158,9 @@ export function useAttention(deps: AttentionDeps): {
         data: { kind: "terminal", host: encHost, terminalId: id },
       });
       // `rich` is non-undefined iff this is the active host, so reuse it rather than
-      // a second `sameHost` compare — the dock unread is an active-host background tile.
-      if (rich && id !== deps.activeId()) deps.markUnread(id);
+      // a second `sameHost` compare — the dock unread is an active-host terminal
+      // other than the pane currently receiving input.
+      if (rich && id !== deps.focusedId()) deps.markUnread(id);
     } catch (err) {
       console.error("useAttention: attention delivery failed", err);
     }

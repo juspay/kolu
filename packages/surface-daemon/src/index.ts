@@ -5,11 +5,13 @@
  *  next). It holds the **two halves of the daemon *binary***:
  *
  *   - **Serve it** — code that runs *inside* the daemon process:
- *     - `acquirePidGate` — the atomic single-instance gate. The gate's file
- *       format is single-sourced here as two daemon-running primitives
- *       (`gatePid`, the pid parse; `isHolderLive`, the liveness probe) that the
- *       supervisor (kolu-server, from B2) composes where it lives — so the
- *       reader itself never crosses into this daemon-hashed package.
+ *     - `claimPidGate` / `acquirePidGate` — the single-instance gate. The
+ *       named claim composes atomic `link(2)` with the one-field socket
+ *       confirm; the gate's file format is single-sourced here under the
+ *       **pid-first tolerant-reader law** (`gatePid` / `gateIdentity` /
+ *       `readGateIdentity`); process identity is injected via
+ *       `ReadProcessIdentity` so OS traversal never crosses into this
+ *       daemon-hashed package.
  *     - `daemonHome` — where the daemon's files live (durable state dir vs
  *       session-scoped runtime dir), created `0700` with gate beside socket
  *       and `SharedArtifact` registry entries by construction.
@@ -45,6 +47,15 @@ export {
   type DaemonBuildIdentity,
   readBakedIdentity,
 } from "./buildIdentity.ts";
+export {
+  CONTROL_CORE_VERSION,
+  type ControlCoreFragment,
+  type ControlCoreHello,
+  ControlCoreHelloSchema,
+  controlCoreFragment,
+  controlCoreProcedureSpec,
+  controlCoreSurface,
+} from "./controlCore.ts";
 export {
   buildLabel,
   buildsMatch,
@@ -87,12 +98,25 @@ export {
 export { type Logger, stderrLogger } from "./logger.ts";
 export {
   acquirePidGate,
+  claimPidGate,
   confirmHeldGate,
   type GateAcquisition,
+  type GateIdentityRead,
+  gateIdentity,
   gatePid,
+  identitiesMatch,
   isHolderLive,
-  socketIsServing,
+  liveHolderFromRecord,
+  liveHolderPid,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
+  readGateIdentity,
+  SOCKET_SERVE_PROBE_MS,
+  type SocketServeState,
+  START_TIME_TOLERANCE_US,
+  startTimesMatch,
   socketServeState,
+  throwIfGateUnreadable,
 } from "./pidGate.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";

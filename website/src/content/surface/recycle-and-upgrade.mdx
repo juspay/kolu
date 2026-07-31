@@ -15,37 +15,46 @@ more than a brief reconnect.
 
 ## 1. Declare a policy
 
-A `ConvergencePolicy<Cap>` says what to do per trigger — a contract skew versus a
-same-contract build change. The two shipped shapes:
+A `ConvergencePolicy<Cap>` is the consumer's entire convergence surface — who I
+am (`baked`) + how I converge per trigger (contract skew vs same-contract build
+change) +, when drainable, the Cap-gated `drainBudget`. The two shipped shapes:
 
-- **`recycle-on-skew`** ([kaval](/kaval)): a mismatched daemon is killed and respawned.
-- **`drain-newer-else-refuse`** (padi): the daemon with the strictly-newer *contract version* wins — it is drained in and replaces the old; an older or equal contract refuses. (It keys on ordered contract versions, never on builds, which are match-only.) This arm is only available to a drain-capable handshake.
+- **`recycle-on-skew`** ([kaval](/kaval)): a mismatched daemon is killed and respawned. No budget — a not-drainable policy cannot spell one.
+- **`drain-newer-else-refuse`** (padi): the daemon with the strictly-newer *contract version* wins — it is drained in and replaces the old; an older or equal contract refuses. Budget survives adopts so a cross-supervisor fight terminates as `cross-supervisor`, not a livelock.
 
 ## 2. Converge before you connect
 
-Call `converge()` with the endpoint, your baked expectation, a probe that reads
-the running daemon's identity, the policy, and a build-drain fence:
+State the policy (and probe) on `createEndpoint`, then call `converge(endpoint)`
+— the only boot verb:
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 
 `converge` runs three steps: **probe** the running identity (over the
 version-agnostic channel, so a skew can't hide it), **decide** with the pure
 `decide` fold (zero I/O — the policy table), and **enact** through the endpoint's
-existing boot methods. It returns a `ConvergenceOutcome`; wire it to your own
-status surface and logs.
+private boot methods (budget-gated when drainable). It returns a
+`ConvergenceOutcome` with an optional `ConvergenceAnomaly`; wire it to your own
+status surface and logs. Connector arms use `convergeAdmit` with the same policy.
+
+`probeDaemonIdentity({ capability: "not-drainable" })(socketPath)` owns a fresh
+local socket dial; the drainable form also requires `drainCeilingMs`. A connector
+that has already dialed a combined client uses `probeDaemonIdentityFrom`
+instead, supplying that client, its disposer, and the transport's stronger exit
+oracle. Both forms assemble the same `ConvergenceProbe`; the client form never
+turns a lost link into honest daemon absence.
 
 ## 3. What the live recycle does underneath
 
 When the decision is to recycle, the endpoint runs:
 
-1. read the gate (`gatePid` + `isHolderLive`) — is a live survivor holding it?
+1. read the gate under the pid-first law (`readGateIdentity` + injected `readProcessIdentity`, ±2 s start-time match; one-field legacy falls back to `isHolderLive` + socket accept) — is a live survivor holding it?
 2. **kill** it, then `waitForPidGone` — block until the pid is reaped, so the respawn never races a live gate holder;
 3. `driver.spawn()` — a survivable spawn (`systemd-run --user`, or detached `+unref`);
 4. `waitForSocket`, then `connect()` and the identity handshake.
 
 For a connected client, the daemon is replaced underneath and the client's
 session loop reconnects — re-running `converge` — with an `onStatus(degraded)`
-bridging the gap. `restart(endpoint, steps)` wraps this as
+bridging the gap. `recycle(endpoint, steps)` wraps this as
 `capture → drain → recycle → reattach`, so a session can be captured and
 re-adopted live across the kill.
 

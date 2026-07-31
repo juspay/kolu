@@ -53,5 +53,8 @@ in
   # The wrapper `--set` pair baking this daemon's identity env — both vars it reads via
   # `readBakedIdentity`'s `<PREFIX>_*` namespace, so they can only be set as a pair. Spliced
   # into a `makeWrapper` invocation; the values are hex ids with no shell-special chars.
-  bakeArgs = ''--set ${prefix}_BUILD_ID "${buildId}" --set ${prefix}_COMMIT_HASH "${commitHash}"'';
+  bakeArgs =
+    assert lib.assertMsg (commitHash != "")
+      "${name}: commitHash is required when baking a daemon build identity";
+    ''--set ${prefix}_BUILD_ID "${buildId}" --set ${prefix}_COMMIT_HASH "${commitHash}"'';
 }

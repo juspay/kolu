@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
-import { openPadiStateStores } from "./stateStore.ts";
+import { requirePadiStateStores as openPadiStateStores } from "./stateStore.ts";
 
 const log = {
   debug() {},

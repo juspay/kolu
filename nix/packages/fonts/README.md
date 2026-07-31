@@ -26,16 +26,18 @@ $out/
 
 ## Integration
 
-- **Build** (`typescript.nix`): `KOLU_FONTS_DIR` env var points to the derivation output. The build phase copies fonts into `client/public/fonts/` before `vite build`.
-- **Dev** (`devshell.nix`): The shell hook symlinks `client/public/fonts` → `$KOLU_FONTS_DIR` so vite serves them at `/fonts/`.
+- **Build** (`default.nix`): `KOLU_FONTS_DIR` points to the derivation output. The build phase copies fonts into `packages/client/public/fonts/` before `vite build`.
+- **Dev** (`shell.nix`): The shell hook symlinks `packages/client/public/fonts` → `$KOLU_FONTS_DIR` so Vite serves them at `/fonts/`.
 - **CSS** (`vite.config.ts`): `fonts.css` is imported via the `kolu-fonts` vite alias.
 
 ## Updating fonts
 
-Edit `dmSansSubsets` or `firacode` in `fonts.nix`. To get a new hash:
+Edit `dmSansSubsets` or `firacode` in `nix/packages/fonts/default.nix`. To get a new hash:
 
 ```sh
 nix hash convert --to sri --hash-algo sha256 $(nix-prefetch-url <url>)
 ```
 
-The `@font-face` CSS is generated from the same data — no separate file to keep in sync.
+The `@font-face` CSS is generated from the same data and passed through the
+repository-pinned Nixpkgs Biome inside the derivation — no separate file or
+hand-maintained formatter layout to keep in sync.

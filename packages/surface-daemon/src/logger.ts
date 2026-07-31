@@ -1,17 +1,7 @@
-/**
- * The structured-logging contract the daemon spine writes to — declared
- * **structurally**, in-package, so `@kolu/surface-daemon` carries no `kolu-*`
- * workspace dependency (the same graduation rule kaval follows). kolu's richer
- * `Logger` (`@kolu/log`) and kaval's own structural `Logger` are both
- * assignable to this, so a host passes its logger through unchanged; a
- * standalone consumer supplies its own.
- */
-export type Logger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  info: (obj: Record<string, unknown>, msg: string) => void;
-  warn: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
+/** The daemon spine reuses the workspace's leaf-safe structural logger type;
+ * hosts still pass compatible loggers through unchanged. */
+import type { Logger } from "@kolu/log";
+export type { Logger } from "@kolu/log";
 
 /** A {@link Logger} that writes one JSON object per line to **stderr** (level +
  *  message folded into the object), leaving stdout clean for a daemon's own

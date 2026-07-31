@@ -4,7 +4,7 @@ import {
   type KoluWorld,
   MOD_KEY,
   POLL_TIMEOUT,
-  WORKSPACE_SWITCHER_ENTRY_SELECTOR,
+  DOCK_ROW_SELECTOR,
 } from "../support/world.ts";
 
 /** Synthesize a click directly on the close-button DOM node. Real-mouse
@@ -73,7 +73,7 @@ When(
 Then(
   "the workspace switcher should have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
-    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
+    const sel = DOCK_ROW_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },
@@ -91,7 +91,7 @@ Then(
   "the workspace switcher should eventually have {int} terminal entry/entries",
   async function (this: KoluWorld, expected: number) {
     // Natural exit can take a moment — use waitForFunction for reactive check
-    const sel = WORKSPACE_SWITCHER_ENTRY_SELECTOR;
+    const sel = DOCK_ROW_SELECTOR;
     await this.page.waitForFunction(
       ({ sel, exp }) => document.querySelectorAll(sel).length === exp,
       { sel, exp: expected },

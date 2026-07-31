@@ -43,6 +43,8 @@ const padiFailed: EntryStatus<PadiEntryFailure> = {
   failure: {
     cause: "contract-skew-refused",
     reason: "remote padi contract skew",
+    running: "9.0",
+    expected: "9.1",
   },
   evidence: [{ source: "remote", line: "padi: refusing — version skew" }],
 };

@@ -14,16 +14,53 @@
 
 import type { Logger } from "@kolu/log";
 import fs from "node:fs";
+import path from "node:path";
 import {
   COALESCE_MAX_WAIT_MS,
   createCoalesceSchedule,
   type CoalesceSchedule,
 } from "./coalesce-schedule.ts";
 
+/** Level-triggered recovery beneath the `fs.watch` fast path. A module
+ *  constant, not a caller knob: every narrow-file watcher gets the same
+ *  dropped-edge recovery bound. */
+export const DIR_FILENAME_POLL_MS = 1000;
+
+type FileObservation =
+  | { kind: "present"; key: string }
+  | { kind: "absent" }
+  | { kind: "error" };
+
+function observeFile(
+  filePath: string,
+  log: Logger | undefined,
+  label: string,
+): FileObservation {
+  try {
+    const stat = fs.statSync(filePath);
+    return {
+      kind: "present",
+      key: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`,
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { kind: "absent" };
+    }
+    log?.error({ err: error, path: filePath }, `${label} stat failed`);
+    return { kind: "error" };
+  }
+}
+
+function sameObservation(a: FileObservation, b: FileObservation): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "present" && b.kind === "present") return a.key === b.key;
+  return true;
+}
+
 interface SharedFilenameWatcher {
   subscribe(onChange: () => void): () => void;
-  /** Test-only: tear down the underlying `fs.watch` handle and clear the
-   *  debounce timer, regardless of subscriber count. Invoked by
+  /** Test-only: tear down the underlying `fs.watch` handle and clear the poll
+   *  and debounce timers, regardless of subscriber count. Invoked by
    *  `DirFilenameWatcher._reset()` to break the module-scope leak that
    *  cascades vitest `afterEach` failures (see #955). */
   _forceClose(): void;
@@ -99,6 +136,7 @@ export function createDirFilenameWatcher(
     onLast: () => void,
     log?: Logger,
   ): SharedFilenameWatcher | null {
+    const filePath = path.join(dir, config.filename);
     const listeners = new Set<() => void>();
     // maxWait is baked as COALESCE_MAX_WAIT_MS — no per-call disable (#1952).
     const coalesce: CoalesceSchedule = createCoalesceSchedule({
@@ -124,6 +162,8 @@ export function createDirFilenameWatcher(
     try {
       watcher = fs.watch(dir, (_, filename) => {
         if (filename !== config.filename) return;
+        const next = observeFile(filePath, log, config.logLabel);
+        if (next.kind !== "error") observed = next;
         coalesce.schedule();
       });
     } catch (e) {
@@ -134,6 +174,23 @@ export function createDirFilenameWatcher(
       );
       return null;
     }
+
+    // `fs.watch` is a fast edge, not a delivery guarantee. Capture an
+    // authoritative baseline after the handle attaches, then stat on a bounded
+    // cadence so a dropped/coalesced edge self-heals. The consumer re-reads and
+    // equality-gates the derived state, so an edge/poll double pulse is benign.
+    let observed = observeFile(filePath, log, config.logLabel);
+    let pollTimer: NodeJS.Timeout = setTimeout(function poll(): void {
+      const next = observeFile(filePath, log, config.logLabel);
+      if (next.kind !== "error" && !sameObservation(next, observed)) {
+        observed = next;
+        coalesce.schedule();
+      }
+      pollTimer = setTimeout(poll, DIR_FILENAME_POLL_MS);
+      pollTimer.unref();
+    }, DIR_FILENAME_POLL_MS);
+    pollTimer.unref();
+
     log?.info({ dir }, `${config.logLabel} watcher installed`);
 
     return {
@@ -148,6 +205,7 @@ export function createDirFilenameWatcher(
           if (!listeners.delete(onChange)) return;
           if (listeners.size === 0) {
             coalesce.destroy();
+            clearTimeout(pollTimer);
             watcher.close();
             onLast();
             log?.info({ dir }, `${config.logLabel} watcher retired`);
@@ -157,6 +215,7 @@ export function createDirFilenameWatcher(
       _forceClose() {
         listeners.clear();
         coalesce.destroy();
+        clearTimeout(pollTimer);
         watcher.close();
       },
     };

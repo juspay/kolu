@@ -32,22 +32,12 @@ export const useTerminalStore = createSharedRoot(() => {
   });
   const subPanel = useSubPanel();
 
-  /** The terminal currently receiving input — the active sub-tab when the
-   *  active tile's split is expanded and focused, otherwise the active tile
-   *  itself. `activeId` names the focused *tile* (workspace root); but any
-   *  caller that routes input (the mobile key bar, copy-pane-text,
-   *  run-in-active-terminal) must target the focused *terminal*, which
-   *  diverges from the tile whenever a split has focus. This is the one place
-   *  that resolution lives, so a new input-routing site can't silently target
-   *  the parent instead. */
+  /** The terminal currently receiving input, narrowed to a live PTY. The focus
+   *  identity itself is the per-host fact in `createViewState`; this accessor
+   *  adds only the active-arm gate required by input-routing callers. */
   function focusedId(): TerminalId | null {
-    const parentId = view.activeId();
-    if (parentId === null) return null;
-    const panel = subPanel.getSubPanel(parentId);
-    const resolved =
-      !panel.collapsed && panel.focusTarget === "sub" && panel.activeSubTab
-        ? panel.activeSubTab
-        : parentId;
+    const resolved = view.focusedTerminalId();
+    if (resolved === null) return null;
     // A sleeping tile can be the active/selected tile, but it has no live PTY —
     // it is never an input target. Narrow to the active arm so every input-
     // routing site (mobile key bar, copy-pane-text, run-in-active-terminal)
@@ -81,7 +71,7 @@ export const useTerminalStore = createSharedRoot(() => {
     // same split rule down to individual terminals via `isActiveSplit`.
     return admitWebglTiles(
       ordered,
-      (id) => tileWebglCost(subPanel.getSubPanel(id)),
+      (id) => tileWebglCost(subPanel.peekSubPanel(id)),
       WEBGL_CONTEXT_CAP,
     );
   });
@@ -100,7 +90,7 @@ export const useTerminalStore = createSharedRoot(() => {
     const budget = webglTileBudget();
     const parentId = metadata.getMetadata(id)?.parentId ?? null;
     if (parentId === null) return budget.includes(id);
-    const panel = subPanel.getSubPanel(parentId);
+    const panel = subPanel.peekSubPanel(parentId);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the
@@ -113,8 +103,8 @@ export const useTerminalStore = createSharedRoot(() => {
   // as two separate sources — the activeId signal and the activeMeta memo — they
   // can tear on a terminal switch (the new active id paired with the PREVIOUS
   // terminal's metadata for a propagation step), which makes CodeTab's repo-
-  // change reset wipe the new terminal's Code-tab history (a darwin-only flake;
-  // see the Flaky Test Tracker). Reading getMetadata(id) for the bundled id is
+  // change reset wipe the new terminal's Code-tab history (a darwin-only flake
+  // under parallel-worker load). Reading getMetadata(id) for the bundled id is
   // glitch-free.
   const active = createMemo(() => {
     const id = view.activeId();
@@ -133,6 +123,67 @@ export const useTerminalStore = createSharedRoot(() => {
   // to fall into.
   const activeMeta = () => active().meta;
 
+  /** Select a top-level tile without panning. Its existing panel chrome decides
+   *  which visible pane receives input, then that choice is committed to the
+   *  same one per-host focus fact. */
+  function setActiveSilently(id: TerminalId | null): void {
+    if (id === null) {
+      subPanel.clearFocus();
+      return;
+    }
+    const record = metadata.getMetadata(id);
+    // Creation returns the new top-level id before its streamed metadata can
+    // arrive. The caller already names a tile; write its id as the gap hint and
+    // let live metadata supersede that hint as soon as it is present.
+    if (record && record.parentId !== null && record.parentId !== undefined) {
+      throw new Error(
+        `setActiveSilently: ${id} is a split; use focusTerminal instead`,
+      );
+    }
+    subPanel.focusVisiblePane(id);
+  }
+
+  /** Select a top-level tile and ask the canvas to center it. */
+  function activate(id: TerminalId | null): void {
+    setActiveSilently(id);
+    if (id !== null) view.requestCenterActive();
+  }
+
+  /** Explicitly land on a top-level terminal's main pane and center its tile.
+   *  The tile registry can name a newly-created tile before metadata arrives, so
+   *  absence is accepted; a live split record is a caller error. */
+  function focusMainTerminal(id: TerminalId): void {
+    const record = metadata.getMetadata(id);
+    if (record && record.parentId !== null && record.parentId !== undefined) {
+      throw new Error(`focusMainTerminal: ${id} is a split`);
+    }
+    subPanel.focusMainPane(id);
+    view.requestCenterActive();
+  }
+
+  /** Land on any terminal without asking a canvas to pan. A top-level landing
+   *  focuses its main pane; a split landing first makes that split the visible
+   *  remembered tab. This is the explicit row/terminal verb: its target id fully
+   *  determines the pane, with no remembered-pane lookup. Touch layouts use it
+   *  because they own no canvas, while desktop composes centering below. */
+  function focusTerminalSilently(id: TerminalId): void {
+    const record = metadata.getMetadata(id);
+    if (!record)
+      throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
+    const parentId = record.parentId ?? null;
+    if (parentId === null) {
+      subPanel.focusMainPane(id);
+      return;
+    }
+    subPanel.focusSubTab(parentId, id);
+  }
+
+  /** Land on any terminal and ask the desktop canvas to center its tile. */
+  function focusTerminal(id: TerminalId): void {
+    focusTerminalSilently(id);
+    view.requestCenterActive();
+  }
+
   return {
     // Live terminal list from server (Subscription<TerminalInfo[]>).
     listSub: terminalListSub,
@@ -144,8 +195,17 @@ export const useTerminalStore = createSharedRoot(() => {
     ...view,
     // Server metadata + activity + derived ordering
     ...metadata,
+    // Public top-level selection resolves remembered pane chrome before writing
+    // the one focus fact; the raw view writers stay internal to this composer.
+    activate,
+    setActiveSilently,
     // The input-routing target (tile root, or its focused split).
     focusedId,
+    // Landing verbs for either a top-level terminal or a split: touch-safe
+    // without panning, or desktop with a centering request.
+    focusTerminalSilently,
+    focusTerminal,
+    focusMainTerminal,
     // WebGL budget: whether a terminal should hold a WebGL renderer (#1403).
     holdsWebgl,
     // Lifecycle (view-state only — list is server-driven)

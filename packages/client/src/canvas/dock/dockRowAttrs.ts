@@ -10,7 +10,7 @@
  *
  *  Only the SHARED contract moves here. Each surface keeps its own `data-testid`,
  *  its geometry, its classes, its handlers, and the attributes genuinely local to
- *  it (`data-sub-count`, `data-sleeping`) — those are not what
+ *  it (`data-sleeping`) — those are not what
  *  the wash reads. */
 
 import type { AgentInfo, TerminalId } from "kolu-common/surface";
@@ -56,7 +56,10 @@ export function dockRowAttrs(row: {
     "data-terminal-id": row.id,
     "data-bucket": row.bucket,
     "data-agent-state": row.agentState,
-    "data-active": tileStore.activeId() === row.id ? "" : undefined,
+    "data-active":
+      tileStore.isActiveTile(row.id) || tileStore.isFocused(row.id)
+        ? ""
+        : undefined,
     "data-asking": row.asking ? "" : undefined,
     "data-unread": row.unread ? "" : undefined,
   };

@@ -21,14 +21,31 @@ import {
   daemonMain,
   lifetimeInfo,
   type Logger,
+  type ProcessIdentity,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
+import { processIdentityFromEnv } from "osfacts-client";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
+import { serveKavalDaemonSurface } from "./daemonSurface.ts";
 import {
   KAVAL_NS_PREFIX,
   PTY_HOST_SOCK_FILE,
   readStateRootManifest,
 } from "./socketPath.ts";
+
+function readProcessIdentity(pid: number): ProcessIdentity | undefined {
+  return processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
+}
+
+function selfIdentity(): ProcessIdentity {
+  const identity = readProcessIdentity(process.pid);
+  if (identity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this kaval process (${process.pid})`,
+    );
+  }
+  return identity;
+}
 
 export interface KavalDaemonOptions {
   /** Override the default socket path (`--socket`). The gate and rcDir are
@@ -74,12 +91,17 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     rcDir,
     lifetime: lifetimeInfo(lifetime),
   });
-  const { servedRouter, terminalCount } = ptyHost;
+  const daemonSurface = serveKavalDaemonSurface({
+    ptyHost,
+    stateRoot: home.dir,
+  });
+  const { router: servedRouter } = daemonSurface;
+  const { terminalCount } = ptyHost;
   // Observe the surface runtime's `done`: the ptyHost surface declares no cell
   // connectors, so this is inert today (nothing faults) — wired so any future
   // owned fault reaches kaval's log instead of floating, without changing today's
   // behavior (fail-fast disposition unchanged; a fault does not kill the daemon).
-  ptyHost.done.catch((err) =>
+  daemonSurface.done.catch((err) =>
     log.error(
       { err: err instanceof Error ? err.message : String(err) },
       "pty-host surface runtime faulted",
@@ -112,6 +134,8 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
 
   return daemonMain({
     home,
+    processIdentity: selfIdentity(),
+    readProcessIdentity,
     router: servedRouter,
     // The same lifetime resolved above (reused, never re-derived) — so the value
     // served on `system.version` is provably the one governing the daemon.
@@ -138,6 +162,6 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // reaps its node-pty children instead of orphaning them to init) and then
     // closes the surface runtime — the daemon owning its runtime's lifetime by
     // construction.
-    return ptyHost.close();
+    return daemonSurface.close();
   });
 }

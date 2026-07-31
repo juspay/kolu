@@ -3,6 +3,8 @@
   "type": "module",
   "devDependencies": {
     "@cucumber/cucumber": "^12.8.1",
+    "@cucumber/gherkin": "38.0.0",
+    "@cucumber/messages": "32.2.0",
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface-map": "workspace:*",
@@ -11,10 +13,15 @@
     "kolu-common": "workspace:*",
     "kolu-pty": "workspace:*",
     "playwright": "1.59.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "yaml": "2.8.3"
   },
   "scripts": {
-    "test": "node --import tsx ./node_modules/@cucumber/cucumber/bin/cucumber-js --profile ui",
-    "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts"
+    "test": "node --import tsx governance/runE2e.ts",
+    "test:dev-smoke": "node --import tsx ./devSmoke.ts",
+    "test:governance": "node --import tsx governance/check.ts",
+    "baseline:report": "node --import tsx governance/reportBaseline.ts",
+    "inventory:update": "node --import tsx governance/updateInventory.ts",
+    "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts governance/*.test.ts"
   }
 }

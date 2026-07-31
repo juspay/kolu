@@ -145,7 +145,7 @@ So the agents in your terminals survive the upgrade: they never stopped.
   </svg>
 </figure>
 
-<Aside type="tip" title="Newest wins, and nothing is force-killed">
+<Aside type="tip" title="Padi drains; kaval preserves compatible survivors">
   A newer client that meets an older padi asks it to _drain_ — save its session
   and exit, while the PTYs stay alive in kaval — then starts the new build in its
   place. An older client meeting a newer padi is refused, loudly. The version
@@ -153,7 +153,10 @@ So the agents in your terminals survive the upgrade: they never stopped.
   on their own. A redeploy that changes padi's _build_ but not its version
   converges the same way — the server drains the old build once at boot and brings
   up its own — so a code change reaches you at deploy cadence, not only a version
-  bump.
+  bump. Kaval is the deliberate exception: draining it would kill the live PTYs,
+  so a compatible older build stays alive and asks you to restart it when you
+  are ready. A genuinely incompatible pty-host contract cannot serve the new
+  client and requires a destructive recycle; that rare wire break ends its PTYs.
 </Aside>
 
 ## Compared to tmux and zellij
@@ -189,7 +192,7 @@ layer you restart or redeploy isn't the layer holding your shells.
         <td>Upgrade the binary under live sessions</td>
         <td class="c-mid">attach breaks on a protocol-version bump</td>
         <td class="c-mid">sessions orphaned on a contract-version change</td>
-        <td class="c-yes">compatible daemon + live PTYs adopted; a skewed one is drained, not killed</td>
+        <td class="c-yes">compatible daemon + live PTYs adopted; skewed padi drains; build-skewed kaval stays alive and asks, while contract-skewed kaval is recycled</td>
       </tr>
       <tr>
         <td>Machine reboot</td>
@@ -422,7 +425,9 @@ _out_. The map, grouped:
   lifetime is the calling process's own.
 - **The framework** — [`surface`](/surface) (typed reactive `Cell` / `Collection`
   / `Stream` / `Event` + SolidJS hooks), `surface-remote` (the ssh mirror),
-  `surface-daemon` (the durable-daemon spine), and its supervisor half.
+  `surface-daemon` (the durable-daemon spine, frozen identity/drain fragment,
+  and mixed-version test kit), and its supervisor half (including the one
+  control-core probe assembler used by socket and already-dialed transports).
 - **Terminal machinery** — `xterm-kit` hides xterm.js's hazards (the pinned
   `_core` internals, in-place scrollback surgery, scroll-lock write buffering,
   mirror anchoring) behind a runtime-neutral core plus a `/solid` adapter, with
@@ -444,9 +449,17 @@ work on them. The website, Surface examples, Solid Browser example, and Odu CI
 coordinator each have an independent subflake. They reuse one canonical
 workspace source and pnpm closure, but none enters `nix run .`'s evaluation
 graph. Remote provisioning uses a separate exact-source flake that exposes only
-the daemon packages named by Kolu's agent manifest. `@kolu/surface-remote`
-probes the target system, evaluates just the daemon it needs, and gives one Nix
-process ownership of evaluation, transfer, and remote realisation.
+the packages named by Kolu's agent manifest. `@kolu/surface-remote`
+probes the target system, evaluates just the closure it needs, and gives one Nix
+process ownership of evaluation, transfer, and remote realisation. That closure
+is the daemon **plus the client CLIs a terminal on that host must be able to
+run** (`kaval-tui`, `padi-tui`, `kolu`) — so an agent working on a remote machine
+can drive its sibling terminals and reach the [MCP server](/mcp) with nothing
+installed there. Tool and daemon arrive together, so they are the same build by
+construction. The manifest separates what the flake **exposes** from what it
+**proves**: the prove step evaluates an attr by re-importing the composer, so it
+covers the daemons a dial must resolve and cannot cover a closure that
+transitively references the baked source itself.
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 

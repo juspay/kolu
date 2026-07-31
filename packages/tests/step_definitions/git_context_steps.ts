@@ -1,10 +1,13 @@
 import * as assert from "node:assert";
 import { execFileSync } from "node:child_process";
 import { Then, When } from "@cucumber/cucumber";
-import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
-const ACTIVE_TITLE_BRANCH_SELECTOR =
-  '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]';
+const ACTIVE_TITLE_BRANCH_SELECTOR = `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="terminal-meta-branch"]`;
 
 /** Wait for a data-testid element's text to include the given substring. */
 async function waitForTestIdText(

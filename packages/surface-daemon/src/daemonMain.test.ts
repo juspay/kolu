@@ -20,17 +20,38 @@ import {
   DAEMON_BIND_PID_ENV,
   type DaemonSpec,
   daemonLifetimeFromEnv,
-  daemonMain,
+  daemonMain as daemonMainCore,
   lifetimeInfo,
 } from "./daemonMain.ts";
 import type { Logger } from "./logger.ts";
-import { gatePid, isHolderLive } from "./pidGate.ts";
+import { isHolderLive, liveHolderPid } from "./pidGate.ts";
+
+const SELF_IDENTITY = { pid: process.pid, startUnixUs: 1_000_000 };
+const startTime = (pid: number) => pid * 1_000;
+const daemonMain = (
+  spec: Omit<DaemonSpec, "processIdentity" | "readProcessIdentity">,
+) =>
+  daemonMainCore({
+    ...spec,
+    processIdentity: SELF_IDENTITY,
+    readProcessIdentity: (pid) =>
+      pid === process.pid
+        ? SELF_IDENTITY
+        : isHolderLive(pid)
+          ? { pid, startUnixUs: startTime(pid) }
+          : undefined,
+  });
 
 /** The supervisor's read, composed from the shared primitives: the live
  *  holder's pid, or `undefined` (absent, malformed, or stale). */
 function liveHolder(gatePath: string): number | undefined {
-  const pid = gatePid(gatePath);
-  return pid !== undefined && isHolderLive(pid) ? pid : undefined;
+  return liveHolderPid(gatePath, (pid) =>
+    pid === process.pid
+      ? SELF_IDENTITY
+      : isHolderLive(pid)
+        ? { pid, startUnixUs: startTime(pid) }
+        : undefined,
+  );
 }
 
 const silentLog: Logger = {

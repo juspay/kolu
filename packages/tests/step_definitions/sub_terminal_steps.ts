@@ -2,6 +2,7 @@ import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
 import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
   COARSE_POINTER_QUERY,
   type KoluWorld,
   MOD_KEY,
@@ -9,6 +10,26 @@ import {
 } from "../support/world.ts";
 
 const PALETTE = '[data-testid="command-palette"]';
+
+/** The visible split — the pane a user is actually looking at. */
+const VISIBLE_SUB = "[data-sub-terminal][data-visible]";
+
+/** Payload for the hidden-split render scenario: 40 lines of ~95 columns.
+ *  Wider than xterm's fabricated 80-column default on purpose — a snapshot the
+ *  host serialized at the REAL grid, painted into that invented grid, wraps
+ *  every line and leaves the viewport pointing at the wrong rows.
+ *
+ *  The trailing marker is shell-QUOTED here so the shell's own echo of this
+ *  command line reads `SPLIT-"BOTTOM"-MARK` and can never satisfy an assertion
+ *  looking for the unquoted `SPLIT-BOTTOM-MARK` that only `echo`'s OUTPUT
+ *  produces (`.claude/rules/e2e-testing.md` — no vacuous assertions). */
+const WIDE_OUTPUT_COMMAND =
+  `clear; for i in $(seq 1 40); do printf 'L%02d' $i; ` +
+  `printf '%*s' 88 '' | tr ' ' '.'; printf 'END%02d\\n' $i; done; ` +
+  `echo SPLIT-"BOTTOM"-MARK`;
+
+/** Printed last, so seeing it means seeing the LIVE BOTTOM of the split. */
+const BOTTOM_MARKER = "SPLIT-BOTTOM-MARK";
 
 /**
  * Open command palette, fill a query, click the first result, wait for close.
@@ -91,10 +112,19 @@ When(
     // handleCreateSubTerminal is async (RPC) but onSelect is fire-and-forget.
     // Wait for the sub-terminal to actually exist before proceeding — otherwise
     // the next "toggle" command may see no subs and create again instead.
-    await this.page.waitForFunction(
-      () => document.querySelector("[data-sub-terminal]") !== null,
-      { timeout: 10_000 },
-    );
+    try {
+      await this.page.waitForFunction(
+        () => document.querySelector("[data-sub-terminal]") !== null,
+        null,
+        { timeout: 10_000 },
+      );
+    } catch (error) {
+      const pageErrors = this.errors.join("; ");
+      throw new Error(
+        `split did not mount${pageErrors ? `; page errors: ${pageErrors}` : ""}`,
+        { cause: error },
+      );
+    }
   },
 );
 
@@ -122,6 +152,67 @@ When(
     await this.page.keyboard.type(command);
     await this.page.keyboard.press("Enter");
     await this.waitForFrame();
+  },
+);
+
+When(
+  "I fill the sub-terminal with output wider than the default grid",
+  async function (this: KoluWorld) {
+    // Pin the precondition the whole scenario rests on: the split's REAL width
+    // must differ from the 80 columns xterm's constructor invents. If a viewport,
+    // font, dock or layout change ever made them equal, the pre-fix code would
+    // receive and paint an 80-column snapshot correctly and this scenario would
+    // pass while the bug was fully present — a vacuous guard. Assert it rather
+    // than assume it.
+    //
+    // POLLED, not read once: the grid is measured by a ResizeObserver + a
+    // rAF-debounced `applyFit`, and the preceding step only waits for the split's
+    // DOM presence — so a bare read on a loaded CI box can land on 0 or a pre-fit
+    // value and fail spuriously. Wait until the split reports a measured,
+    // non-zero `cols`, then assert what that measurement is.
+    const measured = await this.page.waitForFunction(
+      (sel) => {
+        const node = document.querySelector(sel);
+        const cols = (node as unknown as { __xterm?: { cols: number } })
+          ?.__xterm?.cols;
+        return typeof cols === "number" && cols > 0 ? cols : null;
+      },
+      VISIBLE_SUB,
+      { timeout: POLL_TIMEOUT },
+    );
+    const cols = await measured.jsonValue();
+    assert.ok(
+      cols !== 80,
+      `split is ${cols} columns; this scenario only exercises the defect when the real grid differs from xterm's fabricated 80`,
+    );
+    await this.focusForTyping(VISIBLE_SUB);
+    await this.page.keyboard.type(WIDE_OUTPUT_COMMAND);
+    await this.page.keyboard.press("Enter");
+    // Prove the payload actually RAN before the scenario hides the panel. Without
+    // this the arrangement is unconditional, and a shell still initializing would
+    // surface three steps later as a confusing viewport failure that reads like
+    // the render defect itself. VIEWPORT, not buffer: the claim is that the user
+    // can SEE the bottom of the output, not merely that the bytes arrived.
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+      selector: VISIBLE_SUB,
+      viewport: true,
+    });
+  },
+);
+
+Then(
+  "the sub-terminal viewport should show its latest output",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator('[data-testid="sub-panel-tab-bar"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    // VIEWPORT, not buffer: the defect delivers every byte correctly and then
+    // shows the wrong window onto them, so a whole-buffer read passes on a
+    // screen the user sees as broken. Only the on-screen rows can fail here.
+    await waitForBufferContains(this.page, BOTTOM_MARKER, {
+      selector: VISIBLE_SUB,
+      viewport: true,
+    });
   },
 );
 
@@ -214,7 +305,7 @@ Then(
   "the active tile should show sub-terminal count {int}",
   async function (this: KoluWorld, expected: number) {
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="sub-count"]`,
     );
     const text = await badge.textContent({ timeout: POLL_TIMEOUT });
     assert.strictEqual(text, `${expected}`);
@@ -304,7 +395,7 @@ Then(
   "the active tile should not show a sub-terminal count",
   async function (this: KoluWorld) {
     const badge = this.page.locator(
-      '[data-testid="canvas-tile"][data-active] [data-testid="sub-count"]',
+      `${ACTIVE_CANVAS_TILE_SELECTOR} [data-testid="sub-count"]`,
     );
     const count = await badge.count();
     assert.strictEqual(count, 0, "Expected no sub-terminal count badge");
@@ -312,46 +403,122 @@ Then(
 );
 
 Then(
-  "the active dock row should show sub-terminal count {int}",
-  async function (this: KoluWorld, expected: number) {
-    // Poll until data-sub-count reaches the expected value — the reactive
-    // attribute update is async relative to the sub-terminal DOM mounting.
+  /^the dock should show (\d+) split sub-entr(?:y|ies)$/,
+  async function (this: KoluWorld, expectedText: string) {
+    const expected = Number(expectedText);
     await this.page.waitForFunction(
-      (n) =>
-        document
-          .querySelector('[data-testid="dock-row"][data-active]')
-          ?.getAttribute("data-sub-count") === String(n),
+      (count) =>
+        document.querySelectorAll('[data-testid="dock-sub-row"]').length ===
+        count,
       expected,
       { timeout: POLL_TIMEOUT },
-    );
-    const chip = this.page.locator(
-      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
-    );
-    await chip.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    const text = await chip.textContent();
-    assert.ok(
-      text?.includes(`${expected}`),
-      `Expected dock chip to show "${expected}", got "${text}"`,
     );
   },
 );
 
 Then(
-  "the active dock row should not show a sub-terminal count",
+  "every dock split sub-entry should be a direct child of its section",
   async function (this: KoluWorld) {
-    // Poll until data-sub-count is absent — reactive removal is async.
+    const direct = await this.page
+      .locator('[data-testid="dock-sub-row"]')
+      .evaluateAll((rows) =>
+        rows.every((row) => row.parentElement?.matches(".dock-cards-section")),
+      );
+    assert.ok(direct, "Expected every split row directly under its section");
+  },
+);
+
+Then(
+  "the dock split sub-entry should show the shell identity pip without asking",
+  async function (this: KoluWorld) {
+    // Owner supersession of FX2 "label + landing only": sub-entries match
+    // top-level rows (identity pip + activity motion). A shell still cannot
+    // ask — assert identity pip present and no asking attribute.
+    const row = this.page.locator('[data-testid="dock-sub-row"]').first();
+    assert.strictEqual(await row.getAttribute("data-agent-state"), null);
+    assert.strictEqual(await row.getAttribute("data-asking"), null);
+    // Fresh palette-spawned split: no agent has finished → not unread.
+    assert.strictEqual(await row.getAttribute("data-unread"), null);
+    const pip = row.locator('[data-testid="state-pip"]');
+    assert.strictEqual(
+      await pip.count(),
+      1,
+      "Expected an agentless split to render the shell identity StatePip",
+    );
+    assert.strictEqual(await pip.getAttribute("data-glyph"), "shell");
+  },
+);
+
+Then(
+  "the dock should show no split count chip",
+  async function (this: KoluWorld) {
+    const count = await this.page
+      .locator('[data-testid="dock-sub-count"]')
+      .count();
+    assert.strictEqual(
+      count,
+      0,
+      "Expected the dock split count chip to be gone",
+    );
+  },
+);
+
+When(
+  "I click dock split sub-entry {int}",
+  async function (this: KoluWorld, index: number) {
+    await this.page
+      .locator('[data-testid="dock-sub-row"]')
+      .nth(index - 1)
+      .click();
+    await this.waitForFrame();
+  },
+);
+
+Then(
+  "the parent dock row and focused split sub-entry should both be active",
+  async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="dock-row"][data-active]')
-          ?.getAttribute("data-sub-count") === null,
+      () => {
+        const split = document.querySelector(
+          '[data-testid="dock-sub-row"][data-active]',
+        );
+        const parentId = split?.getAttribute("data-parent-id");
+        if (!parentId) return false;
+        return [...document.querySelectorAll('[data-testid="dock-row"]')].some(
+          (row) =>
+            row.getAttribute("data-terminal-id") === parentId &&
+            row.hasAttribute("data-active"),
+        );
+      },
+      null,
       { timeout: POLL_TIMEOUT },
     );
-    const chip = this.page.locator(
-      '[data-testid="dock-row"][data-active] [data-testid="dock-sub-count"]',
+  },
+);
+
+Then(
+  "the dock section active count should equal the active host tab",
+  async function (this: KoluWorld) {
+    await this.page.waitForFunction(
+      () => {
+        const splitAgent = document.querySelector(
+          '[data-testid="dock-sub-row"][data-agent-state="thinking"]',
+        );
+        const section = document.querySelector(
+          '[data-testid="dock-section-header"] [data-testid="attention-active"]',
+        );
+        const host = document.querySelector(
+          '[data-testid="host-chip"][data-active] [data-testid="attention-active"]',
+        );
+        return (
+          splitAgent !== null &&
+          section?.textContent?.trim() === "1" &&
+          host?.textContent?.trim() === "1"
+        );
+      },
+      null,
+      { timeout: POLL_TIMEOUT },
     );
-    const count = await chip.count();
-    assert.strictEqual(count, 0, "Expected no dock-sub-count chip");
   },
 );
 

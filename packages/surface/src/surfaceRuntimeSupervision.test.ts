@@ -322,6 +322,54 @@ describe("SurfaceRuntime supervision — done / close", () => {
     await expect(done).resolves.toBeUndefined();
   });
 
+  it("superviseTerminalSource: a terminal close failure still releases the runtime and surfaces the original failure", async () => {
+    const terminalFailure = new Error("terminal close boom");
+    let runtimeClosed = false;
+    const { close } = superviseTerminalSource(
+      {
+        done: new Promise<void>(() => {}),
+        close: async () => {
+          runtimeClosed = true;
+        },
+      },
+      {
+        done: new Promise<void>(() => {}),
+        close: async () => {
+          throw terminalFailure;
+        },
+      },
+    );
+
+    await expect(close()).rejects.toBe(terminalFailure);
+    expect(runtimeClosed).toBe(true);
+  });
+
+  it("superviseTerminalSource: terminal and runtime close failures surface together", async () => {
+    const terminalFailure = new Error("terminal close boom");
+    const runtimeFailure = new Error("runtime close boom");
+    const { close } = superviseTerminalSource(
+      {
+        done: new Promise<void>(() => {}),
+        close: async () => {
+          throw runtimeFailure;
+        },
+      },
+      {
+        done: new Promise<void>(() => {}),
+        close: async () => {
+          throw terminalFailure;
+        },
+      },
+    );
+
+    const failure = await close().catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      terminalFailure,
+      runtimeFailure,
+    ]);
+  });
+
   it("MULTIPLE teardown faults during close() all surface via AggregateError, not just the first", async () => {
     const runtime = implementSurface(twoCells, {
       cells: {

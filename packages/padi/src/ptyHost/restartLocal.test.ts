@@ -16,6 +16,7 @@
  * explicitly (the recycle gap outlasts the 500 ms autosave).
  */
 
+import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
   afterAll,
@@ -32,6 +33,7 @@ import {
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -59,6 +61,14 @@ import type {
   SavedSession,
 } from "../vocab.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+import {
+  destructiveRecycleSteps,
+  recycle,
+} from "@kolu/surface-daemon-supervisor";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 
@@ -128,38 +138,132 @@ function sessionBackedCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
   } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
 }
 
-/** A fake pty-host endpoint standing in for the daemon recycle. Its `ensure()` (the
- *  recycle) OUTLASTS the 500 ms autosave, so the timer the drain armed fires in the
- *  drain→park gap — the exact interleave the zest trace shows. The drain's
- *  `killAllTerminals` reaches this fake's client `killAll`, which publishes a genuine
- *  `terminals:dirty` (modelling the PTYs exiting as the daemon is killed). */
-function fakeEndpoint(recycleMs: number) {
-  const connection = {
-    client: {
-      surface: {
-        terminal: {
-          killAll: async () => {
-            // The PTYs die with the daemon → a genuine dirty arms the autosave.
-            terminalsDirtyChannel.publish({});
-            return { killed: 2 };
-          },
+const epTmpDirs: string[] = [];
+const epServers: Server[] = [];
+
+/**
+ * A genuine createEndpoint standing in for the daemon recycle. Its `ensure()`
+ * (the recycle) OUTLASTS the 500 ms autosave — timing via the driver.spawn seam
+ * (second spawn delays). No forged binds (F12). The held client's killAll
+ * publishes terminals:dirty so the drain arms autosave.
+ *
+ * No live gate pid is written, so recycle never SIGTERMs this vitest process and
+ * no sleep child is needed (daemon-test-gate hygiene). What makes `ensure` take
+ * the free→spawn path is the DRAIN: `killAll` closes the fake daemon's listener,
+ * exactly as a reaped daemon's socket stops accepting. Without that, the socket
+ * is still serving a compatible gate-less daemon when the recovery looks, and
+ * the recovery ADOPTS it (correctly — that is SQUAT1's PTY-preserving arm), so
+ * no second spawn happens and the drain→park window collapses to a few ms.
+ *
+ * That used to work by accident: the holder was this very vitest process, and
+ * the recovery excluded its own pid before identifying anyone, so an in-process
+ * serve looked like an unheld socket and short-circuited to `free`. OSF4 moved
+ * that self-exclusion to the kill decision where it belongs, which turned the
+ * accident into an adoption — so the fake now has to model the daemon actually
+ * going away, which is what the real one does.
+ */
+async function realEndpoint(recycleMs: number) {
+  const dir = mkdtempSync(join(tmpdir(), "restart-local-ep-"));
+  epTmpDirs.push(dir);
+  const socketPath = join(dir, "k.sock");
+  const gatePath = join(dir, "k.pid");
+  let spawnN = 0;
+
+  const listen = async (): Promise<void> => {
+    // Close prior server if re-spawning at the same path.
+    for (const s of epServers.splice(0)) {
+      try {
+        s.close();
+      } catch {
+        // already closed
+      }
+    }
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {
+      // absent
+    }
+    const s = createServer((c) => c.on("error", () => {}));
+    epServers.push(s);
+    await new Promise<void>((resolve, reject) => {
+      s.once("error", reject);
+      s.listen(socketPath, () => resolve());
+    });
+    // Leave the gate empty: free→spawn path only (no SIGTERM of a holder).
+  };
+
+  const makeClient = () => ({
+    surface: {
+      terminal: {
+        killAll: async () => {
+          // The PTYs die with the daemon → a genuine dirty arms the autosave.
+          terminalsDirtyChannel.publish({});
+          // …and the daemon goes with them: its listener stops accepting, so
+          // the recycle's `ensure` finds a genuinely free rendezvous and spawns
+          // (the window this whole fixture exists to open). A real recycle gets
+          // this from reaping the gate holder; this fake writes no gate, so it
+          // closes the socket itself rather than relying on the recovery to
+          // mistake an in-process serve for a free socket.
+          for (const s of epServers.splice(0)) {
+            try {
+              s.close();
+            } catch {
+              // already closed
+            }
+          }
+          try {
+            rmSync(socketPath, { force: true });
+          } catch {
+            // absent
+          }
+          return { killed: 2 };
         },
       },
     },
-    identity: undefined,
-    startedAt: 0,
-    metadata: { contractVersion: "test" },
-    dispose: () => {},
-    onClose: () => {},
-  };
-  return {
-    holdRestarting: <T>(fn: () => Promise<T>) => fn(),
-    ensure: async () => {
-      await delay(recycleMs); // the recycle gap — the autosave fires in here
+  });
+
+  const ep = createEndpoint({
+    hostId: "local-kaval-test",
+    home: { dir, gatePath, socketPath },
+    policy: {
+      capability: "not-drainable" as const,
+      baked: {
+        contractVersion: "test",
+        build: { kind: "off-nix" as const },
+      },
+      onContractSkew: { kind: "recycle" as const },
+      onBuildMismatch: { kind: "nudge-human" as const },
     },
-    current: () => connection,
-    // biome-ignore lint/suspicious/noExplicitAny: minimal fake for the restart path
-  } as any;
+    probe: async () => null,
+    driver: {
+      spawn: async () => {
+        spawnN += 1;
+        // First spawn warms the endpoint; subsequent ensure (recycle) is the gap.
+        if (spawnN > 1) await delay(recycleMs);
+        await listen();
+      },
+    },
+    connect: async () => ({
+      client: makeClient(),
+      identity: { staleKey: "", navigableCommit: "" },
+      startedAt: Date.now(),
+      metadata: { contractVersion: "test", pid: 4242 },
+      dispose: () => {},
+      onClose: () => {},
+    }),
+    log: silentLog,
+    onStatus: () => {},
+    socketReadyMs: 200,
+    socketPollMs: 5,
+    adoptConnectAttempts: 1,
+    adoptConnectRetryMs: 1,
+  });
+
+  // Warm so current() is held before restart (drain's killAll needs it).
+  await recycle(ep, destructiveRecycleSteps());
+  // Minimal client shape for the restart path; production Endpoint is wider.
+  // biome-ignore lint/suspicious/noExplicitAny: test stand-in for recycle timing
+  return ep as any;
 }
 
 // When set (by the ordering test), every autosave-callback evaluation records the
@@ -183,13 +287,13 @@ beforeAll(() => {
   });
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   autosaveEvals = null;
   cancelPendingAutosave();
   setPadiSurfaceCtx(sessionBackedCtx());
   seedActive(A_ID, "/a");
   seedActive(B_ID, "/b");
-  __setEndpointForTest(fakeEndpoint(700));
+  __setEndpointForTest(await realEndpoint(700));
 });
 
 afterEach(async () => {
@@ -198,6 +302,14 @@ afterEach(async () => {
   await delay(0);
   for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
   __resetPadiSurfaceCtxForTest();
+  for (const s of epServers.splice(0)) s.close();
+  for (const d of epTmpDirs.splice(0)) {
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  }
 });
 
 afterAll(() => {

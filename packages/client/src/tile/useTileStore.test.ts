@@ -17,7 +17,10 @@ const bag = vi.hoisted(() => ({
     id: TerminalId,
   ) => TestMeta | undefined,
   activeId: (() => null) as () => TerminalId | null,
+  isFocused: vi.fn(() => false),
+  isActiveTile: vi.fn(() => false),
   activate: vi.fn(),
+  focusMainTerminal: vi.fn(),
   setActiveSilently: vi.fn(),
   persistCanvasLayout: vi.fn(),
 }));
@@ -27,7 +30,10 @@ vi.mock("../terminal/useTerminalStore", () => ({
     terminalIds: bag.terminalIds,
     getMetadata: bag.metaOf,
     activeId: bag.activeId,
+    isFocused: bag.isFocused,
+    isActiveTile: bag.isActiveTile,
     activate: bag.activate,
+    focusMainTerminal: bag.focusMainTerminal,
     setActiveSilently: bag.setActiveSilently,
   }),
 }));
@@ -56,6 +62,8 @@ const store = useTileStore();
 beforeEach(() => {
   setIds(tids("a", "b"));
   bag.persistCanvasLayout.mockClear();
+  bag.activate.mockClear();
+  bag.focusMainTerminal.mockClear();
 });
 
 describe("useTileStore projection", () => {
@@ -110,7 +118,15 @@ describe("useTileStore layout (registry hides where it lives)", () => {
 describe("useTileStore selection (one source of truth)", () => {
   it("re-exposes the view-state selection signals by reference", () => {
     expect(store.activeId).toBe(bag.activeId);
-    expect(store.activate).toBe(bag.activate);
+    expect(store.isFocused).toBe(bag.isFocused);
+    expect(store.isActiveTile).toBe(bag.isActiveTile);
+    expect(store.activateVisiblePane).toBe(bag.activate);
     expect(store.setActiveSilently).toBe(bag.setActiveSilently);
+  });
+
+  it("lands an explicit terminal tile on the pane named by its id", () => {
+    store.activate(tid("a"));
+    expect(bag.focusMainTerminal).toHaveBeenCalledExactlyOnceWith("a");
+    expect(bag.activate).not.toHaveBeenCalled();
   });
 });

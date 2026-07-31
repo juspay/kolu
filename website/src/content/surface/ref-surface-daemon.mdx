@@ -1,6 +1,6 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon binary half: the on-disk home, the single-instance pid gate, the gate→serve→teardown skeleton, fronting over stdio, and baked identity."
+description: "The daemon binary half: home, pid gate, lifecycle, frozen identity fragment, stdio front, baked identity, and the upgrade-window test kit."
 order: 320
 section: Daemons · Reference
 ---
@@ -10,8 +10,52 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 The daemon *binary* half — the code that runs inside the long-lived process. It
 carries no `@kolu/*` app dependency; the client half lives separately in
-[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Single entry
-point, no subpaths.
+[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Production
+imports use the package root; mixed-version suites use the dedicated
+`./upgrade-window.testlib` subpath; pid-gate test seams (connect-probe
+override) use `./pidGate.testlib` — never re-exported from the production root.
+
+## The frozen control core
+
+`controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
+onDrain })` implements the immutable `control.core.hello` identity and `drain`
+verb. It is served beside the versioned application surface, so a supervisor can
+identify and drain a resident daemon before knowing whether that versioned
+surface is compatible. The hello fields are fixed:
+`stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
+`CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
+version. Build id and commit are one observation: the shared reader accepts both
+absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
+before convergence policy runs.
+
+The wire says only `drain(): void`; it does not promise that every daemon is
+drainable. A daemon whose durable state cannot survive a drain implements the
+verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
+the supervisor capability `not-drainable`, which makes policy-driven invocation
+unrepresentable. The refusal must leave the daemon and its owned resources alive.
+
+| Export | Role |
+| --- | --- |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws a typed refusal without exiting |
+| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
+| `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />
+
+## The upgrade-window test kit
+
+`@kolu/surface-daemon/upgrade-window.testlib` carries the generic mixed-version
+fixture, registry matchers/sweep/message, watchdog factory,
+`assertRecipeWired`, the bidirectional previous-release harness, process reaper,
+socket wait, and `pinPreviousShapeRecovery`. Its module graph has no workspace
+or external runtime dependency: daemon filenames, state planting, and the spawn
+guard are required injected hooks. Matchers take the consumer registry as a
+parameter; no global registry exists in the framework. A `versionField` records
+the discriminator but does not excuse coverage—the artifact must name a
+disposition test that plants version+1 and observes a typed state.
+The fixture returns independent discriminated `process`, `listener`, and
+`state` arms, so a pid cannot exist without its child and a config path cannot
+exist without its state root.
 
 ## The on-disk home
 
@@ -86,10 +130,15 @@ rest of the process's life.
 
 | Export | Role |
 | --- | --- |
-| `daemonMain({ home, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; resolves a `DaemonExit` |
+| `daemonMain({ home, processIdentity, readProcessIdentity, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; identity is injected (never defaulted); resolves a `DaemonExit` |
 | `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
-| `acquirePidGate(gatePath)` | atomic single-instance claim via `link(2)`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` (the gate dir failed the owner-only check) |
-| `gatePid(gatePath)` · `isHolderLive(pid)` | the gate-file primitives (pid parse · liveness probe) the supervisor composes |
+| `claimPidGate(gatePath, socketPath, self, readProcessIdentity)` | the named full claim: `acquirePidGate` then `confirmHeldGate` when held — composition roots use this, not the two steps by convention |
+| `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` |
+| `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the **sync** injected OS fact reader for the daemon claim path — the spine never imports osfacts. The supervisor's awaitable inject is `ReadProcessIdentityAsync` on `@kolu/surface-daemon-supervisor` (beside `EndpointSpec`) |
+| `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderFromRecord` · `liveHolderPid` · `throwIfGateUnreadable` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader: pid via legacy `parseInt` (leading digits); start time only from exact `pid\tstart…`; ±2 s match; writers emit `${pid}\t${startUnixUs}\n`. **Three-way law** on the read outcome (exhaustive): `absent` → free; `malformed` → reap; `unreadable` (EACCES/EIO) → **throw** — never collapse into free/stale. `liveHolderFromRecord` takes an already-read observation; `liveHolderPid` reads once then delegates |
+| `confirmHeldGate(held, …)` | one-field (legacy) socket fence only — **one** gate observation drives both liveness and generation; dead socket reclaims; absent / indeterminate wait; two-field match skips (identity is truth) |
+| `isHolderLive(pid)` | `kill(0)` liveness probe for one-field holders and cheap checks |
+| `socketServeState(socketPath)` · `SOCKET_SERVE_PROBE_MS` | four-way socket probe (`serving` · `dead` · `absent` · `indeterminate`) used by the one-field reclaim fence. Timeout is a latency ceiling only — reports `indeterminate`, never authorizes reclaim. Non-ENOENT `lstat` failures throw (fail loud) |
 | `stderrLogger()` · `Logger` · `DaemonExit` | the structural logging contract and the exit record `daemonMain` resolves (its exit-code classification lives inside `daemonProcessMain`) |
 | `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
 | `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |
@@ -184,12 +233,17 @@ drops the link.
 
 `readBakedIdentity(prefix)` reads a Nix-baked env pair
 (`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into `{ staleKey, navigableCommit }`,
-and returns empty strings off-nix rather than inventing an identity. See
+and returns empty strings when both variables are absent off-nix rather than
+inventing an identity. The pair is joint: both variables must contain non-empty
+values or both must be absent; a half-baked or explicitly empty baked identity
+throws at daemon boot because a Nix build id without its knowable commit (or the
+reverse) is contradictory. See
 [How to bake an identity](/surface/bake-an-identity).
 
 <Aside type="note" title="Two convergence axes live here">
   `contractIsNewer` / `contractIsCompatible` (ordered) and `buildsMatch`
   (match-only, no ordering) live in this package and are re-exported by the
-  supervisor, so the supervisor stays `@kolu/surface`-free. Their use is in
+  supervisor. They remain daemon-domain vocabulary even though the supervisor
+  deliberately depends on `@kolu/surface` to dial the frozen core. Their use is in
   [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
 </Aside>

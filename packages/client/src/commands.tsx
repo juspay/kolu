@@ -4,7 +4,7 @@ import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
-import { batch, createMemo } from "solid-js";
+import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
 import type { HostKey } from "kolu-common/hostKey";
@@ -39,9 +39,11 @@ import {
 } from "./palette/fleetActions";
 import { useFleetTerminalIndex } from "./palette/fleetTerminals";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
+import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
+import { themePaletteGroup } from "./themePalette";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
@@ -206,7 +208,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     {
       kind: "group",
-      name: "New terminal",
+      name: NEW_TERMINAL_GROUP,
       section: "terminals",
       row: { kind: "command" },
       children: (): PaletteItem[] => {
@@ -401,30 +403,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // takes a terminal id), so both the drill-in chooser and the
           // shuffle action live alongside the other active-terminal
           // commands rather than in a global "Appearance" bucket.
-          {
-            kind: "group" as const,
-            name: "Set theme",
-            section: "active-terminal" as const,
-            onCancel: () => deps.setPreviewThemeName(undefined),
-            children: () =>
-              availableThemes
-                .filter((t) => t.name !== deps.committedThemeName())
-                .map(
-                  (t): PaletteAction => ({
-                    kind: "action",
-                    name: t.name,
-                    // Cancel lives on the leaf too so root-flattened theme
-                    // hits (no path segment) still restore the committed theme.
-                    onHighlight: () => deps.setPreviewThemeName(t.name),
-                    onCancel: () => deps.setPreviewThemeName(undefined),
-                    onSelect: () =>
-                      batch(() => {
-                        deps.setPreviewThemeName(undefined);
-                        deps.handleSetTheme(t.name);
-                      }),
-                  }),
-                ),
-          },
+          themePaletteGroup(
+            availableThemes.map((theme) => theme.name),
+            deps,
+          ),
           actionPaletteCommand("shuffleTheme", deps, {
             section: "active-terminal",
             description:

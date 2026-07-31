@@ -4,7 +4,7 @@
 # Outputs:
 #   $out/*.woff2   — font files (copied into client/public/fonts/ at build time)
 #   $out/fonts.css — @font-face declarations (imported via vite alias "kolu-fonts")
-{ lib, runCommand, fetchurl }:
+{ lib, runCommand, fetchurl, biome }:
 let
   fetchFont = name: url: hash:
     fetchurl { inherit url hash; inherit name; };
@@ -72,10 +72,12 @@ let
     }
   '';
 in
-runCommand "kolu-fonts" { } ''
+runCommand "kolu-fonts" { nativeBuildInputs = [ biome ]; } ''
   mkdir -p $out
   ${lib.concatMapStringsSep "\n" (f: "cp ${f} $out/${f.name}") allFonts}
   cat > $out/fonts.css << 'ENDCSS'
   ${fontsCss}
   ENDCSS
+  biome format --write --vcs-enabled=false \
+    --config-path ${../../../biome.jsonc} $out/fonts.css
 ''

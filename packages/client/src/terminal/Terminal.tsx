@@ -40,7 +40,12 @@ import {
   createBackfillController,
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
-import { Xterm, type XtermHandle } from "@kolu/xterm-kit/solid";
+import {
+  sameGrid,
+  type TerminalGrid,
+  Xterm,
+  type XtermHandle,
+} from "@kolu/xterm-kit/solid";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
@@ -64,12 +69,14 @@ import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
+import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
+import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,
@@ -106,7 +113,8 @@ const Terminal: Component<{
   theme: ITheme;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
-  /** Fired when the user interacts with this terminal (click/keyboard focus). */
+  /** Fired when a user gesture moves focus into this terminal. Programmatic
+   *  DOM focus is selection's effect and must not feed back as a command. */
   onFocus?: () => void;
   /** When true, this terminal lives in a sub-panel — it owns its own grid
    *  (its container is independent of the main viewport) and stays out of
@@ -165,7 +173,8 @@ const Terminal: Component<{
   // switching/revealing a tile. So this is a no-op on touch. Real taps still
   // call terminal.focus() directly.
   function focusOnSelection() {
-    if (!isTouch()) handle()?.terminal?.focus();
+    if (isTouch()) return;
+    handle()?.terminal?.focus();
   }
 
   // Open a `path:line` reference in the Code tab. Shared by the hover link
@@ -173,9 +182,13 @@ const Terminal: Component<{
   // the same ref against this terminal's repo and route through one front door.
   function activateFileRef(ref: LineRef) {
     const meta = terminalStore.getMetadata(props.terminalId);
-    const repoRoot = meta?.git?.repoRoot ?? null;
-    if (!repoRoot) return;
-    openInCodeTab({ ref, repoRoot, cwd: meta?.cwd, targetMode: "browse" });
+    if (!meta) return;
+    openInCodeTab({
+      terminalId: props.terminalId,
+      ref,
+      cwd: meta?.cwd,
+      targetMode: "browse",
+    });
   }
 
   // The touch-tap → file-ref decision (policy): resolve the tapped cell through
@@ -196,11 +209,10 @@ const Terminal: Component<{
     return false;
   };
 
-  /** Resize the server-side PTY so node-pty matches the xterm grid. Driven by
-   *  <Xterm>'s onResize (term.onResize + the post-fit initial publish). */
-  async function publishDimensions(size: { cols: number; rows: number }) {
+  /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
+   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
+  async function publishDimensions(size: TerminalGrid) {
     const { cols, rows } = size;
-    if (cols <= 0 || rows <= 0) return;
     // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
     // longer needs suppressing here: kaval excludes resize repaints from its
     // meaningful-output edge at the source, so the live dot (mirrored off padi's
@@ -211,8 +223,23 @@ const Terminal: Component<{
         cols,
         rows,
       });
-    } catch {
-      // Terminal may have been killed mid-resize
+    } catch (err) {
+      // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
+      // reply rather than logging server-side and resolving — so a REJECTION
+      // here means the grid claim did not land: the PTY kept its old size while
+      // this pane renders against the new one. That is a wrong-grid screen with
+      // no other symptom, so it must not collapse to a no-op
+      // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
+      // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
+      // and padi returns quietly by design, so nothing reaches here — and the
+      // tile tears down via terminalExit anyway. The extra guard below covers the
+      // same race one hop earlier (the arm is already gone locally). One STABLE
+      // toast id keeps a flurry of failed resizes to a single message.
+      if (activeArm(terminalStore.getMetadata(props.terminalId)) === undefined)
+        return;
+      toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {
+        id: `terminal-resize-failed-${props.terminalId}`,
+      });
     }
   }
 
@@ -278,6 +305,13 @@ const Terminal: Component<{
     disposeDiagnostics = registerDiagnostics(props.terminalId, {
       xterm: term,
       renderer: () => (h.webgl.hasWebgl() ? "webgl" : "dom"),
+      // The gate on ALL bytes. `cols`/`rows` above are read off xterm, which
+      // reports its invented 80×24 for a pane that has never measured its own
+      // box — so without this the dialog cannot tell "waiting to be measured,
+      // no attach stream open" from "attached and quiet". On screen the two are
+      // identical (a blank terminal), which is why the fact has to be named
+      // somewhere the code can see it.
+      measured: () => h.grid() !== null,
       scrollLock: {
         locked: h.scrollLock.isLocked,
         pendingChunks: h.scrollLock.pendingChunks,
@@ -340,9 +374,20 @@ const Terminal: Component<{
       return true;
     });
 
-    // Track user-initiated focus for "remember last focused" in sub-panel
     if (props.onFocus && term.textarea) {
-      makeEventListener(term.textarea, "focus", props.onFocus);
+      // xterm may stop gesture events inside its own subtree. Capture them at
+      // the mount boundary and arm one document-wide provenance token: Tab can
+      // move focus into a sibling terminal, while a pointer focus lands here.
+      // The first resulting focus consumes the token; mount/refocus/dialog
+      // `.focus()` calls have no token and can never echo into selection.
+      onCleanup(
+        installTerminalFocusProvenance({
+          pane: h.container,
+          textarea: term.textarea,
+          isFocused: () => props.focused === true,
+          onFocus: props.onFocus,
+        }),
+      );
     }
 
     // On tab re-show, re-fit, clear the atlas, flush a lock engaged while hidden
@@ -394,13 +439,58 @@ const Terminal: Component<{
     // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
     // done-criterion (c)).
     const resetForFreshSnapshot = () => {
+      // Drop write-pipeline pending (coalesce + scroll-lock) WITHOUT writing —
+      // a flush would re-paint pre-reset chunks onto the cleared screen.
+      h.clearPendingOutput();
       handle()?.terminal?.reset();
-      h.scrollLock.reset();
+      h.scrollLock.reset("drop");
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
       // the terminal we just reset.
       backfill?.reset();
     };
+    // The attach stream may not open until this pane has MEASURED its own box.
+    //
+    // The snapshot the host serializes is bytes laid out FOR A GRID — cursor
+    // moves and wraps are only meaningful at the width they were written for.
+    // An unmeasured xterm reports the 80×24 its constructor invents, and a pane
+    // that is hidden at mount (a collapsed split, a background sub-tab) can
+    // never be measured, so it keeps reporting that invented grid. Attaching
+    // there paints a screen laid out for the real width into 80 columns;
+    // revealing the pane then REFLOWS the damage rather than repainting it, and
+    // the repair never comes, because the grid the client finally publishes is
+    // the one the PTY already had — and kaval no-ops a same-dimensions resize,
+    // so no SIGWINCH ever reaches the process. Only a genuine resize (nudging
+    // the divider) fixed it.
+    //
+    // So: no grid, no bytes. Gating here — rather than dropping or buffering
+    // frames after the fact — is what makes the bad state unrepresentable,
+    // because the grid is also what we ASK for the snapshot AT (below), and a
+    // request can't carry a size we haven't measured.
+    //
+    // The latch is the kit's (`onceMeasured`), not a local boolean: it owns the
+    // measurement hazard, so "wait for a real grid" is one call here rather than
+    // a re-derivation of the rule beside the rule.
+    h.onceMeasured(() => openAttachStream());
+
+    // The ONE publisher of this pane's grid CHANGES → the PTY. (The attach's own
+    // `resizeTo` states the grid the pane OPENS at; every change after that
+    // travels here.) `grid` is value-compared inside the kit, so this fires
+    // exactly once per REAL grid change — the initial fit included — and never
+    // for a re-fit that measured nothing new.
+    // Driving it from the signal rather than a second `onResize` callback door
+    // means "who states this pane's size" has a single answer.
+    createEffect(
+      on(h.grid, (measured) => {
+        if (measured) void publishDimensions(measured);
+      }),
+    );
+
+    // Supersession for restartable attach loops: every attempt holds its OWN
+    // state in its closure and asks the gate whether it is still the live one.
+    // See `attachAttempts.ts`.
+    const attempts = createAttemptGate();
+
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
     // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
@@ -410,82 +500,230 @@ const Terminal: Component<{
     // `unenrolledStreamCall` (`@kolu/surface/client`) — the bare, un-enrolled
     // call — rather than `padi.rawStream`'s structural health enrolment, and the
     // `unenrolled-` name makes that a visible decision at the call site.
-    consumeReattachingStream(
-      () =>
-        unenrolledStreamCall(
-          activePadiStreams.terminalAttach.unenrolled,
-          { id: props.terminalId },
-          { signal, onRetry: resetForFreshSnapshot },
-        ),
-      (frame) => {
-        // A `snapshot` frame begins a fresh snapshot (initial attach or a
-        // MID-STREAM overflow re-attach). Consume it as one indivisible act:
-        // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
-        // RIGHT HERE — before the bytes are written or scroll-lock-buffered — so
-        // an in-flight fetch's continuation can't splice across the RIS this frame
-        // carries onto the reset buffer. It returns a committer that SEEDS only
-        // once the snapshot has PARSED into the buffer (run from the write callback
-        // below): parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
-        // climbs from 0 through the near-top trigger band, and a cursor seeded up
-        // front would let one of those fire an unsolicited fetch onto a
-        // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM, so no
-        // fetch fires until a real user scroll-up. The committer rides the write
-        // callback, which scroll-lock preserves across a buffered flush — so the
-        // seed can't be lost while the user is scrolled up.
-        const commitSeed =
-          frame.kind === "snapshot"
-            ? backfill?.consumeSnapshotFrame(
-                frame.topLine,
-                frame.reflowEpoch,
-                // An overflow re-attach snapshot's data LEADS with a RIS
-                // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
-                // controller's esc handler pauses on THIS frame's own leading RIS
-                // too, so the controller must know it's coming: the seam captures
-                // the committer's baseline one generation-bump BEFORE that RIS and
-                // PREDICTS it, so the frame's own reset doesn't read as an
-                // invalidation that revokes this frame's re-seed — otherwise
-                // backfill pauses forever after a re-attach (F11).
-                frame.data.startsWith(TERMINAL_RESET),
-              )
-            : undefined;
-        // A consumed snapshot frame carries its OWN seed seam (with a per-frame
-        // token) so the controller captures its committer baseline at the
-        // snapshot's byte position, not at receipt — the F11 fix under scroll
-        // lock, where a foreign RIS buffered ahead of this snapshot would
-        // otherwise steal its seed. The controller mints the seam bytes
-        // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
-        // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
-        const data = commitSeed
-          ? `${commitSeed.seam}${frame.data}`
-          : frame.data;
-        if (handle()) {
-          // The live-activity dot is no longer lit from this attach sink — it
-          // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
-          // wire, so it works for background terminals and never flashes on a
-          // reveal/resize repaint. See `attention/useAttentionFacts`.
-          // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
-          // `term.write` returns immediately and parses the chunk asynchronously
-          // (off a setTimeout), so noteData() run here synchronously would arm a
-          // 250ms timer against data not yet in the buffer. Passing noteData as
-          // xterm's write callback arms it when the chunk has actually landed in
-          // the buffer and a paint should follow. scroll-lock buffers a chunk ->
-          // no paint -> the callback isn't invoked NOW; it is stashed WITH the
-          // chunk, and flush() fires every buffered chunk's callback once the
-          // buffered write parses on unlock — so the snapshot re-seed committer
-          // that rides this callback survives the lock instead of being dropped.
-          h.write(data, () => {
-            h.recovery.noteData();
-            // Seed the backfill cursor now that this snapshot has landed in the
-            // buffer (see the note above the write) — undefined, hence a no-op,
-            // for a plain delta frame, which carries no `topLine`.
-            commitSeed?.commit();
-          });
-        }
-      },
-      resetForFreshSnapshot,
-      signal,
-      "Terminal attach",
-    );
+    function openAttachStream() {
+      // ALL of this attempt's state lives here, in its closure — never in a
+      // binding a successor could overwrite. `attempt` decides whether this
+      // loop's work still counts; `abort` ends this loop and no other.
+      const attempt = attempts.open();
+      const abort = new AbortController();
+      // The whole loop — not just its RPC — is scoped to this attempt: aborting
+      // it ends this consumer's `while`, so a superseded attempt cannot keep
+      // re-subscribing on the successor's behalf. Component unmount still ends
+      // every attempt through the same signal.
+      const attemptSignal = AbortSignal.any([signal, abort.signal]);
+      /** The grid THIS attach attempt asked the host to serialize at. Written by
+       *  the thunk on every open, read by the snapshot frame that answers it — so
+       *  an attempt and the grid it is only valid for are one thing, not two. */
+      let requestedGrid: TerminalGrid | null = null;
+
+      /** Live = still the current attempt AND not torn down. `isCurrent()` alone
+       *  stays true forever when no successor opens, so an unmounted pane's
+       *  scroll-lock-stashed callback would still act. */
+      const attemptLive = () => attempt.isCurrent() && !attemptSignal.aborted;
+
+      // Every effect this attempt can still fire after supersession, guarded in
+      // one place — keyed on the LIVE predicate, so it is inert after unmount
+      // too. The reset hooks matter most: an old loop resetting the screen would
+      // wipe the successor's authoritative snapshot.
+      const resetIfLive = onlyWhenCurrent(
+        { isCurrent: attemptLive },
+        resetForFreshSnapshot,
+      );
+
+      /** Does a snapshot answered by THIS attempt still describe the pane?
+       *
+       *  An absent side ANSWERS: with nothing to compare there is no evidence of
+       *  a mismatch, and refusing on ignorance would livelock the reopen loop
+       *  rather than protect anything. The reachable absences are both benign —
+       *  no request has been made yet, or the pane has been disposed and its grid
+       *  released. */
+      const answersCurrentGrid = (): boolean => {
+        const current = h.grid();
+        return !requestedGrid || !current || sameGrid(requestedGrid, current);
+      };
+
+      /** End this loop and start exactly one replacement. Guarded by
+       *  `attemptLive()` at every call site, so several superseded callbacks
+       *  reaching here produce ONE successor, not a cascade. */
+      const reopenForStaleGrid = () => {
+        abort.abort();
+        resetForFreshSnapshot();
+        openAttachStream();
+      };
+
+      consumeReattachingStream(
+        () => {
+          // Read the grid at the moment this stream is opened, and REMEMBER it:
+          // the snapshot that comes back is only meaningful at this exact grid,
+          // so the frame handler checks it before painting a single byte.
+          //
+          // This thunk is NOT the transport-retry path: `unenrolledStreamCall`
+          // invokes the procedure once and oRPC's retry plugin re-subscribes by
+          // replaying that captured input, so a STREAM_RETRY re-sends the grid
+          // recorded here even if the pane has resized since.
+          // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
+          // thunk and picks up a fresh grid — which is why the frame handler's
+          // response to a stale answer is to fail the attempt and let that outer
+          // loop reopen, rather than to paint and correct afterwards.
+          //
+          // Absent is unreachable — `onceMeasured` opens the stream only once a
+          // grid exists, and a measured grid is never un-measured.
+          //
+          // A bare `throw` here would NOT fail loud: this thunk's throws are
+          // caught by `consumeReattachingStream`, classified as an abnormal end,
+          // console.warn'd and retried every 300ms — and each retry runs
+          // `resetForFreshSnapshot`, which WIPES the user's screen. So the
+          // assertion aborts the stream FIRST: the outer `while (!signal.aborted)`
+          // then exits after one pass, and the breach surfaces where a user can
+          // see it instead of turning into a blank pane blinking 3×/second.
+          const measured = h.grid();
+          if (!measured) {
+            const msg = `terminal ${props.terminalId}: attach opened without a measured grid`;
+            toast.error(msg);
+            streamAbort?.abort();
+            throw new Error(msg);
+          }
+          requestedGrid = measured;
+          return unenrolledStreamCall(
+            activePadiStreams.terminalAttach.unenrolled,
+            // `resizeTo`, not a description of this pane: the host resizes the
+            // shared PTY to it before serializing.
+            { id: props.terminalId, resizeTo: measured },
+            {
+              // This attempt's own signal — ending this loop, never a
+              // successor's. Its reset hook is guarded for the same reason: a
+              // superseded attempt's retry must not wipe the successor's screen.
+              signal: attemptSignal,
+              onRetry: resetIfLive,
+            },
+          );
+        },
+        (frame) => {
+          // A superseded loop delivers NOTHING. Its abort has fired but the
+          // iterator settles later, so frames already queued behind it still
+          // arrive here — and consuming one would paint into a terminal the
+          // successor has already reset.
+          if (!attemptLive()) return;
+          // REFUSE a snapshot that answers a grid this pane no longer has.
+          //
+          // A snapshot is bytes laid out for the grid it was serialized at, and
+          // two paths can make that grid stale between the ask and the answer: a
+          // resize while the request is in flight, and a STREAM_RETRY, which
+          // re-subscribes by replaying the ORIGINAL captured input. Painting it
+          // anyway and correcting the PTY afterwards does NOT undo the damage —
+          // a later SIGWINCH repaints a full-screen app, but nothing rebuilds
+          // scrollback that has already been wrapped at the wrong width. That is
+          // this bug, reachable again by a different route, so the answer is to
+          // not paint at all: throwing here fails the attempt, and
+          // `consumeReattachingStream` resets the screen and reopens through the
+          // thunk above, which reads the CURRENT grid. Its 300ms backoff bounds
+          // the loop, and a pane that has stopped resizing converges on its first
+          // reopen.
+          //
+          // This is the FIRST of two checks — the cheap guard that stops the
+          // common case before a single byte is written or any backfill state is
+          // touched. Receipt is not when the bytes LAND, so the write callback
+          // re-checks; the why is stated in full there.
+          if (frame.kind === "snapshot" && !answersCurrentGrid()) {
+            const current = h.grid();
+            throw new Error(
+              `terminal ${props.terminalId}: snapshot answered ${requestedGrid?.cols}x${requestedGrid?.rows}, pane is now ${current?.cols}x${current?.rows} — reopening`,
+            );
+          }
+          // A `snapshot` frame begins a fresh snapshot (initial attach or a
+          // MID-STREAM overflow re-attach). Consume it as one indivisible act:
+          // `consumeSnapshotFrame` INVALIDATES the backfill controller synchronously
+          // RIGHT HERE — before the bytes are written or scroll-lock-buffered — so
+          // an in-flight fetch's continuation can't splice across the RIS this frame
+          // carries onto the reset buffer. It returns a committer that SEEDS only
+          // once the snapshot has PARSED into the buffer (run from the write callback
+          // below): parsing a ~1000-line snapshot itself emits `onScroll` as `ydisp`
+          // climbs from 0 through the near-top trigger band, and a cursor seeded up
+          // front would let one of those fire an unsolicited fetch onto a
+          // still-parsing buffer. Once parsed, the viewport sits at the BOTTOM, so no
+          // fetch fires until a real user scroll-up. The committer rides the write
+          // callback, which scroll-lock preserves across a buffered flush — so the
+          // seed can't be lost while the user is scrolled up.
+          const commitSeed =
+            frame.kind === "snapshot"
+              ? backfill?.consumeSnapshotFrame(
+                  frame.topLine,
+                  frame.reflowEpoch,
+                  // An overflow re-attach snapshot's data LEADS with a RIS
+                  // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
+                  // controller's esc handler pauses on THIS frame's own leading RIS
+                  // too, so the controller must know it's coming: the seam captures
+                  // the committer's baseline one generation-bump BEFORE that RIS and
+                  // PREDICTS it, so the frame's own reset doesn't read as an
+                  // invalidation that revokes this frame's re-seed — otherwise
+                  // backfill pauses forever after a re-attach (F11).
+                  frame.data.startsWith(TERMINAL_RESET),
+                )
+              : undefined;
+          // A consumed snapshot frame carries its OWN seed seam (with a per-frame
+          // token) so the controller captures its committer baseline at the
+          // snapshot's byte position, not at receipt — the F11 fix under scroll
+          // lock, where a foreign RIS buffered ahead of this snapshot would
+          // otherwise steal its seed. The controller mints the seam bytes
+          // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
+          // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
+          const data = commitSeed
+            ? `${commitSeed.seam}${frame.data}`
+            : frame.data;
+          if (handle()) {
+            // The live-activity dot is no longer lit from this attach sink — it
+            // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
+            // wire, so it works for background terminals and never flashes on a
+            // reveal/resize repaint. See `attention/useAttentionFacts`.
+            // Key the render-stall watchdog to xterm's PARSE, not stream receipt:
+            // `term.write` returns immediately and parses the chunk asynchronously
+            // (off a setTimeout), so noteData() run here synchronously would arm a
+            // 250ms timer against data not yet in the buffer. Passing noteData as
+            // xterm's write callback arms it when the chunk has actually landed in
+            // the buffer and a paint should follow. scroll-lock buffers a chunk ->
+            // no paint -> the callback isn't invoked NOW; it is stashed WITH the
+            // chunk, and flush() fires every buffered chunk's callback once the
+            // buffered write parses on unlock — so the snapshot re-seed committer
+            // that rides this callback survives the lock instead of being dropped.
+            // Single kit write door (coalesce → scroll-lock → term); fullRate is
+            // the focused-tile policy on <Xterm>.
+            h.write(data, () => {
+              // A superseded (or unmounted) attempt's stashed callback does
+              // NOTHING: it would report activity for a stream nobody is reading
+              // (arming the render-stall watchdog against the successor's paint),
+              // commit a seed belonging to a dead attempt, or restart the loop a
+              // second time. The guard is FIRST, ahead of `noteData`, so none of
+              // those effects can precede it.
+              if (!attemptLive()) return;
+              h.recovery.noteData();
+              // SECOND grid check — this is where the bytes actually landed.
+              // Receipt is not that moment: the write above parses
+              // asynchronously, and scroll lock stashes the chunk until unlock,
+              // which the user controls. A pane that resized inside that window
+              // has just had a snapshot for the OLD grid parsed into it, so the
+              // seed computed from those bytes must not be committed (it would
+              // anchor backfill to a layout the buffer no longer has) and the
+              // screen must be repainted from a snapshot for the grid it now is.
+              // The frame handler's throw is unavailable here — this runs in an
+              // xterm callback, not the iterator — so the attempt is aborted and
+              // reopened explicitly instead. The first stale callback installs
+              // the one replacement; the rest are superseded by the guard above.
+              if (commitSeed && !answersCurrentGrid()) {
+                reopenForStaleGrid();
+                return;
+              }
+              // Seed the backfill cursor now that this snapshot has landed in the
+              // buffer (see the note above the write) — undefined, hence a no-op,
+              // for a plain delta frame, which carries no `topLine`.
+              commitSeed?.commit();
+            });
+          }
+        },
+        resetIfLive,
+        attemptSignal,
+        "Terminal attach",
+      );
+    }
 
     // Initial focus, mirroring the old post-fit focus on first mount.
     if (props.visible && props.focused !== false) focusOnSelection();
@@ -632,7 +870,16 @@ const Terminal: Component<{
     on(
       () => [props.focused, props.refocusNonce] as const,
       () => {
-        if (props.focused && props.visible) focusOnSelection();
+        // A dock/canvas click writes selection from its click handler, before
+        // the browser has necessarily finished its own focus default. Focusing
+        // synchronously here lets that final default put focus back on the row.
+        // Re-check after the event turn and apply the already-written fact to
+        // the DOM; no selection write occurs on this path.
+        queueMicrotask(() => {
+          if (props.focused && props.visible) {
+            focusOnSelection();
+          }
+        });
       },
       { defer: true },
     ),
@@ -695,6 +942,7 @@ const Terminal: Component<{
         visible={props.visible}
         webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
+        fullRate={isFocused}
         fontFamily={FONT_FAMILY}
         terminalOptions={{
           scrollback: DEFAULT_SCROLLBACK,
@@ -726,7 +974,6 @@ const Terminal: Component<{
             data: applyStickyModifiers(data),
           });
         }}
-        onResize={(size) => void publishDimensions(size)}
         onReady={onReady}
         onTap={onTap}
         // Injected web-link seam — loopback URLs raise the join card; ⌘-click

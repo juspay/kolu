@@ -54,7 +54,7 @@ import {
   sshConnector,
 } from "@kolu/surface-remote";
 import { TEST_BINARY_CACHE } from "@kolu/surface-remote/agentDerivation.testutil";
-import { collectLogger } from "@kolu/surface-remote/loggerStubs.testutil";
+import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { afterAll, describe, expect, it } from "vitest";
 

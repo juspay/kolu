@@ -16,6 +16,13 @@ export function kavalHostDialOptions(
   return {
     host,
     localEnv: composeSpawnEnv(env),
+    // Closure and binary are the same attr here: `kaval-tui --host` deliberately
+    // provisions the bare daemon, and spawns terminals with its own minimal env
+    // rather than padi's spawn policy. Stated, not defaulted — a host kolu has
+    // already provisioned with `padi-agent` therefore realises a SECOND closure
+    // when reached this way, and that asymmetry should be visible to whoever
+    // next reads this file.
+    package: "kaval",
     binary: "kaval",
     fatalPrefix: "kaval --stdio:",
   };

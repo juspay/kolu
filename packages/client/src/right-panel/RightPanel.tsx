@@ -78,7 +78,7 @@ const RightPanel: Component<{
               <button
                 type="button"
                 data-testid={`right-panel-tab-${kind}`}
-                data-active={isActive()}
+                data-active={isActive() ? "" : undefined}
                 class={`h-full px-3 text-xs cursor-pointer transition-colors ${
                   isActive()
                     ? "font-medium text-fg-2 bg-surface-0 border-b-2"

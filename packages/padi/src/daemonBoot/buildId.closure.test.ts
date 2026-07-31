@@ -262,6 +262,7 @@ function walkSources(dir: string): string[] {
       (e.name.endsWith(".ts") || e.name.endsWith(".tsx")) &&
       !e.name.endsWith(".test.ts") &&
       !e.name.endsWith(".test.tsx") &&
+      !e.name.endsWith(".test-d.ts") &&
       !e.name.endsWith(".testlib.ts")
     ) {
       out.push(p);

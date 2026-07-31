@@ -201,7 +201,9 @@ with a **terminal** driver whose `close: () => Promise<void>` is the atomic tear
 verb (tear down *and* settle); it is the framework home for the terminal-source
 teardown `reServeSurface` used to hand-roll, and the seam both `reServeSurface` (a
 sync-abort pump wrapped as one `close`) and `extendSurface` (a full re-served base
-runtime) route through.
+runtime) route through. Both closes are always attempted in that order. One close
+failure is rethrown unchanged; several are surfaced together as an
+`AggregateError`.
 
 ## The reactor (reactive bridge)
 

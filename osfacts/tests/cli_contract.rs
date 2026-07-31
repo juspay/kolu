@@ -7,8 +7,9 @@
 mod common;
 
 use common::{
-    darwin_pcblist_is_blind, hermetic_snapshot, hex_of_v4, hex_of_v6, l_addr_for_port,
-    l_rows_for_port, only_benign_port_source_errors, osfacts, parse_tsv, redact_tsv, snapshot_pids,
+    darwin_holder_walk_is_blind, darwin_pcblist_is_blind, hermetic_snapshot, hex_of_v4, hex_of_v6,
+    l_addr_for_port, l_rows_for_port, only_benign_port_source_errors, osfacts, parse_holders_tsv,
+    parse_tsv, redact_tsv, snapshot_pids, socket_holders, UnixHolder,
 };
 use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -316,4 +317,175 @@ fn roots_includes_helper_process() {
         1,
         "fixture port must appear exactly once; ports={ports:?}"
     );
+}
+
+// ── socket-holders (OSF4) ───────────────────────────────────────────────
+//
+// Same hermetic strategy as the port fixtures: a child of this test binds a
+// unix socket in a directory only this test owns, and every assertion is about
+// THAT socket. Nothing here claims anything about the host's own sockets.
+
+/// The verb's core claim: the process holding the path is named, and `--procs`
+/// names it in the operator's language too.
+#[test]
+fn a_bound_unix_socket_names_its_holder() {
+    let holder = UnixHolder::spawn("rendezvous.sock");
+
+    let (tsv, ok) = socket_holders(&holder.path, true);
+    let rows = parse_holders_tsv(&tsv);
+
+    assert!(ok, "a claimed holder is a successful answer: {tsv}");
+    assert!(
+        rows.holders.contains(&format!("H\tclaimed\t{}", holder.pid)),
+        "holder pid must appear: {tsv}"
+    );
+    assert!(
+        rows.procs
+            .iter()
+            .any(|p| p.starts_with(&format!("P\t{}\t", holder.pid))),
+        "--procs must name the holder: {tsv}"
+    );
+    assert!(rows.errors.is_empty(), "unexpected source errors: {tsv}");
+}
+
+/// `--procs` is a facet, not the answer: without it the holder set is
+/// unchanged and no identity row is emitted.
+#[test]
+fn the_holder_set_does_not_depend_on_the_procs_facet() {
+    let holder = UnixHolder::spawn("rendezvous.sock");
+
+    let (tsv, ok) = socket_holders(&holder.path, false);
+    let rows = parse_holders_tsv(&tsv);
+
+    assert!(ok, "{tsv}");
+    assert_eq!(rows.holders, vec![format!("H\tclaimed\t{}", holder.pid)]);
+    assert!(rows.procs.is_empty(), "--procs was not asked for: {tsv}");
+}
+
+/// A path nothing ever bound. On linux the answer is an affirmative empty
+/// document — `/proc/net/unix` lists every bound socket, so absence there is
+/// proof. Darwin cannot see bound sockets it may not walk to, so it says
+/// BLIND_OR_EMPTY instead of pretending to the same proof. Either way the
+/// consumer can tell the two apart, which is the whole contract.
+#[test]
+fn an_unbound_path_is_answered_not_guessed() {
+    let holder = UnixHolder::spawn("rendezvous.sock");
+    let never_bound = holder.path.with_file_name("nobody.sock");
+
+    let (tsv, ok) = socket_holders(&never_bound, true);
+    let rows = parse_holders_tsv(&tsv);
+
+    assert!(rows.holders.is_empty(), "nothing holds this path: {tsv}");
+    if cfg!(target_os = "linux") {
+        assert!(ok, "linux proves absence, so this is a success: {tsv}");
+        assert!(rows.errors.is_empty(), "unexpected source errors: {tsv}");
+    } else {
+        assert!(
+            darwin_holder_walk_is_blind(&rows.errors),
+            "darwin must report a walk that named nobody as blind-or-empty: {tsv}"
+        );
+    }
+}
+
+/// The state this verb exists for: a socket FILE left behind by a dead
+/// process. The file is still on disk, and nothing holds it — a reader that
+/// answered from the filesystem would name a holder that does not exist.
+#[test]
+fn a_stale_socket_file_has_no_holder() {
+    let mut holder = UnixHolder::spawn("rendezvous.sock");
+    let path = holder.path.clone();
+    holder.kill();
+
+    assert!(
+        path.exists(),
+        "the fixture is only meaningful while the socket FILE survives"
+    );
+    let (tsv, _) = socket_holders(&path, true);
+    let rows = parse_holders_tsv(&tsv);
+
+    assert!(
+        rows.holders.is_empty(),
+        "a dead holder's leftover file must name nobody: {tsv}"
+    );
+}
+
+/// A path that shares a prefix with the bound one is a different socket. The
+/// match is exact bytes — never `starts_with`, never a normalized path.
+#[test]
+fn a_prefix_of_the_bound_path_is_a_different_socket() {
+    let holder = UnixHolder::spawn("rendezvous.sock");
+    let prefix = holder.path.with_file_name("rendezvous");
+
+    let (tsv, _) = socket_holders(&prefix, false);
+
+    assert!(
+        parse_holders_tsv(&tsv).holders.is_empty(),
+        "a prefix must not match the bound path: {tsv}"
+    );
+}
+
+/// A socket path may contain spaces (a caller-supplied state directory), and
+/// the linux table emits it unquoted as its last column. This is the fixture
+/// for the parse rule that a `split_whitespace()` reader gets wrong.
+#[test]
+fn a_holder_of_a_path_containing_spaces_is_found() {
+    let holder = UnixHolder::spawn("my state.sock");
+
+    let (tsv, ok) = socket_holders(&holder.path, false);
+    let rows = parse_holders_tsv(&tsv);
+
+    assert!(ok, "{tsv}");
+    assert!(
+        rows.holders.contains(&format!("H\tclaimed\t{}", holder.pid)),
+        "a path with a space must resolve to its holder: {tsv}"
+    );
+}
+
+/// The JSON face carries the same document as the TSV — `holders` as a
+/// discriminated set, not a bare pid array, so `unclaimed` remains spellable.
+#[test]
+fn the_json_face_mirrors_the_holder_rows() {
+    let holder = UnixHolder::spawn("rendezvous.sock");
+
+    let out = osfacts()
+        .arg("socket-holders")
+        .arg(&holder.path)
+        .arg("--procs")
+        .arg("--json")
+        .output()
+        .expect("run osfacts socket-holders --json");
+    let value: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("socket-holders --json is JSON");
+
+    assert_eq!(value["version"], 2);
+    assert!(
+        value["holders"]
+            .as_array()
+            .expect("holders")
+            .contains(&serde_json::json!({ "status": "claimed", "pid": holder.pid })),
+        "json must mirror the tsv H row; json={value:?}"
+    );
+    assert!(
+        value["procs"]
+            .as_array()
+            .expect("procs")
+            .iter()
+            .any(|row| row["pid"] == holder.pid),
+        "json must mirror the tsv P row; json={value:?}"
+    );
+}
+
+/// The verb refuses an ask it cannot answer rather than answering about some
+/// other path.
+#[test]
+fn socket_holders_needs_exactly_one_path() {
+    osfacts().arg("socket-holders").assert().code(2);
+    osfacts()
+        .args(["socket-holders", "/tmp/a.sock", "/tmp/b.sock"])
+        .assert()
+        .code(2);
+    osfacts()
+        .args(["socket-holders", ""])
+        .assert()
+        .code(2);
 }

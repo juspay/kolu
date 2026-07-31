@@ -1,8 +1,8 @@
 /**
- * kolu-server's pty-host endpoint — the composition root for **the door** (B2).
+ * padi's pty-host endpoint — the composition root for **the door** (B2).
  *
  * Before B2 this module constructed the pty-host IN-PROCESS at import time and
- * served it on a socket. Now the server is a *client* of a `kaval` daemon it
+ * served it on a socket. Now padi is a *client* of a `kaval` daemon it
  * spawns: `ensureLocalEndpoint()` runs the always-recycle boot (kill any
  * survivor, spawn fresh, connect + handshake) through the supervisor spine
  * (`@kolu/surface-daemon-supervisor`), and `ptyHostClient` is a **stable
@@ -19,16 +19,22 @@
 import {
   type ConvergencePolicy,
   converge,
-  createBuildDrainFence,
   createEndpoint,
   daemonBuild,
+  destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
+  recycle,
   type RestartSteps,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -38,7 +44,14 @@ import {
   type PtyHostSpawnInput,
   type PtyHostSystemInfo,
 } from "kaval";
-import { cleanEnv, koluIdentityEnv, prepareShellInit } from "kolu-pty";
+import {
+  cleanEnv,
+  koluIdentityEnv,
+  prepareShellInit,
+  prependPathEntries,
+  readAgentToolsBake,
+  TERMINAL_TOOLS_PATH_ENV,
+} from "kolu-pty";
 import { log } from "../log.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {
@@ -53,27 +66,31 @@ import {
 } from "./daemonStatus.ts";
 import { localKavalDriver } from "./localDriver.ts";
 
-type Identity = PtyHostIdentity | undefined;
+type Identity = PtyHostIdentity;
 
 /**
  * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is
  * NON-DRAINABLE — recycling it kills its PTYs (no graceful drain verb), so:
  *   - `onContractSkew: recycle` — a wire-incompatible survivor can't serve the new
- *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break). This is
- *     the recycle-on-skew arm, byte-identical to the pre-kit `adoptOrEnsure`: the kit
- *     routes a `recycle` decision straight back to `adoptOrEnsure`.
+ *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break).
  *   - `onBuildMismatch: nudge-human` — a same-contract build change is NOT auto-acted on
  *     (draining/recycling would cost live PTYs); the kit reports the mismatch as an
  *     outcome and takes no supervisor action. kaval's "update available" nudge stays a
- *     human decision, surfaced by padi serving `expectedKaval` + the running identity for
- *     the client's `kavalStale` to compare — unchanged.
- * Being non-drainable, kaval CANNOT spell a drain policy (Pin 1 — a compile error).
+ *     human decision.
+ * Being non-drainable, kaval CANNOT spell a drain policy or a `drainBudget` (Pin 1 —
+ * a compile error). No inert fence is constructed.
  */
-const KAVAL_CONVERGENCE_POLICY: ConvergencePolicy<"not-drainable"> = {
-  capability: "not-drainable",
-  onContractSkew: { kind: "recycle" },
-  onBuildMismatch: { kind: "nudge-human" },
-};
+function kavalConvergencePolicy(): ConvergencePolicy<"not-drainable"> {
+  return {
+    capability: "not-drainable",
+    baked: {
+      contractVersion: PTY_HOST_CONTRACT_VERSION,
+      build: daemonBuild(currentPtyHostIdentity().staleKey),
+    },
+    onContractSkew: { kind: "recycle" },
+    onBuildMismatch: { kind: "nudge-human" },
+  };
+}
 
 /** The kolu app version stamped as `TERM_PROGRAM_VERSION` on every spawned PTY.
  *  INJECTED at boot by {@link setSpawnServerVersion} rather than read from a
@@ -87,10 +104,16 @@ const KAVAL_CONVERGENCE_POLICY: ConvergencePolicy<"not-drainable"> = {
  *  spawned PTY with an unset/stale version. */
 let spawnServerVersion: string | undefined;
 
-/** The injected app version, or a loud crash if a spawn composed before boot set
- *  it. Fail-fast: a never-set read must surface, not silently stamp a blank
- *  `TERM_PROGRAM_VERSION`. */
-function requireSpawnServerVersion(): string {
+/** The injected app version, or a loud crash if a spawn is composed before boot
+ *  set it. Fail-fast: a never-set read must surface, not silently stamp a blank
+ *  `TERM_PROGRAM_VERSION`.
+ *
+ *  Called by {@link buildTerminalSpawnInput}, which gathers ALL the daemon's own
+ *  facts into a {@link TerminalEnvSpec}; `composeSpawnInput` reads the spec and
+ *  no globals. Exported so the boot-order guard can be pinned directly — its
+ *  sibling guard (the kaval socket) throws first inside the gatherer, so there is
+ *  no path that reaches this one through the public function. */
+export function requireSpawnServerVersion(): string {
   if (spawnServerVersion === undefined) {
     throw new Error(
       "spawnServerVersion read before setSpawnServerVersion() — kolu-server boot must inject it before ensureLocalEndpoint",
@@ -109,6 +132,28 @@ export function setSpawnServerVersion(v: string): void {
 let endpoint:
   | Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>
   | undefined;
+
+/** Immutable identity of the kaval connection the endpoint owns right now.
+ * Both fields come from that ONE connection: `pid` from its validated
+ * `system.version` handshake and `startedAt` from the endpoint's own instance
+ * identity. This metadata stays process-internal — never a padi/kaval wire
+ * field. */
+export type KavalProcessTarget = Readonly<{
+  pid: number;
+  startedAt: number;
+}>;
+
+/** The current endpoint-owned process target, or honest absence while kaval is
+ * disconnected. Consumers capture this value before an async process read. */
+export function currentKavalProcessTarget(): KavalProcessTarget | undefined {
+  const connection = endpoint?.current();
+  return connection === undefined
+    ? undefined
+    : Object.freeze({
+        pid: connection.metadata.pid,
+        startedAt: connection.startedAt,
+      });
+}
 
 /** The serialized, emit-guarded restart trigger, bound to the live endpoint by
  *  `ensureLocalEndpoint`. Held here (not rebuilt per call) so its coalescing
@@ -177,9 +222,15 @@ export const ptyHostClient: PtyHostClient = makeForwardingClient(liveClient);
  *  without a live kaval — the same wiring `ensureLocalEndpoint` sets at boot. */
 export function __setEndpointForTest(
   ep: Endpoint<PtyHostClient, Identity, KavalConnectionMetadata>,
-): void {
+): () => void {
+  const previousEndpoint = endpoint;
+  const previousTriggerRestart = triggerRestart;
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
+  return () => {
+    endpoint = previousEndpoint;
+    triggerRestart = previousTriggerRestart;
+  };
 }
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
@@ -238,9 +289,21 @@ export async function ensureLocalEndpoint(opts: {
   // the primary home by default; the adopt-hint flips it to the legacy socket
   // when an upgrade adopts the port kaval, and a spawn resets it back.
   setLocalSocketPath(home.socketPath);
+  // Refresh baked identity at boot (staleKey is process-constant, but keep the
+  // policy object the single source — bake is already fixed on the const above).
+  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
   const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
     hostId: encodeHostLocation(LOCAL_LOCATION),
     home,
+    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+    // boot failure, never a surprise during a squatter recovery that is already
+    // coping with a wedged endpoint. Two spellings of the env var and two
+    // resolution timings on adjacent lines is how the two drift apart.
+    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+    readSocketHolders: osfactsSocketHolders(osfactsBin),
+    policy: kavalConvergencePolicy(),
+    probe: (socketPath) => probeKavalForConvergence(socketPath),
     driver: localKavalDriver(home.socketPath),
     // the framework hands you the path
     connect: (path) => connectKaval(path),
@@ -265,29 +328,9 @@ export async function ensureLocalEndpoint(opts: {
   endpoint = ep;
   triggerRestart = serializeRestart(ep);
   try {
-    // The boot, B3.3: adopt-or-recycle, now DELEGATED to the shared convergence kit
-    // under kaval's declared {@link KAVAL_CONVERGENCE_POLICY} (recycle-on-skew +
-    // nudge-human). The kit probes the running kaval's identity over `system.version`
-    // (Pin 3), decides, and enacts through the endpoint's EXISTING boot methods — a
-    // `recycle` decision routes straight to `adoptOrEnsure`, so a contract skew still
-    // kills + respawns exactly as before, and a compatible survivor (same OR different
-    // build) is ADOPTED (its PTYs preserved). A same-contract build change comes back as
-    // `mismatch-reported` and takes NO supervisor action — kaval's currency nudge stays
-    // the human's call, served for the client to compare (unchanged). We map the outcome
-    // back to the `adopted` boolean the reconcile below already consumes.
-    const outcome = await converge({
-      endpoint: ep,
-      baked: {
-        contractVersion: PTY_HOST_CONTRACT_VERSION,
-        build: daemonBuild(currentPtyHostIdentity().staleKey),
-      },
-      probe: () => probeKavalForConvergence(home.socketPath),
-      policy: KAVAL_CONVERGENCE_POLICY,
-      // kaval never build-drains (nudge-human), so the fence is unused here — but the kit
-      // requires one; a fresh per-boot fence is the honest, inert value.
-      buildFence: createBuildDrainFence(),
-      log,
-    });
+    // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
+    // no boot-method choice at the call site.
+    const outcome = await converge(ep);
     const adopted = outcomeAdopted(outcome);
     if (adopted && opts.onAdopted) {
       try {
@@ -302,7 +345,7 @@ export async function ensureLocalEndpoint(opts: {
           { err },
           "surviving-session reconciliation failed — recycling the adopted daemon",
         );
-        await ep.ensure();
+        await recycle(ep, destructiveRecycleSteps());
         // The recycle spawned a FRESH daemon — nothing live survives now, so this
         // is the no-survivor path: park the saved session for the restore card.
         opts.onNotAdopted?.();
@@ -355,6 +398,34 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 }
 
 /**
+ * What this daemon must put in a terminal's environment for the terminal to
+ * reach back at it — the spawn policy's *what*, as one value.
+ *
+ * Every member is a fact only the running daemon holds (the sockets it serves
+ * on, the toolchain from its own build), which is why they are handed to the
+ * composer as data rather than read from globals inside it: `composeSpawnInput`
+ * stays pure and the set is enumerable in one place instead of growing another
+ * positional parameter each time a terminal needs to know one more thing about
+ * its host. `buildTerminalSpawnInput` is the one place the values are gathered.
+ */
+export interface TerminalEnvSpec {
+  /** The kaval this terminal will live in — stamped as `KAVAL_SOCKET`. */
+  kavalSocket: string;
+  /** The padi that owns it — stamped as `PADI_SOCKET` when known. */
+  padiSocket?: string;
+  /** Tool dirs to put on `PATH`, highest priority first; `[]` when this daemon
+   *  was never baked with a toolchain. Required, with `[]` as the honest empty:
+   *  the only producer (`readAgentToolsBake`) cannot return `undefined`, so an
+   *  optional marker would add a representable state that means nothing.
+   *  (`padiSocket?` is genuinely optional — its producer really can be unset.) */
+  toolsPath: readonly string[];
+  /** The kolu-server version this daemon reports — stamped as
+   *  `TERM_PROGRAM_VERSION`. A daemon fact like the rest, so the composer reads
+   *  it off the spec rather than off a module global. */
+  serverVersion: string;
+}
+
+/**
  * Compose the fully-specified spawn input the pty-host wire expects, from kolu's
  * spawn policy applied against the host's facts. Pure (no IO): the env is
  * layered least → most authoritative —
@@ -373,6 +444,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
  *      terminal (an agent driving its siblings) reach the daemon that owns it
  *      without scanning `/tmp` — and, on macOS where `$XDG_RUNTIME_DIR` is unset,
  *      without guessing the port-namespaced path at all.
+ *   6. `PATH` + `KOLU_TERMINAL_TOOLS_PATH` — the daemon's own client toolchain
+ *      (`spec.toolsPath`). The locators above only pay off if the tools that
+ *      READ them can be run: a socket in the env is useless to an agent whose
+ *      shell has no `padi-tui` and no `kolu` to speak it. This is the one layer
+ *      that MERGES with (rather than stomps) what came before — the dirs are
+ *      prepended to the inherited `PATH`, so the user's own tools all still
+ *      resolve, kolu's just win a name collision.
  *
  * **Local-host only, today.** The host this process talks to IS this machine, so
  * `cleanEnv()`'s `env.SHELL`/`env.HOME` (describing *this* machine) win, and
@@ -384,14 +462,13 @@ function hostInfo(): Promise<PtyHostSystemInfo> {
 export function composeSpawnInput(
   args: { id: string; cwd?: string },
   info: PtyHostSystemInfo,
-  kavalSocket: string,
-  padiSocket?: string,
+  spec: TerminalEnvSpec,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
-  Object.assign(env, koluIdentityEnv(requireSpawnServerVersion()));
+  Object.assign(env, koluIdentityEnv(spec.serverVersion));
   const plan = prepareShellInit({
     shell,
     home,
@@ -408,13 +485,27 @@ export function composeSpawnInput(
   // stamp doesn't need to STOMP an inherited value, it simply IS the value.
   // Pairs as `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"`.
   env.KAVAL_TERMINAL_ID = args.id;
-  env.KAVAL_SOCKET = kavalSocket;
+  env.KAVAL_SOCKET = spec.kavalSocket;
+  // The toolchain (docblock item 6). Two assignments, one fact: the dirs go on
+  // PATH for anything the terminal runs, and the joined value is stamped under
+  // its own name so the wrapper rcfile can re-assert it after the user's
+  // dotfiles replay (an absolute `export PATH=…` there would otherwise drop it —
+  // see kolu-pty's PATH_REASSERT). Both are skipped when there are no dirs, so a
+  // from-source daemon spawns exactly the env it does today.
+  //
+  // Stamped under the TERMINAL name, never the BAKE name a wrapper writes: a
+  // kolu launched from inside this terminal must not read the stamp as its own
+  // build's toolchain. See kolu-pty's two constants.
+  if (spec.toolsPath.length > 0) {
+    env.PATH = prependPathEntries(env.PATH, spec.toolsPath);
+    env[TERMINAL_TOOLS_PATH_ENV] = spec.toolsPath.join(":");
+  }
   // The $KAVAL_SOCKET twin for padi: a `padi-tui` INSIDE this terminal reaches the
   // padi that OWNS it (the daemon that spawned it) with no --socket/--state-root —
   // so the /kolu agent-drives-agent loop runs `padi-tui wait` flagless. Stamped
   // only when known (padi's own serving socket, recorded at boot); an absent value
   // just makes padi-tui autodiscover, so this never blocks a spawn.
-  if (padiSocket !== undefined) env.PADI_SOCKET = padiSocket;
+  if (spec.padiSocket !== undefined) env.PADI_SOCKET = spec.padiSocket;
   return {
     id: args.id,
     argv: [shell, ...plan.args],
@@ -448,14 +539,23 @@ export async function buildTerminalSpawnInput(args: {
       "local kaval socket path read before the endpoint recorded it at boot",
     );
   }
-  // padi's own serving socket, recorded at boot by `daemonMain`
-  // (`setPadiServeSocketPath`), stamped as `PADI_SOCKET`. Optional (see
+  // The rest of the spec is gathered here — the one place the daemon's own facts
+  // are collected — so `composeSpawnInput` stays a pure function of its inputs.
+  //
+  // padi's own serving socket is recorded at boot by `daemonMain`
+  // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
   // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
   // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
-  return composeSpawnInput(
-    args,
-    await hostInfo(),
+  // `readAgentToolsBake()` needs no guard for the opposite reason: a from-source
+  // daemon has no baked toolchain and says so by returning `[]`.
+  //
+  // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
+  // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
+  // is gathered here with the rest, so the composer reads no globals of its own.
+  return composeSpawnInput(args, await hostInfo(), {
     kavalSocket,
-    getPadiServeSocketPath(),
-  );
+    padiSocket: getPadiServeSocketPath(),
+    toolsPath: readAgentToolsBake(),
+    serverVersion: requireSpawnServerVersion(),
+  });
 }

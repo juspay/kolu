@@ -15,8 +15,8 @@
  * The DIAL itself (`connectPadi` / `dialPadiHello` — dial + control-core
  * handshake + typed skew refusal) is imported from `@kolu/padi/dial`: W2.3 carved
  * it into padi's package as the client-side dial kit `padi-tui` shares. And padi's
- * CONVERGENCE declaration into the shared daemon-convergence kit (the contract-skew
- * {@link PADI_CONVERGENCE_POLICY}, the FROZEN-control-core {@link probePadiForConvergence}
+ * CONVERGENCE declaration into the shared daemon-convergence kit
+ * ({@link padiConvergencePolicy} plus the framework's frozen-control-core probe
  * probe, and the drain plumbing) lives in `./padiConvergence.ts`: W4 ledger L6 carved it
  * out because it varies with daemon-lifecycle skew policy, a different volatility than the
  * binder. What stays HERE is the binder proper — the parts that spawn/supervise/re-serve:
@@ -58,25 +58,27 @@ import {
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
-import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
   anchorGone,
   DAEMON_BIND_PID_ENV,
   gatePid,
   isHolderLive,
+  readBakedIdentity,
 } from "@kolu/surface-daemon";
 import {
   buildLabel,
+  type ConvergenceProbe,
   type ConvergenceOutcome,
   converge,
-  createBuildDrainFence,
   createEndpoint,
   type DaemonDriver,
-  daemonBuild,
   isDownEndpointState,
+  outcomeAnomaly,
+  probeDaemonIdentity,
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ClosedInfo,
   ConnectError,
@@ -85,7 +87,12 @@ import {
   type Session,
 } from "@kolu/surface-remote";
 import { assertDaemonSpawnAllowed } from "kaval";
-import { composeSpawnEnv } from "kolu-pty";
+import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import { log } from "../log.ts";
 // padi's convergence declaration into the shared daemon-convergence kit — the
 // contract-skew POLICY, the FROZEN-control-core probe, and the drain plumbing the
@@ -93,8 +100,8 @@ import { log } from "../log.ts";
 // varies with daemon-lifecycle skew policy, a different volatility than the binder.
 import {
   drainViaControlCore,
-  PADI_CONVERGENCE_POLICY,
-  probePadiForConvergence,
+  PADI_DRAIN_TEARDOWN_CEILING_MS,
+  padiConvergencePolicy,
 } from "./padiConvergence.ts";
 import { asPadiSession, type PadiSession } from "./padiSession.ts";
 
@@ -166,6 +173,24 @@ export function daemonEnv(
   const nodeOptions = scrubDaemonNodeOptions(process.env.NODE_OPTIONS);
   if (nodeOptions !== undefined) env.NODE_OPTIONS = nodeOptions;
   if (process.env.KOLU_DIAG_DIR) env.KOLU_DIAG_DIR = process.env.KOLU_DIAG_DIR;
+  // The client toolchain a terminal must be able to run (`kaval-tui`, `padi-tui`,
+  // `kolu mcp`), baked onto the `kolu` wrapper by nix. A REMOTE padi gets this
+  // from its own provisioned closure's wrapper — there is no env channel across
+  // ssh — so this forward is what gives a LOCALLY-supervised padi the same fact,
+  // and thus local and remote terminals one behaviour instead of two. Forwarded,
+  // not re-derived: kolu-server and padi must name the SAME build's tools (see
+  // kolu-pty's `readAgentToolsBake`).
+  //
+  // Forwarded UNCONDITIONALLY, and that is now safe by construction: the bake
+  // name is written only by a wrapper and is never stamped into a terminal (the
+  // stamp is `KOLU_TERMINAL_TOOLS_PATH`). A from-source kolu started inside a
+  // kolu terminal therefore inherits no bake, forwards none, and its terminals
+  // carry none — explicit absence, no discriminator needed. This used to be
+  // gated on `KOLU_PADI_BIN`, an unrelated variable pressed into service as a
+  // proxy for "is my own value a bake or somebody's stamp?"; splitting the two
+  // names deleted the question.
+  if (process.env[AGENT_TOOLS_BAKE_ENV])
+    env[AGENT_TOOLS_BAKE_ENV] = process.env[AGENT_TOOLS_BAKE_ENV];
   // Forward kaval's build identity for the FROM-SOURCE / dev path ONLY: the nix-built
   // padi wrapper BAKES `KAVAL_BUILD_ID` / `KAVAL_COMMIT_HASH` (padi owns kaval — its
   // closure knows them at build time; see default.nix), so a production padi already
@@ -173,10 +198,11 @@ export function daemonEnv(
   // nothing, leaving its kaval-currency check (`expectedKaval`, terminalEndpoint/
   // reattach.ts) reading "" so the "update available" nudge can never fire. Forward
   // kolu-server's own baked value so dev matches production.
-  if (process.env.KAVAL_BUILD_ID)
-    env.KAVAL_BUILD_ID = process.env.KAVAL_BUILD_ID;
-  if (process.env.KAVAL_COMMIT_HASH)
-    env.KAVAL_COMMIT_HASH = process.env.KAVAL_COMMIT_HASH;
+  const kavalIdentity = readBakedIdentity("KAVAL");
+  if (kavalIdentity.staleKey) {
+    env.KAVAL_BUILD_ID = kavalIdentity.staleKey;
+    env.KAVAL_COMMIT_HASH = kavalIdentity.navigableCommit;
+  }
   // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
   // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
   // LOCATE agent session state. Unset in production, where they default to `~/.codex`,
@@ -375,6 +401,18 @@ export interface EnsurePadiBindingOptions {
   onFatalBindingError?: (err: PadiBindingFatalError) => void;
 }
 
+/**
+ * Non-exported dependency injection for tests (W4.1). Public
+ * {@link ensurePadiBinding} always supplies the canonical policy / probe /
+ * driver / connect — never a public override knob.
+ */
+export type PadiBindingDeps = {
+  probe: (socketPath: string) => Promise<ConvergenceProbe<"drainable"> | null>;
+  driver: DaemonDriver;
+  connect: (socketPath: string) => ReturnType<typeof connectPadi>;
+  policy: ReturnType<typeof padiConvergencePolicy>;
+};
+
 /** The single local padi host id — the endpoint's status key. Distinct from
  *  kaval's daemon-status key (padi's own `HostLocation` axis, encoded via
  *  `encodeHostLocation` — kaval now lives INSIDE padi). */
@@ -433,27 +471,51 @@ export class PadiStateRootGoneError extends PadiBindingFatalError {
 /** The connector's `conn === undefined` failure, classified — extracted as its own
  *  pure function (no I/O, no closures) so the ONE branch-point between "structurally
  *  unresolvable, exit" and "possibly transient, retry" is unit-testable directly off a
- *  hand-built {@link ConvergenceOutcome}, without booting a real padi. `outcome.kind
- *  === "refused"` reaching here (i.e. with no connection adopted — a raced
- *  refuse-but-actually-adopted never reaches this branch, see the connector) is the
- *  ONE case #1313's REFUSE policy produces: a genuine padiSurface CONTRACT skew
- *  against a survivor this binder must never touch. Every other reason `conn` is
- *  undefined (unreachable survivor, "not-adopted") is possibly transient — the
- *  existing fail-open `ConnectError`/`"network"` reconnect stance, unchanged. */
+ *  hand-built {@link ConvergenceOutcome}, without booting a real padi.
+ *
+ *  Classification keys off `outcome.anomaly.kind` when present:
+ *   - `skew-refused` → fatal {@link PadiAdoptionRefusedError} (#1313 contract skew)
+ *   - `cross-supervisor` / `unconverged` → fatal-ish ConnectError with the anomaly
+ *     detail (not mislabeled as contract skew)
+ *   - everything else (no anomaly) → transient network reconnect
+ */
 export function padiConnectFailure(
   outcome: ConvergenceOutcome,
   stateRoot: string,
   socketPath: string,
 ): Error {
   if (outcome.kind === "refused") {
-    return new PadiAdoptionRefusedError(
-      "a padi is already serving this workspace at a padiSurface contract this " +
-        `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
-        "left standing, never touched (#1313: a binder never kills a running padi). " +
-        "If a kolu is already running against it, use that one. To run a second, " +
-        "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
-        "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
-    );
+    // anomaly is required on refused — exhaustive fold.
+    switch (outcome.anomaly.kind) {
+      case "skew-refused":
+        return new PadiAdoptionRefusedError(
+          "a padi is already serving this workspace at a padiSurface contract this " +
+            `kolu cannot speak (state dir: ${stateRoot}; its socket: ${socketPath}) — ` +
+            "left standing, never touched (#1313: a binder never kills a running padi). " +
+            "If a kolu is already running against it, use that one. To run a second, " +
+            "independent instance here, set KOLU_STATE_DIR=<dir> (and " +
+            "KOLU_PADI_STATE_DIR=<dir> for an isolated padi too).",
+        );
+      case "cross-supervisor":
+        return new ConnectError(
+          `padi cross-supervisor: ${outcome.anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath}) — ` +
+            "another supervisor is respawning this workspace's padi; isolate with " +
+            "KOLU_STATE_DIR / KOLU_REMOTE_PADI_STATE_DIR rather than fighting",
+          "remote",
+        );
+      case "unconverged":
+        return new ConnectError(
+          `padi unconverged: ${outcome.anomaly.detail} (state dir: ${stateRoot}; socket: ${socketPath})`,
+          "remote",
+        );
+      default: {
+        // F13: refused.anomaly excludes adopted-stale — impossible arm deleted.
+        const _exhaustive: never = outcome.anomaly;
+        throw new Error(
+          `unreachable refuse anomaly: ${JSON.stringify(_exhaustive)}`,
+        );
+      }
+    }
   }
   // converge left padi standing + degraded (unreachable, or a raced refuse that
   // still holds no connection) — reconnect (network, retry with backoff) rather
@@ -520,8 +582,37 @@ export function handlePadiBootFailure(
  *
  * Fail-open on boot error: the endpoint already reported `dead`; don't crash the
  * server boot (same stance as `ensureLocalEndpoint`).
+ *
+ * Public options are domain-only (W4.1) — policy/probe/driver/connect are always
+ * the canonical padi values. Tests inject via {@link ensurePadiBindingWith}.
  */
 export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
+  const binderBuildId = currentPadiBuildId();
+  return ensurePadiBindingWith(opts, {
+    policy: padiConvergencePolicy(binderBuildId),
+    probe: probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS,
+    }),
+    driver: null, // resolved after home is known
+    connect: (path) => connectPadi(path),
+  });
+}
+
+/**
+ * Package-internal entry with injectable deps (W4.1). NOT a public production
+ * API — deep-import for tests only. Public {@link ensurePadiBinding} always
+ * supplies canonical padi values.
+ *
+ * `deps.driver: null` means "build localPadiDriver after home is resolved"
+ * (the public wrapper cannot know the socket path before home discovery).
+ */
+export function ensurePadiBindingWith(
+  opts: EnsurePadiBindingOptions,
+  deps: Omit<PadiBindingDeps, "driver"> & {
+    driver: DaemonDriver | null;
+  },
+): PadiSession {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   // The binder OWNS the state root's creation, once per boot. This is what makes
   // the connector's gone-root check below sound on a fresh machine: after this
@@ -549,6 +640,20 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // CURRENT dial's `closed`, so `makeSession`'s loop reconnects (re-runs converge). The
   // endpoint holds ONE connection and does NOT self-reconnect — the loop owns that.
   let currentClosed: ((info: ClosedInfo) => void) | null = null;
+  // Standing convergence anomaly from the last converge — surfaces via
+  // `convergence()` (adopted-stale when the budget is spent, etc.). Null when clean.
+  let standingConvergence: PadiConvergence | null = null;
+  const driver =
+    deps.driver ??
+    localPadiDriver(
+      stateRoot,
+      home.socketPath,
+      opts.nixShellWhitelist,
+      opts.spawnVersion,
+      opts.verbose ?? false,
+      opts.legacyKavalSocket,
+    );
+  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
   const ep = createEndpoint<
     PadiDaemonClient,
     PadiHelloIdentity,
@@ -556,16 +661,20 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   >({
     hostId: PADI_HOST_ID,
     home,
-    driver: localPadiDriver(
-      stateRoot,
-      home.socketPath,
-      opts.nixShellWhitelist,
-      opts.spawnVersion,
-      opts.verbose ?? false,
-      opts.legacyKavalSocket,
-    ),
+    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+    // boot failure, never a surprise during a squatter recovery that is already
+    // coping with a wedged endpoint. Two spellings of the env var and two
+    // resolution timings on adjacent lines is how the two drift apart.
+    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+    readSocketHolders: osfactsSocketHolders(osfactsBin),
+    // Policy stated once — baked identity + Cap-gated budget. The only boot verb is
+    // `converge(ep)`; boot methods are internal.
+    policy: deps.policy,
+    probe: (socketPath) => deps.probe(socketPath),
+    driver,
     // the framework hands you the path
-    connect: (path) => connectPadi(path),
+    connect: (path) => deps.connect(path),
     log,
     onStatus: (_hostId, status) => {
       // A down/terminal close ends the current dial → resolve its `closed` so
@@ -592,39 +701,24 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
     },
   });
 
-  // The build axis's once-per-binder-boot fence + this binder's baked expected padi
-  // build id, created ONCE here (per server boot) and closed over by `convergePadi`, so
-  // the build-mismatch drain fires at most once across this binder's life (#1670).
-  const buildDrainFence = createBuildDrainFence();
-  const binderBuildId = currentPadiBuildId();
-
-  // SELF-CONVERGE (pre-connect): `converge` probes the running padi's control-core
-  // identity, decides per `PADI_CONVERGENCE_POLICY`, and ENACTS through the endpoint
-  // (drain-if-newer / refuse-if-older / adopt / build-drain-once). Run at the top of
-  // EVERY dial by the connector — this is why the LOCAL arm needs no post-connect
-  // `admit`: its transport converges at connect (the Endpoint is unchanged).
+  // SELF-CONVERGE (pre-connect): the only boot verb. Policy + budget live on the
+  // endpoint (budget survives adopts across dials of this boot).
   const convergePadi = async (): Promise<ConvergenceOutcome> => {
-    const outcome = await converge({
-      endpoint: ep,
-      baked: {
-        contractVersion: PADI_SURFACE_VERSION,
-        build: daemonBuild(binderBuildId),
-      },
-      probe: () => probePadiForConvergence(home.socketPath),
-      policy: PADI_CONVERGENCE_POLICY,
-      buildFence: buildDrainFence,
-      log,
-    });
+    const outcome = await converge(ep);
+    // Framework anomaly rides the wire as-is (PadiConvergence re-derives the
+    // framework shape). No converter.
+    standingConvergence = outcomeAnomaly(outcome);
     // Preserve the #1670 build-change breadcrumb — the binder's OWN domain line. The
     // adoption-padi-upgrade VM arm greps `padi build change on boot: running=<hex>`.
     if (outcome.kind === "drained-replacing" && outcome.axis === "build") {
+      const expectedBuild = buildLabel(deps.policy.baked.build);
       log.info(
         {
-          binderBuildId,
+          binderBuildId: expectedBuild,
           runningBuild: buildLabel(outcome.running.build),
           running: outcome.running,
         },
-        `padi build change on boot: running=${buildLabel(outcome.running.build)} expected=${binderBuildId}` +
+        `padi build change on boot: running=${buildLabel(outcome.running.build)} expected=${expectedBuild}` +
           " — draining the survivor once (persist + exit; its kaval + PTYs survive) and " +
           "respawning this binder's own build (drain-on-build-mismatch, #1670).",
       );
@@ -734,11 +828,10 @@ export function ensurePadiBinding(opts: EnsurePadiBindingOptions): PadiSession {
   // live upstream. Keeping `ensurePadiBinding` side-effect-free lets the arm's unit tests
   // observe `convergence()`/`identity()`/`renew()` with no real padi spawned.
   return asPadiSession(base, {
-    // The LOCAL arm surfaces no convergence anomaly (parity with the pre-S9
-    // PadiBindingSession, whose `padiConvergence()` returned null): the shared kit
-    // collapses a fence-spent adopt to a bare `{kind:"adopted"}`, so local adopt-stale
-    // can't be surfaced without a kit change (L23 follow-up).
-    convergence: () => null,
+    // Standing anomaly from the last `converge(ep)` — budget-exhausted local adopt
+    // surfaces as `adopted-stale` (previously inexpressible; the fence collapsed it
+    // to a silent adopt). Null when the bind is clean.
+    convergence: () => standingConvergence,
     // Same parity: the local arm has no drv-resolution/skew channel (no ssh, no arch
     // probe, no baked agent source) and its OWN contract-skew refusal is FATAL at boot
     // (`PadiAdoptionRefusedError`, never a live down-session to publish a cause for)

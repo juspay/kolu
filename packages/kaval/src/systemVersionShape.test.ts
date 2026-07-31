@@ -1,15 +1,8 @@
 /**
- * Shape-pin for kaval's `system.version` output — the supervisor's VERSION-AGNOSTIC
- * IDENTITY read.
- *
- * The shared convergence kit reads `{ contractVersion, identity.staleKey }` off this
- * handshake BEFORE, and independent of, the contract-compat check — that is Pin 3
- * (identity reachable under skew): padi's `probeKavalForConvergence`
- * (`packages/padi/src/ptyHost/connect.ts`) reads these fields to route a skewed kaval to
- * `recycle` and a build-different kaval to the `nudge-human` currency. zod strips unknown
- * keys, so a silent rename/removal of a field would NOT fail a parse — it would quietly
- * break that frozen read. This pins the exact key-sets so such a change fails LOUDLY:
- * if it does, update `probeKavalForConvergence` and this pin together.
+ * Shape-pin for kaval's legacy `system.version` output. Supervisor identity now
+ * rides the frozen control fragment, but this procedure stays byte-for-byte
+ * unchanged for existing pid/lifetime/build-readout consumers. Zod strips
+ * unknown keys, so exact key pins make an accidental wire edit fail loudly.
  */
 
 import { describe, expect, it } from "vitest";
@@ -18,7 +11,7 @@ import {
   SystemVersionOutputSchema,
 } from "./ptyHostSurface.ts";
 
-describe("system.version shape — the convergence identity read (Pin 3)", () => {
+describe("system.version shape — frozen for existing consumers", () => {
   it("SystemVersionOutputSchema is exactly { contractVersion, identity?, lifetime?, pid, startedAt }", () => {
     expect(Object.keys(SystemVersionOutputSchema.shape).sort()).toEqual([
       "contractVersion",
@@ -36,7 +29,7 @@ describe("system.version shape — the convergence identity read (Pin 3)", () =>
     ]);
   });
 
-  it("identity stays OPTIONAL — a daemon predating the field still handshakes, and the probe reads its staleKey as an honest '' (Pin 3)", () => {
+  it("identity stays OPTIONAL — a daemon predating the field still handshakes", () => {
     expect(SystemVersionOutputSchema.shape.identity.isOptional()).toBe(true);
   });
 

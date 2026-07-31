@@ -14,7 +14,7 @@ import {
   LOCAL_LOCATION,
 } from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
-import type { HostKey } from "kolu-common/hostKey";
+import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
 import type { SkewVersionPair } from "kolu-common/surfacesWithPadi";
 import type { Component, Setter } from "solid-js";
@@ -55,7 +55,7 @@ import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
-import { hostGlance, hostLabel, sameHost } from "./hostChipTone";
+import { hostGlance, hostLabel } from "./hostChipTone";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -69,11 +69,9 @@ function entryAsPadiLink(state: EntryState): PadiLink | undefined {
 }
 
 function skewPairFor(host: HostKey): SkewVersionPair | undefined {
-  // The failed arm carries the schema-valid `PadiEntryFailure`, whose skew arm
-  // types `running`/`expected` directly (both OPTIONAL — the binder may omit them).
-  // `SkewVersionPair` is now the honestly-optional schema-derived type, so the
-  // returned pair needs NO `as SkewVersionPair` cast — the type stops lying about
-  // possibly-undefined fields being present.
+  // The failed arm carries the schema-valid `PadiEntryFailure`, whose
+  // `contract-skew-refused` arm always carries both contract versions (typed
+  // evidence from the standing anomaly — never optional).
   const state = padiMap.entry(host).state();
   if (
     state.kind !== "failed" ||

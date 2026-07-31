@@ -84,14 +84,29 @@ export function readPerTerminal(
 export async function waitForBufferContains(
   page: Page,
   expected: string,
-  { selector = ACTIVE_TERMINAL, index = 0, timeout = POLL_TIMEOUT } = {},
+  {
+    selector = ACTIVE_TERMINAL,
+    index = 0,
+    timeout = POLL_TIMEOUT,
+    // Narrow the read to the rows the user can actually SEE, instead of the
+    // whole buffer. The distinction is load-bearing: a terminal can hold the
+    // right bytes while showing the wrong window onto them (scrolled off the
+    // live bottom), which is precisely how a split renders "broken" to a user —
+    // that defect delivers every byte correctly and then shows the wrong window,
+    // so a whole-buffer read passes on a screen the user sees as broken. A
+    // buffer read only answers "did it arrive"; only a viewport-scoped read
+    // answers "does the user SEE it". Pass `viewport: true` whenever that is the
+    // claim being asserted.
+    viewport = false,
+  } = {},
 ): Promise<string> {
   const handle = await page.waitForFunction(
-    ({ sel, idx, exp }) => {
-      const content = window.__readXtermBuffer?.(sel, idx) ?? "";
+    ({ sel, idx, exp, vp }) => {
+      const content =
+        window.__readXtermBuffer?.(sel, idx, { viewport: vp }) ?? "";
       return content.includes(exp) ? content : null;
     },
-    { sel: selector, idx: index, exp: expected },
+    { sel: selector, idx: index, exp: expected, vp: viewport },
     { timeout, polling: 50 },
   );
   // The handle's predicate above returns either a non-null string (match)

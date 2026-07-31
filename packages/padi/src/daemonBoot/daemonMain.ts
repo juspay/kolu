@@ -15,21 +15,18 @@
 
 import { dirname } from "node:path";
 import {
-  acquirePidGate,
-  confirmHeldGate,
+  claimPidGate,
   type DaemonExit,
+  type DaemonBuildIdentity,
   type DaemonLifetimeInfo,
   daemonLifetimeFromEnv,
   daemonMain,
   type GateAcquisition,
   lifetimeInfo,
   type Logger,
+  type ProcessIdentity,
 } from "@kolu/surface-daemon";
-
-/** padi's boot time (ms epoch), stamped ONCE when this module first loads — i.e.
- *  at process start. The control-core `hello` echoes it so the binder measures
- *  honest uptime instead of resetting the age on every reconnect. */
-const PADI_STARTED_AT = Date.now();
+import { processIdentityFromEnv } from "osfacts-client";
 
 import { buildCommit } from "@kolu/surface/identity";
 import {
@@ -39,7 +36,7 @@ import {
 import type { Router } from "@orpc/server";
 import { configureNixShellEnv } from "kolu-pty";
 import { initAutosaveGate } from "../session/autosaveGate.ts";
-import { currentPadiBuildId, currentPadiCommitHash } from "./buildId.ts";
+import { currentPadiBuildIdentity } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
@@ -77,7 +74,10 @@ import {
 } from "../stateRoot.ts";
 import { resolveDaemonHome } from "@kolu/surface-daemon";
 import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
-import { openPadiStateStores } from "../session/stateStore.ts";
+import {
+  NewerPadiStateProjectVersionError,
+  openPadiStateStores,
+} from "../session/stateStore.ts";
 import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
@@ -88,6 +88,19 @@ import {
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+
+/** Padi's immutable process boot facts, captured together exactly once. Every
+ * serving projection receives this same whole value, so repeated ambient env
+ * reads cannot describe different builds within one process. */
+interface PadiBoot {
+  readonly startedAt: number;
+  readonly identity: Readonly<DaemonBuildIdentity>;
+}
+
+const PADI_BOOT: PadiBoot = Object.freeze({
+  startedAt: Date.now(),
+  identity: Object.freeze(currentPadiBuildIdentity()),
+});
 
 export interface PadiDaemonOptions {
   /** The state-root to anchor to — padi's identity. Resolved via
@@ -135,7 +148,7 @@ export interface PadiDaemonOptions {
 // compiler-checked edge; the win is that those setters are grouped into one phase
 // instead of scattered across the boot the way they used to be.
 
-/** Padi's HELD single-instance gate — the `acquired` arm of `acquirePidGate`,
+/** Padi's HELD single-instance gate — the `acquired` arm of `claimPidGate`,
  *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
  *  that must run UNDER the gate, so a phase reachable before the claim would not
  *  type-check (the loser of a state-root race can't clobber the winner's disk). */
@@ -192,7 +205,11 @@ function openStateStores(
   stateRoot: string,
   log: Logger,
 ): StoresReady {
-  const stores = openPadiStateStores(stateRoot);
+  const opened = openPadiStateStores(stateRoot);
+  if (opened.kind === "newer-project-version") {
+    throw new NewerPadiStateProjectVersionError(opened);
+  }
+  const stores = opened.stores;
   // Import BEFORE the injections below — the imported values must be in place before
   // anything reads a cell. (#1658's backup, inlined per the scope note.)
   importLegacyConfigOnce(stores, log);
@@ -209,6 +226,7 @@ function configureDaemonIdentity(
   stores: StoresReady,
   opts: PadiDaemonOptions,
   socketPath: string,
+  boot: PadiBoot,
 ): IdentityReady {
   // padi's OWN pid (a standalone daemon owns its disk) — koluRoot + PTY spawns need it.
   setDaemonProcessId(String(process.pid));
@@ -216,9 +234,11 @@ function configureDaemonIdentity(
   // `PADI_SOCKET` (the $KAVAL_SOCKET twin) — set well before `ensureLocalEndpoint` can
   // spawn a terminal.
   setPadiServeSocketPath(socketPath);
-  // `||` not `??`: `currentPadiCommitHash()` is "" off-nix and the setter refuses an
+  // `||` not `??`: the baked commit is "" off-nix and the setter refuses an
   // empty value — fall through to "dev".
-  setSpawnServerVersion(opts.spawnVersion || currentPadiCommitHash() || "dev");
+  setSpawnServerVersion(
+    opts.spawnVersion || boot.identity.navigableCommit || "dev",
+  );
   configureNixShellEnv(opts.nixShellWhitelist);
   ensureKoluRoot();
   // Register the scratch-root wipe on `exit` — only AFTER `ensureKoluRoot` created the
@@ -246,9 +266,10 @@ function serveDaemonSurfaces(
     onDrain: () => void;
     log: Logger;
     lifetime: DaemonLifetimeInfo;
+    boot: PadiBoot;
   },
 ): SurfacesServed {
-  const { stateRoot, onDrain, log, lifetime } = params;
+  const { stateRoot, onDrain, log, lifetime, boot } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
   const runtime = implementSurfacesOnPublisher(
     padiDaemonSurfaces,
@@ -267,8 +288,8 @@ function serveDaemonSurfaces(
       identity: {
         padi: {
           contractVersion: PADI_SURFACE_VERSION,
-          buildId: currentPadiBuildId(),
-          commit: buildCommit(currentPadiCommitHash()),
+          buildId: boot.identity.staleKey,
+          commit: buildCommit(boot.identity.navigableCommit),
         },
       },
     },
@@ -279,8 +300,8 @@ function serveDaemonSurfaces(
         // The SAME `startedAt`/`commit` handed to the control-core `hello` below —
         // reused, never re-derived, so the padiSurface `identity` cell and `hello`
         // can't drift.
-        startedAt: PADI_STARTED_AT,
-        commit: currentPadiCommitHash(),
+        startedAt: boot.startedAt,
+        commit: boot.identity.navigableCommit,
         lifetime,
         // The `hostInventory` derived poll cell resolves its held-kaval fallback
         // address from this state-root.
@@ -288,13 +309,13 @@ function serveDaemonSurfaces(
       }),
       control: buildControlCoreDeps({
         stateRoot,
-        startedAt: PADI_STARTED_AT,
+        startedAt: boot.startedAt,
         // padi's navigable git commit (`PADI_COMMIT_HASH`), echoed by `hello` so the
         // binder surfaces the RUNNING padi's build. Empty "" off-nix → honest "—".
-        commit: currentPadiCommitHash(),
+        commit: boot.identity.navigableCommit,
         // padi's staleKey (`PADI_BUILD_ID`) — the binder's build-convergence key: a
         // same-contract build mismatch drains this padi once at binder boot (#1670).
-        buildId: currentPadiBuildId(),
+        buildId: boot.identity.staleKey,
         onDrain,
       }),
     },
@@ -388,29 +409,45 @@ export async function runPadiDaemon(
   // gate is acquired here, at the top, and HANDED to the spine's `daemonMain` (which
   // otherwise acquires it last, after all of that). A crash mid-boot (the fail-fast
   // import) leaves a gate held by a dead pid, which the next launch reclaims.
-  let gate = acquirePidGate(home.gatePath);
-  if (gate.kind === "held") {
-    gate = await confirmHeldGate(gate, home.gatePath, home.socketPath);
+  const readProcessIdentity = (pid: number): ProcessIdentity | undefined =>
+    processIdentityFromEnv("KOLU_OSFACTS_BIN", pid);
+  const selfIdentity = readProcessIdentity(process.pid);
+  if (selfIdentity === undefined) {
+    throw new Error(
+      `osfacts could not resolve this padi process (${process.pid})`,
+    );
   }
-  if (gate.kind === "held") {
+  const claimed = await claimPidGate(
+    home.gatePath,
+    home.socketPath,
+    selfIdentity,
+    readProcessIdentity,
+  );
+  if (claimed.kind === "held") {
     log.info(
-      { gatePath: home.gatePath, pid: gate.pid },
+      { gatePath: home.gatePath, pid: claimed.pid },
       "padi already running for this state-root; yielding to the live instance",
     );
-    return { kind: "already-running", pid: gate.pid };
+    return { kind: "already-running", pid: claimed.pid };
   }
-  if (gate.kind === "dir-not-private") {
+  if (claimed.kind === "dir-not-private") {
     log.error(
-      { gatePath: home.gatePath, dir: gate.dir },
+      { gatePath: home.gatePath, dir: claimed.dir },
       "padi gate directory is not private (owner-only); refusing to start",
     );
     return { kind: "serve-failed", detail: "dir-not-private" };
   }
+  const gate = claimed;
 
   // Gate → stores → identity: each phase takes the prior's token, so none can run
   // before the gate is claimed above (a lost gate-race returns before reaching here).
   const stores = openStateStores(gate, stateRoot, log);
-  const identity = configureDaemonIdentity(stores, opts, home.socketPath);
+  const identity = configureDaemonIdentity(
+    stores,
+    opts,
+    home.socketPath,
+    PADI_BOOT,
+  );
 
   // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
   // harness/smoke run set `KOLU_DAEMON_BIND_PID`. Seeded into the padiSurface
@@ -458,6 +495,7 @@ export async function runPadiDaemon(
     onDrain,
     log,
     lifetime: lifetimeInfo(lifetime),
+    boot: PADI_BOOT,
   });
   try {
     const endpoint = await bootLocalEndpoint(served, {
@@ -488,6 +526,8 @@ export async function runPadiDaemon(
     return await daemonMain({
       // Full home — gate+socket from one resolve; override absorbed at construction.
       home,
+      processIdentity: selfIdentity,
+      readProcessIdentity,
       // The router is the serve phase's output — read it straight off `served` rather
       // than re-threading it through the endpoint token that neither owns nor touches it.
       router: served.router,

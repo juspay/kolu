@@ -48,7 +48,7 @@ Feature: Mobile soft keyboard
 
   @mobile
   Scenario: Tapping Ctrl-C interrupts a running command
-    Given I run "sleep 30"
+    Given I start "sleep 30"
     When I tap the mobile key "ctrl-c"
     Then the active terminal should show "^C"
     And there should be no page errors
@@ -59,7 +59,7 @@ Feature: Mobile soft keyboard
     # the next character typed (xterm onData) is folded into the chord — here
     # "c" becomes 0x03 and interrupts the running command. Exercises the
     # onData fold, which the key bar's own sendInput path can't reach.
-    Given I run "sleep 30"
+    Given I start "sleep 30"
     When I tap the mobile key "ctrl"
     Then the mobile key "ctrl" should be armed
     When I type "c" on the soft keyboard

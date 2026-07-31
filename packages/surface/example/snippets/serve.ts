@@ -5,7 +5,11 @@
  * ready to serve over a wire transport.
  */
 
-import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import {
+  type ImplementSurfaceDeps,
+  implementSurface,
+  inMemoryStore,
+} from "@kolu/surface/server";
 import { type LogFrame, type Pid, type Proc, surface, ZERO } from "./surface";
 
 // Persistence is supplied as plain dependencies — the surface wraps publish.
@@ -23,7 +27,7 @@ async function* source(nodeId: string): AsyncIterable<LogFrame> {
 }
 
 // #region implement
-const runtime = implementSurface(surface, {
+export const deps: ImplementSurfaceDeps<typeof surface.spec> = {
   cells: { load: { store: inMemoryStore(ZERO) } },
   collections: { processes: { readAll, upsert, remove } },
   streams: { nodeLog: { source } },
@@ -35,7 +39,8 @@ const runtime = implementSurface(surface, {
       },
     },
   },
-});
+};
+const runtime = implementSurface(surface, deps);
 // #endregion implement
 
 // #region flatten

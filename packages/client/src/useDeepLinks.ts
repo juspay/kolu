@@ -43,7 +43,6 @@ import { listIsAuthoritative } from "./kaval/useDaemonStatus";
 import { openInCodeTab } from "./right-panel/openInCodeTab";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { openSettings } from "./settings/useSettingsOpen";
-import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { activeHost, setActiveHost } from "./wire";
 
@@ -100,15 +99,14 @@ export { requestDeepLinkNavigation };
 
 export function useDeepLinks(): void {
   const store = useTerminalStore();
-  const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
   // The one terminal navigation the settle effect is watching (null = idle).
   const [pending, setPending] = createSignal<TerminalRoute | null>(null);
 
   /** Enact a terminal route once its target is known to exist. View-only:
-   *  activate the tile, walk the split chain for a sub-terminal, open the
-   *  requested right-panel tab. Calls NO mutating verb.
+   *  focus the terminal through the shared landing verb, then open the requested
+   *  right-panel tab. Calls NO mutating verb.
    *
    *  `anchorMeta` is the metadata of the tile that OWNS the right panel — the
    *  parent tile for a sub-terminal, else the target itself. The right panel is
@@ -119,22 +117,9 @@ export function useDeepLinks(): void {
    *  represent. A null repoRoot at a `code` enact is an internal invariant break
    *  (crash loudly), not a reachable "no repo" path (that toasts from the
    *  backstop). */
-  function enact(
-    route: TerminalRoute,
-    meta: TerminalMeta,
-    anchorMeta: TerminalMeta,
-  ): void {
+  function enact(route: TerminalRoute, anchorMeta: TerminalMeta): void {
     const id = route.terminalId;
-    const parentId = meta.parentId ?? null;
-    if (parentId) {
-      // A sub-terminal (split): the FULL chain — parent tile active, sub
-      // selected, focus into the sub pane (the `useAdoptNewSplit` precedent).
-      store.activate(parentId);
-      subPanel.expandPanel(parentId);
-      subPanel.setActiveSubTab(parentId, id);
-    } else {
-      store.activate(id);
-    }
+    store.focusTerminal(id);
     match(route)
       .with({ kind: "terminal" }, () => {})
       .with({ kind: "inspector" }, () => {
@@ -151,8 +136,8 @@ export function useDeepLinks(): void {
             "deep-link: code route enacted without a sensed repoRoot",
           );
         openInCodeTab({
+          terminalId: id,
           ref: { path: r.path, startLine: r.line, endLine: r.line },
-          repoRoot,
           cwd: anchorMeta.cwd,
           targetMode: "browse",
           // A deep-link path is explicit (GitHub-style exact), never a bare
@@ -389,7 +374,7 @@ export function useDeepLinks(): void {
     // durably stamped-but-un-enacted (the exact state #1900 R1 prevents). Never
     // `disarmResolved` here — that would clear the surviving intent.
     setPending(null);
-    enact(route, resolved.meta, resolved.anchorMeta);
+    enact(route, resolved.anchorMeta);
     stampEntryRouted();
   });
 

@@ -22,8 +22,20 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
+import {
+  closeSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  writeSync,
+} from "node:fs";
 import { createRequire } from "node:module";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 // `connectPadi` moved into the shared dial kit in W2.3; the supervision it feeds
@@ -41,14 +53,18 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
-import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
+import {
+  AGENT_TOOLS_BAKE_ENV,
+  SPAWN_ENV_ALLOWLIST,
+  TERMINAL_TOOLS_PATH_ENV,
+} from "kolu-pty";
 import {
   type ConvergenceOutcome,
   converge,
-  createBuildDrainFence,
-  createEndpoint,
   daemonBuild,
+  probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
+
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
@@ -69,6 +85,7 @@ import {
   AGENT_DIR_ENV_KEYS,
   daemonEnv,
   ensurePadiBinding,
+  ensurePadiBindingWith,
   handlePadiBootFailure,
   localPadiDriver,
   PADI_HOST_ID,
@@ -78,15 +95,15 @@ import {
   reportFatalBindingError,
   resolvePadiLaunch,
 } from "./padiBinding.ts";
-// padi's convergence declaration + probe moved to `./padiConvergence.ts` in L6.
 import {
-  PADI_CONVERGENCE_POLICY,
-  probePadiForConvergence,
+  PADI_DRAIN_TEARDOWN_CEILING_MS,
+  padiConvergencePolicy,
 } from "./padiConvergence.ts";
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
 import { buildAppRouter } from "../router.ts";
+import { padiRuntimeHome, residentPadiSocket } from "@kolu/padi/assembly";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
  *  (the drain path logs at info/warn/error; the test keeps stdout clean). */
@@ -660,7 +677,11 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     // Sanity: the pre-flight probe reaches the running padi's frozen control core
     // and reads its REAL surface version (whatever this build serves).
     const socketPath = padiSocketPath(stateRoot);
-    const preProbe = await probePadiForConvergence(socketPath);
+    const probe = probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS,
+    });
+    const preProbe = await probe(socketPath);
     expect(preProbe).not.toBeNull();
     expect(preProbe?.identity.contractVersion).toBe(PADI_SURFACE_VERSION);
     preProbe?.dispose();
@@ -671,7 +692,15 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     const newerBinderVersion = `${maj}.${Number(min) + 1}`;
 
     // Build the SAME endpoint `ensurePadiBinding` builds, and run the REAL
-    // `converge` (`probePadiForConvergence` → drain) as that newer binder.
+    // `converge(ep)` as that newer binder. Policy carries the strictly-NEWER
+    // contract; baked build is off-nix so only the CONTRACT axis fires.
+    const newerPolicy = {
+      ...padiConvergencePolicy(""),
+      baked: {
+        contractVersion: newerBinderVersion,
+        build: daemonBuild(""),
+      },
+    };
     const ep = createEndpoint({
       hostId: PADI_HOST_ID,
       home: {
@@ -679,6 +708,8 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
         gatePath: padiGatePath(socketPath),
         socketPath,
       },
+      policy: newerPolicy,
+      probe,
       driver: localPadiDriver(
         stateRoot,
         socketPath,
@@ -691,18 +722,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       log: silentLog,
       onStatus: () => {},
     });
-    await converge({
-      endpoint: ep,
-      // strictly NEWER contract than the running padi. From-source padi has no baked
-      // PADI_BUILD_ID, and this exercises the CONTRACT drain — so the baked build is the
-      // null-free `off-nix` DaemonBuild (RB6: the "" sentinel is gone), keeping the BUILD
-      // axis dormant.
-      baked: { contractVersion: newerBinderVersion, build: daemonBuild("") },
-      probe: () => probePadiForConvergence(socketPath),
-      policy: PADI_CONVERGENCE_POLICY,
-      buildFence: createBuildDrainFence(),
-      log: silentLog,
-    });
+    await converge(ep);
 
     // padi gate pid CHANGED — the old padi drained (persist + exit), a fresh (this
     // binder's own) padi spawned in its place.
@@ -754,19 +774,187 @@ describe("localPadiDriver — the A8 runtime spawn leash at the real funnel (F5)
   });
 });
 
+/**
+ * F9 / UW1 done-when: budget-exhausted LOCAL adopt surfaces `adopted-stale`
+ * through the REAL ensurePadiBindingWith → convergePadi path:
+ *   standingConvergence = outcomeAnomaly(outcome)   // padiBinding.ts convergePadi
+ *
+ * MUTATION CHECK (re-verified wave 4): standingConvergence = null turns this RED.
+ * Injection is via the NON-EXPORTED ensurePadiBindingWith (W4.1) — public options
+ * stay domain-only; no endpointSeams on EnsurePadiBindingOptions.
+ */
+describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () => {
+  it("ensurePadiBindingWith pin → drain not-taken → session.convergence() adopted-stale", async () => {
+    const stateRoot = makeStateRoot();
+    activeStateRoots.add(stateRoot);
+    // Live gate holder + accepting socket so post-give-up bind ADOPTS
+    // (liveServingHolder requires both; adopted-stale needs a resident).
+    const home = padiRuntimeHome(stateRoot, residentPadiSocket(stateRoot));
+    mkdirSync(home.dir, { recursive: true, mode: 0o700 });
+    // This vitest process is the live gate holder (isHolderLive). Clear the gate
+    // in finally so afterEach reap does not SIGKILL this process. Exclusive
+    // create + owner-only mode on the tmp-derived path (CodeQL CWE-377).
+    const gateFd = openSync(
+      home.gatePath,
+      fsConstants.O_WRONLY |
+        fsConstants.O_CREAT |
+        fsConstants.O_EXCL |
+        fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    try {
+      writeSync(gateFd, `${process.pid}\n`);
+    } finally {
+      closeSync(gateFd);
+    }
+    const sockServer = createServer((c) => c.on("error", () => {}));
+    await new Promise<void>((resolve, reject) => {
+      sockServer.once("error", reject);
+      sockServer.listen(home.socketPath, () => resolve());
+    });
+
+    try {
+      // Known (non-empty) binder build — off-nix ("") would decide adopt and skip drain.
+      const binderBuildId = "binder-build-hex-f9";
+      const staleBuild = "stale-running-build-f9";
+      const policy = {
+        ...padiConvergencePolicy(binderBuildId),
+        drainBudget: { maxAttempts: 1, onGiveUp: "adopt-stale" as const },
+      };
+
+      // Minimal daemon client for makeSession identity/liveness after adopt.
+      const fakeClient = {
+        surface: {
+          control: {
+            core: {
+              hello: async () => ({
+                stateRoot,
+                surfaceVersion: PADI_SURFACE_VERSION,
+                controlCoreVersion: "1.0",
+                startedAt: 99,
+                commit: "deadbee",
+                buildId: staleBuild,
+              }),
+              drain: async () => {},
+            },
+          },
+          padi: {
+            system: {
+              identity: async () => ({
+                kind: "identified" as const,
+                baked: {
+                  contractVersion: PADI_SURFACE_VERSION,
+                  commit: { kind: "commit" as const, sha: "deadbee" },
+                },
+                startedAt: 99,
+              }),
+              clockNow: async () => ({ epochMs: Date.now() }),
+            },
+          },
+        },
+      };
+
+      let drainCalls = 0;
+      let probeCalls = 0;
+      // W4.1: inject via non-exported ensurePadiBindingWith — never a public knob.
+      const session = ensurePadiBindingWith(
+        { stateRoot, reconnectDelayMs: 10_000 },
+        {
+          policy,
+          probe: async () => {
+            probeCalls += 1;
+            return {
+              capability: "drainable" as const,
+              identity: {
+                contractVersion: PADI_SURFACE_VERSION,
+                build: daemonBuild(staleBuild),
+              },
+              instanceKey: { kind: "instance" as const, key: 99 },
+              fireDrain: async () => {
+                drainCalls += 1;
+              },
+              awaitExit: async (signal: AbortSignal) => {
+                await new Promise<void>((resolve) => {
+                  signal.addEventListener("abort", () => resolve(), {
+                    once: true,
+                  });
+                });
+              },
+              drainCeilingMs: 30,
+              dispose: () => {},
+            };
+          },
+          driver: { spawn: async () => {} },
+          connect: async () =>
+            ({
+              // biome-ignore lint/suspicious/noExplicitAny: fake PadiDaemonClient for seam
+              client: fakeClient as any,
+              identity: {
+                surfaceVersion: PADI_SURFACE_VERSION,
+                buildId: staleBuild,
+                startedAt: 99,
+              },
+              startedAt: 99,
+              metadata: {
+                contractVersion: PADI_SURFACE_VERSION,
+                buildId: staleBuild,
+              },
+              dispose: () => {},
+              onClose: () => {},
+              // biome-ignore lint/suspicious/noExplicitAny: fake DaemonConnection for seam
+            }) as any,
+        },
+      );
+      activeSessions.push(session);
+
+      // Drive the REAL connector → convergePadi → standingConvergence = outcomeAnomaly(...)
+      await session.pin();
+
+      // Seams must be live (probe called) and build-mismatch must drain.
+      expect(probeCalls).toBeGreaterThanOrEqual(1);
+      expect(drainCalls).toBeGreaterThanOrEqual(1);
+
+      // MUTATION CHECK (performed before claim): temporarily set
+      // packages/server/src/padi/padiBinding.ts convergePadi assignment
+      //   standingConvergence = outcomeAnomaly(outcome);
+      // to `standingConvergence = null` → this assertion fails
+      // (expected null not to be null). Restored the production assignment.
+      expect(session.convergence()).not.toBeNull();
+      expect(session.convergence()).toMatchObject({
+        kind: "adopted-stale",
+        running: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: { kind: "known", id: staleBuild },
+        },
+        expected: {
+          build: { kind: "known", id: binderBuildId },
+        },
+      });
+    } finally {
+      sockServer.close();
+      // Drop the gate so afterEach reap does not SIGKILL this vitest process.
+      try {
+        rmSync(home.gatePath, { force: true });
+      } catch {
+        // already gone
+      }
+    }
+  });
+});
+
 describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure, no real padi)", () => {
   // Post-S9 the boot-time lifecycle is no longer a bespoke `padiStartedAt()` on a wrapper
   // class; it rides the base `session.identity()` (padi's `system.identity`), which is
   // proven generically by surface-remote's session tests. What is padi-LOCAL-arm
   // specific — and unit-testable with NO real padi (the session is side-effect-free until
-  // the first pin) — is: the arm surfaces NO convergence (local has none), `identity()`
-  // is the honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
+  // the first pin) — is: standing anomaly is null before any dial, `identity()` is the
+  // honest `disconnected` arm while unbound (never a fabricated 0), and `renew()`
   // fails LOUDLY when there is no bound padi to drain (never a phantom success). A tmp
   // state-root keeps the endpoint's digest isolated; `destroy()` tears the session down.
   const build = (): PadiSession =>
     ensurePadiBinding({ stateRoot: makeStateRoot(), reconnectDelayMs: 10_000 });
 
-  it("surfaces NO convergence anomaly (the LOCAL arm's `convergence()` is always null)", () => {
+  it("surfaces no convergence anomaly before any dial (standing anomaly is set by converge)", () => {
     const s = build();
     expect(s.convergence()).toBeNull();
     s.destroy();
@@ -850,6 +1038,43 @@ describe("daemonEnv — the server → padi forwarding hop for the run-bind pid"
   it("forwards even an empty value (broken expansion) so padi fail-fasts, never drops it back to `forever`", () => {
     vi.stubEnv(DAEMON_BIND_PID_ENV, "");
     expect(daemonEnv("/state/root", false)[DAEMON_BIND_PID_ENV]).toBe("");
+  });
+
+  it("forwards the agent toolchain bake to the padi kolu spawns", () => {
+    // The local arm of "a terminal can run kolu's own CLIs": the wrapper bakes
+    // the dirs onto kolu-server, and this hop is the only thing that carries
+    // them to the padi that will stamp them onto every terminal. No gate: the
+    // bake name is written only by a wrapper, so a value here IS this build's.
+    vi.stubEnv(AGENT_TOOLS_BAKE_ENV, "/nix/store/bbb-tools/bin");
+    expect(daemonEnv("/state/root", false)[AGENT_TOOLS_BAKE_ENV]).toBe(
+      "/nix/store/bbb-tools/bin",
+    );
+  });
+
+  it("a from-source kolu has no bake to forward (no build skew by the back door)", () => {
+    // `just dev` started INSIDE a kolu terminal carries that terminal's STAMP
+    // (`KOLU_TERMINAL_TOOLS_PATH`), never a bake — nothing writes the bake name
+    // into a terminal. So there is nothing to forward and its own from-source
+    // padi is paired with no toolchain, rather than with the OUTER build's:
+    // the skew is unspellable here instead of gated on an unrelated variable.
+    vi.stubEnv(AGENT_TOOLS_BAKE_ENV, undefined);
+    vi.stubEnv(TERMINAL_TOOLS_PATH_ENV, "/nix/store/OUTER-build-tools/bin");
+    const env = daemonEnv("/state/root", false);
+    expect(env).not.toHaveProperty(AGENT_TOOLS_BAKE_ENV);
+    expect(env).not.toHaveProperty(TERMINAL_TOOLS_PATH_ENV);
+  });
+
+  it.each([
+    ["KAVAL_BUILD_ID", "build-only"],
+    ["KAVAL_COMMIT_HASH", "commit-only"],
+  ])("rejects a half-baked kaval identity at the binder (%s only)", (name, value) => {
+    vi.stubEnv("KAVAL_BUILD_ID", undefined);
+    vi.stubEnv("KAVAL_COMMIT_HASH", undefined);
+    vi.stubEnv(name, value);
+
+    expect(() => daemonEnv("/state/root", false)).toThrow(
+      "incomplete baked identity: KAVAL_BUILD_ID and KAVAL_COMMIT_HASH must be set together",
+    );
   });
 
   it("is EXACTLY every allowlist key + every padi-operational input — no dropped base key, no leaked ambient key (#1872 2a parity)", () => {
@@ -990,8 +1215,23 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
   const stateRoot = "/state/root";
   const socketPath = "/run/user/1000/padi-deadbeef/padi.sock";
 
-  it("a genuine `refused` outcome (never adopted) is FATAL — a PadiAdoptionRefusedError naming the state dir + socket + remedy", () => {
-    const outcome: ConvergenceOutcome = { kind: "refused", adopted: false };
+  it("a genuine skew-refused outcome (never adopted) is FATAL — a PadiAdoptionRefusedError naming the state dir + socket + remedy", () => {
+    const outcome: ConvergenceOutcome = {
+      kind: "refused",
+      adopted: false,
+      anomaly: {
+        kind: "skew-refused",
+        running: {
+          contractVersion: "9.0",
+          build: daemonBuild("x"),
+        },
+        expected: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild("mine"),
+        },
+        detail: "skew",
+      },
+    };
     const err = padiConnectFailure(outcome, stateRoot, socketPath);
     expect(err).toBeInstanceOf(PadiAdoptionRefusedError);
     expect(err.message).toContain(stateRoot);
@@ -999,10 +1239,34 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
     expect(err.message).toContain("KOLU_STATE_DIR"); // the remedy
   });
 
+  it("cross-supervisor refuse is a ConnectError naming the fight — not a contract-skew refusal", () => {
+    const err = padiConnectFailure(
+      {
+        kind: "refused",
+        adopted: false,
+        anomaly: {
+          kind: "cross-supervisor",
+          drained: { kind: "instance", key: 1 },
+          observed: { kind: "instance", key: 2 },
+          running: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("x"),
+          },
+          detail: "foreign instance of drained build",
+        },
+      },
+      stateRoot,
+      socketPath,
+    );
+    expect(err).toBeInstanceOf(ConnectError);
+    expect(err).not.toBeInstanceOf(PadiAdoptionRefusedError);
+    expect(err.message).toMatch(/cross-supervisor/i);
+  });
+
   it("every other reason `conn` is undefined stays the pre-existing retryable ConnectError — never fatal", () => {
     const outcomes: ConvergenceOutcome[] = [
       { kind: "not-adopted" },
-      { kind: "recycled", adopted: false },
+      { kind: "recycled", bind: { kind: "refused-or-failed" } },
       {
         kind: "drained-replacing",
         axis: "build",
@@ -1010,7 +1274,7 @@ describe("padiConnectFailure — the ONE fatal classification (#1313 adoption-re
           contractVersion: PADI_SURFACE_VERSION,
           build: daemonBuild(""),
         },
-        adopted: false,
+        bind: { kind: "refused-or-failed" },
       },
     ];
     for (const outcome of outcomes) {
@@ -1079,7 +1343,22 @@ describe("reportFatalBindingError — a refusal reported on EVERY dial, not just
     // skew this binder must never touch (#1313). This is the exact case the
     // session's fire-and-forget reconnect loop would otherwise swallow silently.
     const err = padiConnectFailure(
-      { kind: "refused", adopted: false },
+      {
+        kind: "refused",
+        adopted: false,
+        anomaly: {
+          kind: "skew-refused",
+          running: {
+            contractVersion: "9.0",
+            build: daemonBuild(""),
+          },
+          expected: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("mine"),
+          },
+          detail: "skew",
+        },
+      },
       "/sr",
       "/sock",
     );

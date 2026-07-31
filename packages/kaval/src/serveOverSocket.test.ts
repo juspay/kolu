@@ -13,7 +13,6 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
-import type { Logger } from "@kolu/surface-daemon";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { drainForOverflow, spawnInput } from "./contractCorpus.testlib.ts";
@@ -26,14 +25,7 @@ import {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
-
-const silentLog = {
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  child: () => silentLog,
-} as unknown as Logger;
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 function makeRouter(opts?: { dataMaxQueue?: number }) {
   const { servedRouter } = createInProcessPtyHost({

@@ -202,6 +202,16 @@ When("I tap the inactive mobile dock row", async function (this: KoluWorld) {
   await this.page.locator(`${DOCK_ROW}:not([data-active])`).first().tap();
 });
 
+When(
+  "I tap mobile dock split sub-entry {int}",
+  async function (this: KoluWorld, index: number) {
+    await this.page
+      .locator(`${DOCK_SHEET} [data-testid="dock-sub-row"]`)
+      .nth(index - 1)
+      .tap();
+  },
+);
+
 Then(
   "the mobile dock sheet should be visible",
   async function (this: KoluWorld) {

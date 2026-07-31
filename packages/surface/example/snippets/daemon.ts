@@ -9,14 +9,21 @@
  */
 
 import {
+  controlCoreFragment,
+  controlCoreSurface,
   daemonHome,
   daemonMain,
   daemonProcessMain,
   frontDaemonOverStdio,
+  type ProcessIdentity,
+  type ReadProcessIdentity,
   reExecAsDetachedDaemon,
+  readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { router as serveRouter } from "./serve";
+import { implementSurfaces } from "@kolu/surface/server";
+import { deps } from "./serve";
+import { surface } from "./surface";
 
 // #region home
 // Durable ⇒ state dir (never /run): a daemon supervised over ssh must outlive
@@ -25,13 +32,33 @@ import { router as serveRouter } from "./serve";
 const home = daemonHome({ app: "fleet-top", placement: "state" });
 // #endregion home
 
-// oRPC's `Lazy<Router>` spread isn't accepted by the strict `Router<any, any>`
-// input type; the runtime shape is valid (the same cast the fleet-top daemon uses).
-const router = serveRouter as Parameters<typeof daemonMain>[0]["router"];
+const readIdentity = readBakedIdentity("FLEET_TOP");
 
 // The example surface's flattened router — the same `router` a browser or a
 // unix-socket client reaches; the daemon just serves it durably.
-export function runDaemon(controller: AbortController): void {
+export function runDaemon(
+  controller: AbortController,
+  processIdentity: ProcessIdentity,
+  readProcessIdentity: ReadProcessIdentity,
+): void {
+  // #region control-core
+  // Serve these deps beside the versioned application surface. `hello` remains
+  // readable even when that application contract is skewed; `drain` waits for
+  // the daemon's own persistence/shutdown hook.
+  const control = controlCoreFragment({
+    stateRoot: home.dir,
+    surfaceVersion: "1.0",
+    startedAt: Date.now(),
+    commit: readIdentity.navigableCommit,
+    buildId: readIdentity.staleKey,
+    onDrain: () => controller.abort(),
+  });
+  const router = implementSurfaces(
+    { app: surface, control: controlCoreSurface },
+    {},
+    { app: deps, control },
+  ).router as Parameters<typeof daemonMain>[0]["router"];
+  // #endregion control-core
   // #region lifecycle
   daemonProcessMain({
     name: "fleet-top", // crash-arm narration prefix
@@ -39,6 +66,8 @@ export function runDaemon(controller: AbortController): void {
       daemonMain({
         // gate, socket, anchor — all derived from home inside the spine
         home,
+        processIdentity, // injected (pid, startUnixUs) for this process
+        readProcessIdentity, // injected OS fact reader; the spine only compares
         router, // runtime.router — already the final flattened router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
         log: stderrLogger(),

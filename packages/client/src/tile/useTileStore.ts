@@ -84,6 +84,16 @@ export const useTileStore = createSharedRoot(() => {
     persistCanvasLayout(content.terminalId, layout);
   };
 
+  /** Explicit tile-identity landing: a top-level terminal tile denotes its main
+   *  pane, so no remembered split may override the id the caller supplied. */
+  const activate = (id: TileId | null): void => {
+    if (id === null) {
+      store.activate(null);
+      return;
+    }
+    store.focusMainTerminal(id);
+  };
+
   return {
     // Tile presence + content.
     tileIds,
@@ -100,7 +110,11 @@ export const useTileStore = createSharedRoot(() => {
     // registry is a later optional migration, deferred like the layout-home
     // schema move. `TileId === TerminalId`, so these are already tile-typed.
     activeId: store.activeId,
-    activate: store.activate,
+    isFocused: store.isFocused,
+    isActiveTile: store.isActiveTile,
+    activate,
+    /** Tile-level/system landing with no explicit pane target. */
+    activateVisiblePane: store.activate,
     setActiveSilently: store.setActiveSilently,
   };
 });

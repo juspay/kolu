@@ -68,6 +68,7 @@
           # Usage: nix develop .#e2e
           e2e = default.overrideAttrs (prev: {
             name = "kolu-shell-e2e";
+            nativeBuildInputs = (prev.nativeBuildInputs or [ ]) ++ [ pkgs.gitMinimal ];
             env = (prev.env or { }) // {
               PLAYWRIGHT_BROWSERS_PATH = pkgs.playwright-driver.browsers;
             };

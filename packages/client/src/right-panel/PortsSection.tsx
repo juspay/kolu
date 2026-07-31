@@ -28,6 +28,7 @@
  */
 
 import { activeArm } from "@kolu/padi/surface";
+import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import {
   foldPorts,
   knownPorts,
@@ -39,7 +40,6 @@ import { rowAction } from "../forwards/portAction";
 import { portRows } from "../forwards/portRows";
 import { servingLink } from "../forwards/terminalServingPort";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
-import { sameHost } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import Section from "../ui/Section";

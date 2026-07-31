@@ -38,7 +38,11 @@ export function useViewState() {
   // The active host's view slice, or `undefined` during the removal race.
   const view = () => activeScope()?.view;
 
+  const focusedTerminalId = () => view()?.focusedTerminalId() ?? null;
   const activeId = () => view()?.activeId() ?? null;
+  const isFocused = (id: TerminalId): boolean => view()?.isFocused(id) ?? false;
+  const isActiveTile = (id: TerminalId): boolean =>
+    view()?.isActiveTile(id) ?? false;
   const mruOrder = () => view()?.mruOrder() ?? [];
 
   /** Whether the workspace is in fullscreen-one-tile mode — the ACTIVE host's
@@ -50,23 +54,11 @@ export function useViewState() {
   /** Canvas "pan to this tile" intent — see `canvas/useCanvasFocus.ts` for the
    *  consumer seam. `equals: false` so back-to-back requests for the same id
    *  still fire. Public reads only; the writer is private (external callers go
-   *  through `activate(id)`). */
+   *  through `useTerminalStore().activate(id)`). */
   // HOST-SCOPING: host-INDEPENDENT by design — a momentary write-and-consume
   // viewport command, not durable per-host state; nothing re-reads it across a switch.
   const [centerActiveRequest, setCenterActiveRequest] =
     createSignal<TerminalId | null>(null, { equals: false });
-
-  /** Make `id` the active terminal AND ask the canvas viewport to pan to it.
-   *  The single public writer for system-driven activation. `writeActive` (in
-   *  the owner) is imperative — a pure host SWITCH re-keys `activeId()` without
-   *  running it, so a switch never fires a wrong-host `chrome.setActive`. */
-  function activate(id: TerminalId | null) {
-    view()?.writeActive(id);
-    if (id !== null) setCenterActiveRequest(id);
-  }
-
-  /** Set the active terminal without panning the canvas. */
-  const setActiveSilently = (id: TerminalId | null) => view()?.writeActive(id);
 
   /** Fire the "pan to the active tile" impulse for the CURRENT host without
    *  touching the active selection or reporting to the server — the switch-in
@@ -97,9 +89,10 @@ export function useViewState() {
   }
 
   return {
+    focusedTerminalId,
     activeId,
-    activate,
-    setActiveSilently,
+    isFocused,
+    isActiveTile,
     canvasMaximized,
     toggleCanvasMaximized,
     mruOrder,

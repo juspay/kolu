@@ -165,12 +165,14 @@ export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
 /** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
  *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
  *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
- *  resolved light/dark mode. */
+ *  resolved light/dark mode; `colourful` prefers saturated (non-grey) tints
+ *  across light and dark. */
 export const ShuffleBehaviorSchema = z.enum([
   "random",
   "dark",
   "light",
   "auto",
+  "colourful",
 ]);
 
 /** Right-panel preferences — workspace-level layout chrome: the panel's width
@@ -244,20 +246,23 @@ export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
 export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
 
-/** The luminance family a shuffle should restrict its candidate pool to, from
- *  the `shuffleBehavior` preference and the app's resolved dark mode.
- *  `undefined` means no restriction (`random` — the whole catalogue). The
+/** The candidate-pool filter a shuffle should apply, from the
+ *  `shuffleBehavior` preference and the app's resolved dark mode.
+ *  `undefined` means no restriction (`random` — the whole catalogue).
+ *  Otherwise `"light"` / `"dark"` / `"colourful"` — the same literals
+ *  `pickTheme`'s `mode` accepts (`ThemePickMode` in terminal-themes). The
  *  single source of truth for every shuffle: a `shuffle` new terminal AND the
  *  ⌘⇧J action both resolve their pool through here. */
 export function shuffleMode(
   behavior: ShuffleBehavior,
   isDark: boolean,
-): "light" | "dark" | undefined {
+): "light" | "dark" | "colourful" | undefined {
   return match(behavior)
     .with("random", () => undefined)
     .with("dark", () => "dark" as const)
     .with("light", () => "light" as const)
     .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
+    .with("colourful", () => "colourful" as const)
     .exhaustive();
 }
 
@@ -365,6 +370,36 @@ export const ProcessStartedAtSchema = z.object({
 });
 export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
 
+/**
+ * Wire-facing convergence identity — the same two axes the framework's
+ * `ConvergenceIdentity` uses (`@kolu/surface-daemon`). Carried as data on every
+ * arm that has a running/expected daemon; never padded with `z.null()`.
+ */
+export const DaemonBuildSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("known"), id: z.string() }),
+  z.object({ kind: z.literal("off-nix") }),
+]);
+export type DaemonBuildWire = z.infer<typeof DaemonBuildSchema>;
+
+export const ConvergenceIdentitySchema = z.object({
+  contractVersion: z.string(),
+  build: DaemonBuildSchema,
+});
+export type ConvergenceIdentityWire = z.infer<typeof ConvergenceIdentitySchema>;
+
+/**
+ * Drain-budget instance key on the wire — named instance or `pre-instance`
+ * (absent startedAt = older daemon). Never an overloaded null.
+ */
+export const InstanceKeySchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("instance"),
+    key: z.union([z.string(), z.number()]),
+  }),
+  z.object({ kind: z.literal("pre-instance") }),
+]);
+export type InstanceKeyWire = z.infer<typeof InstanceKeySchema>;
+
 /** A STANDING, user-visible convergence anomaly the (remote) binder entered — the dialog
  *  shows it so nothing is "magically swallowed" into server logs. `null`/absent = the
  *  healthy converged case (no banner). Rides {@link DaemonInventorySchema.boundPadi}
@@ -372,50 +407,70 @@ export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
  *  `adopted-stale` keeps the connection `connected` (canvas alive) yet must still say WHY,
  *  which the connection cell (gated to `state === "connected"`) structurally cannot.
  *
- *  A DISCRIMINATED UNION, not a flat struct with nullable build fields: only
- *  `adopted-stale` is ABOUT a specific running-vs-expected build mismatch (the producer,
- *  `remotePadiBinding.ts`'s `adoptStale`, is the one arm that ever has both builds in
- *  hand); `skew-refused` / `unconverged` / `link-failed` are reasons that never carry a
- *  build pair. A flat struct let `{ state: "link-failed", runningBuild: "…" }` typecheck
- *  even though no producer ever means that — the union makes it UNREPRESENTABLE instead.
- *  Every non-`adopted-stale` variant still DECLARES `runningBuild`/`expectedBuild` as the
- *  literal `null` (rather than omitting the keys) so a consumer that reads
- *  `conv.runningBuild` unconditionally (the dialog banner shows the build pair only under
- *  `<Show when={state === "adopted-stale"}>`, but the accessor itself isn't narrowed by
- *  that boolean) keeps seeing the same `string | null` it always has — the illegal
- *  PAIRING is what's excluded, not the field's presence. */
-export const PadiConvergenceSchema = z.discriminatedUnion("state", [
+ *  The wire shape **is** the framework's `ConvergenceAnomaly` union (plus app-only
+ *  `link-failed`). Each arm carries its own typed evidence — no `z.null()` padding,
+ *  no converter that throws facts away. Discriminant is `kind` (same as the framework).
+ *  A UI must never parse `detail`; it reads the typed fields. */
+export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
   z.object({
-    /** A build-mismatched survivor we could not drain-replace within the M1 budget (a
-     *  contested host respawning the old build) — we RIDE it, canvas works. */
-    state: z.literal("adopted-stale"),
-    /** The bound padi's ACTUAL build (`hello.buildId`) — always known for this state. */
-    runningBuild: z.string(),
-    /** The build kolu-server EXPECTED (its baked `PADI_BUILD_ID`) — always known too. */
-    expectedBuild: z.string(),
-    /** A human-readable reason for the dialog banner. */
+    /** A build-mismatched survivor we could not drain-replace within the budget —
+     *  we RIDE it, canvas works. Evidence: running + expected identities. */
+    kind: z.literal("adopted-stale"),
+    running: ConvergenceIdentitySchema,
+    expected: ConvergenceIdentitySchema,
     detail: z.string(),
   }),
   z.object({
     /** An incompatible padiSurface contract (binder older) we won't adopt. */
-    state: z.literal("skew-refused"),
-    /** No build pair for this reason — literal `null`, not omitted (see class doc). */
-    runningBuild: z.null(),
-    expectedBuild: z.null(),
+    kind: z.literal("skew-refused"),
+    running: ConvergenceIdentitySchema,
+    expected: ConvergenceIdentitySchema,
     detail: z.string(),
   }),
   z.object({
-    /** A newer-contract drain that never provably took (canvas dead). */
-    state: z.literal("unconverged"),
-    runningBuild: z.null(),
-    expectedBuild: z.null(),
+    /** Drain/budget give-up that left canvas dead — typed cause evidence. */
+    kind: z.literal("unconverged"),
+    /** null when running identity is honestly unknown (e.g. initial probe failed). */
+    running: ConvergenceIdentitySchema.nullable(),
+    expected: ConvergenceIdentitySchema,
+    cause: z.discriminatedUnion("kind", [
+      z.object({
+        kind: z.literal("budget-exhausted"),
+        axis: z.enum(["contract", "build"]),
+        attempts: z.number().int(),
+        maxAttempts: z.number().int(),
+      }),
+      z.object({
+        kind: z.literal("drain-not-taken"),
+        axis: z.enum(["contract", "build"]),
+        ceilingMs: z.number(),
+        rejection: z.string().nullable(),
+      }),
+      z.object({
+        kind: z.literal("adopt-bind-failed"),
+        axis: z.enum(["contract", "build"]).nullable(),
+      }),
+      z.object({ kind: z.literal("identity-unverifiable") }),
+      z.object({
+        kind: z.literal("probe-failed"),
+        message: z.string(),
+      }),
+    ]),
     detail: z.string(),
   }),
   z.object({
-    /** The ssh link gave up (host unreachable / provisioning failed). */
-    state: z.literal("link-failed"),
-    runningBuild: z.null(),
-    expectedBuild: z.null(),
+    /** Another supervisor is respawning this host's padi — fail-honest, never ride
+     *  a contested build. Evidence: drained + observed instance keys. */
+    kind: z.literal("cross-supervisor"),
+    drained: InstanceKeySchema,
+    observed: InstanceKeySchema,
+    running: ConvergenceIdentitySchema,
+    detail: z.string(),
+  }),
+  z.object({
+    /** The ssh link gave up (host unreachable / provisioning failed). App-only;
+     *  not a framework convergence verdict. */
+    kind: z.literal("link-failed"),
     detail: z.string(),
   }),
 ]);

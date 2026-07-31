@@ -26,11 +26,13 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
+    "osfacts-client": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@babel/parser": "^7.29.2",
     "@kolu/daemon-test-gate": "workspace:*",
+    "@kolu/log": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",

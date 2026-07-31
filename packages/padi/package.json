@@ -12,6 +12,7 @@
   },
   "exports": {
     "./surface": "./src/surface.ts",
+    "./resumable": "./src/session/resumable.ts",
     "./assembly": "./src/assembly.ts",
     "./dial": "./src/dial.ts",
     "./daemonMain": "./src/daemonBoot/daemonMain.ts",
@@ -60,6 +61,8 @@
   "devDependencies": {
     "@babel/parser": "^7.29.2",
     "@kolu/daemon-test-gate": "workspace:*",
+    "@kolu/log": "workspace:*",
+    "@kolu/shell-quote": "workspace:*",
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",
     "typescript": "^7.0.2",

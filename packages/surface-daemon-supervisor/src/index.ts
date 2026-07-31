@@ -6,11 +6,13 @@
  *  This package runs in the *client* process (kolu-server today; the odu CLI /
  *  odu-web next), never in the daemon. It is therefore deliberately NOT a
  *  staleKey hash root — a change here cannot change what a daemon restart would
- *  load. It carries zero `kolu-*` workspace deps (pinned by
- *  `deps.closure.test.ts`) so the second tenant (`odu serve`, S2) reuses it
- *  without dragging kolu in, and it composes the gate's file-format primitives
- *  (`gatePid`/`isHolderLive`) from `@kolu/surface-daemon` over a one-directional
- *  edge.
+ *  load. Its only workspace dependencies are the shared `@kolu/surface` transport
+ *  and the `@kolu/surface-daemon` twin; `ts-pattern` provides exhaustive policy
+ *  dispatch. That closure is pinned by `deps.closure.test.ts`, so the second
+ *  tenant (`odu serve`, S2) reuses it without dragging an app package in.
+ *  It composes the gate's file-format primitives (`readGateIdentity` /
+ *  `identitiesMatch` / `isHolderLive`) from the daemon half over a
+ *  one-directional edge; process identity is injected on `EndpointSpec`.
  *
  *  What's spine here (program-agnostic): the endpoint state machine, the
  *  `waitForPidGone` reap-wait, the composed `restart` sequence, and the
@@ -27,13 +29,28 @@ export {
   type EndpointState,
   type EndpointStatus,
   type IncompatibleEndpointStatus,
+  type ReadProcessIdentityAsync,
   ENDPOINT_STATES,
   createEndpoint,
   isContractSkewError,
+  isSocketProbeIndeterminateError,
   isSocketSquatterForeignError,
+  SocketProbeIndeterminateError,
   SocketSquatterForeignError,
 } from "./endpoint.ts";
-export { type SocketHolder, socketHolders } from "./socketHolder.ts";
+// EndpointSpec re-exported for consumers and for `./createEndpoint.testlib`
+// (suites inject identity once via that helper).
+// The socket-holder ASK. The reader that answers it (`osfactsSocketHolders`)
+// and the fold behind it (`foldSocketOccupancy`) live in `osfacts-client`
+// beside the parser and `processIdentityAsync`, so a composition root binds
+// both OS facts to ONE resolved binary path. What this package owns is the
+// shape of the ask, and the two answer types are re-exported here so a
+// consumer wiring `EndpointSpec` never has to reach past it.
+export type {
+  ReadSocketHolders,
+  SocketHolder,
+  SocketOccupancy,
+} from "./socketHolder.ts";
 // The down/terminal classification lives at the states' home (the browser-safe
 // `/states` leaf, like `ENDPOINT_STATES` itself) and is re-exported here for
 // Node-side supervisor consumers.
@@ -43,13 +60,26 @@ export {
 } from "./endpointStates.ts";
 export { dialSocket } from "./dialSocket.ts";
 export {
+  type ControlCoreProbeClient,
+  isNoListenerError,
+  probeDaemonIdentity,
+  probeDaemonIdentityFrom,
+  readControlCoreHello,
+  type ProbeDaemonIdentityFromOptions,
+} from "./probeDaemonIdentity.ts";
+export {
   type DaemonDriver,
   type DaemonSpawnConfig,
   scrubDaemonNodeOptions,
   type SpawnDriverDeps,
   survivableSpawnDriver,
 } from "./driver.ts";
-export { type RestartSteps, restart, serializeRestart } from "./restart.ts";
+export {
+  type RestartSteps,
+  destructiveRecycleSteps,
+  recycle,
+  serializeRestart,
+} from "./restart.ts";
 export {
   type WaitForPidGoneOptions,
   waitForPidGone,

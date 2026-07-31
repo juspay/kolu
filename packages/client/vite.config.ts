@@ -1,5 +1,5 @@
 import { constants as zlibConstants } from "node:zlib";
-import { ASSET_DIR } from "@kolu/surface-app";
+import { ASSET_DIR, NOTIFICATION_SW_SOURCE } from "@kolu/surface-app";
 import { surfaceApp } from "@kolu/surface-app/vite";
 import tailwindcss from "@tailwindcss/vite";
 import xtermPackage from "@xterm/xterm/package.json" with { type: "json" };
@@ -9,6 +9,23 @@ import { compression, defineAlgorithm } from "vite-plugin-compression2";
 import solid from "vite-plugin-solid";
 
 const xtermVersion = xtermPackage.version;
+
+/** Serve the notification service worker at `/sw.js` in dev, exactly as the
+ *  production server does (`installFreshStatic({ serviceWorker: "notify" })`).
+ *  Same `NOTIFICATION_SW_SOURCE` constant, so there is one source of truth and
+ *  no lockstep copy to keep in sync. `apply: "serve"` — the production build
+ *  gets its `/sw.js` from the server, not from a build artifact. */
+const devNotificationSw: PluginOption = {
+  name: "kolu:dev-notification-sw",
+  apply: "serve",
+  configureServer(server) {
+    server.middlewares.use("/sw.js", (_req, res) => {
+      res.setHeader("Content-Type", "text/javascript");
+      res.setHeader("Cache-Control", "no-store");
+      res.end(NOTIFICATION_SW_SOURCE);
+    });
+  },
+};
 
 // Ports for the dev instance. Default to the canonical 7681/5173 so a bare
 // `just dev` is stable; `just dev SERVER_PORT=… CLIENT_PORT=…` (or `just
@@ -40,9 +57,17 @@ export default defineConfig({
   // `NOTIFICATION_SW_SOURCE`, served at `/sw.js` via
   // `installFreshStatic({ serviceWorker: "notify" })`) so an installed PWA can
   // raise OS notifications; with no `fetch` handler it never caches, so freshness
-  // still holds. That `/sw.js` is served by the prod server, not Vite, so it is
-  // intentionally absent under `just dev` — `registerServiceWorker()` simply
-  // no-ops there (registration fails → falls back to retiring any legacy worker).
+  // still holds. Dev serves that same `/sw.js` from the same constant, via the
+  // `devNotificationSw` plugin above.
+  //
+  // Dev used to leave it absent, on the reasoning that `registerServiceWorker()`
+  // no-ops when registration fails. It does — but the browser still logged `The
+  // script has an unsupported MIME type ('text/html')` (Vite's SPA fallback
+  // answering the request with index.html), and that one permanent expected
+  // error made "the console is clean under `just dev`" un-assertable: any real
+  // error would have had to hide behind an allowlist carrying it. The worker is
+  // fetch-less, so serving it in dev caches nothing; dev and prod now agree, and
+  // `just test-dev` can demand a genuinely empty console.
   //
   // `surfaceApp()` injects the commit onto the `no-store` shell as
   // `window.__SURFACE_APP_COMMIT__` from kolu's `KOLU_COMMIT_HASH` env (→ git →
@@ -52,6 +77,7 @@ export default defineConfig({
   // `koluClientDist` (default.nix) seds `dist/index.html` and returning browsers
   // would stay pinned on the old stamp forever (kolu#1319).
   plugins: [
+    devNotificationSw,
     solid(),
     tailwindcss(),
     surfaceApp({ commitEnvVar: "KOLU_COMMIT_HASH" }) as PluginOption,

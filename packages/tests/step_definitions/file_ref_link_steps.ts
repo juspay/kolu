@@ -1,8 +1,11 @@
 import { Then, When } from "@cucumber/cucumber";
 import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
-import type { KoluWorld } from "../support/world.ts";
-import { POLL_TIMEOUT } from "../support/world.ts";
+import {
+  ACTIVE_CANVAS_TILE_SELECTOR,
+  type KoluWorld,
+  POLL_TIMEOUT,
+} from "../support/world.ts";
 
 type RefClickPoint = { x: number; y: number } | null;
 
@@ -76,11 +79,13 @@ async function findRefClickPoint(
  *  is the cell the user visually taps. Tapping HERE and asserting the ref
  *  resolves guards that the extracted touch tap still routes a visual tap to the
  *  right cell through xterm's font-metric authority (`cellAtPoint`, PR-2),
- *  including under zoom. It is NOT a discriminator against the deleted
- *  `rect.width / cols`: a centre tap on a cell resolves to that same cell under
- *  both divisors (their per-cell divergence is sub-pixel, and both self-correct
- *  for zoom), so this is a regression guard, not an equivalence disproof. Null
- *  when no marker row / cell metrics are measurable. */
+ *  including under zoom. The fixture places the ref far enough from both axes
+ *  that the un-inverted coordinate lands on a non-link cell; this helper asserts
+ *  that counterfactual, that the visual point is inside the terminal's clipped
+ *  touch surface, and that xterm's transform-aware authority resolves the
+ *  intended cell. It still does NOT discriminate against the deleted
+ *  `rect.width / cols`: that parallel divisor self-corrected for zoom. Null when
+ *  no marker row / cell metrics are measurable. */
 async function findRefFontMetricPoint(
   world: KoluWorld,
   refText: string,
@@ -100,6 +105,14 @@ async function findRefFontMetricPoint(
         _core?: {
           _renderService?: {
             dimensions?: { css?: { cell?: { width: number; height: number } } };
+          };
+          _mouseCoordsService?: {
+            getCoords(
+              event: { clientX: number; clientY: number },
+              element: HTMLElement,
+              colCount: number,
+              rowCount: number,
+            ): [number, number] | undefined;
           };
         };
       };
@@ -128,10 +141,48 @@ async function findRefFontMetricPoint(
           screen.offsetWidth > 0 ? rect.width / screen.offsetWidth : 1;
         const scaleY =
           screen.offsetHeight > 0 ? rect.height / screen.offsetHeight : 1;
-        return {
-          x: rect.left + (col + 0.5) * cw * scaleX,
-          y: rect.top + (row - top + 0.5) * ch * scaleY,
-        };
+        const x = rect.left + (col + 0.5) * cw * scaleX;
+        const y = rect.top + (row - top + 0.5) * ch * scaleY;
+
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !screen.contains(hit)) {
+          throw new Error(
+            `transformed ref point is outside the terminal touch surface: (${x}, ${y})`,
+          );
+        }
+
+        // Counterfactual for the defect this journey guards: without the
+        // transform inverse, xterm divides the post-transform offset by the
+        // untransformed CSS cell size. The fixture must make that wrong answer
+        // miss the ref, or the browser journey could stay green after the
+        // correction disappeared.
+        const naiveCol = Math.floor((x - rect.left) / cw);
+        const naiveViewportRow = Math.floor((y - rect.top) / ch);
+        const naiveBufferRow = top + naiveViewportRow;
+        const naiveHitsRef =
+          naiveBufferRow === row &&
+          naiveCol >= col &&
+          naiveCol < col + target.length;
+        if (naiveHitsRef) {
+          throw new Error(
+            `non-discriminating transformed ref fixture: naive cell (${naiveCol}, ${naiveViewportRow}) still hits ${target}`,
+          );
+        }
+
+        const resolved = term._core?._mouseCoordsService?.getCoords(
+          { clientX: x, clientY: y },
+          screen,
+          term.cols,
+          term.rows,
+        );
+        const expectedCol = col + 1;
+        const expectedRow = row - top + 1;
+        if (resolved?.[0] !== expectedCol || resolved[1] !== expectedRow) {
+          throw new Error(
+            `transform-aware resolver returned ${JSON.stringify(resolved)}; expected [${expectedCol},${expectedRow}]`,
+          );
+        }
+        return { x, y };
       }
       return null;
     },
@@ -161,10 +212,10 @@ async function resolveRefPoint(
   // The annotation lives on the active canvas tile (desktop) or the
   // fullscreen tile's titlebar (mobile) — both carry `terminal-meta-branch`.
   await world.page.waitForFunction(
-    () => {
+    (activeTileSel) => {
       const el =
         document.querySelector(
-          '[data-testid="canvas-tile"][data-active="true"] [data-testid="terminal-meta-branch"]',
+          `${activeTileSel} [data-testid="terminal-meta-branch"]`,
         ) ??
         document.querySelector(
           '[data-testid="mobile-tile-titlebar"] [data-testid="terminal-meta-branch"]',
@@ -172,7 +223,7 @@ async function resolveRefPoint(
       const t = (el?.textContent ?? "").trim();
       return t !== "" && t !== "—";
     },
-    undefined,
+    ACTIVE_CANVAS_TILE_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
   // Buffer poll first so the regex match window has a chance to

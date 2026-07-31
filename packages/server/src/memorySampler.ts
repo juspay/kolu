@@ -12,11 +12,12 @@
  * reading, read off the re-served padi surface. The client adds its own JS-heap
  * figure locally (off `performance.memory`), so it never rides this cell.
  *
- * W2.2 shape: kaval runs inside the padi PROCESS now, so kolu-server no longer polls
- * kaval directly. padi owns the per-host readout — it samples its own RSS and its
- * kaval's, publishing the honest three-way pair on `padiSurface.processMemory`. This
- * read reads that pair (`readPadiMemory`) and returns all three processes on ONE
- * value so the rail reads a single source. When padi is down the reading is `null`,
+ * W2.2 shape: kaval runs behind padi now, so kolu-server never polls kaval directly.
+ * padi owns the per-host readout — one baked osfacts `--mem` snapshot samples padi
+ * and its connected kaval, publishing the honest three-way pair on
+ * `padiSurface.processMemory`. This read folds that pair (`readPadiMemory`) into all
+ * three processes on ONE value so the rail reads a single source. When padi is down
+ * the reading is `null`,
  * and both `padi`/`kaval` fold as `absent` — the honest "no process to measure",
  * never a fake zero.
  *

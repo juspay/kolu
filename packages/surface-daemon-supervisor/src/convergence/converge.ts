@@ -1,23 +1,22 @@
 /**
- * `converge()` — the impure orchestrator over the pure {@link decide} table. It probes
- * the running daemon's identity over a VERSION-AGNOSTIC channel (Pin 3: identity is read
- * BEFORE any versioned-surface handshake, so it keeps working when the versioned
- * handshake would refuse), asks `decide` what to do, ENACTS the daemon-affecting decision
- * via the endpoint's existing boot methods (never any endpoint surgery — the mechanism is
- * unchanged, only the DECISION is lifted here), and RETURNS a typed
- * {@link ConvergenceOutcome}. It performs NO nudge / surface side effect: a `nudge-human`
- * build mismatch comes back as `mismatch-reported` and the CALLER surfaces it (the kit
- * detects + decides; the caller enacts what it owns).
+ * `converge(endpoint)` — the endpoint-arm enactment of the kit. The ONLY boot verb on
+ * an endpoint: probe → decide → budget-gated drain → private bind methods.
  *
- * Enactment maps each decision to an EXISTING endpoint boot method, so both daemons stay
- * byte-identical to their pre-kit mechanism:
- *   - spawn / adopt / report-mismatch / refuse → `adoptOrSpawnOrRefuse` (adopt a compatible
- *     survivor, refuse a skew → degraded, or spawn fresh — never recycles).
- *   - recycle                                  → `adoptOrEnsure` (recycle-on-skew: kill +
- *     respawn a skewed survivor, kaval's arm).
- *   - drain-and-replace                        → drain the survivor over its handshake (Pin
- *     1 guarantees a drain verb), then `adoptOrSpawnOrRefuse` spawns our own build; the
- *     build fence is spent even on drain failure (degraded-loudly, never a livelock).
+ * Accepts only a genuine {@link createEndpoint} handle (F12 WeakMap brand).
+ *
+ * **Two composed authorities** (match the supervisor Reference page):
+ *
+ * 1. **`foldObserved`** — every *observation* (initial probe, bind characterization,
+ *    post-drain successor, post-give-up characterization, drainable re-probe):
+ *    folds through `decide(policy, identity | null)`; owns probe dispose (transfer
+ *    only into the drain body); reports `running: null` when unknown; preserves
+ *    four-valued characterizations (characterized | absent | failed | uncorrelated).
+ *
+ * 2. **`consumeBindResult`** — every *bind transition* (plain | recycle | post-drain |
+ *    give-up). Sole switch on BindResult arms; owns releaseHeld / heldBind and
+ *    outcome decorations (recycled, drained-replacing, adopt-bind-failed). Call sites
+ *    never inspect `r.kind`. Spawned-fresh / refused-or-failed return here without
+ *    re-entering `foldObserved`.
  */
 
 import {
@@ -25,217 +24,798 @@ import {
   type ConvergenceIdentity,
   type Logger,
 } from "@kolu/surface-daemon";
-import { decide } from "./decide.ts";
-import type { BuildDrainFence } from "./fence.ts";
+import type { ConvergenceAnomaly, RefusedAnomaly } from "./anomaly.ts";
+import type { BindResult } from "./bindResult.ts";
+import {
+  type DrainAdmission,
+  type DrainBudgetHandle,
+  type DrainLineage,
+  budgetInternal,
+  drainBudgetOf,
+} from "./budget.ts";
+import {
+  drainAndAwaitExit,
+  drainRejectionSuffix,
+} from "./drainAndAwaitExit.ts";
+import { decide, type Decision } from "./decide.ts";
+import { giveUpOutcome } from "./giveUp.ts";
+import {
+  type InstanceKey,
+  instanceKeyFromStartedAt,
+  instanceKeyTag,
+} from "./instanceKey.ts";
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
+import { endpointPrivate } from "../endpoint.private.ts";
+import type { Endpoint } from "../endpoint.ts";
 
-/** The endpoint boot methods `converge` enacts through — a `Pick` of the real `Endpoint`,
- *  so both the live endpoint and a test spy satisfy it. Both resolve to whether a survivor
- *  was adopted. */
-export interface ConvergenceEndpoint {
-  /** Adopt a compatible survivor, refuse a skew (→ degraded), or spawn fresh — NEVER
-   *  recycles. The never-recycle bind (padi's boot policy). */
-  adoptOrSpawnOrRefuse: () => Promise<boolean>;
-  /** Recycle a skewed survivor (kill + respawn) then bind — the recycle-on-skew bind
-   *  (kaval's boot policy). */
-  adoptOrEnsure: () => Promise<boolean>;
-}
-
-/** A live probe of a running daemon over its version-agnostic identity channel. `identity`
- *  is read regardless of contract compatibility (Pin 3); `dispose` drops the probe socket. */
 export interface ConvergenceProbeBase {
   readonly identity: ConvergenceIdentity;
+  readonly instanceKey: InstanceKey;
   dispose(): void;
 }
 
-/** A drain-capable probe — its handshake exposes a `drain` verb, so a `drain-and-replace`
- *  policy is spellable for it (Pin 1). */
 export interface DrainableProbe extends ConvergenceProbeBase {
   readonly capability: "drainable";
-  /** Persist + exit the running daemon (its children survive), the caller observing the
-   *  socket close. */
-  drain(): Promise<void>;
+  fireDrain(): Promise<void>;
+  awaitExit(signal: AbortSignal): Promise<void>;
+  readonly drainCeilingMs: number;
 }
 
-/** A non-drainable probe — no `drain` verb, so no drain policy can be declared for it. */
 export interface PlainProbe extends ConvergenceProbeBase {
   readonly capability: "not-drainable";
 }
 
-/** The probe shape for a given capability — `converge` ties the policy's `Cap` to this, so
- *  a drain policy requires a drainable probe (Pin 1). */
 export type ConvergenceProbe<Cap extends DrainCapability> =
   Cap extends "drainable" ? DrainableProbe : PlainProbe;
 
 type AnyConvergenceProbe = DrainableProbe | PlainProbe;
 
-/** The typed outcome `converge` returns; the CALLER wires it to its own surfaces/logs.
- *  `drained-replacing`/`mismatch-reported` carry `adopted` — whether the follow-on bind
- *  adopted a survivor (true only on the degraded fallback where the drain didn't land, or
- *  the compatible survivor a mismatch is reported over).
- *
- *  `not-adopted` is DELIBERATELY imprecise: the endpoint's bind methods return only a
- *  boolean (`true` = a survivor was adopted), so a `false` cannot be resolved to "spawned
- *  fresh" vs "found a survivor but left it standing degraded" (the non-skew connect-failure
- *  path in `adoptSurvivor`). We report exactly what the boolean proves — NOT adopted — and
- *  never overclaim a `spawned` the endpoint can't attest. The endpoint surfaces the degraded
- *  case itself, loudly, via `onStatus`; the caller keys its own effects on `adopted`. */
 export type ConvergenceOutcome =
   | { readonly kind: "adopted" }
+  | {
+      readonly kind: "adopted-stale";
+      readonly anomaly: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }>;
+    }
   | { readonly kind: "not-adopted" }
-  | { readonly kind: "recycled"; readonly adopted: boolean }
-  | { readonly kind: "refused"; readonly adopted: boolean }
+  | { readonly kind: "spawned-fresh" }
+  | { readonly kind: "recycled"; readonly bind: BindResult }
+  | {
+      readonly kind: "refused";
+      readonly adopted: false;
+      readonly anomaly: RefusedAnomaly;
+    }
   | {
       readonly kind: "drained-replacing";
       readonly axis: "contract" | "build";
-      /** The drained survivor's identity — so the caller can log its own domain
-       *  breadcrumb (e.g. padi's `#1670` build-change line) from the returned outcome. */
       readonly running: ConvergenceIdentity;
-      readonly adopted: boolean;
+      readonly bind: BindResult;
     }
   | {
       readonly kind: "mismatch-reported";
       readonly running: ConvergenceIdentity;
-      readonly adopted: boolean;
+      readonly bind: BindResult;
     };
 
-/** Whether a survivor was ADOPTED (its children preserved), across every outcome kind —
- *  the one fact a caller's reconcile step keys on. The `recycle`/`refuse` decisions are
- *  chosen from the primary probe, but the endpoint's bind re-checks the primary AND the
- *  W2.2 adopt-hint the single probe never saw, so either can still ADOPT a compatible
- *  survivor; this reads the bind's REAL result rather than the decision's intent. */
 export function outcomeAdopted(outcome: ConvergenceOutcome): boolean {
-  if (outcome.kind === "adopted") return true;
-  if (outcome.kind === "not-adopted") return false;
-  return outcome.adopted;
+  switch (outcome.kind) {
+    case "adopted":
+    case "adopted-stale":
+      return true;
+    case "not-adopted":
+    case "spawned-fresh":
+    case "refused":
+      return false;
+    case "recycled":
+    case "drained-replacing":
+    case "mismatch-reported":
+      return outcome.bind.kind === "adopted-resident";
+    default: {
+      const _exhaustive: never = outcome;
+      throw new Error(`unreachable outcome: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
 }
 
-export async function converge<Cap extends DrainCapability>(args: {
-  endpoint: ConvergenceEndpoint;
-  /** The supervisor's OWN baked identity — the daemon it would spawn. */
-  baked: ConvergenceIdentity;
-  /** Read the running daemon's identity over its version-agnostic channel, or `null` if
-   *  none answers (a fresh boot / mid-teardown). */
-  probe: () => Promise<ConvergenceProbe<Cap> | null>;
-  policy: ConvergencePolicy<Cap>;
-  buildFence: BuildDrainFence;
+export function outcomeAnomaly(
+  outcome: ConvergenceOutcome,
+): ConvergenceAnomaly | null {
+  switch (outcome.kind) {
+    case "adopted-stale":
+    case "refused":
+      return outcome.anomaly;
+    case "adopted":
+    case "not-adopted":
+    case "spawned-fresh":
+    case "recycled":
+    case "drained-replacing":
+    case "mismatch-reported":
+      return null;
+    default: {
+      const _exhaustive: never = outcome;
+      throw new Error(`unreachable outcome: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
+
+// ── Observation model ───────────────────────────────────────────────────────
+
+/**
+ * Four-valued observation. `bound` distinguishes a probe-origin observation
+ * (may still need a bind) from a characterization of an already-held connection
+ * — encoded here so the fold never consults a separate `holding` mirror.
+ */
+type Observation =
+  | {
+      readonly kind: "identity";
+      readonly identity: ConvergenceIdentity;
+      readonly instanceKey: InstanceKey;
+      readonly drainable: DrainableProbe | null;
+      readonly dispose: () => void;
+      /** True when this identity came from a held bind's characterization. */
+      readonly bound: boolean;
+    }
+  | {
+      readonly kind: "absent";
+      /** True when a held bind's characterization was empty (unverifiable). */
+      readonly bound: boolean;
+    }
+  | { readonly kind: "uncorrelated" }
+  | { readonly kind: "failed"; readonly message: string };
+
+type FoldCtx = {
+  readonly policy: ConvergencePolicy<DrainCapability>;
+  readonly budget: DrainBudgetHandle | null;
+  readonly expected: ConvergenceIdentity;
+  readonly log: Logger;
+  readonly bind: () => Promise<BindResult>;
+  readonly releaseHeld: () => void;
+  lastKnownRunning: ConvergenceIdentity | null;
+  resolveDrainable: () => Promise<Observation>;
+  heldBind: BindResult | null;
+  /**
+   * When non-null, the drain budget is already spent (give-up path). decide still
+   * folds every identity; enactment of drain-and-replace rides adopted-stale,
+   * while a clean `adopt` returns adopted (W6.6).
+   */
+  rideStale: Extract<ConvergenceAnomaly, { kind: "adopted-stale" }> | null;
+};
+
+function lineageOf(
+  identity: ConvergenceIdentity,
+  instanceKey: InstanceKey,
+): DrainLineage {
+  return { build: identity.build, instanceKey };
+}
+
+function skewCtxOf(
+  running: ConvergenceIdentity,
+  expected: ConvergenceIdentity,
+): Record<string, string> {
+  return {
+    runningContract: running.contractVersion,
+    mineContract: expected.contractVersion,
+    runningBuild: buildLabel(running.build),
+    mineBuild: buildLabel(expected.build),
+  };
+}
+
+async function observeProbe(
+  run: () => Promise<AnyConvergenceProbe | null>,
+): Promise<Observation> {
+  try {
+    const p = await run();
+    if (p === null) return { kind: "absent", bound: false };
+    return {
+      kind: "identity",
+      identity: p.identity,
+      instanceKey: p.instanceKey,
+      drainable: p.capability === "drainable" ? p : null,
+      dispose: () => p.dispose(),
+      bound: false,
+    };
+  } catch (err) {
+    return {
+      kind: "failed",
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function observationFromCharacterization(
+  c: Extract<BindResult, { kind: "adopted-resident" }>["characterization"],
+): Observation {
+  switch (c.kind) {
+    case "characterized":
+      return {
+        kind: "identity",
+        identity: c.identity,
+        instanceKey: c.instanceKey,
+        drainable: null,
+        dispose: () => {},
+        bound: true,
+      };
+    case "absent":
+      return { kind: "absent", bound: true };
+    case "uncorrelated":
+      return { kind: "uncorrelated" };
+    case "failed":
+      return { kind: "failed", message: c.message };
+    default: {
+      const _e: never = c;
+      throw new Error(`unreachable characterization: ${JSON.stringify(_e)}`);
+    }
+  }
+}
+
+function probeFailedOutcome(args: {
+  message: string;
+  expected: ConvergenceIdentity;
+  running: ConvergenceIdentity | null;
   log: Logger;
-}): Promise<ConvergenceOutcome> {
-  const probe: AnyConvergenceProbe | null = await args.probe();
+  releaseHeld: () => void;
+}): ConvergenceOutcome {
+  args.releaseHeld();
+  const cause = { kind: "probe-failed" as const, message: args.message };
+  const detail = `convergence probe failed: ${args.message}`;
+  args.log.error({}, `convergence: UNCONVERGED — ${detail}`);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "unconverged",
+      running: args.running,
+      expected: args.expected,
+      cause,
+      detail,
+    },
+  };
+}
 
-  // The bind method is chosen by the POLICY, not the decision: a recycle-on-skew daemon
-  // (kaval) binds through `adoptOrEnsure` on EVERY path — so a skew recycles wherever the
-  // endpoint finds it, INCLUDING the adopt-hint the single probe never saw (the W2.2
-  // legacy-port migration); a refuse/drain daemon (padi) binds through the never-recycle
-  // `adoptOrSpawnOrRefuse`. This keeps both daemons byte-identical to their pre-kit boot
-  // method — the kit lifts only the DECISION, never the endpoint mechanism.
-  const bind =
-    args.policy.onContractSkew.kind === "recycle"
-      ? args.endpoint.adoptOrEnsure
-      : args.endpoint.adoptOrSpawnOrRefuse;
+function identityUnverifiableOutcome(args: {
+  running: ConvergenceIdentity | null;
+  expected: ConvergenceIdentity;
+  log: Logger;
+  releaseHeld: () => void;
+}): ConvergenceOutcome {
+  args.releaseHeld();
+  const cause = { kind: "identity-unverifiable" as const };
+  const runLabel =
+    args.running === null ? "unknown" : buildLabel(args.running.build);
+  const detail =
+    `bound a resident whose identity the probe could not re-characterize ` +
+    `(running was ${runLabel}; expected ${buildLabel(args.expected.build)})`;
+  args.log.error({}, `convergence: UNCONVERGED — ${detail}`);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "unconverged",
+      running: args.running,
+      expected: args.expected,
+      cause,
+      detail,
+    },
+  };
+}
 
-  // No live survivor at the primary → bind (spawn fresh, or — for a recycle-on-skew
-  // daemon — adopt/recycle the endpoint's hint).
-  if (probe === null) {
-    const adopted = await bind();
-    return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
+function skewRefusedOutcome(args: {
+  running: ConvergenceIdentity;
+  expected: ConvergenceIdentity;
+  log: Logger;
+  releaseHeld: () => void;
+  detail: string;
+}): ConvergenceOutcome {
+  args.releaseHeld();
+  args.log.warn(skewCtxOf(args.running, args.expected), args.detail);
+  return {
+    kind: "refused",
+    adopted: false,
+    anomaly: {
+      kind: "skew-refused",
+      running: args.running,
+      expected: args.expected,
+      detail: args.detail,
+    },
+  };
+}
+
+/**
+ * THE single authority. Every observation and every bind transition that
+ * participates in a convergence decision routes here.
+ */
+async function foldObserved(
+  obs: Observation,
+  ctx: FoldCtx,
+): Promise<ConvergenceOutcome> {
+  if (obs.kind === "failed") {
+    return probeFailedOutcome({
+      message: obs.message,
+      expected: ctx.expected,
+      running: ctx.lastKnownRunning,
+      log: ctx.log,
+      releaseHeld: ctx.releaseHeld,
+    });
   }
 
+  if (obs.kind === "uncorrelated") {
+    return identityUnverifiableOutcome({
+      running: ctx.lastKnownRunning,
+      expected: ctx.expected,
+      log: ctx.log,
+      releaseHeld: ctx.releaseHeld,
+    });
+  }
+
+  if (obs.kind === "absent") {
+    if (obs.bound) {
+      return identityUnverifiableOutcome({
+        running: ctx.lastKnownRunning,
+        expected: ctx.expected,
+        log: ctx.log,
+        releaseHeld: ctx.releaseHeld,
+      });
+    }
+    // Probe-origin absence → decide(null) → spawn/bind via the authority.
+    return enactDecision(decide(ctx.policy, null), null, ctx);
+  }
+
+  // Identity: foldObserved owns dispose unless transferred into the drain loop.
+  let transferred = false;
   try {
-    const decision = decide(
-      args.baked,
-      probe.identity,
-      args.policy,
-      args.buildFence.hasFired(),
-    );
-    // The skew/mismatch log context every logging arm shares — running vs mine on both
-    // axes. `probe` is non-null here (the null case returned above), so one mapping site.
-    const skewCtx = {
-      runningContract: probe.identity.contractVersion,
-      mineContract: args.baked.contractVersion,
-      runningBuild: buildLabel(probe.identity.build),
-      mineBuild: buildLabel(args.baked.build),
-    };
+    ctx.lastKnownRunning = obs.identity;
+    return await enactDecision(decide(ctx.policy, obs.identity), obs, ctx, {
+      transferDispose: () => {
+        transferred = true;
+      },
+    });
+  } finally {
+    if (!transferred) obs.dispose();
+  }
+}
+
+async function enactDecision(
+  decision: Decision,
+  obs: Extract<Observation, { kind: "identity" }> | null,
+  ctx: FoldCtx,
+  dispose?: { transferDispose: () => void },
+): Promise<ConvergenceOutcome> {
+  // Budget already spent (give-up): decide still owns the fold.
+  if (ctx.rideStale !== null) {
     switch (decision.kind) {
       case "spawn":
-      case "adopt": {
-        const adopted = await bind();
-        return adopted ? { kind: "adopted" } : { kind: "not-adopted" };
-      }
-      case "recycle": {
-        args.log.warn(
-          skewCtx,
-          "convergence: recycling a contract-skewed survivor (kill + respawn)",
-        );
-        // recycle-on-skew policy → bind is `adoptOrEnsure`. Thread its REAL result: the
-        // endpoint re-checks the primary AND the W2.2 adopt-hint (either can ADOPT a
-        // compatible survivor the single probe never saw), so the caller's reconcile must
-        // see what the bind actually did, not the decision's recycle intent.
-        const adopted = await bind();
-        return { kind: "recycled", adopted };
-      }
-      case "refuse": {
-        args.log.warn(
-          skewCtx,
-          "convergence: REFUSING a skewed survivor — left standing + degraded, never touched",
-        );
-        // refuse/drain policy → bind is `adoptOrSpawnOrRefuse`. Thread its REAL result: a
-        // race between the probe and the bind's own connect can ADOPT rather than refuse.
-        const adopted = await bind();
-        return { kind: "refused", adopted };
-      }
-      case "drain-and-replace": {
-        // Spend the fence for a BUILD drain BEFORE the await, so even a drain failure
-        // spends it (degraded-loudly, never a retry that could livelock two supervisors).
-        if (decision.axis === "build") args.buildFence.markFired();
-        args.log.info(
-          { axis: decision.axis, ...skewCtx },
-          "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
-        );
-        // Pin 1 at runtime: `decide` only returns drain-and-replace for a drainable policy,
-        // which `converge` only accepts with a drainable probe — so `drain` exists. Fail
-        // loudly (never silently) if that invariant is ever violated.
-        if (probe.capability !== "drainable") {
-          throw new Error(
-            "convergence: drain-and-replace decided for a non-drainable probe — unreachable by Pin 1",
-          );
-        }
-        try {
-          await probe.drain();
-        } catch (err) {
-          args.log.error(
-            { err, axis: decision.axis, ...skewCtx },
-            "convergence: drain FAILED (daemon did not exit) — NOT killing it; the follow-on bind adopts/refuses the still-standing survivor (degraded, logged), and the fence stays spent so no reconnect re-drains",
-          );
-        }
-        const adopted = await bind(); // drain policy → bind is `adoptOrSpawnOrRefuse`.
-        return {
-          kind: "drained-replacing",
-          axis: decision.axis,
-          running: probe.identity,
-          adopted,
-        };
-      }
+      case "adopt":
+        // W6.6: exact match after give-up is clean adopted, not mislabeled stale.
+        return { kind: "adopted" };
+      case "drain-and-replace":
+        return { kind: "adopted-stale", anomaly: ctx.rideStale };
       case "report-mismatch": {
-        // No supervisor action on the BUILD — the caller surfaces the mismatch (the
-        // currency nudge). The bind still runs to ADOPT the compatible survivor (its
-        // children preserved): for kaval that is `adoptOrEnsure`, which adopts a
-        // compatible daemon regardless of build, exactly as before the kit.
-        const adopted = await bind();
+        if (obs === null) {
+          throw new Error(
+            "convergence: report-mismatch without identity observation",
+          );
+        }
         return {
           kind: "mismatch-reported",
           running: decision.running,
-          adopted,
+          bind:
+            ctx.heldBind ??
+            ({
+              kind: "adopted-resident",
+              characterization: {
+                kind: "characterized",
+                identity: obs.identity,
+                instanceKey: obs.instanceKey,
+              },
+            } satisfies BindResult),
         };
       }
+      case "refuse": {
+        if (obs === null) {
+          throw new Error("convergence: refuse without identity observation");
+        }
+        return skewRefusedOutcome({
+          running: obs.identity,
+          expected: ctx.expected,
+          log: ctx.log,
+          releaseHeld: ctx.releaseHeld,
+          detail:
+            `convergence: REFUSING give-up bind resident — left standing + degraded ` +
+            `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`,
+        });
+      }
+      case "recycle":
+        return consumeBindResult(await ctx.bind(), ctx, { kind: "recycle" });
       default: {
-        const _exhaustive: never = decision;
-        throw new Error(
-          `unreachable convergence decision: ${JSON.stringify(_exhaustive)}`,
-        );
+        const _e: never = decision;
+        throw new Error(`unreachable decision: ${JSON.stringify(_e)}`);
       }
     }
-  } finally {
-    probe.dispose();
+  }
+
+  switch (decision.kind) {
+    case "spawn":
+    case "adopt": {
+      // Already holding a characterized resident that matches → keep it.
+      if (obs?.bound) return { kind: "adopted" };
+      // Need a bind; fold its result through the single BindResult consumer.
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "plain" });
+    }
+
+    case "report-mismatch": {
+      if (obs === null) {
+        throw new Error(
+          "convergence: report-mismatch without identity observation",
+        );
+      }
+      // Already holding — report against the held characterization.
+      if (obs.bound && ctx.heldBind !== null) {
+        return {
+          kind: "mismatch-reported",
+          running: decision.running,
+          bind: ctx.heldBind,
+        };
+      }
+      // Probe-origin mismatch: bind, then re-fold the NEW characterization
+      // (never report the stale probe identity over a different held resident).
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "plain" });
+    }
+
+    case "refuse": {
+      if (obs === null) {
+        throw new Error("convergence: refuse without identity observation");
+      }
+      return skewRefusedOutcome({
+        running: obs.identity,
+        expected: ctx.expected,
+        log: ctx.log,
+        releaseHeld: ctx.releaseHeld,
+        detail:
+          `convergence: REFUSING a skewed survivor — left standing + degraded, never touched ` +
+          `(running contract ${obs.identity.contractVersion}, mine ${ctx.expected.contractVersion})`,
+      });
+    }
+
+    case "recycle":
+      return consumeBindResult(await ctx.bind(), ctx, { kind: "recycle" });
+
+    case "drain-and-replace": {
+      if (ctx.budget === null || ctx.policy.capability !== "drainable") {
+        throw new Error(
+          "convergence: drain-and-replace without drain budget — unreachable by Pin 1",
+        );
+      }
+      if (obs === null) {
+        throw new Error(
+          "convergence: drain-and-replace without identity observation",
+        );
+      }
+
+      // Need drainable probe. If missing, resolve then re-fold (re-decide).
+      // Current obs is disposed by foldObserved's finally after we return.
+      if (obs.drainable === null) {
+        const resolved = await ctx.resolveDrainable();
+        return foldObserved(resolved, ctx);
+      }
+
+      // Transfer dispose ownership into the drain body.
+      dispose?.transferDispose();
+      return enactDrainOnce({
+        initial: obs.drainable,
+        disposeInitial: obs.dispose,
+        axis: decision.axis,
+        policy: ctx.policy as ConvergencePolicy<"drainable">,
+        budget: ctx.budget,
+        bind: ctx.bind,
+        log: ctx.log,
+        expected: ctx.expected,
+        releaseHeld: ctx.releaseHeld,
+        resolveDrainable: ctx.resolveDrainable,
+        baseCtx: ctx,
+      });
+    }
+
+    default: {
+      const _e: never = decision;
+      throw new Error(`unreachable decision: ${JSON.stringify(_e)}`);
+    }
   }
 }
+
+/**
+ * Transition context for {@link consumeBindResult}. Callers decorate the
+ * outcome (recycled / drained-replacing / adopt-bind-failed) via this tag —
+ * they never inspect `r.kind` themselves.
+ */
+type BindTransition =
+  | { readonly kind: "plain" }
+  | { readonly kind: "recycle" }
+  | {
+      readonly kind: "post-drain";
+      readonly axis: "contract" | "build";
+      readonly running: ConvergenceIdentity;
+    }
+  | {
+      readonly kind: "give-up";
+      readonly axis: "contract" | "build";
+      readonly running: ConvergenceIdentity;
+      readonly detail: string;
+    };
+
+/**
+ * THE sole BindResult consumer (W7.1). Every bind transition routes here:
+ * release / heldBind updates live only in this switch. Call sites must not
+ * inspect `r.kind`.
+ */
+async function consumeBindResult(
+  r: BindResult,
+  ctx: FoldCtx,
+  transition: BindTransition,
+): Promise<ConvergenceOutcome> {
+  switch (r.kind) {
+    case "spawned-fresh": {
+      ctx.heldBind = r;
+      switch (transition.kind) {
+        case "plain":
+        case "give-up":
+          return { kind: "spawned-fresh" };
+        case "recycle":
+          return { kind: "recycled", bind: r };
+        case "post-drain":
+          return {
+            kind: "drained-replacing",
+            axis: transition.axis,
+            running: transition.running,
+            bind: r,
+          };
+        default: {
+          const _e: never = transition;
+          throw new Error(`unreachable transition: ${JSON.stringify(_e)}`);
+        }
+      }
+    }
+    case "refused-or-failed": {
+      // Sole release site for a refused bind — call sites never hand-release.
+      ctx.releaseHeld();
+      switch (transition.kind) {
+        case "plain":
+        case "recycle":
+          return { kind: "not-adopted" };
+        case "post-drain":
+          return {
+            kind: "refused",
+            adopted: false,
+            anomaly: {
+              kind: "unconverged",
+              running: transition.running,
+              expected: ctx.expected,
+              cause: { kind: "adopt-bind-failed", axis: transition.axis },
+              detail:
+                "bind refused or failed after admitted drain of bound resident",
+            },
+          };
+        case "give-up":
+          return {
+            kind: "refused",
+            adopted: false,
+            anomaly: {
+              kind: "unconverged",
+              running: transition.running,
+              expected: ctx.expected,
+              cause: { kind: "adopt-bind-failed", axis: transition.axis },
+              detail: transition.detail,
+            },
+          };
+        default: {
+          const _e: never = transition;
+          throw new Error(`unreachable transition: ${JSON.stringify(_e)}`);
+        }
+      }
+    }
+    case "adopted-resident": {
+      ctx.heldBind = r;
+      if (transition.kind === "post-drain" || transition.kind === "give-up") {
+        ctx.lastKnownRunning = transition.running;
+      }
+      const folded = await foldObserved(
+        observationFromCharacterization(r.characterization),
+        ctx,
+      );
+      // Post-drain clean adopt is the drain success story — decorate.
+      if (transition.kind === "post-drain" && folded.kind === "adopted") {
+        return {
+          kind: "drained-replacing",
+          axis: transition.axis,
+          running: transition.running,
+          bind: r,
+        };
+      }
+      return folded;
+    }
+    default: {
+      const _e: never = r;
+      throw new Error(`unreachable BindResult: ${JSON.stringify(_e)}`);
+    }
+  }
+}
+
+// ── Drain enactment (single body; successor re-entry is recursive) ──────────
+
+async function enactDrainOnce(args: {
+  initial: DrainableProbe;
+  disposeInitial: () => void;
+  axis: "contract" | "build";
+  policy: ConvergencePolicy<"drainable">;
+  budget: DrainBudgetHandle;
+  bind: () => Promise<BindResult>;
+  log: Logger;
+  expected: ConvergenceIdentity;
+  releaseHeld: () => void;
+  resolveDrainable: () => Promise<Observation>;
+  baseCtx: FoldCtx;
+}): Promise<ConvergenceOutcome> {
+  const baked = args.expected;
+  const current = args.initial;
+  const axis = args.axis;
+
+  try {
+    const why =
+      axis === "contract"
+        ? `contract skew (mine ${baked.contractVersion} newer than running ${current.identity.contractVersion})`
+        : `build mismatch (running=${buildLabel(current.identity.build)} expected=${buildLabel(baked.build)})`;
+    const admission = budgetInternal(args.budget).admit(
+      lineageOf(current.identity, current.instanceKey),
+      why,
+    );
+
+    if (admission.kind === "giveUp") {
+      return enactGiveUp({
+        admission,
+        onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+        axis,
+        running: current.identity,
+        expected: baked,
+        bind: args.bind,
+        log: args.log,
+        policy: args.policy,
+        releaseHeld: args.releaseHeld,
+        baseCtx: args.baseCtx,
+      });
+    }
+
+    args.log.info(
+      {
+        axis,
+        attempt: admission.attempt,
+        ...skewCtxOf(current.identity, baked),
+      },
+      "convergence: draining a superseded survivor (persist + exit; its children survive) and respawning our own build",
+    );
+    const drain = await drainAndAwaitExit(
+      () => current.fireDrain(),
+      (signal) => current.awaitExit(signal),
+      { ceilingMs: current.drainCeilingMs },
+    );
+    if (!drain.took) {
+      args.log.error(
+        { axis, ...skewCtxOf(current.identity, baked) },
+        `convergence: drain FAILED — not taken within ${current.drainCeilingMs}ms` +
+          drainRejectionSuffix(drain.drainRejection),
+      );
+      return enactGiveUp({
+        admission: {
+          kind: "giveUp",
+          why: "budget",
+          axisHint: why,
+          attempts: admission.attempt,
+          maxAttempts: drainBudgetOf(args.budget).maxAttempts,
+          instanceKey: current.instanceKey,
+        },
+        onGiveUp: drainBudgetOf(args.budget).onGiveUp,
+        axis,
+        running: current.identity,
+        expected: baked,
+        bind: args.bind,
+        log: args.log,
+        policy: args.policy,
+        drainNotTaken: {
+          ceilingMs: current.drainCeilingMs,
+          rejection: drain.drainRejection,
+        },
+        releaseHeld: args.releaseHeld,
+        baseCtx: args.baseCtx,
+      });
+    }
+
+    // Sole BindResult consumer — no local r.kind switch (W7.1).
+    return consumeBindResult(await args.bind(), args.baseCtx, {
+      kind: "post-drain",
+      axis,
+      running: current.identity,
+    });
+  } finally {
+    args.disposeInitial();
+  }
+}
+
+async function enactGiveUp(args: {
+  admission: Extract<DrainAdmission, { kind: "giveUp" }>;
+  onGiveUp: "refuse" | "adopt-stale";
+  axis: "contract" | "build";
+  running: ConvergenceIdentity;
+  expected: ConvergenceIdentity;
+  bind: () => Promise<BindResult>;
+  log: Logger;
+  policy: ConvergencePolicy<DrainCapability>;
+  drainNotTaken?: { ceilingMs: number; rejection: string | null };
+  releaseHeld: () => void;
+  baseCtx: FoldCtx;
+}): Promise<ConvergenceOutcome> {
+  const g = giveUpOutcome({
+    admission: args.admission,
+    onGiveUp: args.onGiveUp,
+    axis: args.axis,
+    running: args.running,
+    expected: args.expected,
+    log: args.log,
+    skewCtx: skewCtxOf(args.running, args.expected),
+    logPrefix: "convergence",
+    drainNotTaken: args.drainNotTaken,
+  });
+
+  if (g.kind === "adopt-stale") {
+    // rideStale so characterization re-decide never re-enters drain (W6.6).
+    args.baseCtx.rideStale = g.anomaly;
+    // Sole BindResult consumer — no local r.kind switch (W7.1).
+    return consumeBindResult(await args.bind(), args.baseCtx, {
+      kind: "give-up",
+      axis: args.axis,
+      running: args.running,
+      detail: g.anomaly.detail,
+    });
+  }
+
+  args.releaseHeld();
+  return { kind: "refused", adopted: false, anomaly: g.anomaly };
+}
+
+// ── Public entry ────────────────────────────────────────────────────────────
+
+export async function converge<
+  C,
+  I,
+  M = undefined,
+  Cap extends DrainCapability = DrainCapability,
+>(endpoint: Endpoint<C, I, M, Cap>): Promise<ConvergenceOutcome> {
+  const binds = endpointPrivate(endpoint);
+  const policy = endpoint.policy;
+  const expected = policy.baked;
+
+  const releaseHeld = (): void => binds.releaseHeld();
+  const bind =
+    policy.onContractSkew.kind === "recycle"
+      ? () => binds.adoptOrEnsure()
+      : () => binds.adoptOrSpawnOrRefuse();
+
+  const resolveDrainable = (): Promise<Observation> =>
+    observeProbe(() => endpoint.probe());
+
+  const ctx: FoldCtx = {
+    policy,
+    budget: endpoint.budget,
+    expected,
+    log: endpoint.log,
+    bind,
+    releaseHeld,
+    lastKnownRunning: null,
+    resolveDrainable,
+    heldBind: null,
+    rideStale: null,
+  };
+
+  // Every observation — including initial absence and failure — through the
+  // single authority. No public-tail bind shortcuts.
+  const initial = await observeProbe(() => endpoint.probe());
+  return foldObserved(initial, ctx);
+}
+
+export { instanceKeyFromStartedAt, instanceKeyTag };

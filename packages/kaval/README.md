@@ -39,7 +39,29 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | exit           | child exit code                 | `exitPromise`             |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 
-## Two load-bearing properties
+## Three load-bearing properties
+
+**The snapshot is serialized at the consumer's grid — and `attach()` is a
+write.** A serialized screen is bytes laid out *for a specific cols×rows* —
+cursor moves and wraps only mean anything at the width they were written for. So
+`attach()` takes `resizeTo`, the grid the consumer will render into, **resizes
+the PTY to it**, and serializes as **one act**. The name is deliberate: this is
+the same `resize()` every other caller uses, so a genuine change `SIGWINCH`es the
+child, reflows the shared mirror, invalidates the snapshot memo, and (on a width
+change) bumps the reflow epoch that stales every *other* attached client's
+backfill cursor. Attaching mutates state the whole PTY can see; the policy is
+last-attach-wins. Because a re-attach is now a resize, two differently-sized
+viewers move the PTY on any stream *re-subscribe*, not only when a human resizes.
+
+What the fusion buys is that the size travels *with* the request instead of
+racing it through a separate `resize()` — so "a snapshot for a size the consumer
+isn't" can no longer be produced by two calls landing out of order. It used to be
+a discipline each caller had to remember (resize first, then attach), and a
+caller that got it wrong had no way back: a same-dimensions `resize()` is
+correctly a no-op, so no `SIGWINCH` reaches the process and nothing ever
+repaints. The bad state is still *expressible* by omitting `resizeTo` — which
+only a caller with no grid of its own (a CLI dumping the screen) may do, and
+which reads the PTY at its current size.
 
 **Race-free attach.** `attach()` calls `subscribe()` then `serialize()` as two
 back-to-back *synchronous* statements. Because the PTY publishes data only from
@@ -103,8 +125,12 @@ const { id, pid } = host.spawn({
   onDispose: () => cleanupRcFiles(),
 });
 
-// Late-join client: snapshot first, then live deltas.
-const { snapshot, deltas } = host.attach(id, signal);
+// Late-join client: snapshot first, then live deltas. `resizeTo` RESIZES the
+// shared PTY (SIGWINCH + mirror reflow) and the snapshot comes back laid out
+// for it — omit it if you have no grid of your own.
+const { snapshot, deltas } = host.attach(id, signal, {
+  resizeTo: { cols: 120, rows: 40 },
+});
 if (snapshot) send(snapshot);
 for await (const chunk of deltas) send(chunk);
 
@@ -123,4 +149,43 @@ code (`#951` R-4, slice R4a), consumed **in-process** by `kolu-server`. It now
 also ships the standalone `kaval` daemon: the same `PtyHost` served over a unix
 socket via `@kolu/surface-daemon`'s `gate → serve → teardown` skeleton, reached
 by the `kaval-tui` CLI. The primitive itself stays pure — it knows nothing about
-the socket, the gate, or the wire; those compose on top.
+the socket, the gate, or the wire; those compose on top. The daemon adds the
+frozen `control.core.hello` identity channel beside the historic flat pty-host
+surface; `system.version` remains byte-for-byte available to existing clients.
+Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
+verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
+makes normal invocation structurally impossible.
+
+The pty-host wire is now contract 6.0: padi reads both daemon RSS figures in one
+baked osfacts `--mem` snapshot, so kaval no longer exposes the old
+`system.processMemory` procedure. Removing a procedure is breaking in the
+old-client/new-daemon direction, hence the major bump; the frozen
+`system.version` handshake and its exact fields are unchanged.
+
+### Compose the daemon wire
+
+`serveKavalDaemonSurface` is the supported composition boundary for embedding
+the complete daemon router. It takes an already-created pty-host runtime plus
+the daemon home, and returns a typed
+`KavalDaemonRouter` with the shared `{ done, close }` lifetime. Clients type the
+same wire from `kavalDaemonContract`; consumers that need only the historic
+pty-host API continue to use `ptyHostSurface`. The pty-host captures one boot
+record; both the historic version route and frozen identity channel project
+from it.
+
+```ts
+import {
+  createInProcessPtyHost,
+  kavalDaemonContract,
+  serveKavalDaemonSurface,
+} from "kaval";
+
+const ptyHost = createInProcessPtyHost({ log, rcDir, lifetime });
+const daemon = serveKavalDaemonSurface({
+  ptyHost,
+  stateRoot: daemonHome.dir,
+});
+
+serveOverUnixSocket({ socketPath, router: daemon.router, log });
+// Observe daemon.done; await daemon.close() during teardown.
+```
