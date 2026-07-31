@@ -170,11 +170,30 @@ export const HostDiagnosticsPopover: Component<{
   const servingFor = (forward: KoluForward) =>
     servingLink({
       port: forward.remotePort,
-      candidates: [...arms()].map(([id, arm]) => ({
-        id,
-        parentId: arm.parentId ?? null,
-        ports: arm.ports,
-      })),
+      candidates: (() => {
+        const map = arms();
+        // Resolve containing tile via true parent chain so a nested split's
+        // port still links the root tile (activate rejects middle split ids).
+        const tileOf = (id: TerminalId): TerminalId => {
+          const seen = new Set<TerminalId>();
+          let cur = id;
+          for (;;) {
+            if (seen.has(cur)) return cur;
+            seen.add(cur);
+            const parent = map.get(cur)?.parentId;
+            if (!parent) return cur;
+            cur = parent as TerminalId;
+          }
+        };
+        return [...map].map(([id, arm]) => {
+          const tile = tileOf(id);
+          return {
+            id,
+            parentId: tile === id ? null : tile,
+            ports: arm.ports,
+          };
+        });
+      })(),
       // The join returns the TILE, and the tile is what the row names — a
       // split's own name would point at a pane the user cannot see as a thing.
       armOf: (id) => {

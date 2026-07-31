@@ -15,6 +15,7 @@ import {
 import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
+import { containingTileOf } from "./terminalTree";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the composed record having arrived on padi's
@@ -148,9 +149,16 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // deep-link router's settle effect for it. Only when the target is a member
     // of THIS host's list (else a stale cross-host intent is ignored).
     const intent = deepLinkFocusIntent();
+    // Owning tile for a nested target is the root of its parent chain, not the
+    // true one-hop parent (middle ∉ topIds would drop the bookmark).
+    const byId = new Map(entries.map((e) => [e.t.id, e]));
     const intentTile =
       intent !== null
-        ? (entries.find((e) => e.t.id === intent)?.m.parentId ?? intent)
+        ? containingTileOf(intent, (id) => {
+            const e = byId.get(id);
+            if (!e) return undefined;
+            return e.m.parentId ?? null;
+          })
         : null;
     const picked =
       intentTile && topIds.includes(intentTile as TerminalId)

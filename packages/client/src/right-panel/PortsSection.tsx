@@ -96,9 +96,17 @@ const PortsSection: Component<{ terminalId: TerminalId }> = (props) => {
     store.terminalIds().flatMap((tileId) =>
       store.getTilePaneIds(tileId).flatMap((paneId) => {
         const arm = activeArm(store.getMetadata(paneId));
+        // `parentId` here is the CONTAINING TILE (root), not the true one-hop
+        // parent — the port join returns the tile the user can activate.
         return arm === undefined
           ? []
-          : [{ id: paneId, parentId: arm.parentId ?? null, ports: arm.ports }];
+          : [
+              {
+                id: paneId,
+                parentId: paneId === tileId ? null : tileId,
+                ports: arm.ports,
+              },
+            ];
       }),
     ),
   );

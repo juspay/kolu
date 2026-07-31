@@ -13,6 +13,17 @@ import type { TerminalId } from "kolu-common/surface";
  *  - `undefined` — id is absent from the census (dangling edge / not yet arrived). */
 export type ParentEdge = (id: TerminalId) => TerminalId | null | undefined;
 
+/** Containing canvas tile for a pane — the root of its parent chain, or the
+ *  id itself when it is a root / cycle / orphan (no resolvable root). The ONE
+ *  answer to "which top-level tile owns this pane" for focus, panel chrome,
+ *  deep links, and port jumps. */
+export function containingTileOf(
+  id: TerminalId,
+  parentOf: ParentEdge,
+): TerminalId {
+  return rootAncestorOf(id, parentOf) ?? id;
+}
+
 /** Root ancestor of `id`, or `null` when the walk finds no root (a cycle, or a
  *  dangling parentId whose target is missing). A missing start id is also
  *  `null`. Callers that must never hide a terminal treat `null` as "paint this

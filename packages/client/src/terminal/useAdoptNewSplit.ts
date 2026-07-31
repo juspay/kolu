@@ -31,6 +31,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import type { HydrationPhase } from "../hostScope/createSessionRestore";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
+import { containingTileOf } from "./terminalTree";
 
 /** The sub-panel seams a new split drives — read live, mutated to adopt. Bundled
  *  so the hook is a pure function of (ports, list, phase): unit-testable with
@@ -97,15 +98,7 @@ export function useAdoptNewSplit(deps: {
         // Sub-panel chrome is keyed on the ROOT tile. A nested create
         // (`parentId` = a middle split) must expand that tile's panel, not a
         // middle node that has no canvas chrome of its own.
-        let tileId = parentId;
-        const seen = new Set<TerminalId>();
-        for (;;) {
-          if (seen.has(tileId)) break;
-          seen.add(tileId);
-          const up = deps.parentOf(tileId);
-          if (up === null) break;
-          tileId = up;
-        }
+        const tileId = containingTileOf(parentId, (id) => deps.parentOf(id));
         deps.ports.expandPanel(tileId);
         // Don't-steal: select the arrival only when no split is currently active.
         // `activeSubTab` is null-or-live by invariant (evictTerminal clears it when
