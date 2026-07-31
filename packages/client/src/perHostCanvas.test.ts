@@ -138,10 +138,11 @@ vi.mock("./rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("./right-panel/useRightPanel", () => ({
   useRightPanel: () => ({ seedPanel: () => {} }),
 }));
+
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
-import { useTileFocus } from "./terminal/useTileFocus";
 import type { TerminalStore } from "./terminal/useTerminalStore";
+import { useTileFocus } from "./terminal/useTileFocus";
 import { useViewState } from "./useViewState";
 
 /** Solid flushes `createEffect` on a microtask; a macrotask tick drains it. */

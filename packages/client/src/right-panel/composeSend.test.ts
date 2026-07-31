@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
 } from "@kolu/terminal-protocol";
+import { describe, expect, it } from "vitest";
 import { planComposeSend } from "./composeSend";
 
 describe("planComposeSend", () => {

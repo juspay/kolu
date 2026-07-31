@@ -256,9 +256,7 @@ const CanvasTile: Component<{
       data-focused={isFocused() ? "true" : undefined}
       data-dimmed={props.dimmed ? "true" : undefined}
       data-sleeping={props.sleeping ? "" : undefined}
-      data-landing={
-        landing() && !props.sleeping ? "" : undefined
-      }
+      data-landing={landing() && !props.sleeping ? "" : undefined}
       data-exhale={
         exhale() && showAura() && aura() === "finished" ? "" : undefined
       }

@@ -13,35 +13,35 @@ import { mkdtempSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
+import { implementSurfaces } from "@kolu/surface/server";
+import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   controlCoreFragment,
   controlCoreSurface,
   daemonBuild,
 } from "@kolu/surface-daemon";
-import { implementSurfaces } from "@kolu/surface/server";
-import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import {
-  type PtyHostSocketListener,
-  PTY_HOST_CONTRACT_VERSION,
-  createInProcessPtyHost,
-  ptyHostSurface,
-  serveKavalDaemonSurface,
-  servePtyHostOverUnixSocket,
-} from "kaval";
 import {
   decide,
   instanceKeyFromStartedAt,
 } from "@kolu/surface-daemon-supervisor";
+import { oc } from "@orpc/contract";
+import { implement } from "@orpc/server";
+import {
+  createInProcessPtyHost,
+  PTY_HOST_CONTRACT_VERSION,
+  type PtyHostSocketListener,
+  ptyHostSurface,
+  serveKavalDaemonSurface,
+  servePtyHostOverUnixSocket,
+} from "kaval";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { probeKavalStatus } from "../hostInventory.ts";
 import {
   connectKaval,
   isNoListenerError,
   probeKavalForConvergence,
 } from "./connect.ts";
-import { probeKavalStatus } from "../hostInventory.ts";
-import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
 const legacyVersionOnlyContract = oc.router({
   surface: {

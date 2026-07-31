@@ -10,13 +10,13 @@
  * than re-deriving scope.
  */
 
+import { parseLoopbackUrl } from "@kolu/url-shape";
 import {
   foldPorts,
   type KoluForward,
   type PortInfo,
   type TerminalPorts,
 } from "kolu-common/surface";
-import { parseLoopbackUrl } from "@kolu/url-shape";
 
 /** What the join finds for a printed URL.
  *

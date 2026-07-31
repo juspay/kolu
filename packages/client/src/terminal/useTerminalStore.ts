@@ -14,16 +14,11 @@ import { activeArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
-import { useViewState } from "../useViewState";
 import { terminalListSub } from "../hostScope/activeWire";
-import { useTileFocus } from "./useTileFocus";
+import { useViewState } from "../useViewState";
 import { useTerminalMetadata } from "./useTerminalMetadata";
-import {
-  admitWebglTiles,
-  isActiveSplit,
-  tileWebglCost,
-  WEBGL_CONTEXT_CAP,
-} from "./webglBudget";
+import { useTileFocus } from "./useTileFocus";
+import { admitWebglTiles, WEBGL_CONTEXT_CAP } from "./webglBudget";
 
 export const useTerminalStore = createSharedRoot(() => {
   const view = useViewState();

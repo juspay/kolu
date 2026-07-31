@@ -20,11 +20,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import {
   pinPreviousShapeRecovery,
   plantYesterdayDaemon,
 } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { describe, expect, it } from "vitest";
 import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";

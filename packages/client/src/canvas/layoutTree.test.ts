@@ -87,7 +87,9 @@ describe("layoutTree", () => {
     // The pin is not re-derived...
     expect(derived.has(id("pinned"))).toBe(false);
     // ...but it still occupies a slot in the stack, so `next` clears its height.
-    expect(derived.get(id("next"))?.y).toBe(ROOT_BOX.y + pin.h + SIBLING_GUTTER);
+    expect(derived.get(id("next"))?.y).toBe(
+      ROOT_BOX.y + pin.h + SIBLING_GUTTER,
+    );
   });
 
   it("carries a subtree along when the parent is dragged (derivation is relative)", () => {

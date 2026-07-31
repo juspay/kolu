@@ -15,7 +15,6 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
-import { activeScope } from "../hostScope/hostScopes";
 import { listIsAuthoritative } from "../kaval/useDaemonStatus";
 import { isExpectedCleanupError } from "../rpc/streamCleanup";
 import { activeHost, padiMap } from "../wire";

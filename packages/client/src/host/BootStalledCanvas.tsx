@@ -31,13 +31,13 @@
  */
 
 import { type Component, createMemo } from "solid-js";
-import { NO_LOG_LINES } from "../ui/logTailChrome";
 import {
   bootStalledCopy,
   bootStalledPhaseDetail,
   CONNECTOR_STALLED_COPY,
 } from "../kaval/bootStalledCopy";
 import type { BootStalledRecovery } from "../kaval/canvasModeResolver";
+import { NO_LOG_LINES } from "../ui/logTailChrome";
 import {
   type CanvasFailureAction,
   CanvasFailureCard,

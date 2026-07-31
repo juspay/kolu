@@ -20,8 +20,8 @@ import { ORPCError } from "@orpc/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
-import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
+import { buildPadiSurfaceDeps } from "./servePadi.ts";
 
 vi.mock("./ptyHost/restartLocal.ts", () => ({
   restartLocalDaemon: vi.fn(),

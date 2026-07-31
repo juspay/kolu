@@ -19,26 +19,26 @@
 import type { Socket } from "node:net";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
+import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   type ConvergenceProbe,
   type DaemonConnection,
   DaemonContractSkewError,
   daemonBuild,
   dialSocket,
-  isNoListenerError,
   instanceKeyFromStartedAt,
+  isNoListenerError,
   probeDaemonIdentity,
   readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
-import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import { withTimeout } from "../withTimeout.ts";
 import {
+  type kavalDaemonContract,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
   type PtyHostIdentity,
-  type kavalDaemonContract,
 } from "kaval";
 import { match } from "ts-pattern";
+import { withTimeout } from "../withTimeout.ts";
 import { isMissingFrozenFragment } from "./missingFrozenFragment.ts";
 
 export { isNoListenerError };

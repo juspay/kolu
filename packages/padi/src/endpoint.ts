@@ -42,11 +42,11 @@
  *    the contract is what makes the instant-tile UX work.
  */
 
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type {
   TerminalEndpointFs,
   TerminalEndpointGit,
 } from "./terminalWorkspace/endpoint.ts";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { InitialTerminalMetadata, TerminalInfo } from "./vocab.ts";
 
 /** RIS (`ESC c`) — a full terminal reset. An overflow-driven re-attach snapshot
@@ -142,7 +142,7 @@ export type TerminalHistoryChunk =
  *  the user's home when undefined. `parentId` and `initialMetadata` are
  *  seeded into the registry entry BEFORE per-terminal providers start —
  *  used by session restore to avoid racing post-hoc `setCanvasLayout` /
- *  `setTheme` / `setSubPanel` RPCs against the client's canvas-cascade
+ *  `setTheme` RPCs against the client's canvas-cascade
  *  effect (#642). */
 export interface PtySpawnOpts {
   cwd?: string;

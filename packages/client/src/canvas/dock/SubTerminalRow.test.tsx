@@ -64,6 +64,7 @@ function shellMeta(): TerminalMetadata {
 function shellRankedRow() {
   return {
     id: SPLIT,
+    depth: 1,
     kind: "shell" as const,
     bucket: "idle" as const,
     pip: "idle" as const,

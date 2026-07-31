@@ -122,7 +122,10 @@ const TileTitleActions: Component<{
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) =>
               onTile(e, () =>
-                crud.handleCreateSubTerminal(props.id, meta()?.cwd ?? undefined),
+                crud.handleCreateSubTerminal(
+                  props.id,
+                  meta()?.cwd ?? undefined,
+                ),
               )
             }
             aria-label="New child terminal"

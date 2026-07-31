@@ -7,7 +7,7 @@ import { render } from "solid-js/web";
 import { beforeEach, expect, it, vi } from "vitest";
 
 const HOST: HostKey = { kind: "local" };
-const PARENT = "parent-tile" as TerminalId;
+const _PARENT = "parent-tile" as TerminalId;
 const SPLIT = "the-split" as TerminalId;
 
 const bag = vi.hoisted(() => ({

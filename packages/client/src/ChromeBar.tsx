@@ -119,10 +119,7 @@ const ChromeBar: Component<{
             onClick={() => focusTile.toggle()}
             aria-label={focusLabel()}
           >
-            <Show
-              when={held()}
-              fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
-            >
+            <Show when={held()} fallback={<MaximizeIcon class="w-3.5 h-3.5" />}>
               <RestoreIcon class="w-3.5 h-3.5" />
             </Show>
           </button>

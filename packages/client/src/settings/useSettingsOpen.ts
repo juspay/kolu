@@ -9,8 +9,8 @@
  *  accessor/setter pair rather than threading props through the shell. */
 
 import { createSignal } from "solid-js";
-import { isDesktop } from "../useMobile";
 import { setChromeDrawerOpen } from "../useChromeDrawer";
+import { isDesktop } from "../useMobile";
 
 export const [settingsOpen, setSettingsOpen] = createSignal(false);
 

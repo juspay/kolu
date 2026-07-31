@@ -6,6 +6,7 @@
 
 import type { Accessor } from "solid-js";
 import { activeScope } from "../../hostScope/hostScopes";
+import type { Camera } from "../../useViewState";
 import type { TileLayout } from "../TileLayout";
 import { animateCamera } from "./animatedCamera";
 import {
@@ -26,8 +27,6 @@ import {
   viewportCenter as viewportCenterPure,
   zoomToCenter as zoomToCenterPure,
 } from "./transforms";
-
-import type { Camera } from "../../useViewState";
 
 // ── Per-host camera state (read/written on the ACTIVE host's owner) ──
 //

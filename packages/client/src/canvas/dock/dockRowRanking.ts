@@ -214,9 +214,13 @@ type DockRowCore = {
   ts: number | null;
 };
 
-/** A split's entry — it cannot itself carry splits because splits do not nest.
- * The type is deliberately private: consumers receive it only through its
- * parent's `subRows`, keeping the hierarchy as one validated product.
+/** A DESCENDANT entry. The list is FLAT and in pre-order, with `depth`
+ * carrying the nesting — a nested array would need a wrapper element per
+ * level, and the cards CSS styles rows through the DIRECT-CHILD selector
+ * `.dock-cards-section > [data-dock-row]`, so any wrapper would silently drop
+ * deep rows out of the dividers, the active highlight and both attention
+ * washes. The type is deliberately private: consumers receive it only through
+ * its ancestor's `subRows`, keeping the hierarchy as one validated product.
  * `pip` lives on the core (same as a top-level row): every sub-row surface
  * consumes the shared StatePip fold. `kind` only tags which order-bucket arm is
  * valid (shell vs agent) — never whether a pip fact exists, and never whether
@@ -225,6 +229,8 @@ type DockRowCore = {
  * window fate, so the never-park invariant is structural on order AND paint. */
 type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
   pip: SubDockPaintBucket;
+  /** Generations below the root row: 1 for a child, 2 for a grandchild, … */
+  depth: number;
 };
 
 type ShellSubDockOrderBucket = Extract<
@@ -307,7 +313,7 @@ export function rankDockRows(
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const subRows = rankSubRows(getSubIds(id), getMeta, classOf);
+    const subRows = rankSubRows(getSubIds(id), getMeta, classOf, getSubIds);
     let recencyAt = rowRecencyAt(meta);
     for (const sub of subRows) {
       if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
@@ -325,16 +331,27 @@ export function rankDockRows(
   return rows;
 }
 
-/** Rank every split under its parent. A sub-entry shares its parent's activity
- *  window fate, so it is never independently parked. Agent urgency orders the
- *  entries; an agentless split naturally falls into the quiet tail. */
+/** Rank an entire SUBTREE under a root row, pre-order and flat, each entry
+ *  tagged with its `depth`. A descendant shares its root's activity window
+ *  fate, so it is never independently parked. Agent urgency orders siblings; an
+ *  agentless child naturally falls into the quiet tail.
+ *
+ *  Recursion is what makes a depth-2 terminal visible at all: the old one-level
+ *  version simply never asked for a grandchild, which is the dock half of the
+ *  #2059 disappearance. */
 function rankSubRows(
   subIds: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   classOf: (id: TerminalId) => AttentionClass,
+  getSubIds: (parentId: TerminalId) => readonly TerminalId[],
+  depth = 1,
+  seen: Set<TerminalId> = new Set(),
 ): SubDockRow[] {
   const rows: SubDockRow[] = [];
   for (const id of subIds) {
+    // A parentId cycle in a corrupt record must not hang the dock.
+    if (seen.has(id)) continue;
+    seen.add(id);
     const meta = getMeta(id);
     // IDs and projected metadata are independent reactive reads. Match the
     // top-level row contract above: reading a missing slot subscribes this memo
@@ -346,6 +363,7 @@ function rankSubRows(
     // RailSubChip all hand to `useStatePip`. Never synthesize per-surface.
     const core = {
       id,
+      depth,
       ts: rowRecencyAt(meta),
       pip: paintDockRow(meta, classOf(id), false),
     };
@@ -382,8 +400,25 @@ function rankSubRows(
         .exhaustive(),
     );
   }
+  // Sort SIBLINGS, then splice each one's own subtree in directly after it —
+  // sorting the flattened list would scramble pre-order and orphan a
+  // grandchild from the row it is indented under.
   rows.sort(byBucketThenRecency);
-  return rows;
+  const flat: SubDockRow[] = [];
+  for (const row of rows) {
+    flat.push(row);
+    flat.push(
+      ...rankSubRows(
+        getSubIds(row.id),
+        getMeta,
+        classOf,
+        getSubIds,
+        depth + 1,
+        seen,
+      ),
+    );
+  }
+  return flat;
 }
 
 function byRecencyThenBucket(

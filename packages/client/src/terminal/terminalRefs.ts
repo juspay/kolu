@@ -8,13 +8,13 @@
  *  container stays as an e2e-only affordance; production code looks up refs
  *  by id through this module. */
 
-import type { SerializeAddon } from "@xterm/addon-serialize";
-import type { Terminal as XTerm } from "@xterm/xterm";
-import type { TerminalId } from "kolu-common/surface";
 import type {
   RenderRecoveryProbes,
   ScrollLockEvent,
 } from "@kolu/xterm-kit/solid";
+import type { SerializeAddon } from "@xterm/addon-serialize";
+import type { Terminal as XTerm } from "@xterm/xterm";
+import type { TerminalId } from "kolu-common/surface";
 
 /** Volatile per-terminal probes. Unlike the stable `xterm`/`serialize`
  *  handles above, these accessors may return null even during the terminal's

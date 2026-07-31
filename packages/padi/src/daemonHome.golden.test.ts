@@ -10,9 +10,8 @@
 
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveDaemonHome } from "@kolu/surface-daemon";
 import { getRuntimeSocketPath } from "@kolu/surface/unix-socket";
+import { resolveDaemonHome } from "@kolu/surface-daemon";
 import {
   KAVAL_GATE_FILE,
   KAVAL_LOG_FILE,
@@ -20,6 +19,7 @@ import {
   PTY_HOST_SOCK_FILE,
   STATE_ROOT_MANIFEST_FILE,
 } from "kaval";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   PADI_GATE_FILE,
   PADI_LOG_FILE,

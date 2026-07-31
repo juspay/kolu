@@ -66,8 +66,8 @@ import { activeArm } from "@kolu/padi/surface";
 import { AttentionTriplet, StatePip } from "@kolu/solid-statepip";
 import { DOCK_ROW_PIP_BOX } from "@kolu/solid-statepip/pipVariant";
 import { createElementSize } from "@solid-primitives/resize-observer";
-import type { TerminalId } from "kolu-common/surface";
 import { cwdBasename } from "kolu-common/path";
+import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createMemo,
@@ -105,6 +105,7 @@ import RepoMonogram from "../../ui/RepoMonogram";
 import { encActiveHost } from "../../wire";
 import { capturePointerGesture } from "../viewport/capturePointerGesture";
 import { chipInitials } from "./chipInitials";
+import { DockShortcutHint } from "./DockShortcutHint";
 import {
   CARDS_WIDTH_PX,
   clampDockCardsWidth,
@@ -112,14 +113,13 @@ import {
   effectiveDockCardsWidth,
   setDockCardsWidth,
 } from "./dockCardsWidth";
-import { DockShortcutHint } from "./DockShortcutHint";
 import { dockRowAttrs } from "./dockRowAttrs";
+import { createDockRowData } from "./dockRowData";
 import { type DockRowBucket, rowRecencyAt } from "./dockRowRanking";
 import type { DockGroup, DockTree } from "./dockTree";
 import { HiddenFooter } from "./HiddenFooter";
-import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
-import { createDockRowData } from "./dockRowData";
 import { PrPip } from "./PrPip";
+import RecencyCell, { displayRecencyAt, recencyMode } from "./RecencyCell";
 import { rowSubline } from "./rowSubline";
 import { SubTerminalRow } from "./SubTerminalRow";
 import { useDockFocus } from "./useDockFocus";
@@ -311,8 +311,7 @@ const Dock: Component<{
         // tiles don't bleed through the seams between rows or behind the
         // rounded corners. There is only one posture now — focusing a tile
         // moves the camera and leaves every piece of chrome where it was.
-        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40 max-h-[calc(100vh-14rem)]":
-          true,
+        "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40 max-h-[calc(100vh-14rem)]": true,
       }}
       style={{ width: `${effectiveDockWidth()}px` }}
     >

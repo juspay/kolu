@@ -32,8 +32,8 @@
  *  make impossible. */
 
 import {
-  type AttentionClass,
   ATTENTION_CLASSES,
+  type AttentionClass,
   attentionActive,
   attentionCounted,
   type TerminalId,

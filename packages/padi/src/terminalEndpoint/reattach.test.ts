@@ -54,15 +54,15 @@ vi.mock("../log.ts", () => ({
 }));
 
 import { inMemoryStore } from "@kolu/surface/server";
-import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import type { PairedDaemon } from "../session/pairedDaemon.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
+import { setPadiLastPairedDaemonStore } from "../session/confStores.ts";
+import type { PairedDaemon } from "../session/pairedDaemon.ts";
 import { getSavedSession, setSavedSession } from "../session/session.ts";
 import {
   getTerminal,

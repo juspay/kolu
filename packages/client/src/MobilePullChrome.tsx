@@ -24,12 +24,12 @@ import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
 import { pairDisplayRow } from "./terminal/terminalDisplay";
 import { useTerminalStore } from "./terminal/useTerminalStore";
+import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
+import { clientStale, StaleBadge } from "./ui/StaleBadge";
 import {
   chromeDrawerOpen as chromeOpen,
   setChromeDrawerOpen as setChromeOpen,
 } from "./useChromeDrawer";
-import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
-import { clientStale, StaleBadge } from "./ui/StaleBadge";
 
 /** Minimum downward pull (px) on the chrome handle before the drawer commits to
  *  opening. Sits above the browser's tap-slop (≈10px) and below a casual finger

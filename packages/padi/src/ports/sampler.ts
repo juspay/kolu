@@ -61,13 +61,13 @@
  *    with a throw in it did.
  */
 
+import { everyMsOr, source } from "@kolu/surface/reactor";
 import type {
   PortInfo,
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { samePortList } from "@kolu/terminal-vocab/schema";
-import { everyMsOr, source } from "@kolu/surface/reactor";
 import type { Logger } from "pino";
 import { PortScanError, portScanSupported, scanSubtreePorts } from "./scan.ts";
 

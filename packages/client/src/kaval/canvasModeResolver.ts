@@ -38,13 +38,13 @@
 
 import type { DaemonState } from "@kolu/padi/surface";
 import type { ConnectPhase } from "kolu-common/surfacesWithPadi";
-import {
-  NO_LOG_LINES,
-  type LogAbsence,
-  type LogLine,
-} from "../ui/logTailChrome";
 import { match, P } from "ts-pattern";
 import { isProvisioningPhase } from "../host/connectCanvasCopy";
+import {
+  type LogAbsence,
+  type LogLine,
+  NO_LOG_LINES,
+} from "../ui/logTailChrome";
 import type { DaemonDownState } from "./daemonPresentation";
 
 /** Which per-host episode ceiling a boot overlay accrues against (#1763). Every

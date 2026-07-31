@@ -21,9 +21,9 @@ import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { ForwardControls, ForwardPill } from "../forwards/ForwardPill";
+import { ensureDoor, urlForPort } from "../forwards/openPort";
 import type { PortAction } from "../forwards/portAction";
 import type { PortRow as PortRowData } from "../forwards/portRows";
-import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
 import { OpenIcon } from "../ui/Icons";
 

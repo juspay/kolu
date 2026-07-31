@@ -61,22 +61,22 @@ import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import { activePadiRpc, activePadiStreams, preferences } from "../wire";
+import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
-import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,

@@ -8,20 +8,20 @@
  */
 
 export {
-  addressBind,
-  osfactsBinPath,
-  partitionSubtrees,
-  PortScanError,
-  type ProcessRow,
-  PORT_SCAN_COMMAND_TIMEOUT_MS,
-  portScanSupported,
-  scanSubtreePorts,
-  unreadablePolicy,
-} from "./scan.ts";
-export {
   createPortSampler,
   nudgeFloorMs,
   PORT_SCAN_INTERVAL_MS,
   type PortSampler,
   type PortScanTarget,
 } from "./sampler.ts";
+export {
+  addressBind,
+  osfactsBinPath,
+  PORT_SCAN_COMMAND_TIMEOUT_MS,
+  PortScanError,
+  type ProcessRow,
+  partitionSubtrees,
+  portScanSupported,
+  scanSubtreePorts,
+  unreadablePolicy,
+} from "./scan.ts";

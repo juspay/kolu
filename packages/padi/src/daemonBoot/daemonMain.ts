@@ -14,36 +14,28 @@
  */
 
 import { dirname } from "node:path";
-import {
-  claimPidGate,
-  type DaemonExit,
-  type DaemonBuildIdentity,
-  type DaemonLifetimeInfo,
-  daemonLifetimeFromEnv,
-  daemonMain,
-  type GateAcquisition,
-  lifetimeInfo,
-  type Logger,
-  type ProcessIdentity,
-} from "@kolu/surface-daemon";
-import { processIdentityFromEnv } from "osfacts-client";
-
 import { buildCommit } from "@kolu/surface/identity";
 import {
   implementSurfacesOnPublisher,
   publisherChannel,
 } from "@kolu/surface/server";
-import type { Router } from "@orpc/server";
-import { configureNixShellEnv } from "kolu-pty";
-import { initAutosaveGate } from "../session/autosaveGate.ts";
-import { currentPadiBuildIdentity } from "./buildId.ts";
 import {
-  setPadiActivityFeedStore,
-  setPadiLastPairedDaemonStore,
-  setPadiSessionStore,
-} from "../session/confStores.ts";
-import { buildControlCoreDeps } from "./controlCore.ts";
-import { importLegacyConfigOnce } from "../session/importLegacy.ts";
+  claimPidGate,
+  type DaemonBuildIdentity,
+  type DaemonExit,
+  type DaemonLifetimeInfo,
+  daemonLifetimeFromEnv,
+  daemonMain,
+  type GateAcquisition,
+  type Logger,
+  lifetimeInfo,
+  type ProcessIdentity,
+  resolveDaemonHome,
+} from "@kolu/surface-daemon";
+import type { Router } from "@orpc/server";
+import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
+import { configureNixShellEnv } from "kolu-pty";
+import { processIdentityFromEnv } from "osfacts-client";
 import {
   ensureKoluRoot,
   setDaemonProcessId,
@@ -62,22 +54,27 @@ import {
 } from "../ptyHost/index.ts";
 import { publisher } from "../publisher.ts";
 import { buildPadiSurfaceDeps } from "../servePadi.ts";
+import { initAutosaveGate } from "../session/autosaveGate.ts";
+import {
+  setPadiActivityFeedStore,
+  setPadiLastPairedDaemonStore,
+  setPadiSessionStore,
+} from "../session/confStores.ts";
+import { importLegacyConfigOnce } from "../session/importLegacy.ts";
 import {
   saveSession,
   setSavedSessionFromSnapshot,
 } from "../session/session.ts";
+import {
+  NewerPadiStateProjectVersionError,
+  openPadiStateStores,
+} from "../session/stateStore.ts";
 import {
   padiKavalHome,
   padiRuntimeHome,
   resolvePadiStateRoot,
   writeStateRootManifest,
 } from "../stateRoot.ts";
-import { resolveDaemonHome } from "@kolu/surface-daemon";
-import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
-import {
-  NewerPadiStateProjectVersionError,
-  openPadiStateStores,
-} from "../session/stateStore.ts";
 import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
@@ -88,6 +85,8 @@ import {
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+import { currentPadiBuildIdentity } from "./buildId.ts";
+import { buildControlCoreDeps } from "./controlCore.ts";
 
 /** Padi's immutable process boot facts, captured together exactly once. Every
  * serving projection receives this same whole value, so repeated ambient env

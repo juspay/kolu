@@ -19,12 +19,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_MIRROR_SCROLLBACK, type PtyHostSystemInfo } from "kaval";
+
 // The client's VISIBLE xterm scrollback (kolu-common/config `DEFAULT_SCROLLBACK`).
 // Inlined, not imported: padi's dependency cone must not reach into the app
 // (kolu-common) — the seal's fifth arm enforces it. This test asserts padi's
 // spawned MIRROR scrollback is decoupled from (and smaller than) that visible
 // value; the literal below is the app-side number it compares against.
 const CLIENT_VISIBLE_SCROLLBACK = 50_000;
+
 import { AGENT_TOOLS_BAKE_ENV, TERMINAL_TOOLS_PATH_ENV } from "kolu-pty";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

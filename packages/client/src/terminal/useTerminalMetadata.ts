@@ -30,8 +30,8 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { activeScope } from "../hostScope/hostScopes";
-import { reprojectTerminalClock } from "./reprojectClock";
 import { activeHost, padiMap } from "../wire";
+import { reprojectTerminalClock } from "./reprojectClock";
 import {
   buildTerminalDisplayInfos,
   type TerminalDisplayInfo,

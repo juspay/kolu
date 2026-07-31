@@ -7,9 +7,9 @@
  * exactly what it is given.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   daemonEnv,
   localKavalDriver,

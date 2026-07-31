@@ -15,15 +15,15 @@
  * truth for "apply an observation to the snapshot state."
  */
 
-import { exactRestoreTarget } from "anyagent/cli";
-import { match, P } from "ts-pattern";
 import type {
   AgentIdentity,
-  TerminalEvent,
-  TerminalState,
-  TerminalSnapshot,
   RestoreTarget,
+  TerminalEvent,
+  TerminalSnapshot,
+  TerminalState,
 } from "@kolu/terminal-vocab/schema";
+import { exactRestoreTarget } from "anyagent/cli";
+import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
  *  firehose ticks ~1×/s while an agent works; stamping every tick would restore

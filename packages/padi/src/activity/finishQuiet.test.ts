@@ -3,13 +3,16 @@
  * (debouncing | finished); no sticky-on-read.
  */
 
-import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type {
+  AgentInfo,
+  TerminalId,
+  TerminalSnapshot,
+} from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createFinishQuiet, waitingIdsOf } from "./finishQuiet.ts";
 import type { PadiTerminal } from "../surface.ts";
 import { composeTerminalMetadata, LOCAL_LOCATION } from "../vocab.ts";
+import { createFinishQuiet, waitingIdsOf } from "./finishQuiet.ts";
 
 const QUIET = 100;
 const A = "fin-a" as TerminalId;

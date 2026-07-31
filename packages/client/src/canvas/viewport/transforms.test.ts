@@ -276,6 +276,8 @@ describe("fitBox", () => {
 
   it("survives a degenerate box and a padding larger than the viewport", () => {
     expect(Number.isFinite(fitBox(50, 50, 50, 50, VW, VH).zoom)).toBe(true);
-    expect(Number.isFinite(fitBox(0, 0, 100, 100, 40, 40, 500).zoom)).toBe(true);
+    expect(Number.isFinite(fitBox(0, 0, 100, 100, 40, 40, 500).zoom)).toBe(
+      true,
+    );
   });
 });

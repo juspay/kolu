@@ -5,13 +5,13 @@ import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
-import { activeScope } from "../hostScope/hostScopes";
-import { useRightPanel } from "../right-panel/useRightPanel";
-import { lifecycle } from "../rpc/rpc";
 import {
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../hostScope/activeWire";
+import { activeScope } from "../hostScope/hostScopes";
+import { useRightPanel } from "../right-panel/useRightPanel";
+import { lifecycle } from "../rpc/rpc";
 import { activePadiRpc } from "../wire";
 import type { TerminalStore } from "./useTerminalStore";
 

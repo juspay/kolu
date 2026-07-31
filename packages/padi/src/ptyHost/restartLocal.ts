@@ -32,13 +32,13 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B3.2 — supervised restart).
  */
 
+import { log } from "../log.ts";
 import {
   type AutosaveFreeze,
   cancelPendingAutosave,
   freezeAutosave,
   unfreezeAutosave,
 } from "../session/autosaveGate.ts";
-import { log } from "../log.ts";
 import { setSavedSessionFromSnapshot } from "../session/session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";

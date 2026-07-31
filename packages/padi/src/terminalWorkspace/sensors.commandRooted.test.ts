@@ -15,16 +15,16 @@
  * command-rooted (see spawn-detection.feature's claude regression guard).
  */
 
-import pino from "pino";
-import type { AgentAdapter, AgentInfoShape } from "anyagent";
-import { matchesAgent } from "anyagent";
 import { inMemoryChannel } from "@kolu/surface/server";
-import type { ForegroundSample } from "kaval";
 import type {
-  TerminalPorts,
   TerminalEvent,
   TerminalId,
+  TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
+import type { AgentAdapter, AgentInfoShape } from "anyagent";
+import { matchesAgent } from "anyagent";
+import type { ForegroundSample } from "kaval";
+import pino from "pino";
 import { describe, expect, it } from "vitest";
 import {
   type CommandRunSample,

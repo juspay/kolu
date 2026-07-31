@@ -1,13 +1,13 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
+import type { HostKey } from "kolu-common/hostKey";
 import { WorktreeNameSchema } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
 import { aboutDialog } from "./AboutDialog";
-import type { HostKey } from "kolu-common/hostKey";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -23,6 +23,7 @@ import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
+import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   ACTIONS,
   type ActionContext,
@@ -31,7 +32,6 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
-import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -42,8 +42,8 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
-import { useTileStore } from "./tile/useTileStore";
 import { themePaletteGroup } from "./themePalette";
+import { useTileStore } from "./tile/useTileStore";
 import { iconForCommand } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";

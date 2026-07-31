@@ -73,7 +73,6 @@ const sentinel: SavedActiveTerminal = {
   themeName: "Dracula",
   parentId: "term-parent",
   canvasLayout: { x: 11, y: 22, w: 33, h: 44 },
-  subPanel: { collapsed: true, panelSize: 257 },
   rightPanel: {
     collapsed: true,
     activeTab: "code",

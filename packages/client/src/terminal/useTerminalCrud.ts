@@ -72,9 +72,8 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeSearch: terminalSearch.removeTerminal,
   };
 
-  const eviction = createEvictionDedup(
-    (id, parentId, topLevelBefore, departing) =>
-      evictTerminal(evictionPorts, id, parentId, topLevelBefore, departing),
+  const eviction = createEvictionDedup((id, tilesBefore, departing) =>
+    evictTerminal(evictionPorts, id, tilesBefore, departing),
   );
 
   /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
@@ -85,7 +84,6 @@ export const useTerminalCrud = createSharedRoot(() => {
   function removeAndAutoSwitch(id: TerminalId) {
     eviction.evictImperatively(
       id,
-      store.getMetadata(id)?.parentId ?? null,
       store.terminalIds(),
       store.getMetadata(id) !== undefined,
     );

@@ -49,7 +49,6 @@ import {
 } from "./terminal/activityWindowFilter";
 import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
 import { useTileFocus } from "./terminal/useTileFocus";
-import { useViewState } from "./useViewState";
 
 /** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -81,7 +80,6 @@ beforeEach(() => {
 });
 
 describe("per-host dock filters (W7 TIER A)", () => {
-
   it("activityWindow: set on A → B sees all (default) → back to A restores 4h, and A's per-host key is written", async () => {
     await createRoot(async (dispose) => {
       try {

@@ -71,7 +71,7 @@ describe("evictTerminal", () => {
       getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
       activeId: () => T("P"),
     });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(ports, T("P"), [T("P"), T("Q")], new Set([T("P")]));
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
@@ -83,7 +83,7 @@ describe("evictTerminal", () => {
 
   it("does not auto-switch when the removed tile was not active", () => {
     const { ports, calls } = makePorts({ activeId: () => T("Q") });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(ports, T("P"), [T("P"), T("Q")], new Set([T("P")]));
     expect(calls.activate).not.toHaveBeenCalled();
   });
 
@@ -94,7 +94,6 @@ describe("evictTerminal", () => {
     evictTerminal(
       ports,
       T("A"),
-      null,
       [T("A"), T("B"), T("C")],
       new Set([T("A"), T("B"), T("C")]),
     );
@@ -108,7 +107,6 @@ describe("evictTerminal", () => {
     evictTerminal(
       ports,
       T("A"),
-      null,
       [T("A"), T("B"), T("C"), T("D")],
       new Set([T("A"), T("B")]),
     );
@@ -120,23 +118,23 @@ describe("createEvictionDedup", () => {
   it("skips a departed id already evicted by the imperative path (no double)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], true); // kill: claim + evict
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // the later list-drop
+    d.evictImperatively(T("P"), [T("P")], true); // kill: claim + evict
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")])); // the later list-drop
     expect(runEvict).toHaveBeenCalledTimes(1); // NOT twice
   });
 
   it("runs the cleanup for an UNCLAIMED departure (natural exit)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]));
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")]));
     expect(runEvict).toHaveBeenCalledTimes(1);
   });
 
   it("does not claim when no list-drop will follow (willDrop=false)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], false); // already-gone kill
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // an unrelated later departure
+    d.evictImperatively(T("P"), [T("P")], false); // already-gone kill
+    d.evictDeparted(T("P"), [T("P")], new Set([T("P")])); // an unrelated later departure
     expect(runEvict).toHaveBeenCalledTimes(2); // not skipped → no stale claim leak
   });
 });
@@ -189,9 +187,8 @@ function setupReconcile(init: {
     calls.activate.mockImplementation((id) => {
       state.active = id;
     });
-    const eviction = createEvictionDedup(
-      (id, parentId, topLevelBefore, departing) =>
-        evictTerminal(ports, id, parentId, topLevelBefore, departing),
+    const eviction = createEvictionDedup((id, tilesBefore, departing) =>
+      evictTerminal(ports, id, tilesBefore, departing),
     );
     useActiveReconcile({
       rawList: rawIds,
@@ -267,7 +264,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
 
     // handleKill's imperative path evicts synchronously (subs still present),
     // claiming P.
-    h.evictImperatively(T("P"), null, [T("P")], true);
+    h.evictImperatively(T("P"), [T("P")], true);
     expect(h.calls.promoteToTopLevel).toHaveBeenCalledTimes(1);
 
     // The kill's list-drop then arrives → reconcile must skip (claimed).
@@ -382,12 +379,12 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     await tick();
 
     // Close A imperatively (claims A) → focus falls to the live survivor B.
-    h.evictImperatively(T("A"), null, [T("A"), T("B")], true);
+    h.evictImperatively(T("A"), [T("A"), T("B")], true);
     expect(h.calls.activate).toHaveBeenLastCalledWith(T("B"));
 
     // Close B before A's list-drop lands — the live list still holds A, but A is
     // claimed, so focus clamps to null, not back onto the dead A.
-    h.evictImperatively(T("B"), null, [T("A"), T("B")], true);
+    h.evictImperatively(T("B"), [T("A"), T("B")], true);
     expect(h.calls.activate).toHaveBeenLastCalledWith(null);
     expect(h.calls.activate).not.toHaveBeenCalledWith(T("A"));
     h.dispose();

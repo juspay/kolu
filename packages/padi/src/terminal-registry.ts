@@ -261,7 +261,7 @@ export function requireTerminal(id: TerminalId): TerminalProcess {
  *  not-found fault. A PARKED record is an IMMUTABLE restore-card placeholder: it
  *  stands in for a saved active terminal until `session.restore` consumes it (the
  *  parked→active flip). A client chrome mutation targeting one — `setParent`,
- *  `setSubPanel`, `setCanvasLayout`, `setTheme`, `setIntent`, `setRightPanel` — is
+ *  `setCanvasLayout`, `setTheme`, `setIntent`, `setRightPanel` — is
  *  a STALE write from a supervised restart's drain window (the client's list-driven
  *  reconcile promoting a split's sub the drain just removed), and it MUST reject:
  *  silently un-parenting a parked sub would make the split restore as an orphaned

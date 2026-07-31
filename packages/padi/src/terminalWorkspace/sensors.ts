@@ -38,9 +38,18 @@
 
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
+import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
-  AgentInfoShape,
+  AgentInfo,
+  PrUnavailableSource,
+  TerminalEvent,
+  TerminalId,
+  TerminalPorts,
+} from "@kolu/terminal-vocab/schema";
+import { portsEqual } from "@kolu/terminal-vocab/schema";
+import type {
   AgentAdapter,
+  AgentInfoShape,
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
@@ -51,24 +60,15 @@ import {
 } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
+import type { ForegroundSample } from "kaval";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
-import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
 import { githubForgeAdapter } from "kolu-github";
+import { grokAdapter } from "kolu-grok";
 import { opencodeAdapter } from "kolu-opencode";
-import type { ForegroundSample } from "kaval";
-import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import type {
-  AgentInfo,
-  TerminalEvent,
-  PrUnavailableSource,
-  TerminalId,
-  TerminalPorts,
-} from "@kolu/terminal-vocab/schema";
-import { portsEqual } from "@kolu/terminal-vocab/schema";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
  *  mirror that replaces the old `record.meta.agent` read-back) and the recognized

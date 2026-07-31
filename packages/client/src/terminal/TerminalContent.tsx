@@ -16,8 +16,8 @@ import DormantTileBody from "./DormantTileBody";
 import Terminal from "./Terminal";
 import { useTerminalCrud } from "./useTerminalCrud";
 import { useTerminalSearch } from "./useTerminalSearch";
-import { useTileFocus } from "./useTileFocus";
 import { useTerminalStore } from "./useTerminalStore";
+import { useTileFocus } from "./useTileFocus";
 
 const TerminalContent: Component<{
   terminalId: TerminalId;

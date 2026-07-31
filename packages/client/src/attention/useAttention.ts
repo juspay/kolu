@@ -50,8 +50,13 @@ import {
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
 import { createEffect, mapArray, onCleanup } from "solid-js";
+import { match } from "ts-pattern";
+import { notify } from "../attentionNotify";
+import { hostLabel, sameHost } from "../host/hostChipTone";
+import type { TerminalSubject } from "../terminal/terminalSubject";
+import { nextAfter } from "../ui/nextAfter";
+import { activeHost, preferences, setActiveHost } from "../wire";
 import { createAttentionCore } from "./attentionCore";
-import { isTerminalWatched } from "./attentionWatched";
 import {
   hostAskingIds,
   hostFrame,
@@ -60,13 +65,8 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
+import { isTerminalWatched } from "./attentionWatched";
 import { useAttentionFacts } from "./useAttentionFacts";
-import { nextAfter } from "../ui/nextAfter";
-import { match } from "ts-pattern";
-import { notify } from "../attentionNotify";
-import { hostLabel, sameHost } from "../host/hostChipTone";
-import type { TerminalSubject } from "../terminal/terminalSubject";
-import { activeHost, preferences, setActiveHost } from "../wire";
 
 /** What the active host can tell us about its terminals — the rich notification
  *  copy, the dock unread write, and the e2e simulate targets. Background hosts

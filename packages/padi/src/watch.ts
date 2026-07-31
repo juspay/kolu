@@ -22,17 +22,17 @@ import {
   unenrolledStreamCall,
 } from "@kolu/surface/client";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
   runWait,
   type WaitOutcome,
 } from "@kolu/surface/wait";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "./dial.ts";
-import { padiSurface, type PadiTerminal } from "./surface.ts";
+import { type PadiTerminal, padiSurface } from "./surface.ts";
 
 /** The LIVE agent of a composed record, or `null` — only the `active` arm
  *  carries a running agent (`sleeping`/`parked` are dormant, their PTY

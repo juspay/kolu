@@ -16,6 +16,7 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B2 — the door).
  */
 
+import type { DaemonHomePaths } from "@kolu/surface-daemon";
 import {
   type ConvergencePolicy,
   converge,
@@ -25,16 +26,10 @@ import {
   type Endpoint,
   type EndpointStatus,
   outcomeAdopted,
-  recycle,
   type RestartSteps,
+  recycle,
   serializeRestart,
 } from "@kolu/surface-daemon-supervisor";
-import type { DaemonHomePaths } from "@kolu/surface-daemon";
-import {
-  bakedOsFactsBin,
-  osfactsSocketHolders,
-  processIdentityAsync,
-} from "osfacts-client";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -52,6 +47,11 @@ import {
   readAgentToolsBake,
   TERMINAL_TOOLS_PATH_ENV,
 } from "kolu-pty";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import { log } from "../log.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import {

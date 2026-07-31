@@ -14,12 +14,12 @@
  *  Pan/zoom viewport logic lives in viewport/ — decomposed by volatility
  *  axis (gestures, transforms, coordinates) per Lowy analysis. */
 
+import { sleepingArm } from "@kolu/padi/surface";
 import {
   DragDropProvider,
   DragDropSensors,
   type DragEvent,
 } from "@thisbeyond/solid-dnd";
-import { sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import {
   type Component,
@@ -34,17 +34,18 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { savedSessionSub } from "../hostScope/activeWire";
 import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
-import { savedSessionSub } from "../hostScope/activeWire";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile from "./CanvasTile";
 import Dock from "./dock/Dock";
-import TileEdges, { type TileEdge } from "./TileEdges";
 import { childrenByParent, descendantIds } from "./layoutTree";
+import { assertRenderTotality } from "./renderTotality";
 import { applyResize, type ResizeDirection } from "./resizeGeometry";
+import TileEdges, { type TileEdge } from "./TileEdges";
 import type { TileLayout } from "./TileLayout";
 import {
   DEFAULT_TILE_H,
@@ -173,6 +174,25 @@ const TerminalCanvas: Component<{
       if (l) result[id] = l;
     }
     return result;
+  });
+
+  // THE invariant this whole design exists to keep: every live terminal has a
+  // place. `layouts()` is exactly what the canvas drew this frame, so comparing
+  // the tile set against it catches a terminal that is alive and unrenderable —
+  // loudly — instead of letting it vanish the way #2059's grandchild did.
+  //
+  // Deliberately runs on the SETTLED set only: a tile whose metadata record has
+  // not arrived yet has no layout for a legitimate reason (the placement effect
+  // defers it precisely so a returning tile isn't clobbered), and a parked or
+  // sleeping record is not expected to hold a box at all.
+  createEffect(() => {
+    const settled = props.tileIds.filter(
+      (id) => store.getMetadata(id) !== undefined,
+    );
+    assertRenderTotality({
+      expected: settled,
+      rendered: new Set(Object.keys(layouts()) as TileId[]),
+    });
   });
 
   /** One edge per parent→child relation, in the child's identity colour.
@@ -429,7 +449,8 @@ const TerminalCanvas: Component<{
           .filter((l): l is TileLayout => l !== undefined);
         // rAF so a tile focused in the same tick it was created fits the box
         // its pending layout just produced, not the frame before it existed.
-        if (boxes.length > 0) requestAnimationFrame(() => viewport.fitTo(boxes));
+        if (boxes.length > 0)
+          requestAnimationFrame(() => viewport.fitTo(boxes));
         return;
       }
       // Released: fly back to where we came from. `prevId` guards the initial
@@ -652,31 +673,31 @@ const TerminalCanvas: Component<{
            *  fullscreen mode to hide it in, and while the camera is held on a
            *  tile it is exactly what tells you where you are in the fleet. */}
           <CanvasMinimap
-              tileIds={props.tileIds}
-              layouts={layouts()}
-              onSelect={props.onSelect}
-              onAutoArrange={props.onAutoArrange}
-              onStartTileDrag={(id) => {
-                const origin = layoutOf(id);
-                if (!origin) return null;
-                return {
-                  preview: (dx, dy) =>
-                    setPendingLayout(id, {
-                      ...origin,
-                      x: origin.x + dx,
-                      y: origin.y + dy,
-                    }),
-                  commit: (dx, dy) => {
-                    const next: TileLayout = {
-                      ...origin,
-                      x: viewport.snapToGrid(origin.x + dx),
-                      y: viewport.snapToGrid(origin.y + dy),
-                    };
-                    setPendingLayout(id, next);
-                    props.onLayoutChange(id, next);
-                  },
-                };
-              }}
+            tileIds={props.tileIds}
+            layouts={layouts()}
+            onSelect={props.onSelect}
+            onAutoArrange={props.onAutoArrange}
+            onStartTileDrag={(id) => {
+              const origin = layoutOf(id);
+              if (!origin) return null;
+              return {
+                preview: (dx, dy) =>
+                  setPendingLayout(id, {
+                    ...origin,
+                    x: origin.x + dx,
+                    y: origin.y + dy,
+                  }),
+                commit: (dx, dy) => {
+                  const next: TileLayout = {
+                    ...origin,
+                    x: viewport.snapToGrid(origin.x + dx),
+                    y: viewport.snapToGrid(origin.y + dy),
+                  };
+                  setPendingLayout(id, next);
+                  props.onLayoutChange(id, next);
+                },
+              };
+            }}
           />
         </div>
       </div>

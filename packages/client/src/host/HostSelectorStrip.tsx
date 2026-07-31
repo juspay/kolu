@@ -41,6 +41,7 @@
  *  A trailing "+ add" opens the `AddHostAffordance` popover (ssh-target input)
  *  → `client.hosts.add`. */
 
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -59,12 +60,11 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { Portal } from "solid-js/web";
-import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import { jumpToAsking } from "../attention/attentionNav";
+import { forwardsForHost } from "../forwards/useForwards";
 import DocLink from "../ui/DocLink";
 import { surface } from "../ui/Surface";
-import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
 import { activeHost, padiMap, setActiveHost } from "../wire";

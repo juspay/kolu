@@ -21,6 +21,7 @@
  *  Touch ergonomics: every chip and the add trigger are ≥44px hit targets, and
  *  the chip row scrolls horizontally when hosts overflow the viewport width. */
 
+import { AttentionTriplet } from "@kolu/solid-statepip";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import {
   type Component,
@@ -30,7 +31,6 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";

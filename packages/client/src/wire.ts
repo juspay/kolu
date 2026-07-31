@@ -55,8 +55,8 @@ import {
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
-import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
+import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { persistedPref } from "./persistedPref.ts";
 
 const { protocol, host } = window.location;

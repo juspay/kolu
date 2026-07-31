@@ -5,7 +5,7 @@
  * insert/remove, autosave-trigger signalling.
  *
  * Client-facing per-terminal metadata setters (`setTerminalParent`,
- * `setCanvasLayout`, `setSubPanelState`, `setRightPanelState`,
+ * `setCanvasLayout`, `setRightPanelState`,
  * `setTerminalTheme`, `setTerminalIntent`) live here because they're
  * endpoint-agnostic — they mutate the in-registry entry through the
  * narrowed `updateClientMetadata` helper, which publishes through the
@@ -16,6 +16,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -35,10 +36,9 @@ import { updateClientMetadata } from "./terminalEndpoint/metadata.ts";
 // `resolve.ts` re-imports the already-evaluated `local.ts`, so it stays AFTER it
 // to preserve the metadata→local order the TDZ note above depends on.
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import type { RightPanelPerTerminalState } from "./chromeVocab.ts";
 import {
-  composeTerminalMetadata,
   type CreateTerminalInput,
+  composeTerminalMetadata,
   LOCAL_LOCATION,
   type RestoreOnlyMetadata,
   type SavedTerminal,
@@ -118,7 +118,7 @@ export function snapshotSession(): SessionSnapshot {
  *  and every in-process caller). The endpoint owns PTY spawn, provider startup, and
  *  registry insert; this wrapper just mints an id and forwards. `initial` seeds
  *  client-owned chrome before providers run — see #642 (avoids racing post-hoc
- *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the client's
+ *  `setCanvasLayout` / `setTheme` RPCs against the client's
  *  canvas-cascade effect). Its `CreateTerminalInput` type carries NO server-derived
  *  authored facts — a fresh terminal earns `lastActivityAt` / `lastAgentCommand` /
  *  `restoreTarget` from padi's own observation, and the type makes them unspellable
@@ -214,40 +214,12 @@ export function setCanvasLayout(
   });
 }
 
-/** Store a terminal's sub-panel state (client-reported).
- *  Publishes via metadata so other clients (and the same client after a
- *  refresh, via the collection's snapshot read) pick up the change from
- *  the same channel as every other client-owned metadata field.
- *
- *  Equality-gated: the client RPCs this on every drag tick of the
- *  resizable handle, so without a guard each mouse-move would fan a
- *  full per-key metadata publish to every connected client. Same shape
- *  as the `lastAgentCommand` gate inside `LocalTerminalEndpoint`'s
- *  agent-command tracker. */
-export function setSubPanelState(
-  id: TerminalId,
-  state: { collapsed: boolean; panelSize: number },
-): void {
-  const entry = getTerminal(id);
-  if (!entry) return;
-  const cur = entry.meta.subPanel;
-  if (
-    cur &&
-    cur.collapsed === state.collapsed &&
-    cur.panelSize === state.panelSize
-  )
-    return;
-  updateClientMetadata(entry, id, (m) => {
-    m.subPanel = state;
-  });
-}
-
 /** Store a terminal's right-panel per-terminal state (client-reported).
  *  Publishes via metadata so other clients (and the same client after a
  *  refresh) pick up the change from the same channel as every other
  *  client-owned metadata field.
  *
- *  Equality-gated like `setSubPanelState` — the client RPCs this on
+ *  Equality-gated like `setCanvasLayout` — the client RPCs this on
  *  every file-tree click and tab-toggle, so without a guard each
  *  interaction would fan a full per-key metadata publish. Deep-compares
  *  `selectedFileByMode` since the user clicks files often. */

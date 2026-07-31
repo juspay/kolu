@@ -24,8 +24,8 @@
  *  so every consumer shares one reactive owner rooted at the app, not at
  *  whichever component calls `useTileStore()` first. */
 
-import { createMemo } from "solid-js";
 import { activeArm } from "@kolu/padi/surface";
+import { createMemo } from "solid-js";
 import { derivedTileSize, layoutTree } from "../canvas/layoutTree";
 import type { TileLayout } from "../canvas/TileLayout";
 import { createSharedRoot } from "../createSharedRoot";
@@ -84,10 +84,7 @@ export const useTileStore = createSharedRoot(() => {
         parentId: store.getMetadata(id)?.parentId as TileId | undefined,
       })),
       pinnedLayout,
-      (id) =>
-        derivedTileSize(
-          activeArm(store.getMetadata(id))?.agent != null,
-        ),
+      (id) => derivedTileSize(activeArm(store.getMetadata(id))?.agent != null),
     ),
   );
 

@@ -7,7 +7,6 @@
  *  construction because the anchor keys off `activeHost()`, which is never undefined. */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import type { BootTag, CeilingClass, StalledLeg } from "./canvasModeResolver";
 import {
   bootDeadlineExceeded,
   CAMPAIGN_CEILING_MS,
@@ -18,6 +17,7 @@ import {
   resetBootAnchors,
   resetBootDeadline,
 } from "./bootDeadline";
+import type { BootTag, CeilingClass, StalledLeg } from "./canvasModeResolver";
 
 const LOCAL_MS = LOCAL_ENDPOINT_CONNECT_TIMEOUT_MS;
 // Typed with the accrue variant's own field types (F4) — a leg/ceiling typo, or a future

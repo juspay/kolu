@@ -20,7 +20,6 @@
 
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -29,12 +28,6 @@ import {
 } from "../padiSurfaceCtx.ts";
 import { publishDaemonStatus } from "../ptyHost/daemonStatus.ts";
 import { terminalsDirtyChannel } from "../publisher.ts";
-import {
-  getSavedSession,
-  saveSession,
-  setSavedSession,
-  setSavedSessionFromSnapshot,
-} from "./session.ts";
 import {
   type ActiveTerminalProcess,
   hasParkedTerminals,
@@ -53,6 +46,13 @@ import {
   type SavedActiveTerminal,
   type SavedSession,
 } from "../vocab.ts";
+import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
+import {
+  getSavedSession,
+  saveSession,
+  setSavedSession,
+  setSavedSessionFromSnapshot,
+} from "./session.ts";
 
 // Boot injects the server id before any of this runs; some registry paths read
 // the per-instance scratch root, so seed it here as the other padi tests do.

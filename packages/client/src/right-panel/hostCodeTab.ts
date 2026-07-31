@@ -53,8 +53,8 @@
  *  they flip together within a single reactive tick. */
 
 import type { CodeTabView } from "@kolu/padi/surface";
-import { scopedByEntry } from "@kolu/surface-map/client";
 import type { Subscription } from "@kolu/surface/solid";
+import { scopedByEntry } from "@kolu/surface-map/client";
 import { ORPCError } from "@orpc/client";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";

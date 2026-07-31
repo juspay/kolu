@@ -12,8 +12,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "vitest";
 import { assertRecipeWired } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { expect, test } from "vitest";
 
 const REPO_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),

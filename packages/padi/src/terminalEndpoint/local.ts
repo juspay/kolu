@@ -35,23 +35,23 @@ import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { ZodType } from "zod";
+import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
+  EndpointGrid,
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  EndpointGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
-import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   createPortSampler,
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
-import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -662,7 +662,6 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const initial = opts.initialMetadata;
     if (initial?.themeName) meta.themeName = initial.themeName;
     if (initial?.canvasLayout) meta.canvasLayout = initial.canvasLayout;
-    if (initial?.subPanel) meta.subPanel = initial.subPanel;
     if (initial?.rightPanel) meta.rightPanel = initial.rightPanel;
     if (initial?.intent) meta.intent = initial.intent;
 

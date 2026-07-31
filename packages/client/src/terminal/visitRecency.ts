@@ -13,11 +13,11 @@
  *  visits never leave the browser. */
 
 import {
-  isEncodedHostKey,
   encodeHostKey,
   type HostKey,
+  isEncodedHostKey,
 } from "kolu-common/hostKey";
-import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
+import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { persistedPref } from "../persistedPref";

@@ -61,7 +61,14 @@ export const SubTerminalRow: Component<{
               unread: unread(),
             })}
             data-parent-id={parentId}
-            class={`relative w-full col-span-full flex items-center gap-1.5 pl-7 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
+            style={{
+              // Indent by NESTING DEPTH — 1 for a child, 2 for a grandchild, and
+              // so on. The row stays a direct child of the section (a wrapper
+              // per level would drop it out of the cards CSS), so the tree is
+              // drawn by padding rather than by DOM structure.
+              "padding-left": `${0.75 + props.row.depth * 1}rem`,
+            }}
+            class={`relative w-full col-span-full flex items-center gap-1.5 pr-2 ${props.surface === "touch" ? "py-2" : "py-1"} border-l-[length:var(--dock-edge-stripe-w)] border-l-transparent text-left cursor-pointer transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40 hover:bg-surface-2/40`}
             onPointerDown={(event) => {
               if (props.surface === "touch") event.stopPropagation();
             }}
