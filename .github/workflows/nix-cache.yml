@@ -111,3 +111,18 @@ jobs:
             echo "::endgroup::"
           }
           warm .
+          # The nested flakes, with the SAME --kinds their own CI nodes use
+          # (ci/mod.just:124, :148). These have closures that share nothing with
+          # the root flake — ./ci pins its own nixpkgs — so nothing else warms
+          # them and they were being rebuilt cold on every run, forever.
+          # `pages.yml` reads this cache but never writes it, so the website's
+          # closure in particular had no writer at all.
+          #
+          # ./osfacts is absent because it builds the SAME derivation as
+          # `.#osfacts` (ci/mod.just:369, the vazhi pattern), so `warm .` has
+          # already covered it. The two example subflakes are absent for a
+          # different and weaker reason — they are genuinely uncovered, but they
+          # only build docsites that nobody substitutes locally. If that stops
+          # being true, add them here; do not assume they are warm.
+          warm --kinds packages,checks ./website
+          warm --kinds packages ./ci
