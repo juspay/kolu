@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { Worker } from "node:worker_threads";
 import {
   updateCodexRollout,
   writeCodexFixture,
@@ -16,56 +17,28 @@ test("Codex fixture waits out a transient SQLite writer lock", async (t) => {
     cwd: dir,
     state: "waiting",
   });
-  const lockHolder = spawn(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      `
-        import { DatabaseSync } from "node:sqlite";
+  const lockHolder = new Worker(
+    `
+        const { parentPort } = require("node:worker_threads");
+        const { DatabaseSync } = require("node:sqlite");
         const db = new DatabaseSync(${JSON.stringify(fixture.dbPath)});
         db.exec("PRAGMA journal_mode = WAL; BEGIN IMMEDIATE;");
-        console.log("LOCKED");
+        parentPort.postMessage("LOCKED");
         setTimeout(() => {
           db.exec("COMMIT;");
           db.close();
         }, 300);
       `,
-    ],
-    { stdio: ["ignore", "pipe", "pipe"] },
+    { eval: true },
   );
 
-  t.after(() => {
-    if (lockHolder.exitCode === null) lockHolder.kill("SIGKILL");
+  t.after(async () => {
+    await lockHolder.terminate();
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  let stdout = "";
-  let stderr = "";
-  lockHolder.stdout.setEncoding("utf8");
-  lockHolder.stderr.setEncoding("utf8");
-  lockHolder.stdout.on("data", (chunk: string) => {
-    stdout += chunk;
-  });
-  lockHolder.stderr.on("data", (chunk: string) => {
-    stderr += chunk;
-  });
-  await new Promise<void>((resolve, reject) => {
-    const onData = () => {
-      if (stdout.includes("LOCKED")) resolve();
-    };
-    lockHolder.stdout.on("data", onData);
-    lockHolder.once("error", reject);
-    lockHolder.once("exit", (code) => {
-      if (!stdout.includes("LOCKED")) {
-        reject(
-          new Error(
-            `SQLite lock holder exited before locking (code=${code}): ${stderr}`,
-          ),
-        );
-      }
-    });
-  });
+  const exited = once(lockHolder, "exit");
+  assert.deepEqual(await once(lockHolder, "message"), ["LOCKED"]);
 
   updateCodexRollout(fixture, {
     state: "waiting",
@@ -73,19 +46,7 @@ test("Codex fixture waits out a transient SQLite writer lock", async (t) => {
     cachedInputTokens: 10_000,
   });
 
-  if (lockHolder.exitCode === null) {
-    await new Promise<void>((resolve, reject) => {
-      lockHolder.once("error", reject);
-      lockHolder.once("exit", (code) => {
-        if (code === 0) resolve();
-        else
-          reject(
-            new Error(`SQLite lock holder exited ${code}: ${stderr.trim()}`),
-          );
-      });
-    });
-  }
-  assert.equal(lockHolder.exitCode, 0, stderr);
+  assert.deepEqual(await exited, [0]);
   assert.match(
     fs.readFileSync(fixture.rolloutPath, "utf8"),
     /"input_tokens":30000/,

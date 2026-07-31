@@ -181,6 +181,31 @@ and is fixed in this PR before the campaign resumes.
 | `c94bd9f#1` | `c94bd9fc8` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `7da277d#1` | `7da277d0b` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `eebf0ee#1` | `eebf0eec5` | All 59 GitHub checks passed, but Linux e2e needed 1 scenario retry after a Codex mock SQLite lock; streak reset | `0/5` flake-free |
+| `9c7062d#1` | `9c7062de9` | Failed `ci::unit@aarch64-darwin`: the new SQLite regression violated the repo's real-process spawn gate; streak reset | `0/5` |
+
+### `9c7062d#1`: SQLite regression violated the real-process spawn gate
+
+- **Failure:** `@kolu/daemon-test-gate` failed its
+  `no-ungated-forks.test.ts` advisory hygiene check on the new Codex fixture
+  lock regression.
+- **Root cause:** the regression used
+  `child_process.spawn(process.execPath, ...)` to hold an independent SQLite
+  lock, but the call site neither entered `describeDaemon` nor called
+  `assertDaemonSpawnAllowed`, which is a repository-wide invariant for tests
+  that fork real processes.
+- **Evidence:** `.ci/9c7062d/aarch64-darwin/ci::unit.log` names
+  `packages/tests/governance/agent-mock-codex.test.ts:19` as the sole offender
+  and points to the spawn-gate contract. Source inspection confirms that exact
+  line spawned Node only to obtain an independent SQLite execution context.
+- **Proposed fix:** use an in-process Node worker thread for the independent
+  SQLite connection. It preserves the real lock/wait behavior without forking
+  a process or weakening the daemon-test gate.
+- **Implementation:** the regression's lock holder now runs in
+  `node:worker_threads`; it signals after `BEGIN IMMEDIATE`, releases the lock
+  after 300 ms, and exits before the test reads the updated rollout.
+- **Fix verification:** the 18-test e2e-governance unit suite passed with the
+  worker-thread lock regression, and all 22 daemon-gate tests passed with no
+  ungated fork offender.
 
 ### `eebf0ee#1`: Linux Codex mock rollout update hit a SQLite write lock
 
