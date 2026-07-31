@@ -50,6 +50,7 @@ import { ConnectCanvas } from "./host/ConnectCanvas";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
+import { useNewTerminalPolicyReport } from "./hostScope/useNewTerminalPolicyReport";
 import { createImportSessionAction } from "./importSessionAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
@@ -178,6 +179,12 @@ const App: Component = () => {
   // palette — composed from the domain singletons in `useActionContext`.
   const actionContext = useActionContext();
   useShortcuts(actionContext);
+
+  // One reporter for the whole app — every member host's padi is told what the
+  // new-terminal preference resolves to, so an out-of-band create (MCP, a TUI, a
+  // script) honours it (#2045). App-lifetime, not a terminal-CRUD concern: it
+  // must be live whether or not anything has touched the CRUD façade.
+  useNewTerminalPolicyReport();
 
   /** One definition of "Dock → palette": how the receptacle reaches the
    *  command palette. Spread into every Dock mount (the empty-branch Dock

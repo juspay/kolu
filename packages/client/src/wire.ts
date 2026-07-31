@@ -499,6 +499,18 @@ export const connectionInfo = (): ConnectionInfo | undefined =>
 export const preferences = (): Preferences =>
   hostScoped.preferences.value() ?? DEFAULT_PREFERENCES;
 
+/** The preferences cell UNFLOORED — `undefined` until the cell has actually
+ *  yielded. `preferences()` above floors to `DEFAULT_PREFERENCES` so a renderer
+ *  always has something to paint; this one KEEPS the absence, for the readers
+ *  that must not mistake "not loaded yet" for a choice the user made. The
+ *  new-terminal policy report is one: reporting a floored default during the
+ *  connect window would tell padi a confident `shuffle`/`auto` nobody chose —
+ *  which is #2045's failure class (a terminal ignoring the real setting) all
+ *  over again. padi's `null` = ABSENT branch is the correct answer there, and
+ *  it only stays reachable if this side reports nothing. */
+export const preferencesLoaded = (): Preferences | undefined =>
+  hostScoped.preferences.value();
+
 /** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }` for
  *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
  *  see the cell's `coalesceMs`. */
