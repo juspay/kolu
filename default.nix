@@ -138,10 +138,11 @@ let
   agentFlakeRefBakeArg = pkgs.lib.concatStringsSep " "
     (pkgs.lib.mapAttrsToList (name: value: ''--set ${name} "${value}"'') agentBakedEnv);
   # The same set as shell-sourceable data, for working-tree runs (`just dev`,
-  # `just server`) that have no wrapper to bake into.
-  agentFlakeEnv = pkgs.writeText "agent-flake-env"
-    (pkgs.lib.concatStrings
-      (pkgs.lib.mapAttrsToList (name: value: "${name}=${value}\n") agentBakedEnv));
+  # `just server`) that have no wrapper to bake into. `toShellVars` rather than a
+  # hand-rolled `name=value` join: it is nixpkgs' own renderer for this and
+  # quotes values that need it, so the set can grow past today's store paths
+  # without a value containing a space silently mis-sourcing.
+  agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
 
   # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper

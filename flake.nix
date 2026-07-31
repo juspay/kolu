@@ -43,11 +43,10 @@
           kolu = koluBySystem.${system};
         in
         # `koluEnv` and `typecheck` are internal; pnpmDeps remains a Kolu
-          # dependency output used by the hash-fresh gate. The agent source
-          # tree and its sourceable env file get kebab CLI spellings:
-          # `agent-flake-env` is what `just dev` sources to bake the same
-          # SURFACE_AGENT_FLAKE_REF the production koluBin wrapper sets, and
-          # `agent-flake-source` is what ci::agent-flake-nix evaluates.
+          # dependency output used by the hash-fresh gate. The agent source tree
+          # and its sourceable env file are re-exposed under kebab CLI spellings
+          # for their two callers — `just dev`/`just server` and
+          # ci::agent-flake-nix.
         (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;

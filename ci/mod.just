@@ -185,13 +185,11 @@ smoke: nix
 dev-smoke: install
     {{ nix_shell }} just --no-deps test-dev
 
-# The working-tree agent bake's regression guard (#2039). `nix` above proves the
-# `.#agent-flake-env` derivation BUILDS; nothing proved the recipes that SOURCE
-# it still export the ref, so a typo in `agent_bake` — or a recipe that stops
-# using it — would restore the original "missing its agent source" failure with
-# every CI node green. `dev-smoke` cannot cover this: it enters at
-# `_dev-parallel`, which is deliberately nix-free. Depends on `nix` so the
-# realize is an already-built store lookup, not a concurrent build.
+# The working-tree agent bake's regression guard (#2039) — rationale lives with
+# the recipe (root justfile `test-agent-bake`). Its own node because `dev-smoke`
+# cannot cover it: that one enters at `_dev-parallel`, which is deliberately
+# nix-free. Depends on `nix` so the realize is an already-built store lookup
+# rather than a build racing ci::nix for the same drv.
 agent-bake: nix
     {{ nix_shell }} just --no-deps test-agent-bake
 

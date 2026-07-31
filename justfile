@@ -20,6 +20,11 @@ cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 # no parallel path. Kept as ONE snippet because both working-tree entrypoints
 # need it — `dev` before its parallel fork, and the standalone `server` — and
 # `ci::agent-bake` runs this exact string to prove it still exports (#2039).
+#
+# Two entrypoints bake, not one, because `_dev-parallel` must stay nix-free:
+# ci::dev-smoke enters there (packages/tests/devSmoke.ts) and has no `nix` dep.
+# So `dev` bakes once in its sequential body and forks `_server-raw`, while the
+# standalone `server` bakes for itself. Nothing bakes twice.
 agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
 
 mod ai 'agents/ai.just'
@@ -51,18 +56,14 @@ dev SERVER_PORT="" CLIENT_PORT="":
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
-    # Bake the agent source here, in the sequential body before the fork, for
-    # the same reason the ports are (see `agent_bake` at the top of this file).
-    # `_dev-parallel` — ci::dev-smoke's entry point — deliberately does NOT
-    # inherit this: that node has no `nix` dep and must stay nix-free.
-    # Resolved ONCE at start, and `pnpm dev` (node --watch) restarts inherit it,
-    # so re-run `just dev` after editing agent-tree source. Nix reads the
-    # git-TRACKED tree, so an uncommitted edit to a tracked file is baked in but
-    # a brand-new file must be `git add`ed first (same caveat as line 5).
+    # Baked here, before the fork, for the same reason the ports are — see
+    # `agent_bake` above. Resolved ONCE, and node --watch restarts inherit it,
+    # so restart to pick up an agent-tree edit; Nix reads the git-TRACKED tree,
+    # so a new file must be `git add`ed before a dialed remote sees it.
     {{ agent_bake }}
-    echo "→ agent source baked once, at start (re-run to pick up an agent-tree edit)"
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
+    echo "→ agent source baked (restart to pick up an agent-tree edit)"
     {{ nix_shell }} just _dev
 
 # Run server + client on two free random ports, printing the resolved URLs.
@@ -183,20 +184,17 @@ lint: install
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
 #
-# Bakes the agent source, because this recipe is a real standalone entrypoint —
-# `just server` + `just client` in two terminals is a supported way to run the
-# stack, and without the bake that pair reaches the same "missing its agent
-# source" wall `just dev` used to. `dev` does NOT route through here (it forks
-# `_server-raw`, having already baked once), so nothing baked twice.
+# Bakes: `just server` + `just client` in two terminals is a standalone way to
+# run the stack, and without it that pair hits the same "missing its agent
+# source" wall `just dev` used to. `dev` forks `_server-raw`, not this.
 server:
     #!/usr/bin/env bash
     set -euo pipefail
     {{ agent_bake }}
     just --no-deps _server-raw
 
-# The server without the bake — what `_dev-parallel` forks, so `just dev` bakes
-# exactly once (in its sequential body) and ci::dev-smoke's entry point stays
-# nix-free. Never a standalone entrypoint; use `just server`.
+# The server without the bake — `_dev-parallel`'s nix-free half. Never a
+# standalone entrypoint; use `just server`.
 [private]
 _server-raw:
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
@@ -206,33 +204,27 @@ _server-raw:
 # this proves the handoff that consumes it works, so the original bug cannot
 # return with every node green. Two halves, because either alone is green while
 # the bug is back: the snippet must export, AND the entrypoints must still run
-# it. Names come from the generated file, never re-spelled here — keeping that
-# spelling in one place is what this whole change is for.
+# it. Nothing here re-spells a variable name or the snippet — both are read back
+# from what the bake actually did, which is the point of the whole change.
 test-agent-bake:
     #!/usr/bin/env bash
     set -euo pipefail
-    env_file=$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)
-    [[ -s "$env_file" ]] || { echo "agent-bake: $env_file declares nothing" >&2; exit 1; }
-
+    # What the bake newly EXPORTS, measured rather than parsed out of the file:
+    # `compgen -e` is the export list itself, so this stays correct however
+    # `toShellVars` quotes a value and however many pairs `agentBakedEnv` grows.
+    before=$(compgen -e | sort)
     {{ agent_bake }}
+    exported=$(comm -13 <(printf '%s\n' "$before") <(compgen -e | sort))
+    [[ -n "$exported" ]] || { echo "agent-bake: the bake exported nothing" >&2; exit 1; }
 
-    # Check through a CHILD, not `${!name}`: shell indirection reads an
-    # unexported variable just as happily, so it would stay green if `set -a`
-    # ever went missing — and a child is what `_server-raw` and `client` are.
-    # Per line, because `agentBakedEnv` is an attrset built to grow.
-    saw_agent_source=0
-    while IFS='=' read -r name value; do
-      [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
-        || { echo "agent-bake: '$name' is not a shell identifier" >&2; exit 1; }
-      child=$(bash -c 'printenv "$1"' _ "$name") \
+    # Confirm each one reaches a CHILD — a child is what `_server-raw` and
+    # `client` are, and it is the half `set -a` provides. (Checking in THIS
+    # shell would pass on an unexported variable and miss `set -a` going away.)
+    while read -r name; do
+      value=$(bash -c 'printenv "$1"' _ "$name") \
         || { echo "agent-bake: $name never reached a child process" >&2; exit 1; }
-      [[ "$child" == "$value" ]] \
-        || { echo "agent-bake: child saw $name=$child, the file declares $value" >&2; exit 1; }
-      [[ "$child" == /nix/store/*-agent-flake-source ]] && saw_agent_source=1
-      echo "agent-bake: $name → $child"
-    done < "$env_file"
-    [[ "$saw_agent_source" == 1 ]] \
-      || { echo "agent-bake: nothing exported points at an agent-source store path" >&2; exit 1; }
+      echo "agent-bake: $name → $value"
+    done <<< "$exported"
 
     # A working snippet no entrypoint calls is still the bug. `--dry-run` expands
     # a recipe without running it; match the WHOLE expanded line against the
@@ -261,7 +253,7 @@ test-agent-bake:
     check_bakes dev 1
     check_bakes server 1
     check_bakes _dev-parallel 0
-    echo "agent-bake: dev + server bake once each; _dev-parallel nix-free"
+    echo "agent-bake: dev + server bake once each; _dev-parallel does not bake"
 
 # Run client with Vite dev server (HMR)
 client:
