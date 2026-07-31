@@ -186,6 +186,9 @@ and is fixed in this PR before the campaign resumes.
 | `60d847e#1` | `60d847e19` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `02220ff#1` | `02220ffb4` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `5750c67#1` | `5750c673f` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
+| `147d463#1` | `147d46385` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `5/5` |
+
+**Completed current post-fix streak: `5/5` at `147d463#1`.**
 
 ### `9c7062d#1`: SQLite regression violated the real-process spawn gate
 
