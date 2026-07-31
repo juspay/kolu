@@ -17,7 +17,6 @@ import { useRecorder } from "./recorder/useRecorder";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { shortcutsHelp } from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
-import { useSubPanel } from "./terminal/useSubPanel";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTerminalSearch } from "./terminal/useTerminalSearch";
 import { useTerminalStore } from "./terminal/useTerminalStore";
@@ -27,7 +26,6 @@ import { useThemeManager } from "./useThemeManager";
 export function useActionContext(): ActionContext {
   const store = useTerminalStore();
   const crud = useTerminalCrud();
-  const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
   const focusTile = useFocusTile();
   const commandPalette = useCommandPalette();
@@ -65,13 +63,6 @@ export function useActionContext(): ActionContext {
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,
-    toggleSubPanel: crud.toggleSubPanel,
-    cycleSubTab: (parentId, direction) =>
-      subPanel.cycleSubTab(
-        parentId,
-        store.getSubTerminalIds(parentId),
-        direction,
-      ),
     handleShuffleTheme,
     handleScreenshotTerminal: () => {
       const id = store.activeId();

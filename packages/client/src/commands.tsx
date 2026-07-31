@@ -335,9 +335,6 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // both arms (they touch persisted fields, not a live PTY).
           ...(activeArm(deps.activeMeta())
             ? [
-                actionPaletteCommand("toggleSubPanel", deps, {
-                  section: "active-terminal",
-                }),
                 actionPaletteCommand("createSubTerminal", deps, {
                   section: "active-terminal",
                 }),

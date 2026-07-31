@@ -67,15 +67,6 @@ export interface TerminalEvictionPorts {
   dropFromMru: (id: TerminalId) => void;
   /** Promote a sub-terminal to top-level (server `setParent(id, null)`). */
   promoteToTopLevel: (subId: TerminalId) => void;
-  subPanel: {
-    collapse: (parentId: TerminalId) => void;
-    collapseChrome: (parentId: TerminalId) => void;
-    activeSubTab: (parentId: TerminalId) => TerminalId | null;
-    setActiveSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
-    selectSubTab: (parentId: TerminalId, subId: TerminalId | null) => void;
-    requestRefocus: (parentId: TerminalId) => void;
-    remove: (id: TerminalId) => void;
-  };
   removeRightPanel: (id: TerminalId) => void;
   removeSearch: (id: TerminalId) => void;
 }
@@ -95,42 +86,15 @@ export function evictTerminal(
   topLevelBefore: readonly TerminalId[],
   departing: ReadonlySet<TerminalId>,
 ) {
-  if (parentId !== null) {
-    // Sub-terminal: always repair the parent's remembered chrome, but move DOM
-    // and keyboard focus only when the departing sub actually held it. A
-    // background split exit must not steal focus from the tile being used.
-    const wasFocused = ports.focusedTerminalId() === id;
-    const subs = ports.getSubTerminalIds(parentId).filter((x) => x !== id);
-    if (subs.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(parentId);
-      else ports.subPanel.collapseChrome(parentId);
-      // Clear the active tab too: the parent's last split is gone, so `activeSubTab`
-      // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
-      // null or a LIVE sub of this parent" global lets consumers trust a plain
-      // null-check for "no active split" instead of each re-deriving liveness —
-      // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
-      // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(parentId, null);
-    } else {
-      if (ports.subPanel.activeSubTab(parentId) === id) {
-        const replacement = subs[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(parentId, replacement);
-        else ports.subPanel.setActiveSubTab(parentId, replacement);
-      }
-      // Closing through a tab's button moves DOM focus onto the button no matter
-      // which pane owns the focus fact. Bump unconditionally: each pane's nonce
-      // consumer is self-gated by its `focused` prop, so background panes ignore
-      // it while the still-focused pane repairs DOM focus after removal.
-      ports.subPanel.requestRefocus(parentId);
-    }
-    return;
-  }
-
-  // Top-level tile — promote its sub-terminals to top-level, shed its chrome,
-  // and auto-switch focus if it was active.
-  for (const subId of ports.getSubTerminalIds(id))
-    ports.promoteToTopLevel(subId);
-  ports.subPanel.remove(id);
+  // EVERY terminal is a tile, so there is one eviction path — the old
+  // sub-terminal branch (repair the parent's tab bar, collapse its panel,
+  // move the remembered pane) described chrome that no longer exists.
+  //
+  // Children are promoted to top level so they keep a derivable place: their
+  // box came FROM this parent, and an orphan with no parent on the canvas has
+  // nothing to derive against.
+  for (const childId of ports.getSubTerminalIds(id))
+    ports.promoteToTopLevel(childId);
   ports.removeRightPanel(id);
   ports.removeSearch(id);
   ports.dropFromMru(id);
@@ -257,12 +221,11 @@ export function useActiveReconcile(deps: {
       // the list is authoritative again. A real user-close only ever happens while
       // the list is a complete census, where the cleanup runs as before.
       if (!deps.listIsAuthoritative()) return;
-      // The pre-removal top-level order (still contains the departed ids), for
-      // byte-identical switch-target selection.
-      const topLevelBefore: TerminalId[] = [];
-      for (const [id, parentId] of prev) {
-        if (parentId === null) topLevelBefore.push(id);
-      }
+      // The pre-removal TILE order (still contains the departed ids), for
+      // byte-identical switch-target selection. Every listed terminal is a tile
+      // now, so a child is a legal survivor to land on — filtering to top-level
+      // would clamp focus to null on a frame whose only survivors are children.
+      const topLevelBefore: TerminalId[] = [...prev.keys()];
       // The whole departing set for THIS frame — so the per-tile auto-switch
       // clamps focus past every leaving tile at once. Without it a batch that
       // empties the top level lands focus on a sibling that is itself departing.

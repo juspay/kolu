@@ -140,7 +140,7 @@ vi.mock("./right-panel/useRightPanel", () => ({
 }));
 import { addHost, resetHosts } from "./hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./terminal/useSessionRestore";
-import { useSubPanel } from "./terminal/useSubPanel";
+import { useTileFocus } from "./terminal/useTileFocus";
 import type { TerminalStore } from "./terminal/useTerminalStore";
 import { useViewState } from "./useViewState";
 
@@ -210,14 +210,14 @@ function mountTwoHostFixture() {
   const getMetadata = (id: TerminalId) => driveMeta()[id];
 
   const view = useViewState();
-  const subPanel = useSubPanel();
+  const tileFocus = useTileFocus();
   const store = {
     listSub,
     terminalIds,
     getMetadata,
     recordPhases: () => ({ awaited: 0, parked: 0, live: 0 }),
     setActiveSilently: (id: TerminalId | null) =>
-      id === null ? subPanel.clearFocus() : subPanel.focusVisiblePane(id),
+      id === null ? tileFocus.clearFocus() : tileFocus.focusTerminal(id),
     activeId: view.activeId,
     reconcileLiveIds: view.reconcileLiveIds,
   } as unknown as TerminalStore;

@@ -30,7 +30,7 @@ vi.mock("../../wire", async () => {
 
 import { activeScope } from "../../hostScope/hostScopes";
 import { addHost, resetHosts } from "../../hostScope/mockHostMap.testlib";
-import { useSubPanel } from "../../terminal/useSubPanel";
+import { useTileFocus } from "../../terminal/useTileFocus";
 import { dockRowAttrs } from "./dockRowAttrs";
 
 const [activeHost, setActiveHost] = createSignal<HostKey>(HOST);
@@ -67,7 +67,7 @@ it("clears a split's unread dock dot when its sub-entry lands", async () => {
               asking: false,
               unread: view.isUnread(SPLIT),
             })}
-            onClick={() => useSubPanel().focusSubTab(PARENT, SPLIT)}
+            onClick={() => useTileFocus().focusTerminal(SPLIT)}
           />
         ),
         host,

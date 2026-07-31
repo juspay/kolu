@@ -268,7 +268,6 @@ const App: Component = () => {
         visible={true}
         focused={active()}
         theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
         onFocus={() => store.setActiveSilently(id)}
       />
     );
@@ -283,7 +282,6 @@ const App: Component = () => {
         visible={visible()}
         focused={visible()}
         theme={getTerminalTheme(id)}
-        onCloseTerminal={closeTerminal}
       />
     );
   }

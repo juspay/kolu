@@ -25,7 +25,6 @@ import {
   evictTerminal,
   type TerminalEvictionPorts,
 } from "./useActiveReconcile";
-import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
 
@@ -37,7 +36,6 @@ import { useTerminalStore } from "./useTerminalStore";
  *  unenforceable "deps never change identity" convention held by a comment. */
 export const useTerminalCrud = createSharedRoot(() => {
   const store = useTerminalStore();
-  const subPanel = useSubPanel();
   const terminalSearch = useTerminalSearch();
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
@@ -70,15 +68,6 @@ export const useTerminalCrud = createSharedRoot(() => {
         .catch((err: Error) =>
           toast.error(`Failed to set parent: ${err.message}`),
         ),
-    subPanel: {
-      collapse: subPanel.collapsePanel,
-      collapseChrome: subPanel.collapsePanelChrome,
-      activeSubTab: (parentId) => subPanel.peekSubPanel(parentId).activeSubTab,
-      setActiveSubTab: subPanel.setActiveSubTab,
-      selectSubTab: subPanel.selectSubTab,
-      requestRefocus: subPanel.requestRefocus,
-      remove: subPanel.removePanel,
-    },
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
   };
@@ -198,7 +187,6 @@ export const useTerminalCrud = createSharedRoot(() => {
         cwd,
         themeName: theme,
         canvasLayout: initial?.canvasLayout,
-        subPanel: initial?.subPanel,
         rightPanel: initial?.rightPanel,
         intent: initial?.intent,
       })
@@ -230,22 +218,8 @@ export const useTerminalCrud = createSharedRoot(() => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;
       });
-    subPanel.focusSubTab(parentId, info.id);
-  }
-
-  /** Toggle a terminal's split: create the first sub-terminal if none exist
-   *  (seeded with the parent's cwd), otherwise flip the sub-panel's
-   *  visibility. Moved out of App.tsx — it complected store + crud + sub-panel,
-   *  all of which crud already orchestrates. */
-  function toggleSubPanel(parentId: TerminalId) {
-    if (store.getSubTerminalIds(parentId).length === 0) {
-      void handleCreateSubTerminal(
-        parentId,
-        store.activeMeta()?.cwd ?? undefined,
-      );
-    } else {
-      subPanel.togglePanel(parentId);
-    }
+    // The child is its own tile; landing on it is an ordinary focus.
+    store.focusTerminal(info.id);
   }
 
   async function handleKill(id: TerminalId) {
@@ -427,7 +401,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     evictDeparted: eviction.evictDeparted,
     handleCreate,
     handleCreateSubTerminal,
-    toggleSubPanel,
     handleKill,
     handleKillWithSubs,
     requestSleep,

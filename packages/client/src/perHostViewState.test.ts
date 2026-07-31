@@ -48,7 +48,7 @@ import {
   setActivityWindow,
 } from "./terminal/activityWindowFilter";
 import { setShowSleeping, showSleeping } from "./terminal/showSleeping";
-import { useSubPanel } from "./terminal/useSubPanel";
+import { useTileFocus } from "./terminal/useTileFocus";
 import { useViewState } from "./useViewState";
 
 /** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
@@ -139,7 +139,7 @@ describe("per-host dock filters (W7 TIER A)", () => {
         const vs = activeScope()?.view;
         if (!vs) throw new Error("no active view for HOST_A");
         // Mutate EVERY reset-on-close-all fact this factory owns.
-        useSubPanel().focusMainPane("term-1" as TerminalId);
+        useTileFocus().focusTerminal("term-1" as TerminalId);
         vs.reconcileLiveIds(["term-1", "term-2"] as TerminalId[]);
         vs.markUnread("term-1" as TerminalId);
         // Sanity: all three facts are non-default.

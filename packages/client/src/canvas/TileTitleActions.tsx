@@ -17,7 +17,6 @@ import { screenshotTerminal } from "../screenshotTerminal";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import AgentIndicator from "../terminal/AgentIndicator";
-import { useSubPanel } from "../terminal/useSubPanel";
 import { useTerminalCrud } from "../terminal/useTerminalCrud";
 import { useTerminalSearch } from "../terminal/useTerminalSearch";
 import { useTerminalStore } from "../terminal/useTerminalStore";
@@ -44,7 +43,6 @@ const TileTitleActions: Component<{
   const search = useTerminalSearch();
   const commandPalette = useCommandPalette();
   const rightPanel = useRightPanel();
-  const subPanel = useSubPanel();
   const { getTerminalThemeName } = useThemeManager();
   const { showTipOnce } = useTips();
 
@@ -56,8 +54,6 @@ const TileTitleActions: Component<{
   const sleeping = () => sleepingArm(meta()) !== undefined;
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
-  const splitExpanded = () =>
-    subCount() > 0 && !subPanel.peekSubPanel(props.id).collapsed;
 
   /** Chrome-action handler: interacting with a tile's chrome selects that tile,
    *  then runs the action. The "select first" policy lives here once instead of
@@ -117,16 +113,19 @@ const TileTitleActions: Component<{
         )}
       </Show>
       <Show when={live()}>
-        <Tip label={subCount() > 0 ? "Toggle split" : "Add split"}>
+        <Tip label="New child terminal">
           <button
             type="button"
-            data-testid="tile-split-toggle"
+            data-testid="tile-new-child"
             class={`${TILE_BUTTON_CLASS} gap-1 px-1.5`}
-            classList={{ "bg-black/20": splitExpanded() }}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onTile(e, () => crud.toggleSubPanel(props.id))}
-            aria-label="Toggle split"
+            onClick={(e) =>
+              onTile(e, () =>
+                crud.handleCreateSubTerminal(props.id, meta()?.cwd ?? undefined),
+              )
+            }
+            aria-label="New child terminal"
           >
             <SplitToggleIcon />
             <Show when={subCount() > 0}>

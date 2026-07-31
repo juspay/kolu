@@ -42,7 +42,7 @@ export const CONTEXTUAL_TIPS = {
 export const AMBIENT_TIPS: readonly Tip[] = [
   {
     id: "amb-sub",
-    text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
+    text: `${formatKeybind(ACTIONS.createSubTerminal.keybind)} opens a child terminal — its own tile beside this one, connected by an arrow`,
   },
   {
     id: "amb-host-map",

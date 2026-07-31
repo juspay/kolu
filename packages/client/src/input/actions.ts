@@ -49,8 +49,6 @@ export interface ActionContext {
   /** Flip the active terminal's find bar (`Cmd+F`). */
   toggleSearch: () => void;
   /** Toggle sub-panel: creates first split if none exist, otherwise toggles visibility. */
-  toggleSubPanel: (parentId: TerminalId) => void;
-  cycleSubTab: (parentId: TerminalId, direction: 1 | -1) => void;
   handleShuffleTheme: () => void;
   handleScreenshotTerminal: () => void;
   toggleRightPanel: () => void;
@@ -250,40 +248,13 @@ const _ACTIONS = {
     label: "Reset zoom",
     keybind: { key: "0", mod: true },
   },
-  toggleSubPanel: {
-    label: "Toggle terminal split",
-    keybind: { key: "`", code: "Backquote", ctrl: true },
-    handler: (ctx) => {
-      // Split needs a live PTY — gate on the ACTIVE arm, not bare `activeId()`
-      // (also true for a sleeping tile, which would spawn a hidden active child
-      // under a dormant parent — F3).
-      const id = activeLiveId(ctx);
-      if (id) ctx.toggleSubPanel(id);
-    },
-  },
   createSubTerminal: {
-    label: "Split terminal",
+    label: "New child terminal",
     keybind: { key: "`", code: "Backquote", ctrl: true, shift: true },
     handler: (ctx) => {
       const id = activeLiveId(ctx);
       if (id)
         ctx.handleCreateSubTerminal(id, ctx.activeMeta()?.cwd ?? undefined);
-    },
-  },
-  nextSubTab: {
-    label: "Next split tab",
-    keybind: { key: "PageDown", code: "PageDown", ctrl: true },
-    handler: (ctx) => {
-      const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, 1);
-    },
-  },
-  prevSubTab: {
-    label: "Previous split tab",
-    keybind: { key: "PageUp", code: "PageUp", ctrl: true },
-    handler: (ctx) => {
-      const id = ctx.activeId();
-      if (id) ctx.cycleSubTab(id, -1);
     },
   },
   shuffleTheme: {
