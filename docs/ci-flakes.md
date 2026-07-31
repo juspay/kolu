@@ -174,6 +174,7 @@ and is fixed in this PR before the campaign resumes.
 | `0e224c9#1` | `0e224c993` | Failed only `ci::unit@aarch64-darwin`; both e2e lanes passed with 0 retries; streak reset | `0/5` |
 | `b914488#1` | `b9144880b` | Every GitHub check passed, including concurrent `unit` and `dev-smoke`; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `0365d16#1` | `0365d16de` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
+| `a322964#1` | `a32296464` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
