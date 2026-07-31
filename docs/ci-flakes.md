@@ -142,6 +142,7 @@ retries.
 | `03c8122#1` | `03c812280` | Failed: `ci::daemon@aarch64-darwin`; all other nodes passed | `0/5` |
 | `c4ec338#1` | `c4ec33842` | Failed: `ci::e2e@aarch64-darwin`; Linux passed; macOS `ci::osfacts-live` was fail-fast skipped | `0/5` |
 | `aea6cc3#1` | `aea6cc331` | Passed all CI nodes, but macOS e2e needed 7 scenario retries | `0/5` flake-free |
+| `a1ae2f2#1` | `a1ae2f242` | Passed both platforms; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 
 ### `aea6cc3#1`: five macOS Git fixture commits returned status 128
 
