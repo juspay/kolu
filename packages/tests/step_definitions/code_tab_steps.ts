@@ -2042,6 +2042,57 @@ const COMMENTS_TRAY = '[data-testid="kolu-comments-tray"]';
 const COMMENT_PILL = '[data-testid="kolu-comment-pill"]';
 const COMMENT_COMPOSER = '[data-testid="kolu-comment-composer"]';
 
+type NativeSelectionDiagnostic = {
+  target: string;
+  rect: { startX: number; startY: number; endX: number; endY: number };
+  selections: Array<{
+    root: string;
+    rangeCount: number;
+    collapsed: boolean;
+    text: string;
+  }>;
+};
+
+const lastNativeSelection = new WeakMap<object, NativeSelectionDiagnostic>();
+
+async function readNativeSelections(
+  world: KoluWorld,
+): Promise<NativeSelectionDiagnostic["selections"]> {
+  return (await world.page.evaluate(`(() => {
+    const rows = [];
+    const record = (root, label) => {
+      const getSelection = root && root.getSelection;
+      const selection =
+        typeof getSelection === "function" ? getSelection.call(root) : null;
+      rows.push({
+        root: label,
+        rangeCount: selection ? selection.rangeCount : 0,
+        collapsed: selection ? selection.isCollapsed : true,
+        text: selection ? selection.toString() : "",
+      });
+    };
+    record(window, "document");
+    let index = 0;
+    const visit = (node) => {
+      if (!node) return;
+      if (node.nodeType === 1 && node.shadowRoot) {
+        const host = node;
+        const label =
+          "shadow[" + index++ + "]<" + host.tagName.toLowerCase() +
+          (host.getAttribute("data-testid")
+            ? '[data-testid="' + host.getAttribute("data-testid") + '"]'
+            : "") +
+          ">";
+        record(node.shadowRoot, label);
+        visit(node.shadowRoot);
+      }
+      for (const child of node.childNodes || []) visit(child);
+    };
+    visit(document.documentElement);
+    return rows;
+  })()`)) as NativeSelectionDiagnostic["selections"];
+}
+
 Then(
   "the comments tray should not be visible",
   async function (this: KoluWorld) {
@@ -2183,6 +2234,19 @@ async function dragSelectText(
   await world.page.mouse.move(rect.endX, rect.endY, { steps: 3 });
   await world.page.mouse.up();
   await world.waitForFrame();
+
+  const selections = await readNativeSelections(world);
+  const diagnostic = { target, rect, selections };
+  lastNativeSelection.set(world, diagnostic);
+  if (
+    !selections.some(
+      (selection) => !selection.collapsed && selection.text.includes(target),
+    )
+  ) {
+    throw new Error(
+      `Mouse drag did not create the requested native selection: ${JSON.stringify(diagnostic)}`,
+    );
+  }
 }
 
 When(
@@ -2204,9 +2268,18 @@ When(
 );
 
 Then("the comment pill should be visible", async function (this: KoluWorld) {
-  await this.page
-    .locator(COMMENT_PILL)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  try {
+    await this.page
+      .locator(COMMENT_PILL)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  } catch (error) {
+    const immediate = lastNativeSelection.get(this) ?? null;
+    const atTimeout = await readNativeSelections(this);
+    throw new Error(
+      `Comment pill did not appear after a native selection: ${JSON.stringify({ immediate, atTimeout })}`,
+      { cause: error },
+    );
+  }
 });
 
 Then(

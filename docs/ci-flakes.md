@@ -175,6 +175,57 @@ and is fixed in this PR before the campaign resumes.
 | `b914488#1` | `b9144880b` | Every GitHub check passed, including concurrent `unit` and `dev-smoke`; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 | `0365d16#1` | `0365d16de` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `a322964#1` | `a32296464` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
+| `cd70a6e#1` | `cd70a6ea3` | Every GitHub check passed, but macOS and Linux e2e each needed 1 scenario retry; streak reset | `0/5` flake-free |
+
+### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
+
+- **Failure:** the first attempt of `Branch updates live when HEAD changes
+  externally` timed out after 20 seconds waiting for the active tile's branch
+  label to contain `watcher-test`. The scenario retry passed.
+- **Root cause:** branch metadata depends on an edge-only `fs.watch` subscription
+  to `.git/HEAD`. The external `git checkout -b watcher-test` completed and
+  rewrote `HEAD`, but no later edge or level-triggered reconciliation caused
+  `subscribeGitInfo` to re-read it, so the already-resolved `master` value could
+  remain authoritative indefinitely.
+- **Evidence:** `.ci/cd70a6e/aarch64-darwin/ci::e2e.log` records the successful
+  external branch-switch step followed by the exact stale-label timeout. The
+  test bypasses the terminal and therefore emits no OSC 7 recovery signal.
+  Source inspection shows `subscribeGitInfo` re-resolves an established repo
+  only from `watchGitHead`, whose generic watcher has an install-time
+  reconciliation but no post-install floor: after the initial resolve, a
+  missed/coalesced `fs.watch` edge has no recovery path.
+- **Proposed fix:** retain the `fs.watch` edge as the fast path and add a
+  bounded stat-identity reconciliation floor to the shared narrow-file watcher,
+  so a changed `HEAD` self-heals even when no edge arrives. Add a controlled
+  unit test that suppresses every `fs.watch` edge and proves the floor fires.
+- **Implementation:** the shared narrow-file watcher now keeps `fs.watch` as
+  its fast path and compares the watched file's stat identity every second.
+  A controlled unit test suppresses all `fs.watch` callbacks, rewrites `HEAD`,
+  and proves the poll still fires one reconciliation.
+
+### `cd70a6e#1`: Linux Markdown-source selection produced no comment pill
+
+- **Failure:** the first attempt of `Comments on a Markdown file work in the
+  source view` selected `md-source-comment-marker`, then timed out after 20
+  seconds waiting for `[data-testid="kolu-comment-pill"]`. The retry passed.
+- **Root cause:** unresolved. The current test records neither the document nor
+  shadow-root selection after its mouse drag, so this run cannot distinguish a
+  collapsed/misdirected browser selection from a valid selection that the app
+  failed to capture. No narrower cause is asserted without that evidence.
+- **Evidence:** `.ci/cd70a6e/x86_64-linux/ci::e2e.log` proves that the source
+  view was shown, its target text rendered, and the drag step returned before
+  the pill timeout. `dragSelectText` currently verifies only the target's
+  pre-drag DOM range; after releasing the mouse it does not inspect the actual
+  native selection that Chromium created.
+- **Proposed fix:** first make the drag step fail with bounded document and
+  shadow-root selection diagnostics when it does not create the requested live
+  selection. Reproduce on `kolu-ci-1`, then change only the test interaction if
+  the drag is at fault; change application selection capture only if the
+  diagnostic proves a valid selection was present.
+- **Implementation:** the real-mouse drag step now records document and every
+  open shadow-root selection immediately after mouse-up, fails at the drag if
+  the requested text was not selected, and includes that snapshot plus the
+  timeout-time selection state if the pill still fails to render.
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
