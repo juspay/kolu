@@ -180,6 +180,27 @@ and is fixed in this PR before the campaign resumes.
 | `3195408#1` | `319540820` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 | `c94bd9f#1` | `c94bd9fc8` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `3/5` |
 | `7da277d#1` | `7da277d0b` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
+| `eebf0ee#1` | `eebf0eec5` | All 59 GitHub checks passed, but Linux e2e needed 1 scenario retry after a Codex mock SQLite lock; streak reset | `0/5` flake-free |
+
+### `eebf0ee#1`: Linux Codex mock rollout update hit a SQLite write lock
+
+- **Failure:** the first attempt of `Context tokens do not double-count cached
+  input tokens` failed in `updateCodexRollout` with `database is locked`. The
+  scenario retry passed.
+- **Root cause:** under investigation. The failing line begins the mock
+  fixture's noisy SQLite write transaction. That writer has no busy timeout,
+  while the Kolu server concurrently consumes the same WAL database, but this
+  causal chain will not be accepted until a controlled lock reproduction
+  demonstrates it.
+- **Evidence:** `.ci/eebf0ee/x86_64-linux/ci::e2e.log` records the exact
+  `database is locked` exception at
+  `packages/tests/support/agent-mock-codex.ts:191`. Source inspection shows
+  that line executes `BEGIN; INSERT; DELETE; COMMIT` synchronously with no
+  `busy_timeout`.
+- **Proposed fix:** reproduce the lock with a second SQLite connection, then
+  give the synthetic Codex writer a bounded busy timeout and add a regression
+  proving a transient lock is waited out. Keep the change in the test fixture;
+  no application behavior failed.
 
 ### `cd70a6e#1`: macOS branch metadata did not reconcile after `HEAD` changed
 
