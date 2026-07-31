@@ -289,10 +289,9 @@ let
       # disturb the closure test's set-equality assertion.
       (pkgs.lib.fileset.unions [
         (pkgs.lib.fileset.difference
-          (pkgs.lib.fileset.fileFilter isHashedSourcePadi ./packages/terminal-themes/src)
+          (padiPkgRoot ./packages/terminal-themes)
           ./packages/terminal-themes/src/color.ts)
         ./packages/terminal-themes/themes.json
-        ./packages/terminal-themes/package.json
       ])
       # The domain leaves padi's closure reaches: serving, the agent/forge/git
       # integrations, transcripts, and the shared utilities. (`@kolu/surface` and

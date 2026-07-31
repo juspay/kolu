@@ -8,103 +8,114 @@
  *  would land on a policy the user never chose, which is the very failure #2045
  *  is about. So the reporter stays SILENT until the preferences cell has yielded.
  *
- *  Driven over the injected ports rather than the live wire, so the ordering is
- *  the only thing under test. */
+ *  Drives the REAL production body over the shared mock `padiMap`
+ *  (`mockHostMap.testlib`, whose `chrome.setNewTerminalPolicy` stub records what
+ *  was sent), with membership, link state and the preferences cell as the levers. */
 
 import type { HostKey } from "kolu-common/hostKey";
-import type { NewTerminalPolicy } from "kolu-common/surface";
-import { createRoot, createSignal } from "solid-js";
-import { describe, expect, it } from "vitest";
-import { createNewTerminalPolicyReport } from "./useNewTerminalPolicyReport";
+import type { Preferences } from "kolu-common/surface";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// The preferences cell, UNFLOORED — the lever the ordering contract turns on.
+// A real signal so the reporter's memo tracks it, minted inside the mock factory
+// (which runs before the module under test binds) and published on this bag.
+const prefsBag = vi.hoisted(() => ({
+  set: (_p: unknown) => {},
+}));
+
+vi.mock("../wire", async () => {
+  const { mockPadiMap } = await import("./mockHostMap.testlib");
+  const { createSignal } = await import("solid-js");
+  const [prefs, setPrefs] = createSignal<unknown>(undefined);
+  prefsBag.set = (p) => setPrefs(p);
+  return {
+    padiMap: mockPadiMap,
+    hostKeys: () => mockPadiMap.entries.use().keys(),
+    preferencesLoaded: prefs,
+  };
+});
+
+vi.mock("../settings/useColorScheme", () => ({
+  useColorScheme: () => ({ isDark: () => false }),
+}));
+
+import {
+  addHost,
+  policyReports,
+  resetHosts,
+  resetPolicyReports,
+  setHostsConnected,
+} from "./mockHostMap.testlib";
+import { useNewTerminalPolicyReport } from "./useNewTerminalPolicyReport";
 
 const LOCAL: HostKey = { kind: "local" };
+const REMOTE: HostKey = { kind: "remote", target: "user@box" };
 
-const LOADED: NewTerminalPolicy = {
+const PREFS = {
+  newTerminalTheme: "inherit",
+  shuffleBehavior: "colourful",
+} as unknown as Preferences;
+
+/** What the reporter should send for {@link PREFS} — `isDark` RESOLVED. */
+const REPORTED = {
   newTerminalTheme: "inherit",
   shuffleBehavior: "colourful",
   isDark: false,
 };
 
-/** Stand the reporter up over signals, returning the levers + what was sent. */
-function harness() {
-  const [policy, setPolicy] = createSignal<NewTerminalPolicy | undefined>(
-    undefined,
-  );
-  const [connected, setConnected] = createSignal(true);
-  const [hosts, setHosts] = createSignal<HostKey[]>([LOCAL]);
-  const sent: { host: HostKey; policy: NewTerminalPolicy }[] = [];
-  const dispose = createRoot((d) => {
-    createNewTerminalPolicyReport({
-      hosts,
-      policy,
-      portFor: (host) => ({
-        connected,
-        send: async (p) => {
-          sent.push({ host, policy: p });
-        },
-      }),
-      onError: (_host, err) => {
-        throw err;
-      },
-    });
-    return d;
-  });
-  return { setPolicy, setConnected, setHosts, sent, dispose };
-}
+/** Solid flushes membership/keying effects on a microtask; a macrotask drains it. */
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-describe("createNewTerminalPolicyReport", () => {
-  it("sends NOTHING before the preferences cell has yielded", () => {
-    const h = harness();
+const setPrefs = (p: Preferences | undefined): void => prefsBag.set(p);
+
+// App-lifetime shared root — stood up ONCE, exactly as the app shell mounts it.
+// Per-test isolation comes from membership: emptying it disposes each host's
+// reporter owner, and re-adding builds a fresh one.
+useNewTerminalPolicyReport();
+
+beforeEach(async () => {
+  resetHosts();
+  setHostsConnected(true);
+  setPrefs(undefined);
+  await flush();
+  resetPolicyReports();
+});
+
+describe("useNewTerminalPolicyReport", () => {
+  it("sends NOTHING before the preferences cell has yielded", async () => {
     // Link up, host present — and still silent, because the only thing missing
     // is the fact itself. padi's "nobody has reported" branch stays reachable.
-    expect(h.sent).toEqual([]);
-    h.dispose();
+    addHost(LOCAL);
+    await flush();
+    expect(policyReports).toEqual([]);
   });
 
-  it("sends once the cell lands — and reports what the user actually chose", () => {
-    const h = harness();
-    h.setPolicy(LOADED);
-    expect(h.sent).toEqual([{ host: LOCAL, policy: LOADED }]);
-    h.dispose();
+  it("sends once the cell lands — and reports what the user actually chose", async () => {
+    addHost(LOCAL);
+    await flush();
+    setPrefs(PREFS);
+    await flush();
+    expect(policyReports).toEqual([{ host: LOCAL, policy: REPORTED }]);
   });
 
-  it("holds a landed policy back until the host's link is up, then sends it", () => {
-    const [policy, setPolicy] = createSignal<NewTerminalPolicy | undefined>(
-      undefined,
-    );
-    const [connected, setConnected] = createSignal(false);
-    const sent: NewTerminalPolicy[] = [];
-    const dispose = createRoot((d) => {
-      createNewTerminalPolicyReport({
-        hosts: () => [LOCAL],
-        policy,
-        portFor: () => ({
-          connected,
-          send: async (p) => {
-            sent.push(p);
-          },
-        }),
-        onError: (_h, err) => {
-          throw err;
-        },
-      });
-      return d;
-    });
-    setPolicy(LOADED);
-    expect(sent).toEqual([]);
+  it("holds a landed policy back until the host's link is up, then sends it", async () => {
+    setHostsConnected(false);
+    addHost(LOCAL);
+    setPrefs(PREFS);
+    await flush();
+    expect(policyReports).toEqual([]);
     // A padi that respawned or was redialled starts with no reported policy —
     // the link coming (back) up is what re-seeds it.
-    setConnected(true);
-    expect(sent).toEqual([LOADED]);
-    dispose();
+    setHostsConnected(true);
+    await flush();
+    expect(policyReports).toEqual([{ host: LOCAL, policy: REPORTED }]);
   });
 
-  it("reports to EVERY member host, not just the one being looked at", () => {
-    const remote: HostKey = { kind: "remote", target: "user@box" };
-    const h = harness();
-    h.setPolicy(LOADED);
-    h.setHosts([LOCAL, remote]);
-    expect(h.sent.map((s) => s.host)).toEqual([LOCAL, remote]);
-    h.dispose();
+  it("reports to EVERY member host, not just the one being looked at", async () => {
+    setPrefs(PREFS);
+    addHost(LOCAL);
+    addHost(REMOTE);
+    await flush();
+    expect(policyReports.map((r) => r.host)).toEqual([LOCAL, REMOTE]);
   });
 });

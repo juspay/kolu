@@ -59,6 +59,26 @@ export function resetWireLog(): void {
   wireLog.clear();
 }
 
+// Per-host LINK STATE, driven by `setHostsConnected` — the fact
+// `entry(host).state()` reports and the reporters gate on.
+const [connected, setConnected] = createSignal(true);
+
+/** Drive every mock host's link up / down (`entry().state().kind`). */
+export function setHostsConnected(up: boolean): void {
+  setConnected(up);
+}
+
+/** Every `chrome.setNewTerminalPolicy` report the mock hosts received, in order
+ *  — the twin of `chrome.setActive`'s no-op stub, recorded because the new-
+ *  terminal policy reporter's whole contract IS the ordering of these sends. */
+export const policyReports: { host: HostKey; policy: unknown }[] = [];
+
+/** Clear the recorded policy reports — call in `beforeEach` alongside
+ *  {@link resetHosts}. */
+export function resetPolicyReports(): void {
+  policyReports.length = 0;
+}
+
 /** A stubbed cell/collection subscription, instrumented for lifecycle. Called
  *  during `createHostWire`, i.e. INSIDE the host's `scopedByEntry` owner, so its
  *  `onCleanup` counts a real membership-exit teardown. Carries the tiny read
@@ -107,11 +127,22 @@ export const mockPadiMap = {
     return {
       cells: { session: cell, activityFeed: cell },
       collections: { terminals: collection, daemonStatus: collection },
+      // The entry's LINK STATE, driven by `setHostsConnected` — read by every
+      // per-host reporter that must hold its report until the link is up.
+      state: () => ({ kind: connected() ? "connected" : "connecting" }),
       // The entry's BOUND PROCEDURES face — where `createViewState`'s `writeActive`
       // reports the active tile (`padiMap.entry(host).procedures.chrome.setActive`).
-      // A benign no-op: no per-host test asserts on the fire-and-forget report, they
-      // only need it not to throw when a tile activates.
-      procedures: { chrome: { setActive: async () => {} } },
+      // `setActive` is a benign no-op (no per-host test asserts on the
+      // fire-and-forget report); `setNewTerminalPolicy` RECORDS, because its
+      // reporter's contract is exactly what gets sent when.
+      procedures: {
+        chrome: {
+          setActive: async () => {},
+          setNewTerminalPolicy: async (policy: unknown) => {
+            policyReports.push({ host, policy });
+          },
+        },
+      },
     };
   },
   useEntry: () => {
