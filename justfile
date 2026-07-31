@@ -210,14 +210,18 @@ test-agent-bake:
     #!/usr/bin/env bash
     set -euo pipefail
     # What the bake newly EXPORTS or CHANGES, measured rather than parsed out of
-    # the file: `compgen -e` is the export list itself, so this stays correct
-    # however `toShellVars` quotes a value and however many pairs `agentBakedEnv`
-    # grows. Snapshotting NAME=value pairs (not just names) matters because this
-    # recipe can run in a shell that already has e.g. SURFACE_AGENT_FLAKE_REF
-    # exported from a parent process — a name-only diff would see no new name
-    # and wrongly report "exported nothing" even though the bake just overwrote
-    # the value.
-    snapshot() { compgen -e | while read -r n; do printf '%s=%s\n' "$n" "${!n}"; done | sort; }
+    # the file, so this stays correct however `toShellVars` quotes a value and
+    # however many pairs `agentBakedEnv` grows. NAME=value pairs, not just names:
+    # this recipe can run in a shell that already exports SURFACE_AGENT_FLAKE_REF
+    # from a parent, and a name-only diff would see no new name and wrongly
+    # report "exported nothing" when the bake had in fact overwritten the value.
+    #
+    # `env`, not bash's `compgen -e`: compgen is unavailable in the shell CI's
+    # darwin lane runs this under (`compgen: command not found`, run a793809#1),
+    # and `env` is the more honest instrument anyway — it prints the environment
+    # a child is handed, which is exactly the property under test. The filter
+    # drops continuation lines of any multi-line value.
+    snapshot() { env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | sort; }
     before=$(snapshot)
     {{ agent_bake }}
     exported=$(comm -13 <(printf '%s\n' "$before") <(snapshot) | cut -d= -f1 | sort -u)
