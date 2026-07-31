@@ -16,8 +16,9 @@ root cause has been identified from the run logs and supporting evidence.
 
 | Run | Commit | Darwin host | Linux host | Result |
 | --- | --- | --- | --- | --- |
-| Baseline | Pending | `ci@petit` | Pending | Pending |
+| `610a019#1` | `610a01979` | `ci@petit` | `kolu-ci-1` | Passed |
 
 ## Failures
 
-No failures recorded yet.
+No failures were observed in baseline run `610a019#1`. Every node passed on
+both platforms without a retry.
