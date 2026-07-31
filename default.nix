@@ -97,8 +97,7 @@ let
   # composed out of, which is where a thin fileset actually shows up. What covers
   # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every
   # `expose` entry's `drvPath` from this same assembled tree
-  # (`.#agent-flake-source` = `agentFlakeSrc`, the same attr `just server` bakes
-  # into a working-tree run). That recipe is load-bearing for
+  # (`.#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
   # remote provisioning, not a nicety: delete it and a fileset gap reaching only
   # `default` / the TUIs surfaces on a user's box at dial time.
   #
@@ -131,6 +130,13 @@ let
     (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
   agentFlakeRefBakeArg =
     ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
+  # The bake as sourceable data — the SAME two bindings the wrapper's `--set`
+  # arg is built from, so a working-tree run and the packaged wrapper cannot
+  # export a different pair. Add a second baked env here and every consumer
+  # (wrapper + `just dev`) picks it up without a second edit.
+  agentFlakeEnv = pkgs.writeText "agent-flake-env" ''
+    ${agentFlakeRefEnv}=${agentFlakeSrc}
+  '';
 
   # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
@@ -936,5 +942,5 @@ let
   osfacts = import ./osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }

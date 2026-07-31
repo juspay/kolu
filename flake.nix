@@ -42,14 +42,15 @@
         let
           kolu = koluBySystem.${system};
         in
-        # `agentFlakeSrc`, `koluEnv`, and `typecheck` are internal under those
-          # names; pnpmDeps remains a Kolu dependency output used by the
-          # hash-fresh gate. The agent-source tree is re-exported as
-          # `agent-flake-source` so `just dev` / `just server` can bake the same
-          # SURFACE_AGENT_FLAKE_REF the production koluBin wrapper sets, and so
-          # ci::agent-flake-nix can eval remote agents without a second recipe.
-        (removeAttrs kolu [ "agentFlakeSrc" "koluEnv" "typecheck" ]) // {
+        # `koluEnv` and `typecheck` are internal; pnpmDeps remains a Kolu
+          # dependency output used by the hash-fresh gate. The agent source
+          # tree and its sourceable env file get kebab CLI spellings:
+          # `agent-flake-env` is what `just dev` sources to bake the same
+          # SURFACE_AGENT_FLAKE_REF the production koluBin wrapper sets, and
+          # `agent-flake-source` is what ci::agent-flake-nix evaluates.
+        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
+          agent-flake-env = kolu.agentFlakeEnv;
         });
       # Type gates on every system. The build environment (nodejs/pnpm and the
       # platform-resolved deps `pnpmConfigHook` installs) differs per platform,
