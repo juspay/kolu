@@ -43,10 +43,11 @@ Each server port owns an isolated development slot: its own padi state, kaval
 daemon, and runtime directory. A development instance cannot adopt or stop the
 daemons used by a production service.
 
-`just server` (and therefore `just dev`) also materialises
-`.#agent-flake-source` and exports `SURFACE_AGENT_FLAKE_REF` — the same bake
-the production Nix wrapper applies — so you can add remote hosts from a
-working-tree run without switching to `nix run .#kolu`.
+`just dev` / `just dev-auto` also materialise `.#agent-flake-env` and export
+`SURFACE_AGENT_FLAKE_REF` — the same bake the production Nix wrapper applies —
+so you can add remote hosts from a working-tree run without switching to
+`nix run .#kolu`. The baked tree is your **committed** source (Nix reads the git
+flakeref), so commit a padi/kaval change before dialing a remote host to test it.
 
 The default `just dev` slot is shared across worktrees. If another worktree
 already owns it, this checkout connects to that slot's existing daemons. Prefer

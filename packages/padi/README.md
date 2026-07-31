@@ -117,9 +117,7 @@ remote host — reusing the local arm's seam, not a parallel one:
   local `PadiBindingSession` plugs into. Unset → today's local binding,
   byte-identical.
 - **One drv provisions both daemons.** kolu-server's Nix wrapper bakes the
-  exact source flake as **`SURFACE_AGENT_FLAKE_REF`** (`just server` exports the
-  same env from the same `.#agent-flake-source` attr, so a working-tree run
-  dials identically). On the first remote dial,
+  exact source flake as **`SURFACE_AGENT_FLAKE_REF`**. On the first remote dial,
   `@kolu/surface-remote` probes the host's Nix system and evaluates only that
   source's matching padi `.drv`. Because padi's wrapper bakes `KOLU_KAVAL_BIN`
   (kaval rides INSIDE padi's closure), provisioning that ONE drv ships both —

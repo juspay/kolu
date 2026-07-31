@@ -44,12 +44,14 @@ box" as **not** an answer — a specific host must be named.
 ## 1. Isolation invocation — prefer nix-run; just dev is also agent-source-complete
 
 Both the packaged wrapper and `just dev` / `just dev-auto` bake
-`SURFACE_AGENT_FLAKE_REF` (the latter via `.#agent-flake-source` at server
-start), so either path can resolve and provision a remote padi. Prefer the
-**nix-built binary** for this harness: it is production-shaped and pairs with
-the isolation env below. Use `just dev-auto` (see the **dev-server** skill)
-when you need HMR against a remote host — still apply the same state-dir /
-port isolation discipline.
+`SURFACE_AGENT_FLAKE_REF` (the latter by sourcing `.#agent-flake-env` before
+the dev fork), so either path can resolve and provision a remote padi. Prefer
+the **nix-built binary** for this harness: it is production-shaped and pairs
+with the isolation env below. Use `just dev-auto` (see the **dev-server**
+skill) when you need HMR against a remote host — still apply the same
+state-dir / port isolation discipline, and **commit** any padi/kaval change
+first: both paths bake the git-tracked tree, so an uncommitted edit reaches
+your local server but not the padi the remote provisions.
 
 ```sh
 nix build .#default
