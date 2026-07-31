@@ -523,7 +523,6 @@ fn foreign_process_facts_are_honest(_world: &mut LiveWorld) {
             .rows
             .iter()
             .cloned()
-            .into_iter()
             .map(|process| (process.pid, process))
             .collect::<HashMap<_, _>>();
         let first_ps = world
