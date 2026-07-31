@@ -182,6 +182,7 @@ and is fixed in this PR before the campaign resumes.
 | `7da277d#1` | `7da277d0b` | All 59 GitHub checks passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `4/5` |
 | `eebf0ee#1` | `eebf0eec5` | All 59 GitHub checks passed, but Linux e2e needed 1 scenario retry after a Codex mock SQLite lock; streak reset | `0/5` flake-free |
 | `9c7062d#1` | `9c7062de9` | Failed `ci::unit@aarch64-darwin`: the new SQLite regression violated the repo's real-process spawn gate; streak reset | `0/5` |
+| `2a74a53#1` | `2a74a53c4` | All 59 GitHub checks passed after the Codex lock and regression-gate fixes; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
 
 ### `9c7062d#1`: SQLite regression violated the real-process spawn gate
 
