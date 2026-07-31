@@ -117,8 +117,9 @@ failure fixable in this repository is in scope.
 | `67b890f#1` | `67b890fff` | Failed: `ci::fmt@aarch64-darwin`; all other nodes passed | `0/5` |
 | `650da7f#1` | `650da7f8e` | Passed | `1/5` |
 | `7d22bf3#1` | `7d22bf331` | Passed | `2/5` |
+| `aef3f80#1` | `aef3f8067` | Passed | `3/5` |
 
-**Current active streak: `2/5`.** The first two green runs above predate the
+**Current active streak: `3/5`.** The first two green runs above predate the
 osfacts-live fix prompted by `3a6c829#1`.
 
 ### `3a6c829#1`: Darwin osfacts-live process-exit race
