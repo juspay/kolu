@@ -58,6 +58,7 @@ export function descendantsByRoot(
   const resolve = (id: TerminalId): TerminalId | null => {
     if (memo.has(id)) return memo.get(id) ?? null;
     const path: TerminalId[] = [];
+    const pathSet = new Set<TerminalId>();
     let cur = id;
     for (;;) {
       if (memo.has(cur)) {
@@ -65,12 +66,15 @@ export function descendantsByRoot(
         for (const p of path) memo.set(p, root);
         return root;
       }
-      if (path.includes(cur)) {
+      // O(1) membership via a path set — unbounded depth is legal, so a long
+      // chain first seen from its deep end must not re-scan path[] per hop.
+      if (pathSet.has(cur)) {
         for (const p of path) memo.set(p, null);
         memo.set(cur, null);
         return null;
       }
       path.push(cur);
+      pathSet.add(cur);
       const parent = parentOf(cur);
       if (parent === undefined) {
         for (const p of path) memo.set(p, null);

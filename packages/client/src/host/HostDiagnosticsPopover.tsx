@@ -28,6 +28,7 @@ import type { KoluForward } from "kolu-common/surface";
 import { ForwardRows } from "../forwards/ForwardRows";
 import { servingLink } from "../forwards/terminalServingPort";
 import { selectFleetTerminal } from "../palette/fleetActions";
+import { containingTileOf } from "../terminal/terminalTree";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
@@ -172,21 +173,14 @@ export const HostDiagnosticsPopover: Component<{
       port: forward.remotePort,
       candidates: (() => {
         const map = arms();
-        // Resolve containing tile via true parent chain so a nested split's
-        // port still links the root tile (activate rejects middle split ids).
-        const tileOf = (id: TerminalId): TerminalId => {
-          const seen = new Set<TerminalId>();
-          let cur = id;
-          for (;;) {
-            if (seen.has(cur)) return cur;
-            seen.add(cur);
-            const parent = map.get(cur)?.parentId;
-            if (!parent) return cur;
-            cur = parent as TerminalId;
-          }
-        };
+        // Containing tile via terminalTree — a nested split's port still links
+        // the root; an orphan falls back to itself (painted top-level).
         return [...map].map(([id, arm]) => {
-          const tile = tileOf(id);
+          const tile = containingTileOf(id, (x) => {
+            const a = map.get(x);
+            if (a === undefined) return undefined;
+            return a.parentId ?? null;
+          });
           return {
             id,
             parentId: tile === id ? null : tile,

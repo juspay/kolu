@@ -67,8 +67,6 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   const evictionPorts: TerminalEvictionPorts = {
     getSubTerminalIds: store.getSubTerminalIds,
-    getSplitPaneIds: store.getSplitPaneIds,
-    rootAncestor: store.rootAncestor,
     activeId: store.activeId,
     focusedTerminalId: store.focusedTerminalId,
     activate: store.activate,
@@ -88,9 +86,30 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeSearch: terminalSearch.removeTerminal,
   };
 
+  /** Intact parent graph at the moment of eviction — live for the imperative
+   *  path (metadata still present), snapshot for the list-driven path. */
+  function liveRemovalGraph() {
+    const ids = store.listSub()?.map((t) => t.id) ?? [];
+    return {
+      ids,
+      parentOf: (x: TerminalId) => {
+        const m = store.getMetadata(x);
+        if (m === undefined) return undefined;
+        return m.parentId ?? null;
+      },
+    };
+  }
+
   const eviction = createEvictionDedup(
-    (id, parentId, topLevelBefore, departing) =>
-      evictTerminal(evictionPorts, id, parentId, topLevelBefore, departing),
+    (id, parentId, topLevelBefore, departing, removal) =>
+      evictTerminal(
+        evictionPorts,
+        id,
+        parentId,
+        topLevelBefore,
+        departing,
+        removal,
+      ),
   );
 
   /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
@@ -104,6 +123,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       store.getMetadata(id)?.parentId ?? null,
       store.terminalIds(),
       store.getMetadata(id) !== undefined,
+      liveRemovalGraph(),
     );
   }
 

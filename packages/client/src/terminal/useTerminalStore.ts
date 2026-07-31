@@ -131,16 +131,26 @@ export const useTerminalStore = createSharedRoot(() => {
   /** Select a top-level tile without panning. Its existing panel chrome decides
    *  which visible pane receives input, then that choice is committed to the
    *  same one per-host focus fact. */
+  /** True when `id` is a canvas tile (top-level): no parent, or no resolvable
+   *  root (cycle/orphan — painted top-level by `terminalIds`). Genuine nested
+   *  descendants are rejected. */
+  function isCanvasTile(id: TerminalId): boolean {
+    const record = metadata.getMetadata(id);
+    if (!record) return true; // metadata not yet arrived — creation gap
+    if (!record.parentId) return true;
+    const root = metadata.rootAncestor(id);
+    return root === null || root === id;
+  }
+
   function setActiveSilently(id: TerminalId | null): void {
     if (id === null) {
       subPanel.clearFocus();
       return;
     }
-    const record = metadata.getMetadata(id);
     // Creation returns the new top-level id before its streamed metadata can
     // arrive. The caller already names a tile; write its id as the gap hint and
     // let live metadata supersede that hint as soon as it is present.
-    if (record && record.parentId !== null && record.parentId !== undefined) {
+    if (!isCanvasTile(id)) {
       throw new Error(
         `setActiveSilently: ${id} is a split; use focusTerminal instead`,
       );
@@ -158,8 +168,7 @@ export const useTerminalStore = createSharedRoot(() => {
    *  The tile registry can name a newly-created tile before metadata arrives, so
    *  absence is accepted; a live split record is a caller error. */
   function focusMainTerminal(id: TerminalId): void {
-    const record = metadata.getMetadata(id);
-    if (record && record.parentId !== null && record.parentId !== undefined) {
+    if (!isCanvasTile(id) && metadata.getMetadata(id) !== undefined) {
       throw new Error(`focusMainTerminal: ${id} is a split`);
     }
     subPanel.focusMainPane(id);
