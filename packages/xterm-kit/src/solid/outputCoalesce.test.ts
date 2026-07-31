@@ -175,4 +175,21 @@ describe("createOutputCoalesce", () => {
     c.write("c");
     expect(scheduled).toBe(1);
   });
+
+  it("flush without onParsed callbacks omits writeThrough's callback arg", () => {
+    const args: Array<(() => void) | undefined> = [];
+    const c = createOutputCoalesce(
+      () => false,
+      (_data, onParsed) => {
+        args.push(onParsed);
+      },
+      {
+        schedule: () => 1,
+        cancel: vi.fn(),
+      },
+    );
+    c.write("x"); // no onParsed
+    c.flush();
+    expect(args).toEqual([undefined]);
+  });
 });

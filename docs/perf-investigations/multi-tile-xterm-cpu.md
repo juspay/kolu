@@ -26,9 +26,9 @@ hot path that still burns main-thread CPU after those fixes.
   `FireAnimationFrame`.
 - Fix: **coalesce PTY→xterm writes for unfocused terminals**
   (`createOutputCoalesce`, 100 ms window). Focused tile stays real-time.
-- After (same box, equal-or-harder flood): **1541 ms (25.7%) main-thread
-  (−60%)**, `FireAnimationFrame` **3657 → 59 ms (−98%)**, `FunctionCall`
-  **3707 → 197 ms (−95%)**.
+- After (same box): same-recipe dense-8 **2777 ms (46.3%, −29%)**; harder
+  flood **1541 ms (25.7%, −60%)**. Frame-storm collapse is directional (not a
+  density-paired claim) — see §6.
 
 ---
 
@@ -131,12 +131,25 @@ Code: `packages/xterm-kit/src/solid/outputCoalesce.ts` (`UNFOCUSED_COALESCE_MS =
 passes `fullRate={isFocused}`. Unfocused batches chunks and flushes on timer or
 focus; fresh-snapshot reset drops coalesce + scroll-lock + xterm write queue.
 
-| Metric | Before (dense flood) | After (equal-or-harder flood) | Δ |
-|---|---:|---:|---|
-| Main-thread busy / 6 s | 3896 ms (64.9%) | **1541 ms (25.7%)** | **−60%** |
-| `FireAnimationFrame` | 3657 ms | **59 ms** | **−98%** |
-| `FunctionCall` | 3707 ms | **197 ms** | **−95%** |
-| First post-fix dense-8 pass | — | 2777 ms (46.3%) | intermediate (softer flood) |
+**Before recipe (stated):** 16 tiles present, flood ~8 on-screen, `20` lines per
+tick, `sleep 0.05`.
+
+**After recipes (both post-fix, same box/method):**
+
+| Tag | Recipe notes | Main-thread / 6 s | Main % | `FireAnimationFrame` | `FunctionCall` |
+|---|---|---:|---:|---:|---:|
+| pre-fix dense | 20 lines / 50 ms, ~8 flood | **3896 ms** | **64.9%** | 3657 | 3707 |
+| post-fix pass A | dense-8 after reload (intended same style) | 2777 ms | 46.3% | 72 | 230 |
+| post-fix pass B | 40 lines / 30 ms, 8 flood (harder) | **1541 ms** | **25.7%** | 59 | 197 |
+
+Honest reading: pass A main-thread is **−29%** vs pre-fix. Pass B is a harder
+flood and still **−60%** main-thread. The rAF/FunctionCall collapse (59–72 ms vs
+3657) is real but **not** a same-density paired claim — at a 100 ms coalesce
+window, 8 fully flooding tiles would still schedule on the order of hundreds of
+frames over 6 s; 72 FireAnimationFrame on pass A implies a lighter stream than
+the pre-fix dense recipe (or captures that are not density-matched). Treat
+main-thread % as the headline metric; treat frame-storm collapse as directional.
+Raw CDP captures were session-local and are **not** committed.
 
 Post-fix dense2 top events (6 s):
 
@@ -179,16 +192,20 @@ Not primarily:
 
 | Piece | Location |
 |---|---|
-| Pure coalesce | `@kolu/xterm-kit/solid` → `createOutputCoalesce` |
-| Wire | `packages/client/src/terminal/Terminal.tsx` attach `output.write` |
-| Tests | `packages/xterm-kit/src/solid/outputCoalesce.test.ts` (6 cases) |
+| Pure coalesce | `@kolu/xterm-kit/solid` → `createOutputCoalesce` (100 ms fixed) |
+| Composition | `<Xterm fullRate={…}>` — `handle.write` is the single door |
+| Policy wire | `Terminal.tsx` — required `fullRate={isFocused}` |
+| Resize | `applyFit` flushes coalesce before `fit()` so old-grid bytes parse at old cols×rows |
+| Snapshot reset | `clearPendingOutput` drops coalesce + scroll-lock pending + xterm write queue |
+| Tests | `outputCoalesce.test.ts` |
 
 Policy:
 
-- `isFullRate` ⇔ terminal is focused → immediate write.
+- `fullRate` ⇔ terminal is focused → immediate write.
 - Otherwise buffer chunks for ≤100 ms, one write, fire all `onParsed` after
   the coalesced write lands (same callback contract as scroll-lock).
 - Flush when focus becomes true so the user never lands on a stale buffer.
+- Flush before any real grid change (`applyFit` → `fit()`).
 
 ---
 

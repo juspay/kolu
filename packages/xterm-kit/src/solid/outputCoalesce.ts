@@ -87,9 +87,16 @@ export function createOutputCoalesce(
       for (const cb of cbs) cb();
       return;
     }
-    writeThrough(data, () => {
-      for (const cb of cbs) cb();
-    });
+    // Preserve writeThrough's "no callback" optimization when nobody is waiting
+    // (scroll-lock skips a closure allocation when onParsed is undefined).
+    writeThrough(
+      data,
+      cbs.length === 0
+        ? undefined
+        : () => {
+            for (const cb of cbs) cb();
+          },
+    );
   }
 
   function write(data: string, onParsed?: () => void): void {

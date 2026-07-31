@@ -30,7 +30,7 @@ import {
 } from "solid-js";
 import { sameGrid, type TerminalGrid } from "./grid";
 import { clearWriteQueue } from "../internals";
-import { createOutputCoalesce } from "./outputCoalesce";
+import { createOutputCoalesce, type OutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
@@ -113,9 +113,9 @@ interface XtermOwnProps {
   webgl: Accessor<boolean>;
   /** The scroll-lock enable gate (e.g. a preference) — an accessor. */
   scrollLockEnabled: Accessor<boolean>;
-  /** Full-rate paint gate (e.g. focused tile). Unfocused panes coalesce PTY
-   *  writes. Defaults to always-full-rate when omitted. */
-  fullRate?: Accessor<boolean>;
+  /** Full-rate paint gate (e.g. focused tile). Required — omitting it would
+   *  silently restore pre-fix full-rate painting on every tile. */
+  fullRate: Accessor<boolean>;
   /** The face awaited before construction, and xterm's `fontFamily`. */
   fontFamily: string;
   /** Extra xterm constructor options (scrollback, cursor, allowProposedApi …).
@@ -221,8 +221,15 @@ export const Xterm: Component<
     if (
       proposed.cols !== core.terminal.cols ||
       proposed.rows !== core.terminal.rows
-    )
+    ) {
+      // Land any coalesced unfocused bytes BEFORE cols/rows change. Those bytes
+      // were generated for the OLD grid; parsing them after resize wraps/cursors
+      // at the wrong width (canvas zoom / divider drag can fire every frame and
+      // the coalesce window widens the race to ~100ms). Snapshot frames have a
+      // second grid check at the write callback; delta frames do not.
+      coalesce?.flush();
       core.addons.fit.fit();
+    }
     // Read the grid back off the terminal rather than trusting `proposed`: fit()
     // is the one authority on what it applied, so the fact we publish is the
     // grid the terminal actually HAS.
@@ -253,6 +260,9 @@ export const Xterm: Component<
   // sourced from the WebGL handle, so it stays a separate ref.
   let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
+  // Write-door coalesce — same owner as applyFit so a resize can flush old-grid
+  // bytes before fit() mutates cols/rows (see applyFit).
+  let coalesce: OutputCoalesce | null = null;
 
   // This component's OWN retained refs, released synchronously on disposal so no
   // leaked owner closure keeps the xterm graph reachable (#606). The lifecycle
@@ -266,6 +276,7 @@ export const Xterm: Component<
     cancelAnimationFrame(fitRaf);
     core = null;
     clearAtlas = null;
+    coalesce = null;
   });
 
   // The scroll lock is solid-reactive, so it's created in the component owner.
@@ -300,16 +311,20 @@ export const Xterm: Component<
       wireScrollIntent(container, scrollLock);
 
       // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.
-      const fullRate = () => own.fullRate?.() ?? true;
-      const coalesce = createOutputCoalesce(fullRate, (data, onParsed) =>
+      const fullRate = () => own.fullRate();
+      const outputCoalesce = createOutputCoalesce(fullRate, (data, onParsed) =>
         scrollLock.writeData(term, data, onParsed),
       );
-      onCleanup(() => coalesce.dispose());
+      coalesce = outputCoalesce;
+      onCleanup(() => {
+        outputCoalesce.dispose();
+        if (coalesce === outputCoalesce) coalesce = null;
+      });
       createEffect(
         on(
           fullRate,
           (fr) => {
-            if (fr) coalesce.flush();
+            if (fr) outputCoalesce.flush();
           },
           { defer: true },
         ),
@@ -350,12 +365,12 @@ export const Xterm: Component<
         container,
         addons: c.addons,
         scrollLock,
-        write: (data, onParsed) => coalesce.write(data, onParsed),
+        write: (data, onParsed) => outputCoalesce.write(data, onParsed),
         clearPendingOutput: () => {
           // Outer buffers first, then xterm's own async write queue — otherwise
           // a coalesced batch already past `term.write` still parses after
           // `terminal.reset()` and contaminates the replacement snapshot.
-          coalesce.clear();
+          outputCoalesce.clear();
           scrollLock.dropPending();
           clearWriteQueue(term);
         },
