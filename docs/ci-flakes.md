@@ -166,6 +166,7 @@ and is fixed in this PR before the campaign resumes.
 | Attempt | Commit | Result | Consecutive green |
 | --- | --- | --- | --- |
 | `02b18bd#1` | `02b18bd35` | Every required GitHub status passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `1/5` |
+| `48d536d#1` | `48d536ded` | Every GitHub check passed; macOS 506/506 and Linux 507/507 e2e attempts, 0 retries | `2/5` |
 
 ### `0dfaddc#1`: Linux governance lost Vitest command discovery
 
