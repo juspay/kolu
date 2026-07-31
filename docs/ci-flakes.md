@@ -226,6 +226,13 @@ and is fixed in this PR before the campaign resumes.
   open shadow-root selection immediately after mouse-up, fails at the drag if
   the requested text was not selected, and includes that snapshot plus the
   timeout-time selection state if the pill still fails to render.
+- **Diagnostic progress:** on the exact Linux venue `kolu-ci-1`, the
+  instrumented scenario passed 20 consecutive isolated executions, then the
+  complete 114-scenario Code-tab feature passed under the CI-shaped four-worker
+  load (114 executions, 114 attempts, zero retries). This rules out a
+  deterministic source-view failure but does not identify the rare failure's
+  root cause, so the item remains unresolved and no product or interaction
+  change is claimed as its fix yet.
 
 ### `0e224c9#1`: macOS dev-smoke install removed unit's Vitest executable
 
