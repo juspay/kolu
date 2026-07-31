@@ -29,6 +29,7 @@ import {
   splitProps,
 } from "solid-js";
 import { sameGrid, type TerminalGrid } from "./grid";
+import { createOutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
 import { wireScrollIntent } from "./scrollLockWiring";
@@ -62,9 +63,11 @@ export interface XtermHandle {
   container: HTMLElement;
   addons: { fit: FitAddon; search: SearchAddon; serialize: SerializeAddon };
   scrollLock: ScrollLock;
-  /** `scrollLock.writeData` bound to this terminal — the buffer-through-the-lock
-   *  write the consumer's stream drives, `onParsed` firing when the chunk lands. */
+  /** Single write door: unfocused rate-coalesce → scroll-lock → term.write.
+   *  `onParsed` fires when the chunk lands in xterm. */
   write: (data: string, onParsed?: () => void) => void;
+  /** Drop coalesced + scroll-lock pending bytes without writing (fresh snapshot). */
+  clearPendingOutput: () => void;
   webgl: WebglHandle;
   recovery: RenderRecovery;
   /** Debounced fit — one call per animation frame (ResizeObserver fires fast). */
@@ -109,6 +112,9 @@ interface XtermOwnProps {
   webgl: Accessor<boolean>;
   /** The scroll-lock enable gate (e.g. a preference) — an accessor. */
   scrollLockEnabled: Accessor<boolean>;
+  /** Full-rate paint gate (e.g. focused tile). Unfocused panes coalesce PTY
+   *  writes. Defaults to always-full-rate when omitted. */
+  fullRate?: Accessor<boolean>;
   /** The face awaited before construction, and xterm's `fontFamily`. */
   fontFamily: string;
   /** Extra xterm constructor options (scrollback, cursor, allowProposedApi …).
@@ -139,6 +145,7 @@ const OWN_KEYS = [
   "visible",
   "webgl",
   "scrollLockEnabled",
+  "fullRate",
   "fontFamily",
   "terminalOptions",
   "onData",
@@ -291,6 +298,22 @@ export const Xterm: Component<
       // Wheel + pointer-held scroll inputs arm the latch (#1272).
       wireScrollIntent(container, scrollLock);
 
+      // Single write door: rate coalesce (fullRate policy) → scroll-lock → term.
+      const fullRate = () => own.fullRate?.() ?? true;
+      const coalesce = createOutputCoalesce(fullRate, (data, onParsed) =>
+        scrollLock.writeData(term, data, onParsed),
+      );
+      onCleanup(() => coalesce.dispose());
+      createEffect(
+        on(
+          fullRate,
+          (fr) => {
+            if (fr) coalesce.flush();
+          },
+          { defer: true },
+        ),
+      );
+
       // Touch: xterm 6.0 ships no touch path. The soft-keyboard input surface is
       // null off a coarse pointer, so tap routing is desktop-inert; the scroll
       // bridge is always wired (harmless without touch events).
@@ -326,7 +349,11 @@ export const Xterm: Component<
         container,
         addons: c.addons,
         scrollLock,
-        write: (data, onParsed) => scrollLock.writeData(term, data, onParsed),
+        write: (data, onParsed) => coalesce.write(data, onParsed),
+        clearPendingOutput: () => {
+          coalesce.clear();
+          scrollLock.dropPending();
+        },
         webgl,
         recovery,
         refit,

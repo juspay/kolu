@@ -45,11 +45,11 @@ a `_core.buffers.normal` rename touches all three in tandem.
 
 ## `@kolu/xterm-kit/solid` — the SolidJS browser adapter
 
-- `<Xterm>` — the whole hazard set as one JSX element: it composes every
-  primitive below and owns their reactive lifetime, handing the consumer a live
-  `XtermHandle` in `onReady` (inside the reactive owner) to wire its own policy —
-  the stream, keybindings, the PTY, diagnostics. Kolu's `Terminal.tsx` is
-  consumer #1.
+- `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
+  WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,
+  owns their reactive lifetime, and hands the consumer a live `XtermHandle` in
+  `onReady` (inside the reactive owner) for stream/key/PTY policy. Kolu's
+  `Terminal.tsx` is consumer #1.
 - `createXtermLifecycle` — owner-correct async construction + disposal: capture
   the owner before the font `await`, bail on a `disposed` flag, re-enter with
   `runWithOwner`, and dispose term + addons synchronously. The one home for the
@@ -64,8 +64,8 @@ a `_core.buffers.normal` rename touches all three in tandem.
   DOM wiring.
 - `createRenderRecovery` — forced synchronous repaint when the rAF paint loop
   parks under occlusion.
-- `createOutputCoalesce` — batch PTY→xterm writes for unfocused terminals so a
-  Dock-scale multi-agent flood does not schedule full-rate parse+paint on every
-  tile; focused stays real-time. Pure (clock-injectable) and unit-tested.
+- `createOutputCoalesce` — pure write-path batching (full-rate gate + timer);
+  composed into `<Xterm>` so `handle.write` is the single door. Consumer policy is
+  the `fullRate` accessor (focused tile). Unit-tested with injected timers.
 - `enableSoftKeyboardInput` / `isCoarsePointer` — the touch soft-keyboard surface
   and its coarse-pointer gate.

@@ -6,13 +6,13 @@
  * (`FireAnimationFrame` + parse `FunctionCall` on CrRendererMain). With many
  * live agents the main thread saturates even when CSS animations are cheap.
  *
- * Policy: the focused terminal stays real-time (passthrough). Unfocused
- * terminals batch chunks for up to `UNFOCUSED_COALESCE_MS` and flush as one
- * write — intermediate TUI frames are dropped, the latest buffer state still
- * lands, and paint/parse cost falls roughly with the coalesce factor.
+ * Policy: the full-rate path (focused tile) is real-time passthrough. The
+ * non-full-rate path concatenates chunks for up to `UNFOCUSED_COALESCE_MS` and
+ * flushes as **one** `writeThrough` — every byte still lands and is parsed, but
+ * xterm schedules one parse+paint cycle instead of one per PTY chunk.
  *
  * Pure (no DOM / Solid) so the interval and the full-rate gate are unit-testable
- * with injected clocks. `onParsed` callbacks are deferred until the coalesced
+ * with injected timers. `onParsed` callbacks are deferred until the coalesced
  * write actually lands in xterm (same contract as scroll-lock buffering).
  */
 
@@ -22,8 +22,6 @@ export type ScheduleFn = (fn: () => void, ms: number) => number;
 export type CancelFn = (id: number) => void;
 
 export interface OutputCoalesceDeps {
-  /** Injectable clock for tests. Production uses `Date.now`. */
-  now?: () => number;
   schedule?: ScheduleFn;
   cancel?: CancelFn;
   /** Coalesce window for the non-full-rate path. */
@@ -35,6 +33,8 @@ export interface OutputCoalesce {
   write: (data: string, onParsed?: () => void) => void;
   /** Flush any pending buffer immediately (call when becoming full-rate). */
   flush: () => void;
+  /** Drop pending bytes without writing; keep the handle alive (snapshot reset). */
+  clear: () => void;
   /** Drop the timer without writing — only for dispose when the terminal is gone. */
   dispose: () => void;
   /** Test probe: bytes currently waiting for the next flush. */
@@ -45,7 +45,7 @@ export interface OutputCoalesce {
  * @param isFullRate — true for the one (or few) terminals that must paint live
  *   (focused tile). When this becomes true, call `flush()` from the reactive
  *   owner so a pending unfocused buffer is not left sitting.
- * @param writeThrough — the real write (e.g. `scrollLock.writeData` / handle.write).
+ * @param writeThrough — the real write (e.g. `scrollLock.writeData`).
  */
 export function createOutputCoalesce(
   isFullRate: () => boolean,
@@ -107,16 +107,21 @@ export function createOutputCoalesce(
     }
   }
 
-  function dispose(): void {
-    disposed = true;
+  function clear(): void {
     clearTimer();
     buf = "";
     callbacks = [];
   }
 
+  function dispose(): void {
+    disposed = true;
+    clear();
+  }
+
   return {
     write,
     flush,
+    clear,
     dispose,
     pendingBytes: () => buf.length,
   };

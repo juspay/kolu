@@ -137,6 +137,26 @@ describe("createOutputCoalesce", () => {
     expect(c.pendingBytes()).toBe(0);
   });
 
+  it("clear drops pending without disposing the handle", () => {
+    const writes: string[] = [];
+    const c = createOutputCoalesce(
+      () => false,
+      (data) => {
+        writes.push(data);
+      },
+      {
+        schedule: () => 1,
+        cancel: vi.fn(),
+      },
+    );
+    c.write("stale");
+    c.clear();
+    expect(c.pendingBytes()).toBe(0);
+    c.write("fresh");
+    c.flush();
+    expect(writes).toEqual(["fresh"]);
+  });
+
   it("does not re-arm a timer while one is already pending", () => {
     let scheduled = 0;
     const c = createOutputCoalesce(

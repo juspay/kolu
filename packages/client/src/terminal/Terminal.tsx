@@ -41,7 +41,6 @@ import {
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
 import {
-  createOutputCoalesce,
   sameGrid,
   type TerminalGrid,
   Xterm,
@@ -254,23 +253,6 @@ const Terminal: Component<{
     // that touches terminal contents. Cleared in the teardown below.
     (h.container as HTMLElement & { __xterm?: XTerm }).__xterm = term;
 
-    // Unfocused tiles coalesce PTY chunks (~100 ms) so Dock-scale multi-agent
-    // output does not schedule a full xterm parse+paint per chunk on every
-    // tile. Focused stays real-time. Flush when focus arrives so the user never
-    // sees a lagging buffer after click.
-    const output = createOutputCoalesce(
-      () => props.focused === true,
-      (data, onParsed) => h.write(data, onParsed),
-    );
-    createEffect(
-      on(
-        () => props.focused === true,
-        (fullRate) => {
-          if (fullRate) output.flush();
-        },
-      ),
-    );
-
     // Consumer teardown registered HERE, inside onReady — NOT at the component
     // body top. `<Xterm>` is a plain JSX child (no own reactive owner), so a
     // body-registered `onCleanup` lands FIRST on the shared owner and runs LAST
@@ -283,7 +265,6 @@ const Terminal: Component<{
     // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
     onCleanup(() => {
       streamAbort?.abort();
-      output.dispose();
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -454,8 +435,11 @@ const Terminal: Component<{
     // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
     // done-criterion (c)).
     const resetForFreshSnapshot = () => {
+      // Drop write-pipeline pending (coalesce + scroll-lock) WITHOUT writing —
+      // a flush would re-paint pre-reset chunks onto the cleared screen.
+      h.clearPendingOutput();
       handle()?.terminal?.reset();
-      h.scrollLock.reset();
+      h.scrollLock.reset("drop");
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
       // the terminal we just reset.
@@ -697,9 +681,9 @@ const Terminal: Component<{
             // chunk, and flush() fires every buffered chunk's callback once the
             // buffered write parses on unlock — so the snapshot re-seed committer
             // that rides this callback survives the lock instead of being dropped.
-            // Route through `output` (not bare `h.write`) so unfocused tiles
-            // coalesce under multi-agent load; focused is a passthrough.
-            output.write(data, () => {
+            // Single kit write door (coalesce → scroll-lock → term); fullRate is
+            // the focused-tile policy on <Xterm>.
+            h.write(data, () => {
               // A superseded (or unmounted) attempt's stashed callback does
               // NOTHING: it would report activity for a stream nobody is reading
               // (arming the render-stall watchdog against the successor's paint),
@@ -954,6 +938,7 @@ const Terminal: Component<{
         visible={props.visible}
         webgl={shouldUseWebgl}
         scrollLockEnabled={() => preferences().scrollLock}
+        fullRate={isFocused}
         fontFamily={FONT_FAMILY}
         terminalOptions={{
           scrollback: DEFAULT_SCROLLBACK,
