@@ -14,6 +14,7 @@ import {
 } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { isStale } from "../../terminal/staleness";
+import type { PaneNode } from "../../terminal/terminalTree";
 import { paintBucket } from "../dockModel";
 import {
   DOCK_ROW_BUCKET_PRIORITY,
@@ -150,6 +151,27 @@ describe("rankDockRows — parked bucket precedence", () => {
 
   it("never-touched plain shells route to none, not idle", () => {
     expect(bucket(makeMeta(), false)).toBe("none");
+  });
+
+  it("an agent with no recency yet ranks idle, not none — `none` means PLAIN shell", () => {
+    // padi publishes the composed record with a fresh agent before it stamps
+    // `lastActivityAt`, so this product is a real frame, not a hypothetical.
+    // Ranking it `none` used to trip `rankSubRow`'s agent fence and throw out of
+    // the dock's memo — the whole Dock, gone, for one split's first frame.
+    const meta = makeMeta({
+      agent: makeAgent("waiting"),
+      lastActivityAt: null,
+    });
+    expect(bucket(meta, false)).toBe("idle");
+    expect(() =>
+      rankDockRows(
+        ["parent"] as TerminalId[],
+        (id) => (id === "parent" ? makeMeta({ lastActivityAt: 1 }) : meta),
+        () => false,
+        classOfMeta(() => meta),
+        () => [{ id: "fresh-agent-split" as TerminalId, children: [] }],
+      ),
+    ).not.toThrow();
   });
 
   it("classifies a sleeping terminal as its own bucket, not none", () => {
@@ -359,13 +381,20 @@ describe("rankDockRows — split sub-entries", () => {
   };
   const getMeta = (id: TerminalId) => metas[id as string];
 
+  /** Flat splits of the tile — the depth-1 shape. */
+  const leaves = (ids: TerminalId[]) => ids.map((id) => ({ id, children: [] }));
+
   function rank(subIds: TerminalId[]) {
+    return rankTree(leaves(subIds));
+  }
+
+  function rankTree(panes: readonly PaneNode[]) {
     return rankDockRows(
       [PARENT],
       getMeta,
       () => false,
       classOfMeta(getMeta),
-      () => subIds,
+      () => panes,
     );
   }
 
@@ -410,7 +439,7 @@ describe("rankDockRows — split sub-entries", () => {
         return recencyAt !== null && recencyAt < 100;
       },
       classOfMeta(getMeta),
-      () => [AGENT_SPLIT],
+      () => leaves([AGENT_SPLIT]),
     );
 
     expect(staleInputs).toEqual([1_000]);
@@ -435,5 +464,76 @@ describe("rankDockRows — split sub-entries", () => {
     const sub = rank([AGENT_SPLIT])[0]?.subRows[0];
     expect(sub?.kind).toBe("agent");
     expect(sub).toMatchObject({ pip: "working" });
+  });
+
+  // The regression this describe block exists for: a split of a split is a real
+  // parent→child edge and is NOT a top-level tile, so a ranker that stopped at
+  // one hop left it with no dock row anywhere — invisible and unreachable, even
+  // though the canvas painted it as a tab (#2059).
+  describe("nested splits", () => {
+    const GRANDCHILD = "split-grandchild" as TerminalId;
+
+    it("gives a split of a split its own entry, one level deeper", () => {
+      metas[GRANDCHILD] = makeMeta({ lastActivityAt: 30 });
+      const rows = rankTree([
+        { id: PLAIN_SPLIT, children: [{ id: GRANDCHILD, children: [] }] },
+      ]);
+      expect(rows[0]?.subRows.map((row) => [row.id, row.depth])).toEqual([
+        [PLAIN_SPLIT, 1],
+        [GRANDCHILD, 2],
+      ]);
+    });
+
+    it("keeps each split next to its own children when siblings re-sort", () => {
+      // The blocked grandchild floats its own sibling group, but it must stay
+      // UNDER its parent — depth-first, not a global urgency sort that would
+      // strand it beneath an unrelated row.
+      const blocked = "split-blocked" as TerminalId;
+      metas[blocked] = makeMeta({
+        agent: makeAgent("awaiting_user"),
+        lastActivityAt: 5,
+      });
+      const rows = rankTree([
+        { id: PLAIN_SPLIT, children: [{ id: blocked, children: [] }] },
+        { id: AGENT_SPLIT, children: [] },
+      ]);
+      expect(rows[0]?.subRows.map((row) => row.id)).toEqual([
+        AGENT_SPLIT, // working outranks the idle shell among siblings…
+        PLAIN_SPLIT,
+        blocked, // …and the blocked grandchild still rides under its parent.
+      ]);
+    });
+
+    it("uses a GRANDCHILD's activity for the tile's window fate", () => {
+      // A split shares its parent's window fate at any depth: a busy grandchild
+      // must keep the whole tile — and therefore its own landing — in the dock.
+      metas[GRANDCHILD] = makeMeta({ lastActivityAt: 9_000 });
+      const staleInputs: Array<number | null> = [];
+      const rows = rankDockRows(
+        [PARENT],
+        getMeta,
+        (recencyAt) => {
+          staleInputs.push(recencyAt);
+          return recencyAt !== null && recencyAt < 1_000;
+        },
+        classOfMeta(getMeta),
+        () => [
+          { id: PLAIN_SPLIT, children: [{ id: GRANDCHILD, children: [] }] },
+        ],
+      );
+      expect(staleInputs).toEqual([9_000]);
+      expect(rows[0]?.bucket).not.toBe("parked");
+    });
+
+    it("drops a whole subtree while the middle split's metadata is pending", () => {
+      // An entry indented under a row that isn't there reads as a lie; the
+      // reactive recomputation brings both back together.
+      const missing = "split-missing" as TerminalId;
+      metas[GRANDCHILD] = makeMeta({ lastActivityAt: 30 });
+      const rows = rankTree([
+        { id: missing, children: [{ id: GRANDCHILD, children: [] }] },
+      ]);
+      expect(rows[0]?.subRows).toEqual([]);
+    });
   });
 });

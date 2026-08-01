@@ -69,7 +69,9 @@ export function useActionContext(): ActionContext {
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(
         parentId,
-        store.getSubTerminalIds(parentId),
+        // Flat tab strip — Cmd-cycle walks every descendant of the tile, not
+        // just one-hop children (matches the canvas split tabs).
+        store.getSplitPaneIds(parentId),
         direction,
       ),
     handleShuffleTheme,

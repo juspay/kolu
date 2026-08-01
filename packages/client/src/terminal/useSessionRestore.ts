@@ -15,6 +15,7 @@ import {
 import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
+import { containingTileOf, descendantsByRoot } from "./terminalTree";
 
 /** A terminal paired with its (already-arrived) metadata. The hydration
  *  effect builds these by gating on the composed record having arrived on padi's
@@ -123,16 +124,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (m.rightPanel) rightPanel.seedPanel(t.id, m.rightPanel);
     }
 
-    // Initialize sub-panel active tabs for parents with sub-terminals
-    const subs = Object.groupBy(
-      entries.filter(({ m }) => m.parentId),
-      ({ m }) => m.parentId as string,
+    // Parent edge over the hydration census — shared by tab seeding, topIds,
+    // and deep-link intent (canvas chrome keys on the root, not one-hop).
+    const byId = new Map(entries.map((e) => [e.t.id, e]));
+    const parentEdge = (id: TerminalId) => {
+      const e = byId.get(id);
+      if (!e) return undefined;
+      return e.m.parentId ?? null;
+    };
+
+    // Initialize sub-panel active tabs on ROOT tiles — flat descendants, not
+    // true one-hop (a remembered grandchild is a valid tab of R, not only of M).
+    // The SAME grouping the live store's pane index uses, from the module that
+    // owns it: hydration must seed exactly the tabs the canvas will then paint.
+    const byRoot = descendantsByRoot(
+      entries.map(({ t }) => t.id),
+      parentEdge,
     );
-    for (const [parentId, group] of Object.entries(subs)) {
-      const subIds = group?.map(({ t }) => t.id) ?? [];
-      const activeSubTab = subPanel.peekSubPanel(parentId).activeSubTab;
+    for (const [rootId, subIds] of byRoot) {
+      const activeSubTab = subPanel.peekSubPanel(rootId).activeSubTab;
       if (!activeSubTab || !subIds.includes(activeSubTab)) {
-        subPanel.setActiveSubTab(parentId, subIds[0] ?? null);
+        subPanel.setActiveSubTab(rootId, subIds[0] ?? null);
       }
     }
 
@@ -141,17 +153,20 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // #554), so on refresh the server snapshot is the only source of truth
     // for "which terminal was active". `entries` arrives in the server's
     // Map insertion order, which is the canonical ordering.
-    const topIds = entries.filter(({ m }) => !m.parentId).map(({ t }) => t.id);
+    // Top-level = root of own chain (includes cycle/orphan via containingTileOf).
+    const topIds = entries
+      .filter(({ t }) => containingTileOf(t.id, parentEdge) === t.id)
+      .map(({ t }) => t.id);
     // A deep link opened on this cold boot names the terminal to focus. Honor it
     // over the server's last-active — resolved to its OWNING tile for a split —
     // so a bookmark wins the `activeId` write here instead of racing the
     // deep-link router's settle effect for it. Only when the target is a member
     // of THIS host's list (else a stale cross-host intent is ignored).
     const intent = deepLinkFocusIntent();
+    // Owning tile for a nested target is the root of its parent chain, not the
+    // true one-hop parent (middle ∉ topIds would drop the bookmark).
     const intentTile =
-      intent !== null
-        ? (entries.find((e) => e.t.id === intent)?.m.parentId ?? intent)
-        : null;
+      intent !== null ? containingTileOf(intent, parentEdge) : null;
     const picked =
       intentTile && topIds.includes(intentTile as TerminalId)
         ? (intentTile as TerminalId)

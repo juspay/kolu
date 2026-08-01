@@ -8,7 +8,7 @@
  *  blocked-first (`compareRows`, layered on THIS module's priority table) after
  *  clustering them by branch, so the recency-first order `rankDockRows` returns
  *  is a baseline the tree refines — not the sequence on screen. Sub-entries
- *  (`rankSubRows`) keep this module's order all the way to the pixel.
+ *  (`rankSubTree`) keep this module's order all the way to the pixel.
  *
  *  Desktop `Dock.tsx`, the touch `DockList.tsx`, and the `Cmd+1..9`
  *  keyboard shortcut all read the same rows, through the same tree, so the
@@ -45,6 +45,7 @@ import {
   URGENCY_RANK,
 } from "kolu-common/surface";
 import { match, P } from "ts-pattern";
+import type { PaneNode } from "../../terminal/terminalTree";
 
 /** Per-row render variant. Declared as an EXTENSION of the shared
  *  `AgentPaintClass` (awaiting | linger | working | none) plus the dock's own triage tail,
@@ -126,14 +127,23 @@ function classifyDockRow(
   // a given state identically to every `agentProjection` consumer (pinned by the
   // parity test). `awaiting_user` → need, the working states → work, and
   // everything else — a `waiting` post-turn agent, an unknown state, or no
-  // agent at all — → idle. A never-touched plain shell (`lastActivityAt === 0`,
-  // no agent) keeps its quieter `none` bucket below idle.
-  switch (agentUrgency(activeArm(meta)?.agent)) {
+  // agent at all — → idle. A never-touched plain shell (no agent, no recency)
+  // keeps its quieter `none` bucket below idle.
+  const agent = activeArm(meta)?.agent;
+  switch (agentUrgency(agent)) {
     case "need":
       return "awaiting";
     case "work":
       return "working";
     case "idle":
+      // `none` means a never-touched PLAIN SHELL, so the agent test is part of
+      // the rule — not just the recency clock. A terminal that HAS an agent is
+      // never that, whatever its clock says, and the two facts arrive on
+      // separate padi writes: the composed record carries a fresh agent before
+      // `lastActivityAt` is stamped. Reading recency alone put that frame's row
+      // in `none`, a bucket `rankSubRow` asserts an agent split cannot reach —
+      // and the throw escapes the dock's memo, taking the whole Dock down.
+      if (agent) return "idle";
       return meta.lastActivityAt !== null ? "idle" : "none";
   }
 }
@@ -214,7 +224,15 @@ type DockRowCore = {
   ts: number | null;
 };
 
-/** A split's entry — it cannot itself carry splits because splits do not nest.
+/** A split's entry. Splits DO nest — a split of a split is a real parent→child
+ * edge — so the entry carries its `depth` instead of its own `subRows`: the
+ * whole subtree arrives as ONE depth-first sequence on the tile's row (see
+ * `rankSubTree`), because the dock paints sub-entries as flat siblings of their
+ * section and reads nesting off the indent. A nested `subRows` would have made
+ * every consumer (rail entries, section attention, blocked-first) re-walk a
+ * tree to answer "which splits are in this tile", and the ones that forgot
+ * would silently miss depth ≥ 2 — which is exactly how the grandchild
+ * disappeared from the Dock after the canvas flattened (#2059).
  * The type is deliberately private: consumers receive it only through its
  * parent's `subRows`, keeping the hierarchy as one validated product.
  * `pip` lives on the core (same as a top-level row): every sub-row surface
@@ -225,6 +243,10 @@ type DockRowCore = {
  * window fate, so the never-park invariant is structural on order AND paint. */
 type SubDockRowCore = Omit<DockRowCore, "bucket" | "pip"> & {
   pip: SubDockPaintBucket;
+  /** Hops from the tile's top-level row: 1 for a direct split, 2 for a split
+   *  of that split, and so on. The row's indent — the only place the true tree
+   *  is visible, since the DOM keeps every sub-entry a flat sibling. */
+  depth: number;
 };
 
 type ShellSubDockOrderBucket = Extract<
@@ -246,9 +268,11 @@ type SubDockRow =
     });
 
 export type RankedDockRow = DockRowCore & {
-  /** Every split inside this terminal, as an indented dock sub-entry. Every
-   *  sub-entry carries the same paint pip fact a top-level row does — identity
-   *  glyph, motion, unread — so shell and agent sub-rows cannot drift. */
+  /** Every split inside this tile — at ANY depth — as an indented dock
+   *  sub-entry, in depth-first order (each split immediately followed by its
+   *  own splits). Every sub-entry carries the same paint pip fact a top-level
+   *  row does — identity glyph, motion, unread — so shell and agent sub-rows
+   *  cannot drift. */
   subRows: readonly SubDockRow[];
 };
 
@@ -288,26 +312,30 @@ export function tsRank(ts: number | null): number {
  *  key is bucket priority so never-touched plain shells don't outrank an idle
  *  terminal with the same `ts === null`. `isStale` is a pure-temporal predicate
  *  over the newest recency in the whole tile: the parent's `rowRecencyAt` or
- *  any split's. A split shares its parent's window fate, so its activity must
- *  keep that parent — and therefore every split landing — visible. Identity
+ *  any DESCENDANT split's. A split shares its parent's window fate, so its
+ *  activity must keep that parent — and therefore every split landing —
+ *  visible, at any depth. Identity
  *  for stale-but-still-awaiting agents lives at the render layer
  *  (`QuietRowBody` paints `AgentIndicator` when `meta.agent` is set), not in the
  *  bucket decision here.
  *
- *  `getSubIds` is required: silently defaulting to no splits would erase the
- *  very rows this projection exists to surface. */
+ *  `getPaneTree` is required: silently defaulting to no splits would erase the
+ *  very rows this projection exists to surface. It is the STORE's pane index —
+ *  the same one the canvas flattens into its tab strip — so the Dock and the
+ *  canvas cover the same terminals by construction rather than by two walks
+ *  that have to be kept in step. */
 export function rankDockRows(
   ids: readonly TerminalId[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   isStale: (lastActivityAt: number | null) => boolean,
   classOf: (id: TerminalId) => AttentionClass,
-  getSubIds: (parentId: TerminalId) => readonly TerminalId[],
+  getPaneTree: (tileId: TerminalId) => readonly PaneNode[],
 ): RankedDockRow[] {
   const rows: RankedDockRow[] = [];
   for (const id of ids) {
     const meta = getMeta(id);
     if (!meta) continue;
-    const subRows = rankSubRows(getSubIds(id), getMeta, classOf);
+    const subRows = rankSubTree(getPaneTree(id), getMeta, classOf);
     let recencyAt = rowRecencyAt(meta);
     for (const sub of subRows) {
       if (tsRank(sub.ts) > tsRank(recencyAt)) recencyAt = sub.ts;
@@ -325,65 +353,89 @@ export function rankDockRows(
   return rows;
 }
 
-/** Rank every split under its parent. A sub-entry shares its parent's activity
- *  window fate, so it is never independently parked. Agent urgency orders the
- *  entries; an agentless split naturally falls into the quiet tail. */
-function rankSubRows(
-  subIds: readonly TerminalId[],
+/** Fold the tile's pane TREE into its dock sub-entries: siblings ordered
+ *  needs-you-first, each one immediately followed by its own splits, one level
+ *  deeper. A grandchild is a real parent→child edge — the Dock keeps that true
+ *  tree, where the canvas flattens the same panes into one tab strip (#2059).
+ *
+ *  The tree ARRIVES from the store (`getPaneTree`), the same index whose flat
+ *  shape the canvas paints; this module only orders and classifies it. Ranking
+ *  used to walk the raw one-hop parent edge itself and stopped at depth 1, so a
+ *  split of a split had a canvas tab and no dock row at all — a live terminal
+ *  the Dock could not reach. Consuming the shared index is what makes that
+ *  unspellable here: there is no traversal left to under-walk, and cycles /
+ *  orphans are already resolved once, identically for both surfaces. */
+function rankSubTree(
+  nodes: readonly PaneNode[],
   getMeta: (id: TerminalId) => TerminalMetadata | undefined,
   classOf: (id: TerminalId) => AttentionClass,
+  depth = 1,
 ): SubDockRow[] {
-  const rows: SubDockRow[] = [];
-  for (const id of subIds) {
-    const meta = getMeta(id);
+  const siblings: Array<{ row: SubDockRow; children: readonly PaneNode[] }> =
+    [];
+  for (const node of nodes) {
+    const row = rankSubRow(node.id, depth, getMeta, classOf);
     // IDs and projected metadata are independent reactive reads. Match the
     // top-level row contract above: reading a missing slot subscribes this memo
     // to its arrival, so omit the not-yet-paintable row for this frame; the
-    // reactive recomputation includes it.
-    if (!meta) continue;
-    const bucket = classifyDockRow(meta, false);
-    // Paint once here — the same fact DockRow / DockListRow / SubTerminalRow /
-    // RailSubChip all hand to `useStatePip`. Never synthesize per-surface.
-    const core = {
-      id,
-      ts: rowRecencyAt(meta),
-      pip: paintDockRow(meta, classOf(id), false),
-    };
-    const agent = activeArm(meta)?.agent;
-    if (!agent) {
-      rows.push(
-        match(bucket)
-          .with(P.union("idle", "none", "sleeping"), (shellBucket) => ({
-            ...core,
-            kind: "shell" as const,
-            bucket: shellBucket,
-          }))
-          .with(P.union("awaiting", "working"), (invalidBucket) => {
-            throw new Error(
-              `rankDockRows: agentless split ${id} classified as ${invalidBucket}`,
-            );
-          })
-          .exhaustive(),
-      );
-      continue;
-    }
-    rows.push(
-      match(bucket)
-        .with(P.union("awaiting", "working", "idle"), (agentBucket) => ({
-          ...core,
-          kind: "agent" as const,
-          bucket: agentBucket,
-        }))
-        .with(P.union("none", "sleeping"), (invalidBucket) => {
-          throw new Error(
-            `rankDockRows: agent split ${id} classified as ${invalidBucket}`,
-          );
-        })
-        .exhaustive(),
-    );
+    // reactive recomputation includes it. Its own splits wait with it — an
+    // entry indented under a row that isn't there reads as a lie.
+    if (row) siblings.push({ row, children: node.children });
   }
-  rows.sort(byBucketThenRecency);
-  return rows;
+  siblings.sort((a, b) => byBucketThenRecency(a.row, b.row));
+  return siblings.flatMap(({ row, children }) => [
+    row,
+    ...rankSubTree(children, getMeta, classOf, depth + 1),
+  ]);
+}
+
+/** One split's entry. A sub-entry shares its parent's activity window fate, so
+ *  it is never independently parked. Agent urgency buckets the entry; an
+ *  agentless split naturally falls into the quiet tail. */
+function rankSubRow(
+  id: TerminalId,
+  depth: number,
+  getMeta: (id: TerminalId) => TerminalMetadata | undefined,
+  classOf: (id: TerminalId) => AttentionClass,
+): SubDockRow | undefined {
+  const meta = getMeta(id);
+  if (!meta) return undefined;
+  const bucket = classifyDockRow(meta, false);
+  // Paint once here — the same fact DockRow / DockListRow / SubTerminalRow /
+  // RailSubChip all hand to `useStatePip`. Never synthesize per-surface.
+  const core = {
+    id,
+    depth,
+    ts: rowRecencyAt(meta),
+    pip: paintDockRow(meta, classOf(id), false),
+  };
+  const agent = activeArm(meta)?.agent;
+  if (!agent) {
+    return match(bucket)
+      .with(P.union("idle", "none", "sleeping"), (shellBucket) => ({
+        ...core,
+        kind: "shell" as const,
+        bucket: shellBucket,
+      }))
+      .with(P.union("awaiting", "working"), (invalidBucket) => {
+        throw new Error(
+          `rankDockRows: agentless split ${id} classified as ${invalidBucket}`,
+        );
+      })
+      .exhaustive();
+  }
+  return match(bucket)
+    .with(P.union("awaiting", "working", "idle"), (agentBucket) => ({
+      ...core,
+      kind: "agent" as const,
+      bucket: agentBucket,
+    }))
+    .with(P.union("none", "sleeping"), (invalidBucket) => {
+      throw new Error(
+        `rankDockRows: agent split ${id} classified as ${invalidBucket}`,
+      );
+    })
+    .exhaustive();
 }
 
 function byRecencyThenBucket(

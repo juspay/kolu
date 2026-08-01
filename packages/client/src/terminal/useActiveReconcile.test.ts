@@ -38,16 +38,17 @@ describe("pickAutoSwitchTarget", () => {
   });
 });
 
-/** Spy ports for `evictTerminal`. `getSubTerminalIds` / `activeId` /
- *  `activeSubTab` are supplied per-test; the mutating seams are spies. */
+/** Spy ports for `evictTerminal`. `activeId` / `focusedTerminalId` /
+ *  `activeSubTab` are supplied per-test; the mutating seams are spies. The
+ *  census is NOT a port — it always arrives as the required `RemovalGraph`. */
 function makePorts(over: {
-  getSubTerminalIds?: (parentId: TerminalId) => readonly TerminalId[];
   activeId?: () => TerminalId | null;
   focusedTerminalId?: () => TerminalId | null;
   activeSubTab?: (parentId: TerminalId) => TerminalId | null;
 }) {
   const calls = {
     promoteToTopLevel: vi.fn<(id: TerminalId) => void>(),
+    rehomeUnder: vi.fn<(id: TerminalId, parent: TerminalId) => void>(),
     activate: vi.fn<(id: TerminalId | null) => void>(),
     dropFromMru: vi.fn<(id: TerminalId) => void>(),
     collapse: vi.fn<(id: TerminalId) => void>(),
@@ -62,12 +63,12 @@ function makePorts(over: {
     removeSearch: vi.fn<(id: TerminalId) => void>(),
   };
   const ports: TerminalEvictionPorts = {
-    getSubTerminalIds: over.getSubTerminalIds ?? (() => []),
     activeId: over.activeId ?? (() => null),
     focusedTerminalId: over.focusedTerminalId ?? (() => null),
     activate: calls.activate,
     dropFromMru: calls.dropFromMru,
     promoteToTopLevel: calls.promoteToTopLevel,
+    rehomeUnder: calls.rehomeUnder,
     subPanel: {
       collapse: calls.collapse,
       collapseChrome: calls.collapseChrome,
@@ -83,13 +84,33 @@ function makePorts(over: {
   return { ports, calls };
 }
 
+/** Intact parent graph for unit tests — the production list path builds the
+ *  same shape from its pre-removal snapshot. */
+function graph(
+  parents: Record<string, string | null>,
+): import("./useActiveReconcile").RemovalGraph {
+  const ids = Object.keys(parents) as TerminalId[];
+  return {
+    ids,
+    parentOf: (id) => {
+      if (!(id in parents)) return undefined;
+      const p = parents[id as string];
+      return p === null ? null : (p as TerminalId);
+    },
+  };
+}
+
 describe("evictTerminal — top-level branch", () => {
   it("promotes subs, sheds chrome, and auto-switches when active", () => {
-    const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S1"), T("S2")] : []),
-      activeId: () => T("P"),
-    });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    const { ports, calls } = makePorts({ activeId: () => T("P") });
+    evictTerminal(
+      ports,
+      T("P"),
+      null,
+      [T("P"), T("Q")],
+      new Set([T("P")]),
+      graph({ P: null, Q: null, S1: "P", S2: "P" }),
+    );
 
     expect(calls.promoteToTopLevel.mock.calls).toEqual([[T("S1")], [T("S2")]]);
     expect(calls.removeSub).toHaveBeenCalledWith(T("P"));
@@ -102,7 +123,14 @@ describe("evictTerminal — top-level branch", () => {
 
   it("does not auto-switch when the removed tile was not active", () => {
     const { ports, calls } = makePorts({ activeId: () => T("Q") });
-    evictTerminal(ports, T("P"), null, [T("P"), T("Q")], new Set([T("P")]));
+    evictTerminal(
+      ports,
+      T("P"),
+      null,
+      [T("P"), T("Q")],
+      new Set([T("P")]),
+      graph({ P: null, Q: null }),
+    );
     expect(calls.activate).not.toHaveBeenCalled();
   });
 
@@ -116,6 +144,7 @@ describe("evictTerminal — top-level branch", () => {
       null,
       [T("A"), T("B"), T("C")],
       new Set([T("A"), T("B"), T("C")]),
+      graph({ A: null, B: null, C: null }),
     );
     expect(calls.activate).toHaveBeenCalledWith(null);
   });
@@ -130,6 +159,7 @@ describe("evictTerminal — top-level branch", () => {
       null,
       [T("A"), T("B"), T("C"), T("D")],
       new Set([T("A"), T("B")]),
+      graph({ A: null, B: null, C: null, D: null }),
     );
     expect(calls.activate).toHaveBeenCalledWith(T("C"));
   });
@@ -138,10 +168,16 @@ describe("evictTerminal — top-level branch", () => {
 describe("evictTerminal — sub-terminal branch", () => {
   it("collapses, clears the tab, and focuses the parent when the focused last sub departs", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [], // no siblings remain
       focusedTerminalId: () => T("S"),
     });
-    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
+    evictTerminal(
+      ports,
+      T("S"),
+      T("P"),
+      [],
+      new Set([T("S")]),
+      graph({ P: null, S: "P" }),
+    );
     expect(calls.collapse).toHaveBeenCalledWith(T("P"));
     // The active tab is cleared so it can't dangle at the departed sub — the
     // invariant "activeSubTab is null or a live sub" that lets adopt/restore
@@ -153,11 +189,17 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("keeps a background tile's focus untouched when its last sub departs", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: () => [],
       focusedTerminalId: () => T("OTHER"),
     });
 
-    evictTerminal(ports, T("S"), T("P"), [], new Set([T("S")]));
+    evictTerminal(
+      ports,
+      T("S"),
+      T("P"),
+      [],
+      new Set([T("S")]),
+      graph({ P: null, S: "P" }),
+    );
 
     expect(calls.collapseChrome).toHaveBeenCalledExactlyOnceWith(T("P"));
     expect(calls.collapse).not.toHaveBeenCalled();
@@ -167,11 +209,17 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("switches the active sub-tab to a sibling and refocuses", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []), // S1 already gone
       activeSubTab: () => T("S1"),
       focusedTerminalId: () => T("S1"),
     });
-    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
+    evictTerminal(
+      ports,
+      T("S1"),
+      T("P"),
+      [],
+      new Set([T("S1")]),
+      graph({ P: null, S1: "P", S2: "P" }),
+    );
     expect(calls.selectSubTab).toHaveBeenCalledWith(T("P"), T("S2"));
     expect(calls.requestRefocus).toHaveBeenCalledWith(T("P"));
     expect(calls.collapse).not.toHaveBeenCalled();
@@ -179,11 +227,17 @@ describe("evictTerminal — sub-terminal branch", () => {
 
   it("keeps main-pane focus while repairing a departed active sub tab", () => {
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (p) => (p === T("P") ? [T("S2")] : []),
       activeSubTab: () => T("S1"),
       focusedTerminalId: () => T("P"),
     });
-    evictTerminal(ports, T("S1"), T("P"), [], new Set([T("S1")]));
+    evictTerminal(
+      ports,
+      T("S1"),
+      T("P"),
+      [],
+      new Set([T("S1")]),
+      graph({ P: null, S1: "P", S2: "P" }),
+    );
     expect(calls.setActiveSubTab).toHaveBeenCalledExactlyOnceWith(
       T("P"),
       T("S2"),
@@ -191,29 +245,94 @@ describe("evictTerminal — sub-terminal branch", () => {
     expect(calls.selectSubTab).not.toHaveBeenCalled();
     expect(calls.requestRefocus).toHaveBeenCalledExactlyOnceWith(T("P"));
   });
+
+  it("re-homes a middle terminal's children to the root (does not kill them)", () => {
+    // R ← M ← G; close M. G must become a child of R, chrome repaired on R.
+    const { ports, calls } = makePorts({
+      activeSubTab: () => T("M"),
+      focusedTerminalId: () => T("M"),
+    });
+    // Pre-removal graph (list-driven snapshot still has M←G after M left live keys).
+    evictTerminal(
+      ports,
+      T("M"),
+      T("R"),
+      [T("R")],
+      new Set([T("M")]),
+      graph({ R: null, M: "R", G: "M" }),
+    );
+    expect(calls.rehomeUnder).toHaveBeenCalledExactlyOnceWith(T("G"), T("R"));
+    // Flat remaining under R after M leaves: G (and the departed M filtered out).
+    expect(calls.selectSubTab).toHaveBeenCalledWith(T("R"), T("G"));
+    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
+
+  it("promotes grandchildren when the whole ancestor chain departs in one frame", () => {
+    // R and M leave together; G survives → promote G, no chrome under dead R.
+    const { ports, calls } = makePorts({
+      focusedTerminalId: () => T("M"),
+    });
+    evictTerminal(
+      ports,
+      T("M"),
+      T("R"),
+      [T("R")],
+      new Set([T("R"), T("M")]),
+      graph({ R: null, M: "R", G: "M" }),
+    );
+    expect(calls.promoteToTopLevel).toHaveBeenCalledExactlyOnceWith(T("G"));
+    expect(calls.rehomeUnder).not.toHaveBeenCalled();
+    expect(calls.collapse).not.toHaveBeenCalled();
+    expect(calls.selectSubTab).not.toHaveBeenCalled();
+  });
+
+  it("re-homes under the root even when a middle parent survives", () => {
+    // R ← P ← M ← G; only M closes. G rehomes to R (not P); chrome on R.
+    const { ports, calls } = makePorts({
+      activeSubTab: () => T("M"),
+      focusedTerminalId: () => T("M"),
+    });
+    evictTerminal(
+      ports,
+      T("M"),
+      T("P"),
+      [T("R")],
+      new Set([T("M")]),
+      graph({ R: null, P: "R", M: "P", G: "M" }),
+    );
+    expect(calls.rehomeUnder).toHaveBeenCalledExactlyOnceWith(T("G"), T("R"));
+    // Active tab was M; replacement is first remaining flat pane under R (P or G).
+    expect(calls.selectSubTab).toHaveBeenCalledWith(
+      T("R"),
+      expect.stringMatching(/^(P|G)$/),
+    );
+    expect(calls.promoteToTopLevel).not.toHaveBeenCalled();
+  });
 });
+
+const emptyGraph = graph({ P: null });
 
 describe("createEvictionDedup", () => {
   it("skips a departed id already evicted by the imperative path (no double)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], true); // kill: claim + evict
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // the later list-drop
+    d.evictImperatively(T("P"), null, [T("P")], true, emptyGraph); // kill: claim + evict
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]), emptyGraph); // the later list-drop
     expect(runEvict).toHaveBeenCalledTimes(1); // NOT twice
   });
 
   it("runs the cleanup for an UNCLAIMED departure (natural exit)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]));
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]), emptyGraph);
     expect(runEvict).toHaveBeenCalledTimes(1);
   });
 
   it("does not claim when no list-drop will follow (willDrop=false)", () => {
     const runEvict = vi.fn();
     const d = createEvictionDedup(runEvict);
-    d.evictImperatively(T("P"), null, [T("P")], false); // already-gone kill
-    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")])); // an unrelated later departure
+    d.evictImperatively(T("P"), null, [T("P")], false, emptyGraph); // already-gone kill
+    d.evictDeparted(T("P"), null, [T("P")], new Set([T("P")]), emptyGraph); // an unrelated later departure
     expect(runEvict).toHaveBeenCalledTimes(2); // not skipped → no stale claim leak
   });
 });
@@ -246,9 +365,12 @@ function setupReconcile(init: {
     setParents: (v: Record<string, TerminalId | null>) => void;
     setConnected: (v: boolean) => void;
     setHost: (v: string) => void;
-    evictImperatively: ReturnType<
-      typeof createEvictionDedup
-    >["evictImperatively"];
+    evictImperatively: (
+      id: TerminalId,
+      parentId: TerminalId | null,
+      topLevelBefore: readonly TerminalId[],
+      willDrop: boolean,
+    ) => void;
     calls: ReturnType<typeof makePorts>["calls"];
     dispose: () => void;
   };
@@ -257,9 +379,8 @@ function setupReconcile(init: {
     const [parents, setParents] = createSignal(init.parents);
     const [connected, setConnected] = createSignal(init.connected ?? true);
     const [host, setHost] = createSignal(init.host ?? "local");
+    const parentOf = (id: TerminalId) => parents()[id] ?? null;
     const { ports, calls } = makePorts({
-      getSubTerminalIds: (pid) =>
-        rawIds().filter((id) => (parents()[id] ?? null) === pid),
       activeId: () => state.active,
       focusedTerminalId: () => state.focused,
       activeSubTab: (pid) => state.activeSubTab[pid] ?? null,
@@ -268,8 +389,8 @@ function setupReconcile(init: {
       state.active = id;
     });
     const eviction = createEvictionDedup(
-      (id, parentId, topLevelBefore, departing) =>
-        evictTerminal(ports, id, parentId, topLevelBefore, departing),
+      (id, parentId, topLevelBefore, departing, removal) =>
+        evictTerminal(ports, id, parentId, topLevelBefore, departing, removal),
     );
     useActiveReconcile({
       rawList: rawIds,
@@ -283,7 +404,20 @@ function setupReconcile(init: {
       setParents,
       setConnected,
       setHost,
-      evictImperatively: eviction.evictImperatively,
+      // Tests call with the 4-arg shape; wrap to supply the live parent graph.
+      evictImperatively: (
+        id: TerminalId,
+        parentId: TerminalId | null,
+        topLevelBefore: readonly TerminalId[],
+        willDrop: boolean,
+      ) => {
+        const g = graph(
+          Object.fromEntries(
+            rawIds().map((x) => [x as string, parentOf(x)]),
+          ) as Record<string, string | null>,
+        );
+        eviction.evictImperatively(id, parentId, topLevelBefore, willDrop, g);
+      },
       calls,
       dispose,
     };

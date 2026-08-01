@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   focusTerminalSilently: vi.fn(),
   getMetadata: vi.fn(),
+  containingTile: vi.fn(),
   openCodeAt: vi.fn(),
   reveal: vi.fn(),
 }));
@@ -11,6 +12,7 @@ vi.mock("../terminal/useTerminalStore", () => ({
   useTerminalStore: () => ({
     focusTerminalSilently: h.focusTerminalSilently,
     getMetadata: h.getMetadata,
+    containingTile: h.containingTile,
   }),
 }));
 
@@ -35,6 +37,7 @@ describe("openInCodeTab", () => {
       parentId: null,
       git: { repoRoot: "/repo" },
     });
+    h.containingTile.mockImplementation((id: string) => id);
   });
 
   it("focuses the issuing terminal before opening its Code-tab request", () => {
@@ -71,6 +74,9 @@ describe("openInCodeTab", () => {
             parentId: null,
             git: { repoRoot: "/owner-repo" },
           },
+    );
+    h.containingTile.mockImplementation((id: string) =>
+      id === "split-b" ? "terminal-a" : id,
     );
 
     openInCodeTab({

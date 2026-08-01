@@ -2,15 +2,16 @@
 name: remote-host-testing
 description: >-
   Test kolu's remote-host features (multi-host / padi-remote) in a real
-  browser against a real remote box — the ONLY harness that can reach this
-  surface, since the dev server can't bind a remote padi at all. Covers the
-  isolated nix-run invocation, ssh-provisioning a real remote box without
-  touching production or another user's box, the chrome-devtools drive
-  sequence for host-switch / split / code-browser / per-host-canvas, PID-exact
-  teardown, and the reproduce-first rule for any bug the feature surfaces.
-  Triggers on "test remote hosts", "test multi-host", "test padi-remote",
-  "verify the host switch", "browser-test a remote host change", or before
-  claiming a remote-host fix works.
+  browser against a real remote box — the ONLY full end-to-end harness for
+  this surface (real ssh provision, no mock). Covers the isolated nix-run
+  invocation (or just dev, which bakes the same agent source), ssh-
+  provisioning a real remote box without touching production or another
+  user's box, the chrome-devtools drive sequence for host-switch / split /
+  code-browser / per-host-canvas, PID-exact teardown, and the reproduce-
+  first rule for any bug the feature surfaces. Triggers on "test remote
+  hosts", "test multi-host", "test padi-remote", "verify the host switch",
+  "browser-test a remote host change", or before claiming a remote-host fix
+  works.
 ---
 
 # remote-host-testing — real browser, real remote box, isolated from production
@@ -40,14 +41,18 @@ never hardcoded:
 Only proceed to §1 once you have an explicit answer. Treat silence or "any
 box" as **not** an answer — a specific host must be named.
 
-## 1. Isolation invocation — nix build, never the dev server
+## 1. Isolation invocation — prefer nix-run; just dev is also agent-source-complete
 
-**The dev server cannot do remote hosts.** `just dev` / `just dev-auto` runs
-`tsx` straight from source, which never bakes `SURFACE_AGENT_FLAKE_REF` —
-binding a remote host fails loudly because the remote path has no exact source
-from which to resolve padi. Only the nix-wrapped `bin/kolu` bakes that source
-ref; the remote path probes the host's system and evaluates its padi `.drv` on
-first use. So:
+Both the packaged wrapper and `just dev` / `just dev-auto` bake
+`SURFACE_AGENT_FLAKE_REF` (the latter by sourcing `.#agent-flake-env` before
+the dev fork), so either path can resolve and provision a remote padi. Prefer
+the **nix-built binary** for this harness: it is production-shaped and pairs
+with the isolation env below. Use `just dev-auto` (see the **dev-server**
+skill) when you need HMR against a remote host — still apply the same
+state-dir / port isolation discipline. Both paths bake the **git-tracked** tree,
+so an uncommitted edit to a tracked file does reach the provisioned padi, but a
+brand-new file must be `git add`ed first, and the bake resolves once at start —
+restart the dev server to pick up an agent-tree edit.
 
 ```sh
 nix build .#default
@@ -190,8 +195,8 @@ fix against the SAME repro (steps in §3) before calling it done.
 ## Acceptance (verify before declaring this testing pass done)
 
 - §0 was answered explicitly — no hardcoded box name, no "any box" guess.
-- Launched via `nix build .#default` + `result/bin/kolu`, never `just dev`/
-  `dev-auto`, for any remote-host exercise.
+- Launched via `nix build .#default` + `result/bin/kolu` (preferred) or
+  `just dev-auto` with the same isolation env — both bake the agent source.
 - `KOLU_STATE_DIR` was an explicit `mktemp -d` (never unset, never `$HOME`
   overridden).
 - Every browser-drive leg in §3 was instrumented (baseline reset → act →

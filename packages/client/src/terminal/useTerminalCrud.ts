@@ -54,18 +54,20 @@ export const useTerminalCrud = createSharedRoot(() => {
   // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
   // Wired once here; the imperative close path and the list-driven reconcile
   // both drive `evictTerminal` through these ports, so they can't diverge.
+  const setParent = (subId: TerminalId, parentId: TerminalId | null) =>
+    void activePadiRpc.chrome
+      .setParent({ id: subId, parentId })
+      .catch((err: Error) =>
+        toast.error(`Failed to set parent: ${err.message}`),
+      );
+
   const evictionPorts: TerminalEvictionPorts = {
-    getSubTerminalIds: store.getSubTerminalIds,
     activeId: store.activeId,
     focusedTerminalId: store.focusedTerminalId,
     activate: store.activate,
     dropFromMru: (id) => store.forgetFromMru(id),
-    promoteToTopLevel: (subId) =>
-      void activePadiRpc.chrome
-        .setParent({ id: subId, parentId: null })
-        .catch((err: Error) =>
-          toast.error(`Failed to set parent: ${err.message}`),
-        ),
+    promoteToTopLevel: (subId) => setParent(subId, null),
+    rehomeUnder: (subId, newParentId) => setParent(subId, newParentId),
     subPanel: {
       collapse: subPanel.collapsePanel,
       collapseChrome: subPanel.collapsePanelChrome,
@@ -79,9 +81,30 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeSearch: terminalSearch.removeTerminal,
   };
 
+  /** Intact parent graph at the moment of eviction — live for the imperative
+   *  path (metadata still present), snapshot for the list-driven path. */
+  function liveRemovalGraph() {
+    const ids = store.listSub()?.map((t) => t.id) ?? [];
+    return {
+      ids,
+      parentOf: (x: TerminalId) => {
+        const m = store.getMetadata(x);
+        if (m === undefined) return undefined;
+        return m.parentId ?? null;
+      },
+    };
+  }
+
   const eviction = createEvictionDedup(
-    (id, parentId, topLevelBefore, departing) =>
-      evictTerminal(evictionPorts, id, parentId, topLevelBefore, departing),
+    (id, parentId, topLevelBefore, departing, removal) =>
+      evictTerminal(
+        evictionPorts,
+        id,
+        parentId,
+        topLevelBefore,
+        departing,
+        removal,
+      ),
   );
 
   /** Remove a terminal and auto-switch if it was active — the IMPERATIVE close
@@ -95,6 +118,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       store.getMetadata(id)?.parentId ?? null,
       store.terminalIds(),
       store.getMetadata(id) !== undefined,
+      liveRemovalGraph(),
     );
   }
 
@@ -211,7 +235,8 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  visibility. Moved out of App.tsx — it complected store + crud + sub-panel,
    *  all of which crud already orchestrates. */
   function toggleSubPanel(parentId: TerminalId) {
-    if (store.getSubTerminalIds(parentId).length === 0) {
+    // Flat pane set — a nested descendant already counts as "has splits".
+    if (store.getSplitPaneIds(parentId).length === 0) {
       void handleCreateSubTerminal(
         parentId,
         store.activeMeta()?.cwd ?? undefined,
@@ -230,9 +255,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     removeAndAutoSwitch(id);
   }
 
-  /** Kill a terminal and all its sub-terminals (instead of promoting them). */
+  /** Kill a terminal and all its flat descendants (instead of promoting them). */
   async function handleKillWithSubs(id: TerminalId) {
-    const subs = store.getSubTerminalIds(id);
+    const subs = store.getSplitPaneIds(id);
     for (const subId of subs) await handleKill(subId);
     await handleKill(id);
   }
@@ -244,7 +269,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  non-negotiable). No splits → sleep straight away. */
   function requestSleep(id: TerminalId) {
     showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
-    const subs = store.getSubTerminalIds(id).length;
+    const subs = store.getSplitPaneIds(id).length;
     if (subs > 0) {
       toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
         duration: Number.POSITIVE_INFINITY,
@@ -264,7 +289,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
    *  Wake call-to-action. Reached through `requestSleep` (which confirms splits). */
   async function handleSleep(id: TerminalId) {
-    const subs = store.getSubTerminalIds(id);
+    const subs = store.getSplitPaneIds(id);
     for (const subId of subs) await handleKill(subId);
     try {
       await activePadiRpc.lifecycle.sleep({ id });

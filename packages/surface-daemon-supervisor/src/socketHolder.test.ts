@@ -4,7 +4,8 @@
  * These pins (gated, real child, real socket) prove the injected reader sits
  * on the binary the composition roots resolve — that osfacts, the fold in
  * `osfacts-client`, and the pid the OS actually reports agree. The fold's own
- * unit pins live beside it, in `osfacts/client-ts/src/client.test.ts`: a suite
+ * unit pins live beside it, upstream in `client-ts/src/client.test.ts`
+ * (juspay/osfacts, which runs them): a suite
  * that only exercised hand-written documents would prove the parse and nothing
  * about the path that runs, which is what this file is for.
  */

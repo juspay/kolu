@@ -88,14 +88,19 @@ export const useTerminalStore = createSharedRoot(() => {
    *  that still drives zoom and `data-focused`. */
   function holdsWebgl(id: TerminalId): boolean {
     const budget = webglTileBudget();
-    const parentId = metadata.getMetadata(id)?.parentId ?? null;
-    if (parentId === null) return budget.includes(id);
-    const panel = subPanel.peekSubPanel(parentId);
+    const meta = metadata.getMetadata(id);
+    if (!meta) return false;
+    // Chrome (sub-panel state, WebGL budget) is keyed on the containing TILE —
+    // a nested grandchild rides its tile's slot, not its true parent's. A tile
+    // (root, cycle member, or orphan) owns its own slot outright.
+    const tile = metadata.containingTile(id);
+    if (tile === id) return budget.includes(id);
+    const panel = subPanel.peekSubPanel(tile);
     // A budgeted tile's slot covers exactly its active split (a collapsed split
     // is invisible and holds no context). `isActiveSplit` is the same predicate
     // `tileWebglCost` builds the budget from, so this per-terminal grant and the
     // budgeted count can't drift apart.
-    return budget.includes(parentId) && isActiveSplit(panel, id);
+    return budget.includes(tile) && isActiveSplit(panel, id);
   }
 
   // Bundle the active terminal id with ITS OWN metadata so a consumer gets a
@@ -126,16 +131,24 @@ export const useTerminalStore = createSharedRoot(() => {
   /** Select a top-level tile without panning. Its existing panel chrome decides
    *  which visible pane receives input, then that choice is committed to the
    *  same one per-host focus fact. */
+  /** True when `id` is a canvas tile (top-level): no parent, or no resolvable
+   *  root (cycle/orphan — painted top-level by `terminalIds`). Genuine nested
+   *  descendants are rejected. */
+  function isCanvasTile(id: TerminalId): boolean {
+    const record = metadata.getMetadata(id);
+    if (!record) return true; // metadata not yet arrived — creation gap
+    return metadata.containingTile(id) === id;
+  }
+
   function setActiveSilently(id: TerminalId | null): void {
     if (id === null) {
       subPanel.clearFocus();
       return;
     }
-    const record = metadata.getMetadata(id);
     // Creation returns the new top-level id before its streamed metadata can
     // arrive. The caller already names a tile; write its id as the gap hint and
     // let live metadata supersede that hint as soon as it is present.
-    if (record && record.parentId !== null && record.parentId !== undefined) {
+    if (!isCanvasTile(id)) {
       throw new Error(
         `setActiveSilently: ${id} is a split; use focusTerminal instead`,
       );
@@ -153,8 +166,7 @@ export const useTerminalStore = createSharedRoot(() => {
    *  The tile registry can name a newly-created tile before metadata arrives, so
    *  absence is accepted; a live split record is a caller error. */
   function focusMainTerminal(id: TerminalId): void {
-    const record = metadata.getMetadata(id);
-    if (record && record.parentId !== null && record.parentId !== undefined) {
+    if (!isCanvasTile(id) && metadata.getMetadata(id) !== undefined) {
       throw new Error(`focusMainTerminal: ${id} is a split`);
     }
     subPanel.focusMainPane(id);
@@ -170,12 +182,17 @@ export const useTerminalStore = createSharedRoot(() => {
     const record = metadata.getMetadata(id);
     if (!record)
       throw new Error(`focusTerminalSilently: no terminal metadata for ${id}`);
-    const parentId = record.parentId ?? null;
-    if (parentId === null) {
+    // Sub-panel chrome is keyed on the containing tile; a nested split must
+    // open THAT tile's tab strip, not a middle node's non-existent panel. A
+    // cycle member or orphan is its own tile (`terminalIds` paints it that
+    // way), so it lands on the main pane — falling back to its true parent
+    // used to key the tab strip on a node that owns no panel at all.
+    const tile = metadata.containingTile(id);
+    if (tile === id) {
       subPanel.focusMainPane(id);
       return;
     }
-    subPanel.focusSubTab(parentId, id);
+    subPanel.focusSubTab(tile, id);
   }
 
   /** Land on any terminal and ask the desktop canvas to center its tile. */

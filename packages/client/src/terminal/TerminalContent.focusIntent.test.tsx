@@ -87,7 +87,7 @@ vi.mock("./useTerminalStore", () => ({
   useTerminalStore: () => ({
     getMetadata: (id: TerminalId) =>
       id === SUB ? { id, parentId: MAIN } : { id, parentId: null },
-    getSubTerminalIds: () => [SUB],
+    getSplitPaneIds: () => [SUB],
     focusedTerminalId: () => MAIN,
     activeMeta: () => null,
   }),

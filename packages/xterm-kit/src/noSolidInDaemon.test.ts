@@ -82,8 +82,8 @@ function resolveSourceFile(base: string): string | null {
 }
 
 /** VALUE module specifiers `file` pulls at runtime — parsed from the real AST
- *  (`@babel/parser`, like the sibling daemon-closure walkers in
- *  `kaval`/`padi`'s `buildId.closure.test.ts`), so `import type` / `export type`
+ *  (`@babel/parser`, like the shared daemon dependency-edge walker in
+ *  `@kolu/daemon-test-gate/runtimeDepEdges`), so `import type` / `export type`
  *  are skipped by node kind (`importKind`/`exportKind`), and mixed, multi-clause,
  *  or dynamic-import forms are handled without a line-regex's fragility. A
  *  type-only reach can neither crash the daemon nor bloat its closure, so only

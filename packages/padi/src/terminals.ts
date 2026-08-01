@@ -16,6 +16,7 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { ORPCError } from "@orpc/server";
 import { getActiveTerminalId } from "./chromeReports.ts";
 import { resolveCreateTerminalTheme } from "./newTerminalPolicy.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
@@ -214,18 +215,52 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
   await releaseSleptLocalPty(id);
 }
 
+/** Refuse a parent edge that is nonsense in any tree model: self-parent, or an
+ *  edge that would close a cycle. Depth is not limited — nested splits are
+ *  allowed; the canvas flattens them for paint (#2059). These two guards alone
+ *  keep the root-ancestor walk from spinning. */
+export function requireAcyclicParent(
+  childId: TerminalId,
+  parentId: TerminalId,
+): void {
+  if (childId === parentId) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: `Terminal ${childId} cannot be its own parent`,
+    });
+  }
+  // Walk from the proposed parent toward roots; hitting the child would close
+  // a cycle. An existing cycle already on the parent side is also refused —
+  // attaching anything under it would leave the graph unwalkable.
+  let cur: string | undefined = parentId;
+  const seen = new Set<string>();
+  while (cur !== undefined) {
+    if (cur === childId) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Parent ${parentId} would cycle through ${childId}`,
+      });
+    }
+    if (seen.has(cur)) {
+      throw new ORPCError("BAD_REQUEST", {
+        message: `Parent ${parentId} sits in a cycle`,
+      });
+    }
+    seen.add(cur);
+    cur = getTerminal(cur as TerminalId)?.meta.parentId;
+  }
+}
+
 /** Set or clear a terminal's parent relationship. */
 export function setTerminalParent(
   id: TerminalId,
   parentId: string | null,
 ): void {
   const entry = getTerminal(id);
-  if (entry) {
-    const newParent = parentId ?? undefined;
-    updateClientMetadata(entry, id, (m) => {
-      m.parentId = newParent;
-    });
-  }
+  if (!entry) return;
+  if (parentId !== null) requireAcyclicParent(id, parentId as TerminalId);
+  const newParent = parentId ?? undefined;
+  updateClientMetadata(entry, id, (m) => {
+    m.parentId = newParent;
+  });
 }
 
 /** Store a terminal's canvas layout position (client-reported).

@@ -39,6 +39,19 @@
       "url": "https://github.com/juspay/odu/archive/fe0e0fc21ff639974868d410ce8d9421fdfaa467.tar.gz",
       "hash": "sha256-WDDyTtCqMVTYonUITjCcE217fLGJuu13GcnRE3IyywI="
     },
+    "osfacts": {
+      "type": "Git",
+      "repository": {
+        "type": "GitHub",
+        "owner": "juspay",
+        "repo": "osfacts"
+      },
+      "branch": "main",
+      "submodules": false,
+      "revision": "0da925235be6c47bea1526b807c8d784468c3084",
+      "url": "https://github.com/juspay/osfacts/archive/0da925235be6c47bea1526b807c8d784468c3084.tar.gz",
+      "hash": "sha256-7F5fAY0Kcqk2oR7lIBCoc9rjrwNmru74sbfqq6LUHTA="
+    },
     "rhai-lsp": {
       "type": "Git",
       "repository": {

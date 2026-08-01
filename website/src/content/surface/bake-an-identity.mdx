@@ -25,6 +25,13 @@ Select the behavioural fileset deliberately — it is the slice whose change mea
 "a restart behaves differently." Everything outside it (docs, unrelated code) can
 change without flipping the build id.
 
+Prefer **deriving** the fileset over listing files by hand. In a pnpm workspace
+the daemon's loadable code is already declared: the transitive `dependencies`
+closure of its package. Kolu computes the fileset from that graph and keeps only
+a short, documented list of deliberate leaf exclusions as policy
+(`nix/workspace.nix`'s `depClosure`); a hand-kept list can silently drift from
+what the process loads, and a rebuilt daemon then ships an unchanged identity.
+
 ## 2. Read it back at runtime
 
 `readBakedIdentity(prefix)` (from `@kolu/surface-daemon`) is the one recipe both

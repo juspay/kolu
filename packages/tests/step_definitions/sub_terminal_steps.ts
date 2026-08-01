@@ -1,6 +1,7 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
+import { padiFold } from "../support/padiEnvelope.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   COARSE_POINTER_QUERY,
@@ -125,6 +126,45 @@ When(
         { cause: error },
       );
     }
+  },
+);
+
+/** Create a split of a split via the daemon RPC — the product UI only ever
+ *  parents under a top-level tile, so nested depth arrives from MCP /
+ *  `padi-tui create --parent` (the #2059 bug class). Uses the remembered
+ *  sub-terminal id as the parent. */
+When(
+  "I create a terminal parented to the remembered sub-terminal",
+  async function (this: KoluWorld) {
+    const parentId = this.rememberedSubTerminalId;
+    assert.ok(
+      parentId,
+      'no remembered sub-terminal — call "I remember the sub-terminal\'s id" first',
+    );
+    const tabsBefore = await this.page
+      .locator('[data-testid="sub-panel-tab-bar"] button:not([title])')
+      .count();
+    const resp = await this.page.request.fetch(
+      "/rpc/surface/padi/lifecycle/create",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({ json: padiFold({ parentId }) }),
+      },
+    );
+    assert.ok(
+      resp.ok(),
+      `lifecycle/create --parent failed: ${resp.status()} ${await resp.text()}`,
+    );
+    // Nested create must appear as another flat tab on the root tile's strip.
+    await this.page.waitForFunction(
+      (before) =>
+        document.querySelectorAll(
+          '[data-testid="sub-panel-tab-bar"] button:not([title])',
+        ).length > before,
+      tabsBefore,
+      { timeout: POLL_TIMEOUT },
+    );
   },
 );
 
