@@ -29,12 +29,45 @@
 # hashString-over-`fileset.toSource` recipe + the `--set` bake here are the shared
 # ELECTRICITY. (A spine change that DOES matter bumps the wire contract, which the
 # supervisor's recycle-on-skew converges as a separate, sanctioned signal.)
+#
+# Prefer DERIVING the fileset over listing it by hand: kolu computes each daemon's set from
+# its package.json `dependencies` closure minus a short, documented `stableLeaves` policy
+# list (default.nix + nix/workspace.nix's depClosure, juspay/kolu#2094) — a hand-kept file
+# list can silently drift from what the process loads (a rebuilt daemon carrying an
+# unchanged identity), and the surviving failure direction of a derived set is a harmless
+# extra flip, never a silent escape.
+# TODO(juspay/kolu#2096): that closure machinery graduates HERE (a sibling
+# workspace-closure.nix — the third piece of this same identity capability) so external
+# spine consumers (drishti/odu) derive their daemon identities the same way, including
+# across their kolu npins pin (store-path members close their pin-bump stale-daemon hole).
+#
+# ── What the staleKey deliberately does NOT cover: the runtime ENGINE ────────────────────
+# A nixpkgs bump that swaps the daemon's Node/tsx moves the DERIVATION but not this id
+# (juspay/kolu#2094's open question — answered: deliberate, with a bounded cost). The id is
+# a hash of SOURCE, byte-identical across platforms, because a client on one platform
+# compares its baked "expected" id against a daemon provisioned on another — folding
+# platform-dependent runtime store paths in would make every cross-platform comparison a
+# false mismatch. The cost is bounded staleness: an engine-only deploy is adopted, not
+# converged, until the next source change flips the key (in practice: days, and an engine
+# bump that changes observable behaviour is precisely a wire-contract/package.json event,
+# which IS keyed). A platform-independent engine marker (e.g. nodejs.version) could close
+# even that window, at the price of nudging kaval's human on every nixpkgs bump — rejected
+# while the recorded incidents all point the other way (over-firing, not under-firing).
 { lib }:
 { name        # the daemon's name (for labels/errors)
 , prefix      # its identity-env namespace: "KAVAL", "PADI", …
 , root        # the fileset.toSource root (a common ancestor of behavioralFileset)
 , behavioralFileset # WHAT counts as this daemon's behavior — ITS OWN decision (see above)
 , commitHash  # the navigable git ref this build was made from
+  # Store paths of behavioral closure members that live OUTSIDE `root` — a package
+  # grafted in from a pin rather than checked in (kolu's `osfacts-client`, from the
+  # npins `osfacts` pin). A repo-rooted fileset cannot carry them, and DROPPING them
+  # is the silent-escape failure this whole recipe exists to prevent: the derivation
+  # would move on a pin bump while the id stood still, leaving a rebuilt daemon
+  # carrying an unchanged identity (juspay/kolu#2094). A store path already changes
+  # iff its contents do, so hashing the path IS hashing the source — the same
+  # content-addressed trick `fileset.toSource` uses one line below.
+, extraKeyInputs ? [ ]
 , override ? null # TEST-ONLY: force the build id for a build-skew VM arm; real builds hash
 }:
 let
@@ -43,10 +76,14 @@ let
   # to a stable, platform-independent 64-char id. Computed PURELY in Nix (no IFD), so
   # `nix flake check` evaluates every output without realising a build mid-eval.
   src = lib.fileset.toSource { inherit root; fileset = behavioralFileset; };
+  # One line per input, so an empty `extraKeyInputs` hashes the bare `${src}` string
+  # exactly as before — adding this parameter moves no existing daemon's id.
   buildId =
     if override != null
     then override
-    else builtins.hashString "sha256" "${src}";
+    else
+      builtins.hashString "sha256"
+        (lib.concatStringsSep "\n" ([ "${src}" ] ++ extraKeyInputs));
 in
 {
   inherit buildId;
