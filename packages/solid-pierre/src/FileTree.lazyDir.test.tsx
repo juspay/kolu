@@ -194,6 +194,75 @@ describe("lazily-loaded directory rows (#2091)", () => {
     expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
   });
 
+  it("keeps the expansion intent when a projection hides the row", async () => {
+    // The host filters `paths` (the search projection) but NOT
+    // `lazyDirectories`, so a filter keystroke can remove the row while its key
+    // is still declared. A row that does not exist holds no expansion state to
+    // read — that is not the user closing the folder, so forgetting it there
+    // erased the expansion for the rest of the mount: clear the filter and the
+    // folder came back collapsed, with its children still in `paths`.
+    const { setPaths, root, onExpandLazyDirectory } = mountTree(
+      ["kept.md", "out/"],
+      ["out/"],
+    );
+    clickRow(root, "out/");
+    await flush();
+    expect(onExpandLazyDirectory).toHaveBeenCalledWith("out/");
+    // The host answers by folding one level in, replacing the collapsed key.
+    setPaths(["kept.md", "out/index.html", "out/style.css"]);
+    await flush();
+    expect(paintedRows(root)).toContain("out/index.html");
+
+    setPaths(["kept.md"]); // a filter keystroke hides the subtree
+    await flush();
+    setPaths(["kept.md", "out/index.html", "out/style.css"]); // filter cleared
+    await flush();
+
+    // Still open: the children are painted rather than hidden behind a row the
+    // user never closed. (Pierre paints only visible rows, so a collapsed
+    // `out/` would show neither child.)
+    expect(paintedRows(root)).toContain("out/index.html");
+    expect(paintedRows(root)).toContain("out/style.css");
+  });
+
+  it("reports afresh once the host stops calling a directory lazy", async () => {
+    // Toggle the gitignored overlay off and back on: `lazyDirs` empties, the
+    // children leave `paths`, and the level the host holds is now arbitrarily
+    // old. A key the host no longer declares is no longer ours to dedupe
+    // against — retiring it is what makes the next appearance refetch, rather
+    // than showing a stale level with the collapse-and-reopen refresh gesture
+    // unavailable.
+    const [lazy, setLazy] = createSignal<string[]>(["out/"]);
+    const onExpandLazyDirectory = vi.fn<(path: string) => void>();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const dispose = render(
+      () => (
+        <FileTree
+          paths={["kept.md", "out/"]}
+          lazyDirectories={lazy()}
+          onExpandLazyDirectory={onExpandLazyDirectory}
+          initialExpansion="open"
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
+    );
+    disposers.push(dispose, () => host.remove());
+    await flush();
+    expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
+
+    setLazy([]); // the overlay toggle goes off
+    await flush();
+    setLazy(["out/"]); // and back on
+    await flush();
+
+    expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
+  });
+
   it("reports a directory that only BECOMES lazy after it is open", async () => {
     // The overlay listing that names the lazy directories lands a tick after
     // the tree itself, and a load reveals nested directories that are lazy in
