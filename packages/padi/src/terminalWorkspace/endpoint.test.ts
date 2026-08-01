@@ -73,6 +73,52 @@ describe("createTerminalWorkspaceEndpoint", () => {
     expect(out.hunks.join("")).toContain("two");
   });
 
+  /** Delete-while-viewing must reach the wire as a TYPED `NOT_FOUND`, because
+   *  that is the one status `BrowseFileDispatcher` swallows (matching the old
+   *  value stream, which simply stopped yielding). Anything else is a visible
+   *  error over a file the user merely deleted.
+   *
+   *  These pin the whole chain — `kolu-git` err → `unwrapGit` → `ORPCError` —
+   *  rather than any single link, because the regression they exist for lived
+   *  precisely in the seam: `filePreviewTag` used to return `GIT_FAILED` for a
+   *  gone file and rely on the errno text surviving into the `ORPCError`
+   *  message. Once `isFileGoneError` was narrowed to treat a present `code` as
+   *  authoritative, the wrapper's own `INTERNAL_SERVER_ERROR` answered first and
+   *  the preserved message was never read. A unit test of the predicate alone
+   *  cannot see that; only the assembled chain can. */
+  describe("a gone file surfaces as NOT_FOUND, through every read", () => {
+    const orpcCode = async (fn: () => Promise<unknown>): Promise<string> => {
+      try {
+        await fn();
+      } catch (e) {
+        if (e instanceof ORPCError) return e.code;
+        throw e;
+      }
+      throw new Error("expected the read to reject");
+    };
+
+    it("fs.readFile", async () => {
+      const { fs: f } = createTerminalWorkspaceEndpoint(log);
+      expect(await orpcCode(() => f.readFile(repo, "never-existed.txt"))).toBe(
+        "NOT_FOUND",
+      );
+    });
+
+    it("fs.filePreviewTag — the binary-preview path", async () => {
+      const { fs: f } = createTerminalWorkspaceEndpoint(log);
+      expect(
+        await orpcCode(() => f.filePreviewTag(repo, "never-existed.bin")),
+      ).toBe("NOT_FOUND");
+    });
+
+    it("fs.listDirectory — a build output cleaned under an open row", async () => {
+      const { fs: f } = createTerminalWorkspaceEndpoint(log);
+      expect(await orpcCode(() => f.listDirectory(repo, "never-existed"))).toBe(
+        "NOT_FOUND",
+      );
+    });
+  });
+
   it("fail-fast: a non-repo path THROWS an ORPCError, never resolves to empty", async () => {
     const { git } = createTerminalWorkspaceEndpoint(log);
     const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-notrepo-"));

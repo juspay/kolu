@@ -414,4 +414,18 @@ describe("filePreviewTag — preview cache-buster", () => {
       fs.rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  it("tags a gone file FILE_GONE, not GIT_FAILED", async () => {
+    // Delete-while-viewing for a BINARY preview. This must be settled here,
+    // structurally, rather than by an errno string surviving onto the wire:
+    // `unwrapGit` maps `GIT_FAILED` to an `ORPCError` whose own `code` is
+    // `INTERNAL_SERVER_ERROR`, and `servePadi`'s `fileGoneAsNotFound` reads a
+    // present code as authoritative — so a `GIT_FAILED` here reached the client
+    // as a visible error instead of the swallowed `NOT_FOUND` the Code tab
+    // expects, and the open image/PDF/video lost its last preview.
+    const result = await filePreviewTag(tmpDir, "never-existed.bin");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("FILE_GONE");
+  });
 });

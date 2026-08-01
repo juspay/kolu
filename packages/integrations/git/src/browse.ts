@@ -341,9 +341,19 @@ export async function filePreviewTag(
     // `fileGoneAsNotFound` maps on — one source of truth, so they can't drift.
     if (isFileGoneError(e)) {
       log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
-    } else {
-      log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");
+      // Its OWN tag, like `readFile` and `listDirectory`. Returning `GIT_FAILED`
+      // here made the classification depend on an errno string surviving into
+      // an `ORPCError` message — and once `isFileGoneError` was narrowed to
+      // trust a present `code` alone, that stopped working: `unwrapGit` maps
+      // `GIT_FAILED` to an `ORPCError` whose own `code` is
+      // `INTERNAL_SERVER_ERROR`, so `servePadi`'s `fileGoneAsNotFound` read
+      // THAT code and never looked at the preserved message. Deleting an open
+      // image/PDF/video then surfaced a visible error instead of being
+      // swallowed. Tagging it here settles the question before any wire
+      // wrapper can obscure the errno.
+      return err({ code: "FILE_GONE", path: filePath, message: msg });
     }
+    log?.error({ err: msg, repoPath, filePath }, "preview-tag hash failed");
     return err({ code: "GIT_FAILED", message: `Failed to hash file: ${msg}` });
   }
 }
