@@ -37,12 +37,20 @@ import { getActiveTerminalId } from "./terminals.ts";
 export const newTerminalPolicyStore: CellStore<NewTerminalPolicy> =
   inMemoryStore(DEFAULT_NEW_TERMINAL_POLICY);
 
-/** The theme backgrounds a shuffle scores against — every registry entry EXCEPT
- *  the parked ones, whose tints belong to a dead pre-reboot session rather than a
- *  visible tile. Exported for the test suite. */
+/** The theme backgrounds a shuffle scores against — the TOP-LEVEL tiles, which are
+ *  the only entries whose tint is on screen. Two exclusions:
+ *  - parked entries, whose tints belong to a dead pre-reboot session;
+ *  - splits (`parentId` set), which render inside their parent tile with the
+ *    PARENT's theme (`TerminalContent.tsx` passes `theme` straight down), so their
+ *    own `themeName` — or, theme-less, the catalogue default `resolveThemeBgs`
+ *    stands in — would push the picker away from colours nobody can see.
+ *  Exported for the test suite. */
 export function shufflePeerBgs(): string[] {
   const peerIds = [...terminalEntries()]
-    .filter(([, entry]) => entry.meta.state !== "parked")
+    .filter(
+      ([, entry]) =>
+        entry.meta.state !== "parked" && entry.meta.parentId === undefined,
+    )
     .map(([id]) => id);
   return resolveThemeBgs(peerIds, (id) => getTerminal(id)?.meta.themeName);
 }

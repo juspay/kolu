@@ -615,7 +615,7 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
       stateRoot: "/tmp/padi-test-state-root",
     });
     const create = deps.procedures?.lifecycle?.create as
-      | ((a: { input: { themeName?: string } }) => unknown)
+      | ((a: { input: { themeName?: string; parentId?: string } }) => unknown)
       | undefined;
     if (!create) throw new Error("padi deps must serve lifecycle.create");
     return create;
@@ -635,7 +635,7 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
   /** The theme the create just stamped — the one entry that is not a seeded id. */
   function createdTheme(
     create: ReturnType<typeof serve>,
-    input: { themeName?: string } = {},
+    input: { themeName?: string; parentId?: string } = {},
   ): string | undefined {
     const before = new Set([...terminalEntries()].map(([id]) => id));
     create({ input });
@@ -695,6 +695,18 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
     expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
+  });
+
+  it("a SPLIT resolves no policy theme — it renders with its PARENT's, and stays out of the peer set", () => {
+    // A split pane draws inside its parent tile and is handed the parent's theme
+    // (`TerminalContent.tsx`), so a shuffled tint for it would be invisible — and
+    // would then steer later shuffles away from colours nobody can see.
+    newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
+    setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
+    expect(createdTheme(serve(), { parentId: ACTIVE_ID })).toBeUndefined();
+    expect(shufflePeerBgs()).toEqual([
+      getThemeByName(PEER_THEME).background as string,
+    ]);
   });
 
   it("parked entries are NOT shuffle peers — their tints belong to a dead session, not a visible tile", () => {

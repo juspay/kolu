@@ -436,7 +436,15 @@ export function buildPadiSurfaceDeps(deps: {
             // An explicit theme always wins; absent one, the pushed policy
             // decides — HERE, so the MCP and CLI faces obey the user's
             // new-terminal theme setting exactly as the browser does (#2045).
-            themeName: input.themeName ?? resolveNewTerminalTheme(),
+            // A SPLIT gets no policy theme at all: it renders inside its parent
+            // tile with the PARENT's theme, so a tint picked for it would be
+            // invisible — and would then pollute the shuffle peer set with a
+            // colour nobody can see.
+            themeName:
+              input.themeName ??
+              (input.parentId === undefined
+                ? resolveNewTerminalTheme()
+                : undefined),
             canvasLayout: input.canvasLayout,
             subPanel: input.subPanel,
             rightPanel: input.rightPanel,
