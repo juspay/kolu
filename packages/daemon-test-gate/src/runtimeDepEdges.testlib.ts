@@ -2,25 +2,55 @@
  * The shared dependency-edge walker behind each daemon's `buildId.closure.test.ts`
  * guard (juspay/kolu#2094).
  *
- * A daemon's `<PREFIX>_BUILD_ID` staleKey is DERIVED in nix: `default.nix`
- * hashes the transitive package.json `dependencies` closure of the daemon's
- * package (`nix/workspace.nix`'s `depClosure`, following `workspace:` edges,
- * minus the daemon's documented `stableLeaves`). No hand-kept file list, no
- * mirror — but the derivation is sound only if the manifests are an honest map
- * of what the daemon process can load. pnpm's isolated node_modules already
- * guarantees an import resolves only through a DECLARED edge; what it does NOT
- * distinguish is `dependencies` from `devDependencies` — a runtime module
- * riding a devDependency link works in every dev install while being invisible
- * to the closure nix hashes, which is exactly the silent stale-daemon hole
- * #2094 documents.
+ * A daemon's `<PREFIX>_BUILD_ID` staleKey is DERIVED in nix: the identity
+ * recipe hashes the transitive package.json `dependencies` closure of the
+ * daemon's package (`mkWorkspaceClosure`'s `depClosure`, in
+ * `packages/surface-daemon/nix/workspace-closure.nix`, minus the daemon's
+ * documented `stableLeaves`). No hand-kept file list, no mirror — but the
+ * derivation is sound only if the manifests are an honest map of what the
+ * daemon process can load. pnpm's isolated node_modules already guarantees an
+ * import resolves only through a DECLARED edge; what it does NOT distinguish is
+ * `dependencies` from `devDependencies` — a runtime module riding a
+ * devDependency link works in every dev install while being invisible to the
+ * closure nix hashes, which is exactly the silent stale-daemon hole #2094
+ * documents.
  *
  * So this walker enforces the sharper invariant the derivation keys on: from a
  * daemon's entry files, every reachable RUNTIME import (type-only edges are
  * erased and exempt) must be declared in the importing package's
- * `dependencies` — never a devDependency — and a workspace-member edge must
- * use the `workspace:` protocol (the only edge shape `depClosure` follows).
- * Test files are never walked (entries are runtime roots), so devDependencies
- * remain exactly what they should be: test-only.
+ * `dependencies` — never a devDependency. `depClosure` follows ANY dependency
+ * edge whose target is a member (that is what lets it cross a pin boundary);
+ * the `workspace:` protocol is the LOUDNESS tripwire in a pnpm monorepo — it is
+ * only spellable for a workspace member, so an edge using it whose target is
+ * missing from `members` fails nix eval instead of quietly leaving the closure.
+ * This walker holds the same rule from the TS side, for the members pnpm
+ * discovers in the workspace: their edges must use `workspace:` (a pinned
+ * member is spelled however the consuming manifest spells a pin, so it owes
+ * only presence — see the pinned-member note below). Test files are never
+ * walked (entries are runtime roots), so devDependencies remain exactly what
+ * they should be: test-only.
+ *
+ * `@babel/parser` is a RUNTIME `dependency` of this package, not a
+ * devDependency, even though the walker only ever runs from tests: an external
+ * consumer resolving this walker out of a `@kolu/*` pin installs the pin's
+ * `dependencies` and NOT its devDependencies, so a devDependency edge here
+ * would leave their gate unable to import its own parser.
+ *
+ * ── Pinned members (juspay/kolu#2096) ──
+ * The identity machinery graduated out of kolu, so this walker now serves
+ * EXTERNAL surface consumers too — repos that vendor a `@kolu/*` package from a
+ * content-addressed pin (a nix fetch, a git submodule) instead of the pnpm
+ * workspace. `pinnedMembers` names those: `{ <package name>: <absolute dir> }`.
+ * A pinned member is walked exactly like a workspace member — its internal
+ * relative imports and its own bare edges are checked the same way (ownership
+ * is by nearest package.json, so files under a pinned dir need no special
+ * casing) — with ONE difference, the protocol rule. `workspace:*` is a pnpm
+ * spelling; a pin is declared however the consuming manifest spells a pin (a
+ * file: path, a version, a catalog entry), so a pinned edge is required only to
+ * be PRESENT in the importer's `dependencies`, at any protocol. A name given in
+ * `pinnedMembers` that pnpm ALSO discovers as a workspace member is ambiguous
+ * identity — two directories claiming one name — and throws; the caller must
+ * pick one.
  *
  * Also home to the pnpm-workspace.yaml discovery helpers (`workspacePatterns`,
  * `packageDirsUnder`, `workspacePackageRoots`) shared with
@@ -203,9 +233,10 @@ const packageNameOf = (spec: string): string => {
     : (segs[0] as string);
 };
 
-/** Resolve a bare/subpath specifier into a workspace package's `src` file, via
- *  its `exports` map (falling back to `main`, then `./src/<subpath>`). */
-function resolveWorkspaceFile(
+/** Resolve a bare/subpath specifier into a member package's `src` file (a
+ *  workspace member or a pinned one — same on-disk shape), via its `exports`
+ *  map (falling back to `main`, then `./src/<subpath>`). */
+function resolveMemberFile(
   pkgDir: string,
   pkgName: string,
   spec: string,
@@ -249,13 +280,18 @@ export type DepEdgeViolation = {
  * Walk the runtime import closure from `entries` and check every edge against
  * the importing package's manifest. Returns the violations (empty = the
  * manifests honestly describe the daemon's loadable closure, so nix's derived
- * staleKey is sound) plus the workspace packages reached, for messages.
+ * staleKey is sound) plus the packages reached, for messages.
  */
 export function walkRuntimeDepEdges(opts: {
   repoRoot: string;
   entries: string[];
+  /** Absolute directories of PINNED members — packages consumed from a
+   *  content-addressed pin rather than the pnpm workspace — keyed by package
+   *  name. Walked like workspace members; see the pinned-member note above for
+   *  the one rule that differs (protocol) and the ambiguity that throws. */
+  pinnedMembers?: Record<string, string>;
 }): { violations: DepEdgeViolation[]; reachedPackages: string[] } {
-  const { repoRoot, entries } = opts;
+  const { repoRoot, entries, pinnedMembers = {} } = opts;
 
   const manifests = new Map<string, Manifest>();
   const manifestOf = (dir: string): Manifest => {
@@ -275,6 +311,19 @@ export function walkRuntimeDepEdges(opts: {
   for (const dir of workspacePackageRoots(repoRoot)) {
     const name = manifestOf(dir).name;
     if (name !== undefined) members.set(name, dir);
+  }
+  // Only workspace-discovered names owe the `workspace:` protocol; a pin is
+  // spelled however the consumer's manifest spells pins, so the two membership
+  // kinds are indexed together for walking but kept apart for that one rule.
+  const workspaceNames = new Set(members.keys());
+  for (const [name, dir] of Object.entries(pinnedMembers)) {
+    const workspaceDir = members.get(name);
+    if (workspaceDir !== undefined) {
+      throw new Error(
+        `ambiguous member identity: '${name}' is given as a pinned member (${dir}) but pnpm also discovers it in the workspace (${relative(repoRoot, workspaceDir)}) — pick one (drop it from pinnedMembers, or from pnpm-workspace.yaml)`,
+      );
+    }
+    members.set(name, dir);
   }
 
   /** The package dir owning `file`: its nearest package.json ancestor. */
@@ -323,7 +372,7 @@ export function walkRuntimeDepEdges(opts: {
                 : "dev-dependency",
           });
         } else if (
-          memberDir !== undefined &&
+          workspaceNames.has(pkgName) &&
           !declared.startsWith("workspace:")
         ) {
           violations.push({
@@ -335,7 +384,7 @@ export function walkRuntimeDepEdges(opts: {
         }
       }
       if (memberDir !== undefined) {
-        const f = resolveWorkspaceFile(
+        const f = resolveMemberFile(
           memberDir,
           pkgName,
           spec,
@@ -343,7 +392,7 @@ export function walkRuntimeDepEdges(opts: {
         );
         if (f === null) {
           throw new Error(
-            `unresolved workspace import '${spec}' from ${relative(repoRoot, file)}`,
+            `unresolved member import '${spec}' from ${relative(repoRoot, file)}`,
           );
         }
         stack.push(f);

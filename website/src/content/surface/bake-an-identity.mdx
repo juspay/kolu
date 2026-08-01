@@ -15,8 +15,9 @@ one shared recipe.
 
 ## 1. Bake the pair with Nix
 
-Use `mkDaemonIdentity` (in `nix/daemon-identity.nix`) to `--set` two environment
-variables on the daemon binary, under a prefix of your choosing:
+Use `mkDaemonIdentity` (in `@kolu/surface-daemon`'s `nix/daemon-identity.nix`)
+to `--set` two environment variables on the daemon binary, under a prefix of
+your choosing:
 
 - `<PREFIX>_BUILD_ID` — a hash over the daemon's *behavioural* source closure. It flips exactly when a restart would load different wire or behaviour code.
 - `<PREFIX>_COMMIT_HASH` — the git ref the daemon was built from.
@@ -25,14 +26,104 @@ Select the behavioural fileset deliberately — it is the slice whose change mea
 "a restart behaves differently." Everything outside it (docs, unrelated code) can
 change without flipping the build id.
 
-Prefer **deriving** the fileset over listing files by hand. In a pnpm workspace
-the daemon's loadable code is already declared: the transitive `dependencies`
-closure of its package. Kolu computes the fileset from that graph and keeps only
-a short, documented list of deliberate leaf exclusions as policy
-(`nix/workspace.nix`'s `depClosure`); a hand-kept list can silently drift from
-what the process loads, and a rebuilt daemon then ships an unchanged identity.
+## 2. Derive the fileset — don't list it
 
-## 2. Read it back at runtime
+Prefer **deriving** the fileset over listing files by hand. A hand-kept list
+drifts silently from what the process actually loads: a new dependency lands,
+nobody edits the list, and a *rebuilt* daemon ships an *unchanged* identity. In a
+pnpm workspace the loadable code is already declared — the transitive
+`dependencies` closure of the daemon's package, the same edges pnpm's isolated
+`node_modules` makes the only resolvable ones at runtime.
+
+The recipe that walks it ships in the same package:
+`nix/workspace-closure.nix`. Apply `mkWorkspaceClosure` to a *name → directory*
+`members` map and it hands back two derivations of that graph:
+
+- `depClosure { entries, stop? }` — the member names reachable from `entries`, minus each `stop` entry *and* everything reachable only through it.
+- `identityInputs { entries, stableLeaves?, isHashedSource? }` — the same closure rendered as the two arguments `mkDaemonIdentity` takes: `behavioralFileset` (each local member's runtime `src` plus its `package.json`) and `pinnedSources` (the members that are pins). `isHashedSource` defaults to real `.ts`/`.tsx` source, dropping `.test.ts` / `.test-d.ts` / `.testlib.ts`.
+
+A member is either **local** — a path in your own repo, whose files go into the
+hashed fileset — or **pinned**: a package reached through a content-addressed
+pin, which contributes its whole store path instead. Which is which is
+**declared**, in `pinned`, as a list of member *names*; it is never guessed from
+how the value is written. A local member's value must be a path literal and a
+pinned one a string already inside the store, and `mkWorkspaceClosure` asserts
+exactly that, so neither kind can be silently mistaken for the other.
+
+Set `mustCover` to the name prefixes that must never resolve outside `members`:
+outside a pnpm workspace there is no `workspace:` protocol to give a stale map
+away, and a framework package that quietly resolves from the registry would be
+invisible to the id.
+
+```nix
+let
+  closure = (import "${kolu}/packages/surface-daemon/nix/workspace-closure.nix" {
+    inherit lib;
+  }).mkWorkspaceClosure {
+    members = {
+      "my-daemon" = ./packages/my-daemon;
+      "my-wire" = ./packages/my-wire;
+      # Reached through the kolu pin, not this repo. Each contributes its whole
+      # store path to the id, so a pin bump moves the identity by construction.
+      # Strings, not paths — the pin is already in the store, and a path value
+      # would be copied in again under a fresh hash.
+      "@kolu/surface" = "${kolu}/packages/surface";
+      "@kolu/surface-daemon" = "${kolu}/packages/surface-daemon";
+    };
+    # DECLARE the pins by name. A member listed here whose value is a path, or a
+    # member NOT listed here whose value is a string, fails eval by name.
+    pinned = [ "@kolu/surface" "@kolu/surface-daemon" ];
+    # A @kolu/* package resolving from the registry instead of the pin would
+    # leave the behavioural closure unnoticed — fail eval instead.
+    mustCover = [ "@kolu/" ];
+  };
+in
+mkDaemonIdentity {
+  name = "my-daemon";
+  prefix = "MY_DAEMON";
+  root = ./.;
+  inherit commitHash;
+  inherit (closure.identityInputs {
+    entries = [ "my-daemon" ];
+    # Pure policy — the closure packages this daemon keys no currency on.
+    stableLeaves = [ "@kolu/surface-daemon" ];
+  }) behavioralFileset pinnedSources;
+}
+```
+
+Here `behavioralFileset` carries the two local members' sources, and
+`pinnedSources` carries `@kolu/surface` — `my-daemon` declares it directly (it
+is what `defineSurface` comes from), so making the spine a stable leaf does not
+take it out of the closure with it.
+
+`pinnedSources` folds each pinned member in as `<name>=<store path>`, so a pin
+bump lands in the build id exactly like a source edit. The empty case hashes
+byte-identically to the fileset alone, so a workspace-only consumer's live ids
+do not move just because the pinned arm exists.
+
+Every list here is loud at eval time. A `workspace:` edge (or a
+`mustCover`-matching edge) whose target is missing from `members` throws; a
+`stableLeaves` entry that has left the closure throws; a `members` key that
+disagrees with the package's own `name` throws; a `pinned` name that is not a
+`members` key throws, as does a member whose value shape disagrees with its
+declared kind. `stableLeaves` is then the only hand-kept list left, and it is
+pure policy rather than bookkeeping — step 4 is how you choose what goes in it.
+
+**The alternative: hash a narrowed derivation.** A small daemon that already
+builds from a narrowed derivation of its own can skip the walk entirely and hash
+*that* derivation's store path — `buildId = builtins.hashString "sha256"
+(toString inner)`, where `inner` is the unwrapped daemon. This is
+[drishti](https://github.com/srid/drishti)'s shipped pattern, and it is equally
+sanctioned. A store path is platform-dependent, so bake a **per-system id map**
+(`{ x86_64-linux = …; aarch64-darwin = …; }`) rather than a single id: a client
+comparing against a daemon provisioned on another platform looks its peer's
+system up instead of comparing two hashes that could never match. The trade is
+that the id now moves with everything inside the derivation, the runtime engine
+included — a nixpkgs bump rotates it. That is fine when the daemon's staleness
+response is a cheap restart; it is not when staleness costs a human nudge or
+live state (step 4).
+
+## 3. Read it back at runtime
 
 `readBakedIdentity(prefix)` (from `@kolu/surface-daemon`) is the one recipe both
 the reads share. It returns `{ staleKey, navigableCommit }`:
@@ -51,13 +142,18 @@ ref you surface as a clickable identity in the UI.
   boot rather than presenting a build whose source cannot be named.
 </Aside>
 
-## 3. Decide what the build id hashes
+## 4. Decide what the build id hashes
 
-There is one policy choice: whether the daemon-spine code is inside the hashed
-closure.
+One policy choice is left, and `stableLeaves` is where you spell it: whether the
+daemon-spine code is inside the hashed closure.
 
 - If a contract-compatible spine change is behaviourally interchangeable — because the wire contract version is itself hashed — you can **exclude** the spine from the build id ([kaval](/kaval) does this; the contract version carries the compatibility signal).
 - If you prefer a cheap auto-drain where over-firing is harmless, **include** the whole closure (padi does this).
+
+Pick by what staleness *costs*. Kaval's staleKey drives a human "update
+available" nudge whose only remedy recycles the daemon and kills live PTYs, so
+over-firing is expensive and its slice is narrow. Padi's is a cheap auto-drain,
+so it keys on nearly its whole closure.
 
 Either way, the identity a client reads is now stable and meaningful across
 restarts, which is what [recycling and upgrading](/surface/recycle-and-upgrade)

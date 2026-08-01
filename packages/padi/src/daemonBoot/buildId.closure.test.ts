@@ -4,9 +4,10 @@
  *
  * `PADI_BUILD_ID` is DERIVED, not hand-listed (juspay/kolu#2094): `default.nix`
  * hashes the transitive package.json `dependencies` closure of `@kolu/padi`
- * (`nix/workspace.nix`'s `depClosure`, following `workspace:` edges, minus the
- * documented framework-tier `stableLeaves`). There is no file list here to keep
- * in lockstep any more — nix reads the same manifests pnpm resolves by.
+ * (`mkWorkspaceClosure`'s `depClosure`, in
+ * `packages/surface-daemon/nix/workspace-closure.nix`, minus the documented
+ * framework-tier `stableLeaves`). There is no file list here to keep in
+ * lockstep any more — nix reads the same manifests pnpm resolves by.
  *
  * What this test guards is the ONE assumption that derivation rests on: the
  * manifests must be an honest map of what padi's process can load. From padi's

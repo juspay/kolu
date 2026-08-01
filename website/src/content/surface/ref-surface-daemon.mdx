@@ -247,3 +247,73 @@ reverse) is contradictory. See
   deliberately depends on `@kolu/surface` to dial the frozen core. Their use is in
   [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
 </Aside>
+
+## Nix recipes
+
+The package's `nix/` directory is public surface too — the build-time half of
+what `readBakedIdentity` reads back. Each file is a function of `{ lib }`:
+`import "${kolu}/packages/surface-daemon/nix/<file>.nix" { inherit lib; }`. All
+of it is pure evaluation (no import-from-derivation), so `nix flake check`
+forces every output without realising a build mid-eval. The how-to is
+[How to bake an identity](/surface/bake-an-identity).
+
+### `mkDaemonIdentity` — `nix/daemon-identity.nix`
+
+`mkDaemonIdentity { name, prefix, root, behavioralFileset, pinnedSources ? { },
+commitHash, override ? null }` → `{ buildId, bakeArgs }`.
+
+| Arg | Role |
+| --- | --- |
+| `name` | the daemon's name, used in this recipe's error messages |
+| `prefix` | its identity-env namespace — `"KAVAL"`, `"PADI"` — the `<PREFIX>` `readBakedIdentity` reads |
+| `root` | the `lib.fileset.toSource` root; must be a common ancestor of `behavioralFileset` |
+| `behavioralFileset` | WHAT counts as this daemon's behaviour — the consumer's own policy decision |
+| `pinnedSources` | behavioural members that are pins, not files: `name → store path`. Every value must be a **string** under `builtins.storeDir`; the assert names the offending attrs |
+| `commitHash` | the navigable git ref this build was made from; `""` throws |
+| `override` | TEST-ONLY: force `buildId` instead of hashing (build-skew arms) |
+
+| Return | Value |
+| --- | --- |
+| `buildId` | 64-char sha256 of the `fileset.toSource` store path, plus one sorted `<name>=<store path>` line per `pinnedSources` entry. Platform-independent by construction — it hashes source, never the runtime engine, so a cross-platform comparison is not a false mismatch |
+| `bakeArgs` | the `--set <PREFIX>_BUILD_ID … --set <PREFIX>_COMMIT_HASH …` string to splice into a `makeWrapper` invocation — the pair is emitted together, so the joint invariant cannot be half-baked |
+
+With `pinnedSources = { }` the id is `hashString "sha256" "${src}"` —
+**byte-identical** to what this recipe hashed before the pinned arm existed, so
+a workspace-only consumer's live daemon ids do not move.
+
+### `mkWorkspaceClosure` — `nix/workspace-closure.nix`
+
+`mkWorkspaceClosure { members, pinned ? [ ], mustCover ? [ ] }` derives what the
+identity should hash from the package.json `dependencies` graph, instead of a
+hand-kept file list that can silently drift. The file also exports
+`defaultIsHashedSource` at its top level.
+
+| Arg | Role |
+| --- | --- |
+| `members` | package name → package dir. A **local** member's dir is a path literal; a **pinned** member's is a string already under `builtins.storeDir` |
+| `pinned` | the member NAMES that are pins — declared, never inferred from how the value is spelled |
+| `mustCover` | name prefixes that must never resolve outside `members` (`[ "@kolu/" ]`) — the by-name tripwire a pinned consumer needs, having no `workspace:` protocol to give a stale map away |
+
+| Return | Value |
+| --- | --- |
+| `members` | the checked map (same keys), which the two functions below read |
+| `depClosure { entries, stop ? [ ] }` | the member names reachable from `entries` over `dependencies` edges whose target is a member, minus each `stop` entry *and* everything reachable only through it |
+| `identityInputs { entries, stableLeaves ? [ ], isHashedSource ? defaultIsHashedSource }` | the same closure rendered as `mkDaemonIdentity`'s two inputs: `behavioralFileset` (each local member's filtered `src` plus its `package.json`) and `pinnedSources` (the pinned members' store paths). `isHashedSource` defaults to real `.ts`/`.tsx`, dropping `.test.ts` · `.test.tsx` · `.test-d.ts` · `.testlib.ts` |
+
+`devDependencies` are deliberately not followed — they never ship behaviour.
+The residual failure direction is over-inclusion (one extra id flip), never a
+silent escape. Every mistake is a loud eval failure:
+
+| Failure | Message names |
+| --- | --- |
+| a `pinned` name that is not a `members` key | the stale names |
+| a member whose value shape disagrees with its declared kind — a path where a pin string belongs, or a string where a local path belongs | the member, and which declaration to fix |
+| a `members` key that disagrees with the package's own `name` | the key, the manifest name, the dir |
+| a `workspace:` (or `mustCover`-matching) edge whose target is not a member | the importer, the target, and the prefix that matched |
+| a `stop` / `stableLeaves` entry that is not in the closure | the stale entries |
+
+### `mkProvenAgentSource` — `nix/agent-source.nix`
+
+The third recipe in the same directory, unrelated to identity: it assembles a
+remote-agent source tree and **proves** an agent evaluates from it before the
+path reaches any wrapper. See the file's own header for the prove/expose rule.
