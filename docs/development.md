@@ -43,6 +43,15 @@ Each server port owns an isolated development slot: its own padi state, kaval
 daemon, and runtime directory. A development instance cannot adopt or stop the
 daemons used by a production service.
 
+`just dev` / `just dev-auto` (and the standalone `just server`) also materialise
+`.#agent-flake-env` and export `SURFACE_AGENT_FLAKE_REF` — the same bake the
+production Nix wrapper applies — so you can add remote hosts from a working-tree
+run without switching to `nix run .#default`. Nix reads the **git-tracked** tree, so
+an uncommitted edit to a tracked file is baked in, but a brand-new file must be
+`git add`ed before a dialed remote will see it. The bake resolves once at start,
+so restart whichever entrypoint you are running — `just dev` or `just server` —
+after editing agent-tree source.
+
 The default `just dev` slot is shared across worktrees. If another worktree
 already owns it, this checkout connects to that slot's existing daemons. Prefer
 `just dev-auto` when working in parallel.

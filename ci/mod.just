@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -105,7 +105,9 @@ nix:
 agent-flake-nix: nix
     #!/usr/bin/env bash
     set -euo pipefail
-    agent_flake_ref="$(nix build ./ci#agent-flake-source --no-link --print-out-paths)"
+    # The root flake owns the agent source tree; `just dev` bakes the same
+    # derivation the production wrapper does. One attr, one derivation.
+    agent_flake_ref="$(nix build .#agent-flake-source --no-link --print-out-paths --accept-flake-config)"
     system="$(nix eval --impure --raw --expr builtins.currentSystem)"
     agent_packages="$({{ nix_shell }} jq -r '.expose[]' nix/agent-packages.json)"
     [[ -n "$agent_packages" ]]
@@ -182,6 +184,14 @@ smoke: nix
 # (see the funnel rule at the top of this file).
 dev-smoke: install
     {{ nix_shell }} just --no-deps test-dev
+
+# The working-tree agent bake's regression guard (#2039) — rationale lives with
+# the recipe (root justfile `test-agent-bake`). Its own node because `dev-smoke`
+# cannot cover it: that one enters at `_dev-parallel`, which is deliberately
+# nix-free. Depends on `nix` so the realize is an already-built store lookup
+# rather than a build racing ci::nix for the same drv.
+agent-bake: nix
+    {{ nix_shell }} just --no-deps test-agent-bake
 
 # `just test` builds `.#koluBin` itself (justfile `test` recipe). Depend on
 # `nix` as well as the shared pnpm install so that build is an already-realized

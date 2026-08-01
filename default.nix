@@ -97,7 +97,7 @@ let
   # composed out of, which is where a thin fileset actually shows up. What covers
   # the exposed attrs themselves is `ci::agent-flake-nix`, which evaluates every
   # `expose` entry's `drvPath` from this same assembled tree
-  # (`ci#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
+  # (`.#agent-flake-source` = `agentFlakeSrc`). That recipe is load-bearing for
   # remote provisioning, not a nicety: delete it and a fileset gap reaching only
   # `default` / the TUIs surfaces on a user's box at dial time.
   #
@@ -128,8 +128,21 @@ let
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =
     (pkgs.lib.importJSON ./packages/surface-remote/agent-env.json).flakeRef;
-  agentFlakeRefBakeArg =
-    ''--set ${agentFlakeRefEnv} "${agentFlakeSrc}"'';
+  # Every (name, value) pair a run must carry to resolve remote agents — ONE
+  # definition, rendered two ways below. A working-tree run and the packaged
+  # wrapper cannot export a different set, because neither spells the pair: add
+  # an entry HERE and both the wrapper's `--set` args and the sourceable file
+  # pick it up with no second edit. (The set is a single pair today; it is an
+  # attrset rather than a scalar so that stays true when it isn't.)
+  agentBakedEnv = { ${agentFlakeRefEnv} = "${agentFlakeSrc}"; };
+  agentFlakeRefBakeArg = pkgs.lib.concatStringsSep " "
+    (pkgs.lib.mapAttrsToList (name: value: ''--set ${name} "${value}"'') agentBakedEnv);
+  # The same set as shell-sourceable data, for working-tree runs (`just dev`,
+  # `just server`) that have no wrapper to bake into. `toShellVars` rather than a
+  # hand-rolled `name=value` join: it is nixpkgs' own renderer for this and
+  # quotes values that need it, so the set can grow past today's store paths
+  # without a value containing a space silently mis-sourcing.
+  agentFlakeEnv = pkgs.writeText "agent-flake-env" (pkgs.lib.toShellVars agentBakedEnv);
 
   # osfacts — the single OS process/socket sampler padi's port scan spawns
   # (OSF2). Read from koluEnv rather than re-deriving the path, so the wrapper
@@ -935,5 +948,5 @@ let
   osfacts = import ./osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }
