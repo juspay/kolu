@@ -4,6 +4,8 @@
 # identities.
 { pkgs }:
 let
+  sources = import ../npins;
+
   # App version — the SINGLE source of truth is packages/server/package.json.
   version = (pkgs.lib.importJSON ../packages/server/package.json).version;
 
@@ -47,7 +49,6 @@ let
     ../packages/padi
     ../packages/padi-tui
     ../packages/port-forward
-    ../osfacts/client-ts
     ../packages/vazhi
     ../packages/server
     ../packages/client
@@ -62,10 +63,35 @@ let
     ../packages/log
     ../packages/xterm-kit
   ];
-  src = pkgs.lib.fileset.toSource {
+  treeSrc = pkgs.lib.fileset.toSource {
     root = ../.;
     inherit fileset;
   };
+
+  # osfacts-client, materialized from the npins pin — NEVER committed.
+  #
+  # The tool left the tree at OSF5 (juspay/osfacts) and its TypeScript client
+  # went with it, but five kolu packages import `osfacts-client` by name and a
+  # pnpm workspace member must be a path inside the repo. The two ways to close
+  # that without a second copy of the source both failed on their own terms: a
+  # registry/tarball dependency needs a publish step nobody wants to own, and
+  # pnpm's git-subdirectory dependency silently DROPS its `#path:` fragment
+  # under `pnpm fetch` + `--offline` (kolu's hermetic install), landing the whole
+  # osfacts repo in node_modules with no package.json at its root.
+  #
+  # So Nix supplies the source, which it already has: npins pins the repo, and
+  # this grafts `client-ts/` into the build tree as an ordinary workspace member.
+  # pnpm then sees a plain `workspace:*` link with nothing to download — offline
+  # by construction. `just install` performs the same graft for a working tree
+  # (see the justfile's `_materialize-osfacts-client`), so both paths read the
+  # same pinned bytes and neither has a checked-in copy to drift from.
+  osfactsClientSrc = sources.osfacts + "/client-ts";
+  src = pkgs.runCommand "kolu-source" { } ''
+    cp -r ${treeSrc} $out
+    chmod -R u+w $out
+    cp -r ${osfactsClientSrc} $out/osfacts-client
+    chmod -R u+w $out/osfacts-client
+  '';
 
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
@@ -82,5 +108,5 @@ let
   };
 in
 {
-  inherit version src fileset pnpmDeps;
+  inherit version src fileset pnpmDeps osfactsClientSrc;
 }

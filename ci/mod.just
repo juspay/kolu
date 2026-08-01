@@ -61,6 +61,10 @@ default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surf
 # this node and call pnpm/biome directly downstream — do not invoke top-level
 # `just <recipe>` recipes that carry their own `install` dep.
 install:
+    # osfacts-client is a workspace member with no copy in this repo — graft it
+    # from the npins `osfacts` pin first, exactly as `just install` does, or
+    # `--frozen-lockfile` meets a lockfile naming a member that isn't there.
+    {{ nix_shell }} just _materialize-osfacts-client
     {{ nix_shell }} pnpm install --frozen-lockfile
 
 # Verify the root pnpmDeps hash matches what fetchPnpmDeps produces from

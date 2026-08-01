@@ -47,7 +47,7 @@
           # and its sourceable env file are re-exposed under kebab CLI spellings
           # for their two callers — `just dev`/`just server` and
           # ci::agent-flake-nix.
-        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" "osfactsFacetsInSync" ]) // {
+        (removeAttrs kolu [ "agentFlakeSrc" "agentFlakeEnv" "koluEnv" "typecheck" ]) // {
           agent-flake-source = kolu.agentFlakeSrc;
           agent-flake-env = kolu.agentFlakeEnv;
         });
@@ -59,10 +59,6 @@
       # owns its independent check in website/flake.nix.
       checks = platform.mapSystems (system: {
         typecheck = koluBySystem.${system}.typecheck;
-        # osfacts left the tree at OSF5 but its TS client did not; this fails
-        # the build if the `facets.json` the client reads has drifted from the
-        # pinned repo's copy. See default.nix.
-        osfacts-facets-in-sync = koluBySystem.${system}.osfactsFacetsInSync;
       });
       devShells = platform.withPkgs (pkgs:
         let default = import ./shell.nix { inherit pkgs; };

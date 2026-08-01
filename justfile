@@ -40,8 +40,26 @@ default:
 prepare: install
 
 # Install pnpm dependencies
-install:
+install: _materialize-osfacts-client
     {{ nix_shell }} pnpm install
+
+# Graft osfacts-client into the tree from the npins `osfacts` pin.
+#
+# `osfacts-client` is a pnpm workspace member with no copy in this repo — the
+# client lives in juspay/osfacts and nothing here may duplicate it. Nix does
+# this graft for a build (nix/workspace.nix); this recipe is the working-tree
+# twin, so `just install`, `just dev`, and a bare vitest run all read the same
+# pinned bytes. Re-copied every time: the pin is the truth, the directory is
+# a cache of it, and a stale cache is the one failure this must not have.
+[private]
+_materialize-osfacts-client:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="$(nix eval --impure --raw --expr 'toString ((import ./npins).osfacts + "/client-ts")')"
+    rm -rf osfacts-client
+    cp -r "$src" osfacts-client
+    chmod -R u+w osfacts-client
+    echo "osfacts-client ← $src"
 
 # Run server + client in parallel.
 # Bare `just dev` keeps the canonical 7681/5173 (see README). Override either

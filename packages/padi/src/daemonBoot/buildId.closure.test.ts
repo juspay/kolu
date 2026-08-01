@@ -50,9 +50,6 @@ const HASHED_ROOTS: Record<string, string> = {
   "@kolu/surface-daemon": "surface-daemon",
   "@kolu/surface-daemon-supervisor": "surface-daemon-supervisor",
   "@kolu/terminal-vocab": "terminal-vocab",
-  // Outside packages/ — still under osfacts/, the one thing that did not leave
-  // with the tool at OSF5 (a workspace member must be a path in this repo).
-  "osfacts-client": "../osfacts/client-ts",
   "@kolu/serve-dir": "serve-dir",
   "@kolu/shell-quote": "shell-quote",
   "@kolu/html-escape": "html-escape",
@@ -113,6 +110,14 @@ const ALLOWED_EXTERNAL = [
   "simple-git",
   "string-argv",
   "@kolu/surface",
+  // osfacts-client — the TypeScript face of the baked osfacts binary. It left
+  // the tree with the tool at OSF5; what kolu builds against is grafted from the
+  // npins `osfacts` pin (nix/workspace.nix), never a copy kept here. That makes
+  // it a pinned external like every npm dep, hashed by its pin rather than by
+  // this closure — and kaval already treats it so. What padi's key must track is
+  // padi's own port sensor, which lives in padi's hashed src and IS hashed; the
+  // client's wire is the binary's versioned TSV.
+  "osfacts-client",
   // @kolu/xterm-kit — the graduated xterm machinery. padi reaches it ONLY
   // transitively through kaval's embedded library (`ptyHost` → the runtime-
   // neutral core: createMirrorAnchor / snapToWrapHead). It is a stable leaf here,

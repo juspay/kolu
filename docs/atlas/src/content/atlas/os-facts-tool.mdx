@@ -341,18 +341,38 @@ line that changed anywhere was which directory the flake imports its
 `each-system.nix` from, and both repos build the identical store path. The pin
 travelled with the directory, so the extracted flake still has **zero inputs**.
 
-**What the move did not take.** `osfacts/client-ts` stayed in kolu. A pnpm
-workspace member must be a path inside the repo, and `packages/padi`,
-`packages/kaval`, and the surface examples import `osfacts-client` by name — so
-the client cannot come from a pin until it is consumable another way (published
-package, or a pnpm git-subdirectory dependency). `facets.json` stayed with it,
-because the client's tests pin the TS facet unions to that file; a nix check
-(`osfactsFacetsInSync`) fails the build if that copy drifts from the pinned
-repo's, so there are two files but still one source of truth. Both of kolu's
-osfacts CI leaves left with the tool — the live-oracle lane because its script
-did, and the hermetic one because it had nothing left to assert that `ci::nix`
-does not already build — so all four `ci::osfacts…@…` contexts must be dropped
-from branch protection.
+**The whole directory went, client included.** The TypeScript client was the
+one part with no obvious exit — a pnpm workspace member has to be a path inside
+the repo, and five kolu packages import `osfacts-client` by name. Keeping a copy
+in kolu was never worth defending: two directories with the same source is a
+duplicate whatever gate you put around it.
+
+Two package-manager answers were tried and rejected on their own terms. A
+registry or release-tarball dependency needs a publish step to own. And pnpm's
+git-subdirectory dependency (`github:juspay/osfacts#path:/client-ts`) *looks*
+right — it resolves correctly on an ordinary `pnpm install` — but silently drops
+its `#path:` fragment under `pnpm fetch` + `--offline`, which is exactly how
+kolu's hermetic Nix build installs. What lands in `node_modules` is the whole
+osfacts repo with no `package.json` at its root, so resolution fails.
+
+The answer was already in the repo: **npins pins osfacts, so Nix has the source
+already.** `nix/workspace.nix` grafts `client-ts/` from that pin into the build
+tree as the `osfacts-client` workspace member, and `just install` performs the
+same graft for a working tree. pnpm then sees a plain `workspace:*` link with
+nothing to download — offline by construction, no lockfile integrity entry, no
+registry. The directory is generated and `.gitignore`d, so there is nothing to
+drift. Kolu excludes it from its own recursive `typecheck`/`test:unit` runs:
+those are osfacts' tests, and they run in osfacts' CI.
+
+That makes the client a **stable external** in padi's and kaval's build-identity
+closures rather than a hashed root — the same treatment `@kolu/surface` and
+every pinned dep already get. Kolu's port sensor, the code whose behaviour
+padi's staleKey is actually about, still lives in padi's hashed src.
+
+Both of kolu's osfacts CI leaves left with the tool — the live-oracle lane
+because its script did, and the hermetic one because it had nothing left to
+assert that `ci::nix` does not already build — so all four `ci::osfacts…@…`
+contexts must be dropped from branch protection.
 
 **Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp`
 on the pty, so it stays kaval's), anything requiring root — OSF6 is the best
