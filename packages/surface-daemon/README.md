@@ -51,5 +51,6 @@ Part of the kolu monorepo — `"@kolu/surface-daemon": "workspace:*"`.
 
 - Tutorial — [Make it a daemon](https://kolu.dev/surface/make-it-a-daemon)
 - How-to — [Bake an identity](https://kolu.dev/surface/bake-an-identity)
+- Nix — the `nix/` recipes (`mkDaemonIdentity`, `mkWorkspaceClosure`, `mkProvenAgentSource`): [Bake an identity](https://kolu.dev/surface/bake-an-identity#2-derive-the-fileset--dont-list-it)
 - Reference — [@kolu/surface-daemon](https://kolu.dev/surface/ref-surface-daemon) · [Daemon invariants](https://kolu.dev/surface/surface-daemon-invariants)
 - Explanation — [The daemon spine](https://kolu.dev/surface/the-daemon-spine)

@@ -18,8 +18,10 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
+  "dependencies": {
+    "@babel/parser": "^7.29.2"
+  },
   "devDependencies": {
-    "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"

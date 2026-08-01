@@ -10,18 +10,53 @@ let
   # App version — the SINGLE source of truth is packages/server/package.json.
   version = (lib.importJSON ../packages/server/package.json).version;
 
+  # The dependency-closure machinery, owned by @kolu/surface-daemon (location is
+  # structure — it is the third piece of the daemon-identity capability, next to
+  # the recipe that bakes the id and the TS half that reads it back). kolu is one
+  # consumer of it; drishti/odu are the others (juspay/kolu#2096).
+  #
+  # No `mustCover` — every @kolu member here is LOCAL, so the `workspace:`
+  # protocol rule already catches a stale members map; a consumer that reaches
+  # the framework tier THROUGH a pin is the one that needs the by-name tripwire.
+  #
+  # `members` is inherited for THIS file's own `fileset` split below; only
+  # `identityInputs` is re-exported (default.nix is the sole consumer, and it
+  # takes version/src/fileset/pnpmDeps/identityInputs).
+  inherit ((import ../packages/surface-daemon/nix/workspace-closure.nix {
+    inherit lib;
+  }).mkWorkspaceClosure { members = rawMembers; pinned = pinnedNames; })
+    members identityInputs;
+
+  # The members that are PINS, not directories in this repo — spelled ONCE, and
+  # read by both things that must agree about it: `mkWorkspaceClosure` (which
+  # type-checks each value against the declaration and routes a pin into
+  # `identityInputs.pinnedSources` instead of the hashed fileset) and the
+  # repo-rooted `fileset` below (which cannot carry a store path, so `src`
+  # grafts it in instead).
+  #
+  # DECLARED, never sniffed from how the value is spelled. Two location tests
+  # were tried before this list existed and both were wrong: `lib.isStorePath`
+  # holds only for a store ROOT (`/nix/store/<hash>-name`), so a grafted
+  # SUBPATH (`…-source/client-ts`) sails through it; and prefix-matching
+  # `storeDir` is true for EVERY member once default.nix is re-imported from
+  # the assembled agent tree (mkProvenAgentSource) — that tree is itself a
+  # store path, so the filter emptied the whole workspace and the agent source
+  # lost every package. A declaration does not depend on where the evaluation
+  # is rooted; see workspace-closure.nix's doorstep note.
+  pinnedNames = [ "osfacts-client" ];
+
   # Workspace membership: package name → package directory, the ONE Nix-side
   # index of the pnpm workspace. Everything below derives from it — the build
-  # `fileset`/`src`, and `depClosure` (which walks package.json `dependencies`
-  # edges by NAME, so it needs the name→dir index to follow an edge into a
-  # member's own package.json).
+  # `fileset`/`src`, and `identityInputs` (whose walk follows package.json
+  # `dependencies` edges by NAME, so it needs the name→dir index to follow an
+  # edge into a member's own package.json).
   #
   # INVARIANT: every workspace package with a `typecheck` script must be here.
   # packages/tests is intentionally absent: it has none (and no `name` either).
   #
-  # The keys are ASSERTED against each package.json's `name` at eval (below), so
-  # a renamed package or a mis-keyed entry fails every `nix eval` loudly instead
-  # of silently orphaning its dependency edges.
+  # The keys are ASSERTED against each package.json's `name` at eval (in
+  # `mkWorkspaceClosure`), so a renamed package or a mis-keyed entry fails every
+  # `nix eval` loudly instead of silently orphaning its dependency edges.
   rawMembers = {
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
@@ -63,9 +98,10 @@ let
     "padi-tui" = ../packages/padi-tui;
     "@kolu/port-forward" = ../packages/port-forward;
     # NOT a path in this repo: the tool left at OSF5 and its client went with
-    # it, so this member is the pinned source in the Nix store. `treeMembers`
-    # keeps it out of the repo-rooted fileset, `src` grafts it into the build
-    # tree, and default.nix hashes this store path into the daemon identities
+    # it, so this member is the pinned source in the Nix store — declared in
+    # `pinnedNames` above. `treeMembers` keeps it out of the repo-rooted
+    # fileset, `src` grafts it into the build tree, and `identityInputs` hands
+    # this store path to `mkDaemonIdentity` as a `pinnedSources` entry
     # (juspay/kolu#2094) rather than dropping it.
     "osfacts-client" = sources.osfacts + "/client-ts";
     "vazhi" = ../packages/vazhi;
@@ -82,77 +118,12 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
-  members = lib.foldl'
-    (acc: name:
-      let actual = (lib.importJSON (rawMembers.${name} + "/package.json")).name or null;
-      in
-      assert lib.assertMsg (actual == name)
-        "workspace.nix: members key '${name}' does not match package.json name '${toString actual}' at ${toString rawMembers.${name}}";
-      acc)
-    rawMembers
-    (lib.attrNames rawMembers);
-
-  # The transitive closure of `entries` over package.json `dependencies` edges
-  # that use the `workspace:` protocol — the SAME edges pnpm's isolated
-  # node_modules makes the only resolvable ones at runtime, so "what code can
-  # this package load" is answered by the manifests, not by a hand-kept list.
-  # devDependencies are deliberately NOT followed: they never ship behaviour
-  # (the dependency-edge guard tests enforce that no runtime import rides one).
-  # An edge to a package missing from `members` fails loudly.
-  #
-  # `stop` names packages the walk treats as OPAQUE LEAVES: each is excluded
-  # from the result together with everything reachable ONLY through it (a
-  # daemon that deliberately keys currency on a slice excludes a leaf's whole
-  # subtree, not just its top — see default.nix's stableLeaves). Every `stop`
-  # entry must actually be in the un-stopped closure, so a stale or mistyped
-  # leaf fails eval loudly instead of silently naming nothing.
-  #
-  # TODO(juspay/kolu#2096): graduate this walk into surface-daemon/nix for
-  # external surface consumers (drishti/odu), generalising the edge rule from
-  # "spec starts with workspace:" to "target name is in the caller's members
-  # map" so the walk can cross an npins pin boundary (pinned @kolu/* packages
-  # as store-path members).
-  depClosure = { entries, stop ? [ ] }:
-    let
-      wsDepsOf = name:
-        let
-          dir = members.${name} or (throw
-            "workspace.nix depClosure: '${name}' is not a workspace member — add it to `members`");
-          deps = (lib.importJSON (dir + "/package.json")).dependencies or { };
-        in
-        lib.attrNames (lib.filterAttrs (_: v: lib.hasPrefix "workspace:" v) deps);
-      walk = stopped: map (x: x.key) (builtins.genericClosure {
-        startSet = map (n: { key = n; }) entries;
-        operator = x:
-          if lib.elem x.key stopped then [ ]
-          else map (n: { key = n; }) (wsDepsOf x.key);
-      });
-      full = walk [ ];
-      stale = lib.subtractLists full stop;
-    in
-    assert lib.assertMsg (stale == [ ])
-      "workspace.nix depClosure: stop entries not in the dependency closure of ${toString entries} (stale or mistyped): ${toString stale}";
-    lib.naturalSort (lib.subtractLists stop (walk stop));
-
-  # Is this member's directory grafted from a pin rather than checked in here?
-  # Answered by TYPE: an in-tree member is a Nix path literal (`../packages/x`),
-  # a grafted one is a string (`sources.osfacts + "/client-ts"` coerces).
-  #
-  # Two location tests were tried and are both WRONG. `lib.isStorePath` holds
-  # only for a store ROOT (`/nix/store/<hash>-name`), so a grafted SUBPATH
-  # (`…-source/client-ts`) sails through it. And prefix-matching `storeDir` is
-  # true for EVERY member once default.nix is re-imported from the assembled
-  # agent tree (mkProvenAgentSource) — that tree is itself a store path, so the
-  # filter emptied the whole workspace and the agent source lost every package.
-  # Type does not depend on where the evaluation is rooted.
-  #
-  # Exported so default.nix splits the daemon-identity closure on this same
-  # predicate rather than spelling its own.
-  isGraftedDir = dir: !builtins.isPath dir;
-
-  # Only members that are paths in THIS repo can ride a repo-rooted fileset;
-  # `osfacts-client` is grafted from the npins pin (see `src` below).
-  treeMembers = lib.filterAttrs (_: dir: !isGraftedDir dir) members;
+  # Only members that are paths in THIS repo can ride a repo-rooted fileset; the
+  # pins are grafted into the build tree by `src` below instead. Split off
+  # `members` (not `rawMembers`) so building the source forces the doorstep
+  # assertions too — an example flake that only wants `src`/`pnpmDeps` still
+  # pays for a mis-keyed or wrongly-typed member at eval, not at runtime.
+  treeMembers = removeAttrs members pinnedNames;
 
   fileset = lib.fileset.unions ([
     ../package.json
@@ -182,7 +153,11 @@ let
   # by construction. `just install` performs the same graft for a working tree
   # (see the justfile's `_materialize-osfacts-client`), so both paths read the
   # same pinned bytes and neither has a checked-in copy to drift from.
-  osfactsClientSrc = sources.osfacts + "/client-ts";
+  #
+  # Read back out of `members` rather than re-spelling the pin subpath: the
+  # graft and the identity's `pinnedSources` must name the SAME bytes, and one
+  # binding is how that stays true.
+  osfactsClientSrc = members."osfacts-client";
   src = pkgs.runCommand "kolu-source" { } ''
     cp -r ${treeSrc} $out
     chmod -R u+w $out
@@ -205,5 +180,5 @@ let
   };
 in
 {
-  inherit version src fileset pnpmDeps members depClosure osfactsClientSrc isGraftedDir;
+  inherit version src fileset pnpmDeps identityInputs;
 }
