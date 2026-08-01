@@ -43,6 +43,7 @@ let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
   workspace = import ./nix/workspace.nix { inherit pkgs; };
   inherit (workspace) version src fileset pnpmDeps;
+  sources = import ./npins;
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
@@ -78,10 +79,10 @@ let
   # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
   # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
   #
-  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/
-  # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
-  # the prove fails without it). Not a workspace package (no typecheck script);
-  # listed here because the agent graph needs the source, not the pnpm tree.
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
+  # osfacts is not in the tree at all (OSF5) — koluEnv bakes KOLU_OSFACTS_BIN
+  # from the npins pin, and nix/workspace.nix grafts the same pin's client-ts
+  # in as the `osfacts-client` workspace member, so `./npins` covers both.
   #
   # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
   # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
@@ -119,7 +120,6 @@ let
       ./default.nix
       ./nix
       ./npins
-      ./osfacts
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -213,12 +213,26 @@ let
       (pkgs.lib.fileset.fileFilter isHashedSource (dir + "/src"))
       (dir + "/package.json")
     ];
-  # The derived behavioralFileset: the daemon package's dependency closure,
-  # minus its stable leaves (and their exclusive subtrees).
-  behavioralClosureFileset = { entries, stableLeaves }:
-    pkgs.lib.fileset.unions
-      (map memberIdentityFileset
-        (workspace.depClosure { inherit entries; stop = stableLeaves; }));
+  # A closure member is normally a directory in this repo. `osfacts-client` is not:
+  # it is grafted from the npins `osfacts` pin, so its directory is a store path
+  # (nix/workspace.nix). Such a member cannot ride a repo-rooted fileset — and
+  # dropping it is exactly the silent escape #2094 records, a rebuilt daemon
+  # carrying an unchanged identity. So the closure is split, and BOTH halves reach
+  # the id: in-tree members as files, pinned members as their store path (which
+  # already changes iff the pinned contents do).
+  isGraftedMember = name: workspace.isGraftedDir workspace.members.${name};
+  # The derived identity inputs: the daemon package's dependency closure, minus
+  # its stable leaves (and their exclusive subtrees), split by where it lives.
+  behavioralClosureInputs = { entries, stableLeaves }:
+    let
+      names = workspace.depClosure { inherit entries; stop = stableLeaves; };
+      grafted = pkgs.lib.filter isGraftedMember names;
+    in
+    {
+      behavioralFileset = pkgs.lib.fileset.unions
+        (map memberIdentityFileset (pkgs.lib.filter (n: !isGraftedMember n) names));
+      extraKeyInputs = map (n: toString workspace.members.${n}) grafted;
+    };
 
   # kaval's baked identity. Its currency slice — kaval's OWN decision of what a
   # restart would load that MATTERS to the currency nudge — is derived from
@@ -228,60 +242,59 @@ let
   # forward/drop policy, the suppression grammars; a protocol change must not
   # escape the staleKey). `kavalBuildIdOverride` (TEST-ONLY) forces the id for
   # the build-skew VM arms.
-  kavalIdentity = mkDaemonIdentity {
+  kavalIdentity = mkDaemonIdentity ({
     name = "kaval";
     prefix = "KAVAL";
     root = ./.;
     inherit commitHash;
     override = kavalBuildIdOverride;
-    behavioralFileset = behavioralClosureFileset {
-      entries = [ "kaval" ];
-      stableLeaves = [
-        # `@kolu/surface-daemon` (the transport SPINE) runs in the kaval binary
-        # but is DELIBERATELY NOT in kaval's currency slice (#L3). kaval's
-        # staleKey drives ONLY the human "update available" nudge, and acting on
-        # it RECYCLES kaval — killing live PTYs. The spine's behavioral surface
-        # to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`, in
-        # kaval/src): a contract-COMPATIBLE spine change is behaviorally
-        # interchangeable BY THE CONTRACT'S DEFINITION, so keying currency on
-        # the spine double-counts what the contract already covers and
-        # over-fires the nudge on every compatible spine refactor. This was paid
-        # for in production (zest, 2026-07-03): a spine-only change with no
-        # kaval behavior delta flipped kaval's staleKey and fired a spurious
-        # nudge. A spine change that DOES matter to the wire bumps the contract
-        # (hashed via kaval/src) → recycle-on-skew converges it, a separate
-        # sanctioned signal. (padi's leaves are only the framework tier — its
-        # staleness response is a cheap auto-drain, so over-firing is harmless.)
-        "@kolu/surface-daemon"
-        # `@kolu/surface` — the framework "electricity", a stable drishti-gated
-        # volatility boundary, excluded for the same contract-shaped reason as
-        # the spine it underlies.
-        "@kolu/surface"
-        # `@kolu/xterm-kit` — the graduated xterm machinery; kaval consumes only
-        # its runtime-neutral core (the mirror anchor + snapToWrapHead). The
-        # anchor's kaval-relevant behavioral surface (the absolute-line
-        # coordinates getHistory pages by) IS part of PTY_HOST_CONTRACT_VERSION,
-        # which lives in kaval and IS hashed — a wire-breaking anchor change
-        # rides the contract bump, while a browser-only /solid or /backfill
-        # change must not fire kaval's PTY-costing currency nudge.
-        "@kolu/xterm-kit"
-        # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
-        # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
-        # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
-        # field, which lives in `ptyHostSurface` (kaval) and IS hashed via
-        # PTY_HOST_CONTRACT_VERSION — so a wire-relevant quoting change rides
-        # the contract bump; a browser-irrelevant leaf change must not nudge.
-        "@kolu/shell-quote"
-        # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
-        "@kolu/heap-diag"
-        # `osfacts-client` — the TypeScript face of the baked osfacts binary,
-        # used only for start-qualified process identity at the pid-gate (UW4).
-        # Its wire is the binary's TSV, not kaval's PTY contract; a client-only
-        # change must not fire the nudge.
-        "osfacts-client"
-      ];
-    };
-  };
+  } // behavioralClosureInputs {
+    entries = [ "kaval" ];
+    stableLeaves = [
+      # `@kolu/surface-daemon` (the transport SPINE) runs in the kaval binary
+      # but is DELIBERATELY NOT in kaval's currency slice (#L3). kaval's
+      # staleKey drives ONLY the human "update available" nudge, and acting on
+      # it RECYCLES kaval — killing live PTYs. The spine's behavioral surface
+      # to a consumer IS the wire contract (`PTY_HOST_CONTRACT_VERSION`, in
+      # kaval/src): a contract-COMPATIBLE spine change is behaviorally
+      # interchangeable BY THE CONTRACT'S DEFINITION, so keying currency on
+      # the spine double-counts what the contract already covers and
+      # over-fires the nudge on every compatible spine refactor. This was paid
+      # for in production (zest, 2026-07-03): a spine-only change with no
+      # kaval behavior delta flipped kaval's staleKey and fired a spurious
+      # nudge. A spine change that DOES matter to the wire bumps the contract
+      # (hashed via kaval/src) → recycle-on-skew converges it, a separate
+      # sanctioned signal. (padi's leaves are only the framework tier — its
+      # staleness response is a cheap auto-drain, so over-firing is harmless.)
+      "@kolu/surface-daemon"
+      # `@kolu/surface` — the framework "electricity", a stable drishti-gated
+      # volatility boundary, excluded for the same contract-shaped reason as
+      # the spine it underlies.
+      "@kolu/surface"
+      # `@kolu/xterm-kit` — the graduated xterm machinery; kaval consumes only
+      # its runtime-neutral core (the mirror anchor + snapToWrapHead). The
+      # anchor's kaval-relevant behavioral surface (the absolute-line
+      # coordinates getHistory pages by) IS part of PTY_HOST_CONTRACT_VERSION,
+      # which lives in kaval and IS hashed — a wire-breaking anchor change
+      # rides the contract bump, while a browser-only /solid or /backfill
+      # change must not fire kaval's PTY-costing currency nudge.
+      "@kolu/xterm-kit"
+      # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
+      # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
+      # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
+      # field, which lives in `ptyHostSurface` (kaval) and IS hashed via
+      # PTY_HOST_CONTRACT_VERSION — so a wire-relevant quoting change rides
+      # the contract bump; a browser-irrelevant leaf change must not nudge.
+      "@kolu/shell-quote"
+      # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
+      "@kolu/heap-diag"
+      # `osfacts-client` — the TypeScript face of the baked osfacts binary,
+      # used only for start-qualified process identity at the pid-gate (UW4).
+      # Its wire is the binary's TSV, not kaval's PTY contract; a client-only
+      # change must not fire the nudge.
+      "osfacts-client"
+    ];
+  });
 
   # padi's staleKey (W2.2) — the twin of kaval's, one layer up. padi is the
   # per-host terminal-workspace daemon; `PADI_BUILD_ID` (baked below) hashes the
@@ -298,36 +311,35 @@ let
   # behavioral slice (see mkDaemonIdentity's doorstep). The only leaves are the
   # framework tier and instrumentation below. `padiBuildIdOverride` (TEST-ONLY)
   # forces the id.
-  padiIdentity = mkDaemonIdentity {
+  padiIdentity = mkDaemonIdentity ({
     name = "padi";
     prefix = "PADI";
     # Repo root (not packages/): osfacts-client lives under osfacts/.
     root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
-    behavioralFileset = behavioralClosureFileset {
-      entries = [ "@kolu/padi" ];
-      stableLeaves = [
-        # The `@kolu/surface*` framework tier — the "electricity", a stable,
-        # drishti-gated volatility boundary. Its behavioral surface to a
-        # consumer is its API contract; a compatible framework refactor must
-        # not drain every padi on every host. (surface-remote + surface-map
-        # are in padi's closure only for the CLIENT dial kit that ships in the
-        # same package; same tier, same exclusion.)
-        "@kolu/surface"
-        "@kolu/surface-remote"
-        "@kolu/surface-map"
-        # `@kolu/xterm-kit` — reached only through kaval's embedded library
-        # (the runtime-neutral mirror-anchor core). Its daemon-relevant
-        # behavioral surface rides PTY_HOST_CONTRACT_VERSION, which lives in
-        # kaval's src and IS hashed here — a browser-only change must not
-        # flip padi's key.
-        "@kolu/xterm-kit"
-        # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
-        "@kolu/heap-diag"
-      ];
-    };
-  };
+  } // behavioralClosureInputs {
+    entries = [ "@kolu/padi" ];
+    stableLeaves = [
+      # The `@kolu/surface*` framework tier — the "electricity", a stable,
+      # drishti-gated volatility boundary. Its behavioral surface to a
+      # consumer is its API contract; a compatible framework refactor must
+      # not drain every padi on every host. (surface-remote + surface-map
+      # are in padi's closure only for the CLIENT dial kit that ships in the
+      # same package; same tier, same exclusion.)
+      "@kolu/surface"
+      "@kolu/surface-remote"
+      "@kolu/surface-map"
+      # `@kolu/xterm-kit` — reached only through kaval's embedded library
+      # (the runtime-neutral mirror-anchor core). Its daemon-relevant
+      # behavioral surface rides PTY_HOST_CONTRACT_VERSION, which lives in
+      # kaval's src and IS hashed here — a browser-only change must not
+      # flip padi's key.
+      "@kolu/xterm-kit"
+      # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
+      "@kolu/heap-diag"
+    ];
+  });
 
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every
   # package. Reuses this build's `src` + `pnpmDeps` — every package with a
@@ -953,10 +965,11 @@ let
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
   # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
-  # Its derivation lives next to its source; it has its OWN flake.nix for a
-  # later move to its own repo, and that flake wants one definition, not a
-  # copy of this one. Both paths import ./osfacts/default.nix.
-  osfacts = import ./osfacts { inherit pkgs; };
+  # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
+  # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
+  # exactly as it built the in-tree one. Kept as a kolu package output because
+  # `nix run .#osfacts` is how a kolu checkout reaches the sampler it bakes.
+  osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;

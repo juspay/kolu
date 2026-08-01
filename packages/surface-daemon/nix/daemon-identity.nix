@@ -59,6 +59,15 @@
 , root        # the fileset.toSource root (a common ancestor of behavioralFileset)
 , behavioralFileset # WHAT counts as this daemon's behavior — ITS OWN decision (see above)
 , commitHash  # the navigable git ref this build was made from
+  # Store paths of behavioral closure members that live OUTSIDE `root` — a package
+  # grafted in from a pin rather than checked in (kolu's `osfacts-client`, from the
+  # npins `osfacts` pin). A repo-rooted fileset cannot carry them, and DROPPING them
+  # is the silent-escape failure this whole recipe exists to prevent: the derivation
+  # would move on a pin bump while the id stood still, leaving a rebuilt daemon
+  # carrying an unchanged identity (juspay/kolu#2094). A store path already changes
+  # iff its contents do, so hashing the path IS hashing the source — the same
+  # content-addressed trick `fileset.toSource` uses one line below.
+, extraKeyInputs ? [ ]
 , override ? null # TEST-ONLY: force the build id for a build-skew VM arm; real builds hash
 }:
 let
@@ -67,10 +76,14 @@ let
   # to a stable, platform-independent 64-char id. Computed PURELY in Nix (no IFD), so
   # `nix flake check` evaluates every output without realising a build mid-eval.
   src = lib.fileset.toSource { inherit root; fileset = behavioralFileset; };
+  # One line per input, so an empty `extraKeyInputs` hashes the bare `${src}` string
+  # exactly as before — adding this parameter moves no existing daemon's id.
   buildId =
     if override != null
     then override
-    else builtins.hashString "sha256" "${src}";
+    else
+      builtins.hashString "sha256"
+        (lib.concatStringsSep "\n" ([ "${src}" ] ++ extraKeyInputs));
 in
 {
   inherit buildId;

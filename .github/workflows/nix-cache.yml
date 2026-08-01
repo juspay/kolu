@@ -143,9 +143,9 @@ jobs:
           # `pages.yml` reads this cache but never writes it, so the website's
           # closure in particular had no writer at all.
           #
-          # ./osfacts is absent because it builds the SAME derivation as
-          # `.#osfacts` (ci/mod.just:369, the vazhi pattern), so `warm .` has
-          # already covered it. The two example subflakes are absent for a
+          # ./osfacts is absent because the tool left the tree (OSF5) — kolu
+          # pins it, `.#osfacts` builds the pinned source, and `warm .` covers
+          # that like any other package. The two example subflakes are absent for a
           # different and weaker reason — they are genuinely uncovered, but they
           # only build docsites that nobody substitutes locally. If that stops
           # being true, add them here; do not assume they are warm.
