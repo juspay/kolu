@@ -29,6 +29,26 @@
 # hashString-over-`fileset.toSource` recipe + the `--set` bake here are the shared
 # ELECTRICITY. (A spine change that DOES matter bumps the wire contract, which the
 # supervisor's recycle-on-skew converges as a separate, sanctioned signal.)
+#
+# Prefer DERIVING the fileset over listing it by hand: kolu computes each daemon's set from
+# its package.json `dependencies` closure minus a short, documented `stableLeaves` policy
+# list (default.nix + nix/workspace.nix's depClosure, juspay/kolu#2094) — a hand-kept file
+# list can silently drift from what the process loads (a rebuilt daemon carrying an
+# unchanged identity), and the surviving failure direction of a derived set is a harmless
+# extra flip, never a silent escape.
+#
+# ── What the staleKey deliberately does NOT cover: the runtime ENGINE ────────────────────
+# A nixpkgs bump that swaps the daemon's Node/tsx moves the DERIVATION but not this id
+# (juspay/kolu#2094's open question — answered: deliberate, with a bounded cost). The id is
+# a hash of SOURCE, byte-identical across platforms, because a client on one platform
+# compares its baked "expected" id against a daemon provisioned on another — folding
+# platform-dependent runtime store paths in would make every cross-platform comparison a
+# false mismatch. The cost is bounded staleness: an engine-only deploy is adopted, not
+# converged, until the next source change flips the key (in practice: days, and an engine
+# bump that changes observable behaviour is precisely a wire-contract/package.json event,
+# which IS keyed). A platform-independent engine marker (e.g. nodejs.version) could close
+# even that window, at the price of nudging kaval's human on every nixpkgs bump — rejected
+# while the recorded incidents all point the other way (over-firing, not under-firing).
 { lib }:
 { name        # the daemon's name (for labels/errors)
 , prefix      # its identity-env namespace: "KAVAL", "PADI", …
