@@ -430,10 +430,14 @@ const CodeTab: Component<{
         // The loaded levels were read out of the PREVIOUS repo, and repo-
         // relative keys collide across repos (`out/` exists in both), so
         // keeping them would paint one repo's build output inside another's.
-        // This reaches only what has already landed — a read still in flight is
-        // caught by the slot check in `loadLazyDirectory`'s own callbacks.
+        // Aborting first covers the reads still in flight, which would
+        // otherwise resolve afterwards and write the previous repo's listing
+        // into the new repo's map under an identical folder name. The tree's
+        // own record of which lazy directories are open is invalidated by the
+        // same signal, via `lazyEpoch` below.
+        for (const ctl of inFlight.values()) ctl.abort();
+        inFlight.clear();
         setLoadedChildren(new Map());
-        loadGeneration.clear();
       },
       { defer: true },
     ),
@@ -488,42 +492,44 @@ const CodeTab: Component<{
     ReadonlyMap<string, readonly string[]>
   >(new Map());
 
-  // Newest issued read per directory. A rapid expand → collapse → expand is
-  // three store ticks, so the second expand fires before the first read has
-  // resolved — two calls in flight for one `dirPath`. Promises resolve in
-  // completion order, not issue order, so without this the SLOWER first
-  // response would land last and overwrite the fresher listing with the staler
-  // one. Only the newest generation may write. Not reactive: nothing renders
-  // from it, it only arbitrates between two callbacks.
-  const loadGeneration = new Map<string, number>();
+  // The newest read per directory, as a controller rather than a bookkeeping
+  // pair. A rapid expand → collapse → expand is three store ticks, so the
+  // second expand fires before the first read resolves — two calls in flight
+  // for one `dirPath`, resolving in completion order rather than issue order.
+  // A repo/host switch supersedes every read the same way, since
+  // `loadedChildren` is keyed by a REPO-RELATIVE path and those collide across
+  // repos by construction (`out/`, `dist/`, `node_modules/`).
+  //
+  // Aborting the predecessor makes "is this response still wanted" ONE fact
+  // both callbacks read, rather than two conditions each has to repeat and can
+  // drift on — and it stops the superseded readdir server-side instead of
+  // racing it. Not reactive: nothing renders from it.
+  const inFlight = new Map<string, AbortController>();
 
-  const loadLazyDirectory = (dirPath: string): void => {
+  const loadLazyDirectory = (dirPath: string): Promise<void> => {
     const p = repoPath();
-    if (!p) return;
-    // The slot this read belongs to. `loadedChildren` is keyed by a REPO-
-    // RELATIVE path, and those collide across repos by construction (`out/`,
-    // `dist/`, `node_modules/`) — which is exactly why the `slotKey` effect
-    // clears the map on a switch. That clear can only reach values already
-    // resident: a read still in flight resolves afterwards and would write the
-    // PREVIOUS repo's listing into the new repo's map under an identical
-    // folder name. Capture the slot at issue time and drop a response that
-    // outlived it — the toast too, since a failure belongs to the repo the
-    // user has already left.
-    const issuedSlot = slotKey();
-    const generation = (loadGeneration.get(dirPath) ?? 0) + 1;
-    loadGeneration.set(dirPath, generation);
-    activePadiRpc.fs
-      .listDirectory({ repoPath: p, dirPath })
+    if (!p) return Promise.resolve();
+    inFlight.get(dirPath)?.abort();
+    const ctl = new AbortController();
+    inFlight.set(dirPath, ctl);
+    return activePadiRpc.fs
+      .listDirectory({ repoPath: p, dirPath }, { signal: ctl.signal })
       .then((result) => {
-        if (slotKey() !== issuedSlot) return;
-        if (loadGeneration.get(dirPath) !== generation) return;
+        if (ctl.signal.aborted) return;
         // A fresh Map per write: the merge memo reads this by reference, and an
         // in-place `set` would leave the tree painting the previous level.
         setLoadedChildren((prev) => new Map(prev).set(dirPath, result.paths));
       })
       .catch((err: Error) => {
-        if (slotKey() !== issuedSlot) return;
+        // A superseded read owns no outcome — neither the write nor the toast,
+        // since a failure that belongs to a repo the user has already left is
+        // not theirs to see.
+        if (ctl.signal.aborted) return;
         toast.error(`Failed to list ${dirPath}: ${err.message}`);
+        // Re-throw so `<FileTree>` forgets the expansion it recorded: without
+        // that the folder stays open-and-empty for the rest of the mount with
+        // no way to refetch short of collapsing it by hand.
+        throw err;
       });
   };
 
@@ -711,7 +717,10 @@ const CodeTab: Component<{
     // so there is no overlay and no collapsed directory to expand. Built
     // through the type's own constructor so a new field can't be forgotten here.
     return {
-      ...diffInventory(status()?.files.map((f) => f.path) ?? [], statusPending()),
+      ...diffInventory(
+        status()?.files.map((f) => f.path) ?? [],
+        statusPending(),
+      ),
       // Diff-status results are not owner-stamped. A user open in these modes
       // takes the fixed-host fresh-read path instead of trusting this inventory.
       scope: null,
@@ -1185,6 +1194,14 @@ const CodeTab: Component<{
                       // expand has to go read them (#2091).
                       lazyDirectories={treeInventory().lazyDirs}
                       onExpandLazyDirectory={loadLazyDirectory}
+                      // Invalidate the wrapper's record of which lazy
+                      // directories are open on the same signal that clears the
+                      // loaded levels above — two halves of one fact. Without
+                      // it a key present in BOTH repos (`node_modules/`,
+                      // `dist/`) survives a retained switch still recorded, so
+                      // no expand is reported and the user lands on an open,
+                      // empty folder (#2091's symptom).
+                      lazyEpoch={slotKey()}
                       initialExpansion={isDiffView() ? "open" : "closed"}
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}
