@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { isFileGoneError } from "./errors.ts";
 
 /** `isFileGoneError` is the ONE authority for "is this failure a missing path?".
- *  Both the kolu-git leaf that mints `FILE_GONE` and servePadi's
- *  `fileGoneAsNotFound` wire mapping read it, and a true answer becomes a typed
- *  `NOT_FOUND` that consumers deliberately SWALLOW as an expected deletion — so
- *  a false positive here hides a real fault rather than merely mislabelling it. */
+ *  Every kolu-git read that can lose its file underneath it (`readFile`,
+ *  `filePreviewTag`, `listDirectory`) calls it to mint a `FILE_GONE` result,
+ *  which `unwrapGit` then maps to a typed `NOT_FOUND` that consumers
+ *  deliberately SWALLOW as an expected deletion — so a false positive here
+ *  hides a real fault rather than merely mislabelling it. */
 describe("isFileGoneError", () => {
   it("classifies a native ENOENT from its code", () => {
     expect(

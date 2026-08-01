@@ -7,9 +7,10 @@
  * bearing — and `recycleKaval`'s catch rethrows it PLAIN, so oRPC's
  * `toORPCError` collapses it to `INTERNAL_SERVER_ERROR` and the browser toast
  * reads "Internal server error". The handler is the one layer that KNOWS what
- * the error means (the `fileGoneAsNotFound` precedent, servePadi.ts), so the
- * skew must be rethrown as a typed `ORPCError("KAVAL_CONTRACT_SKEW")` carrying
- * both versions as DATA — never prose the client would have to re-parse.
+ * the error means (the same precedent as `unwrapGit`'s `FILE_GONE` →
+ * `NOT_FOUND` mapping, kolu-git/errors.ts), so the skew must be rethrown as a
+ * typed `ORPCError("KAVAL_CONTRACT_SKEW")` carrying both versions as DATA —
+ * never prose the client would have to re-parse.
  *
  * Red today: the rejection reaching the caller is the plain skew error, not
  * the typed ORPCError. A non-skew failure must keep rethrowing untouched (the

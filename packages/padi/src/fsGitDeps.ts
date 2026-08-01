@@ -57,10 +57,12 @@ function changePulseSource(
  *
  *  **STREAMS-ONLY, deliberately: the fs/git PROCEDURES live in `servePadi`, which
  *  carries semantics the retired `serveFsGit` never had** — the ENOENT→NOT_FOUND
- *  mapping (`fileGoneAsNotFound`) and the worktree create/remove mutations. This
- *  helper absorbed only the *pulse* streams when `terminalWorkspaceSurface` was
- *  deleted (W2.3); pulling the procedures in here to "finish the dedupe" would
- *  REGRESS that richer serving. Keep the procedures in `servePadi`. */
+ *  mapping (each kolu-git read returns a structural `FILE_GONE` member that
+ *  `unwrapGit` maps to a typed `NOT_FOUND`) and the worktree create/remove
+ *  mutations. This helper absorbed only the *pulse* streams when
+ *  `terminalWorkspaceSurface` was deleted (W2.3); pulling the procedures in
+ *  here to "finish the dedupe" would REGRESS that richer serving. Keep the
+ *  procedures in `servePadi`. */
 export function padiFsGitDeps(
   endpoint: TerminalEndpoint,
   log: Logger,

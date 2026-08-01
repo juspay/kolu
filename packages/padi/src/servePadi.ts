@@ -508,7 +508,9 @@ export function buildPadiSurfaceDeps(deps: {
                 : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );
             // A contract skew is the ONE failure this handler can translate — it
-            // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a
+            // is the knowing endpoint (the same precedent as `unwrapGit`'s
+            // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
+            // error means must retype it, not leave it to flatten downstream): a
             // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
             // and the user would read an opaque toast (the field failure,
             // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
