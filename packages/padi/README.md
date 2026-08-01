@@ -166,7 +166,7 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 
 ## The export map
 
-- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` 4.4 Zod contract,
+- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` Zod contract,
   the per-member **forwarding-policy** annotations (`value` = hold-open vs
   `delta` = fail-through), and the padi control types (version · drain ·
   clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
@@ -207,5 +207,7 @@ reach for as by what it owns:
   `package = process = staleKey` — and owns its kaval.
 - **W3.1 — shipped:** local and remote binders consume the same complete surface;
   the PWA, kolu-server, kolu CLI/MCP, and padi-tui are live consumers.
-- **Current contract:** `padiSurface` 4.4; exact member/policy coverage and
-  version pins live in `src/surface.test.ts`.
+- **Current contract:** the version is `PADI_SURFACE_VERSION` in `src/surface.ts`
+  (whose comment carries the per-bump history); exact member/policy coverage and
+  version pins live in `src/surface.test.ts`. Deliberately not restated here — a
+  hardcoded number drifted twice before it was noticed.

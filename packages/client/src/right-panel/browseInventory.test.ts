@@ -13,10 +13,12 @@ describe("mergeBrowseInventory", () => {
       // The defect: reading `undefined` as `[]` left nothing to subtract
       // against, so the whole overlay was admitted and the tree painted as
       // nothing but dimmed rows during a repo/host switch.
-      const out = mergeBrowseInventory(undefined, ["node_modules/", ".env"], {
-        ...settled,
-        trackedPending: true,
-      });
+      const out = mergeBrowseInventory(
+        undefined,
+        ["node_modules/", ".env"],
+        undefined,
+        { ...settled, trackedPending: true },
+      );
       expect(out.paths).toEqual([]);
       expect(out.ignored).toEqual([]);
       expect(out.pending).toBe(true);
@@ -34,11 +36,12 @@ describe("mergeBrowseInventory", () => {
       // is already `false`, and a readiness-based gate would admit the whole
       // overlay: a tree of nothing but dimmed rows, on the exact screen where
       // the file list just failed to load.
-      const out = mergeBrowseInventory(undefined, ["node_modules/", ".env"], {
-        trackedPending: false,
-        ignoredPending: false,
-        showIgnored: true,
-      });
+      const out = mergeBrowseInventory(
+        undefined,
+        ["node_modules/", ".env"],
+        undefined,
+        { trackedPending: false, ignoredPending: false, showIgnored: true },
+      );
       expect(out.paths).toEqual([]);
       expect(out.ignored).toEqual([]);
       // Asserted so readiness can't be smuggled in as the reason for the blank.
@@ -49,7 +52,12 @@ describe("mergeBrowseInventory", () => {
       // An empty repo IS an authority — it says "nothing is tracked" — so the
       // overlay is admitted in full. This is the case `undefined` was being
       // conflated with.
-      const out = mergeBrowseInventory([], ["node_modules/"], settled);
+      const out = mergeBrowseInventory(
+        [],
+        ["node_modules/"],
+        undefined,
+        settled,
+      );
       expect(out.paths).toEqual(["node_modules/"]);
       expect(out.ignored).toEqual(["node_modules/"]);
     });
@@ -63,6 +71,7 @@ describe("mergeBrowseInventory", () => {
       const out = mergeBrowseInventory(
         ["src/app.ts", "build.log"],
         ["build.log", "node_modules/"],
+        undefined,
         settled,
       );
       expect(out.paths).toEqual(["src/app.ts", "build.log", "node_modules/"]);
@@ -72,7 +81,12 @@ describe("mergeBrowseInventory", () => {
     });
 
     it("keeps the overlay a strict subset of the rendered paths", () => {
-      const out = mergeBrowseInventory(["a.ts"], ["b.log", "a.ts"], settled);
+      const out = mergeBrowseInventory(
+        ["a.ts"],
+        ["b.log", "a.ts"],
+        undefined,
+        settled,
+      );
       // The concrete expectation, not a loop over `out.ignored` — an empty
       // overlay would satisfy a loop vacuously, which is the failure mode this
       // case exists to catch.
@@ -91,6 +105,7 @@ describe("mergeBrowseInventory", () => {
       const out = mergeBrowseInventory(
         [".claude/skills/foo.md"],
         [".claude/"],
+        undefined,
         settled,
       );
       expect(out.paths).toEqual([".claude/skills/foo.md"]);
@@ -102,7 +117,7 @@ describe("mergeBrowseInventory", () => {
     it("ignores the overlay's readiness while the toggle is OFF", () => {
       // An idle createPolledQuery stays pending forever, so folding it in
       // unconditionally would wedge the tree permanently pending.
-      const out = mergeBrowseInventory(["a.ts"], undefined, {
+      const out = mergeBrowseInventory(["a.ts"], undefined, undefined, {
         trackedPending: false,
         ignoredPending: true,
         showIgnored: false,
@@ -111,7 +126,7 @@ describe("mergeBrowseInventory", () => {
     });
 
     it("counts the overlay's readiness while the toggle is ON", () => {
-      const out = mergeBrowseInventory(["a.ts"], undefined, {
+      const out = mergeBrowseInventory(["a.ts"], undefined, undefined, {
         trackedPending: false,
         ignoredPending: true,
         showIgnored: true,
@@ -121,7 +136,7 @@ describe("mergeBrowseInventory", () => {
 
     it("is pending whenever the tracked listing is, toggle regardless", () => {
       for (const showIgnored of [true, false]) {
-        const out = mergeBrowseInventory(["a.ts"], [], {
+        const out = mergeBrowseInventory(["a.ts"], [], undefined, {
           trackedPending: true,
           ignoredPending: false,
           showIgnored,
@@ -131,11 +146,192 @@ describe("mergeBrowseInventory", () => {
     });
   });
 
+  describe("rule 4 — a loaded directory yields to its children", () => {
+    it("replaces the collapsed row with the level that was fetched", () => {
+      // The defect (#2091): `git ls-files --directory` collapses a wholly
+      // ignored directory to one entry, so `blog/out/` reached Pierre as a
+      // childless row with a working chevron — expanding it opened onto
+      // nothing while the directory held six files on disk.
+      const out = mergeBrowseInventory(
+        ["blog/000.md"],
+        ["blog/out/"],
+        new Map([["blog/out/", ["blog/out/000.html", "blog/out/style.css"]]]),
+        settled,
+      );
+      expect(out.paths).toEqual([
+        "blog/000.md",
+        "blog/out/000.html",
+        "blog/out/style.css",
+      ]);
+      // The collapsed key must not ride alongside its own children — that
+      // mixed inventory is what froze the tab on a non-recursive remove.
+      expect(out.paths).not.toContain("blog/out/");
+    });
+
+    it("dims the fetched children AND the folder they replaced", () => {
+      // `ignored` is consumed by exactly one thing — the shadow sheet that dims
+      // rows. A loaded directory's key leaves `paths`, but Pierre still paints
+      // its row (inferred from the children's prefixes) and it is still
+      // ignored: dropping it here un-dimmed the folder at the exact moment the
+      // user opened it, with its children dimmed below.
+      const out = mergeBrowseInventory(
+        ["blog/000.md"],
+        ["blog/out/"],
+        new Map([["blog/out/", ["blog/out/000.html"]]]),
+        settled,
+      );
+      expect(out.ignored.sort()).toEqual(
+        ["blog/out/", "blog/out/000.html"].sort(),
+      );
+    });
+
+    it("applies rule 2's membership test to loaded children too", () => {
+      // `overlay ∩ tracked = ∅` is what stops a mixed inventory reaching
+      // Pierre: a duplicate in `paths` makes `pathDiffOperations` emit two
+      // `add` ops for one path, Pierre throws, and the `resetPaths` recovery
+      // discards every hand-expanded folder (#2049's shape).
+      //
+      // Rule 2's PREFIX leg already covers the well-formed case — a level read
+      // at click time whose entries are all under its own directory key can
+      // only collide with tracked if that key had tracked children, which drops
+      // it from `surviving` first. This pins the MEMBERSHIP half as the second,
+      // independent guard, on the input the prefix leg cannot see: a cache
+      // entry naming a path outside its own key (a stale or foreign level).
+      const out = mergeBrowseInventory(
+        ["src/app.ts"],
+        ["out/"],
+        new Map([["out/", ["out/gen.js", "src/app.ts"]]]),
+        settled,
+      );
+      expect(out.paths.filter((p) => p === "src/app.ts")).toEqual([
+        "src/app.ts",
+      ]);
+      expect(out.paths).toContain("out/gen.js");
+    });
+
+    it("keeps a child directory collapsed and lazy in its turn", () => {
+      // One cheap level per click: a nested ignored directory arrives as its
+      // own trailing-slash row rather than being enumerated eagerly, which is
+      // what keeps expanding `node_modules/` from listing 100k paths.
+      const out = mergeBrowseInventory(
+        [],
+        ["node_modules/"],
+        new Map([
+          ["node_modules/", ["node_modules/solid-js/", "node_modules/.bin/"]],
+        ]),
+        settled,
+      );
+      expect(out.paths).toEqual([
+        "node_modules/solid-js/",
+        "node_modules/.bin/",
+      ]);
+      expect(out.lazyDirs).toContain("node_modules/solid-js/");
+      expect(out.lazyDirs).toContain("node_modules/.bin/");
+    });
+
+    it("expands a nested load through both levels", () => {
+      const out = mergeBrowseInventory(
+        [],
+        ["blog/out/"],
+        new Map([
+          ["blog/out/", ["blog/out/index.html", "blog/out/assets/"]],
+          ["blog/out/assets/", ["blog/out/assets/logo.png"]],
+        ]),
+        settled,
+      );
+      expect(out.paths).toEqual([
+        "blog/out/index.html",
+        "blog/out/assets/logo.png",
+      ]);
+      // Both directories stay watchable so a re-expand of EITHER refetches —
+      // nothing watches an ignored path, so reopening is the refresh gesture.
+      expect(out.lazyDirs).toEqual(["blog/out/", "blog/out/assets/"]);
+    });
+
+    it("names the collapsed directories lazy even before anything is loaded", () => {
+      // The wrapper can only report an expansion for a row the host named, so
+      // an un-loaded collapsed directory must appear here from the start.
+      const out = mergeBrowseInventory(
+        ["a.ts"],
+        ["node_modules/", ".env"],
+        undefined,
+        settled,
+      );
+      expect(out.lazyDirs).toEqual(["node_modules/"]);
+      // A plain ignored FILE is not expandable and must not be watched.
+      expect(out.lazyDirs).not.toContain(".env");
+    });
+
+    it("keeps the row for a directory that reads back EMPTY", () => {
+      // Regression: `[]` is not `undefined`, so an empty read took the "loaded"
+      // branch and substituted the collapsed key for nothing at all — the key
+      // left `paths`, Pierre had no prefix left to infer the folder from, and
+      // the row the user had just clicked vanished from the tree. Worse than
+      // the #2091 bug it replaced: there was no longer a folder to click again.
+      //
+      // Reachable with no race: `git ls-files --others --ignored --directory`
+      // reports a permanently-empty ignored directory in the overlay directly.
+      const out = mergeBrowseInventory(
+        ["a.ts"],
+        ["build/"],
+        new Map([["build/", []]]),
+        settled,
+      );
+      expect(out.paths).toEqual(["a.ts", "build/"]);
+      expect(out.ignored).toEqual(["build/"]);
+      // Still expandable, so a reopen re-reads it once the build repopulates.
+      expect(out.lazyDirs).toEqual(["build/"]);
+    });
+
+    it("keeps an empty NESTED directory revealed by its parent's load", () => {
+      const out = mergeBrowseInventory(
+        [],
+        ["out/"],
+        new Map([
+          ["out/", ["out/index.html", "out/assets/"]],
+          ["out/assets/", []],
+        ]),
+        settled,
+      );
+      expect(out.paths).toEqual(["out/index.html", "out/assets/"]);
+      expect(out.lazyDirs).toEqual(["out/", "out/assets/"]);
+    });
+
+    it("drops children for a directory tracked has since claimed", () => {
+      // Rule 2 already removes such an overlay dir; its stale children must go
+      // with it, or a `.gitignore` edit would leave a ghost subtree behind
+      // alongside the tracked files that now own the prefix.
+      const out = mergeBrowseInventory(
+        [".claude/skills/foo.md"],
+        [".claude/"],
+        new Map([[".claude/", [".claude/settings.json"]]]),
+        settled,
+      );
+      expect(out.paths).toEqual([".claude/skills/foo.md"]);
+      expect(out.ignored).toEqual([]);
+      expect(out.lazyDirs).toEqual([]);
+    });
+
+    it("ignores children for a directory absent from the overlay", () => {
+      // A cache entry outliving its directory (the `.gitignore` stopped
+      // ignoring it, or it was deleted) must not resurrect rows.
+      const out = mergeBrowseInventory(
+        ["a.ts"],
+        ["node_modules/"],
+        new Map([["build/", ["build/out.js"]]]),
+        settled,
+      );
+      expect(out.paths).toEqual(["a.ts", "node_modules/"]);
+      expect(out.paths).not.toContain("build/out.js");
+    });
+  });
+
   it("settles to exactly the tracked listing when nothing is ignored", () => {
-    const out = mergeBrowseInventory(["a.ts", "b.ts"], [], settled);
+    const out = mergeBrowseInventory(["a.ts", "b.ts"], [], undefined, settled);
     expect(out).toEqual({
       paths: ["a.ts", "b.ts"],
       ignored: [],
+      lazyDirs: [],
       pending: false,
     });
   });

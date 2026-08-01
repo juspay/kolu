@@ -38,66 +38,36 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { GitStatusEntry } from "@pierre/trees";
 import { FileTree } from "./FileTree";
+import {
+  disposeAll,
+  flush,
+  mountInto,
+  paintedRows,
+} from "./FileTree.testlib.ts";
 
-const disposers: Array<() => void> = [];
-afterEach(() => {
-  for (const d of disposers.splice(0)) d();
-});
-
-/** Pierre renders its rows under an open shadow root nested in the container;
- *  find it the same way the wrapper's own `findShadowRoot` does. */
-function findShadowRoot(el: Element): ShadowRoot | null {
-  if (el.shadowRoot) return el.shadowRoot;
-  for (const child of el.children) {
-    const found = findShadowRoot(child);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** Let Solid's deferred effect push the change into Pierre and Pierre's Preact
- *  view re-render. Both are *scheduled*, not synchronous, so a repaint
- *  assertion has to yield first. Waiting cannot mask the failure this file
- *  guards: a change that never bumps the view's revision never repaints, no
- *  matter how long the test waits. */
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** The paths Pierre currently has painted, in DOM order. */
-function paintedRows(root: ShadowRoot): string[] {
-  return [...root.querySelectorAll("[data-item-path]")].map(
-    (n) => (n as HTMLElement).dataset.itemPath as string,
-  );
-}
+afterEach(disposeAll);
 
 /** Mount a real Pierre tree driven by a reactive `paths` signal, and hand back
  *  the setter plus Pierre's shadow root so a test can mutate and re-read. */
 function mountTree(initial: string[], gitStatus?: GitStatusEntry[]) {
   const [paths, setPaths] = createSignal(initial);
   const [status, setStatus] = createSignal(gitStatus);
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const dispose = render(
-    () => (
-      <FileTree
-        paths={paths()}
-        gitStatus={status()}
-        initialExpansion="open"
-        search={false}
-        onError={(err) => {
-          throw err;
-        }}
-      />
+  const root = mountInto((host) =>
+    render(
+      () => (
+        <FileTree
+          paths={paths()}
+          gitStatus={status()}
+          initialExpansion="open"
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
     ),
-    host,
   );
-  disposers.push(dispose, () => host.remove());
-  const container = host.querySelector(
-    '[data-testid="pierre-file-tree"]',
-  ) as HTMLElement;
-  const root = findShadowRoot(container);
-  if (!root) throw new Error("Pierre mounted no shadow root");
   return { setPaths, setStatus, root };
 }
 
