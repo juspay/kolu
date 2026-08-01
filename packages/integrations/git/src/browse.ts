@@ -105,6 +105,11 @@ export async function listIgnored(
   );
 }
 
+/** How many symlink `stat`s `listDirectory` keeps in flight at once. Sized just
+ *  above libuv's default 4-thread filesystem pool, so the pool stays fed without
+ *  queueing work it cannot start. */
+const STAT_CONCURRENCY = 8;
+
 /** ONE level of a directory's contents, repo-relative, with git's trailing
  *  slash on each subdirectory — the same folder-key format `listIgnored` emits,
  *  so the two listings compose in the tree without a translation step. That
@@ -160,43 +165,56 @@ export async function listDirectory(
   const { abs, rel } = resolved.value;
   try {
     const entries = await readdir(abs, { withFileTypes: true });
-    const rows: string[] = [];
-    for (const e of entries) {
+    // Row per entry, filled in place so the emitted order matches `readdir`'s
+    // regardless of the order the symlink probes below happen to settle in.
+    const rows: string[] = new Array(entries.length);
+    const links: number[] = [];
+    entries.forEach((e, i) => {
       const child = rel === "" ? e.name : `${rel}/${e.name}`;
-      if (e.isDirectory()) {
-        rows.push(`${child}/`);
-        continue;
+      if (e.isDirectory()) rows[i] = `${child}/`;
+      else {
+        rows[i] = child;
+        // `withFileTypes` has `lstat` semantics, so a symlink reports
+        // `isDirectory() === false` — and pnpm's `node_modules` is almost
+        // entirely symlinked package directories, the headline case of this
+        // whole feature. The LINK's type is therefore the wrong authority for
+        // "is this row a folder": `stat` follows it and answers from the TARGET.
+        if (e.isSymbolicLink()) links.push(i);
       }
-      if (!e.isSymbolicLink()) {
-        rows.push(child);
-        continue;
+    });
+    // Resolve the symlinks with BOUNDED concurrency. The two unbounded shapes
+    // are each wrong on the input this feature exists for — a directory that can
+    // hold six figures of entries. `Promise.all` over the level schedules one
+    // stat per symlink at once: a promise/libuv queue spike. Fully sequential
+    // pays a round trip per link, which at even a fraction of a millisecond each
+    // is tens of seconds of dead UI on one click. A small pool overlaps the I/O
+    // without ever holding more than `STAT_CONCURRENCY` requests in flight.
+    //
+    // Following a link is safe by construction — the expand this row enables
+    // goes back through `resolveExistingUnder`, whose realpath check refuses a
+    // target outside the repo, loudly.
+    //
+    // Only a BROKEN link is absorbed, staying the leaf it already is. Every
+    // other stat failure — EACCES, EIO, ELOOP, EMFILE — is a real fault, and
+    // answering it with a plain file row would both hide the fault and put back
+    // the wrong-row/EISDIR behaviour this branch exists to remove. Those escape
+    // to the catch below and fail the whole listing loudly.
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < links.length) {
+        const i = links[next++] as number;
+        const entry = entries[i] as (typeof entries)[number];
+        try {
+          const target = await stat(path.join(abs, entry.name));
+          if (target.isDirectory()) rows[i] = `${rows[i]}/`;
+        } catch (statErr: unknown) {
+          if (!isFileGoneError(statErr)) throw statErr;
+        }
       }
-      // `withFileTypes` has `lstat` semantics, so a symlink reports
-      // `isDirectory() === false` — and pnpm's `node_modules` is almost
-      // entirely symlinked package directories, the headline case of this whole
-      // feature. The LINK's type is therefore the wrong authority for "is this
-      // row a folder": `stat` follows it and answers from the TARGET.
-      // Following is safe by construction — the expand this row enables goes
-      // back through `resolveExistingUnder`, whose realpath check refuses a
-      // target outside the repo, loudly.
-      //
-      // Only a BROKEN link is absorbed: it has no target and is honestly a
-      // leaf. Every other stat failure — EACCES, EIO, ELOOP, EMFILE — is a real
-      // fault, and answering it with a plain file row would both hide the fault
-      // and put back the wrong-row/EISDIR behaviour this branch exists to
-      // remove. Those reach the catch below and fail the whole listing loudly.
-      //
-      // Sequential, not `Promise.all` over the level: a flat cache directory can
-      // hold six figures of entries, and scheduling one stat per symlink at once
-      // is a promise/libuv spike on exactly the input this feature targets.
-      let target: Awaited<ReturnType<typeof stat>> | null = null;
-      try {
-        target = await stat(path.join(abs, e.name));
-      } catch (statErr: unknown) {
-        if (!isFileGoneError(statErr)) throw statErr;
-      }
-      rows.push(target?.isDirectory() ? `${child}/` : child);
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(STAT_CONCURRENCY, links.length) }, worker),
+    );
     return ok(rows);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);

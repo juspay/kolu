@@ -31,8 +31,15 @@ export function err<T>(error: GitError): GitResult<T> {
 /** True when a caught error means "the file is gone" — a raw node `ENOENT`,
  *  however it surfaced (a native `code`, or the message when the code was lost
  *  crossing a boundary). The single source of truth for the delete-while-viewing
- *  race, shared by the kolu-git leaf that classifies its own log level and by
- *  servePadi's `fileGoneAsNotFound` wire mapping — so the two can't drift.
+ *  race, applied by every kolu-git read that can lose its file underneath it
+ *  (`readFile`, `filePreviewTag`, `listDirectory`) to pick both its log level
+ *  and its `FILE_GONE` tag.
+ *
+ *  It is called ONLY where the NATIVE error is still in hand. `unwrapGit` turns
+ *  the resulting `FILE_GONE` into a typed `NOT_FOUND` at the endpoint boundary,
+ *  so nothing downstream re-asks this question of an already-wrapped error —
+ *  servePadi used to, and that sniffing is gone precisely because a wire wrapper
+ *  carries its own `code` and would answer for the error underneath it.
  *
  *  **A native errno is authoritative, and it is consulted ALONE.** Reading the
  *  code and the message as alternatives let an error that carries its own,

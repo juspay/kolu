@@ -26,40 +26,15 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileTree } from "./FileTree";
+import {
+  disposeAll,
+  disposers,
+  flush,
+  mountInto,
+  paintedRows,
+} from "./FileTree.testlib.ts";
 
-const disposers: Array<() => void> = [];
-afterEach(() => {
-  for (const d of disposers.splice(0)) d();
-});
-
-/** Pierre renders its rows under an open shadow root nested in the container;
- *  find it the same way the wrapper's own `findShadowRoot` does. */
-function findShadowRoot(el: Element): ShadowRoot | null {
-  if (el.shadowRoot) return el.shadowRoot;
-  for (const child of el.children) {
-    const found = findShadowRoot(child);
-    if (found) return found;
-  }
-  return null;
-}
-
-/** Let Solid's deferred effect reach Pierre and Pierre's Preact view repaint —
- *  both are scheduled, not synchronous. */
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** The paths Pierre currently has painted. Sticky header rows repeat a path, so
- *  de-dupe — these assertions are about presence, not row count. */
-function paintedRows(root: ShadowRoot): string[] {
-  return [
-    ...new Set(
-      [...root.querySelectorAll("[data-item-path]")].map(
-        (n) => (n as HTMLElement).dataset.itemPath as string,
-      ),
-    ),
-  ];
-}
+afterEach(disposeAll);
 
 function mountTree(
   initial: string[],
@@ -68,29 +43,23 @@ function mountTree(
 ) {
   const [paths, setPaths] = createSignal(initial);
   const onExpandLazyDirectory = vi.fn<(path: string) => void>();
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const dispose = render(
-    () => (
-      <FileTree
-        paths={paths()}
-        lazyDirectories={lazyDirectories}
-        onExpandLazyDirectory={onExpandLazyDirectory}
-        initialExpansion={initialExpansion}
-        search={false}
-        onError={(err) => {
-          throw err;
-        }}
-      />
+  const root = mountInto((host) =>
+    render(
+      () => (
+        <FileTree
+          paths={paths()}
+          lazyDirectories={lazyDirectories}
+          onExpandLazyDirectory={onExpandLazyDirectory}
+          initialExpansion={initialExpansion}
+          search={false}
+          onError={(err) => {
+            throw err;
+          }}
+        />
+      ),
+      host,
     ),
-    host,
   );
-  disposers.push(dispose, () => host.remove());
-  const container = host.querySelector(
-    '[data-testid="pierre-file-tree"]',
-  ) as HTMLElement;
-  const root = findShadowRoot(container);
-  if (!root) throw new Error("Pierre mounted no shadow root");
   return { setPaths, root, onExpandLazyDirectory };
 }
 

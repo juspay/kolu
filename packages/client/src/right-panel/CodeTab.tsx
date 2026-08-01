@@ -536,6 +536,14 @@ const CodeTab: Component<{
         // that the folder stays open-and-empty for the rest of the mount with
         // no way to refetch short of collapsing it by hand.
         throw err;
+      })
+      .finally(() => {
+        // Retire this read's own entry. Guarded on identity so a newer read for
+        // the same directory — which replaced the entry and is still running —
+        // keeps its controller. Without this the map only ever shrank on a repo
+        // switch, so browsing many ignored folders in one repo accumulated a
+        // settled controller per directory for the life of the session.
+        if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
       });
   };
 
