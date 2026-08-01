@@ -608,20 +608,12 @@ export function buildPadiSurfaceDeps(deps: {
         listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
         listIgnored: ({ input }) => endpoint.fs.listIgnored(input.repoPath),
         // A directory cleaned between the listing and the click (a `just clean`
-        // under an open build-output row) must surface as a TYPED `NOT_FOUND`,
-        // the same delete-while-viewing shape `readFile` maps — the Code tab
-        // keeps the stale children rather than painting an empty folder as
-        // authoritative.
-        listDirectory: async ({ input }) => {
-          try {
-            return await endpoint.fs.listDirectory(
-              input.repoPath,
-              input.dirPath,
-            );
-          } catch (e) {
-            throw fileGoneAsNotFound(e, input.dirPath);
-          }
-        },
+        // under an open build-output row) surfaces as a TYPED `NOT_FOUND`
+        // already: `listDirectory` returns a `FILE_GONE` err and `unwrapGit`
+        // maps it, so no wrapper is needed here. The Code tab keeps the stale
+        // children rather than painting an empty folder as authoritative.
+        listDirectory: ({ input }) =>
+          endpoint.fs.listDirectory(input.repoPath, input.dirPath),
         // A file deleted while the Code tab is viewing it must surface as a
         // TYPED `NOT_FOUND`, not a raw ENOENT that masks to a generic error on
         // the wire: `BrowseFileDispatcher` swallows `NOT_FOUND` (delete-while-

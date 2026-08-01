@@ -16,7 +16,9 @@ import {
   open as fsOpen,
   readFile as fsReadFile,
   readdir,
+  stat,
 } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
 import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
@@ -105,7 +107,10 @@ export async function listIgnored(
 
 /** ONE level of a directory's contents, repo-relative, with git's trailing
  *  slash on each subdirectory — the same folder-key format `listIgnored` emits,
- *  so the two listings compose in the tree without a translation step.
+ *  so the two listings compose in the tree without a translation step. That
+ *  format is CONSUMED by `isDirectoryPath` in `@kolu/solid-pierre/paths`, which
+ *  declares itself the one place the trailing-slash fact is spelled; a change to
+ *  either side has to find the other, and this cross-reference is the thread.
  *
  *  This exists to answer an EXPAND of a collapsed ignored directory. Those rows
  *  are the one place the flat `listAll`/`listIgnored` snapshot deliberately
@@ -156,17 +161,34 @@ export async function listDirectory(
   try {
     const entries = await readdir(abs, { withFileTypes: true });
     return ok(
-      entries.map((e) => {
-        const child = rel === "" ? e.name : `${rel}/${e.name}`;
-        // A symlink is reported as neither file nor directory by `withFileTypes`
-        // (no stat is performed); leaving it slash-free renders it as a leaf,
-        // which is the honest row for something we will not follow.
-        return e.isDirectory() ? `${child}/` : child;
-      }),
+      await Promise.all(
+        entries.map(async (e) => {
+          const child = rel === "" ? e.name : `${rel}/${e.name}`;
+          if (e.isDirectory()) return `${child}/`;
+          if (!e.isSymbolicLink()) return child;
+          // `withFileTypes` has `lstat` semantics, so a symlink reports
+          // `isDirectory() === false` — and pnpm's `node_modules` is almost
+          // entirely symlinked package directories, the headline case of this
+          // whole feature. The LINK's type is therefore the wrong authority for
+          // "is this row a folder": `stat` follows it and answers from the
+          // TARGET. A broken link has no target and stays the leaf it is.
+          // Following is safe by construction — the expand this row enables
+          // goes back through `resolveExistingUnder`, whose realpath check
+          // refuses a target outside the repo, loudly.
+          const target = await stat(path.join(abs, e.name)).catch(() => null);
+          return target?.isDirectory() ? `${child}/` : child;
+        }),
+      ),
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log?.error({ err: msg, repoPath, dirPath }, "listDirectory failed");
+    // A directory cleaned between the listing and the click gets its OWN tag,
+    // not `GIT_FAILED` (no git subprocess ran here): `unwrapGit` maps it to a
+    // typed `NOT_FOUND` structurally, rather than the wire contract resting on
+    // an errno string surviving two re-wraps intact.
+    if (isFileGoneError(e))
+      return err({ code: "FILE_GONE", path: dirPath, message: msg });
     return err({
       code: "GIT_FAILED",
       message: `Failed to list directory: ${msg}`,
@@ -204,6 +226,11 @@ export async function readFile(
     return ok({ content: buf.toString("utf-8"), truncated: false });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Same structural classification as `listDirectory`: the delete-while-
+    // viewing race is its own tag, so the typed `NOT_FOUND` on the wire comes
+    // from the sum type rather than from re-sniffing a re-wrapped message.
+    if (isFileGoneError(e))
+      return err({ code: "FILE_GONE", path: filePath, message: msg });
     return err({ code: "GIT_FAILED", message: `Failed to read file: ${msg}` });
   }
 }

@@ -182,6 +182,39 @@ describe("listDirectory", () => {
     // must surface, not silently paint an empty folder as authoritative.
     const result = await listDirectory(tmpDir, "out/nope/");
     expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Its OWN tag, not the borrowed `GIT_FAILED` — `unwrapGit` turns this into
+    // the typed NOT_FOUND the wire contract promises, structurally.
+    expect(result.error.code).toBe("FILE_GONE");
+  });
+
+  it("follows a symlinked directory — pnpm's node_modules is mostly links", async () => {
+    // `readdir({ withFileTypes: true })` has lstat semantics, so a symlink
+    // reports `isDirectory() === false` and would render as a slash-free FILE
+    // leaf: clickable, and `fs.readFile` answers EISDIR. Under pnpm most of
+    // `node_modules` is exactly this shape, which is the case this whole
+    // feature exists for.
+    const linked = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-link-"));
+    try {
+      fs.mkdirSync(path.join(linked, "real"), { recursive: true });
+      fs.writeFileSync(path.join(linked, "real", "pkg.json"), "{}\n");
+      fs.symlinkSync(
+        path.join(linked, "real"),
+        path.join(linked, "link-to-dir"),
+      );
+      fs.symlinkSync(
+        path.join(linked, "gone"),
+        path.join(linked, "link-broken"),
+      );
+      const result = await listDirectory(linked, "");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value).toContain("link-to-dir/");
+      // A broken link has no target to ask, so it stays the leaf it is.
+      expect(result.value).toContain("link-broken");
+    } finally {
+      fs.rmSync(linked, { recursive: true, force: true });
+    }
   });
 });
 
@@ -214,10 +247,13 @@ describe("readFile", () => {
   });
 
   it("returns error for non-existent file", async () => {
+    // `FILE_GONE`, not `GIT_FAILED` — the missing-path axis has its own tag so
+    // `unwrapGit` can map it to the typed NOT_FOUND the Code tab's
+    // delete-while-viewing handling keys on, without sniffing an errno string.
     const result = await readFile(tmpDir, "nope.txt");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe("GIT_FAILED");
+      expect(result.error.code).toBe("FILE_GONE");
     }
   });
 

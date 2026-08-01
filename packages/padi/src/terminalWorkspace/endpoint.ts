@@ -116,6 +116,13 @@ export function unwrapGit<T>(result: GitResult<T>): T {
       status: "INTERNAL_SERVER_ERROR" as const,
       message: `path escapes root: ${e.child}`,
     }))
+    // The typed 404 the Code tab's delete-while-viewing handling keys on. It
+    // comes from the sum type, so no caller has to re-sniff an errno out of a
+    // message to recover it.
+    .with({ code: "FILE_GONE" }, (e) => ({
+      status: "NOT_FOUND" as const,
+      message: `Not found: ${e.path}`,
+    }))
     .with({ code: "GIT_FAILED" }, (e) => ({
       status: "INTERNAL_SERVER_ERROR" as const,
       message: e.message,

@@ -7,6 +7,12 @@ export type GitError =
   | { code: "BASE_BRANCH_NOT_FOUND"; ref: string; message: string }
   | { code: "WORKTREE_NAME_COLLISION"; name: string; message: string }
   | { code: "PATH_ESCAPES_ROOT"; root: string; child: string }
+  /** The path is gone — the delete-while-viewing race, and the cleaned build
+   *  output under an open row. Its own member so "is this failure a missing
+   *  path?" has ONE authority: `unwrapGit` maps it to a typed `NOT_FOUND`
+   *  structurally, instead of the wire contract resting on an errno string
+   *  surviving re-wrapping into a `GIT_FAILED` message. */
+  | { code: "FILE_GONE"; path: string; message: string }
   | { code: "GIT_FAILED"; message: string };
 
 /** Sum type for fallible git operations. */
