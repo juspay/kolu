@@ -26,8 +26,9 @@
  *      the *same* `@kolu/surface` peer framing (base64+newline), so the client
  *      talks to the socket-served router straight through this pipe. The proxy
  *      is therefore contract-blind — it needs no surface/oRPC import, only
- *      `node:net`/`node:child_process` — which is also what lets a consumer keep
- *      its daemon-closure allow-list intact (e.g. kaval's `buildId.closure.test`).
+ *      `node:net`/`node:child_process` — which is also why fronting a daemon adds
+ *      no new dependency edge to a consumer's guarded runtime closure (e.g.
+ *      kaval's `buildId.closure.test`).
  *
  * One process per link, sharing one durable daemon: N concurrent links open N
  * socket connections to the same daemon, all serving the same state. The proxy

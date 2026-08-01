@@ -79,6 +79,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "@babel/parser";
 import { expect, test } from "vitest";
+import { workspacePackageRoots } from "./runtimeDepEdges.testlib.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // packages/daemon-test-gate/src → the repo root (…/kolu or a worktree).
@@ -398,70 +399,9 @@ function isForkCovered(ancestors: AstNode[], fork: AstNode): boolean {
 }
 
 // ── Workspace + file discovery ────────────────────────────────────────────────
-/** The `packages:` patterns from `pnpm-workspace.yaml` — the ONE source of truth for
- *  what a workspace package is. A tiny hand parse (no `yaml` dep in this zero-dep leaf):
- *  the top-level `packages:` block's `- <pattern>` list entries, stopping at the next
- *  column-0 key. */
-function workspacePatterns(): string[] {
-  const raw = readFileSync(join(REPO_ROOT, "pnpm-workspace.yaml"), "utf8");
-  const out: string[] = [];
-  let inPackages = false;
-  for (const line of raw.split("\n")) {
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (!inPackages) continue;
-    const item = /^\s*-\s*(.+?)\s*$/.exec(line);
-    if (item?.[1] !== undefined) {
-      out.push(item[1].replace(/\s+#.*$/, "").replace(/^["']|["']$/g, ""));
-      continue;
-    }
-    // A column-0 non-comment line ends the block (e.g. `packageExtensions:`).
-    if (/^\S/.test(line) && !line.startsWith("#")) break;
-  }
-  return out;
-}
-
-/** Every directory (recursively, excluding node_modules) that contains a package.json
- *  under `base`, mirroring pnpm's `**` expansion. */
-function packageDirsUnder(base: string): string[] {
-  const out: string[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = readdirSync(base, { withFileTypes: true });
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT" || code === "ENOTDIR") return out;
-    throw err; // a real traversal error is surfaced, never swallowed as "no package"
-  }
-  if (entries.some((e) => e.isFile() && e.name === "package.json"))
-    out.push(base);
-  for (const e of entries) {
-    if (e.isDirectory() && e.name !== "node_modules") {
-      out.push(...packageDirsUnder(join(base, e.name)));
-    }
-  }
-  return out;
-}
-
-/** Every workspace package ROOT, derived recursively from the workspace patterns. */
-function workspacePackageRoots(): string[] {
-  const roots = new Set<string>();
-  for (const pattern of workspacePatterns()) {
-    if (pattern.endsWith("/**")) {
-      for (const dir of packageDirsUnder(
-        join(REPO_ROOT, pattern.slice(0, -3)),
-      )) {
-        roots.add(dir);
-      }
-    } else {
-      for (const dir of packageDirsUnder(join(REPO_ROOT, pattern)))
-        roots.add(dir);
-    }
-  }
-  return [...roots];
-}
+// The pnpm-workspace.yaml discovery (patterns → recursive package roots) lives
+// in `runtimeDepEdges.testlib.ts`, shared with the daemons' dependency-edge
+// guards — one parse of the one source of truth for what a package is.
 
 const isTestFile = (name: string): boolean =>
   /\.(test|testlib)\.(ts|cts|mts|tsx)$/.test(name);
@@ -490,7 +430,7 @@ function testFilesUnder(dir: string): string[] {
 
 function allTestFiles(): string[] {
   const files = new Set<string>();
-  for (const root of workspacePackageRoots()) {
+  for (const root of workspacePackageRoots(REPO_ROOT)) {
     for (const f of testFilesUnder(root)) files.add(f);
   }
   return [...files];
