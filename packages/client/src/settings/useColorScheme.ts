@@ -12,12 +12,14 @@
  * it to resolve the new-terminal theme policy for every face (#2045).
  */
 
+import { makeEventListener } from "@solid-primitives/event-listener";
 import { usePrefersDark } from "@solid-primitives/media";
 import type { ColorScheme } from "kolu-common/surface";
 import { resolveIsDark } from "kolu-common/surface";
 import { createEffect, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { wsStatus } from "../rpc/rpc";
 import { client, preferences, updatePreferences } from "../wire";
 
 export type { ColorScheme };
@@ -52,13 +54,30 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
   // the reading, so a standing subscription on a cell nothing here reads would
   // be pure wire cost. (`app.rpc` is `unknown` — the dynamic combined link can't
   // be expanded per-key — and casting it is what `procedureCastGuard` forbids.)
-  createEffect(() => {
-    const mode = prefersDark() ? "dark" : "light";
+  const publishViewerMode = () => {
+    // Never write into a socket that is down. This is a raw `.set`, not a
+    // subscription, so nothing in `connectSurfaces` would resubscribe it — a set
+    // that rejected because the server was mid-restart would just be a toast, and
+    // the server would keep serving the stale reading to every face for the rest
+    // of the session.
+    if (wsStatus() !== "open") return;
     void client.surface.kolu.viewerMode
-      .set(mode)
+      .set(prefersDark() ? "dark" : "light")
       .catch((err: Error) =>
         toast.error(`Failed to report viewer mode: ${err.message}`),
       );
+  };
+  // Tracks BOTH the media query and the transport, so the reading is (re)published
+  // on the first connect, on every reconnect, and after a server restart — the
+  // server just rewrites the same value, and its scalar `equals` drops it.
+  createEffect(publishViewerMode);
+  // `viewerMode` is ONE server-wide fact, so with two viewers open (a dark laptop and
+  // a light phone) the last writer decides the policy for both. Republishing on focus
+  // makes that writer the tab the user is actually in front of — and since a terminal
+  // is created from a focused tab, the creating viewer and the daemon agree again.
+  makeEventListener(window, "focus", publishViewerMode);
+  makeEventListener(document, "visibilitychange", () => {
+    if (!document.hidden) publishViewerMode();
   });
   return memo;
 });
