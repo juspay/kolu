@@ -6,9 +6,7 @@
 import type { InitialTerminalMetadata } from "@kolu/padi/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { TerminalId } from "kolu-common/surface";
-import { shuffleMode } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
@@ -16,10 +14,9 @@ import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { useColorScheme } from "../settings/useColorScheme";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { activePadiRpc, preferences } from "../wire";
+import { activePadiRpc } from "../wire";
 import {
   createEvictionDedup,
   evictTerminal,
@@ -42,7 +39,6 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
-  const { isDark } = useColorScheme();
 
   // --- Handlers ---
 
@@ -131,7 +127,13 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  `initial` carries client-owned metadata to seed atomically on the
    *  server — used by session restore so the first `terminal.list`
    *  yield already carries the saved theme / canvas layout / sub-panel
-   *  state, closing the race with the canvas cascade effect (#642). */
+   *  state, closing the race with the canvas cascade effect (#642).
+   *
+   *  The new-terminal THEME policy (inherit/shuffle) is NOT resolved here:
+   *  padi resolves it in `lifecycle.create` from the policy cell kolu-server
+   *  pushes, so every face — browser, MCP, CLI — obeys the same preference
+   *  (#2045). This client sends a `themeName` only when an explicit `initial`
+   *  carries one (worktree / session restore), which still wins. */
   async function handleCreate(
     cwd?: string,
     // CHROME-only seed: the create RPC forwards theme / layout / panels / intent and
@@ -160,32 +162,6 @@ export const useTerminalCrud = createSharedRoot(() => {
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // Pick the new terminal's theme by strategy. `inherit` copies the active
-    // tile's theme (like size inheritance below); `shuffle` auto-picks a tint
-    // distinct from every open terminal, restricted by shuffle behaviour
-    // (light/dark/auto/colourful). Either way an explicit `initial.themeName`
-    // (worktree / session restore) wins, and an unresolved theme (no active
-    // tile to inherit, or the active tile is on the default) stays `undefined`
-    // → the server default. Peers are snapshotted BEFORE creating so the new
-    // tile's momentary default theme isn't scored as a peer against itself.
-    const theme =
-      initial?.themeName ??
-      (preferences().newTerminalTheme === "shuffle"
-        ? pickTheme(availableThemes, {
-            spread: true,
-            peerBgs: resolveThemeBgs(
-              store.terminalIds(),
-              (id) => store.getMetadata(id)?.themeName,
-            ),
-            mode: shuffleMode(preferences().shuffleBehavior, isDark()),
-          })
-        : // "inherit": copy the active tile's theme (undefined → server default)
-          (() => {
-            const activeId = store.activeId();
-            return activeId !== null
-              ? store.getMetadata(activeId)?.themeName
-              : undefined;
-          })());
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the
     // canvas placement effect, which consumes the signal. If we set
@@ -220,7 +196,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     const info = await activePadiRpc.lifecycle
       .create({
         cwd,
-        themeName: theme,
+        themeName: initial?.themeName,
         canvasLayout: initial?.canvasLayout,
         subPanel: initial?.subPanel,
         rightPanel: initial?.rightPanel,
