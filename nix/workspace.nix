@@ -101,6 +101,12 @@ let
   # subtree, not just its top — see default.nix's stableLeaves). Every `stop`
   # entry must actually be in the un-stopped closure, so a stale or mistyped
   # leaf fails eval loudly instead of silently naming nothing.
+  #
+  # TODO(juspay/kolu#2096): graduate this walk into surface-daemon/nix for
+  # external surface consumers (drishti/odu), generalising the edge rule from
+  # "spec starts with workspace:" to "target name is in the caller's members
+  # map" so the walk can cross an npins pin boundary (pinned @kolu/* packages
+  # as store-path members).
   depClosure = { entries, stop ? [ ] }:
     let
       wsDepsOf = name:

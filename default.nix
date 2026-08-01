@@ -201,6 +201,9 @@ let
   # content-addressed store path must be hashed alongside the fileset rather
   # than silently dropped — that silent drop is the exact stale-daemon hole
   # #2094 documents, so fail loud here until it is wired.
+  # TODO(juspay/kolu#2096): implement that store-path arm when this mechanism
+  # graduates into surface-daemon/nix for external consumers (drishti/odu) —
+  # a pinned member then contributes its content-addressed path to the id.
   memberIdentityFileset = name:
     let dir = workspace.members.${name};
     in

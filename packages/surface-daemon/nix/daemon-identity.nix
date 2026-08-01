@@ -36,6 +36,10 @@
 # list can silently drift from what the process loads (a rebuilt daemon carrying an
 # unchanged identity), and the surviving failure direction of a derived set is a harmless
 # extra flip, never a silent escape.
+# TODO(juspay/kolu#2096): that closure machinery graduates HERE (a sibling
+# workspace-closure.nix — the third piece of this same identity capability) so external
+# spine consumers (drishti/odu) derive their daemon identities the same way, including
+# across their kolu npins pin (store-path members close their pin-bump stale-daemon hole).
 #
 # ── What the staleKey deliberately does NOT cover: the runtime ENGINE ────────────────────
 # A nixpkgs bump that swaps the daemon's Node/tsx moves the DERIVATION but not this id
