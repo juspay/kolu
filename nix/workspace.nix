@@ -9,18 +9,36 @@ let
   # App version — the SINGLE source of truth is packages/server/package.json.
   version = (lib.importJSON ../packages/server/package.json).version;
 
+  # The dependency-closure machinery, owned by @kolu/surface-daemon (location is
+  # structure — it is the third piece of the daemon-identity capability, next to
+  # the recipe that bakes the id and the TS half that reads it back). kolu is one
+  # consumer of it; drishti/odu are the others (juspay/kolu#2096).
+  #
+  # No `pinned`: every member here is a LOCAL path in this repo. No `mustCover`
+  # either — every @kolu member being local means the `workspace:` protocol rule
+  # already catches a stale members map; a pinned consumer is the one that needs
+  # the by-name tripwire.
+  #
+  # `members` is inherited for THIS file's own `fileset` below; only
+  # `identityInputs` is re-exported (default.nix is the sole consumer, and it
+  # takes version/src/fileset/pnpmDeps/identityInputs).
+  inherit ((import ../packages/surface-daemon/nix/workspace-closure.nix {
+    inherit lib;
+  }).mkWorkspaceClosure { members = rawMembers; })
+    members identityInputs;
+
   # Workspace membership: package name → package directory, the ONE Nix-side
   # index of the pnpm workspace. Everything below derives from it — the build
-  # `fileset`/`src`, and `depClosure` (which walks package.json `dependencies`
-  # edges by NAME, so it needs the name→dir index to follow an edge into a
-  # member's own package.json).
+  # `fileset`/`src`, and `identityInputs` (whose walk follows package.json
+  # `dependencies` edges by NAME, so it needs the name→dir index to follow an
+  # edge into a member's own package.json).
   #
   # INVARIANT: every workspace package with a `typecheck` script must be here.
   # packages/tests is intentionally absent: it has none (and no `name` either).
   #
-  # The keys are ASSERTED against each package.json's `name` at eval (below), so
-  # a renamed package or a mis-keyed entry fails every `nix eval` loudly instead
-  # of silently orphaning its dependency edges.
+  # The keys are ASSERTED against each package.json's `name` at eval (in
+  # `mkWorkspaceClosure`), so a renamed package or a mis-keyed entry fails every
+  # `nix eval` loudly instead of silently orphaning its dependency edges.
   rawMembers = {
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
@@ -77,58 +95,6 @@ let
     "@kolu/log" = ../packages/log;
     "@kolu/xterm-kit" = ../packages/xterm-kit;
   };
-  members = lib.foldl'
-    (acc: name:
-      let actual = (lib.importJSON (rawMembers.${name} + "/package.json")).name or null;
-      in
-      assert lib.assertMsg (actual == name)
-        "workspace.nix: members key '${name}' does not match package.json name '${toString actual}' at ${toString rawMembers.${name}}";
-      acc)
-    rawMembers
-    (lib.attrNames rawMembers);
-
-  # The transitive closure of `entries` over package.json `dependencies` edges
-  # that use the `workspace:` protocol — the SAME edges pnpm's isolated
-  # node_modules makes the only resolvable ones at runtime, so "what code can
-  # this package load" is answered by the manifests, not by a hand-kept list.
-  # devDependencies are deliberately NOT followed: they never ship behaviour
-  # (the dependency-edge guard tests enforce that no runtime import rides one).
-  # An edge to a package missing from `members` fails loudly.
-  #
-  # `stop` names packages the walk treats as OPAQUE LEAVES: each is excluded
-  # from the result together with everything reachable ONLY through it (a
-  # daemon that deliberately keys currency on a slice excludes a leaf's whole
-  # subtree, not just its top — see default.nix's stableLeaves). Every `stop`
-  # entry must actually be in the un-stopped closure, so a stale or mistyped
-  # leaf fails eval loudly instead of silently naming nothing.
-  #
-  # TODO(juspay/kolu#2096): graduate this walk into surface-daemon/nix for
-  # external surface consumers (drishti/odu), generalising the edge rule from
-  # "spec starts with workspace:" to "target name is in the caller's members
-  # map" so the walk can cross an npins pin boundary (pinned @kolu/* packages
-  # as store-path members).
-  depClosure = { entries, stop ? [ ] }:
-    let
-      wsDepsOf = name:
-        let
-          dir = members.${name} or (throw
-            "workspace.nix depClosure: '${name}' is not a workspace member — add it to `members`");
-          deps = (lib.importJSON (dir + "/package.json")).dependencies or { };
-        in
-        lib.attrNames (lib.filterAttrs (_: v: lib.hasPrefix "workspace:" v) deps);
-      walk = stopped: map (x: x.key) (builtins.genericClosure {
-        startSet = map (n: { key = n; }) entries;
-        operator = x:
-          if lib.elem x.key stopped then [ ]
-          else map (n: { key = n; }) (wsDepsOf x.key);
-      });
-      full = walk [ ];
-      stale = lib.subtractLists full stop;
-    in
-    assert lib.assertMsg (stale == [ ])
-      "workspace.nix depClosure: stop entries not in the dependency closure of ${toString entries} (stale or mistyped): ${toString stale}";
-    lib.naturalSort (lib.subtractLists stop (walk stop));
-
   fileset = lib.fileset.unions ([
     ../package.json
     ../pnpm-workspace.yaml
@@ -155,5 +121,5 @@ let
   };
 in
 {
-  inherit version src fileset pnpmDeps members depClosure;
+  inherit version src fileset pnpmDeps identityInputs;
 }

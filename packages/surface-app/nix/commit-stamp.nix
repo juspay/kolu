@@ -12,7 +12,7 @@
 # (Vite plugin / `buildSurfaceClient`) and the server cell (`buildInfoServer`) both
 # read this exact name; a drift between the TS constant and this string would stamp
 # the client and server from different vars and silently break skew detection.
-{ }:
+{}:
 rec {
   # The env var `resolveCommit()` reads and `buildInfoServer()` stamps. Single
   # source with `DEFAULT_COMMIT_ENV_VAR` (src/vite.ts) — keep the two equal.

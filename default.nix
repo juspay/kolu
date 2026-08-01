@@ -155,17 +155,26 @@ let
   # AST-walking guard test in the daemon's package — two hand-kept lists for one
   # question ("what would a restart load?"), which is exactly the drift class
   # that produced a rebuilt daemon carrying an unchanged identity (#2094). Now
-  # the set is COMPUTED: the transitive package.json `dependencies` closure of
-  # the daemon's package (`workspace.depClosure`, following `workspace:` edges —
-  # the same edges pnpm's isolated node_modules makes the only resolvable ones
-  # at runtime). A new dependency joins the staleKey automatically; forgetting
-  # nothing is possible, and the residual failure direction is OVER-inclusion
-  # (an unnecessary flip — a cheap drain or an early nudge), never a silent
-  # escape. The one assumption the derivation rests on — every import a daemon
-  # can reach is declared in the importing package's `dependencies`, never a
-  # devDependency — is enforced by the dependency-edge guards
-  # (`packages/{padi,kaval}/src/buildId.closure.test.ts`, on the shared walker
-  # in `@kolu/daemon-test-gate`).
+  # the set is COMPUTED. The mechanism no longer lives in this file either: it
+  # graduated into `@kolu/surface-daemon`'s `nix/workspace-closure.nix` (#2096)
+  # so external spine consumers derive their daemon identities the same way, and
+  # `workspace.identityInputs` below is kolu applying it to its own members map.
+  # It walks the transitive package.json `dependencies` closure of the daemon's
+  # package — the same edges pnpm's isolated node_modules makes the only
+  # resolvable ones at runtime. A new dependency joins the staleKey
+  # automatically; forgetting nothing is possible, and the residual failure
+  # direction is OVER-inclusion (an unnecessary flip — a cheap drain or an early
+  # nudge), never a silent escape. The one assumption the derivation rests on —
+  # every import a daemon can reach is declared in the importing package's
+  # `dependencies`, never a devDependency — is enforced by the dependency-edge
+  # guards (`packages/{padi,kaval}/src/buildId.closure.test.ts`, on the shared
+  # walker in `@kolu/daemon-test-gate`).
+  #
+  # A member that is a PIN rather than a directory (juspay/kolu#2093 grafts
+  # osfacts-client that way) needs no change here: `identityInputs` hands its
+  # content-addressed store path out as `pinnedSources`, which `mkDaemonIdentity`
+  # folds into the same hash — so a pin bump lands in the id by construction
+  # instead of silently escaping it.
   #
   # What remains in THIS file is pure policy, one list per daemon: its
   # `stableLeaves` — the closure packages it DELIBERATELY keys no currency on.
@@ -181,44 +190,6 @@ let
   # direction: a dial-kit-only edit now flips padi's staleKey and costs one
   # no-op auto-drain, instead of a hand-kept exclusion that could silently
   # rot into the dangerous direction.
-  #
-  # The `.ts`/`.tsx` filter for a hashed fileset: real runtime source only —
-  # drops `.test.ts`/`.test.tsx` unit tests, `.test-d.ts` type pins, and
-  # `.testlib.ts` shared test-only helpers. The id is a content hash of the
-  # fileset's store path, byte-identical across Darwin/Linux; the recipe +
-  # rationale live in `mkDaemonIdentity`.
-  isHashedSource =
-    f: (f.hasExt "ts" || f.hasExt "tsx")
-      && !pkgs.lib.hasSuffix ".test.ts" f.name
-      && !pkgs.lib.hasSuffix ".test.tsx" f.name
-      && !pkgs.lib.hasSuffix ".test-d.ts" f.name
-      && !pkgs.lib.hasSuffix ".testlib.ts" f.name;
-  # A hashed member contributes its `src`'s runtime sources plus its
-  # package.json (a dependency/version change is a behaviour change).
-  # A GRAFTED member (a store path pinned by npins instead of a local
-  # directory — the shape juspay/kolu#2093 introduces for osfacts-client)
-  # cannot ride `lib.fileset`; when one joins a daemon closure, its
-  # content-addressed store path must be hashed alongside the fileset rather
-  # than silently dropped — that silent drop is the exact stale-daemon hole
-  # #2094 documents, so fail loud here until it is wired.
-  # TODO(juspay/kolu#2096): implement that store-path arm when this mechanism
-  # graduates into surface-daemon/nix for external consumers (drishti/odu) —
-  # a pinned member then contributes its content-addressed path to the id.
-  memberIdentityFileset = name:
-    let dir = workspace.members.${name};
-    in
-    assert pkgs.lib.assertMsg (!pkgs.lib.isStorePath (toString dir))
-      "daemon identity: workspace member '${name}' is a grafted store path — hash its store path into the identity instead of dropping it (juspay/kolu#2094)";
-    pkgs.lib.fileset.unions [
-      (pkgs.lib.fileset.fileFilter isHashedSource (dir + "/src"))
-      (dir + "/package.json")
-    ];
-  # The derived behavioralFileset: the daemon package's dependency closure,
-  # minus its stable leaves (and their exclusive subtrees).
-  behavioralClosureFileset = { entries, stableLeaves }:
-    pkgs.lib.fileset.unions
-      (map memberIdentityFileset
-        (workspace.depClosure { inherit entries; stop = stableLeaves; }));
 
   # kaval's baked identity. Its currency slice — kaval's OWN decision of what a
   # restart would load that MATTERS to the currency nudge — is derived from
@@ -234,7 +205,7 @@ let
     root = ./.;
     inherit commitHash;
     override = kavalBuildIdOverride;
-    behavioralFileset = behavioralClosureFileset {
+    inherit (workspace.identityInputs {
       entries = [ "kaval" ];
       stableLeaves = [
         # `@kolu/surface-daemon` (the transport SPINE) runs in the kaval binary
@@ -280,7 +251,7 @@ let
         # change must not fire the nudge.
         "osfacts-client"
       ];
-    };
+    }) behavioralFileset pinnedSources;
   };
 
   # padi's staleKey (W2.2) — the twin of kaval's, one layer up. padi is the
@@ -305,7 +276,7 @@ let
     root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
-    behavioralFileset = behavioralClosureFileset {
+    inherit (workspace.identityInputs {
       entries = [ "@kolu/padi" ];
       stableLeaves = [
         # The `@kolu/surface*` framework tier — the "electricity", a stable,
@@ -326,7 +297,7 @@ let
         # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"
       ];
-    };
+    }) behavioralFileset pinnedSources;
   };
 
   # The workspace type gate (juspay/kolu#1049): `tsc --noEmit` over every

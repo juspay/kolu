@@ -70,10 +70,12 @@ let
   # `deepSeq` over the derivation attrsets: walking every drv attr can re-enter
   # the binder graph and stack-overflow once the missing-path errors are gone.
   nested = import "${tree}/default.nix" { inherit pkgs commitHash; };
-  proven = lib.listToAttrs (map (name: {
-    inherit name;
-    value = nested.${name};
-  }) agents);
+  proven = lib.listToAttrs (map
+    (name: {
+      inherit name;
+      value = nested.${name};
+    })
+    agents);
   provenDrvPaths = map (name: nested.${name}.drvPath) agents;
 
   # Force every proven agent before handing out any bake path.

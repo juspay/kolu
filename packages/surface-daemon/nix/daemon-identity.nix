@@ -30,16 +30,24 @@
 # ELECTRICITY. (A spine change that DOES matter bumps the wire contract, which the
 # supervisor's recycle-on-skew converges as a separate, sanctioned signal.)
 #
-# Prefer DERIVING the fileset over listing it by hand: kolu computes each daemon's set from
-# its package.json `dependencies` closure minus a short, documented `stableLeaves` policy
-# list (default.nix + nix/workspace.nix's depClosure, juspay/kolu#2094) — a hand-kept file
-# list can silently drift from what the process loads (a rebuilt daemon carrying an
-# unchanged identity), and the surviving failure direction of a derived set is a harmless
-# extra flip, never a silent escape.
-# TODO(juspay/kolu#2096): that closure machinery graduates HERE (a sibling
-# workspace-closure.nix — the third piece of this same identity capability) so external
-# spine consumers (drishti/odu) derive their daemon identities the same way, including
-# across their kolu npins pin (store-path members close their pin-bump stale-daemon hole).
+# Prefer DERIVING the fileset over listing it by hand: a hand-kept file list can silently
+# drift from what the process loads (a rebuilt daemon carrying an unchanged identity), while
+# the surviving failure direction of a derived set is a harmless extra flip, never a silent
+# escape. The derivation is the sibling recipe `workspace-closure.nix`
+# (`mkWorkspaceClosure`, juspay/kolu#2094 + #2096): apply it to your name→dir members map
+# and hand its `identityInputs { entries; stableLeaves; }` — `behavioralFileset` and
+# `pinnedSources` — straight to this function. `stableLeaves` is then the only hand-kept
+# list left, and it is pure policy: the closure packages the daemon DELIBERATELY keys no
+# currency on.
+#
+# ── `pinnedSources`: members that are pins, not files ────────────────────────────────────
+# A consumer outside kolu's own workspace reaches some `@kolu/*` packages through a
+# content-addressed pin (npins, a submodule) rather than a directory it can put in a
+# fileset. Those members contribute here instead: each is folded into the hash as
+# `<name>=<store path>`, so a PIN BUMP moves the daemon's id exactly like a source edit
+# does. Dropping them instead is the silent stale-daemon hole #2094 records (juspay/kolu#2093
+# is kolu's own first pinned member). The empty case is byte-identical to hashing `${src}`
+# alone — a workspace-only consumer's live daemon ids do not move when this arm lands.
 #
 # ── What the staleKey deliberately does NOT cover: the runtime ENGINE ────────────────────
 # A nixpkgs bump that swaps the daemon's Node/tsx moves the DERIVATION but not this id
@@ -58,6 +66,7 @@
 , prefix      # its identity-env namespace: "KAVAL", "PADI", …
 , root        # the fileset.toSource root (a common ancestor of behavioralFileset)
 , behavioralFileset # WHAT counts as this daemon's behavior — ITS OWN decision (see above)
+, pinnedSources ? { } # behavioral members that are PINS, not files: name → store path
 , commitHash  # the navigable git ref this build was made from
 , override ? null # TEST-ONLY: force the build id for a build-skew VM arm; real builds hash
 }:
@@ -67,10 +76,33 @@ let
   # to a stable, platform-independent 64-char id. Computed PURELY in Nix (no IFD), so
   # `nix flake check` evaluates every output without realising a build mid-eval.
   src = lib.fileset.toSource { inherit root; fileset = behavioralFileset; };
+  # The pinned members' contribution, one `name=<store path>` line each. `mapAttrsToList`
+  # walks `attrNames`, which Nix keeps sorted, so the lines are order-stable across
+  # evaluations. Every value must BE a Nix store path — content- or input-addressed; either
+  # one moves when the pin moves, which is the whole property this arm needs. A path outside
+  # the store would make the id a lie, naming bytes that can change under the running daemon
+  # without the id moving.
+  #
+  # The check tests the TYPE first and then the prefix, and reports the offending ATTR NAMES
+  # rather than dumping values: an uncoerced, path-typed value must land on THIS message and
+  # be told which member to fix, not on `lib.hasPrefix`'s "path does not exist" from the
+  # store realisation Nix would attempt while coercing it.
+  badPinned = lib.attrNames (lib.filterAttrs
+    (_: p: !(builtins.isString p && lib.hasPrefix "${builtins.storeDir}/" p))
+    pinnedSources);
+  pinnedLines =
+    assert lib.assertMsg (badPinned == [ ])
+      "${name}: every pinnedSources value must be a STRING naming a path under ${builtins.storeDir}/ — these are not: ${toString badPinned}. A daemon identity cannot be keyed on a mutable path, and a path-typed value would be NAR-copied into the store under a fresh hash instead of naming the pin.";
+    lib.mapAttrsToList (n: p: "${n}=${p}") pinnedSources;
   buildId =
-    if override != null
-    then override
-    else builtins.hashString "sha256" "${src}";
+    if override != null then override
+    # No pins: hash the fileset's store path ALONE, byte-for-byte the input this recipe has
+    # always hashed — a workspace-only consumer's live daemon ids must not move because the
+    # pinned arm exists.
+    else if pinnedSources == { } then builtins.hashString "sha256" "${src}"
+    else
+      builtins.hashString "sha256"
+        (lib.concatStringsSep "\n" ([ "${src}" ] ++ pinnedLines));
 in
 {
   inherit buildId;
