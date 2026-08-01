@@ -348,9 +348,11 @@ the client cannot come from a pin until it is consumable another way (published
 package, or a pnpm git-subdirectory dependency). `facets.json` stayed with it,
 because the client's tests pin the TS facet unions to that file; a nix check
 (`osfactsFacetsInSync`) fails the build if that copy drifts from the pinned
-repo's, so there are two files but still one source of truth. Kolu's live-oracle
-CI leaf left with the tool, which is why the `ci::osfacts-live@…` contexts must
-be dropped from branch protection.
+repo's, so there are two files but still one source of truth. Both of kolu's
+osfacts CI leaves left with the tool — the live-oracle lane because its script
+did, and the hermetic one because it had nothing left to assert that `ci::nix`
+does not already build — so all four `ci::osfacts…@…` contexts must be dropped
+from branch protection.
 
 **Out of scope, deliberately:** foreground process (a PTY-fd fact — `tcgetpgrp`
 on the pty, so it stays kaval's), anything requiring root — OSF6 is the best

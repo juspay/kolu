@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -368,16 +368,6 @@ biome: install
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
 
-# osfacts integration gate. The tool lives in its own repo now (OSF5) and owns
-# both of its test lanes there — hermetic and live-host — so what kolu still
-# asks is narrower: does the PINNED revision build on this platform, for the
-# binary padi spawns? Depends on `nix` so the root flake-build has already
-# warmed the store. `ci::osfacts-live@…` is gone with the script it ran; drop
-# those two contexts from branch protection (`odu protect`), or master will
-# wait forever for a status nothing posts.
-osfacts: nix
-    nix build .#osfacts --no-link -L
-
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # Thin wrappers over `nix run ./ci#odu` so the live dashboard is one just away.
@@ -396,10 +386,12 @@ attach:
 # straight through to odu, so `just ci::protect --dry-run` prints the contexts
 # without touching the PR.
 #
-# Owed — `ci::osfacts-live@…`: the live-oracle leaf left with the tool (OSF5),
-# but its two contexts are still in GitHub `required_status_checks`, where
-# nothing will ever post them again. Re-run this recipe (non-dry-run) to drop
-# them, or master blocks on a status that no longer exists.
+# Owed — the four `ci::osfacts…@…` contexts: both osfacts leaves left with the
+# tool (OSF5), and `required_status_checks` still lists them, where nothing will
+# ever post them again. Re-run this recipe (non-dry-run) to drop them, or master
+# blocks on statuses that no longer exist. osfacts is a pinned dependency now;
+# `ci::nix` builds it like every other flake package, and the tool's own repo
+# runs its hermetic and live lanes on both platforms.
 protect *args:
     nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
 
