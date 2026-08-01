@@ -345,13 +345,22 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       }
       if (openLazyDirs.has(key)) continue;
       openLazyDirs.add(key);
-      // A rejected load leaves an open, empty folder on screen — and the record
-      // would hold it there for the rest of the mount with no refetch path, the
-      // failure indistinguishable from a genuinely empty directory. Forget the
-      // expansion so the next probe reports afresh. The `catch` is also what
-      // keeps a host rejection from surfacing as an unhandled rejection.
+      // A rejected load must not leave an open, empty folder on screen: the
+      // ROW's own expansion state (`item.isExpanded()`) is untouched by a load
+      // failure, so merely forgetting the key here — without also collapsing
+      // the row — left the two out of sync. The very next probe, fired by ANY
+      // unrelated store tick (a click elsewhere, an unconnected path
+      // mutation), then read "expanded, not recorded" and mistook it for a
+      // fresh user expansion, re-firing the same failing load forever. Calling
+      // `collapse()` closes the row so its visible state agrees with the
+      // bookkeeping — the user sees the folder shut instead of a silent retry
+      // storm, and a deliberate re-open is what re-arms the probe.
       void Promise.resolve(props.onExpandLazyDirectory?.(key)).catch(() => {
         openLazyDirs.delete(key);
+        safeApply(() => {
+          const row = t.getItem(key);
+          if (row && "collapse" in row) row.collapse();
+        }, props.onError);
       });
     }
   };

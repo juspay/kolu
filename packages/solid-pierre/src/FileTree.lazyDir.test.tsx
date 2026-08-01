@@ -148,6 +148,49 @@ describe("lazily-loaded directory rows (#2091)", () => {
     expect(onExpandLazyDirectory).toHaveBeenCalledTimes(2);
   });
 
+  it("collapses the row and stops retrying when a load rejects", async () => {
+    // A rejected load must not leave `item.isExpanded()` true while the
+    // wrapper's own bookkeeping forgets the key: without also collapsing the
+    // row, ANY later store tick — an unrelated click, an unconnected path
+    // mutation — reads "expanded, not recorded" and mistakes it for a fresh
+    // user expansion, retrying the same failing load forever instead of only
+    // on a deliberate reopen.
+    const onExpandLazyDirectory = vi.fn(() =>
+      Promise.reject(new Error("boom")),
+    );
+    const root = mountInto((host) =>
+      render(
+        () => (
+          <FileTree
+            paths={["kept.md", "out/"]}
+            lazyDirectories={["out/"]}
+            onExpandLazyDirectory={onExpandLazyDirectory}
+            search={false}
+            onError={(err) => {
+              throw err;
+            }}
+          />
+        ),
+        host,
+      ),
+    );
+
+    clickRow(root, "out/");
+    await flush();
+    expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
+
+    const row = root.querySelector(
+      '[role="treeitem"][data-item-path="out/"]',
+    ) as HTMLElement;
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+
+    // A click on an unrelated row is exactly the kind of store tick that used
+    // to re-trigger the failed load.
+    clickRow(root, "kept.md");
+    await flush();
+    expect(onExpandLazyDirectory).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a row that mounts already open", async () => {
     // A restored expansion (`initialExpansion: "open"`, or a reveal replayed
     // through `initialExpandedPaths` across one of the remounts the live
