@@ -24,8 +24,8 @@
  *   - kolu's four live members: `processMemory` + `daemonInventory` are DERIVED POLL
  *     cells (a fused `everyMsOr` cadence); `padiLink` + `processStartedAt` are DERIVED
  *     PUSH cells (two `scan`s over ONE shared `onState` source). All are graph-written —
- *     no ctx entry (the bridge's one-writer law). `preferences` is the one Conf-backed
- *     store cell.
+ *     no ctx entry (the bridge's one-writer law). `preferences` and `viewerMode` are the
+ *     Conf-backed store cells.
  *
  * Publisher channel names are framework-derived in two layers. Each surface
  * names its own channels by primitive: `<prim>:changed` for cells,
@@ -35,8 +35,8 @@
  * publisher — so the wire publisher actually sees `kolu/preferences:changed`,
  * `surfaceApp/buildInfo:changed`, etc.
  *
- * `preferences` is the one `confStore`-backed cell kolu-server still owns (a
- * `koluSurface` cell served here); the `activityFeed` + `session` stores retired
+ * `preferences` and `viewerMode` are the `confStore`-backed cells kolu-server still
+ * owns (`koluSurface` cells served here); the `activityFeed` + `session` stores retired
  * from here at W2.2 — padi owns its OWN state-root now, so those stores no longer
  * cross into padi from kolu-server.
  */
@@ -61,14 +61,17 @@ import type {
   Forwards,
   KoluBuildInfo,
   KoluForward,
+  NewTerminalPolicy,
   PadiLink,
   Preferences,
   ProcessStartedAt,
+  ViewerMode,
 } from "kolu-common/surface";
 import {
   type DaemonInventory,
   DEFAULT_DAEMON_INVENTORY,
   type koluSurface,
+  resolveNewTerminalPolicy,
   surfaces,
 } from "kolu-common/surface";
 import {
@@ -136,7 +139,7 @@ export const t = implement(servedContract);
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 //
-// Only `preferences` remains kolu-server's own persisted cell. The `session` +
+// `preferences` + `viewerMode` are kolu-server's own persisted cells. The `session` +
 // `activityFeed` + `lastPairedDaemon` stores retired from here at the W2.2
 // cutover: padi owns its OWN state-root now (`openPadiStateStores`), so those
 // stores no longer cross into padi from kolu-server.
@@ -145,6 +148,26 @@ const preferencesStore: CellStore<Preferences> = confStore<Preferences>(
   store,
   "preferences",
 );
+
+// The browser's last-reported OS light/dark reading. Persisted so a headless face
+// (MCP, CLI) creating a terminal on a server no browser has dialled since boot still
+// resolves an "auto" shuffle against a real answer instead of a fabricated one.
+const viewerModeStore: CellStore<ViewerMode> = confStore<ViewerMode>(
+  store,
+  "viewerMode",
+);
+
+/** The RESOLVED new-terminal theme policy the padi pusher publishes — derived from
+ *  the SAME two stores the `preferences` / `viewerMode` cells serve, so the pushed
+ *  fact and the cells can never disagree. The derivation itself lives once in
+ *  `kolu-common/surface` (`resolveNewTerminalPolicy`), which is also where "auto" is
+ *  spent; nothing downstream of here sees a preference. */
+export function currentNewTerminalPolicy(): NewTerminalPolicy {
+  return resolveNewTerminalPolicy(
+    preferencesStore.get(),
+    viewerModeStore.get(),
+  );
+}
 
 // ── The bound padi's rail state — the projected payload the push cells derive from ──
 //
@@ -200,6 +223,12 @@ export interface KoluSurfaceDeps {
     create: (input: ForwardCreateInput) => Promise<KoluForward>;
     cancel: (key: string) => Promise<void>;
   };
+  /** A bare nudge: one of the two inputs to {@link currentNewTerminalPolicy}
+   *  (`preferences` or `viewerMode`) just changed, so the padi pusher must re-derive
+   *  and re-publish to every bound padi. Fire-and-forget — the payload is deliberately
+   *  not carried, because `currentNewTerminalPolicy` is the one reader of both stores
+   *  and re-reads them itself (one path a policy reaches a padi by). */
+  onPolicyInputsChanged: () => void;
 }
 
 // ── Surface implementation (SR8.a: served in boot; SR8.c: ONE home per member) ───
@@ -273,9 +302,9 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // Typed against `koluSurface.spec` so every member is inferred per-entry
   // (`SurfaceDepsFor`/`ImplementSurfaceDeps` carry the spec types since #1197/#1201 — full
   // inline inference, no cast anywhere). The two DERIVED poll cells fold padi's readouts
-  // on a fused cadence; the two PUSH cells scan the shared `onState`; `preferences` is the
-  // one Conf-backed store. Each derived member is the reactor graph's one writer — no ctx
-  // entry, its `equals` at the spec (the one wire dedup point).
+  // on a fused cadence; the two PUSH cells scan the shared `onState`; `preferences` and
+  // `viewerMode` are the Conf-backed stores. Each derived member is the reactor graph's
+  // one writer — no ctx entry, its `equals` at the spec (the one wire dedup point).
   const koluDeps: ImplementSurfaceDeps<typeof koluSurface.spec> = {
     cells: {
       preferences: {
@@ -298,6 +327,19 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
             },
             "preferences update",
           ),
+        // POST-merge, post-`equals` (never `onMutate`, whose patch fires even when the
+        // merge is a no-op): the three theme preferences are half the new-terminal
+        // policy, so a real change must reach every bound padi at once rather than
+        // waiting for its next (re)bind.
+        onWrite: () => deps.onPolicyInputsChanged(),
+      },
+      // The viewer's raw OS light/dark reading — the other half of the policy, written
+      // by the browser and remembered on disk (see `viewerModeStore`). Same `onWrite`
+      // nudge for the same reason; the scalar `equals` lives on the spec, so a browser
+      // re-publishing an unchanged reading (every reconnect does) re-pushes nothing.
+      viewerMode: {
+        store: viewerModeStore,
+        onWrite: () => deps.onPolicyInputsChanged(),
       },
       // Live metric — a DERIVED POLL cell. Its read folds padi's `{ padi, kaval }` off the
       // re-serve mirror onto kolu-server's own RSS; its `install` fuses the 5s interval

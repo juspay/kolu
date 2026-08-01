@@ -30,6 +30,7 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
+  ViewerModeSchema,
 } from "kolu-common/surface";
 import { z } from "zod";
 import { log } from "./log.ts";
@@ -143,11 +144,15 @@ export function migratePreferences_1_34_0(
  *  aggregate. `session` / `activityFeed` left this store at W2.2 (they are padi's now);
  *  the 1.31.0 migration strips their legacy residue. `hosts` (W10) is the strip-added
  *  fleet, validated by `PersistedHostsSchema` (rejects `local` + duplicates) so a
- *  hand-corrupted list fails loud, never silently normalized. Adding a new domain key
+ *  hand-corrupted list fails loud, never silently normalized. `viewerMode` is the LAST
+ *  reading a browser reported of its OS light/dark leaning — remembered so a headless
+ *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
+ *  resolves an "auto" shuffle against a real answer. Adding a new domain key
  *  requires a migration entry below. */
 const PersistedStateSchema = z.object({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
+  viewerMode: ViewerModeSchema,
 });
 
 type PersistedState = z.infer<typeof PersistedStateSchema>;
@@ -157,7 +162,7 @@ type PersistedState = z.infer<typeof PersistedStateSchema>;
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.35.0";
+const SCHEMA_VERSION = "1.36.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -253,6 +258,11 @@ export const store = new Conf<PersistedState>({
     // pool's `persist` hook on the first strip add. The 1.33.0 migration seeds it onto an
     // existing pre-W10 file so the on-disk shape matches the schema exactly.
     hosts: [],
+    // The last OS light/dark reading a browser published. `"dark"` matches
+    // `DEFAULT_PREFERENCES.colorScheme`, so a server no browser has ever dialled
+    // resolves an "auto" shuffle exactly as a default install does. The 1.36.0
+    // migration seeds it onto an existing file for the same on-disk-shape reason.
+    viewerMode: "dark",
   },
   migrations: {
     // 1.1.0 legacy: sortOrder added to SavedTerminal. The field was
@@ -630,6 +640,16 @@ export const store = new Conf<PersistedState>({
     // Ladder step only so a PreferencesSchema change advances SCHEMA_VERSION
     // (see .claude/rules/state.md).
     "1.35.0": () => {},
+    // `viewerMode` — the browser's last-reported OS light/dark reading — is now a
+    // field on the schema (it feeds the new-terminal theme policy kolu-server pushes
+    // to padi). Seed the default onto an existing file so its on-disk shape matches
+    // `PersistedStateSchema` exactly; conf's `defaults` already merges it on read,
+    // so this honours the "persisted-shape change ⇒ ladder step" rule
+    // (.claude/rules/state.md) rather than adding behaviour. A real reading is only
+    // ever written by the `viewerMode` cell's store, never here.
+    "1.36.0": (store: Conf<PersistedState>) => {
+      if (!store.has("viewerMode")) store.set("viewerMode", "dark");
+    },
   },
 });
 
@@ -651,6 +671,7 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
 const result = PersistedStateSchema.safeParse({
   preferences: store.get("preferences"),
   hosts: store.get("hosts"),
+  viewerMode: store.get("viewerMode"),
 });
 if (!result.success) {
   const summary = result.error.issues
