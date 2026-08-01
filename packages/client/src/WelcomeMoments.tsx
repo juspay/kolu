@@ -74,8 +74,12 @@ const MomentShell: Component<{
   </div>
 );
 
+/** The pin-it states that actually paint a row — the four-state machine below
+ *  minus `installed`, which the selection filters out. */
+type PinRowState = "one-click" | "manual-secure" | "manual-insecure";
+
 const PinMoment: Component<{
-  pinState: "one-click" | "manual-secure" | "manual-insecure";
+  pinState: PinRowState;
   instr: ReturnType<typeof installInstructions>;
   onInstall: () => void;
 }> = (props) => (
@@ -170,6 +174,16 @@ const WelcomeMoments: Component<{
           : "manual-insecure",
   );
 
+  // The pin ROW's state: the same machine minus the state that never paints.
+  // Kept as an accessor (not a value snapshotted in `renderRow`) because
+  // `renderRow` runs once per row id inside `<For>`, while `canPrompt()` flips
+  // later — Chrome fires `beforeinstallprompt` well after this card mounts.
+  const pinRowState = (): PinRowState | null => {
+    const state = pinState();
+    // `installed` is filtered out by selection; pin only paints while undone.
+    return state === "installed" ? null : state;
+  };
+
   const selection = createMemo(() =>
     selectWelcomeMoments({
       pinDone: pinState() === "installed",
@@ -185,18 +199,18 @@ const WelcomeMoments: Component<{
 
   const renderRow = (id: WelcomeMomentId): JSX.Element => {
     switch (id) {
-      case "pin": {
-        const state = pinState();
-        // `installed` is filtered out by selection; pin only paints while undone.
-        if (state === "installed") return null;
+      case "pin":
         return (
-          <PinMoment
-            pinState={state}
-            instr={instr()}
-            onInstall={() => props.install.prompt()}
-          />
+          <Show when={pinRowState()}>
+            {(state) => (
+              <PinMoment
+                pinState={state()}
+                instr={instr()}
+                onInstall={() => props.install.prompt()}
+              />
+            )}
+          </Show>
         );
-      }
       case "reach":
         return (
           <MomentShell

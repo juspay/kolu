@@ -1334,10 +1334,7 @@ const CodeTab: Component<{
                         )}
                       </Match>
                       <Match when={diff()}>
-                        {(d) => {
-                          const repo = repoPath();
-                          const tid = props.terminalId;
-                          if (repo === null || tid === null) return null;
+                        {(d) => (
                           // The comment capture surface is applied here at the
                           // seam — `BrowseDiffView` is a pure presenter, exactly
                           // like `BrowseFileView`, so "is this commentable?"
@@ -1345,36 +1342,48 @@ const CodeTab: Component<{
                           // re-open-coded inside the leaf. `contentTick` is the
                           // raw hunk string so the highlight overlay re-anchors
                           // when a live edit re-diffs the file.
-                          return (
-                            <CommentTextSurface
-                              terminalId={tid}
-                              path={path}
-                              contentTick={d().hunks[0] ?? ""}
-                              class="h-full w-full"
-                              lineAnchored={true}
-                            >
-                              <BrowseDiffView
-                                terminalId={tid}
+                          //
+                          // The (terminal, repo) pair is read through
+                          // `commentContext()` INSIDE the JSX — this `Match`
+                          // callback only runs on a falsy→truthy entry, and a
+                          // terminal switch between two terminals showing the
+                          // same file never re-enters it (the diff query key
+                          // carries no terminal id), so a snapshot here would
+                          // leave the surface wired to the previous terminal.
+                          <Show when={commentContext()}>
+                            {(present) => (
+                              <CommentTextSurface
+                                terminalId={present().terminalId}
                                 path={path}
-                                hunk={d().hunks[0] ?? ""}
-                                theme={diffTheme()}
-                                repoRoot={repo}
-                              />
-                            </CommentTextSurface>
-                          );
-                        }}
+                                contentTick={d().hunks[0] ?? ""}
+                                class="h-full w-full"
+                                lineAnchored={true}
+                              >
+                                <BrowseDiffView
+                                  terminalId={present().terminalId}
+                                  path={path}
+                                  hunk={d().hunks[0] ?? ""}
+                                  theme={diffTheme()}
+                                  repoRoot={present().repoRoot}
+                                />
+                              </CommentTextSurface>
+                            )}
+                          </Show>
+                        )}
                       </Match>
                     </Switch>
                   </Match>
                   <Match when={!isDiffView()}>
-                    {(() => {
-                      const repo = repoPath();
-                      const tid = props.terminalId;
-                      if (repo === null || tid === null) return null;
-                      return (
+                    {/* Same reactive read as the diff arm above: the (terminal,
+                        repo) pair rides in through `commentContext()` so a
+                        terminal switch updates the dispatcher's props in place
+                        instead of leaving it pinned to the terminal that was
+                        active when this branch was entered. */}
+                    <Show when={commentContext()}>
+                      {(present) => (
                         <BrowseFileDispatcher
-                          terminalId={tid}
-                          repoPath={repo}
+                          terminalId={present().terminalId}
+                          repoPath={present().repoRoot}
                           filePath={path}
                           // The live repo FILE list — the vault a `[[wikilink]]`
                           // in the previewed doc resolves against, pathless.
@@ -1429,8 +1438,8 @@ const CodeTab: Component<{
                           // takes (safe: the router is view-only by law).
                           onDeepLink={requestDeepLinkNavigation}
                         />
-                      );
-                    })()}
+                      )}
+                    </Show>
                   </Match>
                 </Switch>
               )}
