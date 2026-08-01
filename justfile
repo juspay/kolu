@@ -13,6 +13,14 @@ nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
+# osfacts-client is a workspace member kolu does not own: it is grafted from the
+# npins `osfacts` pin (`_materialize-osfacts-client`), so its tests and typecheck
+# are that repo's CI's job — and its fixtures resolve against ITS repo root, not
+# kolu's. Every `pnpm -r` here must skip it. The root package.json's `typecheck`
+# and `test:unit` scripts carry the same filter for callers that enter through
+# pnpm instead of just (the Nix typecheck derivation).
+pnpm_vendored_filter := '--filter=!osfacts-client'
+
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
 # source has no wrapper, so it sources the SAME (name, value) set Nix builds the
@@ -292,7 +300,7 @@ client:
 # keys on KOLU_DAEMON_TESTS); this is the safe reach a workstation can run beside
 # a live kolu. Use `test-daemon` for the gated suites.
 test-unit: install
-    {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
 # deliberately separate from test-unit: it reads every committed inventory
@@ -309,7 +317,7 @@ test-e2e-governance: install
 # `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
 # can't pile up across packages. `test-unit` stays the fork-free default.
 test-daemon: install
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no
