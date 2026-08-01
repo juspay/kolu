@@ -10,7 +10,9 @@ All fallible functions return `GitResult<T>` instead of throwing:
 type GitResult<T> = { ok: true; value: T } | { ok: false; error: GitError };
 ```
 
-`GitError` is a discriminated union on `code`: `NOT_A_REPO`, `BASE_BRANCH_NOT_FOUND`, `WORKTREE_NAME_COLLISION`, `PATH_ESCAPES_ROOT`, `GIT_FAILED`.
+`GitError` is a discriminated union on `code`: `NOT_A_REPO`, `BASE_BRANCH_NOT_FOUND`, `WORKTREE_NAME_COLLISION`, `PATH_ESCAPES_ROOT`, `FILE_GONE`, `GIT_FAILED`.
+
+`FILE_GONE` is the delete-while-viewing race (and the build output cleaned under an open row). It is its own member so "is this failure a missing path?" has one authority: `unwrapGit` maps it to a typed `NOT_FOUND`, rather than the wire contract resting on an errno string surviving re-wrapping into a `GIT_FAILED` message.
 
 Callers unwrap results at the RPC boundary via `unwrapGit()` — the boundary helper now lives in `@kolu/padi`'s `terminalWorkspace/endpoint.ts` (it maps `GitError` codes to `ORPCError` statuses); kolu-server imports it in `router.ts` for its remaining git RPCs. This package has **zero dependency on oRPC**.
 

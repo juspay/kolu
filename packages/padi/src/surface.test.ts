@@ -24,7 +24,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.5, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.6, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -63,10 +63,14 @@ describe("padiSurface contract", () => {
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
-    // The load-bearing claim behind every minor bump, 4.5 included: a binder
+    // The load-bearing claim behind every minor bump, 4.6 included: a binder
     // that EXPECTS the new minor refuses a padi still reporting the old one, so
-    // the convergence machinery drains-and-respawns it BEFORE the new client's
-    // schema can meet an old frame (here: session.restore still speaking
+    // the convergence machinery drains-and-respawns it BEFORE the new client can
+    // call a procedure that padi does not serve — here a 4.6 client reaching for
+    // `fs.listDirectory` on a 4.5 padi, which has no such member.
+    expect(isContractVersionCompatible("4.5", "4.6")).toBe(false);
+    // The same rule one bump earlier, kept so the claim is pinned across two
+    // edges rather than only the newest (there: session.restore still speaking
     // resumeIds instead of resumeAgents+optOutIds).
     expect(isContractVersionCompatible("4.4", "4.5")).toBe(false);
     // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a

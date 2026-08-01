@@ -160,26 +160,44 @@ export async function listDirectory(
   const { abs, rel } = resolved.value;
   try {
     const entries = await readdir(abs, { withFileTypes: true });
-    return ok(
-      await Promise.all(
-        entries.map(async (e) => {
-          const child = rel === "" ? e.name : `${rel}/${e.name}`;
-          if (e.isDirectory()) return `${child}/`;
-          if (!e.isSymbolicLink()) return child;
-          // `withFileTypes` has `lstat` semantics, so a symlink reports
-          // `isDirectory() === false` — and pnpm's `node_modules` is almost
-          // entirely symlinked package directories, the headline case of this
-          // whole feature. The LINK's type is therefore the wrong authority for
-          // "is this row a folder": `stat` follows it and answers from the
-          // TARGET. A broken link has no target and stays the leaf it is.
-          // Following is safe by construction — the expand this row enables
-          // goes back through `resolveExistingUnder`, whose realpath check
-          // refuses a target outside the repo, loudly.
-          const target = await stat(path.join(abs, e.name)).catch(() => null);
-          return target?.isDirectory() ? `${child}/` : child;
-        }),
-      ),
-    );
+    const rows: string[] = [];
+    for (const e of entries) {
+      const child = rel === "" ? e.name : `${rel}/${e.name}`;
+      if (e.isDirectory()) {
+        rows.push(`${child}/`);
+        continue;
+      }
+      if (!e.isSymbolicLink()) {
+        rows.push(child);
+        continue;
+      }
+      // `withFileTypes` has `lstat` semantics, so a symlink reports
+      // `isDirectory() === false` — and pnpm's `node_modules` is almost
+      // entirely symlinked package directories, the headline case of this whole
+      // feature. The LINK's type is therefore the wrong authority for "is this
+      // row a folder": `stat` follows it and answers from the TARGET.
+      // Following is safe by construction — the expand this row enables goes
+      // back through `resolveExistingUnder`, whose realpath check refuses a
+      // target outside the repo, loudly.
+      //
+      // Only a BROKEN link is absorbed: it has no target and is honestly a
+      // leaf. Every other stat failure — EACCES, EIO, ELOOP, EMFILE — is a real
+      // fault, and answering it with a plain file row would both hide the fault
+      // and put back the wrong-row/EISDIR behaviour this branch exists to
+      // remove. Those reach the catch below and fail the whole listing loudly.
+      //
+      // Sequential, not `Promise.all` over the level: a flat cache directory can
+      // hold six figures of entries, and scheduling one stat per symlink at once
+      // is a promise/libuv spike on exactly the input this feature targets.
+      let target: Awaited<ReturnType<typeof stat>> | null = null;
+      try {
+        target = await stat(path.join(abs, e.name));
+      } catch (statErr: unknown) {
+        if (!isFileGoneError(statErr)) throw statErr;
+      }
+      rows.push(target?.isDirectory() ? `${child}/` : child);
+    }
+    return ok(rows);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     log?.error({ err: msg, repoPath, dirPath }, "listDirectory failed");

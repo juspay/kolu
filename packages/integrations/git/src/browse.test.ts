@@ -216,6 +216,27 @@ describe("listDirectory", () => {
       fs.rmSync(linked, { recursive: true, force: true });
     }
   });
+
+  it("fails the listing when a symlink cannot be stat'd for a NON-gone reason", async () => {
+    // Only a BROKEN link may be absorbed as a leaf. Every other stat failure —
+    // EACCES, EIO, ELOOP — is a real fault, and answering it with a plain file
+    // row would both hide the fault and put back the wrong-row/EISDIR
+    // behaviour the follow-the-link branch exists to remove.
+    //
+    // ELOOP is the one such failure reachable without root: a symlink cycle.
+    const looped = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-loop-"));
+    try {
+      fs.symlinkSync(path.join(looped, "b"), path.join(looped, "a"));
+      fs.symlinkSync(path.join(looped, "a"), path.join(looped, "b"));
+      const result = await listDirectory(looped, "");
+      // The whole listing fails loudly rather than reporting `a`/`b` as files.
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("GIT_FAILED");
+    } finally {
+      fs.rmSync(looped, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("readFile", () => {

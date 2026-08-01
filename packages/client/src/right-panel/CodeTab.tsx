@@ -502,8 +502,14 @@ const CodeTab: Component<{
   //
   // Aborting the predecessor makes "is this response still wanted" ONE fact
   // both callbacks read, rather than two conditions each has to repeat and can
-  // drift on — and it stops the superseded readdir server-side instead of
-  // racing it. Not reactive: nothing renders from it.
+  // drift on. Not reactive: nothing renders from it.
+  //
+  // The abort is CLIENT-SIDE ONLY. `fs.listDirectory` takes no signal through
+  // `servePadi` → `TerminalEndpointFs` → `listDirectory`, so a superseded read
+  // still runs to completion on the host; what the abort buys is that its
+  // answer owns no outcome here. That is the whole benefit worth claiming —
+  // one bounded `readdir` per superseded expand is cheap, and threading a
+  // signal the length of that chain to reclaim it is a separate change.
   const inFlight = new Map<string, AbortController>();
 
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
