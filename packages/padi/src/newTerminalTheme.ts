@@ -20,6 +20,7 @@ import {
   resolveThemeBgs,
   type ThemePickMode,
 } from "terminal-themes";
+import { match } from "ts-pattern";
 import {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
@@ -51,30 +52,23 @@ export function shufflePeerBgs(): string[] {
  *  — that IS the answer: the metadata stays theme-less and the client renders its
  *  built-in default. */
 export function resolveNewTerminalTheme(): string | undefined {
-  const policy = newTerminalPolicyStore.get();
-  switch (policy.kind) {
-    case "inherit": {
+  return match(newTerminalPolicyStore.get())
+    .with({ kind: "inherit" }, () => {
       // The marker can name a terminal that has since been killed, so it is only
       // an id until the registry confirms it.
       const activeId = getActiveTerminalId();
       return activeId === null
         ? undefined
         : getTerminal(activeId)?.meta.themeName;
-    }
-    case "shuffle":
-      return pickTheme(availableThemes, {
+    })
+    .with({ kind: "shuffle" }, ({ mode }) =>
+      pickTheme(availableThemes, {
         spread: true,
         peerBgs: shufflePeerBgs(),
         // `pickTheme` spells "the whole catalogue" as an absent mode — its
         // `ThemePickMode` has no "random" member.
-        mode:
-          policy.mode === "random"
-            ? undefined
-            : (policy.mode satisfies ThemePickMode),
-      });
-    default: {
-      const _exhaustive: never = policy;
-      return _exhaustive;
-    }
-  }
+        mode: mode === "random" ? undefined : (mode satisfies ThemePickMode),
+      }),
+    )
+    .exhaustive();
 }
