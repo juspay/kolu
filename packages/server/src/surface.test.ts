@@ -41,7 +41,10 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // dialogs list — presentation/diagnostic data, NOT a terminal member), and
     // `forwards` (PRT2's open port forwards — listeners in the kolu-server
     // PROCESS, so a fact about this server rather than about any host's
-    // terminals, even when the far end of one is a remote host's port).
+    // terminals, even when the far end of one is a remote host's port), and
+    // `viewerMode` (the browser's raw OS light/dark reading — an observation
+    // about the VIEWER, and the second input to the new-terminal policy
+    // kolu-server derives; a terminal never appears in it).
     // No collections, no events.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "daemonInventory",
@@ -50,6 +53,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "preferences",
       "processMemory",
       "processStartedAt",
+      "viewerMode",
     ]);
     expect(spec.cells?.session).toBeUndefined();
     expect(spec.cells?.activityFeed).toBeUndefined();
