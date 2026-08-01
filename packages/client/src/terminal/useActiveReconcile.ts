@@ -22,6 +22,7 @@
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createEffect, on } from "solid-js";
 import { createHostScopedParentSnapshot } from "./parentSnapshot";
+import { containingTileOf, type ParentEdge } from "./terminalTree";
 
 /** Pick the tile that inherits focus when the active tile is removed: the
  *  survivor now occupying the removed tile's slot (its old index in the FULL
@@ -53,12 +54,10 @@ export function pickAutoSwitchTarget(
 }
 
 /** The side-effecting seams `evictTerminal` drives — the store, the sub-panel,
- *  the right-panel, the find-bar, and the promote RPC. Bundled so the cleanup
- *  body is a pure function of (ports, id, parentId, order): unit-testable with
- *  plain spies, and wired ONCE in useTerminalCrud. */
+ *  the right-panel, the find-bar, and the promote/rehome RPCs. Bundled so the
+ *  cleanup body is a pure function of (ports, id, parentId, order): unit-testable
+ *  with plain spies, and wired ONCE in useTerminalCrud. */
 export interface TerminalEvictionPorts {
-  /** Sub-terminal ids for a parent, read LIVE (list-driven). */
-  getSubTerminalIds: (parentId: TerminalId) => readonly TerminalId[];
   activeId: () => TerminalId | null;
   focusedTerminalId: () => TerminalId | null;
   /** Pan-and-activate a survivor (or `null`). */
@@ -67,6 +66,8 @@ export interface TerminalEvictionPorts {
   dropFromMru: (id: TerminalId) => void;
   /** Promote a sub-terminal to top-level (server `setParent(id, null)`). */
   promoteToTopLevel: (subId: TerminalId) => void;
+  /** Re-home a surviving child under a still-live parent (`setParent`). */
+  rehomeUnder: (subId: TerminalId, newParentId: TerminalId) => void;
   subPanel: {
     collapse: (parentId: TerminalId) => void;
     collapseChrome: (parentId: TerminalId) => void;
@@ -80,6 +81,16 @@ export interface TerminalEvictionPorts {
   removeSearch: (id: TerminalId) => void;
 }
 
+/** Pre-removal parent graph for a split eviction. The list-driven reconcile
+ *  runs AFTER the departed id left the live census, so live root/flat walks
+ *  see a dangling edge (grandchildren fall out of the root's pane set). The
+ *  snapshot carries the intact tree: rehomes and remaining tabs are derived
+ *  from it, not from the already-broken live index. */
+export type RemovalGraph = {
+  ids: readonly TerminalId[];
+  parentOf: ParentEdge;
+};
+
 /** Reconcile the tree/chrome for a removed terminal. `parentId` is EXPLICIT (not
  *  read from metadata) so the list-driven caller can run this after the metadata
  *  is gone; `topLevelBefore` is the top-level order that STILL CONTAINS `id`, for
@@ -87,49 +98,95 @@ export interface TerminalEvictionPorts {
  *  frame — just `id` for a single close, the whole batch for a list-driven
  *  multi-departure — so the auto-switch survivor set is `topLevelBefore` minus all
  *  of them: a frame that empties the top level clamps focus to null instead of a
- *  still-departing sibling. */
+ *  still-departing sibling. `removal` is the pre-removal parent graph — REQUIRED,
+ *  and the only census this function reads. Both callers pass it: list-driven
+ *  because live metadata already dropped `id` (grandchildren would look like
+ *  orphans), imperative because it still has the intact census at kill time.
+ *  There is deliberately no live-index fallback: a synthesized graph could only
+ *  guess one hop, which is exactly the answer #2059 proved wrong — it would
+ *  rehome a grandchild under the departing node's immediate parent instead of
+ *  the highest surviving ancestor, and its census would omit live siblings. */
 export function evictTerminal(
   ports: TerminalEvictionPorts,
   id: TerminalId,
   parentId: TerminalId | null,
   topLevelBefore: readonly TerminalId[],
   departing: ReadonlySet<TerminalId>,
+  removal: RemovalGraph,
 ) {
   if (parentId !== null) {
-    // Sub-terminal: always repair the parent's remembered chrome, but move DOM
-    // and keyboard focus only when the departing sub actually held it. A
-    // background split exit must not steal focus from the tile being used.
+    const edge = removal.parentOf;
+    const census = removal.ids;
+    // Surviving containing tile: walk the full pre-removal ancestor chain and
+    // take the HIGHEST still-live ancestor (canvas chrome keys on the root, not
+    // a live middle). If none survive, promote to top-level.
+    let dest: TerminalId | null = null;
+    {
+      let cur: TerminalId | null = parentId;
+      const seen = new Set<TerminalId>();
+      while (cur !== null) {
+        if (seen.has(cur)) {
+          dest = null;
+          break;
+        }
+        seen.add(cur);
+        if (!departing.has(cur)) dest = cur; // overwrite as we climb → highest
+        const up = edge(cur);
+        if (up === undefined || up === null) break;
+        cur = up;
+      }
+    }
+    // True children of the departing node.
+    for (const child of census) {
+      if (child === id) continue;
+      if (edge(child) !== id) continue;
+      if (departing.has(child)) continue;
+      if (dest === null) ports.promoteToTopLevel(child);
+      else ports.rehomeUnder(child, dest);
+    }
+    // Chrome repair only when a live root still owns the panel.
+    if (dest === null) return;
     const wasFocused = ports.focusedTerminalId() === id;
-    const subs = ports.getSubTerminalIds(parentId).filter((x) => x !== id);
-    if (subs.length === 0) {
-      if (wasFocused) ports.subPanel.collapse(parentId);
-      else ports.subPanel.collapseChrome(parentId);
-      // Clear the active tab too: the parent's last split is gone, so `activeSubTab`
+    const remaining = census.filter(
+      (x) =>
+        !departing.has(x) &&
+        x !== id &&
+        x !== dest &&
+        containingTileOf(x, edge) === dest,
+    );
+    if (remaining.length === 0) {
+      if (wasFocused) ports.subPanel.collapse(dest);
+      else ports.subPanel.collapseChrome(dest);
+      // Clear the active tab too: the tile's last split is gone, so `activeSubTab`
       // must not dangle at a departed sub. Keeping the invariant "`activeSubTab` is
-      // null or a LIVE sub of this parent" global lets consumers trust a plain
+      // null or a LIVE sub of this tile" global lets consumers trust a plain
       // null-check for "no active split" instead of each re-deriving liveness —
       // both the adopt don't-steal guard (useAdoptNewSplit) and restore's hydration
       // clamp (useSessionRestore) exist only to compensate for this dangling.
-      ports.subPanel.setActiveSubTab(parentId, null);
+      ports.subPanel.setActiveSubTab(dest, null);
     } else {
-      if (ports.subPanel.activeSubTab(parentId) === id) {
-        const replacement = subs[0] ?? null;
-        if (wasFocused) ports.subPanel.selectSubTab(parentId, replacement);
-        else ports.subPanel.setActiveSubTab(parentId, replacement);
+      if (ports.subPanel.activeSubTab(dest) === id) {
+        const replacement = remaining[0] ?? null;
+        if (wasFocused) ports.subPanel.selectSubTab(dest, replacement);
+        else ports.subPanel.setActiveSubTab(dest, replacement);
       }
       // Closing through a tab's button moves DOM focus onto the button no matter
       // which pane owns the focus fact. Bump unconditionally: each pane's nonce
       // consumer is self-gated by its `focused` prop, so background panes ignore
       // it while the still-focused pane repairs DOM focus after removal.
-      ports.subPanel.requestRefocus(parentId);
+      ports.subPanel.requestRefocus(dest);
     }
     return;
   }
 
-  // Top-level tile — promote its sub-terminals to top-level, shed its chrome,
-  // and auto-switch focus if it was active.
-  for (const subId of ports.getSubTerminalIds(id))
+  // Top-level tile — promote its TRUE one-hop children to top-level (each
+  // keeps its own subtree intact), shed its chrome, and auto-switch focus if
+  // it was active. Nested grandchildren ride with the promoted middles.
+  const oneHop = removal.ids.filter((x) => removal.parentOf(x) === id);
+  for (const subId of oneHop) {
+    if (departing.has(subId)) continue;
     ports.promoteToTopLevel(subId);
+  }
   ports.subPanel.remove(id);
   ports.removeRightPanel(id);
   ports.removeSearch(id);
@@ -154,6 +211,7 @@ export function createEvictionDedup(
     parentId: TerminalId | null,
     topLevelBefore: readonly TerminalId[],
     departing: ReadonlySet<TerminalId>,
+    removal: RemovalGraph,
   ) => void,
 ) {
   const claimed = new Set<TerminalId>();
@@ -163,6 +221,7 @@ export function createEvictionDedup(
       parentId: TerminalId | null,
       topLevelBefore: readonly TerminalId[],
       willDrop: boolean,
+      removal: RemovalGraph,
     ) {
       if (willDrop) claimed.add(id);
       // The departing set is this id PLUS every id already claimed but not yet
@@ -172,16 +231,23 @@ export function createEvictionDedup(
       // it too, the auto-switch could re-focus that dead sibling (#1667 via the
       // imperative path), and the later list-drops can't self-heal (they
       // short-circuit on `claimed`). `claimed` is exactly that in-flight set.
-      runEvict(id, parentId, topLevelBefore, new Set([id, ...claimed]));
+      runEvict(
+        id,
+        parentId,
+        topLevelBefore,
+        new Set([id, ...claimed]),
+        removal,
+      );
     },
     evictDeparted(
       id: TerminalId,
       parentId: TerminalId | null,
       topLevelBefore: readonly TerminalId[],
       departing: ReadonlySet<TerminalId>,
+      removal: RemovalGraph,
     ) {
       if (claimed.delete(id)) return; // already evicted by the imperative path
-      runEvict(id, parentId, topLevelBefore, departing);
+      runEvict(id, parentId, topLevelBefore, departing, removal);
     },
   };
 }
@@ -189,8 +255,11 @@ export function createEvictionDedup(
 export function useActiveReconcile(deps: {
   /** Raw list keys (all ids — top-level AND sub — membership-driven). */
   rawList: Accessor<TerminalId[]>;
-  /** Live parentId for a listed id (`null` for top-level). */
-  parentOf: (id: TerminalId) => TerminalId | null;
+  /** The store's live parent EDGE (`null` top-level, `undefined` absent) — the
+   *  same one every other walk runs on. The snapshot below stores the absent
+   *  case as `null`: an id in the list whose record has not arrived has no
+   *  parent to reconcile yet. */
+  parentOf: ParentEdge;
   /** The canonical ACTIVE-host key. The list is host-scoped (`terminalListSub`
    *  re-keys on switch), so a host SWITCH replaces the WHOLE list with a disjoint
    *  id space. Without this the reconcile would read every prior-host id as a mass
@@ -200,12 +269,16 @@ export function useActiveReconcile(deps: {
   activeHostKey: () => string;
   /** Run the full cleanup for a naturally-departed terminal (dedup-guarded).
    *  `departing` is every id leaving in the same frame, so the auto-switch can
-   *  clamp focus past all of them (never onto a still-departing sibling). */
+   *  clamp focus past all of them (never onto a still-departing sibling).
+   *  `removal` is the pre-removal parent graph (the snapshot before this frame's
+   *  departures), so nested rehome + remaining tabs don't walk a broken live
+   *  census. */
   evictDeparted: (
     id: TerminalId,
     parentId: TerminalId | null,
     topLevelBefore: TerminalId[],
     departing: ReadonlySet<TerminalId>,
+    removal: RemovalGraph,
   ) => void;
   /** Whether the terminal list is a COMPLETE, authoritative census — i.e. the
    *  client is the lifecycle authority. When it is NOT (a supervised
@@ -226,7 +299,7 @@ export function useActiveReconcile(deps: {
     deps.activeHostKey,
     (ids) => {
       const m = new Map<TerminalId, TerminalId | null>();
-      for (const id of ids) m.set(id, deps.parentOf(id));
+      for (const id of ids) m.set(id, deps.parentOf(id) ?? null);
       return m;
     },
   );
@@ -267,8 +340,24 @@ export function useActiveReconcile(deps: {
       // clamps focus past every leaving tile at once. Without it a batch that
       // empties the top level lands focus on a sibling that is itself departing.
       const departing = new Set(departed);
+      // Pre-removal parent graph — intact tree before this frame's departures.
+      // Live metadata already dropped departed ids; nested rehome must not walk
+      // a dangling edge (grandchildren would fall out of the root's pane set).
+      const removal: RemovalGraph = {
+        ids: [...prev.keys()],
+        parentOf: (x) => {
+          if (!prev.has(x)) return undefined;
+          return prev.get(x) ?? null;
+        },
+      };
       for (const id of departed) {
-        deps.evictDeparted(id, prev.get(id) ?? null, topLevelBefore, departing);
+        deps.evictDeparted(
+          id,
+          prev.get(id) ?? null,
+          topLevelBefore,
+          departing,
+          removal,
+        );
       }
     }),
   );

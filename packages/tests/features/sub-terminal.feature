@@ -46,6 +46,29 @@ Feature: Sub-terminals
     Then sub-panel tab 1 should be active
     And there should be no page errors
 
+  # Nested parentId (split of a split) — the canvas flattens every descendant
+  # into the root tile's tab strip (#2059). Without the flatten, the grandchild
+  # is fully alive in the roster and never paints.
+  Scenario: A split of a split is visible on the canvas
+    When I create a sub-terminal via command palette
+    And I remember the sub-terminal's id
+    And I create a terminal parented to the remembered sub-terminal
+    Then the sub-panel tab bar should have 2 tabs
+    And the active tile should show sub-terminal count 2
+    And there should be no page errors
+
+  # The Dock keeps the TRUE tree. A grandchild is a real parent→child edge, so
+  # it must appear as a dock split sub-entry — not only as a canvas tab.
+  # Regression: after #2090 flattened the canvas, depth-2 still vanished from
+  # the Dock (rankDockRows only walks one hop under each top-level tile).
+  Scenario: A split of a split has a row in the Dock
+    When I create a sub-terminal via command palette
+    And I remember the sub-terminal's id
+    And I create a terminal parented to the remembered sub-terminal
+    Then the sub-panel tab bar should have 2 tabs
+    And the dock should show 2 split sub-entries
+    And there should be no page errors
+
   # Same focus-path issue as the worktree+sub-terminal scenarios — workspace-switcher
    # selection followed by palette-driven sub-terminal create stalls. The
    # plain "create sub-terminal in the active terminal" scenarios above all

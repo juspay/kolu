@@ -272,7 +272,9 @@ export function useDeepLinks(): void {
   ): { meta: TerminalMeta; anchorMeta: TerminalMeta } | null {
     const meta = store.getMetadata(route.terminalId);
     if (!meta) return null;
-    const anchorId = meta.parentId ?? route.terminalId;
+    // Owning tile is the root of the parent chain (canvas chrome key), not the
+    // true one-hop parent — a grandchild's parent is a middle split.
+    const anchorId = store.containingTile(route.terminalId);
     const anchorMeta =
       anchorId === route.terminalId ? meta : store.getMetadata(anchorId);
     if (!anchorMeta) return null;

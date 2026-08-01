@@ -28,6 +28,7 @@ import type { KoluForward } from "kolu-common/surface";
 import { ForwardRows } from "../forwards/ForwardRows";
 import { servingLink } from "../forwards/terminalServingPort";
 import { selectFleetTerminal } from "../palette/fleetActions";
+import { containingTileOf } from "../terminal/terminalTree";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { forwardsForHost } from "../forwards/useForwards";
 import { formatTimeAgo } from "../terminal/staleness";
@@ -170,11 +171,23 @@ export const HostDiagnosticsPopover: Component<{
   const servingFor = (forward: KoluForward) =>
     servingLink({
       port: forward.remotePort,
-      candidates: [...arms()].map(([id, arm]) => ({
-        id,
-        parentId: arm.parentId ?? null,
-        ports: arm.ports,
-      })),
+      candidates: (() => {
+        const map = arms();
+        // Containing tile via terminalTree — a nested split's port still links
+        // the root; an orphan falls back to itself (painted top-level).
+        return [...map].map(([id, arm]) => {
+          const tile = containingTileOf(id, (x) => {
+            const a = map.get(x);
+            if (a === undefined) return undefined;
+            return a.parentId ?? null;
+          });
+          return {
+            id,
+            parentId: tile === id ? null : tile,
+            ports: arm.ports,
+          };
+        });
+      })(),
       // The join returns the TILE, and the tile is what the row names — a
       // split's own name would point at a pane the user cannot see as a thing.
       armOf: (id) => {

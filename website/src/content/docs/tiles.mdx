@@ -19,15 +19,18 @@ everywhere you look.
 ## Splits and tabs
 
 **Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
-<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Every split appears as an
-indented entry beneath its parent in the Dock; click that entry to land in the
-split with the keyboard ready. Every sub-entry shows the same status indicator
-as a top-level dock row — shell identity for a plain shell, agent brand mark and
-attention colour when an agent is running. A split
-made from the shell or by an agent
-([`padi-tui create --parent`](/padi)) opens the same way — the pane expands and
-the new split is selected, no click needed (unless you're already working in
-another split of that tile, which it won't yank you off).
+<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. On the canvas, every
+descendant of a tile — a direct split, or a split of a split created from the
+shell or by an agent ([`padi-tui create --parent`](/padi)) — shows as a flat
+tab in that tile's bottom strip. Nested depth is allowed in the data; the
+canvas just does not invent a second visual language for it. In the Dock, the
+same terminals keep their true tree: every split is an indented entry beneath
+its real parent, and clicking it lands the keyboard in that pane. Every
+sub-entry shows the same status indicator as a top-level dock row — shell
+identity for a plain shell, agent brand mark and attention colour when an agent
+is running. An externally-created split opens the same way — the pane expands
+and the new split is selected, no click needed (unless you're already working
+in another split of that tile, which it won't yank you off).
 
 In a split, the pane that does **not** have focus recedes slightly, so the one
 your keystrokes are going to always reads as the foreground.

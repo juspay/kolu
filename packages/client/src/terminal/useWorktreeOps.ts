@@ -86,7 +86,7 @@ export function useWorktreeOps(deps: {
       const discarded = await deps.handleDiscard(id);
       if (!discarded) return;
     } else {
-      const subs = store.getSubTerminalIds(id);
+      const subs = store.getSplitPaneIds(id);
       for (const subId of subs) await deps.handleKill(subId);
       await deps.handleKill(id);
     }

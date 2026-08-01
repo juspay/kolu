@@ -84,7 +84,10 @@ running one long-lived agent session stays fresh on its *output*, not only when 
 agent's identity changes, so a busy week-old session doesn't sink to the bottom
 reading "24h ago".
 
-Every split is an indented sub-entry directly beneath its parent row. Clicking
+Every split is an indented sub-entry directly beneath its parent row — its real
+parent, which may itself be a split: a split of a split sits one notch further
+in, under the split it belongs to, rather than flattening up to the tile the way
+the canvas tab strip does. Clicking
 one lands in that pane, and both the parent row and the split stay highlighted:
 the parent names the active tile, while the sub-entry names where the keyboard
 is inside it. Every sub-entry carries the same status indicator as a top-level
