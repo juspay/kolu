@@ -4,7 +4,7 @@
 # and re-copies/re-evaluates on every invocation (~4200ms vs ~130ms hot).
 # Caveat: new .nix files must be `git add`ed before nix develop sees them.
 nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop ' + justfile_directory() + ' --accept-flake-config -c' }
-nix_format_paths := '*.nix nix/**/*.nix packages/*/nix/*.nix website/*.nix ci/flake.nix packages/surface/example/flake.nix packages/solid-browser/example/flake.nix osfacts/default.nix osfacts/flake.nix'
+nix_format_paths := '*.nix nix/**/*.nix packages/*/nix/*.nix website/*.nix ci/flake.nix packages/surface/example/flake.nix packages/solid-browser/example/flake.nix'
 # E2e shell includes Playwright browsers (not in default shell for perf).
 # Check PLAYWRIGHT_BROWSERS_PATH, not IN_NIX_SHELL — the default shell sets
 # IN_NIX_SHELL but doesn't provide browsers, so `just ci::e2e` (which runs
@@ -12,6 +12,14 @@ nix_format_paths := '*.nix nix/**/*.nix packages/*/nix/*.nix website/*.nix ci/fl
 nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix develop ' + justfile_directory() + '#e2e --accept-flake-config -c' }
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
+
+# osfacts-client is a workspace member kolu does not own: it is grafted from the
+# npins `osfacts` pin (`_materialize-osfacts-client`), so its tests and typecheck
+# are that repo's CI's job — and its fixtures resolve against ITS repo root, not
+# kolu's. Every `pnpm -r` here must skip it. The root package.json's `typecheck`
+# and `test:unit` scripts carry the same filter for callers that enter through
+# pnpm instead of just (the Nix typecheck derivation).
+pnpm_vendored_filter := '--filter=!osfacts-client'
 
 # SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
 # source tree so a remote dial can resolve padi for the host's arch. A run from
@@ -40,8 +48,26 @@ default:
 prepare: install
 
 # Install pnpm dependencies
-install:
+install: _materialize-osfacts-client
     {{ nix_shell }} pnpm install
+
+# Graft osfacts-client into the tree from the npins `osfacts` pin.
+#
+# `osfacts-client` is a pnpm workspace member with no copy in this repo — the
+# client lives in juspay/osfacts and nothing here may duplicate it. Nix does
+# this graft for a build (nix/workspace.nix); this recipe is the working-tree
+# twin, so `just install`, `just dev`, and a bare vitest run all read the same
+# pinned bytes. Re-copied every time: the pin is the truth, the directory is
+# a cache of it, and a stale cache is the one failure this must not have.
+[private]
+_materialize-osfacts-client:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="$(nix eval --impure --raw --expr 'toString ((import ./npins).osfacts + "/client-ts")')"
+    rm -rf osfacts-client
+    cp -r "$src" osfacts-client
+    chmod -R u+w osfacts-client
+    echo "osfacts-client ← $src"
 
 # Run server + client in parallel.
 # Bare `just dev` keeps the canonical 7681/5173 (see README). Override either
@@ -274,7 +300,7 @@ client:
 # keys on KOLU_DAEMON_TESTS); this is the safe reach a workstation can run beside
 # a live kolu. Use `test-daemon` for the gated suites.
 test-unit: install
-    {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # Enforce the append-only E2E scenario inventory and coverage ledger. This is
 # deliberately separate from test-unit: it reads every committed inventory
@@ -291,7 +317,7 @@ test-e2e-governance: install
 # `--workspace-concurrency=1` runs one package's suite at a time so a fork storm
 # can't pile up across packages. `test-unit` stays the fork-free default.
 test-daemon: install
-    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r --workspace-concurrency=1 test:unit
+    KOLU_DAEMON_TESTS=1 KOLU_DAEMON_BIND_PID=$$ {{ nix_shell }} pnpm -r {{ pnpm_vendored_filter }} --workspace-concurrency=1 test:unit
 
 # W3.1 ssh-leg e2e — bind padiSurface over a REAL ssh hop, round-trip a terminal,
 # bench typing-echo latency, and prove drain->converge. TURNKEY on a `pu` box: with no

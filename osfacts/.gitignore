@@ -1,7 +1,0 @@
-# Cargo build output (debug, release, deps, incremental)
-/target/
-
-# Editor / OS noise
-*.swp
-*~
-.DS_Store

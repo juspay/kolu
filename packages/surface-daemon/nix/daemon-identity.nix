@@ -43,11 +43,15 @@
 # ── `pinnedSources`: members that are pins, not files ────────────────────────────────────
 # A consumer outside kolu's own workspace reaches some `@kolu/*` packages through a
 # content-addressed pin (npins, a submodule) rather than a directory it can put in a
-# fileset. Those members contribute here instead: each is folded into the hash as
-# `<name>=<store path>`, so a PIN BUMP moves the daemon's id exactly like a source edit
-# does. Dropping them instead is the silent stale-daemon hole #2094 records (juspay/kolu#2093
-# is kolu's own first pinned member). The empty case is byte-identical to hashing `${src}`
-# alone — a workspace-only consumer's live daemon ids do not move when this arm lands.
+# fileset — the member lives OUTSIDE `root`, so a repo-rooted fileset cannot carry it at
+# all. Those members contribute here instead: each is folded into the hash as
+# `<name>=<store path>`, and a store path already changes iff its contents do, so hashing
+# the path IS hashing the source — the same content-addressed trick `fileset.toSource`
+# plays for the local half. A PIN BUMP therefore moves the daemon's id exactly like a
+# source edit does. Dropping them instead is the silent stale-daemon hole #2094 records —
+# the derivation moves on a pin bump while the id stands still (juspay/kolu#2093 is kolu's
+# own first pinned member). The empty case is byte-identical to hashing `${src}` alone —
+# a workspace-only consumer's live daemon ids do not move when this arm lands.
 #
 # ── What the staleKey deliberately does NOT cover: the runtime ENGINE ────────────────────
 # A nixpkgs bump that swaps the daemon's Node/tsx moves the DERIVATION but not this id

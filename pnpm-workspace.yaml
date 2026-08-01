@@ -1,8 +1,10 @@
 packages:
   - packages/**
-  # osfacts TypeScript client — lives under osfacts/ (leaves with the tool at
-  # OSF5), but is a workspace member so kolu packages can import it by name.
-  - osfacts/client-ts
+  # osfacts-client — GENERATED, never committed (`.gitignore`). Nix grafts it
+  # from the npins `osfacts` pin so the client has exactly one source of truth,
+  # in its own repo. `just install` does the same graft for a working tree; a
+  # bare `pnpm install` without it fails loudly rather than half-installing.
+  - osfacts-client
   # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
   # workspace member. It was one only so the lens-debate engine's unit tests ran
   # under `pnpm -r test:unit`; the engine is gone (the lens stage is prose + plain

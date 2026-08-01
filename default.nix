@@ -43,6 +43,7 @@ let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
   workspace = import ./nix/workspace.nix { inherit pkgs; };
   inherit (workspace) version src fileset pnpmDeps;
+  sources = import ./npins;
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
@@ -78,10 +79,10 @@ let
   # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
   # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
   #
-  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/
-  # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
-  # the prove fails without it). Not a workspace package (no typecheck script);
-  # listed here because the agent graph needs the source, not the pnpm tree.
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
+  # osfacts is not in the tree at all (OSF5) — koluEnv bakes KOLU_OSFACTS_BIN
+  # from the npins pin, and nix/workspace.nix grafts the same pin's client-ts
+  # in as the `osfacts-client` workspace member, so `./npins` covers both.
   #
   # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
   # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
@@ -119,7 +120,6 @@ let
       ./default.nix
       ./nix
       ./npins
-      ./osfacts
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -272,7 +272,10 @@ let
   padiIdentity = mkDaemonIdentity {
     name = "padi";
     prefix = "PADI";
-    # Repo root (not packages/): osfacts-client lives under osfacts/.
+    # Repo root, same as kaval's. `root` only has to be a common ancestor of
+    # `behavioralFileset`, and every LOCAL member is under packages/ now that
+    # osfacts-client is a pin — but the root is part of the hashed source's
+    # shape, so narrowing it would move both live daemon ids for nothing.
     root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
@@ -924,10 +927,11 @@ let
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
   # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
-  # Its derivation lives next to its source; it has its OWN flake.nix for a
-  # later move to its own repo, and that flake wants one definition, not a
-  # copy of this one. Both paths import ./osfacts/default.nix.
-  osfacts = import ./osfacts { inherit pkgs; };
+  # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
+  # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
+  # exactly as it built the in-tree one. Kept as a kolu package output because
+  # `nix run .#osfacts` is how a kolu checkout reaches the sampler it bakes.
+  osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;

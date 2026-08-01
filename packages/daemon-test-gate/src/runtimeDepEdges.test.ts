@@ -139,8 +139,13 @@ describe("walkRuntimeDepEdges", () => {
       walkRuntimeDepEdges({
         repoRoot: REPO_ROOT,
         entries: [resolve(REPO_ROOT, "packages/kaval/src/index.ts")],
+        // The real overlap this rule guards: kolu's `osfacts-client` IS a pin
+        // (juspay/kolu#2093 grafts it from the npins `osfacts` pin into the
+        // root-level `osfacts-client/`), and it is ALSO listed in
+        // pnpm-workspace.yaml so pnpm links it. Naming it here too would make
+        // one package answer to two membership kinds.
         pinnedMembers: {
-          "osfacts-client": resolve(REPO_ROOT, "osfacts/client-ts"),
+          "osfacts-client": resolve(REPO_ROOT, "osfacts-client"),
         },
       }),
     ).toThrow(/ambiguous member identity: 'osfacts-client'/);

@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -61,6 +61,10 @@ default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surf
 # this node and call pnpm/biome directly downstream — do not invoke top-level
 # `just <recipe>` recipes that carry their own `install` dep.
 install:
+    # osfacts-client is a workspace member with no copy in this repo — graft it
+    # from the npins `osfacts` pin first, exactly as `just install` does, or
+    # `--frozen-lockfile` meets a lockfile naming a member that isn't there.
+    {{ nix_shell }} just _materialize-osfacts-client
     {{ nix_shell }} pnpm install --frozen-lockfile
 
 # Verify the root pnpmDeps hash matches what fetchPnpmDeps produces from
@@ -368,34 +372,6 @@ biome: install
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
 
-# osfacts hermetic gate (lane 1). `nix build .#osfacts` runs cargo-nextest in
-# checkPhase (process-per-test, per-test timeouts). Depends on `nix` so the
-# root flake-build has already warmed the store; this node is the explicit,
-# named status for the binary + scar-tissue suite on both platforms — and the
-# merge-required half of the osfacts pair (see osfacts-live).
-osfacts: nix
-    nix build .#osfacts --no-link -L
-    # Subflake path must build the same derivation (vazhi pattern).
-    bash ci/flake-build --kinds packages ./osfacts
-
-# osfacts live-host oracle (lane 2). In the default run DAG on both platforms,
-# after the heavy fan-out drains: its Linux performance scenario is a smoke,
-# not a benchmark of how badly concurrent compilers can contend for shared
-# caches. The dependencies also put the built binary in the store first.
-# Diffs that binary against the host's own tools (`ss` / `lsof`) on a real,
-# noisy box — the class of test that can catch OS regressions hermetic
-# fixtures cannot. Exit non-zero is honest: a red fails the `/ci` run (no
-# exit-0 shim). odu has no informational/soft-fail node kind, so this leaf
-# also posts `ci::osfacts-live@…` statuses; it must NOT be absorbed into
-# GitHub `required_status_checks` — branch protection stays hermetic-only
-# (`ci::osfacts@…`). Do not re-run bare `odu protect` (non-dry-run) without
-# excluding these contexts until odu gains a soft-fail kind. Darwin rides
-# odu's platform targeting (rasam in the aarch64-darwin pool).
-[linux]
-[macos]
-osfacts-live: osfacts atlas-sync pnpm-hash-fresh agent-flake-nix website-nix home-manager unit daemon e2e
-    bash osfacts/scripts/live-oracle.sh
-
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # Thin wrappers over `nix run ./ci#odu` so the live dashboard is one just away.
@@ -414,11 +390,12 @@ attach:
 # straight through to odu, so `just ci::protect --dry-run` prints the contexts
 # without touching the PR.
 #
-# Caveat — osfacts-live: odu has no soft-fail node, so dry-run lists
-# `ci::osfacts-live@…` with every other leaf. Those contexts post and may red
-# a full `/ci` run, but must stay out of GitHub `required_status_checks`
-# (hermetic-only merge gate). Filter them out before any non-dry-run protect
-# PATCH, or leave branch protection alone until odu gains a soft-fail kind.
+# Owed — the four `ci::osfacts…@…` contexts: both osfacts leaves left with the
+# tool (OSF5), and `required_status_checks` still lists them, where nothing will
+# ever post them again. Re-run this recipe (non-dry-run) to drop them, or master
+# blocks on statuses that no longer exist. osfacts is a pinned dependency now;
+# `ci::nix` builds it like every other flake package, and the tool's own repo
+# runs its hermetic and live lanes on both platforms.
 protect *args:
     nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
 
