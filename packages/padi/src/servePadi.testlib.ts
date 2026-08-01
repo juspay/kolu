@@ -26,6 +26,7 @@ export const fakeEndpoint = {
   fs: {
     listAll: async () => [],
     listIgnored: async () => [],
+    listDirectory: async () => [],
     readFile: async () => ({ content: "", truncated: false }),
     filePreviewTag: async () => "tag",
     subscribeRepoChange: () => () => {},

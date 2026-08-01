@@ -57,6 +57,9 @@ vi.mock("@pierre/trees", () => {
       return { select() {}, deselect() {} };
     }
     scrollToPath() {}
+    subscribe() {
+      return () => {};
+    }
     batch() {}
     setGitStatus() {}
     cleanUp() {}

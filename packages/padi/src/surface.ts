@@ -77,6 +77,8 @@ import {
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
+  FsListDirectoryInputSchema,
+  FsListDirectoryOutputSchema,
   FsListIgnoredInputSchema,
   FsListIgnoredOutputSchema,
   GitDiffInputSchema,
@@ -288,11 +290,23 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  strip — so the version says so. The minor suffices for the reason 4.1–4.4
  *  give: convergence + minor-rule drain keeps the two shapes from meeting.
  *
- *  4.6 (additive · minor): a NEW `chrome.setNewTerminalPolicy` procedure — the
+ *  4.6 (additive · minor): a NEW `fs.listDirectory` procedure — ONE level of a
+ *  directory, read when the user expands a row `fs.listIgnored`'s `--directory`
+ *  collapse left childless (#2091). `fs.listIgnored` is UNTOUCHED, and keeping
+ *  the read separate is the same call 4.4 made for the same reason: this input
+ *  is keyed by DIRECTORY and fired by a CLICK, so folding it into either
+ *  whole-repo listing would put a per-expansion value in that query's key and
+ *  blank the tree on every click. Purely additive, so the plainest minor there
+ *  is, and the minor suffices for the usual reason — a newer binder against a
+ *  4.5 padi fails `isContractVersionCompatible`'s minor rule and DRAINS it
+ *  before consuming its surface, so a 4.6 client never calls `fs.listDirectory`
+ *  on a padi that lacks it.
+ *
+ *  4.7 (additive · minor): a NEW `chrome.setNewTerminalPolicy` procedure — the
  *  app chrome's report of the user's RESOLVED new-terminal preferences, the twin
  *  of `chrome.setActive` (#2045; see `README.md` § preferences). Purely
  *  additive, so the minor suffices for the reason 4.1–4.4 give. */
-export const PADI_SURFACE_VERSION = "4.6";
+export const PADI_SURFACE_VERSION = "4.7";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -1120,6 +1134,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       listIgnored: {
         input: FsListIgnoredInputSchema,
         output: FsListIgnoredOutputSchema,
+      },
+      listDirectory: {
+        input: FsListDirectoryInputSchema,
+        output: FsListDirectoryOutputSchema,
       },
       readFile: {
         input: FsFileInputSchema,

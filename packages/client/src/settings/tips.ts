@@ -203,7 +203,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-code-tab-show-ignored",
-    text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder shows as one collapsed entry, so peeking inside node_modules costs one row",
+    text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder arrives as one collapsed entry, and expanding it reads that level from disk, so you can walk into node_modules a click at a time",
     doc: "code-tab",
   },
 ];

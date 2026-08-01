@@ -393,7 +393,11 @@ export async function readFreshCodePaths(
       ? rpc.fs.listIgnored({ repoPath }, { signal })
       : Promise.resolve(undefined),
   ]);
-  return mergeBrowseInventory(tracked.paths, ignored?.paths, {
+  // No loaded levels: this read resolves a terminal link against the
+  // authoritative listing, and a lazily-expanded directory's contents are a
+  // VIEW concern — a path only reachable by hand-expanding an ignored folder is
+  // not something a `path:line` ref can name.
+  return mergeBrowseInventory(tracked.paths, ignored?.paths, undefined, {
     trackedPending: false,
     ignoredPending: false,
     showIgnored: includeIgnored,

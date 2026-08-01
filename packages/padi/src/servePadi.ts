@@ -29,7 +29,7 @@ import {
   SNAPSHOT_SCROLLBACK,
 } from "kaval";
 import { DEFAULT_SCROLLBACK } from "@kolu/terminal-vocab/schema";
-import { isFileGoneError, worktreeCreate, worktreeRemove } from "kolu-git";
+import { worktreeCreate, worktreeRemove } from "kolu-git";
 import type { Logger } from "pino";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
@@ -124,17 +124,6 @@ let standingFinishQuiet: FinishQuiet | undefined;
 function disposeStandingFinishQuiet(): void {
   standingFinishQuiet?.dispose();
   standingFinishQuiet = undefined;
-}
-
-/** Map a "the file is gone" filesystem error (a raw node `ENOENT`, however the
- *  endpoint surfaces it) to a TYPED `NOT_FOUND` the client can recognize across
- *  the wire; re-throw anything else untouched. A missing file genuinely IS a
- *  not-found, and typing it lets a delete-while-viewing be swallowed at the
- *  consumer instead of masking to a generic error panel. */
-function fileGoneAsNotFound(e: unknown, filePath: string): unknown {
-  return isFileGoneError(e)
-    ? new ORPCError("NOT_FOUND", { message: `File not found: ${filePath}` })
-    : e;
 }
 
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
@@ -523,7 +512,9 @@ export function buildPadiSurfaceDeps(deps: {
                 : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
             );
             // A contract skew is the ONE failure this handler can translate — it
-            // is the knowing endpoint (the `fileGoneAsNotFound` precedent): a
+            // is the knowing endpoint (the same precedent as `unwrapGit`'s
+            // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
+            // error means must retype it, not leave it to flatten downstream): a
             // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
             // and the user would read an opaque toast (the field failure,
             // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
@@ -614,32 +605,24 @@ export function buildPadiSurfaceDeps(deps: {
       fs: {
         listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
         listIgnored: ({ input }) => endpoint.fs.listIgnored(input.repoPath),
-        // A file deleted while the Code tab is viewing it must surface as a
-        // TYPED `NOT_FOUND`, not a raw ENOENT that masks to a generic error on
-        // the wire: `BrowseFileDispatcher` swallows `NOT_FOUND` (delete-while-
-        // viewing) to match the old value stream, which simply stopped yielding.
-        readFile: async ({ input }) => {
-          try {
-            return await endpoint.fs.readFile(input.repoPath, input.filePath);
-          } catch (e) {
-            throw fileGoneAsNotFound(e, input.filePath);
-          }
-        },
-        filePreviewTag: async ({ input, signal }) => {
-          try {
-            // Thread the request `signal` so a superseded preview query (input
-            // changed, or a fresh file-change pulse re-fired) aborts the whole-
-            // file hash mid-read instead of running to completion — the cost is
-            // real on a multi-GB video where the read runs for seconds.
-            return await endpoint.fs.filePreviewTag(
-              input.repoPath,
-              input.filePath,
-              signal,
-            );
-          } catch (e) {
-            throw fileGoneAsNotFound(e, input.filePath);
-          }
-        },
+        // Delete-while-viewing — a file deleted under an open preview, a build
+        // output `just clean`ed under an open row — must reach the client as a
+        // TYPED `NOT_FOUND`, because that is the one status
+        // `BrowseFileDispatcher` swallows (matching the old value stream, which
+        // simply stopped yielding). None of these three needs a wrapper to get
+        // it: each kolu-git read returns the structural `FILE_GONE` member and
+        // `unwrapGit` maps it, so the classification is already settled by the
+        // time it reaches here. `endpoint.test.ts` pins that for all three.
+        listDirectory: ({ input }) =>
+          endpoint.fs.listDirectory(input.repoPath, input.dirPath),
+        readFile: ({ input }) =>
+          endpoint.fs.readFile(input.repoPath, input.filePath),
+        // The request `signal` is threaded so a superseded preview query (input
+        // changed, or a fresh file-change pulse re-fired) aborts the whole-file
+        // hash mid-read instead of running to completion — the cost is real on
+        // a multi-GB video where the read runs for seconds.
+        filePreviewTag: ({ input, signal }) =>
+          endpoint.fs.filePreviewTag(input.repoPath, input.filePath, signal),
       },
 
       // git reads off the same shared endpoint; the worktree MUTATIONS are

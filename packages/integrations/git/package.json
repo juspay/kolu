@@ -21,6 +21,7 @@
     "kolu-pty": "workspace:*",
     "kolu-shared": "workspace:*",
     "memorable-names": "workspace:*",
+    "p-limit": "^7.3.1",
     "simple-git": "^3.36.0",
     "zod": "^4.3.6"
   },
