@@ -134,12 +134,21 @@ let
       "workspace.nix depClosure: stop entries not in the dependency closure of ${toString entries} (stale or mistyped): ${toString stale}";
     lib.naturalSort (lib.subtractLists stop (walk stop));
 
-  # Is this member's directory a pinned source in the Nix store rather than a
-  # path in this repo? `lib.isStorePath` is the WRONG test: it holds only for a
-  # store ROOT (`/nix/store/<hash>-name`), while a grafted member is a SUBPATH
-  # of one (`…-source/client-ts`) and would sail through it. Exported so
-  # default.nix splits the daemon-identity closure on the same predicate.
-  isGraftedDir = dir: lib.hasPrefix builtins.storeDir (toString dir);
+  # Is this member's directory grafted from a pin rather than checked in here?
+  # Answered by TYPE: an in-tree member is a Nix path literal (`../packages/x`),
+  # a grafted one is a string (`sources.osfacts + "/client-ts"` coerces).
+  #
+  # Two location tests were tried and are both WRONG. `lib.isStorePath` holds
+  # only for a store ROOT (`/nix/store/<hash>-name`), so a grafted SUBPATH
+  # (`…-source/client-ts`) sails through it. And prefix-matching `storeDir` is
+  # true for EVERY member once default.nix is re-imported from the assembled
+  # agent tree (mkProvenAgentSource) — that tree is itself a store path, so the
+  # filter emptied the whole workspace and the agent source lost every package.
+  # Type does not depend on where the evaluation is rooted.
+  #
+  # Exported so default.nix splits the daemon-identity closure on this same
+  # predicate rather than spelling its own.
+  isGraftedDir = dir: !builtins.isPath dir;
 
   # Only members that are paths in THIS repo can ride a repo-rooted fileset;
   # `osfacts-client` is grafted from the npins pin (see `src` below).
