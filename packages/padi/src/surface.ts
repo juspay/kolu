@@ -68,6 +68,10 @@ import {
 } from "@kolu/surface-daemon/control-core";
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  NewTerminalPolicySchema,
+} from "./newTerminalPolicy.ts";
+import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
@@ -128,6 +132,15 @@ export * from "./vocab.ts";
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
 // re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
+// The RESOLVED new-terminal theme policy the binding kolu-server pushes — declared
+// here for the same seal reason as the client-error policy above, and re-exported
+// by `kolu-common/surface` for `koluSurface` and the client. See
+// `./newTerminalPolicy.ts`.
+export {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  type NewTerminalPolicy,
+  NewTerminalPolicySchema,
+} from "./newTerminalPolicy.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -299,8 +312,17 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
  *  is, and the minor suffices for the usual reason — a newer binder against a
  *  4.5 padi fails `isContractVersionCompatible`'s minor rule and DRAINS it
  *  before consuming its surface, so a 4.6 client never calls `fs.listDirectory`
- *  on a padi that lacks it. */
-export const PADI_SURFACE_VERSION = "4.6";
+ *  on a padi that lacks it.
+ *
+ *  4.7 (additive · minor): a NEW `newTerminalPolicy` cell — the RESOLVED
+ *  new-terminal theme policy the binding kolu-server pushes, read by
+ *  `lifecycle.create` so every face (browser, MCP, CLI) obeys the user's
+ *  setting (#2045). Purely additive, and the minor suffices for the usual
+ *  reason: a 4.7 binder — which CALLS `newTerminalPolicy.set` — fails
+ *  `isContractVersionCompatible`'s minor rule against a 4.6 padi and DRAINS it
+ *  before consuming its surface, so the write never lands on a padi that has
+ *  no such member. */
+export const PADI_SURFACE_VERSION = "4.7";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = z.object({ contractVersion: z.string() });
@@ -929,6 +951,20 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Kaval status" } },
     },
+    /** What theme a new terminal gets — WRITTEN by the binding kolu-server, READ
+     *  by `lifecycle.create`. The value is always the RESOLVED policy, never the
+     *  raw preferences (the `stateStore.ts` ruling: preferences never move here);
+     *  padi holds it in memory only, because the binder re-derives and re-pushes
+     *  on every bind. NOT a derived cell — the graph would be its one writer, and
+     *  a derived cell carrying a write verb is a boot crash. NOT exposed through
+     *  the MCP face either: an agent inherits the user's policy, it does not set
+     *  it (denial by omission in kolu-mcp's expose map). */
+    newTerminalPolicy: {
+      schema: NewTerminalPolicySchema,
+      default: DEFAULT_NEW_TERMINAL_POLICY,
+      verbs: ["get", "set"],
+      client: { onError: { kind: "toast", label: "New-terminal policy" } },
+    },
     /** The running kaval + padi daemons on THIS padi's host — the "Running daemons"
      *  leak diagnostic the Kaval + Padi dialogs list. Read-only on the client; padi's
      *  periodic host-inventory sampler (`hostInventory.ts`, wired into daemon boot)
@@ -1221,6 +1257,7 @@ export const PADI_FORWARDING_POLICY = {
   identity: "value",
   urgency: "value",
   status: "value",
+  newTerminalPolicy: "value",
   hostInventory: "value",
   processMemory: "value",
   activityFeed: "value",

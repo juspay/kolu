@@ -40,6 +40,10 @@ import type { TerminalEndpoint } from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
+import {
+  newTerminalPolicyStore,
+  resolveNewTerminalTheme,
+} from "./newTerminalTheme.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
@@ -211,6 +215,10 @@ export function buildPadiSurfaceDeps(deps: {
       // amber pip + tooltip, via `kavalStale` — reads it against the connected
       // daemon's reported `daemonStatus.identity`).
       status: { store: inMemoryStore(status) },
+      // The resolved new-terminal theme policy the binding kolu-server pushes.
+      // The SAME module store `resolveNewTerminalTheme` reads — that identity is
+      // what makes `lifecycle.create` resolve against the wire-written authority.
+      newTerminalPolicy: { store: newTerminalPolicyStore },
       // The running kaval + padi daemons on THIS padi's host — the "Running daemons"
       // leak diagnostic. A DERIVED member fed by a POLL source: `samplePadiHostInventory`
       // scans the host (reading padi's serve socket from the module global set at boot),
@@ -425,7 +433,10 @@ export function buildPadiSurfaceDeps(deps: {
           if (input.parentId !== undefined)
             requireActiveTerminal(input.parentId);
           const info = createTerminal(input.cwd, input.parentId, {
-            themeName: input.themeName,
+            // An explicit theme always wins; absent one, the pushed policy
+            // decides — HERE, so the MCP and CLI faces obey the user's
+            // new-terminal theme setting exactly as the browser does (#2045).
+            themeName: input.themeName ?? resolveNewTerminalTheme(),
             canvasLayout: input.canvasLayout,
             subPanel: input.subPanel,
             rightPanel: input.rightPanel,

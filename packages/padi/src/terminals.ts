@@ -324,6 +324,13 @@ function assignActiveTerminalId(id: TerminalId | null): void {
   activeTerminalId = id;
 }
 
+/** The client-reported active-terminal marker. It can name a terminal that no
+ *  longer exists — `killTerminal` does not clear it — so a reader must re-validate
+ *  through `getTerminal` rather than trust the id. */
+export function getActiveTerminalId(): TerminalId | null {
+  return activeTerminalId;
+}
+
 /** Store which terminal is active (reported by the client).
  *  Only emits session:changed when a terminal is actually selected —
  *  null (no selection, e.g. client reconnect) must not trigger

@@ -16,7 +16,11 @@
 import { inMemoryStore } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { ORPCError } from "@orpc/server";
+import { availableThemes, getThemeByName, themeMode } from "terminal-themes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_NEW_TERMINAL_POLICY } from "./newTerminalPolicy.ts";
+import { newTerminalPolicyStore, shufflePeerBgs } from "./newTerminalTheme.ts";
+import { setActiveTerminalId } from "./terminals.ts";
 import { setPadiSessionStore } from "./session/confStores.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
 import {
@@ -589,5 +593,119 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     // Both the parked entries and the blob are gone, together — one user act.
     expect(getTerminal(PARKED_ID)).toBeUndefined();
     expect(getSavedSession()).toBeNull();
+  });
+});
+
+// ── lifecycle.create resolves the new-terminal theme from the pushed policy ──
+//
+// The #2045 fix: theme policy used to be request decoration the BROWSER applied,
+// so an MCP-created terminal skipped it entirely. It now resolves here, against
+// the `newTerminalPolicy` cell kolu-server pushes, so every face gets the same
+// answer.
+describe("padi new-terminal theme — lifecycle.create resolves the pushed policy", () => {
+  const PEER_THEME = "Nordfox";
+
+  function serve() {
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+      lifetime: { kind: "forever" },
+      stateRoot: "/tmp/padi-test-state-root",
+    });
+    const create = deps.procedures?.lifecycle?.create as
+      | ((a: { input: { themeName?: string } }) => unknown)
+      | undefined;
+    if (!create) throw new Error("padi deps must serve lifecycle.create");
+    return create;
+  }
+
+  /** Register an ACTIVE entry carrying `themeName`, and return its id. */
+  function seedActive(id: string, themeName: string | undefined): string {
+    registerTerminal(id, {
+      info: { id, pid: 1 },
+      meta: { ...activeMeta, themeName },
+      snapshot: activeSnapshot,
+      handle: {} as ActiveTerminalProcess["handle"],
+    });
+    return id;
+  }
+
+  /** The theme the create just stamped — the one entry that is not a seeded id. */
+  function createdTheme(
+    create: ReturnType<typeof serve>,
+    input: { themeName?: string } = {},
+  ): string | undefined {
+    const before = new Set([...terminalEntries()].map(([id]) => id));
+    create({ input });
+    const fresh = [...terminalEntries()].filter(([id]) => !before.has(id));
+    if (fresh.length !== 1)
+      throw new Error(`create registered ${fresh.length} entries, expected 1`);
+    return (fresh[0] as [string, { meta: { themeName?: string } }])[1].meta
+      .themeName;
+  }
+
+  beforeEach(() => setPadiSurfaceCtx(noopPadiSurfaceCtxForTest()));
+  afterEach(async () => {
+    // The kaval-less fresh spawn's async tail rejects on a later microtask; let
+    // it settle before draining the registry the create wrote into.
+    await new Promise((r) => setTimeout(r, 0));
+    for (const [id] of [...terminalEntries()]) unregisterTerminal(id);
+    setActiveTerminalId(null);
+    newTerminalPolicyStore.set(DEFAULT_NEW_TERMINAL_POLICY);
+    __resetPadiSurfaceCtxForTest();
+  });
+
+  it("inherit — copies the active terminal's theme", () => {
+    newTerminalPolicyStore.set({ kind: "inherit" });
+    setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
+    expect(createdTheme(serve())).toBe(PEER_THEME);
+  });
+
+  it("inherit with no active terminal — the metadata stays theme-less (the client's built-in default)", () => {
+    newTerminalPolicyStore.set({ kind: "inherit" });
+    seedActive(ACTIVE_ID, PEER_THEME);
+    expect(createdTheme(serve())).toBeUndefined();
+  });
+
+  it("inherit with a STALE active marker (the terminal was killed) — theme-less, not a crash", () => {
+    // `killTerminal` does not clear the marker, so the id can outlive its entry.
+    newTerminalPolicyStore.set({ kind: "inherit" });
+    setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
+    unregisterTerminal(ACTIVE_ID);
+    expect(createdTheme(serve())).toBeUndefined();
+  });
+
+  it("shuffle — picks a real catalogue theme of the policy's family, distinct from the sole peer", () => {
+    newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
+    seedActive(ACTIVE_ID, PEER_THEME);
+    const picked = createdTheme(serve());
+    const named = availableThemes.find((t) => t.name === picked);
+    if (!named) throw new Error(`picked theme not in the catalogue: ${picked}`);
+    expect(themeMode(named)).toBe("dark");
+    // The spread picker maximises distance from the peer set, so the peer's own
+    // background (distance zero — the worst possible score) is never the answer.
+    expect(picked).not.toBe(PEER_THEME);
+  });
+
+  it("an explicit themeName wins over BOTH policy kinds (session restore, worktree opens)", () => {
+    newTerminalPolicyStore.set({ kind: "inherit" });
+    setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
+    expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
+    newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
+    expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
+  });
+
+  it("parked entries are NOT shuffle peers — their tints belong to a dead session, not a visible tile", () => {
+    seedActive(ACTIVE_ID, PEER_THEME);
+    registerTerminal(PARKED_ID, {
+      info: { id: PARKED_ID, pid: 0 },
+      meta: parkedMeta,
+      snapshot: parkedSnapshot,
+    } as ParkedTerminalProcess);
+    expect(shufflePeerBgs()).toEqual([
+      getThemeByName(PEER_THEME).background as string,
+    ]);
   });
 });

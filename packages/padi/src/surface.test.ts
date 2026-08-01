@@ -24,7 +24,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.contract).toBeTruthy();
   });
 
-  it("is version 4.6, and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 4.7, and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -58,21 +58,26 @@ describe("padiSurface contract", () => {
     // directory, read when the user expands a row `listIgnored`'s collapse left
     // childless (#2091). Additive for the same reason 4.4 was, and separate
     // from both listings because it is keyed by directory and fired by a click.
-    expect(PADI_SURFACE_VERSION).toBe("4.6");
+    // 4.7 (minor): a NEW `newTerminalPolicy` cell — the resolved new-terminal
+    // theme policy kolu-server pushes, read by `lifecycle.create` so an
+    // MCP-created terminal obeys the user's setting (#2045). Additive, and the
+    // minor is what keeps a 4.7 binder (which CALLS `newTerminalPolicy.set`)
+    // off a 4.6 padi that has no such member.
+    expect(PADI_SURFACE_VERSION).toBe("4.7");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(PadiVersionSchema.parse(DEFAULT_PADI_VERSION)).toEqual(
       DEFAULT_PADI_VERSION,
     );
-    // The load-bearing claim behind every minor bump, 4.6 included: a binder
+    // The load-bearing claim behind every minor bump, 4.7 included: a binder
     // that EXPECTS the new minor refuses a padi still reporting the old one, so
     // the convergence machinery drains-and-respawns it BEFORE the new client can
-    // call a procedure that padi does not serve — here a 4.6 client reaching for
-    // `fs.listDirectory` on a 4.5 padi, which has no such member.
-    expect(isContractVersionCompatible("4.5", "4.6")).toBe(false);
+    // touch a member padi does not serve — here a 4.7 binder writing
+    // `newTerminalPolicy` on a 4.6 padi, which has no such cell.
+    expect(isContractVersionCompatible("4.6", "4.7")).toBe(false);
     // The same rule one bump earlier, kept so the claim is pinned across two
-    // edges rather than only the newest (there: session.restore still speaking
-    // resumeIds instead of resumeAgents+optOutIds).
-    expect(isContractVersionCompatible("4.4", "4.5")).toBe(false);
+    // edges rather than only the newest (there: a 4.6 client reaching for
+    // `fs.listDirectory` on a 4.5 padi).
+    expect(isContractVersionCompatible("4.5", "4.6")).toBe(false);
     // A newer additive minor (a future 4.x) still serves a 4.0 consumer; a
     // major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("4.1", "4.0")).toBe(true);
@@ -92,6 +97,7 @@ describe("padiSurface contract", () => {
       "identity",
       "urgency",
       "status",
+      "newTerminalPolicy",
       "hostInventory",
       "processMemory",
       "activityFeed",
