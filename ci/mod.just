@@ -51,7 +51,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts osfacts-live
+default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh atlas-sync osfacts
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -368,33 +368,15 @@ biome: install
 atlas-sync:
     {{ nix_shell }} just atlas::check-sync
 
-# osfacts hermetic gate (lane 1). `nix build .#osfacts` runs cargo-nextest in
-# checkPhase (process-per-test, per-test timeouts). Depends on `nix` so the
-# root flake-build has already warmed the store; this node is the explicit,
-# named status for the binary + scar-tissue suite on both platforms — and the
-# merge-required half of the osfacts pair (see osfacts-live).
+# osfacts integration gate. The tool lives in its own repo now (OSF5) and owns
+# both of its test lanes there — hermetic and live-host — so what kolu still
+# asks is narrower: does the PINNED revision build on this platform, for the
+# binary padi spawns? Depends on `nix` so the root flake-build has already
+# warmed the store. `ci::osfacts-live@…` is gone with the script it ran; drop
+# those two contexts from branch protection (`odu protect`), or master will
+# wait forever for a status nothing posts.
 osfacts: nix
     nix build .#osfacts --no-link -L
-    # Subflake path must build the same derivation (vazhi pattern).
-    bash ci/flake-build --kinds packages ./osfacts
-
-# osfacts live-host oracle (lane 2). In the default run DAG on both platforms,
-# after the heavy fan-out drains: its Linux performance scenario is a smoke,
-# not a benchmark of how badly concurrent compilers can contend for shared
-# caches. The dependencies also put the built binary in the store first.
-# Diffs that binary against the host's own tools (`ss` / `lsof`) on a real,
-# noisy box — the class of test that can catch OS regressions hermetic
-# fixtures cannot. Exit non-zero is honest: a red fails the `/ci` run (no
-# exit-0 shim). odu has no informational/soft-fail node kind, so this leaf
-# also posts `ci::osfacts-live@…` statuses; it must NOT be absorbed into
-# GitHub `required_status_checks` — branch protection stays hermetic-only
-# (`ci::osfacts@…`). Do not re-run bare `odu protect` (non-dry-run) without
-# excluding these contexts until odu gains a soft-fail kind. Darwin rides
-# odu's platform targeting (rasam in the aarch64-darwin pool).
-[linux]
-[macos]
-osfacts-live: osfacts atlas-sync pnpm-hash-fresh agent-flake-nix website-nix home-manager unit daemon e2e
-    bash osfacts/scripts/live-oracle.sh
 
 
 # ── odu convenience (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
@@ -414,11 +396,10 @@ attach:
 # straight through to odu, so `just ci::protect --dry-run` prints the contexts
 # without touching the PR.
 #
-# Caveat — osfacts-live: odu has no soft-fail node, so dry-run lists
-# `ci::osfacts-live@…` with every other leaf. Those contexts post and may red
-# a full `/ci` run, but must stay out of GitHub `required_status_checks`
-# (hermetic-only merge gate). Filter them out before any non-dry-run protect
-# PATCH, or leave branch protection alone until odu gains a soft-fail kind.
+# Owed — `ci::osfacts-live@…`: the live-oracle leaf left with the tool (OSF5),
+# but its two contexts are still in GitHub `required_status_checks`, where
+# nothing will ever post them again. Re-run this recipe (non-dry-run) to drop
+# them, or master blocks on a status that no longer exists.
 protect *args:
     nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
 

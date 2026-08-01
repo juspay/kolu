@@ -1,7 +1,8 @@
 packages:
   - packages/**
-  # osfacts TypeScript client — lives under osfacts/ (leaves with the tool at
-  # OSF5), but is a workspace member so kolu packages can import it by name.
+  # osfacts TypeScript client — the one thing that did NOT leave with the tool
+  # at OSF5, because a workspace member must be a path inside this repo and
+  # kolu packages import it by name. See osfacts/README.md.
   - osfacts/client-ts
   # NOTE: `agents/` (the reusable APM skills package — agents/README.md) is NOT a
   # workspace member. It was one only so the lens-debate engine's unit tests ran

@@ -43,6 +43,7 @@ let
   koluEnv = import ./nix/env.nix { inherit pkgs; };
   workspace = import ./nix/workspace.nix { inherit pkgs; };
   inherit (workspace) version src fileset pnpmDeps;
+  sources = import ./npins;
 
   # Keep Node's full command set in the wrapper PATH: padi passes that PATH into
   # hosted terminals, where node, npm, npx, and corepack are part of the existing
@@ -78,10 +79,10 @@ let
   # wrapper (mkProvenAgentSource — shallow bake is unspellable). The flake
   # exposes only Kolu's nix/agent-packages.json inventory via nix/agent-flake.nix.
   #
-  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/
-  # + osfacts/ (OSF2 — padi/koluEnv bake KOLU_OSFACTS_BIN from import ./osfacts;
-  # the prove fails without it). Not a workspace package (no typecheck script);
-  # listed here because the agent graph needs the source, not the pnpm tree.
+  # Fileset policy (kolu's): workspace packages + default.nix + nix/ + npins/.
+  # osfacts itself is no longer in the tree (OSF5) — koluEnv bakes
+  # KOLU_OSFACTS_BIN from the npins pin, which `./npins` already covers, and
+  # osfacts/client-ts rides in as a workspace package.
   #
   # `expose` (what the agent flake offers a remote to resolve) and `prove` (what
   # must evaluate before any wrapper gets the bake path) are DELIBERATELY two
@@ -119,7 +120,6 @@ let
       ./default.nix
       ./nix
       ./npins
-      ./osfacts
     ];
     inherit pkgs commitHash;
     agents = agentPackages.prove;
@@ -235,8 +235,9 @@ let
   padiIdentity = mkDaemonIdentity {
     name = "padi";
     prefix = "PADI";
-    # Repo root (not packages/): osfacts-client lives under osfacts/ so it can
-    # leave with the tool at OSF5, yet still hashes into padi's staleKey.
+    # Repo root (not packages/): osfacts-client still lives under osfacts/,
+    # the one thing that stayed when the tool left at OSF5, yet still hashes
+    # into padi's staleKey.
     root = ./.;
     inherit commitHash;
     override = padiBuildIdOverride;
@@ -942,11 +943,28 @@ let
   vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
 
   # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
-  # Its derivation lives next to its source; it has its OWN flake.nix for a
-  # later move to its own repo, and that flake wants one definition, not a
-  # copy of this one. Both paths import ./osfacts/default.nix.
-  osfacts = import ./osfacts { inherit pkgs; };
+  # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
+  # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
+  # exactly as it built the in-tree one. Kept as a kolu package output because
+  # `nix run .#osfacts` is how a kolu checkout reaches the sampler it bakes.
+  osfacts = import sources.osfacts { inherit pkgs; };
+
+  # osfacts-client's facet unions are pinned to `osfacts/facets.json` by its
+  # `facets.test.ts`, and upstream pins that same file to the Rust `Facet` enum
+  # (`tests/v2_contract.rs::facets_json_is_the_enum`). The client stayed behind
+  # when the tool left (it is a pnpm workspace member — see osfacts/README.md),
+  # so the copy it reads must BE the pinned copy: a stale one would let the TS
+  # unions miss a facet the baked binary emits, and nothing else would notice.
+  osfactsFacetsInSync = pkgs.runCommand "osfacts-facets-in-sync" { } ''
+    if ! cmp -s ${./osfacts/facets.json} ${sources.osfacts}/facets.json; then
+      echo "osfacts/facets.json has drifted from the pinned osfacts." >&2
+      echo "Copy it across (npins pin 'osfacts'), or bump the pin:" >&2
+      diff -u ${sources.osfacts}/facets.json ${./osfacts/facets.json} >&2 || true
+      exit 1
+    fi
+    touch $out
+  '';
 in
 {
-  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts osfactsFacetsInSync;
 }

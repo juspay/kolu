@@ -12,8 +12,10 @@ let
   rhaiGrammar = pkgs.runCommand "rhai.tmLanguage.json" { } ''
     cp ${rhaiLsp}/editors/vscode/syntax/rhai.tmLanguage.json $out
   '';
-  # ONE definition — same store path as `nix build .#osfacts` / `nix run ./osfacts`.
-  osfacts = import ../osfacts { inherit pkgs; };
+  # ONE definition — same store path as `nix build .#osfacts`. The tool lives
+  # in its own repo now (juspay/osfacts, OSF5); npins pins it, and its
+  # default.nix still takes `{ pkgs }`, so kolu's pin builds it.
+  osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
   KOLU_FONTS_DIR = pkgs.kolu-fonts;
