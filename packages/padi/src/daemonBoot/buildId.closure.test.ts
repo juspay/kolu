@@ -111,6 +111,11 @@ const ALLOWED_EXTERNAL = [
   "mrmime",
   "simple-git",
   "string-argv",
+  // A pure concurrency-limiter (kolu-git's `listDirectory` bounds its symlink
+  // `stat` fan-out). No daemon wire/behaviour crosses it — it schedules
+  // callbacks the caller already owns — so it is a stable leaf, not a hashed
+  // root.
+  "p-limit",
   "@kolu/surface",
   // @kolu/xterm-kit — the graduated xterm machinery. padi reaches it ONLY
   // transitively through kaval's embedded library (`ptyHost` → the runtime-

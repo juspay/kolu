@@ -21,6 +21,7 @@ import {
 import path from "node:path";
 import { promisify } from "node:util";
 import type { Logger } from "kolu-shared";
+import pLimit from "p-limit";
 import { err, type GitResult, isFileGoneError, ok } from "./errors.ts";
 import { resolveExistingUnder } from "./safe-path.ts";
 
@@ -184,11 +185,14 @@ export async function listDirectory(
     });
     // Resolve the symlinks with BOUNDED concurrency. The two unbounded shapes
     // are each wrong on the input this feature exists for — a directory that can
-    // hold six figures of entries. `Promise.all` over the level schedules one
-    // stat per symlink at once: a promise/libuv queue spike. Fully sequential
-    // pays a round trip per link, which at even a fraction of a millisecond each
-    // is tens of seconds of dead UI on one click. A small pool overlaps the I/O
-    // without ever holding more than `STAT_CONCURRENCY` requests in flight.
+    // hold six figures of entries. Unlimited `Promise.all` over the level
+    // schedules one stat per symlink at once: a promise/libuv queue spike.
+    // Fully sequential pays a round trip per link, which at even a fraction of
+    // a millisecond each is tens of seconds of dead UI on one click. `p-limit`
+    // overlaps the I/O without ever holding more than `STAT_CONCURRENCY`
+    // requests in flight — the scheduling itself is a solved, focused problem;
+    // hand-rolling a worker-pool loop here would just be a second, private
+    // implementation of what the library already gets right.
     //
     // Following a link is safe by construction — the expand this row enables
     // goes back through `resolveExistingUnder`, whose realpath check refuses a
@@ -198,33 +202,34 @@ export async function listDirectory(
     // other stat failure — EACCES, EIO, ELOOP, EMFILE — is a real fault, and
     // answering it with a plain file row would both hide the fault and put back
     // the wrong-row/EISDIR behaviour this branch exists to remove. Those escape
-    // to the catch below and fail the whole listing loudly.
-    let next = 0;
-    const worker = async (): Promise<void> => {
-      while (next < links.length) {
-        const i = links[next++] as number;
-        const entry = entries[i] as (typeof entries)[number];
-        try {
-          const target = await stat(path.join(abs, entry.name));
-          if (target.isDirectory()) rows[i] = `${rows[i]}/`;
-        } catch (statErr: unknown) {
-          if (!isFileGoneError(statErr)) throw statErr;
-        }
+    // `limit.map` and fail the whole listing loudly (its rejection propagates
+    // the same as a bare `Promise.all` would).
+    const limit = pLimit(STAT_CONCURRENCY);
+    await limit.map(links, async (i) => {
+      const entry = entries[i];
+      if (!entry) return; // links only ever holds indices readdir handed back
+      try {
+        const target = await stat(path.join(abs, entry.name));
+        if (target.isDirectory()) rows[i] = `${rows[i]}/`;
+      } catch (statErr: unknown) {
+        if (!isFileGoneError(statErr)) throw statErr;
       }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(STAT_CONCURRENCY, links.length) }, worker),
-    );
+    });
     return ok(rows);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    log?.error({ err: msg, repoPath, dirPath }, "listDirectory failed");
-    // A directory cleaned between the listing and the click gets its OWN tag,
-    // not `GIT_FAILED` (no git subprocess ran here): `unwrapGit` maps it to a
-    // typed `NOT_FOUND` structurally, rather than the wire contract resting on
-    // an errno string surviving two re-wraps intact.
-    if (isFileGoneError(e))
+    // A directory cleaned between the listing and the click (the headline
+    // race this function exists to answer) is EXPECTED, not a fault — same
+    // classification as `readFile`/`filePreviewTag`, so it logs at debug, not
+    // error (errors-must-log-at-error reserves `error` for genuine faults). It
+    // still gets its OWN tag, not `GIT_FAILED` (no git subprocess ran here):
+    // `unwrapGit` maps it to a typed `NOT_FOUND` structurally, rather than the
+    // wire contract resting on an errno string surviving two re-wraps intact.
+    if (isFileGoneError(e)) {
+      log?.debug({ err: msg, repoPath, dirPath }, "listDirectory: dir gone");
       return err({ code: "FILE_GONE", path: dirPath, message: msg });
+    }
+    log?.error({ err: msg, repoPath, dirPath }, "listDirectory failed");
     return err({
       code: "GIT_FAILED",
       message: `Failed to list directory: ${msg}`,
@@ -352,22 +357,23 @@ export async function filePreviewTag(
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     const msg = e instanceof Error ? e.message : String(e);
     // A file deleted while the Code tab is viewing it (ENOENT) is EXPECTED — the
-    // delete-while-viewing race servePadi maps to a typed NOT_FOUND — so it logs
-    // at debug, not error. Any other failure is a genuine, unexpected preview
-    // I/O fault and MUST surface at error level for operators (errors-must-log-
-    // at-error). The gone-file test is the SAME predicate servePadi's
-    // `fileGoneAsNotFound` maps on — one source of truth, so they can't drift.
+    // delete-while-viewing race `unwrapGit` maps to a typed NOT_FOUND — so it
+    // logs at debug, not error. Any other failure is a genuine, unexpected
+    // preview I/O fault and MUST surface at error level for operators
+    // (errors-must-log-at-error). The gone-file test is the SAME predicate
+    // `readFile` and `listDirectory` apply — one source of truth, so they
+    // can't drift.
     if (isFileGoneError(e)) {
       log?.debug({ err: msg, repoPath, filePath }, "preview-tag file gone");
       // Its OWN tag, like `readFile` and `listDirectory`. Returning `GIT_FAILED`
       // here made the classification depend on an errno string surviving into
       // an `ORPCError` message — and once `isFileGoneError` was narrowed to
-      // trust a present `code` alone, that stopped working: `unwrapGit` maps
+      // trust a present `code` alone, that stopped working: `unwrapGit` mapped
       // `GIT_FAILED` to an `ORPCError` whose own `code` is
-      // `INTERNAL_SERVER_ERROR`, so `servePadi`'s `fileGoneAsNotFound` read
-      // THAT code and never looked at the preserved message. Deleting an open
-      // image/PDF/video then surfaced a visible error instead of being
-      // swallowed. Tagging it here settles the question before any wire
+      // `INTERNAL_SERVER_ERROR`, so servePadi's now-removed `fileGoneAsNotFound`
+      // wrapper read THAT code and never looked at the preserved message.
+      // Deleting an open image/PDF/video then surfaced a visible error instead
+      // of being swallowed. Tagging it here settles the question before any wire
       // wrapper can obscure the errno.
       return err({ code: "FILE_GONE", path: filePath, message: msg });
     }
