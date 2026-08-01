@@ -50,3 +50,17 @@ export const DEFAULT_NEW_TERMINAL_POLICY: NewTerminalPolicy = {
   kind: "shuffle",
   mode: "dark",
 };
+
+/** Structural equality — the ONE definition, shared by the cell's spec `equals`
+ *  (padi's wire/bus dedup point) and by kolu-server's pusher, which skips a push
+ *  that would rewrite a byte-identical fact (an ssh round trip per remote host,
+ *  for every unrelated preferences write). Two tiny variants, so the comparison
+ *  is spelled out rather than stringified. */
+export function newTerminalPolicyEqual(
+  a: NewTerminalPolicy,
+  b: NewTerminalPolicy,
+): boolean {
+  return a.kind === "shuffle" && b.kind === "shuffle"
+    ? a.mode === b.mode
+    : a.kind === b.kind;
+}

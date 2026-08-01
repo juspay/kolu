@@ -220,6 +220,48 @@ describe("installNewTerminalPolicyPusher — republish", () => {
   });
 });
 
+describe("installNewTerminalPolicyPusher — no-change dedup", () => {
+  it("pushes nothing when the derived policy has not moved", async () => {
+    // `onPolicyInputsChanged` hangs off the WHOLE preferences cell, so a splitter drag
+    // or a seen tip nudges it too. Without the dedup each of those is an ssh round trip
+    // per remote host to rewrite a byte-identical fact.
+    const pool = fakePool();
+    const guest = fakeSession();
+    pool.add("guest", guest.session);
+    const pusher = installNewTerminalPolicyPusher({
+      pool: pool.pool,
+      getPolicy: () => ({ kind: "shuffle", mode: "light" }),
+      log,
+    });
+
+    guest.to("connected");
+    await settle();
+    pusher.republish();
+    pusher.republish();
+    await settle();
+
+    expect(guest.pushed).toEqual([SHUFFLE_LIGHT]);
+  });
+
+  it("re-pushes on the connect edge after a drop — the fresh padi holds the baked default again", async () => {
+    const pool = fakePool();
+    const guest = fakeSession();
+    pool.add("guest", guest.session);
+    installNewTerminalPolicyPusher({
+      pool: pool.pool,
+      getPolicy: () => INHERIT,
+      log,
+    });
+
+    guest.to("connected");
+    guest.to("disconnected");
+    guest.to("connected");
+    await settle();
+    // Same value both times: the dedup must NOT suppress the reconnect's re-prime.
+    expect(guest.pushed).toEqual([INHERIT, INHERIT]);
+  });
+});
+
 describe("installNewTerminalPolicyPusher — a failing push", () => {
   it("logs at error and keeps running (never rethrows into the family's listener)", async () => {
     const pool = fakePool();
@@ -235,6 +277,38 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     expect(() => local.to("connected")).not.toThrow();
     await settle();
     expect(errors).toHaveBeenCalledTimes(1);
+  });
+
+  it("is retried by the next republish — a refused write is not what the host holds", async () => {
+    const pool = fakePool();
+    const listeners = { fail: true };
+    const local = fakeSession();
+    // A `set` that refuses once, then accepts — the skew-fence-then-upgrade shape.
+    const cell = local.session.currentClient();
+    if (cell === null) throw new Error("fake session must have a client");
+    const client = await cell;
+    const real = client.surface.newTerminalPolicy.set.bind(
+      client.surface.newTerminalPolicy,
+    );
+    client.surface.newTerminalPolicy.set = async (policy) => {
+      if (listeners.fail) throw new Error("contract skew");
+      return real(policy);
+    };
+    pool.add("local", local.session);
+    const pusher = installNewTerminalPolicyPusher({
+      pool: pool.pool,
+      getPolicy: () => INHERIT,
+      log,
+    });
+
+    local.to("connected");
+    await settle();
+    expect(local.pushed).toEqual([]);
+
+    listeners.fail = false;
+    pusher.republish();
+    await settle();
+    expect(local.pushed).toEqual([INHERIT]);
   });
 
   it("logs at error when a connected session has no client at all", async () => {

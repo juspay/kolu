@@ -81,6 +81,7 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
+  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
 } from "@kolu/padi/surface";
 export type {

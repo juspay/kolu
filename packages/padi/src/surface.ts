@@ -69,6 +69,7 @@ import {
 import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   DEFAULT_NEW_TERMINAL_POLICY,
+  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
 } from "./newTerminalPolicy.ts";
 import {
@@ -139,6 +140,7 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
+  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
 } from "./newTerminalPolicy.ts";
 
@@ -962,6 +964,9 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     newTerminalPolicy: {
       schema: NewTerminalPolicySchema,
       default: DEFAULT_NEW_TERMINAL_POLICY,
+      // The one bus/wire dedup point: a binder that re-sends the same resolved
+      // fact (any reconnect re-primes this memory-only cell) publishes nothing.
+      equals: newTerminalPolicyEqual,
       verbs: ["get", "set"],
       client: { onError: { kind: "toast", label: "New-terminal policy" } },
     },

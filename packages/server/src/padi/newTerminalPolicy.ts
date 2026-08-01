@@ -11,9 +11,11 @@
  * That cell is MEMORY-ONLY in padi by design, so this pusher is what keeps it true:
  * every bind and every RECONNECT is a fresh padi cell holding the baked default, and
  * gets a push the moment its link turns honest-`connected`; every change to either
- * input re-publishes to whoever is connected now (`republish`). Nothing on either side
- * keeps a second copy of the preference — a stale copy is the exact defect this
- * arrangement exists to kill.
+ * input re-publishes to whoever is connected now (`republish`), skipping the hosts whose
+ * derived policy did not actually move. Nothing on either side keeps a second copy of
+ * the PREFERENCE — a stale copy is the exact defect this arrangement exists to kill; the
+ * per-host `lastPushed` note is a copy of what was SENT, dropped the moment a host
+ * leaves `connected`, so it can never let a padi keep an answer it doesn't hold.
  *
  * Membership + per-session state fuse through the reactor's `reactiveFamily`, the same
  * way `serveHostMap` fuses them: the pool's `subscribe` is the membership source, each
@@ -26,7 +28,10 @@
 
 import type { Logger } from "@kolu/log";
 import { reactiveFamily, source } from "@kolu/surface/reactor";
-import type { NewTerminalPolicy } from "kolu-common/surface";
+import {
+  type NewTerminalPolicy,
+  newTerminalPolicyEqual,
+} from "kolu-common/surface";
 
 /** The client slice a push calls — padi's `newTerminalPolicy` cell `set` verb, and
  *  nothing else. A structural slice (not `PadiSurfaceClient`) so the one call this
@@ -78,12 +83,27 @@ export function installNewTerminalPolicyPusher<
 }): NewTerminalPolicyPusher {
   const { pool, getPolicy, log } = deps;
 
-  // Which members were connected as of the last change edge — the transition detector.
-  // A push fires only on the false→true crossing, so a member's unrelated state frames
-  // (a clock-offset stamp, a log line) don't re-push, while every reconnect does.
-  const connected = new Set<string>();
+  // Which members are connected as of the last change edge, each stamped with the EPOCH
+  // of the live link it crossed into — the transition detector. A push fires only on the
+  // false→true crossing, so a member's unrelated state frames (a clock-offset stamp, a
+  // log line) don't re-push, while every reconnect does (a fresh epoch).
+  let nextEpoch = 0;
+  const connected = new Map<string, number>();
 
-  const pushTo = (host: string): void => {
+  // What each member was last SENT, and over WHICH link. `onPolicyInputsChanged` is a
+  // bare nudge hung off the whole `preferences` cell, so it fires for every field — a
+  // right-panel splitter drag, a seen tip, a scroll-lock flip — while the policy reads
+  // only three of them. Without this dedup, each of those writes is an ssh round trip per
+  // remote host to rewrite a byte-identical fact. The epoch is what keeps the dedup from
+  // ever swallowing a re-prime: padi's cell is memory-only, so a reconnected padi holds
+  // the baked default again and its (new) epoch has no entry, whatever the old link was
+  // told — including when a push queued against the old link only settles after the drop.
+  const lastPushed = new Map<
+    string,
+    { epoch: number; policy: NewTerminalPolicy }
+  >();
+
+  const pushTo = (host: string, epoch: number): void => {
     const session = pool.getSession(host);
     // A member listed with no session yet is the pool's documented reconcile race — the
     // family retries its attach, and the retry's first connected frame pushes. Nothing
@@ -101,7 +121,31 @@ export function installNewTerminalPolicyPusher<
       return;
     }
     void client
-      .then((c) => c.surface.newTerminalPolicy.set(getPolicy()))
+      .then(async (c) => {
+        // Read the policy HERE, not at the nudge: a cell's `onWrite` fires BEFORE
+        // `store.set`, so a synchronous read at the call site would be the OLD value.
+        const policy = getPolicy();
+        // Skip ONLY what this same link was already told. A push queued against an
+        // older link (the client promise settled after a drop) matches no epoch, so it
+        // is never mistaken for the current padi's state.
+        const previous = lastPushed.get(host);
+        if (
+          previous?.epoch === epoch &&
+          newTerminalPolicyEqual(previous.policy, policy)
+        )
+          return;
+        // …and only record when the link this push rode is still the live one.
+        if (connected.get(host) === epoch)
+          lastPushed.set(host, { epoch, policy });
+        try {
+          await c.surface.newTerminalPolicy.set(policy);
+        } catch (err) {
+          // The far end never took it, so it is not what this host holds — forget it
+          // rather than suppressing every later push of the same value.
+          lastPushed.delete(host);
+          throw err;
+        }
+      })
       .catch((err: unknown) =>
         log.error({ err, host }, "new-terminal policy push to padi failed"),
       );
@@ -115,6 +159,7 @@ export function installNewTerminalPolicyPusher<
     attach: (host, set) => pool.getSession(host)?.onState(set),
     onEvict: (host) => {
       connected.delete(host);
+      lastPushed.delete(host);
     },
   });
 
@@ -125,11 +170,17 @@ export function installNewTerminalPolicyPusher<
     for (const host of family.keys()) {
       if (family.get(host)?.phase === "connected") {
         if (!connected.has(host)) {
-          connected.add(host);
-          pushTo(host);
+          const epoch = nextEpoch++;
+          connected.set(host, epoch);
+          pushTo(host, epoch);
         }
       } else {
         connected.delete(host);
+        // A padi that dropped out of `connected` comes back with a fresh memory-only
+        // cell holding the baked default, so nothing it was sent still holds. The epoch
+        // stamp is what actually enforces that; dropping the row just keeps the map from
+        // carrying entries for hosts that are gone.
+        lastPushed.delete(host);
       }
     }
   };
@@ -143,7 +194,7 @@ export function installNewTerminalPolicyPusher<
 
   return {
     republish: () => {
-      for (const host of [...connected]) pushTo(host);
+      for (const [host, epoch] of [...connected]) pushTo(host, epoch);
     },
   };
 }
