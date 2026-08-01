@@ -168,14 +168,45 @@ describe("mergeBrowseInventory", () => {
       expect(out.paths).not.toContain("blog/out/");
     });
 
-    it("dims the fetched children — they are ignored too", () => {
+    it("dims the fetched children AND the folder they replaced", () => {
+      // `ignored` is consumed by exactly one thing — the shadow sheet that dims
+      // rows. A loaded directory's key leaves `paths`, but Pierre still paints
+      // its row (inferred from the children's prefixes) and it is still
+      // ignored: dropping it here un-dimmed the folder at the exact moment the
+      // user opened it, with its children dimmed below.
       const out = mergeBrowseInventory(
         ["blog/000.md"],
         ["blog/out/"],
         new Map([["blog/out/", ["blog/out/000.html"]]]),
         settled,
       );
-      expect(out.ignored).toEqual(["blog/out/000.html"]);
+      expect(out.ignored.sort()).toEqual(
+        ["blog/out/", "blog/out/000.html"].sort(),
+      );
+    });
+
+    it("applies rule 2's membership test to loaded children too", () => {
+      // `overlay ∩ tracked = ∅` is what stops a mixed inventory reaching
+      // Pierre: a duplicate in `paths` makes `pathDiffOperations` emit two
+      // `add` ops for one path, Pierre throws, and the `resetPaths` recovery
+      // discards every hand-expanded folder (#2049's shape).
+      //
+      // Rule 2's PREFIX leg already covers the well-formed case — a level read
+      // at click time whose entries are all under its own directory key can
+      // only collide with tracked if that key had tracked children, which drops
+      // it from `surviving` first. This pins the MEMBERSHIP half as the second,
+      // independent guard, on the input the prefix leg cannot see: a cache
+      // entry naming a path outside its own key (a stale or foreign level).
+      const out = mergeBrowseInventory(
+        ["src/app.ts"],
+        ["out/"],
+        new Map([["out/", ["out/gen.js", "src/app.ts"]]]),
+        settled,
+      );
+      expect(out.paths.filter((p) => p === "src/app.ts")).toEqual([
+        "src/app.ts",
+      ]);
+      expect(out.paths).toContain("out/gen.js");
     });
 
     it("keeps a child directory collapsed and lazy in its turn", () => {

@@ -73,7 +73,11 @@ import { isDesktop, isTouch } from "../useMobile";
 import { activeHost, activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
+import {
+  type BrowseInventory,
+  diffInventory,
+  mergeBrowseInventory,
+} from "./browseInventory";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -703,13 +707,11 @@ const CodeTab: Component<{
           : null;
       return { ...inventory, scope };
     }
+    // The diff views list CHANGED files, where a gitignored path can't appear —
+    // so there is no overlay and no collapsed directory to expand. Built
+    // through the type's own constructor so a new field can't be forgotten here.
     return {
-      paths: status()?.files.map((f) => f.path) ?? [],
-      ignored: [],
-      // The diff views list CHANGED files, where a gitignored path can't
-      // appear — so there is no collapsed directory to expand.
-      lazyDirs: [],
-      pending: statusPending(),
+      ...diffInventory(status()?.files.map((f) => f.path) ?? [], statusPending()),
       // Diff-status results are not owner-stamped. A user open in these modes
       // takes the fixed-host fresh-read path instead of trusting this inventory.
       scope: null,
