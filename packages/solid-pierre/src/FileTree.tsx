@@ -269,6 +269,18 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   // `FileTreeStoreIgnoredSemanticEvent`s, which `toTreesMutationEvent` drops),
   // so the transition is read off its store subscription — which fires for a
   // programmatic `expand()` and for a real row click alike.
+  //
+  // Pierre's own path-store already implements this feature one layer down —
+  // `markDirectoryUnloaded` / `beginChildLoad` / `applyChildPatch` /
+  // `completeChildLoad`, and `dist/model/mutationEvents.d.ts` even PUBLISHES
+  // the matching `'begin-child-load' | 'apply-child-patch' | …` event names.
+  // But at `@pierre/trees@1.0.0-beta.6` the methods that drive them appear in
+  // no `.d.ts` and on no public class (the render `FileTree` exposes only
+  // `subscribe`), so the vocabulary is public while the driver is not. Reaching
+  // into `path-store/src/store.js` to get at it would bind us to unversioned
+  // internals. Re-check on the next Pierre bump: if those methods graduate to
+  // the public surface, this Set, `reportLazyExpansions`, and the two props
+  // below all delete in favour of the native API.
   const openLazyDirs = new Set<string>();
 
   // Pierre fires `onSelectionChange` for directory clicks too, which would
@@ -425,19 +437,14 @@ export const FileTree: Component<FileTreeProps> = (props) => {
       // call site for the rule, so the mount case can't drift from the change
       // case.
       hostSheet = adoptShadowSheet(container);
-      // Watch for lazy-directory expansions. Pierre invokes the listener once
-      // synchronously at registration, and `openLazyDirs` starts empty, so a
+      // Watch for lazy-directory expansions, then probe once by hand.
+      // Pierre's `subscribe` does NOT replay at registration (measured), so a
       // row that mounts ALREADY open — `initialExpansion: "open"`, or an
-      // `initialExpandedPaths` reveal replayed across a remount — reports too.
-      // That is the honest reading: it is an open, childless folder either way,
-      // and the user is looking at it now.
-      onCleanup(tree.subscribe(reportLazyExpansions));
-      // Pierre's `subscribe` does NOT replay at registration, so a row that
-      // mounts ALREADY open — `initialExpansion: "open"`, or an
       // `initialExpandedPaths` reveal replayed across one of the remounts the
       // live path stream causes — would sit there open and childless with no
-      // tick ever coming. Probe once for it. It is the same fact as an
-      // expansion: an open, empty folder in front of the user.
+      // tick ever coming. The explicit call covers it, and reports the same
+      // fact an expansion does: an open, empty folder in front of the user.
+      onCleanup(tree.subscribe(reportLazyExpansions));
       reportLazyExpansions();
     }, props.onError);
     // Deliberately do NOT clear the request here: it stays standing so this

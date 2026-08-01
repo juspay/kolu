@@ -122,9 +122,18 @@ export async function listIgnored(
  *
  *  No ignore filtering, and none is missing: git collapses a directory only
  *  when EVERYTHING beneath it is ignored, so every entry inside a collapsed row
- *  is ignored by construction. Filtering would be a second, weaker authority
- *  answering a question git has already settled. (`browse.test.ts` checks that
- *  against git itself rather than trusting the argument.)
+ *  is ignored as of the listing that named it. Filtering would be a second,
+ *  weaker authority answering a question git has already settled.
+ *  (`browse.test.ts` checks that against git itself rather than trusting the
+ *  argument.)
+ *
+ *  That invariant is a SNAPSHOT, not a standing guarantee: this read happens on
+ *  a click, some time after `listIgnored` collapsed the row. If a file beneath
+ *  it became tracked in between, it comes back here and paints as a dimmed
+ *  ignored row until the next listing corrects it. Re-checking each entry
+ *  against git would cost a second process per expand to narrow a window the
+ *  next repo-change pulse closes anyway — the same staleness the collapsed row
+ *  already carries, not a new one.
  *
  *  Same traversal guard as `readFile` — the directory key arrives over the wire.
  *  A missing or unreadable directory returns an err rather than an empty list:

@@ -426,7 +426,10 @@ const CodeTab: Component<{
         // The loaded levels were read out of the PREVIOUS repo, and repo-
         // relative keys collide across repos (`out/` exists in both), so
         // keeping them would paint one repo's build output inside another's.
+        // This reaches only what has already landed — a read still in flight is
+        // caught by the slot check in `loadLazyDirectory`'s own callbacks.
         setLoadedChildren(new Map());
+        loadGeneration.clear();
       },
       { defer: true },
     ),
@@ -481,19 +484,43 @@ const CodeTab: Component<{
     ReadonlyMap<string, readonly string[]>
   >(new Map());
 
+  // Newest issued read per directory. A rapid expand → collapse → expand is
+  // three store ticks, so the second expand fires before the first read has
+  // resolved — two calls in flight for one `dirPath`. Promises resolve in
+  // completion order, not issue order, so without this the SLOWER first
+  // response would land last and overwrite the fresher listing with the staler
+  // one. Only the newest generation may write. Not reactive: nothing renders
+  // from it, it only arbitrates between two callbacks.
+  const loadGeneration = new Map<string, number>();
+
   const loadLazyDirectory = (dirPath: string): void => {
     const p = repoPath();
     if (!p) return;
+    // The slot this read belongs to. `loadedChildren` is keyed by a REPO-
+    // RELATIVE path, and those collide across repos by construction (`out/`,
+    // `dist/`, `node_modules/`) — which is exactly why the `slotKey` effect
+    // clears the map on a switch. That clear can only reach values already
+    // resident: a read still in flight resolves afterwards and would write the
+    // PREVIOUS repo's listing into the new repo's map under an identical
+    // folder name. Capture the slot at issue time and drop a response that
+    // outlived it — the toast too, since a failure belongs to the repo the
+    // user has already left.
+    const issuedSlot = slotKey();
+    const generation = (loadGeneration.get(dirPath) ?? 0) + 1;
+    loadGeneration.set(dirPath, generation);
     activePadiRpc.fs
       .listDirectory({ repoPath: p, dirPath })
       .then((result) => {
+        if (slotKey() !== issuedSlot) return;
+        if (loadGeneration.get(dirPath) !== generation) return;
         // A fresh Map per write: the merge memo reads this by reference, and an
         // in-place `set` would leave the tree painting the previous level.
         setLoadedChildren((prev) => new Map(prev).set(dirPath, result.paths));
       })
-      .catch((err: Error) =>
-        toast.error(`Failed to list ${dirPath}: ${err.message}`),
-      );
+      .catch((err: Error) => {
+        if (slotKey() !== issuedSlot) return;
+        toast.error(`Failed to list ${dirPath}: ${err.message}`);
+      });
   };
 
   const finishOpenRequest = (

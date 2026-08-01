@@ -231,6 +231,41 @@ describe("mergeBrowseInventory", () => {
       expect(out.lazyDirs).not.toContain(".env");
     });
 
+    it("keeps the row for a directory that reads back EMPTY", () => {
+      // Regression: `[]` is not `undefined`, so an empty read took the "loaded"
+      // branch and substituted the collapsed key for nothing at all — the key
+      // left `paths`, Pierre had no prefix left to infer the folder from, and
+      // the row the user had just clicked vanished from the tree. Worse than
+      // the #2091 bug it replaced: there was no longer a folder to click again.
+      //
+      // Reachable with no race: `git ls-files --others --ignored --directory`
+      // reports a permanently-empty ignored directory in the overlay directly.
+      const out = mergeBrowseInventory(
+        ["a.ts"],
+        ["build/"],
+        new Map([["build/", []]]),
+        settled,
+      );
+      expect(out.paths).toEqual(["a.ts", "build/"]);
+      expect(out.ignored).toEqual(["build/"]);
+      // Still expandable, so a reopen re-reads it once the build repopulates.
+      expect(out.lazyDirs).toEqual(["build/"]);
+    });
+
+    it("keeps an empty NESTED directory revealed by its parent's load", () => {
+      const out = mergeBrowseInventory(
+        [],
+        ["out/"],
+        new Map([
+          ["out/", ["out/index.html", "out/assets/"]],
+          ["out/assets/", []],
+        ]),
+        settled,
+      );
+      expect(out.paths).toEqual(["out/index.html", "out/assets/"]);
+      expect(out.lazyDirs).toEqual(["out/", "out/assets/"]);
+    });
+
     it("drops children for a directory tracked has since claimed", () => {
       // Rule 2 already removes such an overlay dir; its stale children must go
       // with it, or a `.gitignore` edit would leave a ghost subtree behind

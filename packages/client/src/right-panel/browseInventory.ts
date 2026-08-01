@@ -36,7 +36,9 @@ import { hasPathUnderPrefix, isDirectoryPath } from "@kolu/solid-pierre/paths";
  *     level per click instead of one enormous listing. Children are dropped
  *     unless their directory survived rules 1-2: a cache entry outliving its
  *     directory (a `.gitignore` edit, a deleted build output) must not resurrect
- *     rows, and a subtree tracked has since claimed belongs to tracked. */
+ *     rows, and a subtree tracked has since claimed belongs to tracked. A
+ *     directory that reads back EMPTY keeps its own row rather than yielding to
+ *     nothing — see the walk. */
 
 export interface BrowseInventory {
   /** Everything the tree renders: tracked entries, then the overlay. */
@@ -112,6 +114,19 @@ export function mergeBrowseInventory(
       continue;
     }
     expanded.add(entry);
+    if (children.length === 0) {
+      // Loaded and genuinely EMPTY — a distinct state from "not loaded", and
+      // the key has to survive it. Pierre infers an ordinary folder from its
+      // children's path prefixes, so with no children this trailing-slash key
+      // is the only thing in `paths` naming the directory at all: dropping it
+      // removes the row outright, and the user watches the folder they just
+      // clicked disappear. Keeping it renders the honest thing — an empty
+      // folder. Reachable with no race at all, because `git ls-files
+      // --others --ignored --directory` lists a permanently-empty ignored
+      // directory in the overlay directly.
+      overlay.push(entry);
+      continue;
+    }
     // Depth-first, so a directory's own subtree lands before its siblings and
     // the rendered order matches the tree the user is reading.
     queue.unshift(...children);
