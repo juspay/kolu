@@ -13,6 +13,20 @@ nix_shell_e2e := if env('PLAYWRIGHT_BROWSERS_PATH', '') != '' { '' } else { 'nix
 
 cucumber_parallel := env('CUCUMBER_PARALLEL', '4')
 
+# SURFACE_AGENT_FLAKE_REF: the production koluBin wrapper bakes the exact agent
+# source tree so a remote dial can resolve padi for the host's arch. A run from
+# source has no wrapper, so it sources the SAME (name, value) set Nix builds the
+# wrapper's `--set` args from (`default.nix`'s `agentBakedEnv`) — one definition,
+# no parallel path. Kept as ONE snippet because both working-tree entrypoints
+# need it — `dev` before its parallel fork, and the standalone `server` — and
+# `ci::agent-bake` runs this exact string to prove it still exports (#2039).
+#
+# Two entrypoints bake, not one, because `_dev-parallel` must stay nix-free:
+# ci::dev-smoke enters there (packages/tests/devSmoke.ts) and has no `nix` dep.
+# So `dev` bakes once in its sequential body and forks `_server-raw`, while the
+# standalone `server` bakes for itself. Nothing bakes twice.
+agent_bake := 'set -a; . "$(nix build --no-link --print-out-paths --accept-flake-config .#agent-flake-env)"; set +a'
+
 mod ai 'agents/ai.just'
 mod ci 'ci/mod.just'
 mod website 'website/mod.just'
@@ -42,8 +56,14 @@ dev SERVER_PORT="" CLIENT_PORT="":
     set -euo pipefail
     export KOLU_DEV_SERVER_PORT="{{ SERVER_PORT }}"
     export KOLU_DEV_CLIENT_PORT="{{ CLIENT_PORT }}"
+    # Baked here, before the fork, for the same reason the ports are — see
+    # `agent_bake` above. Resolved ONCE, and node --watch restarts inherit it,
+    # so restart to pick up an agent-tree edit; Nix reads the git-TRACKED tree,
+    # so a new file must be `git add`ed before a dialed remote sees it.
+    {{ agent_bake }}
     echo "→ server http://localhost:${KOLU_DEV_SERVER_PORT:-7681}"
     echo "→ client http://localhost:${KOLU_DEV_CLIENT_PORT:-5173}"
+    echo "→ agent source baked (restart to pick up an agent-tree edit)"
     {{ nix_shell }} just _dev
 
 # Run server + client on two free random ports, printing the resolved URLs.
@@ -134,7 +154,7 @@ _dev: install _dev-parallel
 
 [private]
 [parallel]
-_dev-parallel: server client
+_dev-parallel: _server-raw client
 
 # Run TypeScript type checking + Biome lint across all packages — fast static-correctness gate.
 # Typecheck stays inline; the lint half delegates to ci::biome so the gate flag
@@ -163,8 +183,87 @@ lint: install
 # boot beside a live `kolu.service` (its padi is already supervised). A per-port
 # dev state root gives each dev instance its OWN padi to supervise — the local
 # twin of the KOLU_REMOTE_PADI_STATE_DIR isolation the remote arm uses.
+#
+# Bakes: `just server` + `just client` in two terminals is a standalone way to
+# run the stack, and without it that pair hits the same "missing its agent
+# source" wall `just dev` used to. `dev` forks `_server-raw`, not this.
 server:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    {{ agent_bake }}
+    just --no-deps _server-raw
+
+# The server without the bake — `_dev-parallel`'s nix-free half. Never a
+# standalone entrypoint; use `just server`.
+[private]
+_server-raw:
     {{ nix_shell }} bash -c 'd="${XDG_RUNTIME_DIR:-/tmp}/kolu-dev-${KOLU_DEV_SERVER_PORT:-default}"; mkdir -p "$d/padi-state" && chmod 700 "$d"; cd packages/kolu-cli && KOLU_KAVAL_SOCKET="$d/pty-host.sock" KOLU_PADI_STATE_DIR="$d/padi-state" pnpm dev ${KOLU_DEV_SERVER_PORT:+--port $KOLU_DEV_SERVER_PORT}'
+
+# Assert the working-tree agent bake still reaches a child process — the
+# regression guard for #2039. `ci::nix` proves `.#agent-flake-env` BUILDS; only
+# this proves the handoff that consumes it works, so the original bug cannot
+# return with every node green. Two halves, because either alone is green while
+# the bug is back: the snippet must export, AND the entrypoints must still run
+# it. Nothing here re-spells a variable name or the snippet — both are read back
+# from what the bake actually did, which is the point of the whole change.
+test-agent-bake:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # What the bake newly EXPORTS or CHANGES, measured rather than parsed out of
+    # the file, so this stays correct however `toShellVars` quotes a value and
+    # however many pairs `agentBakedEnv` grows. NAME=value pairs, not just names:
+    # this recipe can run in a shell that already exports SURFACE_AGENT_FLAKE_REF
+    # from a parent, and a name-only diff would see no new name and wrongly
+    # report "exported nothing" when the bake had in fact overwritten the value.
+    #
+    # `env`, not bash's `compgen -e`: compgen is unavailable in the shell CI's
+    # darwin lane runs this under (`compgen: command not found`, run a793809#1),
+    # and `env` is the more honest instrument anyway — it prints the environment
+    # a child is handed, which is exactly the property under test. The filter
+    # drops continuation lines of any multi-line value.
+    snapshot() { env | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' | sort; }
+    before=$(snapshot)
+    {{ agent_bake }}
+    exported=$(comm -13 <(printf '%s\n' "$before") <(snapshot) | cut -d= -f1 | sort -u)
+    [[ -n "$exported" ]] || { echo "agent-bake: the bake exported nothing" >&2; exit 1; }
+
+    # Confirm each one reaches a CHILD — a child is what `_server-raw` and
+    # `client` are, and it is the half `set -a` provides. (Checking in THIS
+    # shell would pass on an unexported variable and miss `set -a` going away.)
+    while read -r name; do
+      value=$(bash -c 'printenv "$1"' _ "$name") \
+        || { echo "agent-bake: $name never reached a child process" >&2; exit 1; }
+      echo "agent-bake: $name → $value"
+    done <<< "$exported"
+
+    # A working snippet no entrypoint calls is still the bug. `--dry-run` expands
+    # a recipe without running it; match the WHOLE expanded line against the
+    # `agent_bake` variable itself, so a line that merely mentions the
+    # derivation — a bare `nix build .#agent-flake-env` that sources nothing —
+    # does not count. The expectation is never re-spelled here: it comes from the
+    # same variable the entrypoints interpolate, so editing the snippet moves the
+    # guard with it.
+    expected={{ quote(agent_bake) }}
+    check_bakes() {
+      local recipe="$1" want="$2" out found
+      # A dry-run that FAILS must not read as "zero bakes" — that is how an
+      # unexpandable recipe would sail through the zero-bake assertion below.
+      if ! out=$(just --dry-run "$recipe" 2>&1); then
+        echo "agent-bake: \`just --dry-run $recipe\` failed:" >&2
+        printf '%s\n' "$out" >&2
+        return 1
+      fi
+      # `|| true` here covers ONLY grep's no-match exit, which is a real count of 0.
+      found=$(printf '%s\n' "$out" | grep -Fxc -- "$expected" || true)
+      [[ "$found" == "$want" ]] || {
+        echo "agent-bake: \`just $recipe\` expands to $found bake line(s), want $want" >&2
+        return 1
+      }
+    }
+    check_bakes dev 1
+    check_bakes server 1
+    check_bakes _dev-parallel 0
+    echo "agent-bake: dev + server bake once each; _dev-parallel does not bake"
 
 # Run client with Vite dev server (HMR)
 client:
