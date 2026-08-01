@@ -39,18 +39,20 @@ either.
 your `.gitignore` hides — so the tree is your project, not your `node_modules`.
 When you do want to see the hidden ones, the **eye toggle** beside the filter box
 brings them back as dimmed rows, and a fully-ignored directory arrives as a
-single collapsed entry — `node_modules/` arrives as one row standing in for the
-whole directory, never its contents. An ignored file listed in its own right
-opens and renders like any other. The toggle remembers itself per browser,
-and appears only in **All files**, since the diff views list changed files where
-an ignored path can't turn up.
+single collapsed entry — `node_modules/` is one row, not forty thousand files.
+**Expand that row and kolu reads the one level beneath it from disk**, so you can
+walk down into `node_modules/solid-js/` a click at a time. Each directory you
+open costs one directory read; the ones you never open cost nothing. An ignored
+file listed in its own right opens and renders like any other. The toggle
+remembers itself per browser, and appears only in **All files**, since the diff
+views list changed files where an ignored path can't turn up.
 
 One caveat worth knowing: nothing about an ignored file updates live. kolu
 deliberately doesn't watch inside ignored directories — recursively watching
 `node_modules` is what exhausts a machine's file-watch budget — so neither the
 dimmed rows nor the contents of an ignored file you have open will repaint when
-they change on disk. Toggle the eye off and on to re-read the tree, and reselect
-the file to re-read its contents.
+they change on disk. Collapse a directory and open it again to re-read what is
+inside it, and reselect a file to re-read its contents.
 
 The changed-file list and its diffs repaint **live** the instant a file changes
 on disk — a payload-free repo-change pulse re-running `git status`, with no

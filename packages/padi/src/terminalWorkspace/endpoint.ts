@@ -21,6 +21,7 @@ import {
   getStatus,
   type GitResult,
   listAll,
+  listDirectory,
   listIgnored,
   readFile,
   filePreviewTag,
@@ -29,6 +30,7 @@ import {
 } from "kolu-git";
 import type {
   FsListAllOutput,
+  FsListDirectoryOutput,
   FsListIgnoredOutput,
   GitDiffMode,
   GitDiffOutput,
@@ -49,6 +51,15 @@ export interface TerminalEndpointFs {
    *  `listAll`, so a consumer can query the two independently — see
    *  `FsListIgnoredInputSchema` for why that separation is load-bearing. */
   listIgnored(repoPath: string): Promise<FsListIgnoredOutput>;
+  /** ONE level of a directory, read on demand. Answers an expand of a row
+   *  {@link listIgnored}'s collapse left childless — the tree holds no child
+   *  under such a row, so without this the folder opens onto nothing. One
+   *  level, so expanding `node_modules/` costs a readdir rather than the
+   *  recursive listing git would have to produce. */
+  listDirectory(
+    repoPath: string,
+    dirPath: string,
+  ): Promise<FsListDirectoryOutput>;
   readFile(
     repoPath: string,
     filePath: string,
@@ -105,6 +116,13 @@ export function unwrapGit<T>(result: GitResult<T>): T {
       status: "INTERNAL_SERVER_ERROR" as const,
       message: `path escapes root: ${e.child}`,
     }))
+    // The typed 404 the Code tab's delete-while-viewing handling keys on. It
+    // comes from the sum type, so no caller has to re-sniff an errno out of a
+    // message to recover it.
+    .with({ code: "FILE_GONE" }, (e) => ({
+      status: "NOT_FOUND" as const,
+      message: `Not found: ${e.path}`,
+    }))
     .with({ code: "GIT_FAILED" }, (e) => ({
       status: "INTERNAL_SERVER_ERROR" as const,
       message: e.message,
@@ -139,6 +157,12 @@ export function createTerminalWorkspaceEndpoint(
     },
     async listIgnored(repoPath: string): Promise<FsListIgnoredOutput> {
       return { paths: unwrapGit(await listIgnored(repoPath, log)) };
+    },
+    async listDirectory(
+      repoPath: string,
+      dirPath: string,
+    ): Promise<FsListDirectoryOutput> {
+      return { paths: unwrapGit(await listDirectory(repoPath, dirPath, log)) };
     },
     async readFile(repoPath, filePath) {
       return unwrapGit(await readFile(repoPath, filePath, log));

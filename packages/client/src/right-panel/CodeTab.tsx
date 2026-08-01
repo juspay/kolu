@@ -70,10 +70,14 @@ import SegmentedControl, {
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost } from "../wire";
+import { activeHost, activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
-import { type BrowseInventory, mergeBrowseInventory } from "./browseInventory";
+import {
+  type BrowseInventory,
+  diffInventory,
+  mergeBrowseInventory,
+} from "./browseInventory";
 import {
   type CodeTabOpenResolutionSource,
   type CodeTabScope,
@@ -423,6 +427,17 @@ const CodeTab: Component<{
         // the view switch: that switch fires this effect while fsListAll is
         // still loading, before the gated resolution effect sets `revealDir`.
         setRevealDir(null);
+        // The loaded levels were read out of the PREVIOUS repo, and repo-
+        // relative keys collide across repos (`out/` exists in both), so
+        // keeping them would paint one repo's build output inside another's.
+        // Aborting first covers the reads still in flight, which would
+        // otherwise resolve afterwards and write the previous repo's listing
+        // into the new repo's map under an identical folder name. The tree's
+        // own record of which lazy directories are open is invalidated by the
+        // same signal, via `lazyEpoch` below.
+        for (const ctl of inFlight.values()) ctl.abort();
+        inFlight.clear();
+        setLoadedChildren(new Map());
       },
       { defer: true },
     ),
@@ -457,6 +472,80 @@ const CodeTab: Component<{
   // folder forever. A fresh object per request re-fires the reveal on a repeat
   // click of the same folder.
   const [revealDir, setRevealDir] = createSignal<{ path: string } | null>(null);
+
+  // One level of contents per gitignored directory the user has opened, keyed
+  // by Pierre's folder key. `fs.listIgnored` collapses a wholly-ignored
+  // directory to its name alone — one `node_modules/` row instead of thousands
+  // — which left those rows expandable but empty (#2091); this holds what an
+  // expand read back so the merge can substitute it for the collapsed key.
+  //
+  // Deliberately NOT a `createPolledQuery` beside the two listings in
+  // `hostCodeTab`: those are keyed by REPO and refreshed by the repo-change
+  // pulse, whereas this is keyed by DIRECTORY and driven by a click. The
+  // watcher's ignore set is built from `listIgnored`, so an ignored path emits
+  // no pulse by construction — there is no pulse to ride, and inventing one
+  // would mean watching exactly the churn (`node_modules`, build output) the
+  // ignore set exists to keep out. Re-expanding a folder is the refresh
+  // instead: the wrapper reports every expansion, so a collapse-and-reopen
+  // re-reads the level.
+  const [loadedChildren, setLoadedChildren] = createSignal<
+    ReadonlyMap<string, readonly string[]>
+  >(new Map());
+
+  // The newest read per directory, as a controller rather than a bookkeeping
+  // pair. A rapid expand → collapse → expand is three store ticks, so the
+  // second expand fires before the first read resolves — two calls in flight
+  // for one `dirPath`, resolving in completion order rather than issue order.
+  // A repo/host switch supersedes every read the same way, since
+  // `loadedChildren` is keyed by a REPO-RELATIVE path and those collide across
+  // repos by construction (`out/`, `dist/`, `node_modules/`).
+  //
+  // Aborting the predecessor makes "is this response still wanted" ONE fact
+  // both callbacks read, rather than two conditions each has to repeat and can
+  // drift on. Not reactive: nothing renders from it.
+  //
+  // The abort is CLIENT-SIDE ONLY. `fs.listDirectory` takes no signal through
+  // `servePadi` → `TerminalEndpointFs` → `listDirectory`, so a superseded read
+  // still runs to completion on the host; what the abort buys is that its
+  // answer owns no outcome here. That is the whole benefit worth claiming —
+  // one bounded `readdir` per superseded expand is cheap, and threading a
+  // signal the length of that chain to reclaim it is a separate change.
+  const inFlight = new Map<string, AbortController>();
+
+  const loadLazyDirectory = (dirPath: string): Promise<void> => {
+    const p = repoPath();
+    if (!p) return Promise.resolve();
+    inFlight.get(dirPath)?.abort();
+    const ctl = new AbortController();
+    inFlight.set(dirPath, ctl);
+    return activePadiRpc.fs
+      .listDirectory({ repoPath: p, dirPath }, { signal: ctl.signal })
+      .then((result) => {
+        if (ctl.signal.aborted) return;
+        // A fresh Map per write: the merge memo reads this by reference, and an
+        // in-place `set` would leave the tree painting the previous level.
+        setLoadedChildren((prev) => new Map(prev).set(dirPath, result.paths));
+      })
+      .catch((err: Error) => {
+        // A superseded read owns no outcome — neither the write nor the toast,
+        // since a failure that belongs to a repo the user has already left is
+        // not theirs to see.
+        if (ctl.signal.aborted) return;
+        toast.error(`Failed to list ${dirPath}: ${err.message}`);
+        // Re-throw so `<FileTree>` forgets the expansion it recorded: without
+        // that the folder stays open-and-empty for the rest of the mount with
+        // no way to refetch short of collapsing it by hand.
+        throw err;
+      })
+      .finally(() => {
+        // Retire this read's own entry. Guarded on identity so a newer read for
+        // the same directory — which replaced the entry and is still running —
+        // keeps its controller. Without this the map only ever shrank on a repo
+        // switch, so browsing many ignored folders in one repo accumulated a
+        // settled controller per directory for the life of the session.
+        if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
+      });
+  };
 
   const finishOpenRequest = (
     req: OpenInCodeTabRequest,
@@ -619,11 +708,16 @@ const CodeTab: Component<{
       const tracked = allPaths();
       const ignored = ignoredPaths();
       const showIgnored = showIgnoredFiles();
-      const inventory = mergeBrowseInventory(tracked?.paths, ignored?.paths, {
-        trackedPending: allPaths.pending(),
-        ignoredPending: ignoredPaths.pending(),
-        showIgnored,
-      });
+      const inventory = mergeBrowseInventory(
+        tracked?.paths,
+        ignored?.paths,
+        loadedChildren(),
+        {
+          trackedPending: allPaths.pending(),
+          ignoredPending: ignoredPaths.pending(),
+          showIgnored,
+        },
+      );
       const scope =
         tracked !== undefined &&
         (!showIgnored ||
@@ -633,10 +727,14 @@ const CodeTab: Component<{
           : null;
       return { ...inventory, scope };
     }
+    // The diff views list CHANGED files, where a gitignored path can't appear —
+    // so there is no overlay and no collapsed directory to expand. Built
+    // through the type's own constructor so a new field can't be forgotten here.
     return {
-      paths: status()?.files.map((f) => f.path) ?? [],
-      ignored: [],
-      pending: statusPending(),
+      ...diffInventory(
+        status()?.files.map((f) => f.path) ?? [],
+        statusPending(),
+      ),
       // Diff-status results are not owner-stamped. A user open in these modes
       // takes the fixed-host fresh-read path instead of trusting this inventory.
       scope: null,
@@ -1105,6 +1203,19 @@ const CodeTab: Component<{
                       // stands so a remount re-reveals it (`revealDir` above);
                       // it's cleared on the next navigation, not on apply.
                       revealRequest={revealDir()}
+                      // The collapsed gitignored directories: rows Pierre gives
+                      // a chevron but whose children were never sent, so an
+                      // expand has to go read them (#2091).
+                      lazyDirectories={treeInventory().lazyDirs}
+                      onExpandLazyDirectory={loadLazyDirectory}
+                      // Invalidate the wrapper's record of which lazy
+                      // directories are open on the same signal that clears the
+                      // loaded levels above — two halves of one fact. Without
+                      // it a key present in BOTH repos (`node_modules/`,
+                      // `dist/`) survives a retained switch still recorded, so
+                      // no expand is reported and the user lands on an open,
+                      // empty folder (#2091's symptom).
+                      lazyEpoch={slotKey()}
                       initialExpansion={isDiffView() ? "open" : "closed"}
                       search={false}
                       expandPaths={treeSearch().expandedAncestors}

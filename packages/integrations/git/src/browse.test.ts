@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { listAll, listIgnored, readFile, filePreviewTag } from "./browse.ts";
+import {
+  listAll,
+  listDirectory,
+  listIgnored,
+  readFile,
+  filePreviewTag,
+} from "./browse.ts";
 import { _computeIgnore } from "./working-tree-watcher.ts";
 
 describe("listAll", () => {
@@ -104,6 +110,135 @@ describe("listIgnored", () => {
   });
 });
 
+describe("listDirectory", () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-test-"));
+    execFileSync("git", ["init", "-q"], { cwd: tmpDir });
+    fs.writeFileSync(path.join(tmpDir, ".gitignore"), "out/\n");
+    fs.mkdirSync(path.join(tmpDir, "out", "assets"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "out", "index.html"), "<html>\n");
+    fs.writeFileSync(path.join(tmpDir, "out", "style.css"), "body{}\n");
+    fs.writeFileSync(path.join(tmpDir, "out", "assets", "logo.png"), "png\n");
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("reads ONE level, marking subdirectories with git's trailing slash", async () => {
+    // The listing that answers an expand of a collapsed ignored directory.
+    // One level, so expanding `node_modules/` costs a readdir rather than the
+    // ~100k-path recursive listing `git ls-files` would have to produce; the
+    // subdirectory comes back collapsed and expandable in its own turn.
+    const result = await listDirectory(tmpDir, "out/");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.sort()).toEqual(
+      ["out/assets/", "out/index.html", "out/style.css"].sort(),
+    );
+  });
+
+  it("accepts the directory key with or without the trailing slash", async () => {
+    // The caller holds Pierre's folder key (`out/`); the slash is presentation,
+    // not identity, so both spellings must resolve to the same listing.
+    const withSlash = await listDirectory(tmpDir, "out/");
+    const without = await listDirectory(tmpDir, "out");
+    expect(withSlash.ok && without.ok).toBe(true);
+    if (!withSlash.ok || !without.ok) return;
+    expect(without.value.sort()).toEqual(withSlash.value.sort());
+  });
+
+  it("needs no gitignore filtering — git only collapses a WHOLLY ignored dir", async () => {
+    // Why a bare readdir is the honest listing here rather than a lax one:
+    // `--directory` collapses a directory only when everything beneath it is
+    // ignored, so inside a collapsed row there is nothing to filter out. The
+    // property is checked against git itself so the assumption can't rot.
+    const ignored = await listIgnored(tmpDir);
+    expect(ignored.ok).toBe(true);
+    if (!ignored.ok) return;
+    expect(ignored.value).toContain("out/");
+    const children = await listDirectory(tmpDir, "out/");
+    expect(children.ok).toBe(true);
+    if (!children.ok) return;
+    const tracked = await listAll(tmpDir);
+    expect(tracked.ok).toBe(true);
+    if (!tracked.ok) return;
+    // Not one child is something git would have listed as tracked.
+    const trackedSet = new Set(tracked.value);
+    expect(children.value.filter((p) => trackedSet.has(p))).toEqual([]);
+  });
+
+  it("refuses to escape the repo root", async () => {
+    // Same traversal guard as `readFile` — a directory key arriving over the
+    // wire must not read outside the repo it names.
+    const result = await listDirectory(tmpDir, "../");
+    expect(result.ok).toBe(false);
+  });
+
+  it("errors on a directory that is gone", async () => {
+    // A stale expand (the build output was cleaned between listing and click)
+    // must surface, not silently paint an empty folder as authoritative.
+    const result = await listDirectory(tmpDir, "out/nope/");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // Its OWN tag, not the borrowed `GIT_FAILED` — `unwrapGit` turns this into
+    // the typed NOT_FOUND the wire contract promises, structurally.
+    expect(result.error.code).toBe("FILE_GONE");
+  });
+
+  it("follows a symlinked directory — pnpm's node_modules is mostly links", async () => {
+    // `readdir({ withFileTypes: true })` has lstat semantics, so a symlink
+    // reports `isDirectory() === false` and would render as a slash-free FILE
+    // leaf: clickable, and `fs.readFile` answers EISDIR. Under pnpm most of
+    // `node_modules` is exactly this shape, which is the case this whole
+    // feature exists for.
+    const linked = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-link-"));
+    try {
+      fs.mkdirSync(path.join(linked, "real"), { recursive: true });
+      fs.writeFileSync(path.join(linked, "real", "pkg.json"), "{}\n");
+      fs.symlinkSync(
+        path.join(linked, "real"),
+        path.join(linked, "link-to-dir"),
+      );
+      fs.symlinkSync(
+        path.join(linked, "gone"),
+        path.join(linked, "link-broken"),
+      );
+      const result = await listDirectory(linked, "");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value).toContain("link-to-dir/");
+      // A broken link has no target to ask, so it stays the leaf it is.
+      expect(result.value).toContain("link-broken");
+    } finally {
+      fs.rmSync(linked, { recursive: true, force: true });
+    }
+  });
+
+  it("fails the listing when a symlink cannot be stat'd for a NON-gone reason", async () => {
+    // Only a BROKEN link may be absorbed as a leaf. Every other stat failure —
+    // EACCES, EIO, ELOOP — is a real fault, and answering it with a plain file
+    // row would both hide the fault and put back the wrong-row/EISDIR
+    // behaviour the follow-the-link branch exists to remove.
+    //
+    // ELOOP is the one such failure reachable without root: a symlink cycle.
+    const looped = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-listdir-loop-"));
+    try {
+      fs.symlinkSync(path.join(looped, "b"), path.join(looped, "a"));
+      fs.symlinkSync(path.join(looped, "a"), path.join(looped, "b"));
+      const result = await listDirectory(looped, "");
+      // The whole listing fails loudly rather than reporting `a`/`b` as files.
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.code).toBe("GIT_FAILED");
+    } finally {
+      fs.rmSync(looped, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("readFile", () => {
   let tmpDir: string;
 
@@ -133,10 +268,13 @@ describe("readFile", () => {
   });
 
   it("returns error for non-existent file", async () => {
+    // `FILE_GONE`, not `GIT_FAILED` — the missing-path axis has its own tag so
+    // `unwrapGit` can map it to the typed NOT_FOUND the Code tab's
+    // delete-while-viewing handling keys on, without sniffing an errno string.
     const result = await readFile(tmpDir, "nope.txt");
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.code).toBe("GIT_FAILED");
+      expect(result.error.code).toBe("FILE_GONE");
     }
   });
 
@@ -275,5 +413,20 @@ describe("filePreviewTag — preview cache-buster", () => {
     } finally {
       fs.rmSync(outside, { recursive: true, force: true });
     }
+  });
+
+  it("tags a gone file FILE_GONE, not GIT_FAILED", async () => {
+    // Delete-while-viewing for a BINARY preview. This must be settled here,
+    // structurally, rather than by an errno string surviving onto the wire:
+    // `unwrapGit` maps `GIT_FAILED` to an `ORPCError` whose own `code` is
+    // `INTERNAL_SERVER_ERROR`, and servePadi's now-removed `fileGoneAsNotFound`
+    // wrapper used to read a present code as authoritative — so a `GIT_FAILED`
+    // here reached the client as a visible error instead of the swallowed
+    // `NOT_FOUND` the Code tab expects, and the open image/PDF/video lost its
+    // last preview.
+    const result = await filePreviewTag(tmpDir, "never-existed.bin");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe("FILE_GONE");
   });
 });
