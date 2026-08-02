@@ -15,6 +15,8 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { defineSurface } from "@kolu/surface/define";
+import { implementSurface } from "@kolu/surface/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DAEMON_BIND_PID_ENV,
@@ -61,9 +63,14 @@ const silentLog: Logger = {
   error: () => {},
 };
 
-// The router is never invoked in these tests (no RPC is made) — only bound —
-// so an empty object stands in for a real surface router.
-const noRouter = {} as DaemonSpec["router"];
+// No RPC is made in these tests — the spine only has to hand a real
+// `{ group, handlers }` pair to the listener — so the smallest honest surface
+// stands in: one with no members at all, which still mints (and binds) the three
+// reserved `system/*` tags. A real runtime rather than a cast: `serveOverUnixSocket`
+// builds its serving layer from these values, so a stub would only prove that
+// nothing dialled.
+const served = implementSurface(defineSurface({}), {});
+const noSurface = { group: served.group, handlers: served.handlers };
 
 // The honest "no on-disk identity" anchor for tests exercising OTHER triggers:
 // `undefined` means "not anchored right now", which never counts toward a reap.
@@ -120,7 +127,7 @@ describeDaemon("daemonMain", () => {
 
     const exit = await daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
@@ -148,7 +155,7 @@ describeDaemon("daemonMain", () => {
 
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
@@ -173,7 +180,7 @@ describeDaemon("daemonMain", () => {
     const { home } = paths();
     const exit = await daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 30, isIdle: () => true },
       log: silentLog,
@@ -193,7 +200,7 @@ describeDaemon("daemonMain", () => {
 
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "idleTimeout", ms: 20, isIdle: () => !busy },
       log: silentLog,
@@ -219,7 +226,7 @@ describeDaemon("daemonMain", () => {
 
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "boundToPid", pid: watched.pid, pollMs: 20 },
       log: silentLog,
@@ -240,7 +247,7 @@ describeDaemon("daemonMain", () => {
     let announced = 0;
     const exit = await daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       // A large poll would prove nothing here: the immediate check must fire
       // BEFORE the first tick, so a slow poll must not be able to mask it.
@@ -267,7 +274,7 @@ describeDaemon("daemonMain", () => {
     let announced = 0;
     const exit = await daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
@@ -290,7 +297,7 @@ describeDaemon("daemonMain", () => {
       await expect(
         daemonMain({
           home,
-          router: noRouter,
+          ...noSurface,
           anchor: unanchored,
           lifetime: { kind: "boundToPid", pid },
           log: silentLog,
@@ -317,7 +324,7 @@ describeDaemon("daemonMain", () => {
     await expect(
       daemonMain({
         home,
-        router: noRouter,
+        ...noSurface,
         anchor: unanchored,
         lifetime: { kind: "forever" },
         log: silentLog,
@@ -342,7 +349,7 @@ describeDaemon("daemonMain", () => {
 
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: unanchored,
       lifetime: { kind: "forever" },
       log: silentLog,
@@ -377,7 +384,7 @@ describe("daemonMain — anchor self-reap", () => {
 
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: () => anchorDir,
       anchorPollMs: 20,
       lifetime: { kind: "forever" },
@@ -405,7 +412,7 @@ describe("daemonMain — anchor self-reap", () => {
     const ac = new AbortController();
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: () => {
         calls += 1;
         return calls === 1 ? gone : dir;
@@ -434,7 +441,7 @@ describe("daemonMain — anchor self-reap", () => {
     const ac = new AbortController();
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: () => {
         polls += 1;
         return unreadable;
@@ -457,7 +464,7 @@ describe("daemonMain — anchor self-reap", () => {
     const ac = new AbortController();
     const exitP = daemonMain({
       home,
-      router: noRouter,
+      ...noSurface,
       anchor: () => {
         polls += 1;
         return undefined;

@@ -28,6 +28,18 @@ version. Build id and commit are one observation: the shared reader accepts both
 absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
 before convergence policy runs.
 
+**The fragment never versions — within a protocol epoch.** The Effect-4
+migration moved this wire's *framing* (the oRPC base64+newline peer codec →
+Effect RPC ndjson). That is a declared **flag day**, not a version negotiation:
+negotiation happens inside the protocol being replaced, so a daemon from the
+previous epoch cannot be asked anything at all — its first frame is undecodable,
+and the supervisor observes that as `unspeakable-protocol`, never as an
+incompatible version. `CONTROL_CORE_VERSION` deliberately did **not** move with
+it: it versions the hello *payload*, the payload's six fields are unchanged
+(byte-pinned in `controlCore.test.ts`), and a value carried inside the frame
+cannot describe a break in the frame itself. From this epoch forward the frozen
+contract holds again, unchanged.
+
 The wire says only `drain(): void`; it does not promise that every daemon is
 drainable. A daemon whose durable state cannot survive a drain implements the
 verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
@@ -108,8 +120,8 @@ an orphan process whose socket and gate have vanished.
 `daemonMain({ home, … })` is the gate → serve → teardown skeleton. Gate and
 socket come from `home`; the self-reap [anchor](#the-anchor-self-reap) defaults
 to `home.dir` (override when the on-disk identity is not the rendezvous home —
-e.g. padi's state-root). It claims the single-instance gate, serves the router
-over the unix socket, waits for the lifetime to end — or for the anchor to be
+e.g. padi's state-root). It claims the single-instance gate, serves the
+surface's `{ group, handlers }` over the unix socket, waits for the lifetime to end — or for the anchor to be
 proven gone — then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
@@ -204,7 +216,7 @@ case — it defaults to the home.
 
 ## Serving the surface
 
-The listener is `serveOverUnixSocket({ socketPath, router, log })` from
+The listener is `serveOverUnixSocket({ socketPath, group, handlers })` from
 `@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
 never crashes: every failure mode resolves to a no-op listener with a
 machine-readable `outcome`.
@@ -221,7 +233,10 @@ machine-readable `outcome`.
 gate-held daemon and raw-byte-relays this process's stdio onto its socket, so a
 remote (ssh) session survives the link — the durable counterpart to
 `serveOverStdio`. It relays with `node:net` only, no surface import, keeping the
-daemon closure contract-blind.
+daemon closure contract-blind. That blindness is legal only because the stdio
+leg and the socket leg are byte-identical ndjson, which
+`packages/surface/src/links/byteSplice.test.ts` proves on captured raw bytes in
+both directions — including that nothing on the wire is non-JSON binary.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="front" />
 

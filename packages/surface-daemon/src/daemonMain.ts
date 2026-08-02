@@ -3,8 +3,8 @@
  *
  * `daemonMain` is the mechanism; the *policy* arrives as parameters — the
  * on-disk {@link DaemonHomePaths} (`home`: gate + socket co-located under
- * `dir`), what to serve (`router`, any `@kolu/surface` router), how long to
- * live (`lifetime`), and what the daemon's existence is anchored to
+ * `dir`), what to serve (`group` + `handlers`, any `@kolu/surface` runtime),
+ * how long to live (`lifetime`), and what the daemon's existence is anchored to
  * (`anchor` — the required self-reap invariant: a daemon whose identity
  * directory is proven gone shuts itself down rather than leaking forever,
  * juspay/kolu#2010). kaval picks
@@ -21,11 +21,12 @@
  */
 
 import { lstatSync } from "node:fs";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   serveOverUnixSocket,
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
-import type { Router } from "@orpc/server";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {
@@ -58,8 +59,8 @@ export type DaemonLifetime =
  *  `boundToPid`'s test-only `pollMs`). This is what a daemon publishes about
  *  itself so a UI can show which lifetime it is running under (`forever` in
  *  production; `boundToPid` under a test/smoke run). Kept here, beside the union
- *  it projects, so the two can't drift; the wire (zod) schema is declared
- *  downstream in each surface's browser-safe vocab, `satisfies`-pinned to this. */
+ *  it projects, so the two can't drift; the wire schema is declared downstream
+ *  in each surface's browser-safe vocab, `satisfies`-pinned to this. */
 export type DaemonLifetimeInfo =
   | { kind: "forever" }
   | { kind: "idleTimeout"; ms: number }
@@ -247,9 +248,18 @@ export interface DaemonSpec {
   /** Anchor poll period override, in ms. A TEST seam — production omits it and
    *  uses {@link ANCHOR_POLL_MS} (mirrors `boundToPid`'s `pollMs`). */
   anchorPollMs?: number;
-  /** The surface router to serve. Shared across every connection.  */
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverUnixSocket's own `Router<any, any>` param.
-  router: Router<any, any>;
+  /** The served surface's flat `RpcGroup` — `runtime.group`. Paired with
+   *  {@link DaemonSpec.handlers}, and spelled as the same two fields
+   *  `serveOverUnixSocket` takes, so the spine forwards what it is handed
+   *  rather than inventing a wrapper the caller has to learn. The element type
+   *  is deliberately erased (`Rpc.Any`): a group assembled by `defineSurface`'s
+   *  runtime spec walk carries no type information a caller could trust
+   *  (review #16), and the route-set identity between group and handlers is
+   *  asserted at `implementSurface` time, not here. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`. Shared
+   *  across every connection. */
+  handlers: SurfaceHandlers;
   /** Lifetime policy — the one knob that differs across daemons. */
   lifetime: DaemonLifetime;
   log: Logger;
@@ -282,11 +292,11 @@ export interface DaemonSpec {
   readProcessIdentity: ReadProcessIdentity;
 }
 
-/** Run the daemon: take the gate, serve the router over the socket, then wait
+/** Run the daemon: take the gate, serve the surface's handlers over the socket, then wait
  *  for the configured lifetime to end. Resolves with a `DaemonExit`; cleans up
  *  the socket and releases the gate on every non-`already-running` path. */
 export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
-  const { home, router, lifetime, log, signal } = spec;
+  const { home, group, handlers, lifetime, log, signal } = spec;
   const { gatePath, socketPath } = home;
   // Default anchor is the home dir — gate/socket/anchor derived from `home`.
   const anchor = spec.anchor ?? (() => home.dir);
@@ -322,7 +332,11 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   }
   const gate = claimed;
 
-  const listener = await serveOverUnixSocket({ socketPath, router, log });
+  // No `log` here: `serveOverUnixSocket`'s runtime-event sink is gone with the
+  // oRPC peer server (the events it carried live inside Effect's socket
+  // handling now). The daemon's own boot/teardown narration below still uses
+  // `log`; only the transport's chatter disappeared.
+  const listener = await serveOverUnixSocket({ socketPath, group, handlers });
   if (listener.outcome.kind !== "listening") {
     // A daemon whose socket won't bind has no reason to exist — release the
     // gate so a retry isn't blocked, and report the refusal verbatim.

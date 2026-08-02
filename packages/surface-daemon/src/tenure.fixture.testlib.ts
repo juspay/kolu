@@ -4,7 +4,7 @@
  * extensions, but `@kolu/surface`'s do not, so plain
  * `--experimental-strip-types` cannot load the serve path).
  *
- * The fixture is a daemon *bin*: it serves an (uninvoked) router over a unix
+ * The fixture is a daemon *bin*: it serves an (uninvoked) surface over a unix
  * socket under the private tmpdir passed as argv, while holding a live
  * `setInterval` — the stand-in for whatever RESOURCE OR TIMER the bin never
  * tied to the daemon's lifetime (kaval's node-pty children and served runtime
@@ -30,7 +30,9 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { DaemonExit, DaemonSpec } from "./daemonMain.ts";
+import { defineSurface } from "@kolu/surface/define";
+import { implementSurface } from "@kolu/surface/server";
+import type { DaemonExit } from "./daemonMain.ts";
 import { daemonMain } from "./daemonMain.ts";
 import { stderrLogger } from "./logger.ts";
 import { ESCAPE_EXIT, MARKER } from "./tenure.contract.testlib.ts";
@@ -63,8 +65,10 @@ process.on("unhandledRejection", () =>
 // daemon's lifetime. Deliberately not unref'd and never cleared.
 setInterval(() => {}, 1_000);
 
-// The router is never invoked (no client dials the fixture) — only bound.
-const router = {} as DaemonSpec["router"];
+// The surface is never invoked (no client dials the fixture) — only bound — so
+// the smallest honest one serves: no members, just the three reserved `system/*`
+// tags `defineSurface` always mints.
+const served = implementSurface(defineSurface({}), {});
 
 /** One full daemon run under the fixture's paths, narrating each stage. */
 async function runDaemon(): Promise<DaemonExit> {
@@ -77,7 +81,8 @@ async function runDaemon(): Promise<DaemonExit> {
     processIdentity: { pid: process.pid, startUnixUs: 1_000_000 },
     readProcessIdentity: (pid) =>
       pid === process.pid ? { pid, startUnixUs: 1_000_000 } : undefined,
-    router,
+    group: served.group,
+    handlers: served.handlers,
     // The fixture exercises tenure (exit ownership), not the anchor — honestly
     // unanchored, like any daemon with no on-disk identity.
     anchor: () => undefined,

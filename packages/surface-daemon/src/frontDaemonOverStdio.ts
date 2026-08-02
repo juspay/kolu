@@ -2,7 +2,7 @@
  * `frontDaemonOverStdio` — front a durable surface daemon over a stdio byte
  * bridge. The **durable counterpart** to `@kolu/surface`'s `serveOverStdio`.
  *
- * `serveOverStdio(router)` is the *ephemeral* remote agent: the `--stdio`
+ * `serveOverStdio({ group, handlers })` is the *ephemeral* remote agent: the `--stdio`
  * process **is** the server, a fresh one per link, and when the link drops the
  * server (and any state it held) is gone — exactly right for a re-run-fresh
  * agent (`mini-ci`, `remote-process-monitor`, drishti). `frontDaemonOverStdio`
@@ -23,12 +23,24 @@
  *   2. **Raw byte relay.** Splice this process's stdin⇄stdout onto the daemon
  *      socket, both directions, until either end closes. **No decode:** a unix
  *      socket served by `serveOverUnixSocket` and a client's `stdioLink` carry
- *      the *same* `@kolu/surface` peer framing (base64+newline), so the client
- *      talks to the socket-served router straight through this pipe. The proxy
- *      is therefore contract-blind — it needs no surface/oRPC import, only
+ *      the *same* `@kolu/surface` framing — **ndjson** (one JSON frame per line;
+ *      the old base64+newline peer codec is gone with oRPC) — so the client talks
+ *      to the socket-served surface straight through this pipe. The proxy is
+ *      therefore contract-blind — it needs no surface import, only
  *      `node:net`/`node:child_process` — which is also why fronting a daemon adds
  *      no new dependency edge to a consumer's guarded runtime closure (e.g.
  *      kaval's `buildId.closure.test`).
+ *
+ *      **That identity is proven, not assumed** (PLAN D5, review finding #10):
+ *      `packages/surface/src/links/byteSplice.test.ts` captures the raw bytes of
+ *      both legs and asserts (a) a stdio client spliced into a
+ *      `serveOverUnixSocket` server carries a unary *and* a streaming member end
+ *      to end, (b) the mirror direction does too, and (c) the two legs frame the
+ *      same call **character for character**. It also closes the half of #10 that
+ *      the newline argument never answered — base64 existed for BINARY safety,
+ *      so the test asserts every captured byte is plain JSON text delimited by
+ *      `\n`, with no raw binary anywhere. A member that ever put binary on the
+ *      wire fails there rather than corrupting a splice in production.
  *
  * One process per link, sharing one durable daemon: N concurrent links open N
  * socket connections to the same daemon, all serving the same state. The proxy
