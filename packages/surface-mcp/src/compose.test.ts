@@ -34,14 +34,14 @@
  *   f. tools/call the bespoke `run` tool runs against the live client.
  */
 
+import { buildSurfaceFace } from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
+import { directDispatch } from "@kolu/surface/links/direct";
 import {
   deriveCell,
   deriveEvent,
   deriveStream,
   projectSurface,
-  type SurfaceClientOf,
   surfaceClientRef,
 } from "@kolu/surface/project";
 import type { InMemoryChannel, SurfaceCtx } from "@kolu/surface/server";
@@ -49,49 +49,52 @@ import {
   implementSurface,
   inMemoryChannel,
   inMemoryStore,
+  streamFromAbortableSource,
 } from "@kolu/surface/server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { Effect, Option, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { cellUri, streamUri } from "./expose";
-import { serveSurfaceAsMcp } from "./server";
+import { type SurfaceClientCallable, serveSurfaceAsMcp } from "./server";
 
 // ── Surface A — the coordinator (odu in miniature) ───────────────────────
 
-const nodeSchema = z.object({
-  id: z.string(),
-  status: z.enum(["pending", "ok", "failed"]),
+const nodeSchema = Schema.Struct({
+  id: Schema.String,
+  status: Schema.Literals(["pending", "ok", "failed"]),
 });
-type Node = z.infer<typeof nodeSchema>;
+type Node = typeof nodeSchema.Type;
 
-// Hoisted to module scope so the (large) `SurfaceClientOf<…>` client unions are
-// materialized from a single named `typeof` rather than re-instantiated at every
-// test call site — TS's per-file union budget overflows otherwise (mirrors
-// project.test.ts).
+// Hoisted to module scope so the (large) client unions are materialized from a
+// single named `typeof` rather than re-instantiated at every test call site —
+// TS's per-file union budget overflows otherwise (mirrors project.test.ts).
 const aSpec = {
   cells: {
-    nodes: { schema: z.array(nodeSchema), default: [] as Node[] },
+    nodes: { schema: Schema.Array(nodeSchema), default: [] as readonly Node[] },
   },
   streams: {
     // per-node log: snapshot (current line) then deltas pushed on the bus.
     nodeLog: {
-      inputSchema: z.object({ id: z.string() }),
-      outputSchema: z.string(),
+      inputSchema: Schema.Struct({ id: Schema.String }),
+      outputSchema: Schema.String,
     },
   },
   procedures: {
     run: {
       // The DANGEROUS lane-mutation verb. Present on A, never projected to B.
       configure: {
-        input: z.object({ lanes: z.number() }),
-        output: z.boolean(),
+        input: Schema.Struct({ lanes: Schema.Finite }),
+        output: Schema.Boolean,
       },
     },
     node: {
       // The safe verb — flips a node to "pending" again.
-      rerun: { input: z.object({ id: z.string() }), output: z.boolean() },
+      rerun: {
+        input: Schema.Struct({ id: Schema.String }),
+        output: Schema.Boolean,
+      },
     },
   },
 } as const;
@@ -100,73 +103,84 @@ type ASpec = typeof aSpec;
 
 interface SourceA {
   surface: ReturnType<typeof defineSurface<ASpec>>;
-  router: ReturnType<typeof implementSurface<ASpec>>["router"];
+  served: ReturnType<typeof implementSurface<ASpec>>;
   ctx: SurfaceCtx<ASpec>;
   logBus: InMemoryChannel<string>;
-  nodesStore: ReturnType<typeof inMemoryStore<Node[]>>;
+  nodesStore: ReturnType<typeof inMemoryStore<readonly Node[]>>;
 }
 
-function buildSourceA(initial: Node[]): SourceA {
+function buildSourceA(initial: readonly Node[]): SourceA {
   const surface = defineSurface(aSpec);
 
   const logBus = inMemoryChannel<string>();
-  const nodesStore = inMemoryStore<Node[]>(initial);
+  const nodesStore = inMemoryStore<readonly Node[]>(initial);
 
-  const { router, ctx } = implementSurface(surface, {
+  const served = implementSurface(surface, {
     cells: {
       nodes: { store: nodesStore },
     },
     streams: {
       nodeLog: {
-        source: async function* (input, signal) {
-          // snapshot first, then deltas pushed onto the bus.
-          yield `node ${input.id}: log opened`;
-          for await (const line of logBus.subscribe(signal)) yield line;
-        },
+        // snapshot first, then deltas pushed onto the bus. The bus subscription
+        // is a SCOPED resource of the stream (`streamFromAbortableSource`, the
+        // framework's own producer-edge bridge), so interrupting the consuming
+        // fiber drops it.
+        source: (input) =>
+          Stream.concat(
+            Stream.suspend(() => Stream.make(`node ${input.id}: log opened`)),
+            streamFromAbortableSource<string>((signal) =>
+              logBus.subscribe(signal),
+            ),
+          ),
       },
     },
     procedures: {
       run: {
-        configure: ({ input, ctx }) => {
-          // Dangerous: blows away the whole node list. This must never be
-          // reachable through B / MCP.
-          ctx.cells.nodes.set([]);
-          void input.lanes;
-          return true;
-        },
+        configure: ({ input, ctx }) =>
+          Effect.sync(() => {
+            // Dangerous: blows away the whole node list. This must never be
+            // reachable through B / MCP.
+            ctx.cells.nodes.set([]);
+            void input.lanes;
+            return true;
+          }),
       },
       node: {
-        rerun: ({ input, ctx }) => {
-          const next = ctx.cells.nodes
-            .get()
-            .map((n) =>
-              n.id === input.id ? { ...n, status: "pending" as const } : n,
-            );
-          ctx.cells.nodes.set(next);
-          logBus.publish(`node ${input.id}: rerun requested`);
-          return true;
-        },
+        rerun: ({ input, ctx }) =>
+          Effect.sync(() => {
+            const next = ctx.cells.nodes
+              .get()
+              .map((n) =>
+                n.id === input.id ? { ...n, status: "pending" as const } : n,
+              );
+            ctx.cells.nodes.set(next);
+            logBus.publish(`node ${input.id}: rerun requested`);
+            return true;
+          }),
       },
     },
   });
 
-  return { surface, router, ctx, logBus, nodesStore };
+  return { surface, served, ctx: served.ctx, logBus, nodesStore };
 }
 
 // ── Surface B — projected, curated face of A ─────────────────────────────
 
 // B's `nodes` adds a `red` flag (failed → red) derived from A's node status.
-const bNodeSchema = z.object({
-  id: z.string(),
-  status: z.enum(["pending", "ok", "failed"]),
-  red: z.boolean(),
+const bNodeSchema = Schema.Struct({
+  id: Schema.String,
+  status: Schema.Literals(["pending", "ok", "failed"]),
+  red: Schema.Boolean,
 });
-type BNode = z.infer<typeof bNodeSchema>;
+type BNode = typeof bNodeSchema.Type;
 
 const bSpec = {
   cells: {
     // B.nodes = A.nodes mapped to add `red`.
-    nodes: { schema: z.array(bNodeSchema), default: [] as BNode[] },
+    nodes: {
+      schema: Schema.Array(bNodeSchema),
+      default: [] as readonly BNode[],
+    },
   },
   streams: {
     // B.log = A.nodeLog for a FIXED node, mapped passthrough (the
@@ -176,25 +190,27 @@ const bSpec = {
     // can't be a static resource (it would have no input to pass on read);
     // fixing the input in the projection is exactly the curation cut.
     log: {
-      inputSchema: z.void(),
-      outputSchema: z.string(),
+      inputSchema: Schema.Void,
+      outputSchema: Schema.String,
     },
   },
   events: {
     // B.settled = fires `true` whenever every node in A is terminal.
-    settled: { inputSchema: z.void(), outputSchema: z.boolean() },
+    settled: { inputSchema: Schema.Void, outputSchema: Schema.Boolean },
   },
   procedures: {
     node: {
       // passthrough to A's node.rerun — the only verb B carries.
-      rerun: { input: z.object({ id: z.string() }), output: z.boolean() },
+      rerun: {
+        input: Schema.Struct({ id: Schema.String }),
+        output: Schema.Boolean,
+      },
     },
     // NOTE: NO `run.configure`. The dangerous verb is structurally absent.
   },
 } as const;
 
 type BSpec = typeof bSpec;
-type BClient = SurfaceClientOf<BSpec>;
 
 const isTerminal = (n: Node): boolean =>
   n.status === "ok" || n.status === "failed";
@@ -206,7 +222,7 @@ function projectB(a: SourceA) {
     deps: (client) => ({
       cells: {
         nodes: deriveCell(
-          (opts) => client.surface.nodes.get(undefined, opts),
+          (input) => client.surface.nodes.get(input),
           (ns) => ns.map(toBNode),
           [],
         ),
@@ -216,7 +232,7 @@ function projectB(a: SourceA) {
         // `log` takes no input and is a valid static resource.
         log: deriveStream(
           // biome-ignore lint/suspicious/noConfusingVoidType: `void` is the surface's no-input encoding — pins this stream's input type to match the `StreamHandlerDeps<void, …>` slot it derives.
-          (_input: void, opts) => client.surface.nodeLog.get({ id: "a" }, opts),
+          (_input: void) => client.surface.nodeLog.get({ id: "a" }),
           (line) => line,
         ),
       },
@@ -226,13 +242,15 @@ function projectB(a: SourceA) {
         // mapping non-settled frames to `false` and letting the consumer key on
         // `true`. (deriveEvent maps every frame; the settle gate lives in `map`.)
         settled: deriveEvent(
-          (_input, opts) => client.surface.nodes.get(undefined, opts),
+          // biome-ignore lint/suspicious/noConfusingVoidType: same no-input encoding as `log` above.
+          (_input: void) => client.surface.nodes.get(undefined),
           (ns) => ns.length > 0 && ns.every(isTerminal),
         ),
       },
       procedures: {
         node: {
-          rerun: async ({ input }) => client.surface.node.rerun(input),
+          rerun: ({ input }) =>
+            Effect.promise(() => client.surface.node.rerun(input)),
         },
       },
     }),
@@ -245,30 +263,29 @@ interface Composed {
   a: SourceA;
   mcp: Client;
   served: { close: () => Promise<void> };
-  closeBLink: () => void;
 }
 
-/** Build A, project + implement B, serve B as MCP, connect an MCP client.
- *  The heavy `directLink<…B…>` client union is materialized once here behind the
- *  named `BClient` alias; the A-client union is materialized once inside
- *  `projectB`'s `deps`. */
-async function compose(initial: Node[]): Promise<Composed> {
+/** Build A, project + implement B, serve B as MCP, connect an MCP client. */
+async function compose(initial: readonly Node[]): Promise<Composed> {
   // 1. SOURCE A, implemented in-memory. `surfaceClientRef` already returns
   // `SurfaceClientOf<ASpec>`; the precise A-client type is materialized exactly
   // once — inside `projectB`'s `deps` callback (`projectSurface<ASpec, BSpec>`),
   // where the derive helpers earn it. Re-spelling the full `AClient` alias here
   // would force a SECOND materialization of that large client union in the same
-  // type-check pass and overflow TS's union budget (`implement` takes the loose
-  // `SurfaceClientLike` shape, so it doesn't need precision).
+  // type-check pass and overflow TS's union budget.
   const a = buildSourceA(initial);
-  const aClient = surfaceClientRef(a.surface, a.router as never);
+  const aClient = surfaceClientRef(a.surface, a.served);
 
-  // 2. PROJECT A → B, implement B against the A-client, build a B-client.
+  // 2. PROJECT A → B, implement B against the A-client, build a B-client. The
+  // B-client is the SAME nested member face a wire link mints, over the no-wire
+  // `directDispatch` — so what the MCP adapter drives here is byte-for-byte the
+  // shape it would drive over a socket.
   const projected = projectB(a);
-  const { router: bRouter } = projected.implement(aClient);
-  const bClient = directLink<typeof projected.surface.contract>(
-    bRouter as never,
-  ) as BClient;
+  const servedB = projected.implement(aClient);
+  const bClient = buildSurfaceFace(
+    projected.surface,
+    directDispatch(servedB),
+  ) as unknown as SurfaceClientCallable;
 
   // 3. SERVE B as MCP over an in-memory transport pair.
   const [clientTransport, serverTransport] =
@@ -287,16 +304,22 @@ async function compose(initial: Node[]): Promise<Composed> {
       // live B-client (reads the curated nodes snapshot) — the escape hatch
       // for capabilities that aren't a single surface verb.
       run: {
-        input: z.object({ note: z.string().optional() }),
+        input: Schema.Struct({ note: Schema.optionalKey(Schema.String) }),
         description: "Kick off a run and summarize the curated node view.",
         mutates: true,
         handler: async (args, client) => {
-          const sub = await client.surface.nodes.get(undefined);
-          let snapshot: BNode[] = [];
-          for await (const frame of sub as AsyncIterable<BNode[]>) {
-            snapshot = frame;
-            break;
-          }
+          // One-shot read of a snapshot-first member: take the first frame and
+          // end the stream, which releases the subscription through its own
+          // finalizers. This `Effect.runPromise` is the bespoke handler's own
+          // edge — a consumer-supplied async function, not framework code.
+          const head = await Effect.runPromise(
+            Stream.runHead(
+              (client as SurfaceClientCallable).surface.nodes?.get?.(
+                undefined,
+              ) as Stream.Stream<readonly BNode[]>,
+            ),
+          );
+          const snapshot = Option.getOrElse(head, (): readonly BNode[] => []);
           return {
             started: true,
             note: (args as { note?: string }).note ?? null,
@@ -312,7 +335,7 @@ async function compose(initial: Node[]): Promise<Composed> {
   const mcp = new Client({ name: "compose-client", version: "0.0.0" });
   await mcp.connect(clientTransport);
 
-  return { a, mcp, served, closeBLink: () => {} };
+  return { a, mcp, served };
 }
 
 let cleanup: Array<() => Promise<void> | void> = [];
@@ -321,7 +344,7 @@ afterEach(async () => {
   cleanup = [];
 });
 
-async function setup(initial?: Node[]): Promise<Composed> {
+async function setup(initial?: readonly Node[]): Promise<Composed> {
   const composed = await compose(
     initial ?? [
       { id: "a", status: "pending" },
@@ -331,7 +354,6 @@ async function setup(initial?: Node[]): Promise<Composed> {
   cleanup.push(
     () => composed.mcp.close(),
     () => composed.served.close(),
-    () => composed.closeBLink(),
   );
   return composed;
 }

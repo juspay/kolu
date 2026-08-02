@@ -16,40 +16,59 @@
  *     underlying cell changes.
  */
 
+import { buildSurfaceFace } from "@kolu/surface/client";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { defineSurface } from "@kolu/surface/define";
-import { deadTransportError } from "@kolu/surface/client";
-import { directLink } from "@kolu/surface/links/direct";
+import { SurfaceStdioTransportClosed } from "@kolu/surface/errors";
+import { directDispatch } from "@kolu/surface/links/direct";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   implementSurface,
   inMemoryChannel,
   inMemoryStore,
+  streamFromAbortableSource,
 } from "@kolu/surface/server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
+import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { cellUri, streamUri } from "./expose";
-import { serveSurfaceAsMcp } from "./server";
+import { type SurfaceClientCallable, serveSurfaceAsMcp } from "./server";
+
+/** The in-process client every case here drives the adapter with: the SAME
+ *  nested member face a wire link mints (`buildSurfaceFace`), over the no-wire
+ *  `directDispatch`. Cast to the adapter's callable-leaf shape because the face
+ *  is deliberately structural — per-member precision lives in the bound Solid
+ *  client, which this package does not use. */
+function faceFor<S extends SurfaceSpec>(
+  surface: Surface<S>,
+  served: { handlers: SurfaceHandlers },
+): SurfaceClientCallable {
+  return buildSurfaceFace(
+    surface,
+    directDispatch(served),
+  ) as unknown as SurfaceClientCallable;
+}
 
 // ── A tiny surface + in-memory implementation ────────────────────────────
 
 function buildSurface() {
   const surface = defineSurface({
     cells: {
-      count: { schema: z.number(), default: 0 },
+      count: { schema: Schema.Finite, default: 0 },
     },
     streams: {
-      ticks: { inputSchema: z.void(), outputSchema: z.number() },
+      ticks: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
     },
     procedures: {
       counter: {
-        bump: { output: z.number() },
+        bump: { output: Schema.Finite },
       },
       admin: {
         // The dangerous verb — present on the surface, deliberately NOT
         // exposed. Proves default-deny: it must never reach the host.
-        nuke: { output: z.boolean() },
+        nuke: { output: Schema.Boolean },
       },
     },
   });
@@ -57,36 +76,42 @@ function buildSurface() {
   const countStore = inMemoryStore(0);
   const tickBus = inMemoryChannel<number>();
 
-  const { router } = implementSurface(surface, {
+  const served = implementSurface(surface, {
     cells: { count: { store: countStore } },
     streams: {
       ticks: {
-        source: async function* (_input, signal) {
-          yield countStore.get();
-          for await (const v of tickBus.subscribe(signal)) yield v;
-        },
+        // Snapshot first (lazily — the read happens at SUBSCRIBE time), then the
+        // bus, whose subscription is a scoped resource of the stream.
+        source: () =>
+          Stream.concat(
+            Stream.suspend(() => Stream.make(countStore.get())),
+            streamFromAbortableSource<number>((signal) =>
+              tickBus.subscribe(signal),
+            ),
+          ),
       },
     },
     procedures: {
       counter: {
-        bump: ({ ctx }) => {
-          const next = ctx.cells.count.get() + 1;
-          ctx.cells.count.set(next);
-          tickBus.publish(next);
-          return next;
-        },
+        bump: ({ ctx }) =>
+          Effect.sync(() => {
+            const next = ctx.cells.count.get() + 1;
+            ctx.cells.count.set(next);
+            tickBus.publish(next);
+            return next;
+          }),
       },
       admin: {
-        nuke: ({ ctx }) => {
-          ctx.cells.count.set(-999);
-          return true;
-        },
+        nuke: ({ ctx }) =>
+          Effect.sync(() => {
+            ctx.cells.count.set(-999);
+            return true;
+          }),
       },
     },
   });
 
-  const client = directLink<typeof surface.contract>(router as never);
-  return { surface, client };
+  return { surface, client: faceFor(surface, served) };
 }
 
 /** Stand up the MCP server + a connected MCP client over an in-memory pair. */
@@ -105,7 +130,7 @@ async function connect(over: ReturnType<typeof buildSurface>) {
     },
     tools: {
       greet: {
-        input: z.object({ name: z.string() }),
+        input: Schema.Struct({ name: Schema.String }),
         description: "Say hello.",
         handler: (args) => {
           const { name } = args as { name: string };
@@ -208,6 +233,21 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     expect(JSON.parse(text?.text ?? "null")).toEqual({ hello: "ada" });
   });
 
+  it("a bespoke tool whose args fail its schema returns isError, not a protocol error", async () => {
+    // The Effect successor of zod's `.parse` at the dispatch edge:
+    // `Schema.decodeUnknownSync` throws a `SchemaError`, which the dispatch
+    // try/catch turns into the `isError` tool result the contract promises.
+    const over = buildSurface();
+    const { mcp, served } = await connect(over);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    const res = await mcp.callTool({ name: "greet", arguments: { name: 7 } });
+    expect(res.isError).toBe(true);
+  });
+
   it("resources/list + resources/read return a cell snapshot", async () => {
     const over = buildSurface();
     const { mcp, served } = await connect(over);
@@ -230,28 +270,23 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     // current-value snapshot frame (`@kolu/surface/server`), so an empty open is a
     // dead/dropped bridge link — NOT an empty value. Coercing it to JSON `null`
     // would hand an MCP agent `surface://cells/<x> => null` as if real (the green-dot
-    // lie in MCP form). A REAL `implementSurface` router can't produce this (it
+    // lie in MCP form). A REAL `implementSurface` runtime can't produce this (it
     // always opens with a snapshot), so model the dropped bridge with a stub client
     // whose `count.get` yields no frame. readSnapshot must FAIL, never collapse.
     const surface = defineSurface({
-      cells: { count: { schema: z.number(), default: 0 } },
+      cells: { count: { schema: Schema.Finite, default: 0 } },
     });
     const droppedBridge = {
       surface: {
-        // Ends without yielding — the guaranteed snapshot frame never arrives.
-        count: {
-          get: async function* () {
-            return;
-          },
-        },
+        // Ends without emitting — the guaranteed snapshot frame never arrives.
+        count: { get: () => Stream.empty },
       },
     };
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
       surface,
-      // biome-ignore lint/suspicious/noExplicitAny: stub client modelling a dropped bridge link.
-      client: () => droppedBridge as any,
+      client: () => droppedBridge as unknown as SurfaceClientCallable,
       expose: { count: "resource" },
       serverInfo: { name: "empty-snapshot-test", version: "0.0.0" },
       transport: serverTransport,
@@ -268,29 +303,56 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     );
   });
 
+  it("a member that resolves NO streaming source at all also throws (the dropped-face arm)", async () => {
+    // The other half of the dropped-bridge shape: the member ref exists but hands
+    // back something that is not a `Stream` (a stale/partial face over a dead
+    // link). It must be stated as a link/protocol failure, never coerced into an
+    // empty read.
+    const surface = defineSurface({
+      cells: { count: { schema: Schema.Finite, default: 0 } },
+    });
+    const brokenFace = {
+      surface: { count: { get: () => undefined } },
+    };
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface,
+      client: () => brokenFace as unknown as SurfaceClientCallable,
+      expose: { count: "resource" },
+      serverInfo: { name: "no-source-test", version: "0.0.0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "test-client", version: "0.0.0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+
+    await expect(mcp.readResource({ uri: cellUri("count") })).rejects.toThrow(
+      /resolved no streaming source/,
+    );
+  });
+
   it("a STREAM that opens EMPTY also throws — streams are snapshot-first too (StreamHandlerDeps), not empty-to-null", async () => {
     // The reloc-D correction: `StreamHandlerDeps` REQUIRES "first yield is a fresh
     // full snapshot", so a Stream is snapshot-guaranteed exactly like a cell — only
     // an Event has no snapshot obligation. An empty stream open is therefore the
     // SAME dead-link failure, and must throw, not collapse to JSON null.
     const surface = defineSurface({
-      streams: { ticks: { inputSchema: z.void(), outputSchema: z.number() } },
+      streams: {
+        ticks: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
+      },
     });
     const droppedBridge = {
-      surface: {
-        ticks: {
-          get: async function* () {
-            return;
-          },
-        },
-      },
+      surface: { ticks: { get: () => Stream.empty } },
     };
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
       surface,
-      // biome-ignore lint/suspicious/noExplicitAny: stub client modelling a dropped bridge link.
-      client: () => droppedBridge as any,
+      client: () => droppedBridge as unknown as SurfaceClientCallable,
       expose: { ticks: "resource" },
       serverInfo: { name: "empty-stream-test", version: "0.0.0" },
       transport: serverTransport,
@@ -394,15 +456,14 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
     // works: a tool the author KNOWS is read-only declares `mutates: false` and gets
     // `readOnlyHint: true` — a conscious, reviewable claim, not a silent assumption.
     const surface = defineSurface({
-      cells: { count: { schema: z.number(), default: 0 } },
+      cells: { count: { schema: Schema.Finite, default: 0 } },
     });
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const served = await serveSurfaceAsMcp({
       surface,
       // `peek` never touches the client and `listTools` doesn't invoke it.
-      // biome-ignore lint/suspicious/noExplicitAny: unused stub client (no resource/tool call reaches it).
-      client: () => ({ surface: {} }) as any,
+      client: () => ({ surface: {} }) as SurfaceClientCallable,
       expose: {},
       tools: {
         peek: {
@@ -439,23 +500,26 @@ function buildEdgeSurface() {
   const surface = defineSurface({
     collections: {
       // NON-string key — exercises the item-template key decode (F9).
-      rows: { keySchema: z.number(), schema: z.object({ v: z.string() }) },
+      rows: {
+        keySchema: Schema.Finite,
+        schema: Schema.Struct({ v: Schema.String }),
+      },
     },
     events: {
       // No snapshot by contract — `resources/read` must not block (F2).
-      pinged: { inputSchema: z.void(), outputSchema: z.number() },
+      pinged: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
     },
     procedures: {
       echo: {
         // A scalar input — advertised wrapped under `value`, dispatched
         // unwrapped (F3).
-        shout: { input: z.string(), output: z.string() },
+        shout: { input: Schema.String, output: Schema.String },
       },
     },
   });
 
   const rows = new Map<number, { v: string }>([[42, { v: "answer" }]]);
-  const { router } = implementSurface(surface, {
+  const served = implementSurface(surface, {
     collections: {
       rows: {
         readAll: () => rows,
@@ -470,13 +534,12 @@ function buildEdgeSurface() {
     events: { pinged: {} },
     procedures: {
       echo: {
-        shout: ({ input }) => `${input}!`,
+        shout: ({ input }) => Effect.succeed(`${input}!`),
       },
     },
   });
 
-  const client = directLink<typeof surface.contract>(router as never);
-  return { surface, client };
+  return { surface, client: faceFor(surface, served) };
 }
 
 async function connectEdge(over: ReturnType<typeof buildEdgeSurface>) {
@@ -494,7 +557,7 @@ async function connectEdge(over: ReturnType<typeof buildEdgeSurface>) {
     tools: {
       // An array-input bespoke tool — also wrapped under `value` (F3).
       sum: {
-        input: z.array(z.number()),
+        input: Schema.Array(Schema.Finite),
         handler: (args) => (args as number[]).reduce((a, b) => a + b, 0),
       },
     },
@@ -570,7 +633,7 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     );
 
     // The URI segment is the string "42"; the adapter decodes it through the
-    // collection's `z.number()` key schema before `.get({ key: 42 })`.
+    // collection's `Schema.Finite` key schema before `.get({ key: 42 })`.
     const read = await mcp.readResource({
       uri: "surface://collections/rows/42",
     });
@@ -586,7 +649,7 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
       () => served.close(),
     );
 
-    // The collection `get` now HOLDS OPEN for a not-yet-born key (the #1681 fix),
+    // The collection `get` HOLDS OPEN for a not-yet-born key (the #1681 fix),
     // so a one-shot read must resolve membership from `keys` first and report the
     // absent key as not-found instead of awaiting a `get` frame that never comes.
     // A 2s race guards against a regression back to the indefinite hang.
@@ -634,7 +697,7 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     // read that relied on `get` alone would hang forever here; the bounded read
     // resolves not-found from the `keys`-absence watch instead — so a regression
     // back to the hang trips the 2s timeout and fails this test.
-    await over.client.surface.rows.delete({ key: 42 });
+    await over.client.surface.rows?.delete?.({ key: 42 });
     const read = mcp.readResource({ uri: "surface://collections/rows/42" });
     const outcome = await Promise.race([
       read.then(
@@ -675,15 +738,15 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const surface = defineSurface({
       procedures: {
         // `a.b_c` and `a_b.c` both collapse to the MCP tool name `a_b_c`.
-        a: { b_c: { output: z.boolean() } },
-        a_b: { c: { output: z.boolean() } },
+        a: { b_c: { output: Schema.Boolean } },
+        a_b: { c: { output: Schema.Boolean } },
       },
     });
     const [, serverTransport] = InMemoryTransport.createLinkedPair();
     await expect(
       serveSurfaceAsMcp({
         surface,
-        client: () => ({ surface: {} }) as never,
+        client: () => ({ surface: {} }) as SurfaceClientCallable,
         expose: { "a.b_c": "tool", "a_b.c": "tool" },
         transport: serverTransport,
       }),
@@ -697,23 +760,23 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
   function concurrencySurface() {
     const surface = defineSurface({
       procedures: {
-        ok: { ping: { output: z.string() } },
-        bad: { boom: { output: z.string() } },
+        ok: { ping: { output: Schema.String } },
+        bad: { boom: { output: Schema.String } },
       },
     });
-    const { router } = implementSurface(surface, {
+    const served = implementSurface(surface, {
       procedures: {
-        ok: { ping: () => "pong" },
-        // An APPLICATION error (not a transport death) — the reset must NOT fire.
+        ok: { ping: () => Effect.succeed("pong") },
+        // An APPLICATION-level failure (not a transport death). It is UNDECLARED,
+        // so under D4 it is a DEFECT — which still reaches the host as an `isError`
+        // tool result, and must NOT reset the shared connection.
         bad: {
-          boom: () => {
-            throw new Error("bad arg: application-level failure");
-          },
+          boom: () =>
+            Effect.die(new Error("bad arg: application-level failure")),
         },
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    return { surface, client };
+    return { surface, client: faceFor(surface, served) };
   }
 
   it("app-level tool errors do NOT dispose the shared connection; a transport death does", async () => {
@@ -743,10 +806,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         drop: {
           description: "simulate a transport death",
           handler: async () => {
-            throw deadTransportError(
-              "SURFACE_STDIO_TRANSPORT_CLOSED",
-              "pipe closed",
-            );
+            throw new SurfaceStdioTransportClosed({ reason: "pipe closed" });
           },
         },
       },
@@ -792,7 +852,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       client: async () => {
         dials += 1;
         // A dial that takes a tick — both concurrent callers await it before
-        // either resolves, so a check-then-act getClient would open two sockets.
+        // either resolves, so a check-then-act getConn would open two sockets.
         await new Promise((r) => setTimeout(r, 10));
         return {
           client: over.client,

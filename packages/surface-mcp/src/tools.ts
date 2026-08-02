@@ -2,22 +2,31 @@
  * Tool dispatch — the two registration paths the adapter takes.
  *
  *   - An **exposed procedure** (`expose: { "node.rerun": { tool: ... } }`):
- *     dispatch calls `client.surface[ns][verb](args, { signal })` and wraps
- *     the result.
+ *     dispatch calls `client.surface[ns][verb](args)` and wraps the result.
  *   - A **bespoke tool** (`tools: { run: { input, handler } }`): a
  *     hand-authored MCP tool whose handler composes over the live client.
  *     Genuinely call-shaped capabilities (spawn-and-await, path-guarded
- *     reads) ride here, sharing the package's zod→JSON-Schema + result
- *     framing + signal threading spine — they just supply a zod input and a
- *     function.
+ *     reads) ride here, sharing the package's Schema→JSON-Schema + result
+ *     framing spine — they just supply an Effect Schema input and a function.
  *
  * Both wrap their return as a `ToolResult` (`content:[{type:"text",...}]`)
- * and surface a thrown error as `isError`. The `CallTool` `extra.signal` is
- * threaded through so cancelling the MCP request promptly tears the call's
- * downstream work (an open stream, a blocking wait).
+ * and surface a thrown error as `isError`.
+ *
+ * **On cancellation (D10).** Effect RPC carries no `signal`, so a surface
+ * member call is cancelled by interrupting the fiber running it — which is what
+ * `resources/read` does with the MCP request's `extra.signal`. A BESPOKE
+ * handler is a consumer-supplied Promise-shaped function, not a surface member,
+ * so it keeps its `AbortSignal` parameter: that is the consumer's own
+ * cancellation vocabulary, and the MCP request signal is handed to it verbatim.
  */
 
-import type { ZodType } from "zod";
+import type { Schema } from "effect";
+
+/** A bespoke tool's input schema: any context-free Effect Schema whose DECODED
+ *  type is the handler's `args`. The same bound `@kolu/surface`'s `WireSchema<T>`
+ *  puts on every spec schema — `RD`/`RE` pinned to `never`, because decoding an
+ *  MCP tool argument has no Effect environment to draw services from. */
+export type ToolInputSchema<I> = Schema.Codec<I, unknown, never, never>;
 
 /** A hand-authored MCP tool. `input` (optional) validates and shapes the
  *  args; `handler` runs against the live surface `client`, with the call's
@@ -31,7 +40,7 @@ import type { ZodType } from "zod";
  *  `mutates: false` ONLY for a genuinely read-only tool (a conscious, reviewable
  *  opt-in into the auto-approvable hint). */
 export interface BespokeTool<I = unknown, O = unknown> {
-  input?: ZodType<I>;
+  input?: ToolInputSchema<I>;
   mutates?: boolean;
   description?: string;
   handler: (
