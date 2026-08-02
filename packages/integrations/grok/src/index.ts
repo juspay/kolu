@@ -6,7 +6,7 @@
  *   - `active-sessions-watcher.ts` — process-wide active_sessions fan-out
  *   - `session-watcher.ts`         — per-session events/summary watch
  *   - `agent-adapter.ts`           — `AgentAdapter` the sensors consume
- *   - `schemas.ts`                 — zod schemas + types (browser-safe)
+ *   - `schemas.ts`                 — Effect schemas + types (browser-safe)
  *   - `config.ts`                  — env-resolved home paths
  */
 
