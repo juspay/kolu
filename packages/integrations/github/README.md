@@ -6,11 +6,11 @@ The gh adapter for [`anyforge`](../anyforge/README.md)'s `ForgeAdapter` contract
 
 | Module       | Exports                                                              | Purpose                                                          |
 | ------------ | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `schemas.ts` | `GhUnavailableCodeSchema`, `GhUnavailableSchema`, `reasonForGhCode`  | The **gh-specific** failure vocabulary (browser-safe: zod only)  |
+| `schemas.ts` | `GhUnavailableCodeSchema`, `GhUnavailableSchema`, `reasonForGhCode`  | The **gh-specific** failure vocabulary (browser-safe: Effect Schema only) |
 | `github.ts`  | `deriveCheckStatus`, `extractChecks`, `classifyGhError`             | Pure helpers — no I/O                                            |
 | `resolve.ts` | `resolveGitHubPr`, `githubForgeAdapter`                             | `gh pr view` spawn (Node), failure classification + logging      |
 
-The **neutral** wire shapes (`PrInfoSchema`, the generic `PrResult<S>`) and the poll loop (`subscribePr`) live in `anyforge`; the **closed** `PrUnavailableSource` union and the wire `PrResultSchema` compose in `kolu-common` (alongside `AgentInfoSchema`). This package owns only the gh arm — its codes and reason text — mirroring how `kolu-claude-code` owns `ClaudeCodeInfoSchema`. Browser code that needs the gh codes imports `kolu-github/schemas` (zod-only, no `node:` / `KOLU_GH_BIN`); nothing browser-bound should import the package root.
+The **neutral** wire shapes (`PrInfoSchema`, the generic `PrResult<S>`) and the poll loop (`subscribePr`) live in `anyforge`; the **closed** `PrUnavailableSource` union and the wire `PrResultSchema` compose in `kolu-common` (alongside `AgentInfoSchema`). This package owns only the gh arm — its codes and reason text — mirroring how `kolu-claude-code` owns `ClaudeCodeInfoSchema`. Browser code that needs the gh codes imports `kolu-github/schemas` (Effect Schema only, no `node:` / `KOLU_GH_BIN`); nothing browser-bound should import the package root.
 
 ## Server integration
 

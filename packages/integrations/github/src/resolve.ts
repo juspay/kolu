@@ -9,11 +9,18 @@ import { promisify } from "node:util";
 import type { PrGitContext, ForgeAdapter, PrResult } from "anyforge";
 import { logPrResolveFailure } from "anyforge";
 import { PrStateSchema } from "anyforge/schemas";
+import { Schema } from "effect";
 import type { Logger } from "kolu-shared";
 import { classifyGhError, deriveCheckStatus, extractChecks } from "./github.ts";
 import type { GhUnavailableSource } from "./schemas.ts";
 
 const execFileAsync = promisify(execFile);
+
+/** Built once — `decodeUnknownSync` compiles a parser per call otherwise.
+ *  Throws on a state gh reports that the neutral vocabulary doesn't know,
+ *  which `resolveGitHubPr`'s catch turns into a classified failure rather
+ *  than a silently wrong PR state. */
+const decodePrState = Schema.decodeUnknownSync(PrStateSchema);
 
 const GH_TIMEOUT_MS = 5_000;
 
@@ -72,7 +79,7 @@ export async function resolveGitHubPr(
         number: data.number,
         title: data.title,
         url: data.url,
-        state: PrStateSchema.parse(data.state.toLowerCase()),
+        state: decodePrState(data.state.toLowerCase()),
         checks: deriveCheckStatus(data.statusCheckRollup),
         checkRuns: extractChecks(data.statusCheckRollup),
       },

@@ -1,4 +1,4 @@
-/** Zod schema for the gh-specific PR-unavailable source — browser-safe.
+/** Effect Schema for the gh-specific PR-unavailable source — browser-safe.
  *
  *  Lives in its own module so `kolu-common` (and any client code) can import
  *  the gh arm without pulling the package root, which transitively evaluates
@@ -10,10 +10,10 @@
  *  the per-agent arm composed into `AgentInfoSchema`.
  *
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
- *  access — zod and ts-pattern only, no `anyforge` import either (the gh arm
- *  is self-contained; the generic kernel doesn't name it). */
+ *  access — Effect Schema and ts-pattern only, no `anyforge` import either
+ *  (the gh arm is self-contained; the generic kernel doesn't name it). */
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 /** Typed gh-failure code for the `unavailable` PrResult variant.
  *
@@ -21,13 +21,13 @@ import { z } from "zod";
  *  callers that want to dispatch per-failure can `match(code).exhaustive()`
  *  and get a compile error when a new code is added without a handler —
  *  rather than string-comparing display text and silently breaking on typo. */
-export const GhUnavailableCodeSchema = z.enum([
+export const GhUnavailableCodeSchema = Schema.Literals([
   "not-installed",
   "not-authenticated",
   "timed-out",
   "unknown",
 ]);
-export type GhUnavailableCode = z.infer<typeof GhUnavailableCodeSchema>;
+export type GhUnavailableCode = typeof GhUnavailableCodeSchema.Type;
 
 /** Display text for a gh unavailable code — single source of truth. Defined
  *  as a fresh `Record<GhUnavailableCode, string>` literal (not wrapped in
@@ -61,8 +61,8 @@ export const GH_PROVIDER = "gh";
  *  `"gh"` plus this adapter's typed code. The discriminated union over all
  *  forge arms composes in the app (kolu-common), the same place
  *  `AgentInfoSchema` composes the per-agent schemas. */
-export const GhUnavailableSchema = z.object({
-  provider: z.literal(GH_PROVIDER),
+export const GhUnavailableSchema = Schema.Struct({
+  provider: Schema.Literal(GH_PROVIDER),
   code: GhUnavailableCodeSchema,
 });
-export type GhUnavailableSource = z.infer<typeof GhUnavailableSchema>;
+export type GhUnavailableSource = typeof GhUnavailableSchema.Type;
