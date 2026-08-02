@@ -22,14 +22,11 @@
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/xterm-kit": "workspace:*",
-    "@orpc/contract": "^1.13.13",
-    "@orpc/server": "^1.13.13",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "effect": "catalog:",
     "node-pty": "github:juspay/node-pty#feat/foreground-pid-dist",
-    "osfacts-client": "workspace:*",
-    "zod": "^4.3.6"
+    "osfacts-client": "workspace:*"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",

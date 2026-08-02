@@ -150,12 +150,6 @@ importers:
       '@kolu/xterm-kit':
         specifier: workspace:*
         version: link:../xterm-kit
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@pierre/diffs':
         specifier: ^1.2.12
         version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)
@@ -207,9 +201,6 @@ importers:
       nonempty:
         specifier: workspace:*
         version: link:../nonempty
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -292,9 +283,6 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -328,9 +316,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -397,9 +382,6 @@ importers:
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -422,9 +404,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -459,9 +438,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -493,9 +469,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -533,9 +506,6 @@ importers:
       simple-git:
         specifier: ^3.36.0
         version: 3.36.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -561,9 +531,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -592,9 +559,6 @@ importers:
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../../transcript-core
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -639,9 +603,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -691,12 +652,6 @@ importers:
       '@kolu/xterm-kit':
         specifier: workspace:*
         version: link:../xterm-kit
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
@@ -712,9 +667,6 @@ importers:
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -871,9 +823,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -933,18 +882,6 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13(ioredis@5.11.1)
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1005,9 +942,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -1125,9 +1059,6 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.10
         version: 2.0.10(hono@4.12.31)
-      '@hono/node-ws':
-        specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -1167,21 +1098,6 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-pino':
-        specifier: ^1.13.13
-        version: 1.13.13(pino@10.3.1)(ws@8.21.0)
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13(ioredis@5.11.1)
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1251,9 +1167,6 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -1479,21 +1392,6 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      '@orpc/standard-server':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/standard-server-peer':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@preact/signals-core':
         specifier: ^1.8.0
         version: 1.14.4
@@ -1509,9 +1407,6 @@ importers:
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1546,15 +1441,9 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@hono/node-server':
         specifier: ^2.0.10
@@ -1583,33 +1472,18 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:..
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13(ioredis@5.11.1)
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1644,18 +1518,12 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1715,15 +1583,6 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@solid-primitives/keyed':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
@@ -1739,9 +1598,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1767,9 +1623,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1798,12 +1651,6 @@ importers:
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
@@ -1819,16 +1666,10 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1850,45 +1691,24 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.10
         version: 2.0.10(hono@4.12.31)
-      '@hono/node-ws':
-        specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../../surface-app
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13(ioredis@5.11.1)
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -1929,33 +1749,18 @@ importers:
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:../../../../surface-app
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1990,24 +1795,12 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../../../../surface-daemon-supervisor
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       osfacts-client:
         specifier: workspace:*
         version: link:../../../../../osfacts-client
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2036,24 +1829,12 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2063,9 +1844,6 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2097,21 +1875,9 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2140,33 +1906,18 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -2219,9 +1970,6 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
@@ -2231,9 +1979,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2308,9 +2053,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2374,9 +2116,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2461,9 +2200,6 @@ importers:
 
   packages/xterm-kit:
     dependencies:
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)
@@ -3023,14 +2759,6 @@ packages:
     peerDependencies:
       hono: ^4.12.27
 
-  '@hono/node-ws@1.3.0':
-    resolution: {integrity: sha512-ju25YbbvLuXdqBCmLZLqnNYu1nbHIQjoyUqA8ApZOeL1k4skuiTcw5SW77/5SUYo2Xi2NVBJoVlfQurnKEp03Q==}
-    engines: {node: '>=18.14.1'}
-    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-    peerDependencies:
-      '@hono/node-server': ^1.19.2
-      hono: ^4.12.27
-
   '@img/sharp-darwin-arm64@0.34.5':
     resolution: {integrity: sha512-imtQ3WMJXbMY4fxb/Ndp6HBTNVtWCUI0WdobyheGf5+ad6xX8VIDO8u2xE4qc/fr08CKG/7dDseFtn6M6g/r3w==}
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
@@ -3207,73 +2935,6 @@ packages:
   '@noble/hashes@1.4.0':
     resolution: {integrity: sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==}
     engines: {node: '>= 16'}
-
-  '@orpc/client@1.13.13':
-    resolution: {integrity: sha512-jagx/Sa+9K4HEC5lBrUlMSrmR/06hvZctWh93/sKZc8GBk4zM0+71oT1kXQVw1oRYFV2XAq3xy3m6NdM6gfKYA==}
-
-  '@orpc/contract@1.13.13':
-    resolution: {integrity: sha512-md6iyrYkePBSJNs1VnVEEnAUORMDPHIf3JGRSHxyssIcNakev/iOjP0HvpH0Sx0MlTBhihAJo6uFL8Vpth58Nw==}
-
-  '@orpc/experimental-pino@1.13.13':
-    resolution: {integrity: sha512-Jfjzv24tkkOdjNsnzCO0vw70dB75Qm5NAuJxv9Mog4BOjiYnCUjNkAEnUqpLI4SZrOL/BJnGWe0uXTB0FlycDA==}
-    peerDependencies:
-      pino: '>=10.1.0'
-
-  '@orpc/experimental-publisher@1.13.13':
-    resolution: {integrity: sha512-Tuj2+X/44papyh1fsGMgzfCy3Tqz/EBNIQDqQPL6KqfOpFgpkd9xvRDa6JsN/nEZbUZFsQK0TM5eHBAhRrDIxQ==}
-    peerDependencies:
-      '@upstash/redis': '>=1.35.6'
-      ioredis: '>=5.8.1'
-    peerDependenciesMeta:
-      '@upstash/redis':
-        optional: true
-      ioredis:
-        optional: true
-
-  '@orpc/interop@1.13.13':
-    resolution: {integrity: sha512-S8edIRA7ekD3/gHx5MrsO9CxZ0QvCaVDkVbNf42SZbLYPXuvxtdH0CYwaB1q9uQg2Jk0PBP8AquLH6WFwjMSbQ==}
-
-  '@orpc/server@1.13.13':
-    resolution: {integrity: sha512-l3OfiaqfLiLQqamXufKiEzT8K9Zq8VHvijADV5eDJOaz6sFzK1Mg6q2D8l9wcmuyG7ga0HfMT+cf3JQsh5WDIA==}
-    peerDependencies:
-      crossws: '>=0.3.4'
-      ws: '>=8.18.1'
-    peerDependenciesMeta:
-      crossws:
-        optional: true
-      ws:
-        optional: true
-
-  '@orpc/shared@1.13.13':
-    resolution: {integrity: sha512-kNpYOBjHvmgKHla6munWOaEeA0utEfAvoiZpXjiRjjt1RxTibdwQvVHgxRIBNMXfQsb+ON3Q/wDkoaUhvvSnIw==}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.9.0'
-    peerDependenciesMeta:
-      '@opentelemetry/api':
-        optional: true
-
-  '@orpc/standard-server-aws-lambda@1.13.13':
-    resolution: {integrity: sha512-e7310DnN6FSpRgR5gQpwvwg2B3uR+NoT7qlnyQWsjxQGr95L4GST3hRNSsQdQyXmFx1jvCCp0i3kAE9SJyvU6A==}
-
-  '@orpc/standard-server-fastify@1.13.13':
-    resolution: {integrity: sha512-G5Sq+rZDPwHvWJHsAA6bYWoJ7LcGyBby+SjjEGwz+viRdBk/inZnZafKpM+pL89aDdq6iw99Bcbug5WFPP6KdA==}
-    peerDependencies:
-      fastify: '>=5.6.1'
-    peerDependenciesMeta:
-      fastify:
-        optional: true
-
-  '@orpc/standard-server-fetch@1.13.13':
-    resolution: {integrity: sha512-Lffy26+WtCQkwOUacsrdyeJF1GNzrhm75O3LXKVFXqmSdyVVdyI6zuqLn/YKGODU2L9IqGxZ2CwsV2tE298SSA==}
-
-  '@orpc/standard-server-node@1.13.13':
-    resolution: {integrity: sha512-wI45h/bVWn7lgvqqm5aM7vj5BblmmBdFG2wbEhmpY85DslbCtMNJrIw/x+zxm1XgYAzsKLExLp6L01hzjeHmEA==}
-
-  '@orpc/standard-server-peer@1.13.13':
-    resolution: {integrity: sha512-FeWAbXfnZDPYQRajM0hD6GJvHeC3DZILngAjdcLHy5zt3riu6nL2lLPSWDv5yNWWscmYU+CfKmXWd0Z01BOeWA==}
-
-  '@orpc/standard-server@1.13.13':
-    resolution: {integrity: sha512-9pgS8XvauuRQElkyuD8F3om+nN0KBEnTkhblDHCBzkZERjWkmfirJmshQrWHoFaDTk+nnXHIaY6d7TBTxXdPRw==}
 
   '@oxc-project/types@0.137.0':
     resolution: {integrity: sha512-WT+Gb24i8hmvo85AIv2oEYouEXkRlKAlT9WaCa3TfLgNCN+GhrJOGZuIlMouAh38Qe4QOx26eUOVsq70qXrywA==}
@@ -4306,10 +3967,6 @@ packages:
     resolution: {integrity: sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==}
     engines: {node: '>= 0.6'}
 
-  cookie@1.1.1:
-    resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
-    engines: {node: '>=18'}
-
   cors@2.8.6:
     resolution: {integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==}
     engines: {node: '>= 0.10'}
@@ -4488,9 +4145,6 @@ packages:
   etag@1.8.1:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
-
-  event-target-polyfill@0.0.4:
-    resolution: {integrity: sha512-Gs6RLjzlLRdT8X9ZipJdIZI/Y6/HhRLyq9RdDlCsnpxr/+Nn6bU2EFGuC94GjxqhM+Nmij2Vcq98yoHrU8uNFQ==}
 
   eventsource-parser@3.0.6:
     resolution: {integrity: sha512-Vo1ab+QXPzZ4tCa8SwIHJFaSzy4R6SHf7BY79rFBDf0idraZWAkYrDjDj8uWaSm3S2TK+hJ7/t1CEmZ7jXw+pg==}
@@ -5139,9 +4793,6 @@ packages:
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
 
-  openapi-types@12.1.3:
-    resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
-
   p-limit@7.3.1:
     resolution: {integrity: sha512-0trZaiG7Y7kN/Egy9a8j47t9osC0Tch4PaIWd9yGF6bvmlk7muExRvGNYb8sXBwEKMoNKsbNN9P8EefuQekE4Q==}
     engines: {node: '>=20'}
@@ -5163,14 +4814,6 @@ packages:
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
-
-  partysocket@1.1.16:
-    resolution: {integrity: sha512-d7xFv+ZC7x0p/DAHWJ5FhxQhimIx+ucyZY+kxL0cKddLBmK9c4p2tEA/L+dOOrWm6EYrRwrBjKQV0uSzOY9x1w==}
-    peerDependencies:
-      react: '>=17'
-    peerDependenciesMeta:
-      react:
-        optional: true
 
   patch-console@2.0.0:
     resolution: {integrity: sha512-0YNdUceMdaQwoKce1gatDScmMo5pu/tfABfnzEqeG0gtTmd7mh/WcwgUjtAeOU7N8nFFlbQBnFK2gXW5fGvmMA==}
@@ -5288,10 +4931,6 @@ packages:
   quick-lru@7.3.0:
     resolution: {integrity: sha512-k9lSsjl36EJdK7I06v7APZCbyGT2vMTsYSRX1Q2nbYmnkBqgUhRkAuzH08Ciotteu/PLJmIF2+tti7o3C/ts2g==}
     engines: {node: '>=18'}
-
-  radash@12.1.1:
-    resolution: {integrity: sha512-h36JMxKRqrAxVD8201FrCpyeNuUY9Y5zZwujr20fFO77tpUtGa6EZzfKw/3WaiBX95fq7+MpsuMLNdSnORAwSA==}
-    engines: {node: '>=14.18.0'}
 
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
@@ -6584,15 +6223,6 @@ snapshots:
     dependencies:
       hono: 4.12.31
 
-  '@hono/node-ws@1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)':
-    dependencies:
-      '@hono/node-server': 2.0.10(hono@4.12.31)
-      hono: 4.12.31
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   '@img/sharp-darwin-arm64@0.34.5':
     optionalDependencies:
       '@img/sharp-libvips-darwin-arm64': 1.2.4
@@ -6738,117 +6368,6 @@ snapshots:
     optional: true
 
   '@noble/hashes@1.4.0': {}
-
-  '@orpc/client@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-peer': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/contract@1.13.13':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@standard-schema/spec': 1.1.0
-      openapi-types: 12.1.3
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/experimental-pino@1.13.13(pino@10.3.1)(ws@8.21.0)':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/server': 1.13.13(ws@8.21.0)
-      '@orpc/shared': 1.13.13
-      pino: 10.3.1
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - crossws
-      - fastify
-      - ws
-
-  '@orpc/experimental-publisher@1.13.13(ioredis@5.11.1)':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    optionalDependencies:
-      ioredis: 5.11.1
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/interop@1.13.13': {}
-
-  '@orpc/server@1.13.13(ws@8.21.0)':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/contract': 1.13.13
-      '@orpc/interop': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-aws-lambda': 1.13.13
-      '@orpc/standard-server-fastify': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-      '@orpc/standard-server-peer': 1.13.13
-      cookie: 1.1.1
-    optionalDependencies:
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - fastify
-
-  '@orpc/shared@1.13.13':
-    dependencies:
-      radash: 12.1.1
-      type-fest: 5.5.0
-
-  '@orpc/standard-server-aws-lambda@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-fastify@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-fetch@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-node@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-peer@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
 
   '@oxc-project/types@0.137.0': {}
 
@@ -7765,8 +7284,6 @@ snapshots:
 
   cookie@0.7.2: {}
 
-  cookie@1.1.1: {}
-
   cors@2.8.6:
     dependencies:
       object-assign: 4.1.1
@@ -7944,8 +7461,6 @@ snapshots:
       '@types/estree': 1.0.9
 
   etag@1.8.1: {}
-
-  event-target-polyfill@0.0.4: {}
 
   eventsource-parser@3.0.6: {}
 
@@ -8568,8 +8083,6 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  openapi-types@12.1.3: {}
-
   p-limit@7.3.1:
     dependencies:
       yocto-queue: 1.2.2
@@ -8593,12 +8106,6 @@ snapshots:
       entities: 8.0.0
 
   parseurl@1.3.3: {}
-
-  partysocket@1.1.16(react@19.2.8):
-    dependencies:
-      event-target-polyfill: 0.0.4
-    optionalDependencies:
-      react: 19.2.8
 
   patch-console@2.0.0: {}
 
@@ -8724,8 +8231,6 @@ snapshots:
   quick-format-unescaped@4.0.4: {}
 
   quick-lru@7.3.0: {}
-
-  radash@12.1.1: {}
 
   range-parser@1.2.1: {}
 

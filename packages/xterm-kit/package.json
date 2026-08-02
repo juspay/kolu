@@ -23,7 +23,6 @@
     "solid-js": "^1.9.0"
   },
   "dependencies": {
-    "@orpc/client": "^1.13.13",
     "@solid-primitives/event-listener": "^2.4.5",
     "@solid-primitives/media": "^2.3.5",
     "@solid-primitives/resize-observer": "^2.1.5",

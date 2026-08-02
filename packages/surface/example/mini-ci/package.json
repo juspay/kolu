@@ -13,11 +13,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
-    "@orpc/client": "^1.13.13",
-    "@orpc/contract": "^1.13.13",
-    "@orpc/server": "^1.13.13",
-    "effect": "catalog:",
-    "zod": "^4.3.6"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

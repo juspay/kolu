@@ -22,18 +22,14 @@
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-map": "workspace:*",
-    "@orpc/client": "^1.13.13",
-    "@orpc/contract": "^1.13.13",
     "effect": "4.0.0-beta.102",
     "neverthrow": "^8.2.0",
     "quick-lru": "^7.3.0",
     "split2": "^4.2.0",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
-    "@orpc/server": "^1.13.13",
     "@types/node": "^22.0.0",
     "@types/split2": "^4.2.3",
     "tsx": "^4.21.0",

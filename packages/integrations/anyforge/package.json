@@ -18,8 +18,7 @@
   "dependencies": {
     "@kolu/log": "workspace:*",
     "effect": "catalog:",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
