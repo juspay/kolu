@@ -1,6 +1,6 @@
 # anyforge
 
-The forge-neutral PR kernel — what stays stable while forges vary, and **nothing forge-specific**. Leaf package (deps: `kolu-shared` types + zod + ts-pattern), browser-safe via the `anyforge/schemas` subpath. It is to forges what `anyagent` is to agents: the leaf names no concrete forge (`ForgeAdapter.kind` is a bare `string`, exactly like `AgentAdapter.kind`). Plan of record: `docs/atlas/src/content/atlas/anyforge.mdx` (kolu#1240).
+The forge-neutral PR kernel — what stays stable while forges vary, and **nothing forge-specific**. Leaf package (deps: `kolu-shared` types + effect + ts-pattern), browser-safe via the `anyforge/schemas` subpath. It is to forges what `anyagent` is to agents: the leaf names no concrete forge (`ForgeAdapter.kind` is a bare `string`, exactly like `AgentAdapter.kind`). Plan of record: `docs/atlas/src/content/atlas/anyforge.mdx` (kolu#1240).
 
 ## Modules
 
