@@ -24,7 +24,6 @@ import {
 import type { SetStoreFunction } from "solid-js/store";
 import {
   buildSurfaceFace,
-  fenceStream,
   isTransportError,
   type StreamingProcedure,
   type SurfaceFace,
@@ -52,6 +51,7 @@ import {
   scopeSiblingTag,
 } from "../define";
 import { isHalfOpenDispatch, type SurfaceDispatch } from "../link";
+import { runStreamScoped } from "../runStream";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -72,7 +72,6 @@ import {
   stableOptsKey,
 } from "./keyedSubscriptionCache";
 import { isLiveSignalHandle, type LiveSignalHandle } from "./liveSignal";
-import { runStreamScoped, toError } from "../runStream";
 import { type UseCellResult, useCell } from "./useCell";
 import {
   type UseCollectionResult,
@@ -452,10 +451,9 @@ export type BoundProcedure<
   input: infer In extends WireSchemaAny;
   output: infer Out extends WireSchemaAny;
 }
-  ? (input: In["Encoded"]) => ProcedureResult<
-      Out["Type"],
-      BoundProcedureError<S>
-    >
+  ? (
+      input: In["Encoded"],
+    ) => ProcedureResult<Out["Type"], BoundProcedureError<S>>
   : S extends { input: infer In extends WireSchemaAny }
     ? (input: In["Encoded"]) => ProcedureResult<void, BoundProcedureError<S>>
     : S extends { output: infer Out extends WireSchemaAny }
@@ -539,22 +537,19 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
 // pure ARGUMENT — the client never holds it, only forwards it — so it is typed on
 // the ENCODED side and decoded at the face edge (D2/#13), exactly like a
 // procedure's input. The OUTPUT is decoded: it is the value the consumer renders.
-// biome-ignore lint/suspicious/noExplicitAny: the spec constraint erases the decoded input type; the encoded side is read off the schema instead.
 type BoundStreamsFor<S extends SurfaceSpec> = {
   [K in keyof S["streams"] & string]: NonNullable<
     S["streams"]
+    // biome-ignore lint/suspicious/noExplicitAny: the spec constraint erases the decoded input type; the encoded side is read off the schema instead.
   >[K] extends StreamSpec<any, infer T>
-    ? BoundStream<
-        NonNullable<S["streams"]>[K]["inputSchema"]["Encoded"],
-        T
-      >
+    ? BoundStream<NonNullable<S["streams"]>[K]["inputSchema"]["Encoded"], T>
     : never;
 };
 
-// biome-ignore lint/suspicious/noExplicitAny: see BoundStreamsFor.
 type BoundEventsFor<S extends SurfaceSpec> = {
   [K in keyof S["events"] & string]: NonNullable<
     S["events"]
+    // biome-ignore lint/suspicious/noExplicitAny: see BoundStreamsFor.
   >[K] extends EventSpec<any, infer T>
     ? BoundEvent<NonNullable<S["events"]>[K]["inputSchema"]["Encoded"], T>
     : never;
@@ -1316,7 +1311,10 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                 (surface.descriptors.collections as any)[key],
                 {
                   source: unenrolledStreamCall(
-                    ns.deltas as StreamingProcedure<undefined, CollectionDeltasMsg<unknown, unknown>>,
+                    ns.deltas as StreamingProcedure<
+                      undefined,
+                      CollectionDeltasMsg<unknown, unknown>
+                    >,
                     undefined,
                   ),
                   onError: dispatchError,

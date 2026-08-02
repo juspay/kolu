@@ -46,13 +46,9 @@
  * commitment stays out of this module entirely.
  */
 
-import { Cause, Effect, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, type Fiber } from "effect";
 import { type Accessor, createSignal } from "solid-js";
-import {
-  SURFACE_TAG_PREFIX,
-  siblingTagPrefix,
-  surfaceTag,
-} from "../define";
+import { SURFACE_TAG_PREFIX, siblingTagPrefix, surfaceTag } from "../define";
 import { createHeartbeat, type HeartbeatTuning } from "../heartbeat";
 import {
   isHalfOpenDispatch,
