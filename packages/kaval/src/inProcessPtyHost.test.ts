@@ -1,9 +1,9 @@
 /**
  * The in-process identity-link path: the contract corpus
  * (`contractCorpus.testlib.ts`) instantiated over `createInProcessPtyHost`'s
- * `directLink` client — the fast path kolu-server's web tier uses — plus the
+ * `directDispatch` client — the fast path kolu-server's web tier uses — plus the
  * one mechanism that is identity-link-specific and has no socket analogue: the
- * abort-before-kill silence `local.ts` relies on to keep an intentional kill
+ * close-before-kill silence `local.ts` relies on to keep an intentional kill
  * from surfacing as a `terminalExit`.
  *
  * The SAME corpus runs over a real spawned daemon's socket in
@@ -25,7 +25,12 @@ import {
   createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
-import { nextFrame } from "./streamFrame.testlib.ts";
+import {
+  closeStream,
+  nextFrame,
+  openStream,
+  subscribeFrames,
+} from "./streamFrame.testlib.ts";
 function makeClient(opts?: { dataMaxQueue?: number }): PtyHostClient {
   return createInProcessPtyHost({
     log: silentLog,
@@ -48,20 +53,24 @@ runContractCorpus({
 describeDaemon(
   "createInProcessPtyHost — identity-link-specific mechanism",
   () => {
-    it("terminalAttach on an unknown PTY rejects with the structured NOT_FOUND local.ts reads", async () => {
-      // The corpus asserts only "rejects" for the stream (the socket link's error
-      // code races a transport-close). Here, on the identity link, the precise
-      // NOT_FOUND shape is deterministic — and it is the shape kolu-server's
-      // `local.ts` re-attach loop reads as "the PTY is gone" — so pin it.
+    it("terminalAttach on an unknown PTY rejects with the structured PtyNotFound local.ts reads", async () => {
+      // The corpus asserts only "rejects" for the stream (over a wire the failure
+      // is an undeclared DEFECT — a `StreamSpec` has no error channel to declare
+      // on — and races a transport close). Here, on the identity link, the
+      // precise shape IS deterministic: `directDispatch` runs the very handler
+      // stream, so the `PtyNotFound` instance reaches the consumer intact. That
+      // is the shape kolu-server's `local.ts` re-attach loop reads as "the PTY is
+      // gone" (vs "the stream dropped"), so pin it here.
       const client = makeClient();
       const iterate = async (): Promise<void> => {
-        for await (const _ of await client.surface.terminalAttach.get({
-          id: "00000000-0000-0000-0000-000000000000",
-        })) {
-          break;
-        }
+        const it = openStream(
+          client.surface.terminalAttach.get({
+            id: "00000000-0000-0000-0000-000000000000",
+          }),
+        );
+        await it.next();
       };
-      await expect(iterate()).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(iterate()).rejects.toMatchObject({ _tag: "PtyNotFound" });
     });
 
     it("inventory yields a snapshot first, then created/exited deltas (snapshot-then-deltas)", async () => {
@@ -73,10 +82,7 @@ describeDaemon(
       const { id: first } = await client.surface.terminal.spawn(
         spawnInput(makeCwd()),
       );
-      const ac = new AbortController();
-      const it = (
-        await client.surface.inventory.get({}, { signal: ac.signal })
-      )[Symbol.asyncIterator]();
+      const it = openStream(client.surface.inventory.get({}));
 
       const snapshot = await nextFrame(it);
       expect(snapshot.kind).toBe("snapshot");
@@ -96,29 +102,28 @@ describeDaemon(
       const exited = await nextFrame(it);
       expect(exited).toEqual({ kind: "exited", id: second });
 
-      ac.abort();
+      closeStream(it);
       await client.surface.terminal.kill({ id: first });
     });
 
-    it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
+    it("a closed exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
       // The mechanism `local.ts` relies on to keep an intentional kill silent:
-      // `teardownSensors` aborts the exit-tap signal BEFORE the kill, so the
-      // tap ends via abort rather than yielding an exit code that would become a
-      // `terminalExit`. Verify the contract honors that abort.
+      // `teardownSensors` ends the exit tap BEFORE the kill, so the tap stops
+      // rather than yielding an exit code that would become a `terminalExit`.
+      // Under Effect that teardown is fiber INTERRUPTION rather than an
+      // `AbortSignal` (D10/#18) — `iterator.return()` is how a non-Effect
+      // consumer spells it — and the contract must honour it just the same.
       const client = makeClient();
       const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
-      const ac = new AbortController();
-      const it = (await client.surface.exit.get({ id }, { signal: ac.signal }))[
-        Symbol.asyncIterator
-      ]();
+      const it = openStream(client.surface.exit.get({ id }));
       const next = it.next();
-      ac.abort();
+      closeStream(it);
       let deliveredExit = false;
       try {
         const r = await next;
-        if (!r.done) deliveredExit = true; // yielded despite the abort
+        if (!r.done) deliveredExit = true; // yielded despite the teardown
       } catch {
-        // abort surfaced as a throw — also "stopped without delivering"
+        // teardown surfaced as a throw — also "stopped without delivering"
       }
       expect(deliveredExit).toBe(false);
       await client.surface.terminal.kill({ id });
@@ -136,34 +141,32 @@ describeDaemon(
 
       // Drive a command-run and confirm an EARLY subscriber sees it live, so the
       // host's retention is in place before the late subscriber joins.
-      const ac1 = new AbortController();
-      const early = (
-        await client.surface.commandRun.get({ id }, { signal: ac1.signal })
-      )[Symbol.asyncIterator]();
+      // `subscribeFrames`, not a bare open: the subscription must be ESTABLISHED
+      // before the mark is driven, or the host's retention would replay it to a
+      // late subscriber and the `replayed: false` assertion below would be
+      // asserting the opposite of what it names.
+      const early = subscribeFrames(client.surface.commandRun.get({ id }));
       await client.surface.terminal.write({
         id,
         data: "printf '\\033]633;E;codex\\033\\\\'\n",
       });
-      const liveFrame = await nextFrame(early);
+      const liveFrame = await early.next();
       expect(liveFrame.command).toContain("codex");
       // A live mark is flagged `replayed: false`.
       expect(liveFrame.replayed).toBe(false);
-      ac1.abort();
+      early.close();
 
       // The repro: a NEW subscriber, joining after the mark, must still receive
       // the command — snapshot-first, on its very first frame. Before the fix it
       // got nothing and this hangs to the nextFrame timeout. The frame is flagged
       // `replayed: true` so the consumer seeds detection WITHOUT re-firing the
       // live-only recent-agent recency bump.
-      const ac2 = new AbortController();
-      const late = (
-        await client.surface.commandRun.get({ id }, { signal: ac2.signal })
-      )[Symbol.asyncIterator]();
+      const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
       expect(replayFrame.command).toContain("codex");
       expect(replayFrame.replayed).toBe(true);
 
-      ac2.abort();
+      closeStream(late);
       await client.surface.terminal.kill({ id });
     });
 
@@ -180,16 +183,12 @@ describeDaemon(
         argv: ["/bin/sh", "-c", "sleep 5"],
         commandRooted: true,
       });
-      const ac = new AbortController();
-      const frame = await nextFrame(
-        (await client.surface.commandRun.get({ id }, { signal: ac.signal }))[
-          Symbol.asyncIterator
-        ](),
-      );
+      const seed = openStream(client.surface.commandRun.get({ id }));
+      const frame = await nextFrame(seed);
       expect(frame.replayed).toBe(true);
       expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
       expect(frame.shellJoin).toBe(true);
-      ac.abort();
+      closeStream(seed);
       await client.surface.terminal.kill({ id });
     });
 
@@ -210,10 +209,7 @@ describeDaemon(
       // so it subscribes to the data channel before we flood it. Then STOP
       // reading: live PTY output piles into this subscriber's 1-deep queue and
       // trips the slow-subscriber drop while we look away.
-      const ac = new AbortController();
-      const iter = (
-        await client.surface.terminalAttach.get({ id }, { signal: ac.signal })
-      )[Symbol.asyncIterator]();
+      const iter = openStream(client.surface.terminalAttach.get({ id }));
       const snap = await iter.next();
       expect(snap.done).toBe(false);
       if (!snap.done) expect(snap.value.kind).toBe("snapshot");
@@ -242,7 +238,7 @@ describeDaemon(
       const kinds = await drainForOverflow(iter, 20);
       expect(kinds).toContain("overflow");
 
-      ac.abort();
+      closeStream(iter);
       await client.surface.terminal.kill({ id });
     });
   },

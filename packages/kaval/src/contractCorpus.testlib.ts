@@ -27,7 +27,12 @@ import {
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostSpawnInput,
 } from "./ptyHostSurface.ts";
-import { nextFrame } from "./streamFrame.testlib.ts";
+import {
+  closeStream,
+  openStream,
+  subscribeFrames,
+} from "./streamFrame.testlib.ts";
+import type { Stream } from "effect";
 
 /** Every contract entry the corpus exercises. Asserted against the live surface
  *  by `coverage.test.ts` — keep it in lockstep with the `it`s below AND with
@@ -137,12 +142,15 @@ export interface CorpusHost {
 
 /** Resolve a stream's first yielded value, or reject on timeout — so a stream
  *  that never fires fails loudly instead of hanging the suite. ALWAYS closes the
- *  iterator before returning: over the socket link a left-open subscription
- *  rejects with `AbortError` when the connection later disposes, surfacing as an
- *  unhandled rejection that fails the whole file. `return()` ends the
- *  subscription cleanly at the point we stop caring about it. */
-async function firstYield<T>(stream: AsyncIterable<T>, ms = 5000): Promise<T> {
-  const iterator = stream[Symbol.asyncIterator]();
+ *  subscription before returning: over the socket link a left-open subscription
+ *  rejects when the connection later disposes, surfacing as an unhandled
+ *  rejection that fails the whole file. Closing the iterator interrupts the
+ *  subscribing fiber, which IS the unsubscribe. */
+async function firstYield<T>(
+  stream: Stream.Stream<T, unknown>,
+  ms = 5000,
+): Promise<T> {
+  const iterator = openStream(stream);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error("stream timed out")), ms);
@@ -153,29 +161,7 @@ async function firstYield<T>(stream: AsyncIterable<T>, ms = 5000): Promise<T> {
     return result.value;
   } finally {
     if (timer) clearTimeout(timer);
-    // Close the subscription, fire-and-forget. Over the socket a left-open pull
-    // rejects with `AbortError` when the connection later disposes (an
-    // unhandled rejection that fails the file); `return()` ends it. NOT awaited:
-    // on the in-process identity link `return()` on a generator suspended in an
-    // upstream `for await` settles late, and awaiting it here would stall the
-    // next subscription. Swallow — `return()` on an already-errored stream can
-    // reject.
-    void Promise.resolve(iterator.return?.()).catch(() => {});
-  }
-}
-
-/** Pull frames until `match` is satisfied, discarding the rest — the corpus runs
- *  on a SHARED host, so unrelated created/exited deltas from a neighbouring test
- *  may interleave on the host-global inventory feed. */
-async function frameUntil<T>(
-  it: AsyncIterator<T>,
-  match: (v: T) => boolean,
-  ms = 8000,
-): Promise<T> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const v = await nextFrame(it, Math.max(0, deadline - Date.now()));
-    if (match(v)) return v;
+    closeStream(iterator);
   }
 }
 
@@ -291,26 +277,33 @@ export function runContractCorpus(opts: {
       // pinned deterministically on the identity link in `inProcessPtyHost.test.ts`.
       await withIsolated(async (c) => {
         const drain = async (): Promise<void> => {
-          for await (const _ of await c.surface.terminalAttach.get({
-            id: "00000000-0000-0000-0000-000000000000",
-          })) {
-            // unreachable — the first pull rejects
+          const it = openStream(
+            c.surface.terminalAttach.get({
+              id: "00000000-0000-0000-0000-000000000000",
+            }),
+          );
+          // The first pull rejects; if it ever yields instead, this loop's exit
+          // (a done iterator) fails the expectation below by NOT throwing.
+          for (;;) {
+            const r = await it.next();
+            if (r.done) return;
           }
         };
         await expect(drain()).rejects.toThrow();
       });
     });
 
-    it("getScreenState on an unknown PTY rejects NOT_FOUND (not a blank string)", async () => {
+    it("getScreenState on an unknown PTY fails with the declared PtyNotFound (not a blank string)", async () => {
       // A procedure carries its error as a response frame (no transport close),
-      // so NOT_FOUND is deterministic over both links — but run it isolated too,
-      // for symmetry and to keep the shared connection pristine.
+      // so the DECLARED `PtyNotFound` is deterministic over both links — the
+      // whole point of declaring it (D4). Run it isolated too, for symmetry and
+      // to keep the shared connection pristine.
       await withIsolated(async (c) => {
         await expect(
           c.surface.terminal.getScreenState({
             id: "00000000-0000-0000-0000-000000000000",
           }),
-        ).rejects.toMatchObject({ code: "NOT_FOUND" });
+        ).rejects.toMatchObject({ _tag: "PtyNotFound" });
       });
     });
 
@@ -329,7 +322,7 @@ export function runContractCorpus(opts: {
       expect(entries.some((e) => e.id === id && e.pid === pid)).toBe(true);
 
       // attach is snapshot-then-deltas: the first frame is the snapshot.
-      const attach = await client().surface.terminalAttach.get({ id });
+      const attach = client().surface.terminalAttach.get({ id });
       const first = await firstYield(attach);
       expect(first.kind).toBe("snapshot");
 
@@ -371,7 +364,7 @@ export function runContractCorpus(opts: {
       expect(resized.ok).toBe(true);
 
       // exit tap yields once on kill.
-      const exitStream = await client().surface.exit.get({ id });
+      const exitStream = client().surface.exit.get({ id });
       const exitP = firstYield(exitStream, 8000);
       const killed = await client().surface.terminal.kill({ id });
       expect(killed.ok).toBe(true);
@@ -389,7 +382,7 @@ export function runContractCorpus(opts: {
         spawnInput(opts.makeCwd()),
       );
 
-      const cwdStream = await client().surface.cwd.get({ id });
+      const cwdStream = client().surface.cwd.get({ id });
       const cwdP = firstYield(cwdStream);
       await client().surface.terminal.write({
         id,
@@ -397,7 +390,7 @@ export function runContractCorpus(opts: {
       });
       expect((await cwdP).cwd).toContain("/tmp/corpus-cwd");
 
-      const cmdStream = await client().surface.commandRun.get({ id });
+      const cmdStream = client().surface.commandRun.get({ id });
       const cmdP = firstYield(cmdStream);
       // OSC 633 ; E ; <command-line> ST — the preexec mark kolu's hook emits.
       await client().surface.terminal.write({
@@ -415,7 +408,7 @@ export function runContractCorpus(opts: {
       // flagged `replayed: true` so it seeds detection without re-firing the
       // live-only recency bump. Pinned HERE — not just the identity-link suite —
       // so the real socket daemon path exercises it too.
-      const lateStream = await client().surface.commandRun.get({ id });
+      const lateStream = client().surface.commandRun.get({ id });
       const replay = await firstYield(lateStream);
       expect(replay.command).toContain("corpus-command");
       expect(replay.replayed).toBe(true);
@@ -431,14 +424,14 @@ export function runContractCorpus(opts: {
       );
 
       // foreground tap yields a snapshot first (the host pushes current state).
-      const fgStream = await client().surface.foreground.get({ id });
+      const fgStream = client().surface.foreground.get({ id });
       const fg = await firstYield(fgStream);
       expect(typeof fg.process).toBe("string");
 
       // The title stream yields on the OSC 2 escape directly. Subscribe FIRST,
       // then drive the title at an idle prompt (no trailing `sleep` — a busy
       // foreground wouldn't process the stdin write until it returned).
-      const titleStream = await client().surface.title.get({ id });
+      const titleStream = client().surface.title.get({ id });
       const titleP = firstYield(titleStream);
       await client().surface.terminal.write({
         id,
@@ -475,34 +468,31 @@ export function runContractCorpus(opts: {
       // dispose). Subscribe FIRST — the spawn below must land as a `created`
       // delta, not be missed.
       await withIsolated(async (c) => {
-        const inv = await c.surface.inventory.get({});
-        const it = inv[Symbol.asyncIterator]();
+        const frames = subscribeFrames(c.surface.inventory.get({}));
         try {
           // First frame: a snapshot of every live PTY (snapshot-then-deltas).
-          const snapshot = await nextFrame(it);
+          const snapshot = await frames.next();
           expect(snapshot.kind).toBe("snapshot");
 
           // A fresh spawn arrives as a `created` for its id (intervening deltas
-          // from the shared host are skipped by `frameUntil`).
+          // from the shared host are skipped by `until`).
           const { id } = await c.surface.terminal.spawn(
             spawnInput(opts.makeCwd()),
           );
-          const created = await frameUntil(
-            it,
+          const created = await frames.until(
             (e) => e.kind === "created" && e.entry.id === id,
           );
           expect(created).toMatchObject({ kind: "created", entry: { id } });
 
           // …and its kill arrives as an `exited` for the same id.
           await c.surface.terminal.kill({ id });
-          const exited = await frameUntil(
-            it,
+          const exited = await frames.until(
             (e) => e.kind === "exited" && e.id === id,
           );
           expect(exited).toEqual({ kind: "exited", id });
         } finally {
           // Close the subscription (the socket-safety `firstYield` documents).
-          void Promise.resolve(it.return?.()).catch(() => {});
+          frames.close();
         }
       });
     });
@@ -511,11 +501,14 @@ export function runContractCorpus(opts: {
       timeout: 20000,
     }, async () => {
       // The host-global meaningful-output feed. ISOLATED (like inventory) so a
-      // left-open stream can't poison the shared connection, and subscribed FIRST
-      // so the spawn's own output isn't missed.
+      // left-open stream can't poison the shared connection, and subscribed
+      // FIRST so the spawn's own output isn't missed. Unlike inventory there is
+      // no snapshot frame to pull, so the subscription is established by
+      // `subscribeFrames` issuing the first pull rather than by the test
+      // happening to read one — this feed is PURELY live, and an edge that lands
+      // before anyone is listening is simply gone.
       await withIsolated(async (c) => {
-        const act = await c.surface.activity.get({});
-        const it = act[Symbol.asyncIterator]();
+        const frames = subscribeFrames(c.surface.activity.get({}));
         try {
           const { id } = await c.surface.terminal.spawn(
             spawnInput(opts.makeCwd()),
@@ -526,11 +519,11 @@ export function runContractCorpus(opts: {
             data: "echo corpus-activity\n",
           });
           // An edge for THIS PTY arrives (other terminals' edges are skipped).
-          const edge = await frameUntil(it, (e) => e.id === id);
+          const edge = await frames.until((e) => e.id === id);
           expect(edge).toEqual({ id });
           await c.surface.terminal.kill({ id });
         } finally {
-          void Promise.resolve(it.return?.()).catch(() => {});
+          frames.close();
         }
       });
     });

@@ -18,10 +18,8 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
+import { buildSurfaceFace } from "@kolu/surface/client";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import {
@@ -30,8 +28,10 @@ import {
 } from "@kolu/daemon-test-gate";
 import { runContractCorpus, spawnInput } from "./contractCorpus.testlib.ts";
 import { KAVAL_GATE_FILE } from "./socketPath.ts";
-import type { ptyHostSurface } from "./ptyHostSurface.ts";
-import type { kavalDaemonContract } from "./daemonSurface.ts";
+import { ptyHostSurface } from "./ptyHostSurface.ts";
+import { type PtyHostClient, ptyHostClientOver } from "./ptyHostClient.ts";
+import { kavalControlSurface } from "./daemonSurface.ts";
+import { closeStream, openStream } from "./streamFrame.testlib.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SRC, "../../..");
@@ -82,7 +82,14 @@ function spawnTsCli(file: string, args: string[]): ChildProcess {
   });
 }
 
-type Conn = UnixSocketConnection<typeof ptyHostSurface.contract>;
+/** A dialed daemon: the pty-host face, and the release of the link's scope.
+ *  `unixSocketLink` now hands back a transport-neutral `{ dispatch, dispose }`
+ *  (S4), so a consumer assembles the face itself — `dispose` is the ONLY thing
+ *  that releases the link's protocol fibers, and it is async. */
+interface Conn {
+  client: PtyHostClient;
+  dispose: () => Promise<void>;
+}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -228,8 +235,15 @@ afterAll(async () => {
   expect(leaked).toEqual([]);
 });
 
-function connect(socketPath: string): Promise<Conn> {
-  return unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
+async function connect(socketPath: string): Promise<Conn> {
+  const link = await unixSocketLink({
+    group: ptyHostSurface.group,
+    socketPath,
+  });
+  return {
+    client: ptyHostClientOver(link.dispatch),
+    dispose: () => link.dispose(),
+  };
 }
 
 /** Poll-connect until the daemon answers a heartbeat, or fail loudly. */
@@ -316,7 +330,7 @@ runContractCorpus({
         return { client: probe.client, dispose: () => probe.dispose() };
       },
       dispose: async () => {
-        conn.dispose();
+        await conn.dispose();
         await reap(d);
       },
     };
@@ -346,24 +360,37 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
 
   it("serves frozen identity beside the unchanged pty surface and refuses drain without exiting", async () => {
     const d = track(await startDaemon());
-    const conn = await unixSocketLink<typeof kavalDaemonContract>({
+    // ONE link over the daemon's composed group, two faces on top of it — each
+    // built from the STANDALONE surface it belongs to, so neither learns it is
+    // talking to a composed daemon. That is the flat tag namespace's whole
+    // payoff, and it is what the old `implement(widenedContract as any)` splice
+    // existed to fake.
+    const link = await unixSocketLink({
+      group: ptyHostSurface.group.merge(kavalControlSurface.group),
       socketPath: d.socketPath,
     });
     try {
-      const version = await conn.client.surface.system.version({});
-      const hello = await conn.client.surface.control.core.hello();
+      const pty = ptyHostClientOver(link.dispatch);
+      const control = buildSurfaceFace(kavalControlSurface, link.dispatch)
+        .surface.core as {
+        hello(): Promise<Record<string, unknown>>;
+        drain(): Promise<void>;
+      };
+
+      const version = await pty.surface.system.version({});
+      const hello = await control.hello();
       expect(hello.surfaceVersion).toBe(version.contractVersion);
       expect(hello.startedAt).toBe(version.startedAt);
 
-      await expect(
-        conn.client.surface.control.core.drain(),
-      ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-      await expect(conn.client.surface.control.core.hello()).resolves.toEqual(
-        hello,
-      );
+      // kaval cannot drain (ending the process destroys its live PTYs), and the
+      // frozen `core.drain` declares no error schema — so the refusal crosses as
+      // an undeclared DEFECT (PLAN D4). What a caller relies on is unchanged: it
+      // REJECTS, and the daemon is demonstrably still there afterwards.
+      await expect(control.drain()).rejects.toThrow();
+      await expect(control.hello()).resolves.toEqual(hello);
       expect(isAlive(d.child.pid ?? -1)).toBe(true);
     } finally {
-      await conn.dispose();
+      await link.dispose();
     }
   }, 30000);
 
@@ -591,9 +618,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       spawnInput(makeCwd()),
     );
     try {
-      const iterator = (await conn.client.surface.terminalAttach.get({ id }))[
-        Symbol.asyncIterator
-      ]();
+      const iterator = openStream(
+        conn.client.surface.terminalAttach.get({ id }),
+      );
       await iterator.next(); // the snapshot frame
 
       // Kill the daemon outright; the next pull must settle (reject or end), not hang.
@@ -608,11 +635,10 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
         sleep(6000).then(() => "hung" as const),
       ]);
       expect(outcome).not.toBe("hung");
-      try {
-        conn.dispose();
-      } catch {
-        // The socket is already gone (daemon SIGKILL'd) — nothing to dispose.
-      }
+      closeStream(iterator);
+      // The socket is already gone (daemon SIGKILL'd), so releasing the link's
+      // scope is a no-op on a dead transport — never a failure to surface here.
+      await conn.dispose().catch(() => {});
     } finally {
       // This test SIGKILLs the daemon ON PURPOSE, so nothing ever disposes the
       // PTY it just spawned: the leader sits in its own session (setsid) where

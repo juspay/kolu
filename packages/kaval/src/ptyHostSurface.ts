@@ -13,10 +13,10 @@
  * Today the surviving kaval daemon serves this contract over its unix socket;
  * padi is its supervisor and primary client. `kaval-tui` reaches the same
  * surface locally, while its ssh stdio front reaches the daemon remotely. The
- * transport-independent `ContractRouterClient<contract>` keeps those consumers
- * invariant. The frozen control identity/drain fragment is served beside this
- * versioned surface, so connection identity is established before this wire is
- * judged for compatibility. See
+ * transport-independent client face (`PtyHostClient`, derived from this spec)
+ * keeps those consumers invariant. The frozen control identity/drain fragment is
+ * served beside this versioned surface, so connection identity is established
+ * before this wire is judged for compatibility. See
  * `docs/atlas/src/content/atlas/pty-daemon.mdx` (Fresh approach).
  *
  * Contract version. Keyed on the *wire shape*, not the kolu binary — so a
@@ -30,7 +30,8 @@
  *
  * Layering note. Co-locating the contract here gives `kaval` a
  * **contract-definition-only** dependency on `@kolu/surface` (just
- * `defineSurface`, which itself pulls only `@orpc/contract` + `zod`). PTY ids
+ * `defineSurface`, which itself pulls only `effect`'s `Schema` + `RpcGroup`).
+ * PTY ids
  * cross the wire as opaque strings — the host neither mints nor interprets
  * them, so it carries no domain schema; the consumer (kolu-server) validates
  * ids against its own `TerminalIdSchema` at its own boundary. The contract and
@@ -52,8 +53,21 @@
  */
 
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
-import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { z } from "zod";
+import {
+  defineSurface,
+  type SurfaceTypes,
+  type WireSchema,
+} from "@kolu/surface/define";
+import { Schema } from "effect";
+
+/** A whole positive count — the `z.number().int().positive()` of this wire.
+ *  Named once so every grid dimension, chunk bound and scrollback depth is the
+ *  SAME check rather than three re-derivations that can drift. */
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
+/** A whole non-negative count/index — the `z.number().int().nonnegative()` of
+ *  this wire (line cursors, tail lengths). */
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 /** The wire-shape `major.minor` version this build serves and expects.
  *  Bumped only when `ptyHostSurface` itself changes shape: minor for additive
@@ -188,24 +202,45 @@ import { z } from "zod";
  *  meeting a 5.3 daemon simply leaves a dead member unused. Only a major rejects
  *  both directions, so rollback never waves the missing-procedure direction
  *  through. `system.version` is byte-for-byte unchanged — its exact schema pin
- *  remains the frozen handshake used before compatibility is judged. */
-export const PTY_HOST_CONTRACT_VERSION = "6.0";
+ *  remains the frozen handshake used before compatibility is judged.
+ *
+ *  Bumped to 7.0 (BREAKING · major) — the **protocol-epoch flag day** (PLAN D6).
+ *  Nothing in the *payload* shapes below moved: every member encodes byte-for-byte
+ *  as it did under zod, which the fixtures in `ptyHostSurface.test.ts` assert as
+ *  literal JSON strings rather than assume. What moved is the FRAMING underneath
+ *  them — this surface used to ride oRPC's base64+newline peer protocol and now
+ *  rides Effect RPC ndjson. That is a declared flag day, not a negotiation: a 6.0
+ *  daemon cannot be asked its version at all, because its first frame is
+ *  undecodable by a 7.0 client (and vice versa). Cross-epoch peers are therefore
+ *  observed as an *unspeakable protocol* at the transport — the supervisor's
+ *  domain (D6/#3), never this constant's.
+ *
+ *  So why bump, if the lever is inert across the only boundary that changed?
+ *  Because this constant is the **in-epoch skew mechanism**, and it must keep
+ *  working from the flag day forward (PLAN D6's final bullet). Leaving it at "6.0"
+ *  would let two mutually undecodable epochs report the SAME version string, so
+ *  the first genuine in-epoch shape change would have no honest predecessor to
+ *  compare against — and a `6.0`-reporting survivor adopted by a 7.x padi would be
+ *  waved through as compatible on the strength of a string it can no longer even
+ *  transmit. The major digit names the epoch; the minor resumes its usual additive
+ *  duty from here, exactly as it did across 3.x–5.x. */
+export const PTY_HOST_CONTRACT_VERSION = "7.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
  *  boundary; the host only round-trips the string. */
-const PtyIdSchema = z.string();
+const PtyIdSchema = Schema.String;
 
-const TerminalIdInputSchema = z.object({ id: PtyIdSchema });
+const TerminalIdInputSchema = Schema.Struct({ id: PtyIdSchema });
 
 /** A PTY grid — cols AND rows, together or not at all. The ONE grid rule this
  *  surface has: every member that carries a grid reuses it, so tightening the
  *  rule is one edit rather than a re-derivation per member. */
-export const PtyGridSchema = z.object({
-  cols: z.number().int().positive(),
-  rows: z.number().int().positive(),
+export const PtyGridSchema = Schema.Struct({
+  cols: PositiveInt,
+  rows: PositiveInt,
 });
-export type PtyGrid = z.infer<typeof PtyGridSchema>;
+export type PtyGrid = typeof PtyGridSchema.Type;
 
 /** Attach input: the PTY, plus — optionally — a grid to RESIZE it to first.
  *
@@ -232,12 +267,17 @@ export type PtyGrid = z.infer<typeof PtyGridSchema>;
  *  this contract already documents as no-bump, not the emitted-variant class
  *  that must recycle. Bumping would force-recycle a surviving kaval, killing
  *  the user's live PTYs, to buy a graceful improvement. */
-const TerminalAttachInputSchema = z.object({
+const TerminalAttachInputSchema = Schema.Struct({
   id: PtyIdSchema,
   // ONE optional composite, never two optional scalars — see the note on padi's
   // mirror of this schema. Half a grid is not a size, so it must not be a
   // sendable request rather than something each reader remembers to discard.
-  resizeTo: PtyGridSchema.optional(),
+  //
+  // `optionalKey`, never `optional` (PLAN #17): absent means ABSENT on this wire.
+  // `Schema.optional` would encode an explicit `undefined` as `null`, which zod's
+  // `.optional()` never did — and a `null` here is a fourth state ("resize to
+  // nothing") no reader has an arm for.
+  resizeTo: Schema.optionalKey(PtyGridSchema),
 });
 
 /** A file the client wants present on the host before the shell starts — a
@@ -246,88 +286,98 @@ const TerminalAttachInputSchema = z.object({
  *  `rcDir`, rejecting any name that escapes it, and removes them when the PTY
  *  exits. The *content* is the client's shell arcana; the host treats it as an
  *  opaque blob. */
-const InitFileSchema = z.object({
-  name: z.string(),
-  content: z.string(),
+const InitFileSchema = Schema.Struct({
+  name: Schema.String,
+  content: Schema.String,
 });
 
-const TerminalSpawnInputSchema = z.object({
+const TerminalSpawnInputSchema = Schema.Struct({
   /** Caller-supplied PTY id. kolu-server mints the terminal id and passes it
    *  here so the pty-host's PTY id == kolu-server's terminal id — this is what
    *  makes reattach-by-id work across a kolu-server restart (later, once the
    *  pty-host is a surviving process). */
-  id: PtyIdSchema.optional(),
+  id: Schema.optionalKey(PtyIdSchema),
   /** The fully resolved program + args — `argv[0]` is the shell, the rest its
    *  arguments (e.g. `["--rcfile", "<rcDir>/bashrc-<id>"]`). The host spawns it
    *  verbatim; it neither chooses the shell nor appends flags. */
-  argv: z.array(z.string()).min(1),
+  argv: Schema.Array(Schema.String).check(Schema.isMinLength(1)),
   /** True when `argv[0]` is the ROOT COMMAND itself, not a shell — a
    *  `kaval-tui create -- <cmd>` PTY (#1872). The host seeds `lastCommand` from
    *  the argv (no shell means no OSC 633;E mark) and
    *  reports the fact on the inventory row so the workspace sensors read
    *  `foreground === root` as a busy agent, not an idle shell prompt. Optional
    *  + absent = shell-rooted (today's reading) — see the contract-version note. */
-  commandRooted: z.boolean().optional(),
+  commandRooted: Schema.optionalKey(Schema.Boolean),
   /** The *resolved* working directory (the client applies its own
    *  `cwd || home || "/"` fallback — the host does not). */
-  cwd: z.string(),
+  cwd: Schema.String,
   /** The complete child environment, composed by the client. The host passes
    *  it through untouched — it adds nothing from its own `process.env`. */
-  env: z.record(z.string(), z.string()),
+  env: Schema.Record(Schema.String, Schema.String),
   /** Wrapper rcfiles to materialise under the host's `rcDir` before spawn. */
-  initFiles: z.array(InitFileSchema),
-  cols: z.number().int().positive().optional(),
-  rows: z.number().int().positive().optional(),
-  scrollback: z.number().int().positive().optional(),
+  initFiles: Schema.Array(InitFileSchema),
+  cols: Schema.optionalKey(PositiveInt),
+  rows: Schema.optionalKey(PositiveInt),
+  scrollback: Schema.optionalKey(PositiveInt),
 });
 
-const TerminalSpawnOutputSchema = z.object({
+const TerminalSpawnOutputSchema = Schema.Struct({
   id: PtyIdSchema,
-  pid: z.number().int(),
+  pid: Schema.Int,
   /** Echoes the resolved spawn cwd the client supplied — kolu-server seeds its
    *  per-terminal metadata + provider DAG from it. */
-  cwd: z.string(),
+  cwd: Schema.String,
 });
 
-const TerminalWriteInputSchema = z.object({
+const TerminalWriteInputSchema = Schema.Struct({
   id: PtyIdSchema,
-  data: z.string(),
+  data: Schema.String,
 });
 
 // The SAME grid rule the attach carries — `resize` and `attach` describe one
-// value with one meaning, so they must not derive it twice.
-const TerminalResizeInputSchema = PtyGridSchema.extend({ id: PtyIdSchema });
+// value with one meaning, so they must not derive it twice. Spreading
+// `PtyGridSchema.fields` is the Effect spelling of zod's `.extend` and keeps the
+// encoded key order (`cols, rows, id`) byte-identical to the 6.0 wire.
+const TerminalResizeInputSchema = Schema.Struct({
+  ...PtyGridSchema.fields,
+  id: PtyIdSchema,
+});
 
 /** A PTY the pty-host still owns. The minimal shape kolu-server needs to
  *  reattach by id across its own restart. */
-const TerminalListEntrySchema = z.object({
+const TerminalListEntrySchema = Schema.Struct({
   id: PtyIdSchema,
-  pid: z.number().int(),
-  cwd: z.string(),
-  lastActivity: z.number(),
+  pid: Schema.Int,
+  cwd: Schema.String,
+  lastActivity: Schema.Number,
   // Added in contract 2.1 (additive · optional): the metadata-tap snapshots, so
   // a one-shot `list` carries the full picture without per-row tap subscriptions.
   // The in-process host always populates them; `optional()` keeps an older
   // server wire-compatible with a 2.1 client.
-  title: z.string().optional(),
-  foregroundProcess: z.string().optional(),
+  title: Schema.optionalKey(Schema.String),
+  foregroundProcess: Schema.optionalKey(Schema.String),
   // Added for #1872 (additive · optional, NO contract bump — see the version
   // note): whether this PTY's root process IS the spawned command. The workspace
   // sensors read it to decide if `foreground === root` is an idle shell prompt
   // or a busy command-rooted agent. Absent = shell-rooted, today's reading.
-  commandRooted: z.boolean().optional(),
+  commandRooted: Schema.optionalKey(Schema.Boolean),
 });
 
-const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
+// A `Schema.Union` of `Schema.Struct`s, NOT a `Schema.TaggedUnion`: the
+// discriminant is this wire's own `kind` field, not Effect's `_tag` convention,
+// and renaming it would break every 6.x-era consumer's reducer AND the byte
+// fixtures below. Effect's union decode tries each member, so a literal `kind`
+// still discriminates exactly as zod's `discriminatedUnion` did.
+const TerminalDataMsgSchema = Schema.Union([
   // `topLine` (contract 5.1) is the absolute mirror-line index of the snapshot's
   // top row — the seed the client's scrollback-backfill cursor pages older
   // history down from (`terminal.getHistory`'s first `before`). Required, and
   // riding on the SAME frame as the bytes it describes, so the seed can never
   // drift from the snapshot a client actually received.
-  z.object({
-    kind: z.literal("snapshot"),
-    data: z.string(),
-    topLine: z.number().int().nonnegative(),
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    data: Schema.String,
+    topLine: NonNegativeInt,
     // `reflowEpoch` (contract 5.2 · additive · optional) — the mirror's reflow
     // generation this snapshot was serialized under. The client stamps it on
     // every `getHistory` so a later width reflow (this or a FOREIGN attach's
@@ -335,9 +385,9 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
     // instead of a duplicated/skipped backfill band (F3). Optional so an older
     // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
     // the historical single-width behavior), no skew refusal.
-    reflowEpoch: z.number().int().nonnegative().optional(),
+    reflowEpoch: Schema.optionalKey(NonNegativeInt),
   }),
-  z.object({ kind: z.literal("delta"), data: z.string() }),
+  Schema.Struct({ kind: Schema.Literal("delta"), data: Schema.String }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk
   // cap (a slow consumer), then ended the stream. A pure CONTROL frame (no
   // `data`) — distinct from a PTY exit (the `exit` stream) and from a graceful
@@ -346,7 +396,7 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
   // the stream ends. Added in contract 4.0 (BREAKING · major): a new EMITTED
   // union variant an older client can't discriminate, so a 3.x peer is a clean
   // skew rather than a silent mis-parse — see PTY_HOST_CONTRACT_VERSION.
-  z.object({ kind: z.literal("overflow") }),
+  Schema.Struct({ kind: Schema.Literal("overflow") }),
 ]);
 
 /** A membership change in the host's live-PTY set — the host-global inventory
@@ -356,25 +406,28 @@ const TerminalDataMsgSchema = z.discriminatedUnion("kind", [
  *  did not spawn (a `kaval-tui create`) without polling `list`. Mirrors
  *  `TerminalDataMsgSchema`'s snapshot/delta discriminator so a client reducer
  *  replaces on snapshot and applies the deltas. */
-const InventoryEventSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("snapshot"),
-    entries: z.array(TerminalListEntrySchema),
+const InventoryEventSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    entries: Schema.Array(TerminalListEntrySchema),
   }),
-  z.object({ kind: z.literal("created"), entry: TerminalListEntrySchema }),
-  z.object({ kind: z.literal("exited"), id: PtyIdSchema }),
+  Schema.Struct({
+    kind: Schema.Literal("created"),
+    entry: TerminalListEntrySchema,
+  }),
+  Schema.Struct({ kind: Schema.Literal("exited"), id: PtyIdSchema }),
 ]);
 
 /** One frame of the host-global `activity` stream — a PTY that just produced
  *  meaningful (non-resize) output. See the stream member below. */
-const ActivityEdgeSchema = z.object({ id: PtyIdSchema });
+const ActivityEdgeSchema = Schema.Struct({ id: PtyIdSchema });
 
 /** Raw foreground sample (`tcgetpgrp(3)` pid + node-pty process name) — the
  *  one live PTY read agent detection needs that can't cross a wire as a
  *  synchronous getter, so the pty-host pushes it as a tap. */
-const ForegroundMsgSchema = z.object({
-  process: z.string(),
-  foregroundPid: z.number().int().optional(),
+const ForegroundMsgSchema = Schema.Struct({
+  process: Schema.String,
+  foregroundPid: Schema.optionalKey(Schema.Int),
 });
 
 /** The running pty-host's self-declared build identity, surfaced on
@@ -386,11 +439,11 @@ const ForegroundMsgSchema = z.object({
  *  cell, `status.expectedKaval`).
  *  `navigableCommit` is the git ref this kaval was built from
  *  (`KAVAL_COMMIT_HASH`), the GitHub-clickable identity. */
-export const PtyHostIdentitySchema = z.object({
-  staleKey: z.string(),
-  navigableCommit: z.string(),
+export const PtyHostIdentitySchema = Schema.Struct({
+  staleKey: Schema.String,
+  navigableCommit: Schema.String,
 });
-export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
+export type PtyHostIdentity = typeof PtyHostIdentitySchema.Type;
 
 /** The daemon's serializable lifetime policy — mirrors `@kolu/surface-daemon`'s
  *  `DaemonLifetimeInfo` (the wire projection of `DaemonLifetime`). Deliberately a
@@ -400,35 +453,35 @@ export type PtyHostIdentity = z.infer<typeof PtyHostIdentitySchema>;
  *  runtime fact, not a build identity. The produce site (`inProcessPtyHost`'s
  *  `system.version`, fed `lifetimeInfo(lifetime)`) pins this shape to the spine's
  *  `DaemonLifetimeInfo`, so the two can't drift. */
-export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("forever") }),
-  z.object({ kind: z.literal("idleTimeout"), ms: z.number() }),
-  z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
-]) satisfies z.ZodType<DaemonLifetimeInfo>;
+export const DaemonLifetimeInfoSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("forever") }),
+  Schema.Struct({ kind: Schema.Literal("idleTimeout"), ms: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("boundToPid"), pid: Schema.Number }),
+]) satisfies WireSchema<DaemonLifetimeInfo>;
 
 // Exported so `systemVersionShape.test.ts` can pin its exact key-set. The frozen
 // control fragment now owns supervisor identity; this legacy procedure stays
 // byte-identical because other consumers still read pid, lifetime, and build
 // readout data from it.
-export const SystemVersionOutputSchema = z.object({
-  contractVersion: z.string(),
-  pid: z.number().int(),
-  startedAt: z.number(),
+export const SystemVersionOutputSchema = Schema.Struct({
+  contractVersion: Schema.String,
+  pid: Schema.Int,
+  startedAt: Schema.Number,
   /** Optional so a future surviving daemon that predates this field stays
    *  wire-compatible without a forced restart (additive — no
    *  `PTY_HOST_CONTRACT_VERSION` bump). */
-  identity: PtyHostIdentitySchema.optional(),
+  identity: Schema.optionalKey(PtyHostIdentitySchema),
   /** The daemon's lifetime policy (`forever` in production; `boundToPid` under a
    *  test/smoke run) — surfaced for the Kaval dialog's lifetime row. Optional for
    *  the same reason as `identity`, and added the same way — WITHOUT a
    *  `PTY_HOST_CONTRACT_VERSION` bump — so a survivor predating it stays
    *  handshake-compatible (adopted, PTYs intact) rather than being recycled; the
    *  reader falls back to "—" until the next kaval restart reports it. */
-  lifetime: DaemonLifetimeInfoSchema.optional(),
+  lifetime: Schema.optionalKey(DaemonLifetimeInfoSchema),
 });
 
-const SystemHeartbeatOutputSchema = z.object({
-  ts: z.number(),
+const SystemHeartbeatOutputSchema = Schema.Struct({
+  ts: Schema.Number,
 });
 
 /** Host facts a client reads once per connection to compose spawn policy for
@@ -442,13 +495,57 @@ const SystemHeartbeatOutputSchema = z.object({
  *  daemon a `--host` dial adopts (predating this field) degrades to a baseline
  *  rather than failing response validation — the same-build daemon `--host`
  *  provisions always carries it. */
-const SystemInfoOutputSchema = z.object({
-  shell: z.string(),
-  home: z.string(),
-  platform: z.string(),
-  rcDir: z.string(),
-  path: z.string().optional(),
+const SystemInfoOutputSchema = Schema.Struct({
+  shell: Schema.String,
+  home: Schema.String,
+  platform: Schema.String,
+  rcDir: Schema.String,
+  path: Schema.optionalKey(Schema.String),
 });
+
+// ── The declared error vocabulary (PLAN D4) ─────────────────────────────
+//
+// Two failures on this wire are ACTIONABLE — a caller branches on them — so they
+// are declared as `Schema.TaggedErrorClass`es and carried by the members that
+// raise them. Everything else a handler can throw (a duplicate spawn id, a
+// node-pty failure, a termination deadline) stays UNDECLARED and therefore a
+// DEFECT: it crosses opaquely and crashes loudly, which is the correct reading of
+// "the host is broken", not "the request was refused". These two replace the
+// oRPC-era `ORPCError("NOT_FOUND")` / `ORPCError("BAD_REQUEST")` codes; the
+// discriminant is now the `_tag`, not a magic string compared by hand.
+
+/** The host owns no PTY with this id — it exited, or the caller invented the id.
+ *
+ *  The shape kaval-tui's re-attach loop reads as "the PTY is gone" (as opposed to
+ *  "the stream dropped"), which is what makes it fall through to the exit
+ *  tombstone for the real exit code instead of retrying forever.
+ *
+ *  DECLARED on the three read procedures that raise it (`getScreenState`,
+ *  `getScreenText`, `getHistory`). The five per-terminal STREAMS raise the same
+ *  class, but a `StreamSpec` has no error channel to declare it on, so there it is
+ *  an undeclared failure — a DEFECT, opaque across a wire hop and narrowable only
+ *  in-process. That asymmetry is the framework's, not this contract's, and the
+ *  corpus already asserts only "it rejects" for the stream leg because of it. */
+export class PtyNotFound extends Schema.TaggedErrorClass<PtyNotFound>(
+  "kaval/PtyNotFound",
+)("PtyNotFound", { id: Schema.String }) {
+  override get message(): string {
+    return `no PTY with id ${this.id}`;
+  }
+}
+
+/** `spawn` was handed an empty `argv`. Unreachable through a schema-validating
+ *  client (`argv` is `minLength(1)`), so this is the wire's own second line of
+ *  defence: a malformed frame becomes a clean, named refusal rather than a spawn
+ *  of `undefined`. Declared so a caller composing argv programmatically gets an
+ *  answer it can branch on instead of a defect. */
+export class SpawnArgvEmpty extends Schema.TaggedErrorClass<SpawnArgvEmpty>(
+  "kaval/SpawnArgvEmpty",
+)("SpawnArgvEmpty", {}) {
+  override get message(): string {
+    return "argv is empty";
+  }
+}
 
 export const ptyHostSurface = defineSurface({
   streams: {
@@ -460,12 +557,12 @@ export const ptyHostSurface = defineSurface({
     /** OSC 7 cwd reports. */
     cwd: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.object({ cwd: z.string() }),
+      outputSchema: Schema.Struct({ cwd: Schema.String }),
     },
     /** OSC 0/2 title changes (signals "foreground may have changed"). */
     title: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.object({ title: z.string() }),
+      outputSchema: Schema.Struct({ title: Schema.String }),
     },
     /** OSC 633;E preexec command lines. Snapshot-then-deltas: the first frame
      *  replays the last command seen before subscribe (`replayed: true`) so a
@@ -474,16 +571,16 @@ export const ptyHostSurface = defineSurface({
      *  replay WITHOUT re-firing live-only side effects (recent-agent recency). */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.object({
-        command: z.string(),
-        replayed: z.boolean(),
+      outputSchema: Schema.Struct({
+        command: Schema.String,
+        replayed: Schema.Boolean,
         // #1872 (additive · optional, NO contract bump — see the version note):
         // the command's quoting dialect. `true` = the command-rooted `shellJoin`
         // seed (reparse with `shellSplit`); absent/`false` = a raw OSC 633;E line
         // (reparse with `string-argv`). Carried per frame so the snapshot replay of
         // a retained seed is reparsed correctly regardless of delivery timing; a
         // survivor that omits it degrades to the raw reading (today's behavior).
-        shellJoin: z.boolean().optional(),
+        shellJoin: Schema.optionalKey(Schema.Boolean),
       }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */
@@ -494,14 +591,14 @@ export const ptyHostSurface = defineSurface({
     /** Child exit. Yields exactly once (the exit code), then ends. */
     exit: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: z.object({ exitCode: z.number().int() }),
+      outputSchema: Schema.Struct({ exitCode: Schema.Int }),
     },
     /** Host-global membership feed (contract 3.1) — a snapshot of every live PTY,
      *  then created/exited deltas. Takes no id (it spans the whole host), so a
      *  consumer subscribes once and discovers PTYs other clients spawned (a
      *  `kaval-tui create`) without polling `list`. */
     inventory: {
-      inputSchema: z.object({}),
+      inputSchema: Schema.Struct({}),
       outputSchema: InventoryEventSchema,
     },
     /** Host-global MEANINGFUL-OUTPUT edges (contract 5.3) — each frame names a PTY
@@ -512,7 +609,7 @@ export const ptyHostSurface = defineSurface({
      *  live (no snapshot frame): a missed edge across a reconnect only delays a
      *  downstream finish (default-excluded). */
     activity: {
-      inputSchema: z.object({}),
+      inputSchema: Schema.Struct({}),
       outputSchema: ActivityEdgeSchema,
     },
   },
@@ -521,18 +618,19 @@ export const ptyHostSurface = defineSurface({
       spawn: {
         input: TerminalSpawnInputSchema,
         output: TerminalSpawnOutputSchema,
+        error: SpawnArgvEmpty,
       },
       kill: {
         input: TerminalIdInputSchema,
-        output: z.object({ ok: z.boolean() }),
+        output: Schema.Struct({ ok: Schema.Boolean }),
       },
       killAll: {
-        input: z.object({}),
-        output: z.object({ killed: z.number().int() }),
+        input: Schema.Struct({}),
+        output: Schema.Struct({ killed: Schema.Int }),
       },
       write: {
         input: TerminalWriteInputSchema,
-        output: z.object({ ok: z.boolean() }),
+        output: Schema.Struct({ ok: Schema.Boolean }),
       },
       // `ok` is a real answer, not a constant: FALSE means the host had no such
       // PTY (it exited before the call arrived), so the caller's grid claim
@@ -540,15 +638,18 @@ export const ptyHostSurface = defineSurface({
       // same-dimensions no-op — either way the PTY now holds that grid.
       resize: {
         input: TerminalResizeInputSchema,
-        output: z.object({ ok: z.boolean() }),
+        output: Schema.Struct({ ok: Schema.Boolean }),
       },
       list: {
-        input: z.object({}),
-        output: z.object({ entries: z.array(TerminalListEntrySchema) }),
+        input: Schema.Struct({}),
+        output: Schema.Struct({
+          entries: Schema.Array(TerminalListEntrySchema),
+        }),
       },
       getScreenState: {
         input: TerminalIdInputSchema,
-        output: z.object({ data: z.string() }),
+        output: Schema.Struct({ data: Schema.String }),
+        error: PtyNotFound,
       },
       getScreenText: {
         // `extent` is the single bound axis as a discriminated union, so the
@@ -558,29 +659,30 @@ export const ptyHostSurface = defineSurface({
         // last `rows` rendered lines against the host's own live grid (the CLI
         // can't know it; its stdout is usually a pipe, never the daemon
         // terminal's size).
-        input: z.object({
+        input: Schema.Struct({
           id: PtyIdSchema,
-          extent: z
-            .discriminatedUnion("kind", [
-              z.object({ kind: z.literal("full") }),
-              z.object({
-                kind: z.literal("range"),
-                startLine: z.number().int().optional(),
-                endLine: z.number().int().optional(),
+          extent: Schema.optionalKey(
+            Schema.Union([
+              Schema.Struct({ kind: Schema.Literal("full") }),
+              Schema.Struct({
+                kind: Schema.Literal("range"),
+                startLine: Schema.optionalKey(Schema.Int),
+                endLine: Schema.optionalKey(Schema.Int),
               }),
-              z.object({
-                kind: z.literal("tail"),
+              Schema.Struct({
+                kind: Schema.Literal("tail"),
                 // "Last N lines" — N is a count, so a negative is meaningless.
                 // Reject it at the wire boundary (fail loud) rather than letting
                 // `getScreenText`'s `Math.max(0, …)` clamp turn it into a silent
                 // empty read.
-                lines: z.number().int().nonnegative(),
+                lines: NonNegativeInt,
               }),
-              z.object({ kind: z.literal("viewport") }),
-            ])
-            .optional(),
+              Schema.Struct({ kind: Schema.Literal("viewport") }),
+            ]),
+          ),
         }),
-        output: z.object({ text: z.string() }),
+        output: Schema.Struct({ text: Schema.String }),
+        error: PtyNotFound,
       },
       /** Older-scrollback read for the client's in-place backfill (contract
        *  5.1). `before` is the caller's absolute cursor (the attach snapshot's
@@ -591,19 +693,19 @@ export const ptyHostSurface = defineSurface({
        *  positive count — a non-positive request is a caller bug, rejected at the
        *  wire rather than silently returning nothing. */
       getHistory: {
-        input: z.object({
+        input: Schema.Struct({
           id: PtyIdSchema,
           // Absolute cursor; omitted starts from the top of the current screen
           // region (the self-seeding pager entry point).
-          before: z.number().int().nonnegative().optional(),
-          max: z.number().int().positive(),
+          before: Schema.optionalKey(NonNegativeInt),
+          max: PositiveInt,
           // `epoch` (contract 5.2 · additive · optional) — the reflow generation
           // the caller's `before` cursor was seeded under (the attach snapshot's
           // `reflowEpoch`). The host serves the `stale` output arm when it no
           // longer matches, so a client whose mirror a foreign resize reflowed
           // HALTS rather than pages a renumbered cursor (F3). Omitted by an older
           // client / the self-seeding pager — fail-open (never sees `stale`).
-          epoch: z.number().int().nonnegative().optional(),
+          epoch: Schema.optionalKey(NonNegativeInt),
         }),
         // A discriminated union, not a flat struct with a `stale` flag: the two
         // outcomes — a served chunk vs a stale-reflow halt — can't be conflated
@@ -613,39 +715,50 @@ export const ptyHostSurface = defineSurface({
         // never receives it and reads every reply as a plain chunk (the extra
         // `kind` key is stripped by its flat schema); the breaking direction is
         // the usual new-client/old-daemon one the predicate already recycles.
-        output: z.discriminatedUnion("kind", [
-          z.object({
-            kind: z.literal("chunk"),
-            chunk: z.string(),
-            topLine: z.number().int().nonnegative(),
-            exhausted: z.boolean(),
+        output: Schema.Union([
+          Schema.Struct({
+            kind: Schema.Literal("chunk"),
+            chunk: Schema.String,
+            topLine: NonNegativeInt,
+            exhausted: Schema.Boolean,
           }),
-          z.object({ kind: z.literal("stale") }),
+          Schema.Struct({ kind: Schema.Literal("stale") }),
         ]),
+        error: PtyNotFound,
       },
     },
     system: {
-      version: { input: z.object({}), output: SystemVersionOutputSchema },
-      heartbeat: { input: z.object({}), output: SystemHeartbeatOutputSchema },
+      version: {
+        input: Schema.Struct({}),
+        output: SystemVersionOutputSchema,
+      },
+      heartbeat: {
+        input: Schema.Struct({}),
+        output: SystemHeartbeatOutputSchema,
+      },
       /** Host facts for client-side spawn-policy composition (B0). */
-      info: { input: z.object({}), output: SystemInfoOutputSchema },
+      info: { input: Schema.Struct({}), output: SystemInfoOutputSchema },
     },
   },
 });
 
 export type PtyHostSurface = SurfaceTypes<typeof ptyHostSurface.spec>;
-export type PtyHostListEntry = z.infer<typeof TerminalListEntrySchema>;
-export type PtyHostDataMsg = z.infer<typeof TerminalDataMsgSchema>;
-export type PtyHostInventoryEvent = z.infer<typeof InventoryEventSchema>;
-export type PtyHostForegroundMsg = z.infer<typeof ForegroundMsgSchema>;
-export type PtyHostSystemVersion = z.infer<typeof SystemVersionOutputSchema>;
-export type PtyHostSystemInfo = z.infer<typeof SystemInfoOutputSchema>;
-export type PtyHostInitFile = z.infer<typeof InitFileSchema>;
-export type PtyHostSpawnInput = z.infer<typeof TerminalSpawnInputSchema>;
+export type PtyHostListEntry = typeof TerminalListEntrySchema.Type;
+export type PtyHostDataMsg = typeof TerminalDataMsgSchema.Type;
+export type PtyHostInventoryEvent = typeof InventoryEventSchema.Type;
+export type PtyHostForegroundMsg = typeof ForegroundMsgSchema.Type;
+export type PtyHostSystemVersion = typeof SystemVersionOutputSchema.Type;
+export type PtyHostSystemInfo = typeof SystemInfoOutputSchema.Type;
+export type PtyHostInitFile = typeof InitFileSchema.Type;
+/** A `spawn` argument as it crosses the WIRE — the ENCODED side (D2/#13), which
+ *  is what a caller passes to the client face. It is what `z.input<…>` used to
+ *  mean here, and it is the side every composer (kaval-tui's `create`, the
+ *  contract corpus, kolu-server's `kolu-pty`) actually holds. */
+export type PtyHostSpawnInput = typeof TerminalSpawnInputSchema.Encoded;
 /** The host's spawn result — `{ id, pid, cwd }`. The generative side of this
  *  shape, so a client consumes it rather than re-declaring it (and stays in sync
  *  if the host ever adds a field). */
-export type PtyHostSpawnResult = z.infer<typeof TerminalSpawnOutputSchema>;
+export type PtyHostSpawnResult = typeof TerminalSpawnOutputSchema.Type;
 
 /** The last-resort spawn shell when a client composing `spawn`'s `argv` finds
  *  no `$SHELL` to name. Matches the host's own terminal fallback

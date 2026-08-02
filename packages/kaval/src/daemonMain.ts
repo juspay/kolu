@@ -2,7 +2,7 @@
  * kaval's daemon composition — a ~thin wrapper over `@kolu/surface-daemon`'s
  * `daemonMain` skeleton. This is the "soul" side of the spine/soul line: it
  * supplies kaval's choices (where its gate and socket live, its own rcDir, the
- * pty-host router, the `forever` lifetime, and its anchor — the state-root
+ * daemon wire's `{ group, handlers }`, the `forever` lifetime, and its anchor — the state-root
  * manifest its padi writes beside the socket) and nothing more. The mechanism —
  * gate → serve → teardown, including the anchor-gone self-reap that used to be
  * kaval's private `watchStateRoot` (#1713, generalized in juspay/kolu#2010) —
@@ -95,7 +95,6 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     ptyHost,
     stateRoot: home.dir,
   });
-  const { router: servedRouter } = daemonSurface;
   const { terminalCount } = ptyHost;
   // Observe the surface runtime's `done`: the ptyHost surface declares no cell
   // connectors, so this is inert today (nothing faults) — wired so any future
@@ -136,7 +135,11 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     home,
     processIdentity: selfIdentity(),
     readProcessIdentity,
-    router: servedRouter,
+    // One field became two when the router died (surface-daemon's `DaemonSpec`
+    // now takes `{ group, handlers }`) — forwarded verbatim, spelled the same
+    // way on both sides, so the spine invents no vocabulary kaval has to learn.
+    group: daemonSurface.group,
+    handlers: daemonSurface.handlers,
     // The same lifetime resolved above (reused, never re-derived) — so the value
     // served on `system.version` is provably the one governing the daemon.
     lifetime,

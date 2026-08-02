@@ -3,11 +3,11 @@
  *
  * This is the contract's *implementation*, co-located with the contract
  * (`./ptyHostSurface.ts`) and the primitive (`./ptyHost.ts`) it serves.
- * `servePtyHost` builds the surface router over `createPtyHost` (transport-
- * agnostic — reused over a socket by the daemon and over ssh by R-2), and the
- * in-process client closes the loop with `directLink`, the no-wire member of
- * the surface link family — so `client.surface.terminal.spawn(...)` is a
- * direct (microtask-deferred) call into the host, no serialization.
+ * `servePtyHost` builds the surface's `{ group, handlers }` over `createPtyHost`
+ * (transport-agnostic — reused over a socket by the daemon and over ssh by R-2),
+ * and the in-process client closes the loop with `directDispatch`, the no-wire
+ * member of the surface link family — so `client.surface.terminal.spawn(...)` is
+ * a direct (microtask-deferred) call into the host, no serialization.
  *
  * The consumer (kolu-server's `terminalEndpoint/local.ts`) holds the returned
  * `PtyHostClient` and is written against that type alone. A later phase swaps
@@ -29,19 +29,26 @@
 
 import { randomUUID } from "node:crypto";
 import { homedir, platform, userInfo } from "node:os";
-import { directLink } from "@kolu/surface/links/direct";
-import { implementSurface } from "@kolu/surface/server";
-import type { ContractRouterClient } from "@orpc/contract";
-import { ORPCError, type Router } from "@orpc/server";
+import { surfaceClientRef } from "@kolu/surface/project";
+import type { PtyHostClient } from "./ptyHostClient.ts";
+import {
+  implementSurface,
+  streamFromAbortableSource,
+  type SurfaceHandlers,
+} from "@kolu/surface/server";
+import { Effect } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { currentPtyHostIdentity } from "./buildId.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
 import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
 import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
 import {
   PTY_HOST_CONTRACT_VERSION,
+  PtyNotFound,
   type PtyHostIdentity,
   type PtyHostListEntry,
   ptyHostSurface,
+  SpawnArgvEmpty,
 } from "./ptyHostSurface.ts";
 
 /** A SIGKILLed PTY should exit immediately. Bound the wire mutation anyway:
@@ -67,12 +74,10 @@ function toWireEntry(e: PtyListEntry): PtyHostListEntry {
   };
 }
 
-/** The typed client for talking to a pty-host. In-process today (this module);
- *  the identical type backs a socket-served daemon later — so the consumer is
- *  invariant under that swap. */
-export type PtyHostClient = ContractRouterClient<
-  typeof ptyHostSurface.contract
->;
+/** Re-exported for the many consumers that reach the client type through this
+ *  module. Its home is `./ptyHostClient.ts`, beside the way to BUILD one over any
+ *  dispatch — the in-process serving here is one caller of that, not its owner. */
+export type { PtyHostClient } from "./ptyHostClient.ts";
 
 /** Immutable facts captured once when a pty-host process starts. Both the
  * legacy `system.version` route and the frozen daemon control channel project
@@ -116,11 +121,12 @@ export interface InProcessPtyHostDeps {
 }
 
 /** Serve `ptyHostSurface` over a fresh `createPtyHost` — the **transport-
- *  agnostic** half of the serving. Returns `implementSurface`'s `{ router,
- *  ctx }`: feed the router to `directLink` for an in-process client (below),
- *  or to `serveOverStdio` for the socket daemon / ssh host later. The
- *  `createPtyHost` instance is captured by the surface handlers, so it owns
- *  every local PTY for as long as the router (and any client over it) lives —
+ *  agnostic** half of the serving. Returns `implementSurface`'s
+ *  `{ group, handlers, ctx, done, close }`: feed `{ group, handlers }` to
+ *  `directDispatch` for an in-process client (below), or to
+ *  `serveOverUnixSocket` / `serveOverStdio` for the socket daemon / ssh host.
+ *  The `createPtyHost` instance is captured by the surface handlers, so it owns
+ *  every local PTY for as long as the runtime (and any client over it) lives —
  *  one host per call. */
 export function servePtyHost(deps: InProcessPtyHostDeps) {
   const { log, rcDir } = deps;
@@ -130,17 +136,24 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
     identity: Object.freeze(currentPtyHostIdentity()),
   });
 
-  // The id-existence policy, owned once: a missing PTY is a clean NOT_FOUND
-  // (not `requireEntry`'s opaque internal error). kaval-tui's attach re-attach
-  // loop leans on this shape — NOT_FOUND reads as "the PTY is gone" (vs a
-  // dropped stream) and falls through to the exit tombstone for the real code.
-  // Handlers below compose this rather than each re-deriving it (`exit` alone
-  // opts out — see its comment).
-  const requirePty = (id: PtyId): void => {
-    if (!host.has(id)) {
-      throw new ORPCError("NOT_FOUND", { message: `no PTY with id ${id}` });
-    }
+  // The id-existence policy, owned once: a missing PTY is a clean, DECLARED
+  // `PtyNotFound` (not `requireEntry`'s opaque internal error). kaval-tui's
+  // attach re-attach loop leans on this shape — it reads as "the PTY is gone"
+  // (vs a dropped stream) and falls through to the exit tombstone for the real
+  // code. Handlers below compose this rather than each re-deriving it (`exit`
+  // alone opts out — see its comment).
+  //
+  // Two spellings of ONE rule, because the two member kinds have different
+  // failure channels and neither may be faked in the other's terms:
+  //   - `requirePtyEffect` FAILS a procedure's Effect with the declared error;
+  //   - `requirePtySync` THROWS inside a stream's producer, which the framework
+  //     turns into a defect (a `StreamSpec` has no error channel to declare on —
+  //     see `PtyNotFound`'s note). Same class, same message, honest disposition.
+  const requirePtySync = (id: PtyId): void => {
+    if (!host.has(id)) throw new PtyNotFound({ id });
   };
+  const requirePtyEffect = (id: PtyId): Effect.Effect<void, PtyNotFound> =>
+    host.has(id) ? Effect.void : Effect.fail(new PtyNotFound({ id }));
 
   /** Arm every exit before signaling, force termination, and acknowledge only
    *  after onExit teardown. The deadline converts node-pty's swallowed
@@ -182,55 +195,58 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
-        source: async function* (input, signal) {
-          requirePty(input.id as PtyId);
-          // `overflow` flips if THIS subscriber is dropped for lagging past the
-          // bound. The deltas then end (the drop pushes CLOSE), so we surface a
-          // typed `overflow` frame as the LAST frame — distinct from a graceful
-          // end (PTY exit / abort), which yields no such frame. A consumer reads
-          // it as "re-attach for a fresh snapshot", not "the PTY is gone".
-          let overflow = false;
-          const att = host.attach(input.id, signal, {
-            onOverflow: () => {
-              overflow = true;
-            },
-            resizeTo: input.resizeTo,
-          });
-          yield {
-            kind: "snapshot" as const,
-            data: att.snapshot,
-            topLine: att.topLine,
-            reflowEpoch: att.reflowEpoch,
-          };
-          for await (const data of att.deltas) {
-            yield { kind: "delta" as const, data };
-          }
-          if (overflow) yield { kind: "overflow" as const };
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            requirePtySync(input.id as PtyId);
+            // `overflow` flips if THIS subscriber is dropped for lagging past the
+            // bound. The deltas then end (the drop pushes CLOSE), so we surface a
+            // typed `overflow` frame as the LAST frame — distinct from a graceful
+            // end (PTY exit / interruption), which yields no such frame. A
+            // consumer reads it as "re-attach for a fresh snapshot", not "the PTY
+            // is gone".
+            let overflow = false;
+            const att = host.attach(input.id, signal, {
+              onOverflow: () => {
+                overflow = true;
+              },
+              resizeTo: input.resizeTo,
+            });
+            yield {
+              kind: "snapshot" as const,
+              data: att.snapshot,
+              topLine: att.topLine,
+              reflowEpoch: att.reflowEpoch,
+            };
+            for await (const data of att.deltas) {
+              yield { kind: "delta" as const, data };
+            }
+            if (overflow) yield { kind: "overflow" as const };
+          }),
       },
       // Host-global meaningful-output edges (resize-excluded at the source). A live
       // edge feed — no snapshot frame (a consumer stamps arrival time and derives
       // its own windows; a missed edge only delays a downstream finish).
       activity: {
-        source: async function* (_input, signal) {
-          for await (const edge of host.subscribeActivity(signal)) yield edge;
-        },
+        source: () =>
+          streamFromAbortableSource((signal) => host.subscribeActivity(signal)),
       },
       cwd: {
-        source: async function* (input, signal) {
-          requirePty(input.id as PtyId);
-          for await (const cwd of host.subscribeCwd(input.id, signal)) {
-            yield { cwd };
-          }
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            requirePtySync(input.id as PtyId);
+            for await (const cwd of host.subscribeCwd(input.id, signal)) {
+              yield { cwd };
+            }
+          }),
       },
       title: {
-        source: async function* (input, signal) {
-          requirePty(input.id as PtyId);
-          for await (const title of host.subscribeTitle(input.id, signal)) {
-            yield { title };
-          }
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            requirePtySync(input.id as PtyId);
+            for await (const title of host.subscribeTitle(input.id, signal)) {
+              yield { title };
+            }
+          }),
       },
       // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
       // last command replays first (`replayed: true`) so a sensor that attaches
@@ -242,64 +258,67 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // distinguishable or a reconnect/late-subscribe would re-bump an old
       // command's recency as if the user just ran it.
       commandRun: {
-        source: async function* (input, signal) {
-          requirePty(input.id as PtyId);
-          const sub = host.subscribeCommandRun(input.id, signal);
-          const last = host.getLastCommand(input.id);
-          // The snapshot carries the RETAINED command's dialect (it may be a
-          // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
-          // seed is published synchronously at spawn, before any subscriber, so it
-          // never arrives live) — hence `shellJoin: false` on the live frames.
-          if (last !== undefined)
-            yield {
-              command: last,
-              replayed: true,
-              shellJoin: host.getLastCommandShellJoin(input.id),
-            };
-          for await (const command of sub) {
-            yield { command, replayed: false, shellJoin: false };
-          }
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            requirePtySync(input.id as PtyId);
+            const sub = host.subscribeCommandRun(input.id, signal);
+            const last = host.getLastCommand(input.id);
+            // The snapshot carries the RETAINED command's dialect (it may be a
+            // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
+            // seed is published synchronously at spawn, before any subscriber, so
+            // it never arrives live) — hence `shellJoin: false` on the live frames.
+            if (last !== undefined)
+              yield {
+                command: last,
+                replayed: true,
+                shellJoin: host.getLastCommandShellJoin(input.id),
+              };
+            for await (const command of sub) {
+              yield { command, replayed: false, shellJoin: false };
+            }
+          }),
       },
       // Foreground samples — a current snapshot first so a freshly-wired
       // consumer warms its cache immediately, then live deltas (a duplicate
       // snapshot is harmless: the consumer's reconcile is idempotent).
       foreground: {
-        source: async function* (input, signal) {
-          requirePty(input.id as PtyId);
-          const sub = host.subscribeForeground(input.id, signal);
-          yield {
-            process: host.getProcess(input.id) ?? "",
-            foregroundPid: host.getForegroundPid(input.id),
-          };
-          for await (const sample of sub) yield sample;
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            requirePtySync(input.id as PtyId);
+            const sub = host.subscribeForeground(input.id, signal);
+            yield {
+              process: host.getProcess(input.id) ?? "",
+              foregroundPid: host.getForegroundPid(input.id),
+            };
+            for await (const sample of sub) yield sample;
+          }),
       },
-      // Natural exit — yields the exit code once, then ends. The signal aborts
-      // the host-side waiter on teardown (a kill aborts this before the kill
-      // RPC, so an intentional kill never yields here). Deliberately NOT
+      // Natural exit — yields the exit code once, then ends. Interrupting the
+      // subscribing fiber aborts the host-side waiter (a kill aborts this before
+      // the kill RPC, so an intentional kill never yields here). Deliberately NOT
       // guarded by `requirePty`: dead ids are this stream's legitimate input —
       // kaval-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
-        source: async function* (input, signal) {
-          try {
-            const exitCode = await host.exitPromise(input.id, signal);
-            yield { exitCode };
-          } catch (err) {
-            // Abort (teardown / socket close) is the EXPECTED rejection — end
-            // quietly; the waiter is already removed. Anything else is not:
-            // in-process `exitPromise` only rejects on abort, but a
-            // socket-served one could reject on transport error, and silently
-            // ending the stream there would leave the consumer's terminal
-            // never cleaned up. Surface it instead of swallowing.
-            if (signal?.aborted) return;
-            log.error(
-              { err, id: input.id },
-              "pty-host exitPromise rejected unexpectedly (non-abort)",
-            );
-            throw err;
-          }
-        },
+        source: (input) =>
+          streamFromAbortableSource(async function* (signal) {
+            try {
+              const exitCode = await host.exitPromise(input.id, signal);
+              yield { exitCode };
+            } catch (err) {
+              // Abort (teardown / socket close) is the EXPECTED rejection — end
+              // quietly; the waiter is already removed. Anything else is not:
+              // in-process `exitPromise` only rejects on abort, but a
+              // socket-served one could reject on transport error, and silently
+              // ending the stream there would leave the consumer's terminal
+              // never cleaned up. Surface it instead of swallowing.
+              if (signal.aborted) return;
+              log.error(
+                { err, id: input.id },
+                "pty-host exitPromise rejected unexpectedly (non-abort)",
+              );
+              throw err;
+            }
+          }),
       },
       // Host-global membership feed — a snapshot of every live PTY first
       // (snapshot-then-deltas, streaming.md §2), then created/exited deltas as
@@ -309,18 +328,19 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // delta is harmless — the consumer's adoption is idempotent (its registry
       // guard). Takes no id, so it is deliberately not `requirePty`-guarded.
       inventory: {
-        source: async function* (_input, signal) {
-          const deltas = host.subscribeInventory(signal);
-          yield {
-            kind: "snapshot" as const,
-            entries: host.list().map(toWireEntry),
-          };
-          for await (const ev of deltas) {
-            yield ev.kind === "created"
-              ? { kind: "created" as const, entry: toWireEntry(ev.entry) }
-              : ev; // exited — { kind, id } is already the wire shape
-          }
-        },
+        source: () =>
+          streamFromAbortableSource(async function* (signal) {
+            const deltas = host.subscribeInventory(signal);
+            yield {
+              kind: "snapshot" as const,
+              entries: host.list().map(toWireEntry),
+            };
+            for await (const ev of deltas) {
+              yield ev.kind === "created"
+                ? { kind: "created" as const, entry: toWireEntry(ev.entry) }
+                : ev; // exited — { kind, id } is already the wire shape
+            }
+          }),
       },
     },
     procedures: {
@@ -329,44 +349,50 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         // wrapper rcfiles all arrive on the wire. The host derives nothing from
         // policy — it materialises the init files under its own rcDir (removing
         // them when the PTY exits) and spawns argv[0] with argv[1..] verbatim.
-        spawn: async ({ input }) => {
-          // The caller mints the terminal id and passes it here so the
-          // pty-host's PTY id == the caller's terminal id (reattach-by-id
-          // across a restart, later). Generate one only if absent.
-          const id = (input.id ?? randomUUID()) as PtyId;
-          // argv is `.min(1)` in the schema, so [0] is always present; the
-          // guard satisfies the type and turns a malformed wire frame into a
-          // clean error rather than spawning `undefined`.
-          const [program, ...args] = input.argv;
-          if (program === undefined) {
-            throw new ORPCError("BAD_REQUEST", { message: "argv is empty" });
-          }
-          const written = writeInitFiles(rcDir, input.initFiles);
-          let res: ReturnType<typeof host.spawn>;
-          try {
-            res = host.spawn({
-              id,
-              shell: program,
-              args,
-              commandRooted: input.commandRooted,
-              env: input.env,
-              cwd: input.cwd,
-              cols: input.cols,
-              rows: input.rows,
-              // `createPtyHost` already applies the in-package default when a
-              // client omits this — pass it straight through, don't re-default.
-              scrollback: input.scrollback,
-              onDispose: () => removeInitFiles(rcDir, written),
+        spawn: ({ input }) =>
+          Effect.suspend(() => {
+            // The caller mints the terminal id and passes it here so the
+            // pty-host's PTY id == the caller's terminal id (reattach-by-id
+            // across a restart, later). Generate one only if absent.
+            const id = (input.id ?? randomUUID()) as PtyId;
+            // argv is `minLength(1)` in the schema, so [0] is always present; the
+            // guard satisfies the type and turns a malformed wire frame into a
+            // clean DECLARED refusal rather than spawning `undefined`.
+            const [program, ...args] = input.argv;
+            if (program === undefined) return Effect.fail(new SpawnArgvEmpty());
+            const written = writeInitFiles(rcDir, input.initFiles);
+            // Everything past this point is a DEFECT channel (`Effect.sync`): a
+            // node-pty failure or a duplicate live id means the host could not do
+            // what it was asked, which is undeclared by design (D4) — it crashes
+            // loudly rather than becoming something a caller could "handle".
+            return Effect.sync(() => {
+              let res: ReturnType<typeof host.spawn>;
+              try {
+                res = host.spawn({
+                  id,
+                  shell: program,
+                  args,
+                  commandRooted: input.commandRooted,
+                  env: input.env,
+                  cwd: input.cwd,
+                  cols: input.cols,
+                  rows: input.rows,
+                  // `createPtyHost` already applies the in-package default when a
+                  // client omits this — pass it straight through, don't re-default.
+                  scrollback: input.scrollback,
+                  onDispose: () => removeInitFiles(rcDir, written),
+                });
+              } catch (err) {
+                // The PTY never came up, so its `onDispose` will never fire —
+                // clean up the init files we wrote for it here, before
+                // rethrowing, so a failed spawn leaves nothing behind under
+                // `rcDir`.
+                removeInitFiles(rcDir, written);
+                throw err;
+              }
+              return { id: res.id, pid: res.pid, cwd: input.cwd };
             });
-          } catch (err) {
-            // The PTY never came up, so its `onDispose` will never fire — clean
-            // up the init files we wrote for it here, before rethrowing, so a
-            // failed spawn leaves nothing behind under `rcDir`.
-            removeInitFiles(rcDir, written);
-            throw err;
-          }
-          return { id: res.id, pid: res.pid, cwd: input.cwd };
-        },
+          }),
         // The consumer aborts the exit tap before calling kill, so an
         // intentional kill stays silent. Arm completion before signaling and
         // do not acknowledge the mutation until onExit has removed the entry:
@@ -374,85 +400,92 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         // the re-spawn would otherwise delete the new PTY. This is explicitly
         // destructive, so use SIGKILL: node-pty's default SIGHUP can lose an
         // immediate post-spawn kill while the child becomes its session leader.
-        kill: async ({ input }) => {
-          await terminate([input.id]);
-          return { ok: true };
-        },
-        killAll: async () => {
-          const ids = host.list().map((e) => e.id);
-          // killAll is the reset boundary used by test setup and operators:
-          // reporting success while old PTYs still occupy inventory makes the
-          // next world race residue.
-          await terminate(ids);
-          return { killed: ids.length };
-        },
-        write: async ({ input }) => {
-          host.write(input.id, input.data);
-          return { ok: true };
-        },
+        // `Effect.promise`, not `tryPromise`: a `terminate` rejection means the
+        // termination DEADLINE blew (node-pty swallowed a signal-delivery error
+        // and a PTY survived). The procedure declares no error, so that stays an
+        // undeclared DEFECT — a host that cannot kill its own child is broken,
+        // not busy (PLAN D4).
+        kill: ({ input }) =>
+          Effect.map(
+            Effect.promise(() => terminate([input.id])),
+            () => ({ ok: true }),
+          ),
+        killAll: () =>
+          Effect.suspend(() => {
+            const ids = host.list().map((e) => e.id);
+            // killAll is the reset boundary used by test setup and operators:
+            // reporting success while old PTYs still occupy inventory makes the
+            // next world race residue.
+            return Effect.map(
+              Effect.promise(() => terminate(ids)),
+              () => ({ killed: ids.length }),
+            );
+          }),
+        write: ({ input }) =>
+          Effect.sync(() => {
+            host.write(input.id, input.data);
+            return { ok: true };
+          }),
         // `ok` is the host's own answer, not a constant: FALSE means there was
         // no such PTY to resize (it exited before this call arrived), so the
         // caller's grid claim did not land on anything. Callers treat that as
         // the expected killed-terminal race; a REJECTION is the real failure.
-        resize: async ({ input }) => ({
-          ok: host.resize(input.id, input.cols, input.rows),
-        }),
+        resize: ({ input }) =>
+          Effect.sync(() => ({
+            ok: host.resize(input.id, input.cols, input.rows),
+          })),
         // Each host entry mapped into the wire shape via `toWireEntry` — the
         // shared bridge (see its doc) that makes a host/schema drift a compile
-        // error rather than a silent zod field-strip. The `inventory` stream's
+        // error rather than a silent field-strip. The `inventory` stream's
         // snapshot/created frames go through the same map.
-        list: async () => ({ entries: host.list().map(toWireEntry) }),
-        getScreenState: async ({ input }) => {
-          // Throw on a missing PTY rather than return "" — an empty string is
-          // a legitimate screen state (a PTY that hasn't drawn yet), so
-          // masking a divergence as a blank terminal would hide a real bug.
-          requirePty(input.id as PtyId);
-          return { data: host.getScreenState(input.id) };
-        },
-        getScreenText: async ({ input }) => {
-          requirePty(input.id as PtyId);
-          return { text: host.getScreenText(input.id, input.extent) };
-        },
-        getHistory: async ({ input }) => {
-          requirePty(input.id as PtyId);
-          return host.getHistory(
-            input.id,
-            input.before,
-            input.max,
-            input.epoch,
-          );
-        },
+        list: () =>
+          Effect.sync(() => ({ entries: host.list().map(toWireEntry) })),
+        getScreenState: ({ input }) =>
+          // Fail on a missing PTY rather than return "" — an empty string is a
+          // legitimate screen state (a PTY that hasn't drawn yet), so masking a
+          // divergence as a blank terminal would hide a real bug.
+          Effect.map(requirePtyEffect(input.id as PtyId), () => ({
+            data: host.getScreenState(input.id),
+          })),
+        getScreenText: ({ input }) =>
+          Effect.map(requirePtyEffect(input.id as PtyId), () => ({
+            text: host.getScreenText(input.id, input.extent),
+          })),
+        getHistory: ({ input }) =>
+          Effect.map(requirePtyEffect(input.id as PtyId), () =>
+            host.getHistory(input.id, input.before, input.max, input.epoch),
+          ),
       },
       system: {
-        version: async () => ({
-          contractVersion: PTY_HOST_CONTRACT_VERSION,
-          pid: process.pid,
-          startedAt: boot.startedAt,
-          identity: boot.identity,
-          lifetime: deps.lifetime,
-        }),
-        heartbeat: async () => ({
-          ts: Date.now(),
-        }),
+        version: () =>
+          Effect.succeed({
+            contractVersion: PTY_HOST_CONTRACT_VERSION,
+            pid: process.pid,
+            startedAt: boot.startedAt,
+            identity: boot.identity,
+            lifetime: deps.lifetime,
+          }),
+        heartbeat: () => Effect.sync(() => ({ ts: Date.now() })),
         // The host's own facts, read-only — a client composes spawn policy
         // against these (and for a remote host, this is the *only* way it
         // learns the login shell / HOME / rcDir it must target).
-        info: async () => ({
-          shell: hostShell(),
-          home: hostHome(),
-          platform: platform(),
-          rcDir,
-          // The host's own `$PATH`, so a REMOTE client can give the spawned
-          // shell a working PATH (a local client already has the same one). A
-          // shell with no PATH can't find any external command (`sleep` →
-          // exit 127), so the PTY dies on the first one.
-          path: process.env.PATH ?? "",
-        }),
+        info: () =>
+          Effect.sync(() => ({
+            shell: hostShell(),
+            home: hostHome(),
+            platform: platform(),
+            rcDir,
+            // The host's own `$PATH`, so a REMOTE client can give the spawned
+            // shell a working PATH (a local client already has the same one). A
+            // shell with no PATH can't find any external command (`sleep` →
+            // exit 127), so the PTY dies on the first one.
+            path: process.env.PATH ?? "",
+          })),
       },
     },
   });
 
-  // Expose the live-PTY count (sync, off the host) alongside the router, so the
+  // Expose the live-PTY count (sync, off the host) alongside the runtime, so the
   // daemon's diagnostics can log the terms/heap curve without a round-trip
   // through the wire client. The mirror count is the leak's independent variable
   // (kaval-heap-oom.mdx), so it's the column to watch.
@@ -478,19 +511,32 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   };
 }
 
-/** The FINAL top-level router — the `.router` field of `servePtyHost`'s
- *  {@link SurfaceRuntime}. `directLink` consumes it (the in-process web client)
- *  AND it serves straight over the wire (`serveOverStdio` / the unix socket) —
- *  no per-call-site re-wrap. */
-export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
+/** The served pty-host wire, as the two values every serving site now takes:
+ *  the flat `RpcGroup` `defineSurface` minted and the handler record
+ *  `implementSurface` bound against it, keyed by full wire tag.
+ *
+ *  One field became two when the router died (S2/S4): `directDispatch` consumes
+ *  the handlers (the in-process web client), while `serveOverUnixSocket` /
+ *  `serveOverStdio` need the group too (it is what decodes a wire frame into a
+ *  member call). They are the SAME handler values on both legs, not two code
+ *  paths — which is what keeps the in-process and socket links pinned to
+ *  identical behaviour.
+ *
+ *  `Rpc.Any` is the honest erasure, not a widening: a group assembled by a spec
+ *  WALK carries no type information a caller could trust (review #16), and
+ *  `implementSurface` asserts route-set identity between the two at boot, so the
+ *  guarantee lives in an assertion rather than in a type nobody can check. */
+export interface PtyHostServed {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+}
 
 /** Build the in-process pty-host ONCE and return several views of the same host:
- *   - `client` — the no-wire `directLink` client kolu-server's web path uses;
- *   - `servedRouter` — the FINAL top-level router, ready to hand straight to
- *     `serveOverStdio` (the unix socket for kaval-tui; the ssh stdio for a
- *     daemon). It is `router` — `implementSurface` already finalized it, so
- *     there is no fragment to wrap;
- *   - `router` — the same final router, for advanced in-process use;
+ *   - `client` — the no-wire `directDispatch` client kolu-server's web path uses;
+ *   - `served` — `{ group, handlers }`, ready to hand straight to
+ *     `serveOverUnixSocket` (kaval-tui's socket) or `serveOverStdio` (a daemon's
+ *     ssh front). `implementSurface` already asserted the two agree, so there is
+ *     nothing to wrap and nothing to re-adapt;
  *   - `done` / `close` — the surface runtime's supervision handles. The
  *     ptyHost surface declares no cell connectors, so `done` is inert (nothing
  *     to fault); `close` disposes every live PTY and then closes the surface
@@ -498,9 +544,8 @@ export type PtyHostRouter = ReturnType<typeof servePtyHost>["router"];
  *     orphaning them — the daemon owning shutdown by construction.
  *  Call once per process; calling twice spawns two independent hosts. */
 export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
-  router: PtyHostRouter;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param — the runtime's router context type doesn't line up, though the runtime shape is exactly what serving wants.
-  servedRouter: Router<any, any>;
+  /** The served wire — hand it to a transport, or to `directDispatch`. */
+  readonly served: PtyHostServed;
   client: PtyHostClient;
   /** The one boot record shared by `system.version` and control-core hello. */
   readonly boot: PtyHostBoot;
@@ -513,16 +558,13 @@ export function createInProcessPtyHost(deps: InProcessPtyHostDeps): {
   close(): Promise<void>;
 } {
   const served = servePtyHost(deps);
-  // `implementSurface` returns the FINAL top-level router (opaque `unknown` at
-  // the runtime boundary) — `directLink` AND the over-the-wire
-  // StandardRPCHandler both consume it directly, no re-wrap. Narrow it once here
-  // to the router shape both consumers want.
-  // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level router, same cast every serving site uses.
-  const router = served.router as Router<any, any>;
   return Object.freeze({
-    router,
-    servedRouter: router,
-    client: directLink<typeof ptyHostSurface.contract>(router),
+    served: { group: served.group, handlers: served.handlers },
+    // `surfaceClientRef` is the framework's own `buildSurfaceFace(surface,
+    // directDispatch(served))` — the in-process face, typed off the surface's
+    // spec. Reused rather than re-derived so the face and the served handlers
+    // can never be built by two different rules.
+    client: surfaceClientRef(ptyHostSurface, served),
     boot: served.boot,
     terminalCount: served.terminalCount,
     done: served.done,

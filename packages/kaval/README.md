@@ -153,30 +153,37 @@ the socket, the gate, or the wire; those compose on top. The daemon adds the
 frozen `control.core.hello` identity channel beside the historic flat pty-host
 surface; `system.version` remains byte-for-byte available to existing clients.
 Kaval cannot drain without destroying live PTYs, so its frozen `drain(): void`
-verb rejects with `PRECONDITION_FAILED`, and its not-drainable supervisor policy
-makes normal invocation structurally impossible.
+verb refuses by throwing. The frozen fragment declares no error schema, so that
+refusal crosses as a defect rather than as something a supervisor could narrow on
+and "handle"; its not-drainable supervisor policy makes normal invocation
+structurally impossible anyway.
 
-The pty-host wire is now contract 6.0: padi reads both daemon RSS figures in one
-baked osfacts `--mem` snapshot, so kaval no longer exposes the old
-`system.processMemory` procedure. Removing a procedure is breaking in the
-old-client/new-daemon direction, hence the major bump; the frozen
-`system.version` handshake and its exact fields are unchanged.
+The pty-host wire is now contract **7.0** — the Effect-4 protocol epoch. No
+payload shape moved (every member encodes byte-for-byte as it did under zod,
+pinned by literal-JSON fixtures in `ptyHostSurface.test.ts`); the FRAMING did,
+from oRPC's base64+newline peer protocol to Effect RPC ndjson. That is a declared
+flag day: a 6.x peer cannot be asked its version at all, because its first frame
+is undecodable, so cross-epoch peers are observed as an *unspeakable protocol* at
+the transport rather than as a version skew. The constant still bumps because it
+remains the **in-epoch** skew mechanism — see its note in `ptyHostSurface.ts`.
 
 ### Compose the daemon wire
 
-`serveKavalDaemonSurface` is the supported composition boundary for embedding
-the complete daemon router. It takes an already-created pty-host runtime plus
-the daemon home, and returns a typed
-`KavalDaemonRouter` with the shared `{ done, close }` lifetime. Clients type the
-same wire from `kavalDaemonContract`; consumers that need only the historic
-pty-host API continue to use `ptyHostSurface`. The pty-host captures one boot
-record; both the historic version route and frozen identity channel project
-from it.
+`serveKavalDaemonSurface` is the supported composition boundary for embedding the
+complete daemon wire. It takes an already-created pty-host runtime plus the
+daemon home, and returns `{ group, handlers }` with the shared `{ done, close }`
+lifetime. Composition is a disjoint union of two flat tag maps — the pty-host
+surface at its historic `surface/…` tags, the frozen control fragment as a
+`control` sibling at `surface/control/core/…` — asserted for collisions, never
+spliced. Clients type the pty half from `ptyHostSurface` and the control half
+from `kavalControlSurface`; a client that needs both dials one link over
+`kavalDaemonGroup`. The pty-host captures one boot record; both the historic
+version route and the frozen identity channel project from it.
 
 ```ts
 import {
   createInProcessPtyHost,
-  kavalDaemonContract,
+  kavalDaemonGroup,
   serveKavalDaemonSurface,
 } from "kaval";
 
@@ -186,6 +193,33 @@ const daemon = serveKavalDaemonSurface({
   stateRoot: daemonHome.dir,
 });
 
-serveOverUnixSocket({ socketPath, router: daemon.router, log });
+serveOverUnixSocket({
+  socketPath,
+  group: daemon.group,
+  handlers: daemon.handlers,
+});
 // Observe daemon.done; await daemon.close() during teardown.
 ```
+
+### Talk to a pty-host
+
+`ptyHostClientOver(dispatch)` builds the one typed face — over a wire link's
+dispatch (`unixSocketLink`, `stdioLink`) or the in-process `directDispatch`.
+`createInProcessPtyHost(...).client` is that same face over the no-wire leg.
+
+```ts
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { ptyHostClientOver, ptyHostSurface } from "kaval";
+
+const link = await unixSocketLink({ group: ptyHostSurface.group, socketPath });
+const client = ptyHostClientOver(link.dispatch);
+
+await client.surface.terminal.list({}); // Promise<{ entries }>
+client.surface.terminalAttach.get({ id }); // Stream<PtyHostDataMsg> — lazy
+await link.dispose(); // releases the link's protocol fibers
+```
+
+A procedure still returns a `Promise`; a streaming member returns a lazy
+`Stream`, synchronously. Cancellation is fiber interruption — there is no
+`AbortSignal` to thread. A pull-shaped consumer runs it with
+`Stream.toAsyncIterable` and unsubscribes with `iterator.return()`.
