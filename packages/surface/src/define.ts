@@ -5,12 +5,12 @@
  * imperative procedure the app's typed reactive layer exposes. From the
  * spec the surface derives:
  *
- *   - `surface.contract`: a typed `oc.router({ surface: { … } })`. Every
- *     entry lives under a single top-level `surface` namespace so the
- *     surface composes cleanly with hand-written raw oRPC for procedures
- *     that don't fit a primitive — host contracts spread
- *     `{ ...surface.contract, terminal: rawTerminalRouter, … }` without
- *     namespace collisions.
+ *   - `surface.group`: a flat Effect `RpcGroup`. Every member is one `Rpc`
+ *     whose tag is the slash-joined wire path `surface/<member>/<verb>` (D1).
+ *     The namespace is FLAT — there is no nesting on the wire — so the
+ *     `surface/` root is what keeps a surface composable with hand-written raw
+ *     RPC: a host merges `surface.group` with its own group and no host tag
+ *     (`terminal/create`, `git/status`) can collide with a surface member.
  *   - `surface.descriptors`: the underlying Cell/Collection/Stream/Event
  *     values, keyed by surface path. Available as an escape hatch — the
  *     manual primitives (`cellHandlers` etc.) still accept these.
@@ -22,47 +22,86 @@
  * `Conf` store), use the consumer's `Conf` migration ladder, not a
  * framework override.
  *
- * Compose with raw oRPC at the CONTRACT level: `oc.router({ ...surface.contract,
- * terminal: rawTerminal, git: rawGit })`. On the server, `implementSurface`
- * returns a supervised runtime whose `router` is the FINAL top-level router —
- * serve it directly; to sit it beside raw-oRPC procedures the surface can't
- * model, spread the built router's own `surface` namespaces into an assembled
- * object (never re-finalize it via oRPC `implement`).
+ * ── The two invariants this file exists to hold ────────────────────────
+ *
+ * 1. **No tag is minted twice.** `RpcGroup.make` is a plain `Map.set`: it
+ *    silently drops a colliding tag, last writer wins. So the spec walk carries
+ *    its own `claim()` duplicate-throw (as the oRPC-era contract walk did), and
+ *    every assembled group is followed by an assertion that
+ *    `group.requests.size` equals the number of tags claimed. A flat tag
+ *    namespace also opens a collision class a nested router could not express —
+ *    `member "conn/get" + verb "set"` and `procedure ns "conn" + verb "get/set"`
+ *    both spell `surface/conn/get/set` — which {@link assertTagSegment} makes
+ *    unrepresentable by refusing a `/` in any name.
+ * 2. **Wire schemas are CONTEXT-FREE.** Every schema on a spec is a
+ *    {@link WireSchema}: `Schema.Codec<T, unknown, never, never>`. A schema whose
+ *    decode or encode demanded an Effect service could not run on the wire,
+ *    where there is no environment to provide one, so the requirement is a type
+ *    bound rather than a convention.
+ *
+ * ── Declaring schemas (the #17 mapping, LAW) ───────────────────────────
+ *
+ * Every WIRE field uses `Schema.optionalKey` for an optional key (NEVER
+ * `Schema.optional`, which round-trips an explicit `undefined` through `null`)
+ * and `Schema.withDecodingDefaultKey` for a defaulted key (encoded stays `T`,
+ * the key stays omittable). These are the only faithful translations of zod's
+ * `.optional()` / `.default()`; the other Effect variants change the encoded
+ * bytes.
+ *
+ * ── Encoded vs Type (D2/#13) ───────────────────────────────────────────
+ *
+ * A schema has two sides and they are NOT interchangeable at the two ends of a
+ * call. INPUT positions (a payload a caller hands in) expose the **Encoded**
+ * side, RESULT positions expose the **Type** side — the split zod spelled
+ * `z.input` / `z.output`. `SurfaceTypes<S>` carries both: `Value`/`Key`/
+ * `Output`/`Payload` are decoded domain types; the `*Wire` fields beside them
+ * are the encoded shapes the hand-built client face (D2) accepts.
  */
 
+import { Schema } from "effect";
+import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import {
-  type AnyContractRouter,
-  type ErrorMap,
-  eventIterator,
-  oc,
-} from "@orpc/contract";
-import { type ZodType, z } from "zod";
-import {
+  buildClockNowRpc,
   CLOCK_NOW_NAMESPACE,
   CLOCK_NOW_VERB,
-  clockNowContractEntry,
-  type ReservedClockNowContract,
+  type ReservedClockNowRpc,
 } from "./clockNow";
 import {
+  buildIdentityRpc,
   IDENTITY_NAMESPACE,
   IDENTITY_VERB,
-  identityContractEntry,
-  type ReservedIdentityContract,
+  type ReservedIdentityRpc,
 } from "./identity";
 import type { Cell, Collection, Event, Stream } from "./index";
 import { cell, collection, event, stream } from "./index";
 import {
+  buildLivenessRpc,
   LIVENESS_NAMESPACE,
   LIVENESS_VERB,
-  livenessContractEntry,
-  type ReservedLivenessContract,
+  type ReservedLivenessRpc,
 } from "./liveness";
+
+// ── Wire schema bounds ─────────────────────────────────────────────────
+
+/** A wire schema whose decoded type is `T`. `RD`/`RE` are pinned to `never`:
+ *  decoding and encoding a wire value must require NO Effect services, because
+ *  the wire has no environment to provide them. `Encoded` is left open
+ *  (`unknown`) so any encoded representation is admissible — the concrete
+ *  encoded type is recovered by indexing the spec's own schema
+ *  (`S["cells"][K]["schema"]["Encoded"]`), which is exact, rather than by a
+ *  second generic parameter every spec author would have to spell. */
+export type WireSchema<T> = Schema.Codec<T, unknown, never, never>;
+
+/** Any context-free wire schema — {@link WireSchema} with its decoded type left
+ *  open. The bound for generic positions that only compose a schema (the tag
+ *  emitters and their type oracles) rather than pinning what it decodes to. */
+export type WireSchemaAny = Schema.Codec<unknown, unknown, never, never>;
 
 // ── Spec types ─────────────────────────────────────────────────────────
 
 /** Subset of cell verbs the surface exposes on the wire. Default is
  *  `["get", "patch"]` when `patchSchema` is set, else `["get", "set"]`.
- *  `test__set` is opt-in (production contracts shouldn't leak the test
+ *  `test__set` is opt-in (production surfaces shouldn't leak the test
  *  reset procedure). */
 export type CellVerb = "get" | "set" | "patch" | "test__set";
 
@@ -128,11 +167,11 @@ export type ClientCellPolicy<TPolicy> = { onError?: TPolicy } & (
 export type ClientCollectionPolicy<TPolicy> = { onError?: TPolicy };
 
 export interface CellSpec<T = unknown, P = T, TPolicy = never> {
-  schema: ZodType<T>;
+  schema: WireSchema<T>;
   default: T;
   /** When set, `patch` becomes the canonical mutation verb and `set` is
    *  suppressed unless explicitly listed in `verbs`. */
-  patchSchema?: ZodType<P>;
+  patchSchema?: WireSchema<P>;
   /** Pure merge `(current, patch) => next`. When `patchSchema` is set,
    *  the framework needs this to apply partial updates. Used by **both**
    *  sides:
@@ -172,7 +211,7 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
    *  `<SurfaceGate>`/`<HostStatusPip>` read the whole "is it connected?" truth and
    *  no consumer hand-ANDs the cell state (the round-5 collapse).
    *
-   *  This is the runtime sibling of {@link equals}: the GENERIC mechanism lives in
+   *  This is the runtime sibling of {@link CellSpec.equals}: the GENERIC mechanism lives in
    *  `@kolu/surface` (core only INVOKES the predicate — it never names a state
    *  literal or any domain vocabulary), while the predicate itself (`v.state ===
    *  "connected"`) is declared on the cell where its schema lives — the same
@@ -199,8 +238,8 @@ export interface CellSpec<T = unknown, P = T, TPolicy = never> {
 }
 
 export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
-  keySchema: ZodType<K>;
-  schema: ZodType<T>;
+  keySchema: WireSchema<K>;
+  schema: WireSchema<T>;
   verbs?: readonly CollectionVerb[];
   /** The OPAQUE, app-typed client error policy for this collection — see
    *  {@link ClientCollectionPolicy}. The framework threads the declared value to
@@ -220,34 +259,36 @@ export interface CollectionSpec<K = unknown, T = unknown, TPolicy = never> {
 }
 
 export interface StreamSpec<I = unknown, T = unknown> {
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
+  inputSchema: WireSchema<I>;
+  outputSchema: WireSchema<T>;
 }
 
 export interface EventSpec<I = unknown, T = unknown> {
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
+  inputSchema: WireSchema<I>;
+  outputSchema: WireSchema<T>;
 }
 
 export interface ProcedureSpec<I = unknown, O = unknown> {
-  /** When omitted the procedure takes no input. */
-  input?: ZodType<I>;
-  /** When omitted the procedure returns void. */
-  output?: ZodType<O>;
-  /** The procedure's DECLARED error union (SK6) — oRPC contract-level typed
-   *  errors, keyed by error code. A declaring handler receives per-code typed
-   *  constructors on its oRPC `opts.errors` (`opts.errors.SOME_CODE({ data })`),
-   *  and the bound client face's rejection carries the union, so a caller
-   *  narrows a failure with `isDefinedError` / `safe` to `{ code, data }` —
-   *  a typed domain error can no longer flatten to an opaque
-   *  `INTERNAL_SERVER_ERROR` at a generic hop. Undeclared throws still cross
-   *  as `INTERNAL_SERVER_ERROR` (TypeScript cannot type `throw`) — that
-   *  remains the fail-fast crash-loudly channel; declare what is actionable. */
-  errors?: ErrorMap;
+  /** When omitted the procedure takes no input (payload `Schema.Void`). */
+  input?: WireSchema<I>;
+  /** When omitted the procedure returns void (success `Schema.Void`). */
+  output?: WireSchema<O>;
+  /** The procedure's DECLARED error channel (SK6) — one Effect Schema, normally a
+   *  `Schema.Union` of `Schema.TaggedErrorClass`es (see `./errors` for the
+   *  framework's own vocabulary). A declaring handler FAILS with an instance of a
+   *  declared class; the caller receives it decoded, with its `_tag` and data
+   *  intact, and narrows with a `_tag` check — so a typed domain error can no
+   *  longer flatten to an opaque transport failure at a generic hop.
+   *
+   *  Replaces the oRPC-era `errors: ErrorMap` keyed by magic code string. An
+   *  UNDECLARED throw is a DEFECT (`Effect.die`), not a failure: it still crosses
+   *  as an opaque defect, which remains the fail-fast crash-loudly channel.
+   *  Declare what is actionable. */
+  error?: WireSchemaAny;
 }
 
 /** `TPolicy` DEFAULTS to `any`, not `never` — so every bare `extends SurfaceSpec`
- *  constraint across the framework (`Surface<S>`, `SurfaceContractFor<S>`, the bound
+ *  constraint across the framework (`Surface<S>`, `SurfaceRpcsFor<S>`, the bound
  *  client types, the map's `ES`, …) accepts a policy-bearing spec without churn: a
  *  wider constraint still admits every existing `TPolicy = never` spec. The
  *  "unfillable client for existing callers" guarantee is pinned at the ONE seam that
@@ -262,20 +303,21 @@ export interface SurfaceSpec<TPolicy = any> {
   events?: Record<string, EventSpec<any, any>>;
   /** Imperative escape hatch — non-descriptor RPCs that should still
    *  travel through the surface. Inner key is the verb. Lives under the
-   *  same `<surface-key>.<verb>` namespace as the typed primitives, so
-   *  `procedures.notes.create` ends up at `surface.notes.create` on the
-   *  wire — alongside `surface.notes.{keys,get,upsert,delete}` from the
+   *  same `<surface-key>/<verb>` tag namespace as the typed primitives, so
+   *  `procedures.notes.create` ends up at `surface/notes/create` on the
+   *  wire — alongside `surface/notes/{keys,get,upsert,delete}` from the
    *  matching `collections.notes` entry. RPCs that don't fit a primitive
    *  *or* a request/response procedure (bidirectional binary streams,
-   *  custom retry plumbing) stay outside the surface as raw oRPC. */
+   *  custom retry plumbing) stay outside the surface as raw `Rpc`s in the
+   *  host's own group. */
   procedures?: Record<string, Record<string, ProcedureSpec<any, any>>>;
 }
 
 // ── Defaults ────────────────────────────────────────────────────────────
 
 /** Default verb sets — exported so server-side `implementSurface` derives
- *  handler verbs from the same source as `defineSurface`'s contract entries.
- *  Drift between contract and handlers is a wire-shape break. */
+ *  handler verbs from the same source as `defineSurface`'s tag minting.
+ *  Drift between the group and the handlers is a wire-shape break. */
 export const DEFAULT_CELL_VERBS_WITH_PATCH = ["get", "patch"] as const;
 export const DEFAULT_CELL_VERBS_WITHOUT_PATCH = ["get", "set"] as const;
 export const DEFAULT_COLLECTION_VERBS = [
@@ -286,12 +328,12 @@ export const DEFAULT_COLLECTION_VERBS = [
 ] as const;
 
 /** A cell's effective verbs — `spec.verbs` when present, else the patch /
- *  no-patch default. The SINGLE runtime source of this rule: the contract
- *  derivation (`cellContractEntries`), the server handler walk (`server.ts`),
- *  and the client binding (`surfaceClient`) all call this, so the wire shape,
- *  the handler set, and the bound client can't drift on a `??` someone forgot
- *  to update. `CellVerbsOf` is its type-level dual (TS can't reuse the runtime
- *  value); keep the two in step. */
+ *  no-patch default. The SINGLE runtime source of this rule: the tag minting
+ *  (`cellRpcEntries`), the server handler walk (`server.ts`), and the client
+ *  binding (`surfaceClient`) all call this, so the wire shape, the handler set,
+ *  and the bound client can't drift on a `??` someone forgot to update.
+ *  `CellVerbsOf` is its type-level dual (TS can't reuse the runtime value);
+ *  keep the two in step. */
 export function resolveCellVerbs(
   spec: CellSpec<any, any, any>,
 ): readonly CellVerb[] {
@@ -305,10 +347,10 @@ export function resolveCellVerbs(
 
 /** A collection's effective verbs — `spec.verbs` when present, else
  *  {@link DEFAULT_COLLECTION_VERBS}. The collection-side dual of
- *  {@link resolveCellVerbs}: the SINGLE runtime source of this rule, so the
- *  contract derivation (`collectionContractEntries`), the server handler walk
- *  (`server.ts`'s `walkSurface`), and the client binding (`surfaceClient`) can't
- *  drift on a `??` someone forgot to update. */
+ *  {@link resolveCellVerbs}: the SINGLE runtime source of this rule, so the tag
+ *  minting (`collectionRpcEntries`), the server handler walk (`server.ts`'s
+ *  `walkSurface`), and the client binding (`surfaceClient`) can't drift on a `??`
+ *  someone forgot to update. */
 export function resolveCollectionVerbs(
   spec: CollectionSpec<any, any, any>,
 ): readonly CollectionVerb[] {
@@ -325,180 +367,386 @@ export function collectionHasDeltas(
   return resolveCollectionVerbs(spec).includes("deltas");
 }
 
-// ── Per-primitive contract derivation ──────────────────────────────────
+// ── Tag algebra ────────────────────────────────────────────────────────
+//
+// Rpc tags are slash-joined wire paths (D1). The namespace is FLAT: there is no
+// nesting on the wire, only string tags, so every rule about "which member owns
+// which path" is a rule about string joining and lives HERE, in one section, for
+// the walk below, for `composeSurfaceContracts`, and for the client face's
+// sibling scoping (D2).
 
-// Internal: returns a record of `oc` builders. Caller spreads into a
-// namespace under `oc.router({ surface: {...} })`. Typing is loose —
-// `defineSurface` hands the literal to `oc.router(...)` which re-types
-// it precisely from the runtime shape; consumers use `typeof
-// surface.contract` for end-to-end inference.
+/** The separator every tag segment is joined with. */
+export const TAG_SEPARATOR = "/";
 
-function cellContractEntries<T, P>(
+/** The root segment every surface member's tag carries, so a surface member can
+ *  never collide with a host's own hand-written `Rpc` tags. */
+export const SURFACE_TAG_ROOT = "surface";
+
+/** The tag prefix of a STANDALONE surface: `"surface/"`. */
+export const SURFACE_TAG_PREFIX = "surface/";
+
+/** The tag prefix of one sibling inside a {@link composeSurfaceContracts} bundle:
+ *  `"surface/<key>/"`. Sibling composition prefixes per sibling and NEVER merges
+ *  bare groups — the three reserved `system/*` members exist on EVERY surface, so
+ *  a bare merge would collide them across siblings and (`RpcGroup.merge` being a
+ *  last-writer-wins `Map.set`) silently keep one. */
+export function siblingTagPrefix(key: string): string {
+  return `${SURFACE_TAG_ROOT}${TAG_SEPARATOR}${key}${TAG_SEPARATOR}`;
+}
+
+/** Join a member's tag from a prefix, a member name, and a verb. */
+export function surfaceTag(
+  tagPrefix: string,
+  member: string,
+  verb: string,
+): string {
+  return `${tagPrefix}${member}${TAG_SEPARATOR}${verb}`;
+}
+
+/** Rewrite a STANDALONE surface tag (`surface/<member>/<verb>`) into the tag the
+ *  same member carries inside a sibling bundle (`surface/<key>/<member>/<verb>`).
+ *  The tag-algebra dual of the oRPC-era `scopeSibling(link, key)` link re-wrap:
+ *  a per-sibling client face is built against the standalone tags and its
+ *  dispatch is wrapped through here, so the face itself never learns it is
+ *  scoped. Throws on a tag that is not a surface tag — a mis-scoped dispatch must
+ *  fail loudly at the seam, not 404 at the far end. */
+export function scopeSiblingTag(tag: string, siblingKey: string): string {
+  if (!tag.startsWith(SURFACE_TAG_PREFIX)) {
+    throw new Error(
+      `scopeSiblingTag: "${tag}" is not a surface tag (expected a "${SURFACE_TAG_PREFIX}" prefix), so it cannot be scoped to sibling "${siblingKey}".`,
+    );
+  }
+  return siblingTagPrefix(siblingKey) + tag.slice(SURFACE_TAG_PREFIX.length);
+}
+
+/** Every name that becomes a tag segment must be a non-empty string free of the
+ *  separator. Both halves are load-bearing on a FLAT namespace:
+ *
+ *    - an EMPTY name would mint `surface//get`, two members away from readable;
+ *    - a name CONTAINING `/` opens a collision class a nested router could not
+ *      express — a stream named `"conn/get"` and a procedure `conn.get` would
+ *      both spell `surface/conn/get/...`, with DIFFERENT (member, verb) pairs, so
+ *      the `claim` duplicate-check could not see it. Refusing the `/` makes the
+ *      collision unrepresentable instead of merely detected. */
+function assertTagSegment(kind: string, name: string): void {
+  if (name.length === 0) {
+    throw new Error(
+      `defineSurface: empty ${kind} name — every wire tag segment must be a non-empty name.`,
+    );
+  }
+  if (name.includes(TAG_SEPARATOR)) {
+    throw new Error(
+      `defineSurface: ${kind} name "${name}" contains "${TAG_SEPARATOR}". Wire tags are slash-joined and FLAT, so a name carrying a separator could collide with a different member's tag.`,
+    );
+  }
+}
+
+// ── Per-primitive Rpc derivation ───────────────────────────────────────
+//
+// Internal: each returns a record of `Rpc` values keyed by VERB. The caller
+// (`buildSurface`) claims the record against the flat tag map. Typing is loose
+// (`Rpc.Any`) because the verb set is a RUNTIME value — the precise per-verb
+// shape is computed by the type oracles further down, which mirror these
+// switches 1:1 (drift watch).
+
+function cellRpcEntries<T, P>(
+  tagBase: string,
   spec: CellSpec<T, P, any>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   const verbs = resolveCellVerbs(spec);
-  const entries: Record<string, unknown> = {};
+  const entries: Record<string, Rpc.Any> = {};
   for (const v of verbs) {
     if (v === "get") {
-      entries.get = oc.output(eventIterator(spec.schema));
+      entries.get = Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+        success: spec.schema,
+        stream: true,
+      });
     } else if (v === "set") {
-      entries.set = oc.input(spec.schema).output(z.void());
+      entries.set = Rpc.make(`${tagBase}${TAG_SEPARATOR}set`, {
+        payload: spec.schema,
+      });
     } else if (v === "patch") {
       if (!spec.patchSchema) {
         throw new Error("surface: cell exposes 'patch' but has no patchSchema");
       }
-      entries.patch = oc.input(spec.patchSchema).output(z.void());
+      entries.patch = Rpc.make(`${tagBase}${TAG_SEPARATOR}patch`, {
+        payload: spec.patchSchema,
+      });
     } else if (v === "test__set") {
-      entries.test__set = oc.input(spec.schema).output(z.void());
+      entries.test__set = Rpc.make(`${tagBase}${TAG_SEPARATOR}test__set`, {
+        payload: spec.schema,
+      });
     }
   }
   return entries;
 }
 
-/** The wire schema for a collection's batched `deltas` stream — a single home
- *  both the runtime contract (`collectionContractEntries`) and the type oracle
- *  (`buildCollection`) build from, so the two derivations can't drift. */
 /** The `deltas` wire schema (`snapshot | delta`) for a collection. Exported as the ONE
  *  authority so a keyed-map's folded entry collection (`@kolu/surface-map`) decodes the exact
  *  same shape rather than a drift-prone copy — a wire contract with two authorities silently
- *  cross-decodes if the format ever changes. */
-export function collectionDeltasSchema<K, T>(
-  keySchema: ZodType<K>,
-  schema: ZodType<T>,
-) {
-  const entry = z.tuple([keySchema, schema]);
-  return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("snapshot"), entries: z.array(entry) }),
-    z.object({
-      kind: z.literal("delta"),
-      upserts: z.array(entry),
-      removes: z.array(keySchema),
+ *  cross-decodes if the format ever changes. It is also the single home both the runtime
+ *  emitter (`collectionRpcEntries`) and the type oracle (`buildCollection`) build from.
+ *
+ *  The encoded shape is FROZEN and byte-identical to the oRPC/zod original:
+ *  `{"kind":"snapshot","entries":[[k,v],…]}` and
+ *  `{"kind":"delta","upserts":[[k,v],…],"removes":[k,…]}` — entries are two-element
+ *  JSON arrays, the discriminant is `kind` (not `_tag`), and no key is reordered or
+ *  dropped. `collectionDeltasSchema.test.ts` pins the exact bytes. */
+export function collectionDeltasSchema<
+  KSc extends WireSchemaAny,
+  VSc extends WireSchemaAny,
+>(keySchema: KSc, schema: VSc) {
+  const entry = Schema.Tuple([keySchema, schema]);
+  return Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("snapshot"),
+      entries: Schema.Array(entry),
+    }),
+    Schema.Struct({
+      kind: Schema.Literal("delta"),
+      upserts: Schema.Array(entry),
+      removes: Schema.Array(keySchema),
     }),
   ]);
 }
 
-function collectionContractEntries<K, T>(
+function collectionRpcEntries<K, T>(
+  tagBase: string,
   spec: CollectionSpec<K, T, any>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   const verbs = resolveCollectionVerbs(spec);
-  const keyShape = z.object({ key: spec.keySchema });
-  const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
-  const entries: Record<string, unknown> = {};
+  const keyShape = Schema.Struct({ key: spec.keySchema });
+  const upsertShape = Schema.Struct({
+    key: spec.keySchema,
+    value: spec.schema,
+  });
+  const entries: Record<string, Rpc.Any> = {};
   for (const v of verbs) {
     if (v === "keys") {
-      entries.keys = oc.output(eventIterator(z.array(spec.keySchema)));
+      entries.keys = Rpc.make(`${tagBase}${TAG_SEPARATOR}keys`, {
+        success: Schema.Array(spec.keySchema),
+        stream: true,
+      });
     } else if (v === "get") {
-      entries.get = oc.input(keyShape).output(eventIterator(spec.schema));
+      entries.get = Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+        payload: keyShape,
+        success: spec.schema,
+        stream: true,
+      });
     } else if (v === "deltas") {
-      entries.deltas = oc.output(
-        eventIterator(collectionDeltasSchema(spec.keySchema, spec.schema)),
-      );
+      entries.deltas = Rpc.make(`${tagBase}${TAG_SEPARATOR}deltas`, {
+        success: collectionDeltasSchema(spec.keySchema, spec.schema),
+        stream: true,
+      });
     } else if (v === "upsert") {
-      entries.upsert = oc.input(upsertShape).output(z.void());
+      entries.upsert = Rpc.make(`${tagBase}${TAG_SEPARATOR}upsert`, {
+        payload: upsertShape,
+      });
     } else if (v === "delete") {
-      entries.delete = oc.input(keyShape).output(z.void());
+      entries.delete = Rpc.make(`${tagBase}${TAG_SEPARATOR}delete`, {
+        payload: keyShape,
+      });
     } else if (v === "test__set") {
-      entries.test__set = oc.input(z.array(upsertShape)).output(z.void());
+      entries.test__set = Rpc.make(`${tagBase}${TAG_SEPARATOR}test__set`, {
+        payload: Schema.Array(upsertShape),
+      });
     }
   }
   return entries;
 }
 
-function streamContractEntries<I, T>(
+function streamRpcEntries<I, T>(
+  tagBase: string,
   spec: StreamSpec<I, T>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   return {
-    get: oc.input(spec.inputSchema).output(eventIterator(spec.outputSchema)),
+    get: Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+      payload: spec.inputSchema,
+      success: spec.outputSchema,
+      stream: true,
+    }),
   };
 }
 
-function eventContractEntries<I, T>(
+function eventRpcEntries<I, T>(
+  tagBase: string,
   spec: EventSpec<I, T>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   return {
-    get: oc.input(spec.inputSchema).output(eventIterator(spec.outputSchema)),
+    get: Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+      payload: spec.inputSchema,
+      success: spec.outputSchema,
+      stream: true,
+    }),
   };
 }
 
-function procedureContractEntry<I, O>(spec: ProcedureSpec<I, O>): unknown {
-  const input = spec.input ?? z.void();
-  const output = spec.output ?? z.void();
-  // `.errors` is applied UNCONDITIONALLY (empty map when undeclared) so this
-  // runtime entry and the `buildProcedure*` type oracles below stay one shape
-  // — the drift-watch rule; an empty map is semantically "no declared errors".
-  return oc
-    .input(input)
-    .output(output)
-    .errors(spec.errors ?? {});
+function procedureRpcEntry<I, O>(
+  tag: string,
+  spec: ProcedureSpec<I, O>,
+): Rpc.Any {
+  // `payload` / `success` / `error` are supplied UNCONDITIONALLY (`Void` / `Void`
+  // / `Never` when undeclared) so this runtime entry and the `buildProcedure`
+  // type oracle below stay ONE shape — the drift-watch rule. `Schema.Never` as
+  // the error channel is semantically "declares no failures", which is exactly
+  // what an undeclared spec means.
+  return Rpc.make(tag, {
+    payload: spec.input ?? Schema.Void,
+    success: spec.output ?? Schema.Void,
+    error: spec.error ?? Schema.Never,
+  });
 }
 
-// ── Mapped types for `surface.contract` ────────────────────────────────
+// ── Type oracles for per-primitive Rpc shape ───────────────────────────
+//
+// Each `build*` here is a runtime-dead type oracle: TypeScript reads its return
+// shape via `ReturnType<typeof X<Tag, Sc>>` at the mapped types below (see
+// `SurfaceRpcsFor<S>`) to compute the exact per-member `Rpc` type — tag literal,
+// payload schema, success schema, error schema — WITHOUT spelling out Effect's
+// internal `Rpc<...>` / `RpcSchema.Stream<...>` types by hand. The bodies are
+// never called: the actual `Rpc`s are built by the lowercase `xxxRpcEntries`
+// functions above, which return `Record<string, Rpc.Any>` because their verb set
+// is a runtime value.
+//
+// `noinline`-equivalent: tree-shaking removes the bodies because no runtime
+// caller exists. Keeping them as real functions (rather than `declare function`)
+// lets us reuse the inferred return type without duplicating Effect's internal
+// types — which is the duplication this file exists to avoid.
+//
+// Drift watch: when adding a verb, edit both the runtime `xxxRpcEntries` (above)
+// AND the matching `build*` oracle (below).
+//
+// Reserved members (`system/live`, `system/identity`, `system/clockNow`) need NO
+// oracle of their own: their verb is statically known, so `./liveness`,
+// `./identity` and `./clockNow` each export ONE `buildXRpc` that is both the
+// runtime emitter and the oracle.
 
-type EmptyObj = NonNullable<unknown>;
+// One oracle per cell VERB, so `CellVerbRpc<…>` resolves the verb set from
+// `S["verbs"]` and maps each verb to its Rpc — a `verbs`-narrowed cell
+// (`["get"]`) types exactly the tags the runtime group carries, no phantom
+// `set`. Mirrors the per-verb `entries[v]` switch in `cellRpcEntries` 1:1.
+function buildCellGet<Tag extends string, Sc extends WireSchemaAny>(
+  tag: Tag,
+  opts: { schema: Sc },
+) {
+  return Rpc.make(tag, { success: opts.schema, stream: true });
+}
 
-/** Wire shape for `defineSurface(spec).contract`: every entry lives
- *  under one `surface` namespace. The reserved `system.live` liveness proc, the
- *  reserved `system.identity` proc, and the reserved `system.clockNow` proc
- *  (`./liveness`, `./identity`, `./clockNow`) are intersected in so all three are
- *  present on every surface contract — the type counterpart to the three runtime
- *  `claim`s in `defineSurface`. They share the `system` namespace, so the
- *  intersection folds to `system: { live, identity, clockNow }`. */
-export type SurfaceContractFor<S extends SurfaceSpec> = {
-  surface: SurfaceInnerContract<S> &
-    ReservedLivenessContract &
-    ReservedIdentityContract &
-    ReservedClockNowContract;
-};
+function buildCellSet<Tag extends string, Sc extends WireSchemaAny>(
+  tag: Tag,
+  opts: { schema: Sc },
+) {
+  return Rpc.make(tag, { payload: opts.schema });
+}
 
-type SurfaceInnerContract<S extends SurfaceSpec> = MergeContract<
-  S["cells"] extends Record<string, CellSpec<any, any, any>>
-    ? { [K in keyof S["cells"] & string]: CellContract<S["cells"][K]> }
-    : EmptyObj,
-  S["collections"] extends Record<string, CollectionSpec<any, any, any>>
-    ? {
-        [K in keyof S["collections"] & string]: CollectionContract<
-          S["collections"][K]
-        >;
-      }
-    : EmptyObj,
-  S["streams"] extends Record<string, StreamSpec<any, any>>
-    ? {
-        [K in keyof S["streams"] & string]: StreamContract<S["streams"][K]>;
-      }
-    : EmptyObj,
-  S["events"] extends Record<string, EventSpec<any, any>>
-    ? {
-        [K in keyof S["events"] & string]: EventContract<S["events"][K]>;
-      }
-    : EmptyObj,
-  S["procedures"] extends Record<
-    string,
-    Record<string, ProcedureSpec<any, any>>
-  >
-    ? {
-        [K in keyof S["procedures"] & string]: {
-          [V in keyof S["procedures"][K] & string]: ProcedureContract<
-            S["procedures"][K][V]
-          >;
-        };
-      }
-    : EmptyObj
->;
+function buildCellPatch<Tag extends string, Sc extends WireSchemaAny>(
+  tag: Tag,
+  opts: { patchSchema: Sc },
+) {
+  return Rpc.make(tag, { payload: opts.patchSchema });
+}
+
+function buildCollection<
+  Tag extends string,
+  KSc extends WireSchemaAny,
+  VSc extends WireSchemaAny,
+>(tagBase: Tag, opts: { keySchema: KSc; schema: VSc }) {
+  const keyShape = Schema.Struct({ key: opts.keySchema });
+  const upsertShape = Schema.Struct({
+    key: opts.keySchema,
+    value: opts.schema,
+  });
+  return {
+    keys: Rpc.make(`${tagBase}${TAG_SEPARATOR}keys`, {
+      success: Schema.Array(opts.keySchema),
+      stream: true,
+    }),
+    get: Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+      payload: keyShape,
+      success: opts.schema,
+      stream: true,
+    }),
+    deltas: Rpc.make(`${tagBase}${TAG_SEPARATOR}deltas`, {
+      success: collectionDeltasSchema(opts.keySchema, opts.schema),
+      stream: true,
+    }),
+    upsert: Rpc.make(`${tagBase}${TAG_SEPARATOR}upsert`, {
+      payload: upsertShape,
+    }),
+    delete: Rpc.make(`${tagBase}${TAG_SEPARATOR}delete`, { payload: keyShape }),
+    // The opt-in `test__set` verb (replace-all from a fixture). Listed alongside
+    // the other verbs: opt-in gating is done by `CollectionVerbRpc` indexing the
+    // verb UNION, not by which builder owns the field, so `test__set` surfaces
+    // only for a collection whose `verbs` lists it. Mirrors the runtime
+    // `entries.test__set = …` branch in `collectionRpcEntries` (drift watch).
+    test__set: Rpc.make(`${tagBase}${TAG_SEPARATOR}test__set`, {
+      payload: Schema.Array(upsertShape),
+    }),
+  };
+}
+
+function buildStream<
+  Tag extends string,
+  ISc extends WireSchemaAny,
+  OSc extends WireSchemaAny,
+>(tagBase: Tag, opts: { inputSchema: ISc; outputSchema: OSc }) {
+  return {
+    get: Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+      payload: opts.inputSchema,
+      success: opts.outputSchema,
+      stream: true,
+    }),
+  };
+}
+
+function buildEvent<
+  Tag extends string,
+  ISc extends WireSchemaAny,
+  OSc extends WireSchemaAny,
+>(tagBase: Tag, opts: { inputSchema: ISc; outputSchema: OSc }) {
+  return {
+    get: Rpc.make(`${tagBase}${TAG_SEPARATOR}get`, {
+      payload: opts.inputSchema,
+      success: opts.outputSchema,
+      stream: true,
+    }),
+  };
+}
+
+// ONE procedure oracle, not four. The oRPC era needed one per input/output arm
+// because `oc.input(...)`'s builder type differed per arm; `Rpc.make` takes all
+// three schemas positionally, so the four arms are resolved as SCHEMAS
+// ({@link ProcedureInputSchema} et al.) and fed to a single oracle — which is
+// exactly what the single runtime `procedureRpcEntry` does with `?? Schema.Void`.
+function buildProcedure<
+  Tag extends string,
+  ISc extends WireSchemaAny,
+  OSc extends WireSchemaAny,
+  ESc extends WireSchemaAny,
+>(tag: Tag, opts: { input: ISc; output: OSc; error: ESc }) {
+  return Rpc.make(tag, {
+    payload: opts.input,
+    success: opts.output,
+    error: opts.error,
+  });
+}
+
+// ── The verb sets, at the type level ───────────────────────────────────
 
 /** The verb set a cell exposes — the TYPE counterpart of the runtime
  *  {@link resolveCellVerbs}: `spec.verbs` when present, else the patch/no-patch
  *  default. TS can't reuse the runtime value, so this mirrors it; keep the two
  *  in step. Honoring `verbs` here is load-bearing, not cosmetic:
  *  a read-only cell (`verbs: ["get"]`, e.g. `@kolu/surface-remote`'s
- *  connection-health cell) must NOT type a `.set` the runtime contract router
- *  doesn't carry — otherwise a downstream consumer (kolu, drishti) sees a typed
- *  `surface.<cell>.set` that throws at runtime, an API-facing falsehood in the
+ *  connection-health cell) must NOT type a `set` tag the runtime group doesn't
+ *  carry — otherwise a downstream consumer (kolu, drishti) sees a typed
+ *  `surface/<cell>/set` that fails at runtime, an API-facing falsehood in the
  *  exact cell whose stale-health safety relies on `set` being absent. */
 export type CellVerbsOf<S extends CellSpec<any, any, any>> = S extends {
   verbs: readonly CellVerb[];
 }
   ? S["verbs"][number]
-  : S extends { patchSchema: ZodType<any> }
+  : S extends { patchSchema: WireSchemaAny }
     ? (typeof DEFAULT_CELL_VERBS_WITH_PATCH)[number]
     : (typeof DEFAULT_CELL_VERBS_WITHOUT_PATCH)[number];
 
@@ -507,11 +755,10 @@ export type CellVerbsOf<S extends CellSpec<any, any, any>> = S extends {
  *  {@link DEFAULT_COLLECTION_VERBS}. TS can't reuse the runtime value, so this
  *  mirrors it; keep the two in step. Honoring `verbs` here is load-bearing, the
  *  collection dual of {@link CellVerbsOf}: `deltas` and `test__set` are OPT-IN,
- *  so a DEFAULT collection must NOT type a `.deltas` the runtime contract router
- *  never binds — otherwise a downstream consumer (kolu, drishti) sees a typed
- *  `surface.<collection>.deltas` that compiles and then rejects at runtime, and
- *  a read-only collection (`verbs: ["keys", "get"]`, e.g. `common`'s `authored` /
- *  `daemonStatus`) must NOT type the `upsert` / `delete` the server omits. */
+ *  so a DEFAULT collection must NOT type a `deltas` tag the runtime group never
+ *  mints, and a read-only collection (`verbs: ["keys", "get"]`, e.g. `common`'s
+ *  `authored` / `daemonStatus`) must NOT type the `upsert` / `delete` the server
+ *  omits. */
 export type CollectionVerbsOf<S extends CollectionSpec<any, any, any>> =
   S extends {
     verbs: readonly CollectionVerb[];
@@ -526,7 +773,7 @@ export type CollectionVerbsOf<S extends CollectionSpec<any, any, any>> =
  *  `activityFeed` / `session`, `["get", "test__set"]`) is read-only on the
  *  client — the server is the sole writer. A get-only cell (`verbs: ["get"]`)
  *  is likewise `false`. This is the client-side dual of {@link CellVerbsOf}
- *  honoring `verbs` in the raw contract: it must select the SAME mutation verb
+ *  honoring `verbs` in the raw group: it must select the SAME mutation verb
  *  the runtime binds in `surfaceClient`, or the bound type advertises a `.set` /
  *  local-authority path the runtime closure can't service (`mutate` undefined). */
 export type CellIsMutable<S extends CellSpec<any, any, any>> =
@@ -548,124 +795,170 @@ export type CellIsMutable<S extends CellSpec<any, any, any>> =
 export type CellHasPatchVerb<S extends CellSpec<any, any, any>> =
   "patch" extends CellVerbsOf<S> ? true : false;
 
-/** One contract entry per resolved verb — `get` streams the schema, `set` /
- *  `test__set` take the full value, `patch` takes the patch schema. Mirrors the
- *  runtime `entries[v] = …` switch in {@link cellContractEntries} 1:1. */
-type CellVerbEntry<V extends CellVerb, T, P> = V extends "get"
-  ? { get: ReturnType<typeof buildCellGet<T>> }
-  : V extends "set"
-    ? { set: ReturnType<typeof buildCellSet<T>> }
-    : V extends "patch"
-      ? { patch: ReturnType<typeof buildCellPatch<P>> }
-      : V extends "test__set"
-        ? { test__set: ReturnType<typeof buildCellSet<T>> }
-        : EmptyObj;
+/** The schema a procedure's PAYLOAD resolves to — its declared `input`, or
+ *  `Schema.Void` when it declares none. The type-level dual of the runtime
+ *  `spec.input ?? Schema.Void`. */
+export type ProcedureInputSchema<S> = S extends { input: WireSchemaAny }
+  ? S["input"]
+  : typeof Schema.Void;
 
-type CellContract<S extends CellSpec<any, any, any>> = S extends {
-  schema: ZodType<infer T>;
-  patchSchema: ZodType<infer P>;
-}
-  ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, P>>
-  : S extends { schema: ZodType<infer T> }
-    ? UnionToIntersection<CellVerbEntry<CellVerbsOf<S>, T, never>>
+/** The schema a procedure's SUCCESS resolves to — its declared `output`, or
+ *  `Schema.Void` when it declares none. */
+export type ProcedureOutputSchema<S> = S extends { output: WireSchemaAny }
+  ? S["output"]
+  : typeof Schema.Void;
+
+/** The schema a procedure's ERROR channel resolves to — its declared `error`, or
+ *  `Schema.Never` ("declares no failures") when it declares none. The ONE
+ *  extractor for "how a spec declares errors", owned here beside
+ *  {@link ProcedureSpec}, and consumed by the server's handler typing and the
+ *  Solid client's bound-procedure rejection type — so a change to the declaration
+ *  shape edits this alias, not three modules. */
+export type ProcedureSpecError<S> = S extends { error: WireSchemaAny }
+  ? S["error"]
+  : typeof Schema.Never;
+
+// ── The spec → Rpc union ───────────────────────────────────────────────
+//
+// The type-level image of the runtime walk. `SurfaceRpcsFor<S>` is a UNION of
+// `Rpc` types (not an object tree): the wire namespace is flat, so the honest
+// type-level shape of a surface is "the set of Rpcs it mints", and
+// `SurfaceTags<S>` is that set's `_tag` projection.
+
+type CellVerbRpc<
+  Tag extends string,
+  V extends CellVerb,
+  Sp extends CellSpec<any, any, any>,
+> = V extends "get"
+  ? ReturnType<typeof buildCellGet<`${Tag}/get`, Sp["schema"]>>
+  : V extends "set"
+    ? ReturnType<typeof buildCellSet<`${Tag}/set`, Sp["schema"]>>
+    : V extends "patch"
+      ? ReturnType<
+          typeof buildCellPatch<`${Tag}/patch`, NonNullable<Sp["patchSchema"]>>
+        >
+      : V extends "test__set"
+        ? ReturnType<typeof buildCellSet<`${Tag}/test__set`, Sp["schema"]>>
+        : never;
+
+type CollectionRpcShape<
+  Tag extends string,
+  Sp extends CollectionSpec<any, any, any>,
+> = ReturnType<typeof buildCollection<Tag, Sp["keySchema"], Sp["schema"]>>;
+
+type CollectionVerbRpc<
+  Tag extends string,
+  V extends CollectionVerb,
+  Sp extends CollectionSpec<any, any, any>,
+> = V extends keyof CollectionRpcShape<Tag, Sp>
+  ? CollectionRpcShape<Tag, Sp>[V]
+  : never;
+
+type SpecCellRpcs<S extends SurfaceSpec, Prefix extends string> =
+  S["cells"] extends Record<string, CellSpec<any, any, any>>
+    ? {
+        [K in keyof S["cells"] & string]: CellVerbRpc<
+          `${Prefix}${K}`,
+          CellVerbsOf<S["cells"][K]>,
+          S["cells"][K]
+        >;
+      }[keyof S["cells"] & string]
     : never;
 
-/** Fold the per-verb entry union into one object type — the type-level dual of
- *  the runtime `entries` accumulation. */
-type UnionToIntersection<U> = (
-  U extends unknown
-    ? (k: U) => void
-    : never
-) extends (k: infer I) => void
-  ? I
-  : never;
+type SpecCollectionRpcs<S extends SurfaceSpec, Prefix extends string> =
+  S["collections"] extends Record<string, CollectionSpec<any, any, any>>
+    ? {
+        [K in keyof S["collections"] & string]: CollectionVerbRpc<
+          `${Prefix}${K}`,
+          CollectionVerbsOf<S["collections"][K]>,
+          S["collections"][K]
+        >;
+      }[keyof S["collections"] & string]
+    : never;
 
-/** The full per-verb contract shape for a collection — the type oracle the
- *  per-verb {@link CollectionVerbEntry} indexes into. `buildCollection` covers
- *  every verb the runtime {@link collectionContractEntries} can emit (`keys` /
- *  `get` / `deltas` / `upsert` / `delete` / `test__set`); the per-verb gate
- *  surfaces each only for a collection whose `verbs` lists it. */
-type CollectionContractShape<K, T> = ReturnType<typeof buildCollection<K, T>>;
+type SpecStreamRpcs<S extends SurfaceSpec, Prefix extends string> =
+  S["streams"] extends Record<string, StreamSpec<any, any>>
+    ? {
+        [K in keyof S["streams"] & string]: ReturnType<
+          typeof buildStream<
+            `${Prefix}${K}`,
+            S["streams"][K]["inputSchema"],
+            S["streams"][K]["outputSchema"]
+          >
+        >["get"];
+      }[keyof S["streams"] & string]
+    : never;
 
-/** One contract entry per resolved collection verb — distributed over the verb
- *  union then folded by {@link UnionToIntersection}, the collection dual of
- *  {@link CellVerbEntry}. Mirrors the runtime `entries[v] = …` switch in
- *  {@link collectionContractEntries} 1:1, so a default collection types only
- *  `keys` / `get` / `upsert` / `delete` and an OPT-IN verb (`deltas`,
- *  `test__set`) appears ONLY when `verbs` lists it. */
-type CollectionVerbEntry<
-  V extends CollectionVerb,
-  K,
-  T,
-> = V extends keyof CollectionContractShape<K, T>
-  ? { [P in V]: CollectionContractShape<K, T>[P] }
-  : EmptyObj;
+type SpecEventRpcs<S extends SurfaceSpec, Prefix extends string> =
+  S["events"] extends Record<string, EventSpec<any, any>>
+    ? {
+        [K in keyof S["events"] & string]: ReturnType<
+          typeof buildEvent<
+            `${Prefix}${K}`,
+            S["events"][K]["inputSchema"],
+            S["events"][K]["outputSchema"]
+          >
+        >["get"];
+      }[keyof S["events"] & string]
+    : never;
 
-type CollectionContract<S extends CollectionSpec<any, any, any>> = S extends {
-  keySchema: ZodType<infer K>;
-  schema: ZodType<infer T>;
-}
-  ? UnionToIntersection<CollectionVerbEntry<CollectionVerbsOf<S>, K, T>>
-  : never;
+type SpecProcedureRpcs<S extends SurfaceSpec, Prefix extends string> =
+  S["procedures"] extends Record<
+    string,
+    Record<string, ProcedureSpec<any, any>>
+  >
+    ? {
+        [K in keyof S["procedures"] & string]: {
+          [V in keyof S["procedures"][K] & string]: ReturnType<
+            typeof buildProcedure<
+              `${Prefix}${K}/${V}`,
+              ProcedureInputSchema<S["procedures"][K][V]>,
+              ProcedureOutputSchema<S["procedures"][K][V]>,
+              ProcedureSpecError<S["procedures"][K][V]>
+            >
+          >;
+        }[keyof S["procedures"][K] & string];
+      }[keyof S["procedures"] & string]
+    : never;
 
-type StreamContract<S extends StreamSpec<any, any>> = S extends {
-  inputSchema: ZodType<infer I>;
-  outputSchema: ZodType<infer T>;
-}
-  ? ReturnType<typeof buildStream<I, T>>
-  : never;
+/** Every `Rpc` a surface mints, as ONE union — the type-level image of the
+ *  runtime group, including the three framework-reserved `system/*` members that
+ *  are claimed onto EVERY surface. `Prefix` is the surface's tag prefix
+ *  (`"surface/"` standalone, `"surface/<key>/"` for a composed sibling).
+ *
+ *  This — not `surface.group`'s type — is where per-member precision lives. The
+ *  runtime group is assembled from a runtime spec walk, so its value type is the
+ *  honest erased `RpcGroup<Rpc.Any>`; the precise shape is derived from the SPEC
+ *  (D2), which is also how the client face is typed. */
+export type SurfaceRpcsFor<
+  S extends SurfaceSpec,
+  Prefix extends string = typeof SURFACE_TAG_PREFIX,
+> =
+  | SpecCellRpcs<S, Prefix>
+  | SpecCollectionRpcs<S, Prefix>
+  | SpecStreamRpcs<S, Prefix>
+  | SpecEventRpcs<S, Prefix>
+  | SpecProcedureRpcs<S, Prefix>
+  | ReservedLivenessRpc<Prefix>
+  | ReservedIdentityRpc<Prefix>
+  | ReservedClockNowRpc<Prefix>;
 
-type EventContract<S extends EventSpec<any, any>> = S extends {
-  inputSchema: ZodType<infer I>;
-  outputSchema: ZodType<infer T>;
-}
-  ? ReturnType<typeof buildEvent<I, T>>
-  : never;
-
-/** The spec's declared error map, or the empty map when it declares none —
- *  the ONE extractor for "how a spec declares errors", owned here beside
- *  {@link ProcedureSpec}. Threaded through ALL FOUR `buildProcedure*` oracles
- *  (the drift-watch rule: the runtime entry applies `.errors` on every shape,
- *  so must the types), and consumed by server.ts's `ProcedureErrorCtors` and
- *  the Solid client's `BoundProcedureError` — so a change to the declaration
- *  shape edits this alias, not three modules. */
-export type ProcedureSpecErrors<S> = S extends {
-  errors: infer E extends ErrorMap;
-}
-  ? E
-  : Record<never, never>;
-
-type ProcedureContract<S extends ProcedureSpec<any, any>> = S extends {
-  input: ZodType<infer I>;
-  output: ZodType<infer O>;
-}
-  ? ReturnType<typeof buildProcedure<I, O, ProcedureSpecErrors<S>>>
-  : S extends { input: ZodType<infer I> }
-    ? ReturnType<typeof buildProcedureNoOutput<I, ProcedureSpecErrors<S>>>
-    : S extends { output: ZodType<infer O> }
-      ? ReturnType<typeof buildProcedureNoInput<O, ProcedureSpecErrors<S>>>
-      : ReturnType<typeof buildProcedureNoIO<ProcedureSpecErrors<S>>>;
-
-type MergeContract<
-  A extends Record<string, unknown>,
-  B extends Record<string, unknown>,
-  C extends Record<string, unknown>,
-  D extends Record<string, unknown>,
-  E extends Record<string, unknown>,
-> = {
-  [K in keyof A | keyof B | keyof C | keyof D | keyof E]: (K extends keyof A
-    ? A[K]
-    : EmptyObj) &
-    (K extends keyof B ? B[K] : EmptyObj) &
-    (K extends keyof C ? C[K] : EmptyObj) &
-    (K extends keyof D ? D[K] : EmptyObj) &
-    (K extends keyof E ? E[K] : EmptyObj);
-};
+/** The exact set of wire tags a surface mints, as a string-literal union — the
+ *  `_tag` projection of {@link SurfaceRpcsFor}. This is the type-level counterpart
+ *  of the `group.requests` key-set assertion: a member the runtime does not mint
+ *  is not in this union, so a Stage-2 handler map or a Stage-3 dispatch keyed off
+ *  it cannot name a tag that does not exist. */
+export type SurfaceTags<
+  S extends SurfaceSpec,
+  Prefix extends string = typeof SURFACE_TAG_PREFIX,
+> = SurfaceRpcsFor<S, Prefix>["_tag"];
 
 // ── Inferred runtime types from a spec ─────────────────────────────────
 
+type EmptyObj = NonNullable<unknown>;
+
 /** Map a `SurfaceSpec` to the runtime types its schemas describe — the
- *  `Note` you'd otherwise write `z.infer<typeof NoteSchema>` for. Lets a
+ *  `Note` you'd otherwise write `typeof NoteSchema.Type` for. Lets a
  *  surface declaration be the single source of truth for both wire shape
  *  AND the domain types consumers render against.
  *
@@ -679,15 +972,23 @@ type MergeContract<
  *
  *  Re-export the per-domain aliases at the surface module so consumers
  *  `import { Note, NoteId } from "./surface"` (the universal pattern in
- *  Zod / Drizzle / tRPC ecosystems). */
+ *  Zod / Drizzle / tRPC ecosystems).
+ *
+ *  **Two sides, deliberately (D2/#13).** The unsuffixed fields are the DECODED
+ *  (`Type`) side — the domain types a handler produces and a consumer renders.
+ *  The `*Wire` fields beside them are the ENCODED side — what a caller passes at
+ *  an INPUT position, i.e. exactly the split zod spelled `z.output` / `z.input`.
+ *  A schema carrying a decoding default makes a key REQUIRED after decode but
+ *  OMITTABLE on the wire, so a face that typed its inputs on the decoded side
+ *  would demand arguments the wire does not need. */
 export type SurfaceTypes<S extends SurfaceSpec> = {
   cells: S["cells"] extends Record<string, CellSpec<any, any, any>>
     ? {
         [K in keyof S["cells"] & string]: {
-          Value: z.infer<S["cells"][K]["schema"]>;
-          Patch: S["cells"][K]["patchSchema"] extends ZodType<infer P>
-            ? P
-            : never;
+          Value: S["cells"][K]["schema"]["Type"];
+          ValueWire: S["cells"][K]["schema"]["Encoded"];
+          Patch: NonNullable<S["cells"][K]["patchSchema"]>["Type"];
+          PatchWire: NonNullable<S["cells"][K]["patchSchema"]>["Encoded"];
         };
       }
     : EmptyObj;
@@ -697,24 +998,28 @@ export type SurfaceTypes<S extends SurfaceSpec> = {
   >
     ? {
         [K in keyof S["collections"] & string]: {
-          Key: z.infer<S["collections"][K]["keySchema"]>;
-          Value: z.infer<S["collections"][K]["schema"]>;
+          Key: S["collections"][K]["keySchema"]["Type"];
+          KeyWire: S["collections"][K]["keySchema"]["Encoded"];
+          Value: S["collections"][K]["schema"]["Type"];
+          ValueWire: S["collections"][K]["schema"]["Encoded"];
         };
       }
     : EmptyObj;
   streams: S["streams"] extends Record<string, StreamSpec<any, any>>
     ? {
         [K in keyof S["streams"] & string]: {
-          Input: z.infer<S["streams"][K]["inputSchema"]>;
-          Output: z.infer<S["streams"][K]["outputSchema"]>;
+          Input: S["streams"][K]["inputSchema"]["Type"];
+          InputWire: S["streams"][K]["inputSchema"]["Encoded"];
+          Output: S["streams"][K]["outputSchema"]["Type"];
         };
       }
     : EmptyObj;
   events: S["events"] extends Record<string, EventSpec<any, any>>
     ? {
         [K in keyof S["events"] & string]: {
-          Input: z.infer<S["events"][K]["inputSchema"]>;
-          Payload: z.infer<S["events"][K]["outputSchema"]>;
+          Input: S["events"][K]["inputSchema"]["Type"];
+          InputWire: S["events"][K]["inputSchema"]["Encoded"];
+          Payload: S["events"][K]["outputSchema"]["Type"];
         };
       }
     : EmptyObj;
@@ -726,7 +1031,10 @@ export type SurfaceTypes<S extends SurfaceSpec> = {
  *      type Prefs = SurfaceCellValue<typeof surface.spec, "preferences">;
  *      type Note  = SurfaceCollectionValue<typeof surface.spec, "notes">;
  *
- *  Use whichever reads better at the call site; both are typo-safe. */
+ *  Use whichever reads better at the call site; both are typo-safe. They project
+ *  the DECODED side only — the encoded `*Wire` twins are read through the indexed
+ *  form, since the client face (their one consumer) already walks `SurfaceTypes`
+ *  per member. */
 export type SurfaceCellValue<
   S extends SurfaceSpec,
   K extends keyof SurfaceTypes<S>["cells"] & string,
@@ -781,144 +1089,21 @@ export type SurfaceEventPayload<
  *  genuine cycle fails.
  *
  *  Cells and collections share the one flat `$` namespace; a name declared as
- *  both would intersect their two accessor signatures. */
+ *  both would intersect their two accessor signatures — which `defineSurface`
+ *  rejects at definition, so the intersection is unreachable.
+ *
+ *  Reads are always the DECODED side: the reactor works in domain values, never
+ *  in wire shapes. */
 export type SiblingRead<S extends SurfaceSpec> = {
-  [K in keyof NonNullable<S["cells"]> & string]: () => z.infer<
-    NonNullable<S["cells"]>[K]["schema"]
-  >;
+  [K in keyof NonNullable<S["cells"]> & string]: () => NonNullable<
+    S["cells"]
+  >[K]["schema"]["Type"];
 } & {
   [K in keyof NonNullable<S["collections"]> & string]: () => ReadonlyMap<
-    z.infer<NonNullable<S["collections"]>[K]["keySchema"]>,
-    z.infer<NonNullable<S["collections"]>[K]["schema"]>
+    NonNullable<S["collections"]>[K]["keySchema"]["Type"],
+    NonNullable<S["collections"]>[K]["schema"]["Type"]
   >;
 };
-
-// ── Type oracles for per-primitive contract entry shape ────────────────
-//
-// Each `build*` here is a runtime-dead type oracle: TypeScript reads
-// its return shape via `ReturnType<typeof X<T>>` at the mapped types
-// above (see `CellContract<S>` etc.) to compute the exact per-key
-// contract entry. The bodies are never called — the actual contract
-// entries are built by the lowercase `xxxContractEntries` functions
-// above, which return `Record<string, unknown>` (precise typing
-// happens at the call site through `oc.router(...)` re-typing).
-//
-// `noinline`-equivalent: tree-shaking removes the bodies because no
-// runtime caller exists. Keeping them as real functions (rather than
-// `declare function`) lets us reuse the lambda's inferred return type
-// without spelling out oRPC's internal types — rewriting these as
-// `declare function` would re-introduce the duplication this file
-// avoids by having one source of truth for the contract shape.
-//
-// Drift watch: when adding a verb to the contract, edit both the
-// runtime `xxxContractEntries` (above) AND the matching `build*`
-// oracle (below).
-
-// One oracle per cell VERB (was `buildCellNoPatch` / `buildCellWithPatch`,
-// which baked the verb SET into the function): `CellContract<S>` now resolves
-// the verb set from `S["verbs"]` and maps each verb to its entry, so a
-// `verbs`-narrowed cell (`["get"]`) types exactly the verbs the runtime
-// contract router carries — no phantom `set`. Mirrors the per-verb `entries[v]`
-// switch in `cellContractEntries` 1:1 (drift watch above applies).
-function buildCellGet<T>(opts: { schema: ZodType<T> }) {
-  return oc.output(eventIterator(opts.schema));
-}
-
-function buildCellSet<T>(opts: { schema: ZodType<T> }) {
-  return oc.input(opts.schema).output(z.void());
-}
-
-function buildCellPatch<P>(opts: { patchSchema: ZodType<P> }) {
-  return oc.input(opts.patchSchema).output(z.void());
-}
-
-function buildCollection<K, T>(opts: {
-  keySchema: ZodType<K>;
-  schema: ZodType<T>;
-}) {
-  const keyShape = z.object({ key: opts.keySchema });
-  return {
-    keys: oc.output(eventIterator(z.array(opts.keySchema))),
-    get: oc.input(keyShape).output(eventIterator(opts.schema)),
-    deltas: oc.output(
-      eventIterator(collectionDeltasSchema(opts.keySchema, opts.schema)),
-    ),
-    upsert: oc
-      .input(z.object({ key: opts.keySchema, value: opts.schema }))
-      .output(z.void()),
-    delete: oc.input(keyShape).output(z.void()),
-    // The opt-in `test__set` verb (replace-all from a fixture). Listed alongside
-    // the other verbs: opt-in gating is done by `CollectionVerbEntry` indexing
-    // the verb UNION, not by which builder owns the field, so `test__set`
-    // surfaces only for a collection whose `verbs` lists it. Mirrors the runtime
-    // `entries.test__set = …` branch in `collectionContractEntries` (drift watch).
-    test__set: oc
-      .input(z.array(z.object({ key: opts.keySchema, value: opts.schema })))
-      .output(z.void()),
-  };
-}
-
-function buildStream<I, T>(opts: {
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
-}) {
-  return {
-    get: oc.input(opts.inputSchema).output(eventIterator(opts.outputSchema)),
-  };
-}
-
-function buildEvent<I, T>(opts: {
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
-}) {
-  return {
-    get: oc.input(opts.inputSchema).output(eventIterator(opts.outputSchema)),
-  };
-}
-
-// Each oracle threads the spec's DECLARED error map (SK6) — `E` defaults to
-// the empty map so an errors-less spec resolves the same contract type it
-// always did. All four apply `.errors` because the runtime entry does
-// (unconditionally, empty when undeclared) — one shape, no drift.
-function buildProcedure<I, O, E extends ErrorMap = Record<never, never>>(opts: {
-  input: ZodType<I>;
-  output: ZodType<O>;
-  errors?: E;
-}) {
-  return oc
-    .input(opts.input)
-    .output(opts.output)
-    .errors((opts.errors ?? {}) as E);
-}
-
-function buildProcedureNoOutput<
-  I,
-  E extends ErrorMap = Record<never, never>,
->(opts: { input: ZodType<I>; errors?: E }) {
-  return oc
-    .input(opts.input)
-    .output(z.void())
-    .errors((opts.errors ?? {}) as E);
-}
-
-function buildProcedureNoInput<
-  O,
-  E extends ErrorMap = Record<never, never>,
->(opts: { output: ZodType<O>; errors?: E }) {
-  return oc
-    .input(z.void())
-    .output(opts.output)
-    .errors((opts.errors ?? {}) as E);
-}
-
-function buildProcedureNoIO<E extends ErrorMap = Record<never, never>>(opts?: {
-  errors?: E;
-}) {
-  return oc
-    .input(z.void())
-    .output(z.void())
-    .errors((opts?.errors ?? {}) as E);
-}
 
 // ── Surface value ──────────────────────────────────────────────────────
 
@@ -962,54 +1147,63 @@ export interface SurfaceDescriptors<S extends SurfaceSpec> {
 }
 
 export interface Surface<S extends SurfaceSpec = SurfaceSpec> {
-  readonly contract: SurfaceContractFor<S>;
+  /** The flat `RpcGroup` this surface serves — one `Rpc` per member verb, tagged
+   *  `<tagPrefix><member>/<verb>`, plus the three reserved `system/*` members.
+   *
+   *  Deliberately typed with the ERASED `Rpc.Any` element. The group is assembled
+   *  from a RUNTIME spec walk, so `RpcGroup`'s invariant type parameter carries no
+   *  information a caller could trust — and materialising the precise union here
+   *  would push every consumer through the same TS2590-prone instantiation the
+   *  spec-derived face (D2) exists to avoid. Per-member precision lives in
+   *  {@link SurfaceRpcsFor} / {@link SurfaceTags}, derived from `spec`. */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** The tag prefix every member of `group` carries — `"surface/"` for a
+   *  standalone surface, `"surface/<key>/"` for a sibling inside a
+   *  {@link composeSurfaceContracts} bundle. Carried on the value (not assumed by
+   *  callers) so a scoped sibling and a standalone surface are the same shape. */
+  readonly tagPrefix: string;
   readonly spec: S;
   readonly descriptors: SurfaceDescriptors<S>;
 }
 
-/** Build a surface from a spec. The returned `.contract` lives under a
- *  top-level `surface` namespace; spread alongside hand-listed raw
- *  `oc.router({...})` blocks at the host contract:
- *
- *      export const contract = oc.router({
- *        ...surface.contract,
- *        terminal: rawTerminalRouter,
- *        git: rawGitRouter,
- *      });
- *
- *  Consumers feed the result to `implement(contract)` (server) and a link —
- *  `websocketLink<typeof contract>(...)` / `stdioLink` / `directLink` (client). */
-export function defineSurface<const S extends SurfaceSpec<never>>(
-  spec: S,
-): Surface<S> {
-  // Collect verb-records by surface key, merging cell/collection/stream/event
-  // and procedure contributions to the same key. Throw on duplicate
-  // (key, verb) claims so collisions surface at boot, not at request time.
-  const inner: Record<string, Record<string, unknown>> = {};
-  const claim = (key: string, entries: Record<string, unknown>): void => {
-    const existing = inner[key] ?? {};
-    for (const verb of Object.keys(entries)) {
-      if (verb in existing) {
+/** The shared spec walk behind {@link defineSurface} and
+ *  {@link composeSurfaceContracts}. One walk, parameterised by tag prefix, so a
+ *  sibling's tags and a standalone surface's tags can never be derived by two
+ *  different rules. */
+function buildSurface(
+  spec: SurfaceSpec,
+  tagPrefix: string,
+): Surface<SurfaceSpec> {
+  // The flat tag map IS the collision detector. `RpcGroup.make` is a plain
+  // `Map.set` with zero collision detection (last writer wins), so the walk
+  // claims every tag here and throws on a duplicate — the same fail-at-boot
+  // guarantee the oRPC-era contract walk gave, carried forward by hand.
+  const byTag = new Map<string, Rpc.Any>();
+  const claim = (member: string, entries: Record<string, Rpc.Any>): void => {
+    for (const [verb, rpc] of Object.entries(entries)) {
+      if (byTag.has(rpc._tag)) {
         throw new Error(
-          `defineSurface: duplicate verb "${verb}" claimed at "${key}". ` +
-            `Multiple primitives or procedures resolve to the same wire path.`,
+          `defineSurface: duplicate verb "${verb}" claimed at "${member}" (wire tag "${rpc._tag}"). ` +
+            `Multiple primitives or procedures resolve to the same wire tag.`,
         );
       }
+      byTag.set(rpc._tag, rpc);
     }
-    inner[key] = { ...existing, ...entries };
   };
 
   for (const [key, s] of Object.entries(spec.cells ?? {})) {
-    claim(key, cellContractEntries(s));
+    assertTagSegment("cell", key);
+    claim(key, cellRpcEntries(tagPrefix + key, s));
   }
   for (const [key, s] of Object.entries(spec.collections ?? {})) {
-    claim(key, collectionContractEntries(s));
+    assertTagSegment("collection", key);
+    claim(key, collectionRpcEntries(tagPrefix + key, s));
   }
   // The `$` sibling-read face is one FLAT namespace over cells AND collections, so
   // a name that is BOTH is ambiguous — `$.<name>()`'s two accessors intersect to
   // the cell arm while the runtime would return the collection map. That is a
   // static property of the spec, so reject it HERE, at definition, for every
-  // consumer (a contract-only client as much as a server), not just when a server
+  // consumer (a group-only client as much as a server), not just when a server
   // implements the surface. (`Object.hasOwn`, so a member legitimately named
   // `toString`/`constructor` isn't mistaken for an inherited key.)
   const collectionsSpec = spec.collections ?? {};
@@ -1021,35 +1215,48 @@ export function defineSurface<const S extends SurfaceSpec<never>>(
     }
   }
   for (const [key, s] of Object.entries(spec.streams ?? {})) {
-    claim(key, streamContractEntries(s));
+    assertTagSegment("stream", key);
+    claim(key, streamRpcEntries(tagPrefix + key, s));
   }
   for (const [key, s] of Object.entries(spec.events ?? {})) {
-    claim(key, eventContractEntries(s));
+    assertTagSegment("event", key);
+    claim(key, eventRpcEntries(tagPrefix + key, s));
   }
   for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
-    const procEntries: Record<string, unknown> = {};
+    assertTagSegment("procedure namespace", ns);
+    const procEntries: Record<string, Rpc.Any> = {};
     for (const [verb, ps] of Object.entries(procs)) {
-      procEntries[verb] = procedureContractEntry(ps);
+      assertTagSegment("procedure verb", verb);
+      procEntries[verb] = procedureRpcEntry(
+        surfaceTag(tagPrefix, ns, verb),
+        ps,
+      );
     }
     claim(ns, procEntries);
   }
-  // Reserve the framework liveness verb on EVERY surface (see ./liveness). It is
-  // contract-only (never in `spec`, so `implementSurface`'s procedures walk never
-  // demands a dep for it — it is auto-answered instead). `claim` merges it into
-  // any app-owned `system` namespace and rejects only a duplicate `live` verb, so
-  // it can't silently clobber an app procedure.
-  claim(LIVENESS_NAMESPACE, { [LIVENESS_VERB]: livenessContractEntry() });
-  // Reserve the framework identity verb on EVERY surface (see ./identity), the
-  // identity twin of `live`: contract-only, auto-answered by `implementSurface`
-  // from the server's baked build info. Shares the `system` namespace with `live`
-  // (claim merges the namespace, rejecting only a duplicate `identity` verb).
-  claim(IDENTITY_NAMESPACE, { [IDENTITY_VERB]: identityContractEntry() });
-  // Reserve the framework clock verb on EVERY surface (see ./clockNow), the clock
-  // twin of `live`/`identity`: contract-only, auto-answered by `implementSurface`
-  // with the server's own wall clock. Shares the `system` namespace with `live` /
-  // `identity` (claim merges the namespace, rejecting only a duplicate `clockNow`
-  // verb), so a consumer can measure the far-end clock offset at admit.
-  claim(CLOCK_NOW_NAMESPACE, { [CLOCK_NOW_VERB]: clockNowContractEntry() });
+  // Reserve the three framework members on EVERY surface (see ./liveness,
+  // ./identity, ./clockNow). They are group-only (never in `spec`, so
+  // `implementSurface`'s procedures walk never demands a dep for one — they are
+  // auto-answered instead) and share ONE `system` namespace. `claim` rejects only
+  // a duplicate TAG, so reserving them merges into an app-owned `system`
+  // namespace and can't silently clobber an app procedure — while an app that
+  // does declare `system.live` gets a loud boot-time collision, the correct
+  // behaviour for a reserved verb.
+  claim(LIVENESS_NAMESPACE, {
+    [LIVENESS_VERB]: buildLivenessRpc(
+      surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
+    ),
+  });
+  claim(IDENTITY_NAMESPACE, {
+    [IDENTITY_VERB]: buildIdentityRpc(
+      surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
+    ),
+  });
+  claim(CLOCK_NOW_NAMESPACE, {
+    [CLOCK_NOW_VERB]: buildClockNowRpc(
+      surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
+    ),
+  });
 
   // Descriptor handles for the manual escape hatch.
   const descriptors = {
@@ -1087,17 +1294,44 @@ export function defineSurface<const S extends SurfaceSpec<never>>(
     });
   }
 
-  // Wrap under the top-level `surface` namespace so consumers can spread
-  // alongside raw `oc.router({...})` blocks without colliding on host
-  // namespace keys. Ungrouped: a surface entry named "terminal" would
-  // collide with a host's hand-written `terminal: { create, attach, ... }`.
   return {
-    contract: oc.router({
-      surface: inner,
-    } as unknown as AnyContractRouter) as unknown as SurfaceContractFor<S>,
+    group: assembleGroup(byTag),
+    tagPrefix,
     spec,
-    descriptors: descriptors as unknown as SurfaceDescriptors<S>,
+    descriptors: descriptors as unknown as SurfaceDescriptors<SurfaceSpec>,
   };
+}
+
+/** Assemble a group from a claimed tag map and PROVE nothing was dropped.
+ *  `RpcGroup.make` is `new Map(rpcs.map(rpc => [rpc._tag, rpc]))` — a colliding
+ *  tag is silently overwritten — so every assembly in this file goes through
+ *  here, and a size mismatch crashes at boot rather than serving a surface that
+ *  is quietly missing a member. */
+function assembleGroup(
+  byTag: ReadonlyMap<string, Rpc.Any>,
+): RpcGroup.RpcGroup<Rpc.Any> {
+  const group = RpcGroup.make(...byTag.values());
+  if (group.requests.size !== byTag.size) {
+    throw new Error(
+      `defineSurface: RpcGroup assembly dropped ${byTag.size - group.requests.size} tag(s) — ` +
+        `claimed ${byTag.size}, group carries ${group.requests.size}. This is a collision the claim walk failed to catch.`,
+    );
+  }
+  return group;
+}
+
+/** Build a surface from a spec. The returned `.group` is a flat `RpcGroup` whose
+ *  tags all begin `surface/`; a host merges it with its own hand-written group
+ *  for the RPCs the surface can't model:
+ *
+ *      const hostGroup = surface.group.merge(rawTerminalGroup, rawGitGroup);
+ *
+ *  Consumers feed the group to `implementSurface` (server) and to the client face
+ *  builder (`surfaceClient`). */
+export function defineSurface<const S extends SurfaceSpec<never>>(
+  spec: S,
+): Surface<S> {
+  return buildSurface(spec, SURFACE_TAG_PREFIX) as unknown as Surface<S>;
 }
 
 /** {@link defineSurface}, but threading an app-owned client error policy union
@@ -1127,12 +1361,8 @@ export function defineSurface<const S extends SurfaceSpec<never>>(
  *  `client` slot is unfillable, so existing callers pay nothing. */
 export function defineSurfaceWithPolicy<TPolicy>() {
   return <const S extends SurfaceSpec<TPolicy>>(spec: S): Surface<S> =>
-    // Runtime is identical to `defineSurface` — the policy slot is inert data. Cast
-    // through the base (policy-erased) spec type so the shared builder runs; the
-    // `Surface<S>` return restores the caller's precise, policy-bearing spec type.
-    defineSurface(
-      spec as unknown as SurfaceSpec<never>,
-    ) as unknown as Surface<S>;
+    // Runtime is identical to `defineSurface` — the policy slot is inert data.
+    buildSurface(spec, SURFACE_TAG_PREFIX) as unknown as Surface<S>;
 }
 
 /** Whether a peer reporting contract version `reportedVersion` is
@@ -1165,61 +1395,62 @@ export function isContractVersionCompatible(
   return a[0] === b[0] && a[1] >= b[1];
 }
 
-/** Compose a keyed map of surfaces into a single contract fragment of shape
- *  `{ surface: { <key>: innerContract } }` — the wire-level counterpart to
- *  `implementSurfaces`. A consumer spreads the result into their host
- *  contract (alongside raw oRPC procedures) AND types their `websocketLink`
- *  off `typeof composeSurfaceContracts(...)`.
- *
- *  Lives in `@kolu/surface/define` (not `/server`) because it only walks each
- *  surface's already-built `.contract` — it has no server-only dependency.
- *  Keeping it here lets a browser-reached common module value-import it
- *  without dragging `@orpc/server` into the client bundle. */
-export function composeSurfaceContracts<
-  const E extends Record<string, Surface<any>>,
->(
-  entries: E,
-): {
-  surface: {
-    [K in keyof E]: E[K] extends Surface<infer S>
-      ? SurfaceContractFor<S>["surface"]
-      : never;
-  };
-} {
-  const surface: Record<string, unknown> = {};
-  for (const [key, s] of Object.entries(entries)) {
-    surface[key] = (s.contract as any).surface;
-  }
-  return { surface } as {
-    surface: {
-      [K in keyof E]: E[K] extends Surface<infer S>
-        ? SurfaceContractFor<S>["surface"]
-        : never;
-    };
+/** A keyed bundle of sibling surfaces served as ONE flat group — the wire-level
+ *  counterpart to `implementSurfaces`. */
+export interface ComposedSurfaces<E extends Record<string, Surface<any>>> {
+  /** Every sibling's members in one flat group, ready to serve or merge into a
+   *  host group. */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Per-sibling view — the same {@link Surface} shape as a standalone surface,
+   *  but with `tagPrefix` = `surface/<key>/` and a `group` holding only that
+   *  sibling's members. This is what lets Stage-2 handler binding and Stage-3
+   *  dispatch be keyed BY SIBLING without re-deriving the tag rule: a sibling's
+   *  own `group.requests` keys are exactly the tags it owns. */
+  readonly siblings: {
+    readonly [K in keyof E]: E[K] extends Surface<infer S> ? Surface<S> : never;
   };
 }
 
-/** Scope a `composeSurfaceContracts`-shaped combined link down to ONE sibling
- *  key — the runtime twin of {@link composeSurfaceContracts}'s
- *  `{ surface: { <key>: … } }` shape. A combined transport is
- *  `{ surface: { <key>: innerLink } }`; this returns the single-sibling slice
- *  `{ surface: innerLink }` a per-key client rides, so the bundle's internal
- *  `link.surface.<prim>` walk resolves at the wire path `/surface/<key>/<prim>`.
+/** Compose a keyed map of surfaces into ONE flat group whose members are tagged
+ *  `surface/<key>/<member>/<verb>`.
  *
- *  This owns the SIBLING-scoping walk — the `{ surface: link.surface[key] }`
- *  re-wrap — for its two call sites: `surfaceClients` (the Solid bundle) and
- *  `createLiveSignal`'s half-open watchdog probe, which both scope a sibling
- *  through HERE. It is NOT the sole owner of every `link.surface[...]` index: the
- *  per-primitive `link.surface[<prim>]` walks inside `buildSurfaceClient` are a
- *  separate, co-located cluster at a DIFFERENT nesting level (primitive, not
- *  sibling), and `server.ts`'s `walkSurface` (`t.surface[key]`, the `implement`
- *  builder) and `liveness.ts`'s `probeSurfaceLive` (its own `SurfaceLiveProbeable`
- *  receptacle, a constant key) are structurally distinct walks — a wire-keying
- *  change touches all of them, not just here. The caller keeps its OWN downstream
- *  target-type assertion on the slice (the `buildSurfaceClient` cast); only this
- *  sibling-scope re-wrap lives here. */
-export function scopeSibling(link: unknown, key: string): { surface: unknown } {
+ *  Composition is per-sibling tag PREFIXING, never a bare `RpcGroup.merge` (D1).
+ *  Every surface carries the same three reserved `system/*` members, so merging
+ *  two bare surface groups would collide them — and `merge` is a last-writer-wins
+ *  `Map.set`, so the collision would be silent. Each sibling is therefore re-walked
+ *  through the SAME {@link buildSurface} with its own prefix, and the assembled
+ *  group's size is asserted against the claimed tag count.
+ *
+ *  Lives in `@kolu/surface/define` (not `/server`) because it only walks each
+ *  surface's spec — it has no server-only dependency, so a browser-reached common
+ *  module can value-import it. */
+export function composeSurfaceContracts<
+  const E extends Record<string, Surface<any>>,
+>(entries: E): ComposedSurfaces<E> {
+  const siblings: Record<string, Surface<SurfaceSpec>> = {};
+  const byTag = new Map<string, Rpc.Any>();
+  for (const [key, sib] of Object.entries(entries)) {
+    assertTagSegment("sibling", key);
+    const scoped = buildSurface(sib.spec, siblingTagPrefix(key));
+    for (const [tag, rpc] of scoped.group.requests) {
+      if (byTag.has(tag)) {
+        throw new Error(
+          `composeSurfaceContracts: duplicate wire tag "${tag}" while composing sibling "${key}".`,
+        );
+      }
+      byTag.set(tag, rpc);
+    }
+    // Reuse the sibling's OWN descriptors: they are pure data keyed by member
+    // name and carry no tag, so re-deriving them would only mint equal twins.
+    siblings[key] = {
+      group: scoped.group,
+      tagPrefix: scoped.tagPrefix,
+      spec: sib.spec,
+      descriptors: sib.descriptors,
+    };
+  }
   return {
-    surface: (link as { surface: Record<string, unknown> }).surface[key],
-  };
+    group: assembleGroup(byTag),
+    siblings,
+  } as unknown as ComposedSurfaces<E>;
 }

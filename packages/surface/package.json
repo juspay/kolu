@@ -14,6 +14,7 @@
     "./collection-face": "./src/collectionFace.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
+    "./errors": "./src/errors.ts",
     "./heartbeat": "./src/heartbeat.ts",
     "./identity": "./src/identity.ts",
     "./liveness": "./src/liveness.ts",
