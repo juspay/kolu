@@ -15,6 +15,11 @@ import {
   validateLedger,
   type CoverageLedger,
 } from "./ledger";
+import {
+  collectRunEdges,
+  RUN_EDGE_ALLOWLIST,
+  validateRunEdges,
+} from "./runEdges";
 
 const packageRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.resolve(packageRoot, "../..");
@@ -155,6 +160,13 @@ if (currentIds.size !== current.records.length) {
   throw new Error("current suite contains duplicate revision ids");
 }
 
+// The `Effect.run*` edge allowlist (PLAN D10/#25). Governance rather than a unit
+// test because it is a claim about the whole repo, not about one package — the
+// same reason the scenario inventory and the coverage ledger live here.
+const runEdges = collectRunEdges(repoRoot);
+validateRunEdges(runEdges, RUN_EDGE_ALLOWLIST);
+const runEdgeSites = [...runEdges.values()].reduce((sum, n) => sum + n, 0);
+
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files`,
 );
