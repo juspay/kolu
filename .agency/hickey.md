@@ -4,7 +4,7 @@ Project-specific complecting patterns extending the `hickey` skill's Layer 4 cat
 
 ## Additional Complecting Patterns
 
-These extend the hickey skill's built-in complecting catalog with patterns specific to this project's SolidJS + oRPC architecture.
+These extend the hickey skill's built-in complecting catalog with patterns specific to this project's SolidJS + Effect architecture.
 
 | Construct                                                                                                            | What it complects                                            | Simpler alternative                                                                                              |
 | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
