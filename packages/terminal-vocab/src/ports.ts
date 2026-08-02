@@ -1,7 +1,7 @@
 /**
  * What a listening port IS, and the two operations that define what a SET of them
- * means. Browser-safe — zod and nothing else, no `node:` imports — so a client
- * that only renders ports can import it without dragging a process-spawning
+ * means. Browser-safe — Effect Schema and nothing else, no `node:` imports — so a
+ * client that only renders ports can import it without dragging a process-spawning
  * reader into a bundle.
  *
  * Lives in terminal-vocab because both ends of the wire depend on the same
@@ -10,7 +10,7 @@
  * the same rule twice, with one copy tested.
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 /** What a TCP port IS — the one range every schema and every hand-check in the
  *  repo means by "a port".
@@ -24,11 +24,11 @@ import { z } from "zod";
 const TCP_PORT_MIN = 1;
 const TCP_PORT_MAX = 65535;
 
-export const TcpPortSchema = z
-  .number()
-  .int()
-  .min(TCP_PORT_MIN)
-  .max(TCP_PORT_MAX);
+export const TcpPortSchema = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(TCP_PORT_MIN),
+  Schema.isLessThanOrEqualTo(TCP_PORT_MAX),
+);
 
 /** The same rule as {@link TcpPortSchema}, as a plain predicate — for the
  *  scanner's parse loop, which asks it once per listening socket on a pass that
@@ -66,8 +66,12 @@ export function isTcpPort(port: number): boolean {
  *  It is a bind OBSERVATION, not a reachability verdict: whether a port answers
  *  for a given VIEWER additionally needs to know whose host it is on, which the
  *  scanner cannot know. That join is `portReach` in kolu's own vocabulary. */
-export const PortScopeSchema = z.enum(["any", "loopback", "interface"]);
-export type PortScope = z.infer<typeof PortScopeSchema>;
+export const PortScopeSchema = Schema.Literals([
+  "any",
+  "loopback",
+  "interface",
+]);
+export type PortScope = typeof PortScopeSchema.Type;
 
 /** WHICH IP family a socket is bound on — `127.0.0.1` and `::1` are both
  *  loopback, and they are NOT the same address.
@@ -89,8 +93,8 @@ export type PortScope = z.infer<typeof PortScopeSchema>;
  *  but the address it carries is a v4 one and a v4 dial reaches it. The family
  *  here is the family of the ADDRESS, which is what a dial needs — not the family
  *  of the socket, which it does not. */
-export const PortFamilySchema = z.enum(["v4", "v6"]);
-export type PortFamily = z.infer<typeof PortFamilySchema>;
+export const PortFamilySchema = Schema.Literals(["v4", "v6"]);
+export type PortFamily = typeof PortFamilySchema.Type;
 
 /** The family to dial when one port has binds in both — v4, because a v4 dial
  *  reaches a v4 listener and a dual-stack one, while a v6 dial reaches neither
@@ -138,7 +142,7 @@ export function widerScope(a: PortScope, b: PortScope): PortScope {
  *  No pid either: a fork-inherited listening socket belongs to several pids at
  *  once, so a pid here would name an arbitrary one of them. Attribution is to
  *  the SUBTREE, which is the question a caller asks. */
-export const PortInfoSchema = z.object({
+export const PortInfoSchema = Schema.Struct({
   /** The TCP port the socket is listening on. */
   port: TcpPortSchema,
   /** The PROGRAM holding the listener (`node`, `workerd`, …), for a glanceable
@@ -146,13 +150,13 @@ export const PortInfoSchema = z.object({
    *  executable path's basename on darwin. Deliberately not linux's `comm`: that
    *  is the THREAD name, which Node overwrites, so a plain `node` dev server
    *  would read `MainThread`. */
-  name: z.string(),
+  name: Schema.String,
   /** Where it is bound — see {@link PortScopeSchema}. */
   scope: PortScopeSchema,
   /** Which IP family it is bound on — see {@link PortFamilySchema}. */
   family: PortFamilySchema,
 });
-export type PortInfo = z.infer<typeof PortInfoSchema>;
+export type PortInfo = typeof PortInfoSchema.Type;
 
 /** Collapse listening sockets into the one row per PORT that a reader wants —
  *  sorted by port, deduplicated, with `scope` folded to the widest bind.
@@ -184,7 +188,7 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
   for (const row of rows) {
     const prior = byPort.get(row.port);
     if (prior === undefined) {
-      byPort.set(row.port, { ...row });
+      byPort.set(row.port, row);
       continue;
     }
     // Scope and family fold TOGETHER, because the family is a property OF a
@@ -196,13 +200,24 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
     //
     // So: the winning scope decides, and the family is read off the rows that
     // hold that scope. Within one scope the v4 preference still applies.
+    //
+    // Rebuilt rather than mutated in place: a decoded `PortInfo` is readonly, so
+    // the accumulator is a fresh row per merge — which also means the caller's
+    // own rows are never written through, as the old defensive `{...row}` copy
+    // ensured.
     const scope = widerScope(prior.scope, row.scope);
-    if (scope !== prior.scope) prior.family = row.family;
-    else if (row.scope === scope) {
-      prior.family = preferredFamily(prior.family, row.family);
-    }
-    prior.scope = scope;
-    if (row.name < prior.name) prior.name = row.name;
+    const family =
+      scope !== prior.scope
+        ? row.family
+        : row.scope === scope
+          ? preferredFamily(prior.family, row.family)
+          : prior.family;
+    byPort.set(row.port, {
+      port: prior.port,
+      name: row.name < prior.name ? row.name : prior.name,
+      scope,
+      family,
+    });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
@@ -214,7 +229,7 @@ export function foldPorts(rows: readonly PortInfo[]): PortInfo[] {
  *  drift is invisible by construction: this is a DEDUP gate, so a field it does not
  *  compare is a field whose changes are swallowed, with nothing anywhere to report
  *  why the chip never updated. */
-const PORT_INFO_KEYS = Object.keys(PortInfoSchema.shape) as (keyof PortInfo)[];
+const PORT_INFO_KEYS = Object.keys(PortInfoSchema.fields) as (keyof PortInfo)[];
 
 /** Are two port LISTS the same fact? The dedup gate a scanner applies BEFORE a
  *  sample reaches its consumer: an unchanged scan must emit nothing, or a

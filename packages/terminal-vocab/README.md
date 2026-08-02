@@ -1,6 +1,6 @@
 # @kolu/terminal-vocab
 
-**The browser-safe terminal vocabulary.** The shared zod-schema family and pure
+**The browser-safe terminal vocabulary.** The shared Effect Schema family and pure
 projections that describe _what a terminal is working on_ — read on both sides of
 the node/browser line: `@kolu/padi` (the per-host terminal daemon) folds and
 serves it server-side, and the client reads it to paint the dock. It carries no
@@ -18,7 +18,7 @@ The export map is the boundary — both entries are **browser-safe**:
 | Entry | What |
 | --- | --- |
 | `./schema` | the `TerminalSnapshot` / `AgentMemory` / `AgentInfo` / `TerminalId` / `RestoreTarget` / `ProcessRss` schemas plus the `RepoChangePulse` / `FsFileInput` / `FsReadFileTextOutput` fs/git wire schemas `@kolu/padi/surface` composes. Re-exports the common port *types* used on the wire (`PortInfo`, `foldPorts`, …) and adds the two pieces that ARE domain: `TerminalPorts`' `known`/`unknown` two-way, and `portReach` |
-| `./ports` | the port vocabulary leaf itself (`PortInfo`, `PortScope`, `PortFamily`, `foldPorts`, `isTcpPort`, …) — zod only, no sensors. Prefer this entry when you need a symbol that is not re-exported on `./schema` |
+| `./ports` | the port vocabulary leaf itself (`PortInfo`, `PortScope`, `PortFamily`, `foldPorts`, `isTcpPort`, …) — Effect Schema only, no sensors. Prefer this entry when you need a symbol that is not re-exported on `./schema` |
 | `./agentProjection` | the pure agent-status projection (`agentBucket` · `agentPaintClass` · `agentUrgency` · `alertClass`) over a `TerminalSnapshot` |
 
 ## Who reads it
