@@ -38,6 +38,9 @@
  */
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
+import { directDispatch } from "@kolu/surface/links/direct";
+import type { SurfaceHandlers } from "@kolu/surface/server";
+import { Effect } from "effect";
 import {
   convergeAdmit,
   createConnectorDrainBudget,
@@ -250,7 +253,6 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
           },
         },
         padi: {
-          marker: "padi-scoped",
           // The framework-reserved `system.*` members the padi-scoped session client
           // probes: `identity` (the identity poll) and `clockNow` (the clock-offset
           // poll `makeSession` fires at admit) — real padi auto-answers both via
@@ -263,6 +265,26 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
       },
     };
 
+    // The link's DISPATCH — what the binder actually builds both padi faces over
+    // now (`padiClientOver(conn.dispatch)`), since a sibling is a tag PREFIX on one
+    // flat wire rather than a nested namespace on one client. Binding the fake
+    // bodies at their real wire tags and routing them through the framework's own
+    // `directDispatch` keeps this a fake DAEMON rather than a fake CLIENT: the face
+    // the binder holds is production's, built by production's walk.
+    const fakeHandlers: SurfaceHandlers = Object.assign(
+      Object.create(null) as SurfaceHandlers,
+      {
+        "surface/control/core/hello": () =>
+          Effect.promise(() => combined.surface.control.core.hello()),
+        "surface/control/core/drain": () =>
+          Effect.promise(() => combined.surface.control.core.drain()),
+        "surface/padi/system/identity": () =>
+          Effect.promise(() => combined.surface.padi.system.identity()),
+        "surface/padi/system/clockNow": () =>
+          Effect.promise(() => combined.surface.padi.system.clockNow()),
+      },
+    );
+
     let resolveClosed!: (info: ClosedInfo) => void;
     const closed = new Promise<ClosedInfo>((r) => {
       resolveClosed = r;
@@ -273,6 +295,7 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
     ctx.connecting();
     return {
       client: combined,
+      dispatch: directDispatch({ handlers: fakeHandlers }),
       closed,
       isAlive: () =>
         combined.surface.control.core.hello().then(() => undefined),
@@ -283,6 +306,23 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
   const session = ensureRemotePadiBinding({ host: "rmt" }, deps);
   sessions.push(session);
   return { session, enqueue: (s) => queue.push(s), handles };
+}
+
+/** The session hands back PADI's face, not the frozen control core's — the
+ *  flat-wire successor of the fake's old `marker` field.
+ *
+ *  Under oRPC the scoped view was a nested object a marker could be hung on. A
+ *  sibling is a TAG PREFIX now and the face is built by production's own walk over
+ *  padi's spec, so the proof is the MEMBER SET that walk mints: padi's members are
+ *  present, and the control core's `core` namespace — the other sibling's only
+ *  member — is not. A regression that handed back the control face (or the raw
+ *  combined value) fails on both halves. */
+function expectPadiScoped(scoped: unknown): void {
+  const face = (scoped as { surface: Record<string, unknown> }).surface;
+  expect(Object.keys(face)).toEqual(
+    expect.arrayContaining(["lifecycle", "terminals", "system"]),
+  );
+  expect(face.core).toBeUndefined();
 }
 
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
@@ -311,14 +351,12 @@ const RECONNECT = 2600;
 
 /** Pin a session that is expected to ADOPT (possibly after a drain that did not take),
  *  advance past the drain ceiling + the identity poll, and return the scoped client. */
-async function pinAdopt(session: PadiSession): Promise<{
-  surface: { marker?: string };
-}> {
+async function pinAdopt(session: PadiSession): Promise<unknown> {
   const p = session.pin();
   p.catch(() => {});
   await flush(CEIL);
   await flush();
-  return (await p) as { surface: { marker?: string } };
+  return await p;
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────
@@ -380,9 +418,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals({ commit: "deadbee", startedAt: 4242 })));
 
     const scoped = await pinAdopt(session);
-    // scopePadiSurface = { surface: combined.surface.padi } — the scoped client's
-    // `.surface` IS padi's sibling (the re-serve mirrors `.surface.padi.<member>`).
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    // The scoped client's members address `surface/padi/*` (the re-serve mirrors
+    // `.surface.<member>` at that prefix).
+    expectPadiScoped(scoped);
 
     // Identity graduates to the base `identity()` off padi's `system.identity` (the old
     // padiSurfaceVersion / padiBuildCommit / padiStartedAt readouts, now one sum).
@@ -657,7 +695,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     });
     enqueue(serve(helloVals({ buildId: "build-X" })));
     const scoped = await pinAdopt(session);
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(scoped);
     expect(handles[0]!.drainCount).toBe(0);
   });
 
@@ -680,10 +718,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const scoped = (await session.currentClient()) as {
-      surface: { marker?: string };
-    };
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(await session.currentClient());
     expect(handles[1]!.drainCount).toBe(0);
   });
 
@@ -707,10 +742,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const scoped = (await session.currentClient()) as {
-      surface: { marker?: string };
-    };
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(await session.currentClient());
     expect(handles[1]!.drainCount).toBe(0);
 
     // 3. LATER a NEW instance of the ALREADY-DRAINED build-OLD appears (3000). That is

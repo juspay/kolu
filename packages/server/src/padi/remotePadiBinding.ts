@@ -27,21 +27,26 @@ import { currentPadiBuildId } from "@kolu/padi/assembly";
 import {
   PADI_REMOTE_DIAL,
   type PadiDaemonClient,
+  padiClientOver,
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import {
+  padiDaemonGroup,
+  type padiSurface,
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
+  padiSurfaceSibling,
 } from "@kolu/padi/surface";
 import {
   convergeAdmit,
+  type ControlCoreProbeClient,
   createConnectorDrainBudget,
   probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
+  ConnectError,
   type Connector,
   makeSession,
   ResolveDrvError,
@@ -257,7 +262,9 @@ class PadiDrvFault extends ResolveDrvError {
  *  boot-brick that takes the whole server + the healthy local default down with it
  *  (F6). A source that cannot resolve padi for the probed system is likewise a
  *  TERMINAL config fault; an unreachable host rejects plainly → `"network"` (retry). */
-function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
+function makeResolvePadiDrv(): SshConnectorOptions<
+  typeof padiSurface.spec
+>["resolveDrvPath"] {
   return async (ctx) => {
     // Validate the baked ref here (lazy). A missing ref can't self-heal on a
     // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session
@@ -441,7 +448,14 @@ export function ensureRemotePadiBinding(
   // padi-scoped view (`client.surface.<member>` at /surface/padi/*). So the wrapper
   // stashes the combined (for admit/drain) and hands the session the scoped client.
   const resolveDrv = makeResolvePadiDrv();
-  const inner = sshConnector<PadiDaemonContract>({
+  const inner = sshConnector({
+    // padi's SIBLING spec carried over the FULL daemon group — the same two halves
+    // `dialPadiViaHost` composes, for the same reason: `sshConnector` reads `.group`
+    // to open the link (which must reach the CONTROL sibling's tags too) and walks
+    // `.spec`/`.tagPrefix` to build the face (which is padi's own surface, what the
+    // pump and `identity()` consume). Splitting them is the only way to dial a
+    // two-sibling daemon through a one-surface connector.
+    surface: { ...padiSurfaceSibling, group: padiDaemonGroup },
     host,
     binary: PADI_REMOTE_DIAL.binary,
     extraArgs,
@@ -475,13 +489,27 @@ export function ensureRemotePadiBinding(
         return new Promise<void>(() => {});
       }
     });
+    // The COMBINED daemon client — padi's face AND the frozen control core — built
+    // over the link's OWN dispatch. `sshConnector` builds ONE face from ONE surface
+    // (padi's), so the control sibling's face can only come from the dispatch it
+    // hands back beside it. A connection without one cannot be admitted: admit
+    // probes and drains through `surface/control/*`, so proceeding would mean
+    // riding a padi we can neither identify nor drain.
+    if (conn.dispatch === undefined) {
+      throw new ConnectError(
+        `remote padi on ${host}: the ssh link exposed no dispatch, so the frozen control core is unreachable`,
+        "remote",
+        true,
+      );
+    }
+    const daemonClient = padiClientOver(conn.dispatch);
     const active = {
-      client: conn.client,
+      client: daemonClient,
       dispose: conn.teardown,
       processExit,
       signal: ctx.signal,
     };
-    const scopedClient = scopePadiSurface(conn.client);
+    const scopedClient = scopePadiSurface(daemonClient);
     combinedByScopedClient.set(scopedClient, active);
     return { ...conn, client: scopedClient };
   };
@@ -522,7 +550,7 @@ export function ensureRemotePadiBinding(
     drainRejection: string | null;
   }> {
     return drainAndAwaitExit(
-      () => active.client.surface.control.core.drain(),
+      () => active.client.control.surface.core.drain(),
       (signal) => awaitExitViaProcessOracle(active.processExit, signal),
       { ceilingMs: drainCeilingMs },
     );
@@ -539,7 +567,15 @@ export function ensureRemotePadiBinding(
       throw new Error("remote padi admit: no matching combined connection");
     }
     const probe = await probeDaemonIdentityFrom({
-      client: active.client,
+      // The framework's probe speaks `client.surface.control.core.<verb>` — the
+      // shape an oRPC nested client had. Under the flat wire a sibling is a tag
+      // PREFIX, so padi's control face is `{ surface: { core: … } }` and nesting it
+      // under `control` restores that one vocabulary. The framework's own
+      // `probeDaemonIdentity` re-nests identically, at the same seam, with the same
+      // assertion — a `SurfaceFace` carries no per-member types (D2/#16).
+      client: {
+        surface: { control: active.client.control.surface },
+      } as ControlCoreProbeClient,
       dispose: active.dispose,
       capability: "drainable",
       awaitExit: (signal) =>

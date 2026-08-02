@@ -38,7 +38,6 @@ import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
-import type { z } from "zod";
 
 /** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
  *  resolved here so the selection lives in ONE place the route and its test both
@@ -131,7 +130,7 @@ const PREVIEW_PROBE_RANGE = "bytes=0-0";
  *  TYPE import keeps {@link assembleRemotePreview} unit-testable against a fake
  *  reader with no orpc runtime dependency ({@link PreviewRangeReader} stays the
  *  structural seam). */
-export type PreviewReadResult = z.infer<typeof PadiPreviewReadOutputSchema>;
+export type PreviewReadResult = typeof PadiPreviewReadOutputSchema.Type;
 
 /** Dial `preview.read` for one (optional) `Range`. In production this closes over
  *  the bound padi client + the terminal's `{repoPath, filePath}`; in tests it's a

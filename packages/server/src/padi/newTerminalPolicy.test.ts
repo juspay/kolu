@@ -14,6 +14,7 @@ import type { NewTerminalPolicy } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   installNewTerminalPolicyPusher,
+  type NewTerminalPolicyClient,
   type NewTerminalPolicySession,
 } from "./newTerminalPolicy.ts";
 
@@ -286,7 +287,10 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     // A `set` that refuses once, then accepts — the skew-fence-then-upgrade shape.
     const cell = local.session.currentClient();
     if (cell === null) throw new Error("fake session must have a client");
-    const client = await cell;
+    // The session role types its client `unknown` (the surface READ face names no
+    // write verb — see `NewTerminalPolicySession.currentClient`), so the fake is
+    // re-narrowed here to the same slice the pusher narrows to.
+    const client = (await cell) as NewTerminalPolicyClient;
     const real = client.surface.newTerminalPolicy.set.bind(
       client.surface.newTerminalPolicy,
     );

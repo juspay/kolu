@@ -589,32 +589,36 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(sawPadiImport).toBe(true);
   });
 
-  it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {
-    const c = contract as Record<string, unknown>;
-    expect(c.terminal).toBeUndefined();
-    expect(c.git).toBeUndefined();
-    expect(
-      Object.keys(contract)
-        .filter((k) => k !== "surface")
-        .sort(),
-    ).toEqual(["daemon", "hosts", "server"]);
+  it("(c) the root terminal/* and git/* tag namespaces are gone — only server, daemon, hosts beside surface/", () => {
+    // Under Effect RPC the contract is one FLAT `RpcGroup` and a "namespace" is a
+    // tag's first segment, so the same seal reads off `requests` rather than off
+    // object keys. Nothing else about the assertion moved.
+    const roots = new Set(
+      [...contract.requests.keys()].map((tag) => tag.split("/")[0]),
+    );
+    expect(roots.has("terminal")).toBe(false);
+    expect(roots.has("git")).toBe(false);
+    expect([...roots].sort()).toEqual(["daemon", "hosts", "server", "surface"]);
 
-    // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
-    // an `await`ed re-serve), so build it here with stub deps to assert the same
-    // fact: no terminal/git root namespace survives beside surface/server/daemon.
-    const r = buildAppRouter({
-      surfaceRouter: { surface: {} },
-      drainBoundPadi: async () => {},
-      addHost: async () => {},
-      removeHost: async () => {},
-      reconnectHost: () => {},
-      renewHostDaemon: async () => {},
-      // No viewer identity in a router-shape assertion — `null` is the answer
-      // for every uncertain case anyway.
-      viewerHost: async () => null,
-    }) as Record<string, unknown>;
-    expect(r.terminal).toBeUndefined();
-    expect(r.git).toBeUndefined();
+    // The bound ROOT handlers are assembled in `index.ts`'s async boot now, so
+    // build them here with stub deps to assert the same fact on the serving side:
+    // no terminal/git root tag survives beside server/daemon/hosts.
+    const bound = new Set(
+      Object.keys(
+        buildAppRouter({
+          drainBoundPadi: async () => {},
+          addHost: async () => {},
+          removeHost: async () => {},
+          reconnectHost: () => {},
+          renewHostDaemon: async () => {},
+          // No viewer identity in a shape assertion — `null` is the answer for
+          // every uncertain case anyway.
+          viewerHost: async () => null,
+        }).handlers,
+      ).map((tag) => tag.split("/")[0]),
+    );
+    expect(bound.has("terminal")).toBe(false);
+    expect(bound.has("git")).toBe(false);
   });
 
   it("(d) REVERSE seal — no @kolu/padi src file references koluSurface (import/type/namespace/re-export)", () => {

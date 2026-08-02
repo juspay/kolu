@@ -34,15 +34,20 @@ import os from "node:os";
 import path from "node:path";
 import {
   type PadiDaemonClient,
+  padiClientOver,
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import {
+  padiDaemonGroup,
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
   type PadiHostInventory,
+  padiSurfaceSibling,
   type PadiTerminal,
 } from "@kolu/padi/surface";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import type { AgentClient } from "@kolu/surface-remote";
+import { Stream } from "effect";
 import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
@@ -148,7 +153,7 @@ async function currentAgent(
   id: TerminalId,
 ): Promise<PadiActiveAgent | null> {
   const rec = await firstFrameOrUndefined<PadiTerminal>(
-    await padi.surface.terminals.get({ key: id }),
+    Stream.toAsyncIterable(padi.surface.terminals.get({ key: id })),
   );
   if (!rec || rec.state !== "active") return null;
   return rec.agent;
@@ -225,9 +230,14 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // (the deleted `getHostSession` pool). Each `dial()` OWNS its fresh session — the
     // convergence test's re-dial after a drain gets a genuinely new one, exactly as the
     // old pooled `getHostSession` handed back a fresh session once the pooled link died.
-    const s = makeSession<PadiDaemonClient, SshProv>({
+    const s = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<PadiDaemonContract>({
+      connectOnce: sshConnector({
+        // padi's SIBLING spec over the FULL daemon group — the same two halves
+        // `dialPadiViaHost` and the remote binder compose, so the link reaches the
+        // control sibling's tags too. The face the connector builds is padi's;
+        // the CONTROL face is built from the same link's dispatch below.
+        surface: { ...padiSurfaceSibling, group: padiDaemonGroup },
         host: SSH_HOST as string,
         binary: "padi",
         // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
@@ -249,6 +259,20 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     return s;
   };
 
+  /** Both padi faces over the session's ONE link. `sshConnector` builds a single
+   *  face (padi's); the frozen control core is a SIBLING at another tag prefix, so
+   *  it is built over the link's own dispatch — the same move the remote binder
+   *  makes. A session with no dispatch has no live link, which is a test failure,
+   *  never something to degrade past. */
+  const combinedOf = (s: {
+    currentDispatch?(): SurfaceDispatch | undefined;
+  }): PadiDaemonClient => {
+    const dispatch = s.currentDispatch?.();
+    if (dispatch === undefined)
+      throw new Error("the pinned ssh session exposed no dispatch");
+    return padiClientOver(dispatch);
+  };
+
   afterAll(() => {
     for (const s of sessions.splice(0)) s.destroy();
   });
@@ -258,10 +282,11 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // pin() runs resolveDrvPath → provisionAgent (remote-store nix build + GC root)
     // → ssh <host> padi --stdio → stdioLink. The remote padi (and its kaval) is
     // durable behind the front.
-    const combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    const combined = combinedOf(session);
     session.markConnected();
 
-    const hello = await combined.surface.control.core.hello();
+    const hello = await combined.control.surface.core.hello();
     console.log(
       `[ssh] hello: padiSurface=${hello.surfaceVersion} controlCore=${hello.controlCoreVersion} stateRoot=${hello.stateRoot}`,
     );
@@ -276,9 +301,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
     // terminalAttach's first frame is the snapshot, relayed straight over ssh.
-    const attach = (await padi.surface.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
+    const attach = Stream.toAsyncIterable(
+      padi.surface.terminalAttach.get({ id }),
+    )[Symbol.asyncIterator]();
     const first = await attach.next();
     const firstFrame = first.value as TerminalAttachFrame;
     expect(firstFrame.kind).toBe("snapshot");
@@ -299,9 +324,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // only ever show the machine kolu-server runs on). The cell subscription replays the
     // current value, then a frame per sample — iterate until the serving padi has marked
     // itself active (the sampler's T+0 anchor may precede the held kaval connecting).
-    const invIter = (await padi.surface.hostInventory.get({}))[
-      Symbol.asyncIterator
-    ]();
+    const invIter = Stream.toAsyncIterable(
+      padi.surface.hostInventory.get(undefined),
+    )[Symbol.asyncIterator]();
     let inv = (await invIter.next()).value as PadiHostInventory;
     const invDeadline = Date.now() + 25_000; // spans two 10s sample intervals
     while (!inv.padis.some((p) => p.active) && Date.now() < invDeadline) {
@@ -322,7 +347,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
   it("records typing-echo latency over the ssh leg (the W3 reference vs 4.36ms p99 local)", async () => {
     const session = dial();
-    const combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    const combined = combinedOf(session);
     session.markConnected();
     const padi = scopePadiSurface(combined);
     const { id } = await padi.surface.lifecycle.create({
@@ -331,9 +357,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
     // Subscribe attach; skip the snapshot (frame 1). Each keystroke: clock at
     // sendInput, stop when the echoed char first appears in a delta.
-    const iter = (await padi.surface.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
+    const iter = Stream.toAsyncIterable(
+      padi.surface.terminalAttach.get({ id }),
+    )[Symbol.asyncIterator]();
     await iter.next(); // snapshot
 
     const SAMPLES = Number(process.env.KOLU_BENCH_SAMPLES ?? 60);
@@ -372,15 +398,16 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
   it("converges across a drain: a drained remote padi respawns and the leg recovers", async () => {
     const session = dial();
-    let combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    let combined = combinedOf(session);
     session.markConnected();
     let padi = scopePadiSurface(combined);
 
-    const helloBefore = await combined.surface.control.core.hello();
+    const helloBefore = await combined.control.surface.core.hello();
     // Drain the remote padi over the frozen control core (persist + exit; its kaval
     // + PTYs survive). The front's relay ends → the HostSession reconnects and
     // frontDaemonOverStdio respawns/re-adopts padi.
-    await combined.surface.control.core.drain().catch(() => {
+    await combined.control.surface.core.drain().catch(() => {
       // The link tears down mid-response — expected.
     });
 
@@ -391,9 +418,10 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     while (!recovered && Date.now() < deadline) {
       try {
         const s2 = dial();
-        combined = (await s2.pin()) as PadiDaemonClient;
+        await s2.pin();
+        combined = combinedOf(s2);
         s2.markConnected();
-        const helloAfter = await combined.surface.control.core.hello();
+        const helloAfter = await combined.control.surface.core.hello();
         console.log(
           `[ssh] post-drain hello: startedAt before=${helloBefore.startedAt} after=${helloAfter.startedAt} (a fresh boot ⇒ respawn; same ⇒ re-adopt)`,
         );
@@ -432,7 +460,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       // an assistant `end_turn` with a bumped token usage (→ waiting) and assert the
       // SAME `terminals` record transitions state AND its contextTokens changes.
       const session = dial();
-      const combined = (await session.pin()) as PadiDaemonClient;
+      await session.pin();
+      const combined = combinedOf(session);
       session.markConnected();
       const padi = scopePadiSurface(combined);
 
@@ -625,7 +654,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       // so the fixtures live on this box's disk (the same disk padi reads); a two-box
       // binding can't reach them, hence the self-ssh gate.
       const session = dial();
-      const combined = (await session.pin()) as PadiDaemonClient;
+      await session.pin();
+      const combined = combinedOf(session);
       session.markConnected();
       const padi = scopePadiSurface(combined);
 

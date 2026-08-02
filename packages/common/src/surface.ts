@@ -533,6 +533,23 @@ export const PadiConvergenceSchema = Schema.Union([
         kind: Schema.Literal("probe-failed"),
         message: Schema.String,
       }),
+      Schema.Struct({
+        /** The daemon at our rendezvous speaks a protocol EPOCH this supervisor
+         *  cannot decode (PLAN D6 / #3) — an explicit first-frame decode failure
+         *  from a peer whose gate file is ours and whose pid we verified. NOT a
+         *  version skew: a version is something you read off a wire you can speak,
+         *  which is why it is its own cause rather than a widened `probe-failed`
+         *  (that arm still protects a foreign socket-squatter from SIGTERM).
+         *
+         *  padi's disposition is REFUSE: `drain-newer-else-refuse` cannot drain
+         *  over an unspeakable wire, so it degenerates to refuse and the operator
+         *  must clear the survivor themselves. The typed evidence is what the card
+         *  shows them — which socket, which gate, which pid. */
+        kind: Schema.Literal("unspeakable-protocol"),
+        socketPath: Schema.String,
+        gatePath: Schema.String,
+        pid: Schema.Number.check(Schema.isInt()),
+      }),
     ]),
     detail: Schema.String,
   }),

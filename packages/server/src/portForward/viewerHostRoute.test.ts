@@ -14,18 +14,21 @@
  * with a context the way the HTTP and websocket entry points populate it.
  */
 
-import { createRouterClient } from "@orpc/server";
+import { Effect, Layer } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { describe, expect, it, vi } from "vitest";
-import { buildAppRouter, type BuildAppRouterDeps } from "../router.ts";
+import {
+  buildAppRouter,
+  type BuildAppRouterDeps,
+  CurrentViewer,
+} from "../router.ts";
 
 const ZEST: HostKey = { kind: "remote", target: "zest" };
 
-/** The router under test, plus a spy on the one dep this exercises. */
+/** The bound root handlers, plus a spy on the one dep this exercises. */
 function harness(answer: HostKey | null = null) {
   const viewerHost = vi.fn(async () => answer);
   const deps: BuildAppRouterDeps = {
-    surfaceRouter: { surface: {} },
     drainBoundPadi: async () => {},
     addHost: async () => {},
     removeHost: async () => {},
@@ -33,21 +36,30 @@ function harness(answer: HostKey | null = null) {
     renewHostDaemon: async () => {},
     viewerHost,
   };
-  const router = buildAppRouter(deps);
-  return { viewerHost, router };
+  return { viewerHost, handlers: buildAppRouter(deps).handlers };
 }
 
-/** Call `hosts.viewer` with the context an entry point would have built. */
+/** Drive the `hosts/viewer` handler with the per-connection service the transport
+ *  mount provides — the Effect successor of the oRPC per-call `context`. The
+ *  handler is dispatched straight off the runtime record (no link, no wire): a
+ *  tag carries its own route, so there is nothing between the record and the
+ *  handler for a test to stand in for. */
 function callViewer(
-  router: ReturnType<typeof harness>["router"],
-  context: { viewerAddress?: string; forwardedFor?: string },
-) {
-  const client = createRouterClient(
-    router as Parameters<typeof createRouterClient>[0],
-    { context },
-    // biome-ignore lint/suspicious/noExplicitAny: the test walks the assembled router structurally (hosts.viewer).
-  ) as any;
-  return client.hosts.viewer() as Promise<{ host: HostKey | null }>;
+  handlers: ReturnType<typeof harness>["handlers"],
+  viewer: { viewerAddress?: string; forwardedFor?: string },
+): Promise<{ host: HostKey | null }> {
+  const handler = handlers["hosts/viewer"];
+  if (handler === undefined) throw new Error("hosts/viewer is not bound");
+  return Effect.runPromise(
+    (handler(undefined) as Effect.Effect<{ host: HostKey | null }>).pipe(
+      Effect.provide(
+        Layer.succeed(CurrentViewer)({
+          viewerAddress: viewer.viewerAddress,
+          forwardedFor: viewer.forwardedFor,
+        }),
+      ),
+    ),
+  );
 }
 
 describe("hosts.viewer", () => {
@@ -56,7 +68,7 @@ describe("hosts.viewer", () => {
     // made this feature dead on the real deployment: behind tailscale serve the
     // peer is the kolu host's own address and the viewer's is in the header.
     const h = harness();
-    await callViewer(h.router, {
+    await callViewer(h.handlers, {
       viewerAddress: "100.122.32.106",
       forwardedFor: "100.90.229.113",
     });
@@ -72,7 +84,7 @@ describe("hosts.viewer", () => {
     // downstream — one is "no proxy said anything", the other is a header that
     // parses to nothing — so the seam must not flatten them.
     const h = harness();
-    await callViewer(h.router, { viewerAddress: "10.0.0.9" });
+    await callViewer(h.handlers, { viewerAddress: "10.0.0.9" });
 
     expect(h.viewerHost).toHaveBeenCalledWith({
       peerAddress: "10.0.0.9",
@@ -83,12 +95,12 @@ describe("hosts.viewer", () => {
   it("returns the host it was given", async () => {
     const h = harness(ZEST);
     await expect(
-      callViewer(h.router, { viewerAddress: "100.122.32.106" }),
+      callViewer(h.handlers, { viewerAddress: "100.122.32.106" }),
     ).resolves.toEqual({ host: ZEST });
   });
 
   it("returns null when kolu cannot tell — the safe answer", async () => {
     const h = harness(null);
-    await expect(callViewer(h.router, {})).resolves.toEqual({ host: null });
+    await expect(callViewer(h.handlers, {})).resolves.toEqual({ host: null });
   });
 });

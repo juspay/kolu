@@ -97,7 +97,7 @@ export { drainRejectionSuffix };
  */
 export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
   const { took, drainRejection } = await drainAndAwaitExit(
-    () => conn.client.surface.control.core.drain(),
+    () => conn.client.control.surface.core.drain(),
     // The endpoint's exit signal is the SOCKET CLOSE.
     () => new Promise<void>((resolve) => conn.onClose(resolve)),
     { ceilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS },

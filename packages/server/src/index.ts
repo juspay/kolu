@@ -20,18 +20,14 @@ import {
   padiSurface,
 } from "@kolu/padi/surface";
 import type { ServeResult } from "@kolu/serve-dir";
-import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
-import { directLink } from "@kolu/surface/links/direct";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
-import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
   installFreshStatic,
   installPwaManifest,
+  serveSurfaceSocket,
 } from "@kolu/surface-app/server";
 import {
   buildRemotePool,
@@ -40,17 +36,22 @@ import {
   serveHostMap,
 } from "@kolu/surface-remote";
 import { sessionConnection } from "@kolu/surface-remote/connection";
-import { LoggingHandlerPlugin } from "@orpc/experimental-pino";
-import { RPCHandler } from "@orpc/server/fetch";
-import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+import { Effect, Layer, Option, Stream } from "effect";
 import { Hono } from "hono";
 import { pinoLogger } from "hono-pino";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
-import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-import { collectionFace } from "@kolu/surface/collection-face";
+import {
+  decodeHostKey,
+  decodeHostKeyValue,
+  encodeHostKey,
+} from "kolu-common/hostKey";
+
 import { createKoluForwards } from "./portForward/forwards.ts";
-import { makeHostPortsReader } from "./portForward/hostPorts.ts";
+import {
+  makeHostPortsReader,
+  type TerminalsFace,
+} from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import {
   TERMINAL_FILE_ROUTE_BASE,
@@ -58,9 +59,7 @@ import {
 } from "kolu-common/preview";
 import {
   type HostKey,
-  HostKeySchema,
   LOCAL_HOST,
-  PADI_SURFACE_NAME,
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
@@ -90,13 +89,18 @@ import {
 import { pruneToMembers } from "./padi/reServeEviction.ts";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { installRouteErrorLogging } from "./routeErrors.ts";
-import { buildAppRouter } from "./router.ts";
+import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
   claimLocalSupervisor,
   supervisorConflictError,
 } from "./padi/supervisorClaim.ts";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
-import { currentNewTerminalPolicy, implementKoluSurface } from "./surface.ts";
+import {
+  assembleServedHandlers,
+  currentNewTerminalPolicy,
+  implementKoluSurface,
+  servedGroup,
+} from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
@@ -205,25 +209,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     );
     process.exit(1);
   });
-
-  // --- oRPC plugins ---
-  const rpcPlugins = [
-    new LoggingHandlerPlugin({
-      logger: log,
-      // logRequestResponse left off (default) — too noisy for high-frequency
-      // calls like sendInput/attach. Errors and unmatched procedures are
-      // still logged automatically by the plugin.
-      //
-      // logRequestAbort: disabled because the plugin attaches its own
-      // addEventListener("abort") on each request signal (independent of our
-      // handler code), so every WebSocket disconnect spams one INFO line per
-      // in-flight stream. In this app every abort is a tab close — there are
-      // no client-initiated cancellations — so the noise has no diagnostic
-      // value. The WebSocket close handler below already logs disconnects
-      // with connection ID and close code.
-      logRequestAbort: false,
-    }),
-  ];
 
   // ─────────────────────────────────────────────────────────────────────────────
   // ASYNC BOOT — bind the padi PROCESS, re-serve its surface, assemble the router.
@@ -480,7 +465,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   const localReServe = reServeFor(LOCAL_HOST, padiSession);
   const reServedPadiClient = surfaceClientRef(
     localReServe.surface,
-    localReServe.router as Parameters<typeof surfaceClientRef>[1],
+    localReServe,
   );
 
   // Serve the padi MAP over the warm pool — the key-folded members + the `entries`
@@ -489,8 +474,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // without "copying"; `serveHostMap`'s belt (juspay/kolu#1716) checks that off each
   // session's own `provisions` fact now, so there is no app-nominated "local key" to pass.
   const padiMap = serveHostMap(padiHostMap, pool, {
-    // biome-ignore lint/suspicious/noExplicitAny: ReServedSurface.router is opaque (`unknown`); directLink forwards it structurally, exactly as the memory sampler's `surfaceClientRef` does above.
-    linkFor: (h, s) => directLink(reServeFor(h, s).router as any),
+    // The per-host forwarding target: an in-process dispatch straight over that
+    // host's re-served handler record — no socket, no serialization. `directDispatch`
+    // takes the `{ handlers }` pair the re-serve hands back, so this connection site
+    // is cast-free (the oRPC `router as any` it replaces existed only because a
+    // nested router proxy had no nameable type).
+    dispatchFor: (h, s) => directDispatch(reServeFor(h, s)),
     // The clock offset is no longer injected: `makeSession` measures it off the
     // framework-reserved `system.clockNow` at admit and carries it on each session's
     // own `connected` state, which `serveHostMap` reads directly. Readiness is
@@ -586,24 +575,28 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // carry destroyed-ness; see `padiMemoryReadable`'s module doc) — is the named leaf now, so
     // the mirror read below can't run against a destroyed re-serve.
     if (!padiMemoryReadable(padiSession)) return null;
-    const ctl = new AbortController();
     try {
-      // `reServedPadiClient` is an in-process `directLink` over the mirror's router, so
-      // this reads the folded store with no socket/ssh hop and the same cell verb.
-      const iterable = await reServedPadiClient.surface.processMemory.get(
-        {},
-        { signal: ctl.signal },
+      // `reServedPadiClient` is an in-process `directDispatch` face over the mirror's
+      // handlers, so this reads the folded store with no socket/ssh hop and the same
+      // cell verb. A cell `get` is a lazy `Stream` now (D10/#18): `Stream.runHead`
+      // takes the snapshot frame and INTERRUPTS the rest, which is the Effect
+      // successor of the old `AbortController` + `firstFrameOrUndefined` pair —
+      // fiber interruption IS the unsubscribe, so nothing is left running.
+      // `Effect.runPromise` here is a genuine boundary edge: the reactor's poll dep is
+      // `() => Promise<T>` and the reactor is deliberately non-Effect (locked
+      // decision 1).
+      const frame = await Effect.runPromise(
+        Stream.runHead(reServedPadiClient.surface.processMemory.get(undefined)),
       );
-      const frame = await firstFrameOrUndefined(iterable);
       // The client was live but the cell yielded no frame — an operational anomaly,
       // not "no process to measure". Report `error`, not `absent`, and log at `error`
       // (a live-client read that produced nothing is a failed read, not a degraded-but-
       // recoverable state — see `.agency/code-police.md` errors-must-log-at-error).
-      if (frame === undefined) {
+      if (Option.isNone(frame)) {
         log.error({}, "padi memory read yielded no frame through the mirror");
         return PADI_MEMORY_READ_ERROR;
       }
-      return frame;
+      return frame.value;
     } catch (err) {
       // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
       // honest `error` state, distinct from `absent`, rather than collapsing a caught
@@ -613,8 +606,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // (errors-must-log-at-error).
       log.error({ err }, "padi memory read failed through the mirror");
       return PADI_MEMORY_READ_ERROR;
-    } finally {
-      ctl.abort();
     }
   }
 
@@ -685,13 +676,19 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       const session = pool.getSession(encodeHostKey(host));
       if (session === undefined) return null;
       const served = reServeFor(host, session);
-      const client = surfaceClientRef(
-        served.surface,
-        served.router as Parameters<typeof surfaceClientRef>[1],
-      );
-      // Narrowed through the framework's own checked widening — no `unknown`
-      // in sight, so a rename of `keys`/`get` upstream is a compile error here.
-      return collectionFace(client.surface.terminals);
+      // `surfaceClientRef` types its result as the spec's READ face, which
+      // deliberately DECLINES collections (it exists for a projection's `deps`,
+      // which never walks one) — while the runtime face `buildSurfaceFace` mints
+      // carries every member, `terminals` included. So the member is reached
+      // structurally, the ONE place kolu-server does so, and the shape it is read
+      // AT (`TerminalsFace`) states the two verbs with bivariant methods so a
+      // `keys`/`get` rename upstream is still a compile error where they are
+      // called. Same deliberate structural gap padi's own dial spells out.
+      const face = surfaceClientRef(served.surface, served)
+        .surface as unknown as {
+        terminals: TerminalsFace;
+      };
+      return face.terminals;
     },
   });
 
@@ -768,7 +765,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         "processStartedAt would seed stale. Seed the push cells from a live snapshot instead.",
     );
   }
-  const { router: koluSurfaceRouter } = implementKoluSurface({
+  const koluServed = implementKoluSurface({
     readPadiMemory: readPadiMemoryOnce,
     readDaemonInventory,
     onState: (cb) =>
@@ -798,22 +795,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
   });
 
-  // Splice the map's INNER surface object under the `padi` key beside kolu-server's own
-  // siblings. `serveHostMap` returns a top-level single-surface router
-  // (`{ surface: { <folded members>, entries } }`), so nesting its `.surface` under `padi`
-  // yields `/surface/padi/<folded-member>` + `/surface/padi/entries`, no double prefix.
-  // `padiMap.router` is typed `{ surface: … }` (PR3), so `.surface` reads cast-free — the
-  // router splice's old `as any` is now unspellable by type, closing the campaign's
-  // no-splice property WHOLLY in PR3 (contract cast + string keys + router cast).
-  const surfaceRouter = {
-    surface: {
-      ...koluSurfaceRouter.surface,
-      [PADI_SURFACE_NAME]: padiMap.router.surface,
-    },
-  };
-
-  const appRouter = buildAppRouter({
-    surfaceRouter,
+  // The ROOT procedures — kolu-server's own seven, bound as the third served
+  // fragment. There is no router SPLICE any more: the wire namespace is flat, so the
+  // padi map's members already carry their own `surface/padi/*` tags and the
+  // assembly below is a handler-record merge whose route-set identity is asserted.
+  const rootServed = buildAppRouter({
     // The re-targeted "restart": drain the DEFAULT bound padi (persist + exit; kaval + its
     // PTYs survive; the reconnect loop re-spawns padi). Never a kill-9.
     drainBoundPadi: () => padiSession.renew(),
@@ -858,50 +844,32 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
   });
 
-  // --- oRPC handlers (HTTP non-streaming + WS streaming) ---
-  // appRouter mixes implementSurface's Lazy<Router> spread with hand-listed
-  // namespaces; oRPC's RPCHandler input type doesn't accept that union. The
-  // runtime shape is a valid router.
-  // biome-ignore lint/suspicious/noExplicitAny: see comment above
-  const rpcHandler = new RPCHandler(appRouter as any, { plugins: rpcPlugins });
-  // biome-ignore lint/suspicious/noExplicitAny: see RPCHandler comment above
-  const wsRpcHandler = new WsRPCHandler(appRouter as any, {
-    plugins: rpcPlugins,
+  // --- The served surface: one group, one handler record ---------------------
+  //
+  // `servedGroup` (static, asserted tag-complete at import in `surface.ts`) is the
+  // superset kolu-server advertises; `assembleServedHandlers` merges the three
+  // fragments that implement it and PROVES the bound tag set matches the group
+  // exactly, in both directions. A tag carries its own route, so there is no
+  // router to assemble and no matcher tree to keep in sync — the boot-time 404 the
+  // retired `implement(servedContract)` widening guarded against is now a crash
+  // here, before the server listens.
+  const servedHandlers = assembleServedHandlers({
+    kolu: koluServed,
+    padiMap,
+    root: rootServed,
   });
 
-  // --- oRPC HTTP handler mount (non-streaming calls) ---
-  app.use("/rpc/*", async (c, next) => {
-    // CSWSH gate, HTTP arm: the WebSocket upgrade is NOT the only browser path
-    // into the unauthenticated RPC surface. The oRPC HTTP codec deserializes a
-    // cross-site `multipart/form-data` POST (a CORS-"simple" request, no
-    // preflight) straight into procedure input, and no-input mutations
-    // (`daemon.restart`) need no body at all — so a page the operator visits could
-    // drive these over plain HTTP even with `/rpc/ws` gated. Reject a cross-site
-    // browser Origin here too, with the SAME policy. Non-browser clients (no
-    // Origin) and same host:port traffic pass; kolu's own UI never uses this
-    // transport (it drives every call over `/rpc/ws`).
-    const rejected = gateHttpRpcOrigin(c.req.raw, {
-      allowedOrigins,
-      onReject: (origin) =>
-        log.warn({ origin }, "rejecting HTTP RPC: disallowed Origin"),
-    });
-    if (rejected) return rejected;
-    const { matched, response } = await rpcHandler.handle(c.req.raw, {
-      prefix: "/rpc",
-      // Same per-caller facts as the websocket path below. `c.env` carries
-      // node's own request, which is where the peer address lives; a missing one
-      // is an honest `undefined` and answers `null`, never a guess. The
-      // forwarded header rides along because behind a reverse proxy the peer is
-      // the PROXY — `viewerHost` gates which of the two to believe.
-      context: {
-        viewerAddress: (c.env as { incoming?: IncomingMessage } | undefined)
-          ?.incoming?.socket.remoteAddress,
-        forwardedFor: c.req.raw.headers.get("x-forwarded-for"),
-      },
-    });
-    if (matched) return response;
-    return next();
-  });
+  // NOTE — the HTTP RPC arm is GONE, deliberately. oRPC served every procedure on a
+  // second, request/response transport at `/rpc/*`; Effect RPC has no such arm in
+  // this stack — every call (a cell subscription, a collection delta stream, an
+  // imperative procedure) rides the one ndjson socket at `/rpc/ws`, which is the
+  // only transport kolu's own UI ever used. Keeping an empty `/rpc/*` route would
+  // advertise a transport that answers nothing, so it is deleted rather than
+  // ported — and with it the `gateHttpRpcOrigin` CSWSH gate, whose whole reason for
+  // existing was that oRPC's HTTP codec was browser-reachable with no preflight.
+  // Deleting the transport removes that attack surface outright instead of gating
+  // it. The ws-upgrade gate (`gateWsOrigin`, below) is untouched and still
+  // load-bearing. Same call the surface examples made in W2.
 
   // --- Health endpoint ---
   app.get("/api/health", (c) => c.text("kolu"));
@@ -934,7 +902,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     const rawHostParam = c.req.param("host");
     let host: HostKey;
     try {
-      host = HostKeySchema.parse(decodeHostKey(rawHostParam));
+      host = decodeHostKeyValue(decodeHostKey(rawHostParam));
     } catch {
       return c.text("invalid host key", 400);
     }
@@ -1154,17 +1122,27 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     },
   );
 
-  // --- oRPC WebSocket handler (streaming) ---
+  // --- The WebSocket RPC mount (the ONE transport) ---
   const wss = new WebSocketServer({ noServer: true });
   // The acceptance seam (`@kolu/surface-app/server`) owns the liveness reaper AND
   // sequences the per-socket stale-tab gate → reaper enrolment → dispatch in one
   // `accept(...)` call. Reaping the server-side zombie (and its stream
   // subscriptions) a half-open client would leak is the server half; the client
   // half (the watchdog folded into `createServerLifecycle`) un-freezes the tab.
-  // The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE oRPC
-  // upgrades the socket (so dead-terminal subscriptions never replay and storm the
-  // logs with NOT_FOUND) and such a socket never enrols — so #1231's gate is
-  // untouched. `serverProcessId` is the same id the `identity.info` probe reports.
+  // The stale-tab gate closes a tab bound to a PREVIOUS instance BEFORE any RPC
+  // dispatch (so dead-terminal subscriptions never replay and storm the logs) and
+  // such a socket never enrols — so #1231's gate is untouched. `serverProcessId` is
+  // the same id the `identity.info` probe reports.
+  //
+  // This is the HAND-WIRED ws seam PLAN D5/#6/#15 requires, and it is why the
+  // turnkey `RpcServer.layerProtocolWebsocket` / `layerHttp` paths are NOT used:
+  // both OWN the upgrade, and owning the upgrade means owning the ordering these
+  // three steps must run in front of. The upgrade stays here — a raw
+  // `server.on("upgrade")` + `ws.WebSocketServer` — so the CSWSH origin gate runs
+  // before a socket exists, the stale-tab gate runs before any dispatch, and the
+  // ping/terminate reaper holds every socket it will later sweep (all three need
+  // the RAW `ws` socket, which Effect's `HttpServerRequest.upgrade` wraps away
+  // behind `Socket.fromWebSocket`).
   const acceptor = acceptSurfaceSocket({
     server: wss,
     liveProcessId: serverProcessId,
@@ -1184,17 +1162,41 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // stale tab is closed and never dispatched or enrolled.
     acceptor.accept(ws, url, () => {
       connLog.info({ total: wss.clients.size }, "connected");
-      // The viewer's connection facts ride the CONTEXT, so `hosts.viewer` can
-      // answer per caller — which is the only shape that fits, since the answer
-      // differs by connection and a surface cell is broadcast to all of them.
-      // BOTH the direct peer and the forwarded header, because behind a reverse
-      // proxy they name different machines; `viewerHost` gates which to believe.
-      wsRpcHandler.upgrade(ws, {
-        context: {
+      // DISPATCH — the third and last step of the seam's gate → enrol → dispatch
+      // order. `serveSurfaceSocket` stands up an Effect `RpcServer` for THIS socket
+      // over the SHARED handler record: one Layer-composed serving stack per
+      // connection (ndjson over the accepted websocket), so one peer's teardown
+      // cannot touch another's.
+      const serving = serveSurfaceSocket({
+        group: servedGroup,
+        handlers: servedHandlers,
+        // A `ws` socket satisfies `ServableSocket` structurally; its typings
+        // narrow `addEventListener` per event name, which the seam's generic
+        // `(type: string, listener: (e: Event) => void)` shape cannot express.
+        socket: ws as unknown as Parameters<
+          typeof serveSurfaceSocket
+        >[0]["socket"],
+        // The viewer's connection facts, provided as this connection's OWN service
+        // — the shape review #15 forced. Effect's socket-server RPC protocol
+        // forwards no per-request context and no headers (`makeProtocolSocketServer`
+        // calls `run(onSocket)` with the socket alone), so a per-caller fact cannot
+        // ride the request; a per-connection serving stack simply PROVIDES it.
+        // BOTH the direct peer and the forwarded header, because behind a reverse
+        // proxy they name different machines; `viewerHost` gates which to believe.
+        // An absent address stays an honest `undefined` — never a guess.
+        services: Layer.succeed(CurrentViewer)({
           viewerAddress: req.socket.remoteAddress,
-          forwardedFor: req.headers["x-forwarded-for"],
-        },
+          forwardedFor: req.headers["x-forwarded-for"]?.toString(),
+        }),
       });
+      // `done` MUST be observed (the seam's contract): it rejects if this
+      // connection's serving stack failed to build, and an ignored rejection is an
+      // unhandled one — which the process-level `unhandledRejection` boundary would
+      // turn into a whole-server exit over ONE dead socket. A per-connection fault
+      // is per-connection: log it loudly and let the socket die.
+      serving.done.catch((err: unknown) =>
+        connLog.error({ err }, "ws rpc serving stack faulted"),
+      );
       ws.on("close", (code, reason) => {
         const reasonStr = reason.toString();
         connLog.info(
@@ -1212,8 +1214,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url ?? "", `http://${req.headers.host}`);
     if (url.pathname === "/rpc/ws") {
-      // CSWSH gate: reject a cross-site browser Origin before oRPC ever sees the
-      // socket. The RPC surface is unauthenticated and cookie-less, so without
+      // CSWSH gate: reject a cross-site browser Origin before a socket exists at
+      // all. The RPC surface is unauthenticated and cookie-less, so without
       // this any page the operator visits could open `/rpc/ws` and drive every
       // procedure. Loopback binding does NOT help — the attacker page runs in the
       // operator's own browser. Non-browser clients send no Origin and pass;

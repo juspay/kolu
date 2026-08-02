@@ -50,7 +50,36 @@ export interface NewTerminalPolicyClient {
 export interface NewTerminalPolicySession {
   onState(cb: (state: { phase: string }) => void): () => void;
   currentState(): { phase: string };
-  currentClient(): Promise<NewTerminalPolicyClient> | null;
+  /** The session's client, UNTYPED here and narrowed by {@link policyWriter} at the
+   *  one call site. It is `unknown` because the spec-derived surface face types only
+   *  the READ verbs (`SurfaceReadFace` declines every write verb), while the runtime
+   *  face `buildSurfaceFace` mints carries `set` — so no declared client type both
+   *  matches a real `PadiSession` and names the verb this module calls. The narrow
+   *  is CHECKED and fails LOUD rather than silently skipping the push. */
+  currentClient(): Promise<unknown> | null;
+}
+
+/** Narrow a padi client to the one write verb this module uses.
+ *
+ *  THROWS on a face that has no `newTerminalPolicy.set` — the wrong-client mistake,
+ *  which must read as the programming error it is instead of a push that silently
+ *  does nothing (surface-app's `surfaceAppProbe` makes the same call for the same
+ *  reason). A padi that genuinely lacks the member is a contract skew the binding's
+ *  own version gate refuses long before a push reaches here. */
+function policyWriter(client: unknown): NewTerminalPolicyClient {
+  const set = (
+    client as
+      | {
+          surface?: { newTerminalPolicy?: { set?: unknown } };
+        }
+      | undefined
+  )?.surface?.newTerminalPolicy?.set;
+  if (typeof set !== "function") {
+    throw new Error(
+      "new-terminal policy push: the bound padi client exposes no `newTerminalPolicy.set` — wrong client, or a padi serving a surface without the member",
+    );
+  }
+  return client as NewTerminalPolicyClient;
 }
 
 /** The pool slice the pusher reads — membership plus the session behind a key.
@@ -121,7 +150,8 @@ export function installNewTerminalPolicyPusher<
       return;
     }
     void client
-      .then(async (c) => {
+      .then(async (raw) => {
+        const c = policyWriter(raw);
         // Read the policy HERE, not at the nudge: a cell's `onWrite` fires BEFORE
         // `store.set`, so a synchronous read at the call site would be the OLD value.
         const policy = getPolicy();

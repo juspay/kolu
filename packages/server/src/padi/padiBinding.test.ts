@@ -68,9 +68,11 @@ import {
 import {
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
-} from "@kolu/surface/client";
+} from "@kolu/surface/errors";
+import { buildSurfaceFace } from "@kolu/surface/client";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { ConnectError, reServeSurface } from "@kolu/surface-remote";
-import { createRouterClient } from "@orpc/server";
+import { Stream } from "effect";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
   afterAll,
@@ -102,7 +104,6 @@ import {
 // Post-S9 the binder returns a `PadiSession` (a base `Session` + the daemon-supervision
 // spread) — there is no `PadiBindingSession` class.
 import type { PadiSession } from "./padiSession.ts";
-import { buildAppRouter } from "../router.ts";
 import { padiRuntimeHome, residentPadiSocket } from "@kolu/padi/assembly";
 
 /** A silent structural logger for the in-test endpoint + the newer-binder bind
@@ -121,7 +122,7 @@ const silentLog = {
 // transport loss and re-throws it as the RETRYABLE `RelayTransportLostError`
 // (`SURFACE_RELAY_TRANSPORT_LOST`) — an AWAITED throw, not a floating rejection.
 // Production's re-serve consumer re-subscribes on it via `STREAM_RETRY`; this test
-// dials the re-served router with a RAW `createRouterClient` (no retry plugin), so the
+// drives the re-served surface with a RAW in-process dispatch (no retry fence), so the
 // attach threw un-retried and flaked. The whole fix is the `STREAM_RETRY` mimic in
 // `roundTripTerminal` (below): retry the attach across the reconnect gap on a
 // survivable transport float.
@@ -255,31 +256,15 @@ async function bootReServedPadi(stateRoot: string): Promise<{
   // Never let `done` float; a clean session.destroy() resolves it.
   void reServed.done.catch(() => {});
 
-  // Splice the re-serve's inner surface under `padi`, then assemble the host router
-  // exactly as `index.ts` does — proving the splice routes at `/surface/padi/*`.
-  const surfaceRouter = {
-    surface: {
-      padi: (reServed.router as { surface: Record<string, unknown> }).surface,
-    },
-  };
-  const appRouter = buildAppRouter({
-    surfaceRouter,
-    // The re-targeted "restart" is now the session's `renew()` (the drain verb), not the
-    // deleted `drainBoundPadi()`.
-    drainBoundPadi: () => session.renew(),
-    addHost: async () => {},
-    removeHost: async () => {},
-    reconnectHost: () => {},
-    renewHostDaemon: async () => {},
-    viewerHost: async () => null,
-  });
-  // `directLink` internally; drive the assembled router in-process and walk it
-  // structurally (`surface.padi.<member>`).
-  const client = createRouterClient(
-    appRouter as Parameters<typeof createRouterClient>[0],
-    // biome-ignore lint/suspicious/noExplicitAny: test dials the assembled router structurally (surface.padi.*).
-  ) as any;
-  return { session, padi: client.surface.padi };
+  // Drive the re-served surface IN-PROCESS, over its own handler record: a tag
+  // carries its own route now, so there is no router to assemble and nothing to
+  // splice — `directDispatch` invokes the bound handler effects directly, zero
+  // serialization, exactly as `index.ts`'s `dispatchFor` does per host. (That the
+  // re-served members reach the WIRE at `surface/padi/*` is the served-group tag
+  // assertion in `router.test.ts`; it is a static fact now, not something a live
+  // binding can drift from.)
+  const face = buildSurfaceFace(reServed.surface, directDispatch(reServed));
+  return { session, padi: face.surface };
 }
 
 /** Round-trip a fresh terminal THROUGH the re-served surface: create (retry until
@@ -311,7 +296,7 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   // `SURFACE_STDIO_TRANSPORT_CLOSED` — so a LIVE consumer re-subscribes end-to-end. In
   // PRODUCTION the reServe consumer carries `STREAM_RETRY` and re-subscribes
   // transparently (the terminal re-attaches with no user-visible break). This test dials
-  // the re-served router with a RAW `createRouterClient` (no retry plugin), so mirror
+  // the re-served surface with a RAW in-process dispatch (no retry fence), so mirror
   // `STREAM_RETRY` explicitly here: retry the attach across the reconnect gap on a
   // survivable transport float, exactly as `create` above retries. (This is the
   // consumer half of the reconnect guarantee; the DAEMON half — surviving the abandoned
@@ -320,7 +305,7 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   let firstFrame: TerminalAttachFrame | undefined;
   for (let i = 0; i < 200 && firstFrame === undefined; i++) {
     try {
-      const attach = (await padi.terminalAttach.get({ id }))[
+      const attach = Stream.toAsyncIterable(padi.terminalAttach.get({ id }))[
         Symbol.asyncIterator
       ]();
       const first = await attach.next();
@@ -502,7 +487,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
 
     // Open the attach iterator and pull its FIRST (snapshot) frame, then HOLD the
     // iterator open — a pending pull is exactly the mid-attach state under test.
-    const attach = (await padi.terminalAttach.get({ id }))[
+    const attach = Stream.toAsyncIterable(padi.terminalAttach.get({ id }))[
       Symbol.asyncIterator
     ]();
     const first = await attach.next();

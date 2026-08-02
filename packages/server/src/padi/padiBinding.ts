@@ -776,7 +776,7 @@ export function ensurePadiBindingWith(
       closed,
       // The FROZEN control-core hello round-trip — the liveness probe the watchdog uses.
       isAlive: () =>
-        conn.client.surface.control.core.hello().then(() => undefined),
+        conn.client.control.surface.core.hello().then(() => undefined),
       // The LOCAL arm's same-box life-oracle (#1776): read padi's OWN pid gate and
       // consult the process table directly (`gatePid` + `isHolderLive` = `kill(pid,0)`,
       // the canonical helpers). This is the superior authority a same-box arm has that

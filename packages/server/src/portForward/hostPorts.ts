@@ -14,11 +14,11 @@
 
 import type { Logger } from "@kolu/log";
 import { activePadiTerminal } from "@kolu/padi/surface";
-import type { CollectionFace } from "@kolu/surface/collection-face";
 import {
   firstFrameOfCollectionItem,
   firstFrameOrUndefined,
 } from "@kolu/surface/first-frame";
+import { Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { type PortFamily, preferredFamily } from "kolu-common/surface";
 
@@ -54,11 +54,50 @@ export type HostPorts =
     }
   | { readonly status: "unknown" };
 
-/** A host's `terminals` collection, as this reader uses it — the framework's own
- *  loose face rather than a private structural copy of it. Hand-shaping one here
- *  meant forcing the real client through `as unknown as` at the boot site, a
- *  cast that would have survived `@kolu/surface` renaming `keys`. */
-export type TerminalsFace = CollectionFace;
+/** A host's `terminals` collection, as this reader uses it — its two READ verbs in
+ *  the shape the spec-derived client face mints them: a LAZY `Stream`, returned
+ *  synchronously, with no options bag and no `AbortSignal` (D10/#18 — cancellation
+ *  is fiber interruption). `@kolu/surface`'s `CollectionFace` (the pre-Effect loose
+ *  face) no longer describes any client, so this reader states the two verbs it
+ *  actually calls.
+ *
+ *  METHODS, not function-typed properties, and deliberately: method parameters are
+ *  bivariant, so a precisely-typed collection (`padiSurface`'s `terminals`, keyed
+ *  by terminal id) narrows to this face by ordinary assignment. Written as
+ *  properties they would be contravariant and the boot site would be back to a
+ *  cast — the same reasoning the retired `CollectionFace` carried. */
+export interface TerminalsFace {
+  keys(input: undefined): Stream.Stream<readonly unknown[]>;
+  get(input: { key: unknown }): Stream.Stream<unknown>;
+}
+
+/** Run a member `Stream` as an `AsyncIterable` bound to `signal`.
+ *
+ *  The bounded one-shot readers this module leans on (`firstFrameOrUndefined`,
+ *  `firstFrameOfCollectionItem` — the framework's guard for the #1681
+ *  held-open-on-absent hazard) are AsyncIterable-shaped, and they are the one
+ *  place that hazard is solved. So the STREAM is adapted here rather than the
+ *  reader reimplemented: `toAsyncIterable`'s iterator is what runs the stream, and
+ *  its `return()` interrupts the running fiber — which IS the unsubscribe. The
+ *  caller's `signal` is bridged onto that one teardown, so a losing race arm
+ *  releases its subscription exactly as the retired `{ signal }` call option did.
+ *  Same bridge, same reason, as padi's `attach()` open. */
+function iterateWithSignal<T>(
+  stream: Stream.Stream<T>,
+  signal: AbortSignal,
+): AsyncIterable<T> {
+  const iter = Stream.toAsyncIterable(stream)[Symbol.asyncIterator]();
+  if (signal.aborted) void iter.return?.();
+  else
+    signal.addEventListener(
+      "abort",
+      () => {
+        void iter.return?.();
+      },
+      { once: true },
+    );
+  return { [Symbol.asyncIterator]: () => iter };
+}
 
 /** The ports currently listening on `host`, as its port scanner sees them — the
  *  evidence the auto-cancel rule needs, and the ONLY thing that may close an
@@ -99,7 +138,7 @@ export function makeHostPortsReader(deps: {
     const ctl = new AbortController();
     try {
       const keys = await firstFrameOrUndefined(
-        await terminals.keys({}, { signal: ctl.signal }),
+        iterateWithSignal(terminals.keys(undefined), ctl.signal),
       );
       if (keys === undefined) return { status: "unknown" };
       const ports = new Map<number, PortFamily>();
@@ -122,8 +161,10 @@ export function makeHostPortsReader(deps: {
       const frames = await Promise.all(
         keys.map((id) =>
           firstFrameOfCollectionItem(
-            (signal) => terminals.get({ key: id }, { signal }),
-            (signal) => terminals.keys({}, { signal }),
+            async (signal) =>
+              iterateWithSignal(terminals.get({ key: id }), signal),
+            async (signal) =>
+              iterateWithSignal(terminals.keys(undefined), signal),
             id,
             `terminal ${String(id)} yielded no frame`,
             `terminal ${String(id)} has no record stream`,
