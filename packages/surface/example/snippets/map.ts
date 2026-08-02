@@ -9,21 +9,13 @@
  * call shapes are what the docs pin.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
+import type { UnaryProcedure } from "@kolu/surface/client";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
+import type { WireTransport } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
-import { createLiveSignal, type WatchableSocket } from "@kolu/surface/solid";
-import {
-  type AgentClient,
-  agentBinaryCache,
-  directAgentDerivation,
-  makeSession,
-  pumpRemoteSurface,
-  type Session,
-  type SessionState,
-  sshConnector,
-  type SshProv,
-} from "@kolu/surface-remote";
+import { createLiveSignal } from "@kolu/surface/solid";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   defineSurfaceMap,
   type EntryStatus as RealEntryStatus,
@@ -43,27 +35,38 @@ import {
   type MapRegistry,
   serveSurfaceMap,
 } from "@kolu/surface-map/server";
+import {
+  type AgentClient,
+  agentBinaryCache,
+  directAgentDerivation,
+  makeSession,
+  pumpRemoteSurface,
+  type Session,
+  type SessionState,
+  sshConnector,
+  type SshProv,
+} from "@kolu/surface-remote";
+import { Effect, Schema } from "effect";
 import { createSignal } from "solid-js";
 import { match, P } from "ts-pattern";
-import { z } from "zod";
 
 // ── The per-host entry surface — one machine's `top` ─────────────────────
-const LoadSchema = z.object({
-  avg: z.tuple([z.number(), z.number(), z.number()]),
+const LoadSchema = Schema.Struct({
+  avg: Schema.Tuple([Schema.Number, Schema.Number, Schema.Number]),
 });
-const PidSchema = z.number().int().nonnegative();
-const ProcSchema = z.object({ command: z.string(), cpuPct: z.number() });
+const PidSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const ProcSchema = Schema.Struct({
+  command: Schema.String,
+  cpuPct: Schema.Number,
+});
+const KillArgsSchema = Schema.Struct({ pid: PidSchema });
+const KilledSchema = Schema.Struct({ ok: Schema.Boolean });
 
 const entry = defineSurface({
   cells: { load: { schema: LoadSchema, default: { avg: [0, 0, 0] } } },
   collections: { processes: { keySchema: PidSchema, schema: ProcSchema } },
   procedures: {
-    proc: {
-      kill: {
-        input: z.object({ pid: PidSchema }),
-        output: z.object({ ok: z.boolean() }),
-      },
-    },
+    proc: { kill: { input: KillArgsSchema, output: KilledSchema } },
   },
 });
 
@@ -73,13 +76,13 @@ type Proc = SF["collections"]["processes"]["Value"];
 const DEFAULT_LOAD: SF["cells"]["load"]["Value"] = { avg: [0, 0, 0] };
 
 // #region define
-const HostKeySchema = z.string();
+const HostKeySchema = Schema.String;
 const identityCodec: KeyCodec<string> = { encode: (k) => k, decode: (s) => s };
 
 // The domain failure schema validates the value a failed entry publishes — a
 // failed member cannot exist without one (there is no fabricated fallback cause).
-const hostFailureSchema = z.object({ reason: z.string() });
-type HostFailure = z.infer<typeof hostFailureSchema>;
+const hostFailureSchema = Schema.Struct({ reason: Schema.String });
+type HostFailure = typeof hostFailureSchema.Type;
 
 const hostMap = defineSurfaceMap({
   key: HostKeySchema,
@@ -89,9 +92,9 @@ const hostMap = defineSurfaceMap({
 });
 // #endregion define
 
-// ── One binding per host: dial over ssh, mirror inward, re-serve a link ──
+// ── One binding per host: dial over ssh, mirror inward, re-serve a dispatch ──
 interface HostBinding {
-  link: unknown;
+  dispatch: SurfaceDispatch;
   state(): EntryConnectionState<"copying", HostFailure>;
   onStateChange(cb: () => void): () => void;
   destroy(): void;
@@ -151,12 +154,12 @@ const EXAMPLE_BINARY_CACHE = agentBinaryCache({
 
 // #region binding
 function buildHostBinding(host: string, agentDrv: string): HostBinding {
-  const session: Session<
-    AgentClient<typeof entry.contract>,
-    SshProv
-  > = makeSession({
+  // The connector takes the SURFACE as a value — Effect RPC builds its client
+  // from `surface.group` and the face is re-nested from `surface.spec`.
+  const session: Session<AgentClient, SshProv> = makeSession({
     initialConnection: "probing",
-    connectOnce: sshConnector<typeof entry.contract>({
+    connectOnce: sshConnector({
+      surface: entry,
       host,
       binary: "fleet-top-agent",
       // Policy-free: the consumer composes the localhost arm's spawn env, keeping only
@@ -190,12 +193,20 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     procedures: {
       proc: {
         // `kill` forwards to the CURRENT live agent client — a kill can land
-        // across a reconnect, so never a per-spawn stub.
-        kill: async ({ input }) => {
-          const pending = session.currentClient();
-          if (pending === null) throw new Error("no live agent link");
-          return (await pending).surface.proc.kill(input);
-        },
+        // across a reconnect, so never a per-spawn stub. `Effect.promise`, not
+        // `tryPromise`: this procedure declares no error channel, so a link gap
+        // is an UNDECLARED failure and stays a loud defect.
+        kill: ({ input }) =>
+          Effect.promise(async () => {
+            const pending = session.currentClient();
+            if (pending === null) throw new Error("no live agent link");
+            const client = await pending;
+            const kill = client.surface.proc?.kill as UnaryProcedure<
+              { pid: number },
+              { ok: boolean }
+            >;
+            return kill(input);
+          }),
       },
     },
   });
@@ -228,9 +239,9 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     },
   });
 
-  // `.router` is already the FINAL flattened router — no re-finalize via oRPC.
-  const router = runtime.router;
-  const link = directLink<typeof entry.contract>(router as never);
+  // `directDispatch` takes the served surface itself and calls its handlers
+  // in-process — the map never learns whether the dispatch crosses a wire.
+  const dispatch = directDispatch(runtime);
 
   let latest: SessionState<SshProv> = {
     phase: "probing",
@@ -242,7 +253,7 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     latest = s;
   });
   return {
-    link,
+    dispatch,
     state: () => projectState(latest),
     onStateChange: (cb) => session.onState(() => cb()),
     destroy: () => {
@@ -266,7 +277,7 @@ export function serveMap(hosts: string[], agentDrv: string) {
 
   // #region registry
   // The hand-built MapRegistry is the ONE writer of membership; `resolve(host)`
-  // hands the map each host's link + projected connection state.
+  // hands the map each host's dispatch + projected connection state.
   const registry: MapRegistry<string, "copying", HostFailure> = {
     members: () => [...bindings.keys()],
     subscribe: (onChange) => {
@@ -280,31 +291,36 @@ export function serveMap(hosts: string[], agentDrv: string) {
       const b = bindings.get(k);
       if (b === undefined)
         return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
-      return { kind: "session", link: b.link, state: b.state() };
+      return { kind: "session", dispatch: b.dispatch, state: b.state() };
     },
   };
   // #endregion registry
 
   // #region serve
-  // `serveSurfaceMap` returns a FINALIZED top-level router — hand it straight to
-  // a transport (here an in-process `directLink`); do NOT flatten it further.
-  const { router, dispose } = serveSurfaceMap(hostMap, registry);
+  // `serveSurfaceMap` returns the SAME `{ group, handlers }` pair
+  // `implementSurface` does — a host merges one value pair into its own served
+  // surface, and a tag carries its own route, so nothing is re-prefixed at the
+  // mount site.
+  const { group, handlers, dispose } = serveSurfaceMap(hostMap, registry);
   // #endregion serve
 
-  return { router, dispose, registry };
+  return { group, handlers, dispose, registry };
 }
 
 // ── The client half — connect the map and read it as chips + a canvas ────
-export function connectMap(ws: WatchableSocket) {
+export function connectMap(transport: WireTransport) {
   // #region connect
-  const transport = createLiveSignal<typeof hostMap.contract>(ws, {});
-  const app = connectSurfaceMap(hostMap, transport);
+  // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` a wire link factory
+  // minted together, so the half-open watchdog provably probes the transport it
+  // reconnects — and mints the branded handle the map client requires.
+  const live = createLiveSignal(transport, {});
+  const app = connectSurfaceMap(hostMap, live);
   // #endregion connect
   return app;
 }
 
-export function readMap(ws: WatchableSocket) {
-  const app = connectMap(ws);
+export function readMap(transport: WireTransport) {
+  const app = connectMap(transport);
   const [activeHost] = createSignal<string>("localhost");
 
   // #region useentry
@@ -321,8 +337,8 @@ export function readMap(ws: WatchableSocket) {
 }
 
 // ── Per-host CLIENT state (retained by membership) + the key codec ───────
-export function ownedState(ws: WatchableSocket) {
-  const app = connectMap(ws);
+export function ownedState(transport: WireTransport) {
+  const app = connectMap(transport);
   // `active` is APP POLICY and NULLABLE: `null` = nothing selected (drishti's
   // fleet grid, no host chosen). kolu's `activeHost` is never null.
   const [activeHost] = createSignal<string | null>("localhost");
@@ -356,11 +372,10 @@ export function ownedState(ws: WatchableSocket) {
 
 // #region rpc
 // Every declared procedure rides `entry.procedures.<ns>.<verb>`, bound and typed
-// straight from the declaration — NO cast. (The narrow `procedures` map dodges the
-// TS2590 union-budget overflow the full `entry.rpc` contract client trips on a
-// generic map; `entry.rpc` stays `unknown` there, for the reserved `system.*` procs
-// + the escape hatch only.) The key-injecting link folds `{ mapKey }` into every
-// call, so the caller never passes the key.
+// straight from the declaration — NO cast. (`entry.rpc` is the STRUCTURAL member
+// face, reserved for the `system.*` members plus the escape hatch.) The
+// key-injecting dispatch folds `{ mapKey }` into every call, so the caller never
+// passes the key.
 const kill = (
   active: Entry<typeof entry.spec>,
   pid: number,
@@ -376,7 +391,7 @@ const kill = (
 type EntryStatus<Failure = unknown, Conn = unknown> =
   // `membershipId`: opaque, never-reused per-add identity — a BRANDED `MembershipId`
   // (an empty/fabricated bare string is a compile error), minted only by
-  // `serveSurfaceMap` / the wire parse. Clients key cached owners on
+  // `serveSurfaceMap` / the wire decode. Clients key cached owners on
   // `{encodedKey, membershipId}`, so a same-key re-add / authority restart rebuilds.
   | { kind: "warming"; membershipId: MembershipId; connection?: Conn }
   | {

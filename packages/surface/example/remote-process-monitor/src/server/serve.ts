@@ -1,5 +1,5 @@
 /**
- * Parent-side router — bridges browser ↔ remote agent.
+ * Parent-side surface — bridges browser ↔ remote agent.
  *
  * The agent serves the base `surface`; the parent re-serves it VERBATIM
  * (`monitorSurface = surface`) and the browser subscribes to THAT. The parent
@@ -15,26 +15,35 @@
  *
  * `kill` forwards directly to the agent — the parent has no business
  * keeping its own state for an imperative mutation.
+ *
+ * What `buildSurface` hands back is the runtime's `{ group, handlers }` — the
+ * pair every transport takes; `main.ts` gives it to `serveSurfaceSocket`.
  */
 
+import type { UnaryProcedure } from "@kolu/surface/client";
+import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type CellStore,
   type Channel,
   implementSurface,
   inMemoryChannel,
   inMemoryStore,
+  streamFromAbortableSource,
+  type SurfaceRuntime,
 } from "@kolu/surface/server";
-import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type AgentClient,
   makeClientCursor,
   type Session,
   type SshProv,
 } from "@kolu/surface-remote";
+import { Effect, Stream } from "effect";
 import {
   type CoreId,
   type CpuCore,
   DEFAULT_SYSTEM,
+  type KillArgs,
+  type KillResult,
   monitorSurface,
   type Pid,
   type Process,
@@ -43,16 +52,15 @@ import {
   type SystemInfo,
 } from "../common/surface";
 
-type ProcessMonitorAgent = AgentClient<typeof surface.contract>;
-
-export interface BuildRouterOptions {
-  session: Session<AgentClient<typeof surface.contract>, SshProv>;
+export interface BuildSurfaceOptions {
+  session: Session<AgentClient, SshProv>;
 }
 
-/** Build the parent's oRPC router. Agent data flows through once the link is live.
- *  SR9: this re-serve carries no per-host `connection` cell — connection presentation
- *  is a host-map concept (see `surface.ts`'s note on `monitorSurface`). */
-export function buildRouter(opts: BuildRouterOptions) {
+/** Build the parent's served surface. Agent data flows through once the link is
+ *  live. SR9: this re-serve carries no per-host `connection` cell — connection
+ *  presentation is a host-map concept (see `surface.ts`'s note on
+ *  `monitorSurface`). */
+export function buildSurface(opts: BuildSurfaceOptions) {
   const session = opts.session;
   const systemStore: CellStore<SystemInfo> = inMemoryStore({
     ...DEFAULT_SYSTEM,
@@ -79,7 +87,7 @@ export function buildRouter(opts: BuildRouterOptions) {
         // and only then publish through the keyed channels. If we throw
         // here (to "guard against browser writes"), the framework's own
         // bridging path — `ctx.collections.processes.upsert(...)` from
-        // `reconcileProcesses` — also throws and the publish never fires.
+        // `applySnapshotMessage` — also throws and the publish never fires.
         // Browser-vs-server isn't a write-vs-read distinction inside the
         // process; it's a wire-protocol distinction (the browser-facing
         // contract simply doesn't expose `upsert` / `remove`). So these
@@ -102,20 +110,23 @@ export function buildRouter(opts: BuildRouterOptions) {
       },
     },
     streams: {
-      // Browser-facing snapshot stream — yields the parent's current
-      // process cache on subscribe (synchronous snapshot from local
-      // state, no agent round-trip needed) then forwards every delta
-      // / snapshot the agent publishes via the parent's local bus.
+      // Browser-facing snapshot stream — emits the parent's current process
+      // cache on subscribe (synchronous snapshot from local state, no agent
+      // round-trip needed) then forwards every delta / snapshot the agent
+      // publishes via the parent's local bus.
       processesSnapshot: {
-        source: async function* (_input, signal) {
-          yield {
-            kind: "snapshot",
-            entries: [...processCache.entries()],
-          } satisfies ProcessesSnapshotMsg;
-          for await (const msg of browserSnapshotBus.subscribe(signal)) {
-            yield msg;
-          }
-        },
+        source: () =>
+          Stream.suspend(() =>
+            Stream.concat(
+              Stream.succeed({
+                kind: "snapshot",
+                entries: [...processCache.entries()],
+              } satisfies ProcessesSnapshotMsg),
+              streamFromAbortableSource<ProcessesSnapshotMsg>((signal) =>
+                browserSnapshotBus.subscribe(signal),
+              ),
+            ),
+          ),
       },
     },
     procedures: {
@@ -126,18 +137,25 @@ export function buildRouter(opts: BuildRouterOptions) {
       // re-mirrors per respawn). A kill can be invoked any time, including across a
       // respawn, so it forwards through `session.currentClient()` — always the
       // *current* live client (the pump already pins the session), never a
-      // per-spawn mirror stub. A kill during a link gap fails loudly.
+      // per-spawn mirror stub.
+      //
+      // `Effect.promise`, not `tryPromise`: this procedure declares no error
+      // channel, so a link gap is an UNDECLARED failure and must stay a loud
+      // defect rather than something the browser could narrow on and swallow.
       process: {
-        kill: async ({ input }) => {
-          const clientPromise = session.currentClient();
-          if (clientPromise === null) {
-            throw new Error("no live agent link — cannot forward kill");
-          }
-          const client = (await clientPromise) as AgentClient<
-            typeof surface.contract
-          >;
-          return client.surface.process.kill(input);
-        },
+        kill: ({ input }) =>
+          Effect.promise(async () => {
+            const clientPromise = session.currentClient();
+            if (clientPromise === null) {
+              throw new Error("no live agent link — cannot forward kill");
+            }
+            const client = await clientPromise;
+            const kill = client.surface.process?.kill as UnaryProcedure<
+              KillArgs,
+              KillResult
+            >;
+            return kill(input);
+          }),
       },
     },
   });
@@ -146,33 +164,25 @@ export function buildRouter(opts: BuildRouterOptions) {
   // Start a background pump that pins the session, then loops over each
   // successive AgentClient the session produces — each time the agent
   // process is respawned (after a transport drop), the bridge fetches
-  // the new client and re-issues ONE `mirrorRemoteSurface` against it. The
-  // framework's `ClientRetryPlugin` is NOT load-bearing here: stdio links
-  // don't recover mid-stream (the underlying streams die with the
-  // process), so the only reliable recovery is to re-mirror on the *new*
-  // client. The outer loop is what implements "reconnect → state
-  // reconciles" (row 12 of the falsifiability checklist). It relies on the
-  // mirror *settling* when the link drops: each subscription's RPC against
-  // a dead `StdioRPCLink` rejects once its inbound stream ends (the link
-  // fails fast — it does not hang), so `mirrorRemoteSurface` resolves and
-  // the loop advances to the respawned client.
+  // the new client and re-issues ONE `mirrorRemoteSurface` against it. No link
+  // retries a CALL (the per-subscription re-subscribe fence is the face's job),
+  // and a stdio leg never reconnects its transport at all — the streams die with
+  // the process — so the only reliable recovery is to re-mirror on the *new*
+  // client. The outer loop is what implements "reconnect → state reconciles"
+  // (row 12 of the falsifiability checklist). It relies on the mirror *settling*
+  // when the link drops: every subscription over a dead stdio link fails with
+  // `SurfaceStdioTransportClosed` (the leg fails fast — it does not hang), so
+  // `mirrorRemoteSurface` resolves and the loop advances to the respawned client.
   void bridgeAgentToParent(session, runtime, browserSnapshotBus);
 
-  // `implementSurface`'s `.router` is already the FINAL flattened router
-  // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
-  const router = runtime.router;
-  return { router, session };
+  return { runtime, session };
 }
 
 /** The `{ ctx }` the bridge pumps mutate — derived from the framework's own
- *  `implementSurface` return so it can't drift from the surface's
- *  cells/collections. A typo or missing-write in a pump now fails to compile
- *  against the real `ctx` (the whole point), with no hand-maintained shadow to
- *  keep in sync. */
-type FragmentCtx = Pick<
-  ReturnType<typeof implementSurface<typeof surface.spec>>,
-  "ctx"
->;
+ *  runtime so it can't drift from the surface's cells/collections. A typo or
+ *  missing-write in a pump now fails to compile against the real `ctx` (the
+ *  whole point), with no hand-maintained shadow to keep in sync. */
+type FragmentCtx = Pick<SurfaceRuntime<typeof surface.spec>, "ctx">;
 
 /** Demo-side logging — every interesting bridge event goes to stderr
  *  so `just dev` / `nix run` users see the full data flow. */
@@ -192,7 +202,7 @@ function log(line: string): void {
  *  (`makeClientCursor`) and the per-client re-mirror stay the demo's job, because
  *  stdio links don't recover mid-stream. */
 async function bridgeAgentToParent(
-  session: Session<AgentClient<typeof surface.contract>, SshProv>,
+  session: Session<AgentClient, SshProv>,
   fragment: FragmentCtx,
   browserSnapshotBus: Channel<ProcessesSnapshotMsg>,
 ): Promise<void> {
@@ -207,16 +217,12 @@ async function bridgeAgentToParent(
   // A cursor over the session's spawn lifecycle — `next()` blocks until a
   // genuinely new spawn appears. It owns the spawn-identity token internally,
   // so this loop can't re-introduce the busy-spin by mis-threading it (the
-  // client proxy is thenable, so comparing *it* spins once the link fails
-  // fast; the cursor compares the stable clientPromise for us).
+  // cursor compares the stable clientPromise for us).
   const cursor = makeClientCursor(session);
   while (!session.isDestroyed()) {
-    let client: ProcessMonitorAgent;
+    let client: AgentClient;
     try {
-      // The cursor yields the loose `SurfaceClientLike` receptacle (S3 dropped the
-      // dead contract generic at the role boundary); this bridge knows the concrete
-      // agent contract, so it re-narrows here — the runtime value IS the typed client.
-      client = (await cursor.next()) as ProcessMonitorAgent;
+      client = (await cursor.next()) as AgentClient;
     } catch (err) {
       log(`bridge: waiting for next client failed: ${(err as Error).message}`);
       break;
@@ -272,7 +278,7 @@ async function bridgeAgentToParent(
 /** Apply one `processesSnapshot` frame to the parent's local
  *  collection — full reset on `snapshot`, incremental delta on
  *  `delta`. Mutates `seenPids` so subsequent snapshots can drop
- *  PIDs that disappeared between yields. */
+ *  PIDs that disappeared between frames. */
 function applySnapshotMessage(
   msg: ProcessesSnapshotMsg,
   seenPids: Set<Pid>,

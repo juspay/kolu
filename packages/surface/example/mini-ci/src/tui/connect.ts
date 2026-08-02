@@ -6,6 +6,11 @@
  * workspace (`surfaceExampleBase`), so the runner's `pnpm --filter …` CI
  * tasks run against it on whatever host it lands on.
  *
+ * `sshConnector` takes the SURFACE as a value: Effect RPC builds its client from
+ * the surface's flat `RpcGroup`, and the member face is re-nested from
+ * `surface.spec` — neither is recoverable from a type alone, which is why the
+ * old contract type parameter is gone.
+ *
  * The source flake is baked by `nix run`; `just run [host]` supplies the same
  * independent example flake explicitly for development.
  */
@@ -19,15 +24,17 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
-import type { surface } from "../common/surface";
+import { surface } from "../common/surface";
 
-export type RunnerClient = AgentClient<typeof surface.contract>;
+/** The runner client — the structural member face
+ *  (`client.surface.<member>.<verb>`) every link mints. */
+export type RunnerClient = AgentClient;
 // The ssh connector PROVISIONS, so the session's `Prov` is `SshProv`
 // (`"provisioning"`) — the runner overlay narrates it.
 export type RunnerSession = Session<RunnerClient, SshProv>;
 
 export interface Connection {
-  /** The typed runner client, once the link is live. */
+  /** The runner client, once the link is live. */
   client: RunnerClient;
   /** The session — the TUI calls `markConnected()` on the first frame and
    *  reads `onState` for the provisioning/connecting overlay. */
@@ -47,7 +54,8 @@ export interface ConnectOptions {
 export async function connect(opts: ConnectOptions): Promise<Connection> {
   const session = makeSession<RunnerClient, SshProv>({
     initialConnection: "probing",
-    connectOnce: sshConnector<typeof surface.contract>({
+    connectOnce: sshConnector({
+      surface,
       host: opts.host,
       binary: "mini-ci-runner",
       // Policy-free: the CONSUMER composes the localhost arm's spawn env, keeping only

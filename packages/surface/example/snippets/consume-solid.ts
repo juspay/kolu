@@ -8,13 +8,17 @@
  * need to pin.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClient } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
-import { router } from "./serve";
+import { runtime } from "./serve";
 import { surface } from "./surface";
 
-const link = directLink<typeof surface.contract>(router as never);
+// `directDispatch` takes the SERVED surface (anything carrying `handlers`) and
+// calls its handlers in-process. It is the one dispatch `surfaceClient` accepts
+// bare: with no transport there is nothing that could half-open, so its
+// constant-`true` liveness leg is honest by construction.
+const dispatch = directDispatch(runtime);
 
 const nodeId = "node-1";
 const docId = "doc-1";
@@ -23,7 +27,7 @@ const onError = (err: Error): void => console.error(err);
 const handler = (saved: { at: number }): void => console.log(saved.at);
 
 // #region solid
-const app = surfaceClient(surface, link);
+const app = surfaceClient(surface, dispatch);
 
 const load = app.cells.load.use({ authority: "server" }); // Accessor<Load>
 const procs = app.collections.processes.use(); // .byKey(id) / .keys()
@@ -35,7 +39,13 @@ await app.procedures.proc.kill({ pid }); // bound + typed from the declaration
 const url = "wss://example.test/rpc/ws";
 
 // #region connect
-const { ws, client, status, dispose } = connectSurface({ surface, url });
+// ASYNC: the dial is an effect. `link` is the `{ dispatch, wire, dispose }` the
+// websocket link minted; `dispose()` releases its scope (dial/ping/response
+// fibers) as well as stopping the watchdog.
+const { link, client, status, dispose } = await connectSurface({
+  surface,
+  url,
+});
 // #endregion connect
 
-export { app, client, dispose, load, log, procs, status, ws };
+export { app, client, dispose, link, load, log, procs, status };

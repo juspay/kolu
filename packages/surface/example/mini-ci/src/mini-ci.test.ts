@@ -2,8 +2,8 @@
  * mini-ci falsifiability test — the permanent regression test the plan asks
  * for. It drives the *real* runner surface through the *real* stdio
  * transport (`createLoopbackPair` → `serveOverStdio` → `stdioLink`, the same
- * framing the ssh path uses), so a green run is genuine evidence that the
- * "interactive TUI over oRPC stdio" pattern holds end-to-end:
+ * ndjson framing the ssh path uses), so a green run is genuine evidence that
+ * the "interactive TUI over a stdio surface link" pattern holds end-to-end:
  *
  *   1. the `nodes` cell streams snapshot-then-delta, and topo order holds;
  *   2. a late subscriber to a finished node's `nodeLog` gets the buffered
@@ -14,25 +14,40 @@
  *   6. the pure render helpers paint the expected dashboard.
  */
 
+import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
+import { Effect, Option, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PipelineSpec } from "./common/pipeline";
 import {
   MAX_LOG_CHARS,
   type NodeLogFrame,
   type NodesSnapshot,
-  type surface,
+  surface,
 } from "./common/surface";
 import { createRunner } from "./runner/runner";
+import {
+  nodeLogStream,
+  nodesStream,
+  rerunNode,
+  runStream,
+} from "./tui/members";
 import { applyLogFrame, renderTable, summarize } from "./tui/render";
 
-type Client = ReturnType<typeof stdioLink<typeof surface.contract>>;
+/** The face the TUI holds — the same one `sshConnector` hands back, only over a
+ *  loopback pipe pair instead of an ssh child. */
+type Client = SurfaceFace;
 
 interface Tracker {
   /** Every `nodes` cell frame seen so far. */
   states: NodesSnapshot[];
+  /** Resolves once the subscription's SNAPSHOT frame has landed — i.e. once the
+   *  wire subscription demonstrably exists. Await it before driving the runner:
+   *  a cell publishes to its subscribers, so a transition that happens while the
+   *  request is still in flight reaches nobody. Subscribe, THEN act. */
+  ready: Promise<void>;
 }
 
 interface Harness {
@@ -43,46 +58,58 @@ interface Harness {
   close(): Promise<void>;
 }
 
-function harness(spec: PipelineSpec): Harness {
+async function harness(spec: PipelineSpec): Promise<Harness> {
   const runner = createRunner(spec);
   const pair = createLoopbackPair();
   const serveDone = serveOverStdio({
-    router: runner.router,
+    group: runner.runtime.group,
+    handlers: runner.runtime.handlers,
     transport: pair.server,
   });
-  const client = stdioLink<typeof surface.contract>({
+  const link = await stdioLink({
+    group: surface.group,
     read: pair.client.read,
     write: pair.client.write,
   });
-  const trackerDones: Promise<void>[] = [];
+  const client = buildSurfaceFace(surface, link.dispatch);
+  const stoppers: Array<() => void> = [];
   return {
     client,
     start: () => runner.start(),
     track: () => {
       const states: NodesSnapshot[] = [];
-      trackerDones.push(
-        (async () => {
-          try {
-            for await (const state of await client.surface.nodes.get({})) {
-              states.push(state);
-            }
-          } catch {
-            // transport closed during teardown — expected.
-          }
-        })(),
+      let attached!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        attached = resolve;
+      });
+      stoppers.push(
+        runStream(nodesStream(client), {
+          onFrame: (state) => {
+            states.push(state);
+            attached();
+          },
+          // The transport closing during teardown ends the subscription; the
+          // stopper has already latched by then, so nothing reports. Anything
+          // that reaches here IS a real failure — surface it loudly rather
+          // than letting an assertion time out with no reason.
+          onFailure: (err) => {
+            throw err;
+          },
+        }),
       );
-      return { states };
+      return { states, ready };
     },
-    // Teardown mirrors reality: the client "goes away" (its outbound ends →
-    // the runner sees stdin EOF and finishes), THEN we close the client's
-    // inbound so any live iterators end. Aborting mid-stream instead would
-    // write an abort frame onto an already-ended pipe.
+    // Teardown mirrors reality: the tracked subscriptions stop (interrupting
+    // their fibers unwinds the wire), the client "goes away" (its outbound ends
+    // → the runner sees stdin EOF and finishes), THEN the client's inbound
+    // closes.
     close: async () => {
+      for (const stop of stoppers) stop();
       runner.dispose();
+      await link.dispose();
       pair.client.write.end();
       await serveDone;
       pair.server.write.end();
-      await Promise.all(trackerDones);
     },
   };
 }
@@ -100,10 +127,14 @@ async function until(
   }
 }
 
-/** First frame of a stream, then stop iterating. */
-async function firstFrame<T>(stream: Promise<AsyncIterable<T>>): Promise<T> {
-  for await (const value of await stream) return value;
-  throw new Error("stream closed before first frame");
+/** First frame of a stream, then stop — `runHead` interrupts the subscription
+ *  as soon as the snapshot lands. */
+async function firstFrame<T>(stream: Stream.Stream<T, unknown>): Promise<T> {
+  const head = await Effect.runPromise(Stream.runHead(stream));
+  if (Option.isNone(head)) {
+    throw new Error("stream closed before first frame");
+  }
+  return head.value;
 }
 
 const last = <T>(xs: T[]): T | undefined => xs.at(-1);
@@ -114,7 +145,7 @@ const isDone = (states: NodesSnapshot[]): boolean => {
 
 describe("mini-ci runner over stdio (loopback)", () => {
   it("streams the nodes cell snapshot-then-delta and respects topo order", async () => {
-    const h = harness({
+    const h = await harness({
       name: "ci",
       tasks: [
         { id: "build", command: "echo build", needs: [] },
@@ -123,6 +154,7 @@ describe("mini-ci runner over stdio (loopback)", () => {
       ],
     });
     const tracker = h.track();
+    await tracker.ready;
     h.start();
     await until(() => isDone(tracker.states));
 
@@ -149,17 +181,18 @@ describe("mini-ci runner over stdio (loopback)", () => {
   });
 
   it("gives a late subscriber the full node-state snapshot as its first frame", async () => {
-    const h = harness({
+    const h = await harness({
       name: "ci",
       tasks: [{ id: "build", command: "echo build", needs: [] }],
     });
     const tracker = h.track();
+    await tracker.ready;
     h.start();
     await until(() => isDone(tracker.states));
 
     // A fresh subscriber, after the pipeline settled, must see the current
     // (all-ok) state as its first frame — the cell's snapshot contract.
-    const snapshot = await firstFrame(h.client.surface.nodes.get({}));
+    const snapshot = await firstFrame(nodesStream(h.client));
     expect(snapshot.nodes.build?.status).toBe("ok");
 
     await h.close();
@@ -167,15 +200,16 @@ describe("mini-ci runner over stdio (loopback)", () => {
 
   it("buffers a node's log so a late subscriber's first frame is a snapshot", async () => {
     const marker = "MARK-MINI-CI";
-    const h = harness({
+    const h = await harness({
       name: "ci",
       tasks: [{ id: "say", command: `echo ${marker}`, needs: [] }],
     });
     const tracker = h.track();
+    await tracker.ready;
     h.start();
     await until(() => last(tracker.states)?.nodes.say?.status === "ok");
 
-    const frame = await firstFrame(h.client.surface.nodeLog.get({ id: "say" }));
+    const frame = await firstFrame(nodeLogStream(h.client, "say"));
     expect(frame.kind).toBe("snapshot");
     expect(frame.text).toContain(marker);
 
@@ -183,7 +217,7 @@ describe("mini-ci runner over stdio (loopback)", () => {
   });
 
   it("reruns a node and its dependents, resetting them to pending", async () => {
-    const h = harness({
+    const h = await harness({
       name: "ci",
       tasks: [
         { id: "build", command: "echo build", needs: [] },
@@ -191,11 +225,12 @@ describe("mini-ci runner over stdio (loopback)", () => {
       ],
     });
     const tracker = h.track();
+    await tracker.ready;
     h.start();
     await until(() => isDone(tracker.states));
     const settledFrames = tracker.states.length;
 
-    const result = await h.client.surface.node.rerun({ id: "build" });
+    const result = await rerunNode(h.client, "build");
     expect(result.ok).toBe(true);
 
     // After rerun, both nodes must cycle back through `pending` and settle
@@ -214,7 +249,7 @@ describe("mini-ci runner over stdio (loopback)", () => {
   });
 
   it("skips a node whose dependency failed (no false greens)", async () => {
-    const h = harness({
+    const h = await harness({
       name: "ci",
       tasks: [
         { id: "build", command: "exit 3", needs: [] },
@@ -222,6 +257,7 @@ describe("mini-ci runner over stdio (loopback)", () => {
       ],
     });
     const tracker = h.track();
+    await tracker.ready;
     h.start();
     await until(() => isDone(tracker.states));
 

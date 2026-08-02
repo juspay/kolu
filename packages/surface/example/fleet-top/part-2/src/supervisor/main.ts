@@ -23,6 +23,7 @@
  */
 
 import { fileURLToPath } from "node:url";
+import type { StreamingProcedure } from "@kolu/surface/client";
 import { stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
@@ -30,19 +31,26 @@ import {
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { Effect, Option, Stream } from "effect";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
+import type { Memory } from "../common/surface";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
-async function firstFrame<T>(
-  source: AsyncIterable<T> | Promise<AsyncIterable<T>>,
+/** The first frame of a snapshot-then-deltas member. */
+async function snapshot<T>(
+  stream: Stream.Stream<T, unknown>,
+  what: string,
 ): Promise<T> {
-  for await (const frame of await source) return frame;
-  throw new Error("stream closed before its snapshot frame");
+  const head = await Effect.runPromise(Stream.runHead(stream));
+  if (Option.isNone(head)) {
+    throw new Error(`${what}: stream closed before its snapshot frame`);
+  }
+  return head.value;
 }
 
 async function main(): Promise<void> {
@@ -106,7 +114,12 @@ async function main(): Promise<void> {
   const conn = endpoint.current();
   if (conn === undefined)
     throw new Error("endpoint connected but current() is undefined");
-  const mem = await firstFrame(conn.client.surface.memory.get({}));
+  const mem = await snapshot(
+    (conn.client.surface.memory?.get as StreamingProcedure<undefined, Memory>)(
+      undefined,
+    ),
+    "memory",
+  );
   process.stderr.write(
     `[supervisor] connected — daemon reports ${conn.identity.cores} cores, ` +
       `${(mem.used / 1e9).toFixed(1)} GB used\n`,

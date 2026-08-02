@@ -9,13 +9,20 @@
  * always a full snapshot (the snapshot-then-delta invariant); per-pid
  * upserts/removes follow.
  *
- * `createTop()` returns the FLATTENED router (ready for `directLink` or a wire
- * server) plus `start`/`dispose`, so the same engine is consumed in-process
- * (see `inproc.ts`) and over a WebSocket (see `main.ts`) — identical code, only
- * the link differs.
+ * `createTop()` hands back the whole `SurfaceRuntime` — its flat `group` and
+ * tag-keyed `handlers` are the pair EVERY transport takes (`directDispatch`
+ * in-process, `serveSurfaceSocket` over a websocket, `serveOverStdio` over ssh,
+ * `serveOverUnixSocket` for a daemon) — plus `start`/`dispose`. The same engine
+ * is therefore consumed in-process and over a wire with identical code; only
+ * the transport differs.
  */
 
-import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import {
+  implementSurface,
+  inMemoryStore,
+  type SurfaceRuntime,
+} from "@kolu/surface/server";
+import { Effect } from "effect";
 import {
   DEFAULT_LOAD,
   DEFAULT_MEMORY,
@@ -28,9 +35,9 @@ import { createTopReader } from "./proc";
 const POLL_INTERVAL_MS = 2000;
 
 export interface Top {
-  /** Flattened top-level router — pass to `directLink` or a wire server. */
-  // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any,T> input type; the runtime shape is valid (the remote-process-monitor agent uses the same cast).
-  router: any;
+  /** The served surface. `runtime.group` + `runtime.handlers` go to a
+   *  transport; `runtime.ctx` is the typed write seam the poll loop uses. */
+  readonly runtime: SurfaceRuntime<typeof surface.spec>;
   /** Begin polling. */
   start(): void;
   /** Stop polling. */
@@ -61,14 +68,19 @@ export function createTop(): Top {
     },
     procedures: {
       process: {
-        kill: async ({ input }) => {
-          try {
-            process.kill(input.pid, input.signal);
-            return { ok: true };
-          } catch {
-            return { ok: false };
-          }
-        },
+        // An imperative procedure returns an `Effect`. `Effect.sync` is the
+        // right constructor here: signalling a pid either works or it doesn't,
+        // and "it didn't" is part of this procedure's declared RESULT
+        // (`{ ok: false }`), not a failure a caller narrows on.
+        kill: ({ input }) =>
+          Effect.sync(() => {
+            try {
+              process.kill(input.pid, input.signal);
+              return { ok: true };
+            } catch {
+              return { ok: false };
+            }
+          }),
       },
     },
   });
@@ -100,13 +112,8 @@ export function createTop(): Top {
     }
   };
 
-  // `implementSurface`'s `.router` is already the FINAL flattened router
-  // (`/surface/…`) — no consumer re-finalizes it via oRPC `implement`.
-  // It's typed `unknown`; `Top.router` is `any` at the boundary.
-  const router = runtime.router;
-
   return {
-    router,
+    runtime,
     start: () => {
       void tick();
       timer = setInterval(() => void tick(), POLL_INTERVAL_MS);

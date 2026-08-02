@@ -6,7 +6,7 @@
  *   acquirePidGate(GATE_PATH)     — atomic single-instance claim (link(2)).
  *        │ held? → exit 0 (a live daemon already serves this scope)
  *        ▼
- *   serve top.router over SOCKET  — the @kolu/surface unix-socket listener
+ *   serve { group, handlers }     — the @kolu/surface unix-socket listener
  *        ▼
  *   wait for lifetime to end      — { kind: "forever" }: only a signal / abort
  *        ▼
@@ -20,9 +20,10 @@
  * it, `top`'s live sampler interval would keep this process alive forever
  * after the daemon shut down (the lingering-daemon class).
  *
- * The same flattened `createTop()` router from part 1 is served verbatim — the
- * daemon changes how it's *reached* (a durable socket instead of a fresh
- * per-connection process), not what it serves.
+ * The same `createTop()` surface from part 1 is served verbatim — the daemon
+ * changes how it's *reached* (a durable socket instead of a fresh
+ * per-connection process), not what it serves. It hands the spine the SAME two
+ * fields every transport takes: the flat `group` and the tag-keyed `handlers`.
  */
 
 import {
@@ -55,7 +56,8 @@ daemonProcessMain({
         home: HOME,
         processIdentity: selfProcessIdentity(),
         readProcessIdentity,
-        router: top.router,
+        group: top.runtime.group,
+        handlers: top.runtime.handlers,
         lifetime: { kind: "forever" },
         log: stderrLogger(),
         onReady: ({ socketPath, pid }) =>

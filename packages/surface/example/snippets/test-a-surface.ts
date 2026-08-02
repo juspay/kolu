@@ -1,21 +1,36 @@
 /**
  * Testing the example surface in-process — the blocks the "How to test a
- * surface" page embeds. `directLink` wraps the served router and invokes
+ * surface" page embeds. `directDispatch` takes the served surface and invokes
  * handlers in-process (no socket, no subprocess), so the client the test drives
- * is the exact typed client a socket consumer would hold.
+ * is the exact face a socket consumer would hold.
  */
 
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { directLink } from "@kolu/surface/links/direct";
+import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+  type UnaryProcedure,
+} from "@kolu/surface/client";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import { Effect, Option, Stream } from "effect";
 import { expect } from "vitest";
-import { type LogFrame, type Pid, type Proc, surface, ZERO } from "./surface";
+import {
+  type KillArgs,
+  type Killed,
+  type Load,
+  type LogFrame,
+  type NodeIdArg,
+  type Pid,
+  type Proc,
+  surface,
+  ZERO,
+} from "./surface";
 
 const table = new Map<Pid, Proc>();
 
 // #region client
 function makeTestClient() {
-  const { router } = implementSurface(surface, {
+  const runtime = implementSurface(surface, {
     cells: { load: { store: inMemoryStore(ZERO) } },
     collections: {
       processes: {
@@ -30,42 +45,68 @@ function makeTestClient() {
     },
     streams: {
       nodeLog: {
-        source: async function* (nodeId) {
-          yield { kind: "snapshot", text: `opened ${nodeId}`, done: false };
-        },
+        source: (nodeId) =>
+          Stream.succeed({
+            kind: "snapshot" as const,
+            text: `opened ${nodeId}`,
+            done: false,
+          }),
       },
     },
     events: { autosave: {} },
     procedures: {
       proc: {
-        kill: async ({ input, ctx }) => {
-          ctx.collections.processes.remove(input.pid);
-          return { ok: true };
-        },
+        kill: ({ input, ctx }) =>
+          Effect.sync(() => {
+            ctx.collections.processes.remove(input.pid);
+            return { ok: true };
+          }),
       },
     },
   });
-  // The raw typed client — the wire client, in-process. `implementSurface`
-  // already returns a ready `{ router }`, so no re-wrap; pass it bare, because
-  // directLink is the one link `surfaceClient` accepts without a watchdog.
-  return directLink<typeof surface.contract>(router as never);
+  // The wire face, in-process. `implementSurface` already returns everything a
+  // dispatch needs, so pass the runtime bare — `directDispatch` is the one
+  // dispatch `surfaceClient` accepts without a watchdog.
+  return buildSurfaceFace(surface, directDispatch(runtime));
 }
 // #endregion client
 
-// #region snapshot
+/** A snapshot-then-deltas member opens with its snapshot, so `runHead` IS the
+ *  one-shot read — and it interrupts the subscription as soon as it lands. */
+async function snapshot<T>(
+  stream: Stream.Stream<T, unknown>,
+  onEmpty: string,
+): Promise<T> {
+  const head = await Effect.runPromise(Stream.runHead(stream));
+  if (Option.isNone(head)) throw new Error(onEmpty);
+  return head.value;
+}
+
 const client = makeTestClient();
-const load = await firstFrameOrThrow(
-  await client.surface.load.get({}),
+const loadGet = client.surface.load?.get as StreamingProcedure<undefined, Load>;
+const keys = client.surface.processes?.keys as StreamingProcedure<
+  undefined,
+  readonly Pid[]
+>;
+const kill = client.surface.proc?.kill as UnaryProcedure<KillArgs, Killed>;
+const nodeLog = client.surface.nodeLog?.get as StreamingProcedure<
+  NodeIdArg,
+  LogFrame
+>;
+
+// #region snapshot
+const load = await snapshot(
+  loadGet(undefined),
   "load cell yielded no snapshot frame — link failure",
 );
 expect(load).toEqual(ZERO);
 // #endregion snapshot
 
 // #region procedure
-await client.surface.proc.kill({ pid: 4321 });
+await kill({ pid: 4321 });
 
-const alive = await firstFrameOrThrow(
-  await client.surface.processes.keys({}),
+const alive = await snapshot(
+  keys(undefined),
   "processes keys yielded no snapshot frame — link failure",
 );
 expect(alive).not.toContain(4321);
@@ -73,12 +114,14 @@ expect(alive).not.toContain(4321);
 
 // #region stream
 const frames: LogFrame[] = [];
-for await (const frame of await client.surface.nodeLog.get({
-  nodeId: "node-1",
-})) {
-  frames.push(frame);
-  if (frame.done) break;
-}
+await Effect.runPromise(
+  Stream.runForEach(
+    // `takeUntil` ends the stream on the terminal frame, which finalizes the
+    // subscription — the Stream-native `break`.
+    Stream.takeUntil(nodeLog("node-1"), (frame) => frame.done),
+    (frame) => Effect.sync(() => frames.push(frame)),
+  ),
+);
 expect(frames[0]?.kind).toBe("snapshot");
 // #endregion stream
 

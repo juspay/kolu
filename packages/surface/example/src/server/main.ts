@@ -1,8 +1,19 @@
 /**
- * Server entry — Hono + WebSocket bound to oRPC's `RPCHandler`.
+ * Server entry — Hono for static assets, a plain `ws` server for the surface.
  *
- * No HTTPS, no auth, no migrations — just enough wiring to demonstrate
- * the framework end-to-end. Static client is served from
+ * Effect RPC speaks ndjson over ONE bidirectional transport, so a surface has a
+ * single browser-facing leg: the WebSocket. Every call — a cell subscription, a
+ * collection delta stream, an imperative `notes.create` — rides it. (The old
+ * second, HTTP arm went away with oRPC; there is nothing left for a cross-site
+ * POST to reach, so only the ws upgrade needs the CSWSH origin gate.)
+ *
+ * `serveSurfaceSocket({ group, handlers, socket })` is the dispatch step: it
+ * stands a per-connection Effect RPC server over the SHARED handlers, buffering
+ * inbound frames until that server has attached its listener (a reconnecting
+ * client re-issues its subscriptions in the same tick as the upgrade).
+ *
+ * No HTTPS, no auth, no migrations — just enough wiring to demonstrate the
+ * framework end-to-end. Static client is served from
  * `KOLU_SURFACE_EXAMPLE_DIST` (set by the Nix wrapper) when present;
  * otherwise the dev path is "Vite serves the client on its own port,
  * Hono only handles `/rpc/*`".
@@ -11,16 +22,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { serve } from "@hono/node-server";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
-import { RPCHandler } from "@orpc/server/fetch";
-import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+  type ServableSocket,
+  serveSurfaceSocket,
+} from "@kolu/surface-app/server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import { appRouter } from "./router";
+import { runtime } from "./serve";
 
 const PORT = Number(process.env.PORT ?? 7700);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -30,25 +39,6 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
 
 const app = new Hono();
-
-// ── HTTP RPC (mutations + one-shot queries) ───────────────────────────
-// biome-ignore lint/suspicious/noExplicitAny: see WsRPCHandler note below
-const httpHandler = new RPCHandler(appRouter as any);
-app.use("/rpc/*", async (c, next) => {
-  // CSWSH gate, HTTP arm — same policy as the `/rpc/ws` upgrade below. The HTTP
-  // RPC transport is browser-reachable too (a cross-site `multipart/form-data`
-  // POST deserializes into procedure input with no preflight), so the Origin
-  // check must run on BOTH transports. See `gateHttpRpcOrigin`.
-  const rejected = gateHttpRpcOrigin(c.req.raw, {
-    allowedOrigins: ALLOWED_ORIGINS,
-  });
-  if (rejected) return rejected;
-  const { matched, response } = await httpHandler.handle(c.req.raw, {
-    prefix: "/rpc",
-  });
-  if (matched) return response;
-  await next();
-});
 
 // ── Static client (Nix-build mode) ────────────────────────────────────
 if (DIST_DIR && existsSync(DIST_DIR)) {
@@ -91,16 +81,26 @@ const server = serve(
   },
 );
 
-// ── WebSocket RPC (streaming subscriptions) ───────────────────────────
-const wsHandler = // biome-ignore lint/suspicious/noExplicitAny: appRouter mixes implementSurface's Lazy<Router> spread with hand-listed namespaces; oRPC's RPCHandler input type doesn't accept that union. Runtime shape is a valid router (matches Kolu's own server.ts pattern).
-  new WsRPCHandler(appRouter as any);
+// ── WebSocket: the surface's one transport ────────────────────────────
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", (peer) => {
-  void wsHandler.upgrade(peer);
+  const serving = serveSurfaceSocket({
+    group: runtime.group,
+    handlers: runtime.handlers,
+    // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+    // narrow `addEventListener` per event name, which the generic seam does not.
+    socket: peer as unknown as ServableSocket,
+  });
+  // A serving site OWNS `done`: it resolves when the peer hangs up and REJECTS
+  // if the serving stack itself failed. An ignored rejection is an unhandled
+  // one — a silently dead connection deserves the loud channel.
+  serving.done.catch((err) => {
+    console.error("surface connection failed:", err);
+  });
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {
-    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    // CSWSH gate — reject a cross-site browser Origin before we upgrade.
     if (gateWsOrigin(req, socket, { allowedOrigins: ALLOWED_ORIGINS })) return;
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit("connection", ws, req);

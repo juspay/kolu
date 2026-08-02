@@ -7,7 +7,7 @@
  *                             --stdio` invokes).
  *   --broken-stdout-log       deliberately log a stray line to stdout
  *                             before any RPC, reproducing lesson #4.
- *                             The parent's client peer sees garbage and
+ *                             The parent's link sees garbage and
  *                             surfaces a frame-parse failure rather than
  *                             hanging. Used by the demo's "deliberately
  *                             broken" smoke test; not for production.
@@ -16,7 +16,7 @@
  * The agent polls `proc` and `system` every `POLL_INTERVAL_MS` and
  * pushes deltas through the surface's typed `ctx` — the framework
  * mutates the snapshot AND publishes per-key updates in one call. New
- * subscribers see a full snapshot as their first yield
+ * subscribers see a full snapshot as their first frame
  * (snapshot-then-delta invariant) and per-PID upserts/removes
  * thereafter.
  *
@@ -31,7 +31,9 @@ import {
   implementSurface,
   inMemoryChannel,
   inMemoryStore,
+  streamFromAbortableSource,
 } from "@kolu/surface/server";
+import { Effect, Stream } from "effect";
 import {
   type CoreId,
   type CpuCore,
@@ -86,12 +88,10 @@ async function main(): Promise<void> {
   // single in-process write seam (the poll loop calls
   // `runtime.ctx.collections.processes.upsert/remove`, which mutates
   // the snapshot AND publishes through the framework's keyed channels).
-  // `inMemoryPublisher` is the load-bearing piece — it dedupes
-  // channels by name so the framework's publish-site and subscribe-
-  // site call paths land on the same `Channel<T>` instance.
-  // Bulk-snapshot channel — `processesSnapshot` stream subscribers
-  // read the current map on first subscribe, then forward every
-  // delta the poll loop publishes here.
+  //
+  // Bulk-snapshot channel — `processesSnapshot` stream subscribers read the
+  // current map on first subscribe, then forward every delta the poll loop
+  // publishes here.
   const snapshotDeltaBus = inMemoryChannel<ProcessesSnapshotMsg>();
   const runtime = implementSurface(surface, {
     cells: {
@@ -122,31 +122,44 @@ async function main(): Promise<void> {
       },
     },
     streams: {
+      // Author-owned snapshot-then-deltas. `Stream.suspend` defers the map read
+      // to SUBSCRIBE time; `Stream.concat` opens the delta channel only once
+      // that snapshot frame is out. `streamFromAbortableSource` is the ONE
+      // sanctioned bridge from an AbortSignal-shaped producer (`Channel.subscribe`)
+      // to a `Stream`: it scopes an `AbortController` to the stream, so a
+      // consumer walking away (fiber interruption) unsubscribes.
       processesSnapshot: {
-        source: async function* (_input, signal) {
-          yield {
-            kind: "snapshot",
-            entries: [...processSnapshot.entries()],
-          } satisfies ProcessesSnapshotMsg;
-          for await (const delta of snapshotDeltaBus.subscribe(signal)) {
-            yield delta;
-          }
-        },
+        source: () =>
+          Stream.suspend(() =>
+            Stream.concat(
+              Stream.succeed({
+                kind: "snapshot",
+                entries: [...processSnapshot.entries()],
+              } satisfies ProcessesSnapshotMsg),
+              streamFromAbortableSource<ProcessesSnapshotMsg>((signal) =>
+                snapshotDeltaBus.subscribe(signal),
+              ),
+            ),
+          ),
       },
     },
     procedures: {
       process: {
-        kill: async ({ input }) => {
-          try {
-            process.kill(input.pid, input.signal);
-            return { ok: true };
-          } catch (err) {
-            log(
-              `kill ${input.pid} ${input.signal} failed: ${(err as Error).message}`,
-            );
-            return { ok: false };
-          }
-        },
+        // `Effect.sync`: signalling a pid either works or it doesn't, and "it
+        // didn't" is part of this procedure's declared RESULT (`{ ok: false }`),
+        // not a failure the caller narrows on.
+        kill: ({ input }) =>
+          Effect.sync(() => {
+            try {
+              process.kill(input.pid, input.signal);
+              return { ok: true };
+            } catch (err) {
+              log(
+                `kill ${input.pid} ${input.signal} failed: ${(err as Error).message}`,
+              );
+              return { ok: false };
+            }
+          }),
       },
     },
   });
@@ -209,15 +222,10 @@ async function main(): Promise<void> {
     );
   }
 
-  // `implementSurface`'s `.router` is already the FINAL flattened router
-  // (`/surface/...`) — no consumer re-finalizes it via oRPC `implement`.
-  // It's typed `unknown`; cast at the `serveOverStdio` boundary below.
-  const router = runtime.router;
-
   log("serving surface over stdio (read=stdin, write=stdout)");
   const end = await serveOverStdio({
-    // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any, T> input type; runtime shape is valid (Kolu's main server.ts uses the same `as any` cast).
-    router: router as any,
+    group: runtime.group,
+    handlers: runtime.handlers,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
   // Synchronous post-settle cleanup — the supported window before the

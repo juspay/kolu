@@ -1,25 +1,25 @@
 /**
  * The second link: a WebSocket server.
  *
- * The exact same `createTop()` engine — the same flattened router — now served
- * over the wire instead of consumed in-process. Browser ↔ server is oRPC over a
- * WebSocket (`@orpc/server/ws`) for streaming subscriptions, plus an HTTP arm
- * (`@orpc/server/fetch`) for one-shot procedure calls. The client swaps
- * `directLink` for `websocketLink` and nothing else changes.
+ * The exact same `createTop()` engine — the same `{ group, handlers }` pair —
+ * now served over the wire instead of consumed in-process. Effect RPC speaks
+ * ndjson over ONE bidirectional transport, so browser ↔ server is a single
+ * WebSocket: subscriptions and imperative calls alike ride it, and
+ * `serveSurfaceSocket` stands a per-connection RPC server over the shared
+ * handlers. The client swaps `directDispatch` for `websocketLink` and nothing
+ * else changes.
  *
  * No auth, no HTTPS — just enough wiring to demonstrate the framework
- * end-to-end. The CSWSH origin gate runs on BOTH transports (a cross-site POST
- * reaches the HTTP RPC arm too, not just the ws upgrade).
+ * end-to-end. The CSWSH origin gate runs on the ws upgrade, which is now the
+ * only browser-reachable RPC entry point.
  */
 
 import { serve } from "@hono/node-server";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
-import { RPCHandler } from "@orpc/server/fetch";
-import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
+  type ServableSocket,
+  serveSurfaceSocket,
+} from "@kolu/surface-app/server";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { createTop } from "./top";
@@ -33,21 +33,6 @@ top.start();
 
 const app = new Hono();
 
-// ── HTTP RPC (one-shot procedure calls, e.g. process.kill) ──────────────
-// biome-ignore lint/suspicious/noExplicitAny: RPCHandler's router input type doesn't accept implementSurface's Lazy<Router> spread; the runtime shape is a valid router.
-const httpHandler = new RPCHandler(top.router as any);
-app.use("/rpc/*", async (c, next) => {
-  const rejected = gateHttpRpcOrigin(c.req.raw, {
-    allowedOrigins: ALLOWED_ORIGINS,
-  });
-  if (rejected) return rejected;
-  const { matched, response } = await httpHandler.handle(c.req.raw, {
-    prefix: "/rpc",
-  });
-  if (matched) return response;
-  await next();
-});
-
 const server = serve(
   { fetch: app.fetch, port: PORT, hostname: HOST },
   (info) => {
@@ -58,15 +43,25 @@ const server = serve(
   },
 );
 
-// ── WebSocket RPC (streaming cell / collection subscriptions) ───────────
-// biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as the HTTP handler above.
-const wsHandler = new WsRPCHandler(top.router as any);
+// ── WebSocket: the surface's one transport ─────────────────────────────
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: 8 * 1024 * 1024,
 });
 wss.on("connection", (peer) => {
-  void wsHandler.upgrade(peer);
+  const serving = serveSurfaceSocket({
+    group: top.runtime.group,
+    handlers: top.runtime.handlers,
+    // `ws`'s socket satisfies `ServableSocket` structurally; its typings narrow
+    // `addEventListener` per event name, which the generic seam does not.
+    socket: peer as unknown as ServableSocket,
+  });
+  // A serving site OWNS `done`: it resolves when the peer hangs up and REJECTS
+  // if the serving stack itself failed. Observe it, or a dead connection dies
+  // silently.
+  serving.done.catch((err) => {
+    process.stderr.write(`[ws] connection failed: ${String(err)}\n`);
+  });
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {

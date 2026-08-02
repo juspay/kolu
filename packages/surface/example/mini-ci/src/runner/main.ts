@@ -81,7 +81,8 @@ async function main(): Promise<void> {
   );
 
   const end = await serveOverStdio({
-    router: runner.router,
+    group: runner.runtime.group,
+    handlers: runner.runtime.handlers,
     onFirstRequest: () => log("first RPC received — TUI attached"),
   });
   // Synchronous post-settle cleanup — the supported window before the

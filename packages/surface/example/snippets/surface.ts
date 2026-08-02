@@ -11,37 +11,42 @@
  *   - `nodeLog`   — stream: a node's live log, snapshot then deltas.
  *   - `autosave`  — event: "a doc was saved" (occurrence, no snapshot).
  *   - `proc.kill` — procedure: the one imperative mutation.
+ *
+ * Schemas are Effect Schemas. Two spellings are LAWS for any wire field: an
+ * optional key is `Schema.optionalKey` (never `Schema.optional`, which
+ * round-trips an explicit `undefined` through `null`), and a defaulted key is
+ * `Schema.withDecodingDefaultKey` (never `Schema.withDecodingDefault`).
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { z } from "zod";
+import { Schema } from "effect";
 
-const Load = z.object({
-  one: z.number(),
-  five: z.number(),
-  fifteen: z.number(),
+const Load = Schema.Struct({
+  one: Schema.Number,
+  five: Schema.Number,
+  fifteen: Schema.Number,
 });
-export const ZERO: z.infer<typeof Load> = { one: 0, five: 0, fifteen: 0 };
+export const ZERO: typeof Load.Type = { one: 0, five: 0, fifteen: 0 };
 
-const Pid = z.number().int().nonnegative();
-const Proc = z.object({
-  command: z.string(),
-  cpuPct: z.number(),
-  memPct: z.number(),
-});
-
-const NodeId = z.string();
-const LogFrame = z.object({
-  kind: z.enum(["snapshot", "delta"]),
-  text: z.string(),
-  done: z.boolean(),
+const Pid = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const Proc = Schema.Struct({
+  command: Schema.String,
+  cpuPct: Schema.Number,
+  memPct: Schema.Number,
 });
 
-const DocId = z.string();
-const SavedAt = z.object({ at: z.number() });
+const NodeId = Schema.String;
+const LogFrame = Schema.Struct({
+  kind: Schema.Literals(["snapshot", "delta"]),
+  text: Schema.String,
+  done: Schema.Boolean,
+});
 
-const KillArgs = z.object({ pid: Pid });
-const Killed = z.object({ ok: z.boolean() });
+const DocId = Schema.String;
+const SavedAt = Schema.Struct({ at: Schema.Number });
+
+const KillArgs = Schema.Struct({ pid: Pid });
+const Killed = Schema.Struct({ ok: Schema.Boolean });
 
 // #region define
 export const surface = defineSurface({
@@ -59,3 +64,7 @@ export type Pid = SF["collections"]["processes"]["Key"];
 export type Proc = SF["collections"]["processes"]["Value"];
 export type Load = SF["cells"]["load"]["Value"];
 export type LogFrame = SF["streams"]["nodeLog"]["Output"];
+/** A stream's input as a CALLER spells it — the ENCODED side. */
+export type NodeIdArg = SF["streams"]["nodeLog"]["InputWire"];
+export type KillArgs = typeof KillArgs.Encoded;
+export type Killed = typeof Killed.Type;

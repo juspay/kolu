@@ -3,14 +3,14 @@
  *
  * Three-tier bridge:
  *
- *   browser  ─WS oRPC─▶  this server  ─stdio oRPC─▶  remote agent
+ *   browser  ─WS surface─▶  this server  ─stdio surface─▶  remote agent
  *
- * Browser ↔ server uses the framework's existing WebSocket transport
- * (`@orpc/server/ws`). Server ↔ agent uses the Surface Remote session and
- * ssh connector over stdio. The bridge is symmetrical with R-2's
- * `RemoteTerminalBackend`: same transport stack, same lifecycle, same
- * snapshot-then-delta invariant — just with process data instead of
- * terminal data.
+ * Both legs are Effect RPC over ndjson. Browser ↔ server rides one WebSocket
+ * (`serveSurfaceSocket` stands a per-connection RPC server over the shared
+ * handlers); server ↔ agent uses the Surface Remote session and ssh connector
+ * over stdio. The bridge is symmetrical with R-2's `RemoteTerminalBackend`: same
+ * transport stack, same lifecycle, same snapshot-then-delta invariant — just
+ * with process data instead of terminal data.
  *
  * Configuration (env vars):
  *
@@ -33,15 +33,18 @@ import {
   type UpgradeSocket,
 } from "@kolu/surface/ws-origin";
 import {
+  type ServableSocket,
+  serveSurfaceSocket,
+} from "@kolu/surface-app/server";
+import {
   makeSession,
   resolveBakedAgentDrv,
   sshConnector,
 } from "@kolu/surface-remote";
-import { RPCHandler } from "@orpc/server/ws";
 import { Hono } from "hono";
 import { WebSocketServer } from "ws";
-import type { surface } from "../common/surface";
-import { buildRouter } from "./router";
+import { surface } from "../common/surface";
+import { buildSurface } from "./serve";
 
 const HOST = process.env.HOST ?? "localhost";
 const PORT = Number(process.env.PORT ?? 7720);
@@ -62,7 +65,11 @@ async function main(): Promise<void> {
 
   const session = makeSession({
     initialConnection: "probing",
-    connectOnce: sshConnector<typeof surface.contract>({
+    // The connector takes the SURFACE as a value: Effect RPC builds its client
+    // from `surface.group` and the member face is re-nested from `surface.spec`,
+    // neither of which a type alone carries.
+    connectOnce: sshConnector({
+      surface,
       host: HOST,
       binary: "process-monitor-agent",
       // Policy-free: the CONSUMER composes the localhost arm's spawn env, keeping only
@@ -79,7 +86,7 @@ async function main(): Promise<void> {
     }),
     label: `host:${HOST}`,
   });
-  const { router } = buildRouter({ session });
+  const { runtime } = buildSurface({ session });
 
   // ── HTTP server: serve client bundle in production ─────────────────
   const app = new Hono();
@@ -111,9 +118,7 @@ async function main(): Promise<void> {
     },
   );
 
-  // ── WebSocket: oRPC over @orpc/server/ws ───────────────────────────
-  // biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as kolu/server.ts uses on its own appRouter.
-  const wsHandler = new RPCHandler(router as any);
+  // ── WebSocket: the browser's one transport ─────────────────────────
   const wss = new WebSocketServer({
     noServer: true,
     // 8 MiB per inbound frame — the framework's processes-collection
@@ -130,8 +135,17 @@ async function main(): Promise<void> {
       ),
     );
     ws.on("error", (err) => log(`browser ws error: ${err.message}`));
-    void wsHandler.upgrade(
-      ws as unknown as Parameters<typeof wsHandler.upgrade>[0],
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+      // narrow `addEventListener` per event name, which the seam does not.
+      socket: ws as unknown as ServableSocket,
+    });
+    // A serving site OWNS `done`: it resolves on hang-up and REJECTS if the
+    // serving stack failed. An ignored rejection is an unhandled one.
+    serving.done.catch((err) =>
+      log(`browser ws serving failed: ${String(err)}`),
     );
   });
   (
@@ -148,7 +162,7 @@ async function main(): Promise<void> {
       s.destroy();
       return;
     }
-    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    // CSWSH gate — reject a cross-site browser Origin before we upgrade.
     // Especially load-bearing here: this demo binds all interfaces.
     if (
       gateWsOrigin({ headers: r.headers ?? {} }, s, {

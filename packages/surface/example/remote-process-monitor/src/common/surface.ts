@@ -8,9 +8,8 @@
  *   - `processes`  — keyed collection (PID → per-process snapshot).
  *   - `kill`       — imperative procedure (the only mutation).
  *
- * Plus one named connection-progress event so the parent can stream
- * provisioning lines to the browser while Nix is working (row 7: instant
- * pane + async fill).
+ * Plus one bulk snapshot-then-delta stream so a 600-PID table arrives in one
+ * frame rather than one round-trip per row.
  *
  * Symmetry with R-2: this maps row-for-row onto kolu's terminals surface:
  *
@@ -24,39 +23,39 @@
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
-const PidSchema = z.number().int().nonnegative();
-const ProcessSchema = z.object({
-  user: z.string(),
-  cpuPct: z.number(),
-  memPct: z.number(),
-  command: z.string(),
+const PidSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const ProcessSchema = Schema.Struct({
+  user: Schema.String,
+  cpuPct: Schema.Number,
+  memPct: Schema.Number,
+  command: Schema.String,
 });
 
-const CpuCoreSchema = z.object({
+const CpuCoreSchema = Schema.Struct({
   /** Busy-percentage since the previous poll tick (0-100). */
-  usagePct: z.number(),
+  usagePct: Schema.Number,
   /** Reported clock speed in MHz (often a sticky max on Linux). */
-  speedMHz: z.number(),
-  model: z.string(),
+  speedMHz: Schema.Number,
+  model: Schema.String,
 });
-const SystemSchema = z.object({
+const SystemSchema = Schema.Struct({
   /** 1-minute, 5-minute, 15-minute load averages. */
-  loadAvg: z.tuple([z.number(), z.number(), z.number()]),
+  loadAvg: Schema.Tuple([Schema.Number, Schema.Number, Schema.Number]),
   /** Bytes used / total — UI converts to GB. */
-  memUsed: z.number(),
-  memTotal: z.number(),
+  memUsed: Schema.Number,
+  memTotal: Schema.Number,
   /** Seconds since boot. */
-  uptime: z.number(),
+  uptime: Schema.Number,
   /** OS family — `linux` reads /proc/*, `darwin` reads sysctl. */
-  os: z.enum(["linux", "darwin", "unknown"]),
+  os: Schema.Literals(["linux", "darwin", "unknown"]),
   /** Resolved hostname inside the agent (parent shows this in the
    *  header chip — useful when the parent ssh'd by an alias). */
-  hostname: z.string(),
+  hostname: Schema.String,
 });
 
-export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {
+export const DEFAULT_SYSTEM: typeof SystemSchema.Type = {
   loadAvg: [0, 0, 0],
   memUsed: 0,
   memTotal: 0,
@@ -73,18 +72,33 @@ export const DEFAULT_SYSTEM: z.infer<typeof SystemSchema> = {
  *  this for the htop table; the per-key `processes` collection stays
  *  on the surface for the framework's "row 3: snapshot-then-delta on
  *  collections" demonstration (and remains the right shape for "watch
- *  one specific PID" use cases). */
-const ProcessesSnapshotMessage = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("snapshot"),
-    entries: z.array(z.tuple([PidSchema, ProcessSchema])),
+ *  one specific PID" use cases).
+ *
+ *  `Schema.Union`, not `Schema.TaggedUnion`: the discriminant is `kind`, and a
+ *  tagged union would rename it to `_tag` and change the bytes. */
+const ProcessesSnapshotMessage = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    entries: Schema.Array(Schema.Tuple([PidSchema, ProcessSchema])),
   }),
-  z.object({
-    kind: z.literal("delta"),
-    upserts: z.array(z.tuple([PidSchema, ProcessSchema])),
-    removes: z.array(PidSchema),
+  Schema.Struct({
+    kind: Schema.Literal("delta"),
+    upserts: Schema.Array(Schema.Tuple([PidSchema, ProcessSchema])),
+    removes: Schema.Array(PidSchema),
   }),
 ]);
+
+/** `process.kill`'s argument. `signal` absent on the wire ⇒ decoded as
+ *  `"TERM"`. `withDecodingDefaultKey`, never `withDecodingDefault`: the key may
+ *  be MISSING, never an explicit `undefined` (which the latter would round-trip
+ *  through `null`, changing the bytes). */
+const KillInputSchema = Schema.Struct({
+  pid: PidSchema,
+  signal: Schema.Literals(["TERM", "KILL", "HUP", "INT"]).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("TERM" as const)),
+  ),
+});
+const KillOutputSchema = Schema.Struct({ ok: Schema.Boolean });
 
 export const surface = defineSurface({
   cells: {
@@ -105,25 +119,19 @@ export const surface = defineSurface({
      *  R-2's `terminalMetadata` collection is the same fit (3-20
      *  terminals); see plan §R-1.5 row 3. */
     cpuCores: {
-      keySchema: z.number().int().nonnegative(),
+      keySchema: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
       schema: CpuCoreSchema,
     },
   },
   streams: {
     processesSnapshot: {
-      inputSchema: z.object({}),
+      inputSchema: Schema.Struct({}),
       outputSchema: ProcessesSnapshotMessage,
     },
   },
   procedures: {
     process: {
-      kill: {
-        input: z.object({
-          pid: PidSchema,
-          signal: z.enum(["TERM", "KILL", "HUP", "INT"]).default("TERM"),
-        }),
-        output: z.object({ ok: z.boolean() }),
-      },
+      kill: { input: KillInputSchema, output: KillOutputSchema },
     },
   },
 });
@@ -150,3 +158,11 @@ export type CoreId = SF["collections"]["cpuCores"]["Key"];
 export type CpuCore = SF["collections"]["cpuCores"]["Value"];
 export type SystemInfo = SF["cells"]["system"]["Value"];
 export type ProcessesSnapshotMsg = SF["streams"]["processesSnapshot"]["Output"];
+export type ProcessesSnapshotInput =
+  SF["streams"]["processesSnapshot"]["InputWire"];
+
+/** `process.kill`'s argument as a CALLER spells it — the ENCODED side, where
+ *  `signal` is optional — and its result. `SurfaceTypes` covers the four
+ *  reactive primitives; a procedure's two sides are read off its own schemas. */
+export type KillArgs = typeof KillInputSchema.Encoded;
+export type KillResult = typeof KillOutputSchema.Type;
