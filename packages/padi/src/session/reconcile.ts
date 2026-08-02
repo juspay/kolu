@@ -66,7 +66,7 @@ export interface ReconcileResult {
  *  `id`. A saved terminal that is not live is an exited shell — dropped (in
  *  neither returned list). See the module doc for the full partition. */
 export function reconcile(
-  live: PtyHostListEntry[],
+  live: readonly PtyHostListEntry[],
   saved: SavedSession | null,
 ): ReconcileResult {
   const liveById = new Map(live.map((entry) => [entry.id, entry]));

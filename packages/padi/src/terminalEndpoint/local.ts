@@ -33,8 +33,9 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
+import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
-import type { ZodType } from "zod";
+import type { WireSchema } from "@kolu/surface/define";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
   PtySpawnOpts,
@@ -106,6 +107,19 @@ import {
   updateMemory,
 } from "./metadata.ts";
 import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
+
+// ── Decoders ────────────────────────────────────────────────────────────
+// `Schema.decodeUnknownSync` is the successor of zod's `.parse` — same fail-fast
+// semantic, same call sites. Bound ONCE per schema at module scope rather than
+// per call: `decodeUnknownSync` compiles the schema on each application, and
+// three of these run on the per-terminal sleep/wake/seed paths.
+const decodePersistedSnapshot = Schema.decodeUnknownSync(
+  PersistedSnapshotSchema,
+);
+const decodeAuthoredActive = Schema.decodeUnknownSync(AuthoredActiveSchema);
+const decodeAuthoredSleeping = Schema.decodeUnknownSync(AuthoredSleepingSchema);
+const decodeAuthoredParked = Schema.decodeUnknownSync(AuthoredParkedSchema);
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** Birth a terminal's two halves together — register the entry (whose required
  *  `snapshot` field carries the value) and fan that snapshot out to the
@@ -314,7 +328,7 @@ export function onForegroundTapError(
 }
 
 export function bridgeStream<T>(
-  source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
   // Called when the stream itself fails for a NON-abort reason (an abort is
@@ -328,16 +342,20 @@ export function bridgeStream<T>(
   // is a lifecycle problem ("we no longer know when this PTY dies"), not a missing field.
   onError?: (err: unknown) => void,
 ): Promise<void> {
-  return (async () => {
-    try {
-      const iter = await source;
-      for await (const value of iter) {
+  // The ONE Effect run edge in padi's tap layer. `signal` is translated into
+  // fiber interruption at exactly this seam (D10/#18) — the surrounding domain
+  // (`TerminalLifecycle.abort`, the port-nudge controller, the reconciler) stays
+  // AbortController-shaped because it is not Effect code, and interruption is
+  // what actually closes the kaval subscription.
+  return Effect.runPromise(
+    Stream.runForEach(source, (value) =>
+      Effect.sync(() => {
         try {
           onEvent(value);
         } catch (err) {
           // Per-event fence: a single bad event (a failed metadata publish, a
           // scratch-cleanup fs error on exit, …) must NOT escape and end the
-          // `for await` loop — that would silence this tap (cwd / title /
+          // consumption — that would silence this tap (cwd / title /
           // foreground / exit) for the terminal for good. Log and keep
           // consuming. (This is the fence the dissolved agent metadata loop
           // carried in `applyAgentEvent`; it moved here with the taps.)
@@ -346,16 +364,20 @@ export function bridgeStream<T>(
             "pty-host tap onEvent threw (subscription kept alive)",
           );
         }
-      }
-    } catch (err) {
+      }),
+    ),
+    { signal },
+  ).then(
+    () => {},
+    (err) => {
       if (signal.aborted) return;
       if (onError) {
         onError(err);
         return;
       }
       log.error({ err }, "pty-host tap subscription failed");
-    }
-  })();
+    },
+  );
 }
 
 /** Delay before re-subscribing to a kaval stream after it ends — one cadence for
@@ -381,11 +403,17 @@ export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
  *  `onDrop` logs, then delay + re-subscribe. A stream that DRAINS (bridgeStream
  *  resolves, never rejects) is a separate case, routed to `onStreamError` (or
  *  bridgeStream's default when omitted). Extracting this loop is what keeps the
- *  eager-throw guard from diverging between the two call sites. */
+ *  eager-throw guard from diverging between the two call sites.
+ *
+ *  A kaval stream member is now a LAZY `Stream` (kaval-report §5): building one
+ *  registers nothing. That is why `getStream` is still a THUNK and why the
+ *  subscription only exists once `bridgeStream` runs it — the same shape the
+ *  loop already had, so the laziness trap is closed here by construction rather
+ *  than at each call site. */
 export async function resubscribeStream<T>(opts: {
   signal: AbortSignal;
   delayMs: number;
-  getStream: () => AsyncIterable<T> | PromiseLike<AsyncIterable<T>>;
+  getStream: () => Stream.Stream<T, unknown>;
   onEvent: (value: T) => void;
   onStreamError?: (err: unknown) => void;
   onDrop: (err: unknown) => void;
@@ -520,7 +548,7 @@ export function adoptedSnapshot(
     // the host-wide scan re-derives the real set within a tick of the sensor layer
     // starting. A SEVENTH snapshot field then lands in `seedSnapshot` alone.
     ...seedSnapshot(liveEntry.cwd),
-    ...PersistedSnapshotSchema.parse(record),
+    ...decodePersistedSnapshot(record),
     // The two DELIBERATE overrides: the live daemon snapshot is the authority for
     // both (see above), so they win over the saved projection.
     cwd: liveEntry.cwd,
@@ -535,7 +563,7 @@ export function adoptedSnapshot(
 export function adoptedAuthored(
   record: SavedActiveTerminal,
 ): AuthoredActiveTerminal {
-  return AuthoredActiveSchema.parse(record);
+  return decodeAuthoredActive(record);
 }
 
 /** The OBSERVATION half of an ORPHAN survivor (B3.3): a live PTY the daemon still
@@ -605,11 +633,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     void resubscribeStream({
       signal: this.portNudgeAbort.signal,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-      getStream: () =>
-        ptyHostClient.surface.activity.get(
-          {},
-          { signal: this.portNudgeAbort.signal },
-        ),
+      getStream: () => ptyHostClient.surface.activity.get({}),
       onEvent: () => sampler.nudge(),
       onDrop: (err) => {
         // A dropped feed costs promptness, not correctness — the 5 s baseline
@@ -845,7 +869,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!res) return; // raced during spawn — spawnViaClient already cleaned up
 
     proxy.markReady(res.pid);
-    entry.info.pid = res.pid;
+    // A decoded wire value is `readonly` — rebuild rather than assign into it.
+    entry.info = { ...entry.info, pid: res.pid };
     // Seed the authoritative resolved cwd onto the entry's observation before
     // starting the producer (the git sensor reads the spawn cwd at start, and the
     // fold seeds `current` off `entry.snapshot`).
@@ -1045,18 +1070,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the
     // abort signal owns teardown). The producer emits a `cwd` observation off the
     // `cwd` channel; the git sensor reads the same channel to re-resolve git.
-    void bridgeStream(
-      ptyHostClient.surface.cwd.get({ id }, { signal }),
-      signal,
-      (msg) => signals.cwd.publish(msg.cwd),
+    void bridgeStream(ptyHostClient.surface.cwd.get({ id }), signal, (msg) =>
+      signals.cwd.publish(msg.cwd),
+    );
+    void bridgeStream(ptyHostClient.surface.title.get({ id }), signal, (msg) =>
+      signals.title.publish(msg.title),
     );
     void bridgeStream(
-      ptyHostClient.surface.title.get({ id }, { signal }),
-      signal,
-      (msg) => signals.title.publish(msg.title),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.commandRun.get({ id }, { signal }),
+      ptyHostClient.surface.commandRun.get({ id }),
       signal,
       (msg) => {
         // An OSC 633 command mark is the other "look sooner" signal (the note's
@@ -1080,7 +1101,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
     void bridgeStream(
-      ptyHostClient.surface.foreground.get({ id }, { signal }),
+      ptyHostClient.surface.foreground.get({ id }),
       signal,
       (msg) =>
         signals.foreground.publish({
@@ -1106,7 +1127,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
     // ever fires for a genuine exit.
     void bridgeStream(
-      ptyHostClient.surface.exit.get({ id }, { signal }),
+      ptyHostClient.surface.exit.get({ id }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
       (err) => {
@@ -1240,7 +1261,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // (re-launch fixes it); the active drain is an async-`beginSleep` follow-up.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
-      meta: AuthoredSleepingSchema.parse({
+      meta: decodeAuthoredSleeping({
         ...entry.meta,
         state: "sleeping",
         sleptAt: Date.now(),
@@ -1294,7 +1315,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // active entry built in `registerActiveAndSpawn`.
     const wokenAwareness: TerminalSnapshot = seedSnapshot(entry.snapshot.cwd);
     // Flip the AUTHORED record to active — drops `sleptAt`.
-    const meta = AuthoredActiveSchema.parse({ ...entry.meta, state: "active" });
+    const meta = decodeAuthoredActive({ ...entry.meta, state: "active" });
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
@@ -1399,11 +1420,27 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and `lifecycle.resize` has owned every change since, so the PTY is already
     // at the consumer's current size and the fresh snapshot serializes there.
     const open = async (openAt?: EndpointGrid): Promise<OpenedAttach> => {
-      const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id, resizeTo: openAt },
-        { signal },
+      // A kaval stream member is a lazy `Stream`; `toAsyncIterable`'s iterator
+      // is what runs it, and its `return()` interrupts the running fiber —
+      // which IS the unsubscribe (D10/#18). The caller's `signal` is bridged
+      // onto that one teardown so an aborted attach still releases kaval's
+      // subscriber slot, exactly as the retired `{ signal }` call option did.
+      const iter = Stream.toAsyncIterable(
+        // OMIT `resizeTo` on a bare re-attach rather than spelling `undefined`:
+        // it is a `Schema.optionalKey` field, which accepts an ABSENT key and
+        // REJECTS a present `undefined` one (#17) — and the face DECODES the
+        // input at this edge, so an explicit `undefined` fails the call.
+        ptyHostClient.surface.terminalAttach.get(
+          openAt === undefined ? { id } : { id, resizeTo: openAt },
+        ),
+      )[Symbol.asyncIterator]();
+      signal?.addEventListener(
+        "abort",
+        () => {
+          void iter.return?.();
+        },
+        { once: true },
       );
-      const iter = stream[Symbol.asyncIterator]();
       const first = await iter.next();
       if (first.done) {
         // The stream ended before its MANDATORY snapshot frame. If the caller
@@ -1520,7 +1557,7 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
     toEntry,
     label,
   }: {
-    recordSchema: ZodType<Saved>;
+    recordSchema: WireSchema<Saved>;
     toEntry: (
       parsed: Saved,
       base: { info: TerminalInfo; snapshot: TerminalSnapshot },
@@ -1528,24 +1565,28 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
     label: string;
   },
 ): boolean {
-  const idParsed = TerminalIdSchema.safeParse(record.id);
-  const recordParsed = recordSchema.safeParse(record);
-  if (!idParsed.success || !recordParsed.success) {
+  // The tolerant read boundary: `decodeUnknownResult` is the Effect successor of
+  // zod's `.safeParse` — a BRANCH, never a throw — so one corrupt record is
+  // dropped and every other terminal still loads
+  // (`persisted-schema-stays-tolerant`). Both decodes must succeed.
+  const idParsed = decodeTerminalId(record.id);
+  const recordParsed = Schema.decodeUnknownResult(recordSchema)(record);
+  if (Result.isFailure(idParsed) || Result.isFailure(recordParsed)) {
     log.warn(
       { id: record.id },
       `dropping malformed record while seeding ${label} terminal`,
     );
     return false;
   }
-  const id = idParsed.data;
+  const id = idParsed.success;
   if (getTerminal(id)) return false;
-  const parsed = recordParsed.data;
+  const parsed = recordParsed.success;
   // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
   // live agent + foreground reset — the client's join recomposes the dormant tile's
   // cwd / branch / pr off it. The agent the terminal will resume rides the authored
   // record built by `toEntry`. The observation rides the entry's `snapshot` field (no
   // separate store), then fans out.
-  const persisted = PersistedSnapshotSchema.parse(parsed);
+  const persisted = decodePersistedSnapshot(parsed);
   const snapshot: TerminalSnapshot = {
     // The live fields (agent, foreground, ports) come from the ONE home for the
     // snapshot-default set rather than being re-spelled here: a cold-restored
@@ -1570,7 +1611,7 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
     recordSchema: SavedSleepingTerminalSchema,
     toEntry: (parsed, base) => ({
       ...base,
-      meta: AuthoredSleepingSchema.parse(parsed),
+      meta: decodeAuthoredSleeping(parsed),
     }),
     label: "sleeping",
   });
@@ -1593,7 +1634,7 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
     recordSchema: SavedActiveTerminalSchema,
     toEntry: (parsed, base) => ({
       ...base,
-      meta: AuthoredParkedSchema.parse({
+      meta: decodeAuthoredParked({
         ...parsed,
         state: "parked",
         parkedAt: Date.now(),

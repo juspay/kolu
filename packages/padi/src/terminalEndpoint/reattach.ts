@@ -34,6 +34,10 @@
  */
 
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import { Result, Schema } from "effect";
+
+/** zod's `.safeParse` in Effect terms, bound once at module scope. */
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 import { currentPtyHostIdentity as expectedKavalIdentity } from "kaval";
 import { log } from "../log.ts";
 import {
@@ -174,8 +178,8 @@ export async function adoptSurvivingSession(): Promise<void> {
   // (`reapUnrepresentablePty`), never left running hidden (F1).
   let orphansAdopted = 0;
   for (const orphan of adoptOrphans) {
-    const parsed = TerminalIdSchema.safeParse(orphan.id);
-    if (!parsed.success) {
+    const parsed = decodeTerminalId(orphan.id);
+    if (Result.isFailure(parsed)) {
       // Fail CLOSED on an id kolu cannot represent (F1): every real client
       // mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike),
       // so a non-UUID PTY is an anomaly outside kolu's domain. We cannot register
@@ -187,7 +191,7 @@ export async function adoptSurvivingSession(): Promise<void> {
       reapUnrepresentablePty(orphan.id);
       continue;
     }
-    adoptLocalOrphan(parsed.data, orphan);
+    adoptLocalOrphan(parsed.success, orphan);
     orphansAdopted += 1;
   }
 

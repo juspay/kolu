@@ -17,11 +17,10 @@
  * scaffold; this module owns only the padi-shaped watchers and predicates.
  */
 
-import {
-  isDeadTransportError,
-  unenrolledStreamCall,
-} from "@kolu/surface/client";
+import { unenrolledStreamCall } from "@kolu/surface/client";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { Stream } from "effect";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -33,6 +32,29 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PadiSurfaceClient } from "./dial.ts";
 import { padiSurface, type PadiTerminal } from "./surface.ts";
+
+/** Consume a member `Stream` as an async iterable whose teardown is bound to
+ *  `signal`.
+ *
+ *  A member verb hands back a LAZY `Stream` and there is no `signal` option left
+ *  to pass it (D10/#18) — cancellation is fiber interruption, and
+ *  `toAsyncIterable`'s `return()` is what performs it. The waits in this module
+ *  are driven by a non-Effect scaffold (`runWait`) that speaks AbortSignal, so
+ *  the translation happens HERE, once, rather than at each of the three
+ *  subscription sites. Without it an abandoned wait would leave its subscription
+ *  running for the life of the connection.*/
+function iterateUntilAborted<T>(
+  stream: Stream.Stream<T, unknown>,
+  signal: AbortSignal,
+): AsyncIterable<T> & { close: () => void } {
+  const iter = Stream.toAsyncIterable(stream)[Symbol.asyncIterator]();
+  const close = (): void => {
+    void iter.return?.();
+  };
+  if (signal.aborted) close();
+  else signal.addEventListener("abort", close, { once: true });
+  return { [Symbol.asyncIterator]: () => iter, close };
+}
 
 /** The LIVE agent of a composed record, or `null` — only the `active` arm
  *  carries a running agent (`sleeping`/`parked` are dormant, their PTY
@@ -357,10 +379,14 @@ export async function awaitOutputSettled(
           // unbounded-tail hazard the scaffold's recorded follow-up names). An
           // abort rejects the read into the catch below, where the settle is a
           // first-writer no-op.
-          const keys = await firstFrameOrThrow(
-            await client.surface.terminals.keys({}, { signal: ctx.signal }),
-            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+          const keysFeed = iterateUntilAborted(
+            client.surface.terminals.keys(undefined),
+            ctx.signal,
           );
+          const keys = await firstFrameOrThrow(
+            keysFeed,
+            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+          ).finally(() => keysFeed.close());
           if (!keys.includes(opts.id as (typeof keys)[number])) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
@@ -387,26 +413,27 @@ export async function awaitOutputSettled(
 
       const consumeOutput = async (): Promise<void> => {
         try {
-          const stream = await unenrolledStreamCall(
-            (input: { id: string }, o) =>
-              client.surface.terminalAttach.get(input, o),
+          const stream = unenrolledStreamCall(
+            (input: { id: string }) => client.surface.terminalAttach.get(input),
             { id: opts.id },
             {
-              signal: ctx.signal,
               // DISARM on resubscribe: a STREAM_RETRY reconnect (retryDelay
               // ~1000ms) can exceed idleMs (e.g. 800), so an idle window armed
               // by the LAST pre-drop frame would otherwise fire a FALSE `met`
               // during the reconnect gap — declaring the turn settled off a feed
               // we lost. Clearing it here means the window only ever restarts
               // from the fresh snapshot the reconnect delivers (quiescence
-              // across an unobservable gap is not quiescence).
+              // across an unobservable gap is not quiescence). The fence's
+              // per-subscription `onRetry` tap (S3/#8) is where this now rides —
+              // same guarantee, and it still has per-attempt identity.
               onRetry: disarmIdle,
             },
           );
           // Snapshot AND delta frames both (re)arm the window — the snapshot is
           // the replay of the current screen (the moment to start the quiet
           // window), each delta is fresh output resetting it.
-          for await (const _frame of stream) armIdle();
+          for await (const _frame of iterateUntilAborted(stream, ctx.signal))
+            armIdle();
           if (!ctx.signal.aborted) await settleOnLostFeed();
         } catch (err) {
           // An abort (the window fired, a timeout, a cancelled request) is the
@@ -426,13 +453,11 @@ export async function awaitOutputSettled(
 
       const consumeExit = async (): Promise<void> => {
         try {
-          const stream = await unenrolledStreamCall(
-            (input: { id: string }, o) =>
-              client.surface.terminalExit.get(input, o),
+          const stream = unenrolledStreamCall(
+            (input: { id: string }) => client.surface.terminalExit.get(input),
             { id: opts.id },
-            { signal: ctx.signal },
           );
-          for await (const _msg of stream) {
+          for await (const _msg of iterateUntilAborted(stream, ctx.signal)) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }

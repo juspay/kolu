@@ -23,19 +23,20 @@
  * spawns, writes, kills, or reaps — no path here touches a daemon's lifecycle.
  */
 
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { buildSurfaceFace } from "@kolu/surface/client";
 import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
-import {
+  type ControlCoreProbeClient,
   isNoListenerError,
   readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
 import { withTimeout } from "./withTimeout.ts";
 import {
   discoverKavalDaemons,
-  type kavalDaemonContract,
+  kavalControlSurface,
+  kavalDaemonGroup,
   type KavalDaemon,
+  ptyHostClientOver,
 } from "kaval";
 import {
   getPadiServeSocketPath,
@@ -52,7 +53,6 @@ import type {
   RunningPadi,
 } from "./surface.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
-import { isMissingFrozenFragment } from "./ptyHost/missingFrozenFragment.ts";
 
 /** The read-only status a kaval socket answered — fields are null only where the
  *  daemon/listener is honestly absent, never because a failure was swallowed. */
@@ -140,35 +140,44 @@ const PROBE_TIMEOUT_MS = 1500;
 /**
  * READ-ONLY status probe of one kaval socket: dial it, read frozen
  * `control.core.hello` (build commit), `system.version` (contract), and
- * `terminal.list` (live terminal count), then dispose the short-lived client. A
- * pre-fragment survivor has an honestly absent frozen identity and therefore reports a
- * null build commit; a current off-Nix empty identity projects to the same null display
- * fact. Only an honestly absent listener folds to {@link EMPTY_PROBE}; a connected peer
- * that times out or returns an invalid/error response fails loudly.
+ * `terminal.list` (live terminal count), then dispose the short-lived link. An
+ * off-Nix kaval's empty frozen identity projects to a null build commit. Only an
+ * honestly absent listener folds to {@link EMPTY_PROBE}; a connected peer that times
+ * out or returns an invalid/error response fails loudly.
+ *
+ * ONE link over the WHOLE daemon group, then a typed face per sibling over its one
+ * dispatch — the flat-tag successor of the combined-contract client. `dispose()` is
+ * ASYNC and is the ONLY thing that frees the link's protocol fibers, so a scan that
+ * skipped it would leak one per probed kaval per 10s tick.
  */
 export async function probeKavalStatus(
   socket: string,
   timeoutMs = PROBE_TIMEOUT_MS,
 ): Promise<KavalProbe> {
-  let conn: UnixSocketConnection<typeof kavalDaemonContract> | undefined;
+  // The link type is not on a public subpath, so it is read off the factory —
+  // one derivation, no hand-copied shape to drift.
+  let link: Awaited<ReturnType<typeof unixSocketLink>> | undefined;
   try {
-    conn = await withTimeout(
-      unixSocketLink<typeof kavalDaemonContract>({ socketPath: socket }),
+    link = await withTimeout(
+      unixSocketLink({ group: kavalDaemonGroup, socketPath: socket }),
       timeoutMs,
     );
-    const { client } = conn;
-    // Three independent reads share one connection. Missing frozen route is the one
-    // honest transition absence; every other hello failure stays loud.
+    const pty = ptyHostClientOver(link.dispatch);
+    // `SurfaceFace` is deliberately STRUCTURAL (D2 — per-member precision lives
+    // one layer up in a spec-derived face), so reaching the frozen core's verbs
+    // costs one cast, to the shape the shared hello reader already names.
+    const control = buildSurfaceFace(kavalControlSurface, link.dispatch).surface
+      .core as unknown as ControlCoreProbeClient["surface"]["control"]["core"];
+    // Three independent reads share one connection. A hello failure stays LOUD:
+    // the pre-fragment tolerance it used to carry described a peer from the
+    // RETIRED protocol epoch, which cannot complete a dial at all now (D6).
     const [commit, version, list] = await Promise.all([
-      withTimeout(readControlCoreHello(client), timeoutMs).then(
-        (hello) => hello.commit || null,
-        (err: unknown) => {
-          if (isMissingFrozenFragment(err)) return null;
-          throw err;
-        },
-      ),
-      withTimeout(client.surface.system.version({}), timeoutMs),
-      withTimeout(client.surface.terminal.list({}), timeoutMs),
+      withTimeout(
+        readControlCoreHello({ surface: { control: { core: control } } }),
+        timeoutMs,
+      ).then((hello) => hello.commit || null),
+      withTimeout(pty.surface.system.version({}), timeoutMs),
+      withTimeout(pty.surface.terminal.list({}), timeoutMs),
     ]);
     return {
       terminalCount: list.entries.length,
@@ -179,7 +188,7 @@ export async function probeKavalStatus(
     if (isNoListenerError(err)) return EMPTY_PROBE;
     throw err;
   } finally {
-    conn?.dispose();
+    await link?.dispose();
   }
 }
 

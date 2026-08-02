@@ -1,10 +1,15 @@
 /**
  * padi's daemon composition — the "soul" side of `@kolu/surface-daemon`'s spine
  * (the twin of `kaval/src/daemonMain.ts`). It supplies padi's choices — where its
- * gate/socket/state-root live, the served router (`padiSurface` + the frozen
- * control core), the boot orchestration that adopts-or-spawns padi's OWN kaval and
- * reconciles the saved session, the `forever` lifetime — and nothing more. The
- * mechanism (gate → serve → teardown) lives in the spine.
+ * gate/socket/state-root live, the served wire (`padiSurface` + the frozen
+ * control core, as one flat `{ group, handlers }`), the boot orchestration that
+ * adopts-or-spawns padi's OWN kaval and reconciles the saved session, the
+ * `forever` lifetime — and nothing more. The mechanism (gate → serve → teardown)
+ * lives in the spine.
+ *
+ * The boot itself is a LAYER GRAPH (PLAN D9): five `Context.Service` phases whose
+ * dependency arrows prove the ordering the hand-rolled phase tokens used to prove
+ * by threading a value, plus a scoped finalizer where the `finally` used to be.
  *
  * padi computes its OWN paths in-package (`./stateRoot.ts`): it does NOT import
  * kolu-server's runtime-path helpers. A standalone daemon owns its disk. This is
@@ -29,11 +34,13 @@ import {
 import { processIdentityFromEnv } from "osfacts-client";
 
 import { buildCommit } from "@kolu/surface/identity";
+import { Context, Effect, Layer } from "effect";
 import {
   implementSurfacesOnPublisher,
   publisherChannel,
+  type SurfaceHandlers,
 } from "@kolu/surface/server";
-import type { Router } from "@orpc/server";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { configureNixShellEnv } from "kolu-pty";
 import { initAutosaveGate } from "../session/autosaveGate.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
@@ -136,75 +143,92 @@ export interface PadiDaemonOptions {
   onReady?: (info: { socketPath: string; pid: number }) => void;
 }
 
-// ── Typed boot pipeline ───────────────────────────────────────────────────────
-// Each phase takes the PRIOR phase's token, so a PHASE invoked before its predecessor
-// is a COMPILE error, not a silent violation. The two ordering invariants once held by
-// prose — "claim the gate FIRST" (W2.2's B1 blocker) and "the stores are injected
-// before anything reads them" — are now the {@link HeldGate} / {@link StoresReady}
-// types threaded through the chain; the boot below reads as `gate → stores → identity
-// → serve → endpoint`, its PHASE ordering checked by the compiler. The setter sequence
-// WITHIN a phase (e.g. the exit-wipe hook after `ensureKoluRoot` in
-// `configureDaemonIdentity`) is a short, co-located, documented convention — not a
-// compiler-checked edge; the win is that those setters are grouped into one phase
-// instead of scattered across the boot the way they used to be.
+// ── The boot Layer graph (PLAN D9) ───────────────────────────────────────────
+// Each phase is a `Context.Service`, and each phase's LAYER is built by an effect
+// that `yield*`s the services of the phases that must precede it. So the two
+// ordering invariants once held by prose — "claim the gate FIRST" (W2.2's B1
+// blocker) and "the stores are injected before anything reads them" — are now
+// proved by the graph's DEPENDENCY ARROWS: a layer cannot be built before the
+// layers it requires, and a boot that tried would not type-check.
+//
+// This is the successor of the hand-rolled phase-token pipeline, which threaded
+// the same proof through by passing each phase's token to the next. Two things
+// the Layer form adds that the tokens could not: teardown is a SCOPED FINALIZER
+// (the surface runtime's `close` releases with the scope instead of in a
+// `finally` the boot has to remember to write), and the gate's refusal arms are
+// a typed FAILURE rather than an early `return` the compiler cannot see.
+//
+// The setter sequence WITHIN a phase (e.g. the exit-wipe hook after
+// `ensureKoluRoot` in `configureDaemonIdentity`) is still a short, co-located,
+// documented convention — not a graph edge; the win is unchanged, those setters
+// are grouped into one phase instead of scattered across the boot.
 
 /** Padi's HELD single-instance gate — the `acquired` arm of `claimPidGate`,
- *  narrowed past the `held` / `dir-not-private` exits. Threaded into every boot phase
- *  that must run UNDER the gate, so a phase reachable before the claim would not
- *  type-check (the loser of a state-root race can't clobber the winner's disk). */
+ *  narrowed past the `held` / `dir-not-private` exits. Every later layer depends
+ *  on this one, so nothing in the boot can run before the claim (the loser of a
+ *  state-root race can't clobber the winner's disk). */
 type HeldGate = Extract<GateAcquisition, { kind: "acquired" }>;
 
-/** Padi's state-root stores are OPEN, legacy-imported, and INJECTED — the precondition
- *  for anything that reads a padi cell (serve, reconcile). Carries the gate forward so
- *  the whole pipeline is value-threaded to the spine at the end. */
-interface StoresReady {
-  readonly phase: "stores";
-  readonly gate: HeldGate;
+class PadiGate extends Context.Service<PadiGate, HeldGate>()(
+  "padi/boot/PadiGate",
+) {}
+
+/** Padi's gate was NOT acquired — the two arms that are an honest EXIT rather
+ *  than a failure (`already-running`, `dir-not-private`). It rides the Effect
+ *  FAILURE channel so the layers downstream are unreachable by construction, and
+ *  the top of `runPadiDaemon` maps it straight back to the `DaemonExit` the spine
+ *  expects. */
+class GateRefused {
+  readonly _tag = "GateRefused";
+  constructor(readonly exit: DaemonExit) {}
 }
+
+/** Padi's state-root stores are OPEN, legacy-imported, and INJECTED — the
+ *  precondition for anything that reads a padi cell (serve, reconcile). */
+class PadiStores extends Context.Service<
+  PadiStores,
+  { readonly opened: true }
+>()("padi/boot/PadiStores") {}
 
 /** The per-process identity (pid, serve socket, spawn version, nix-shell env,
- *  koluRoot, the exit-wipe hook, the autosave gate) is configured — the precondition
- *  for spawning a terminal or serving. */
-interface IdentityReady {
-  readonly phase: "identity";
-  readonly gate: HeldGate;
-}
+ *  koluRoot, the exit-wipe hook, the autosave gate) is configured — the
+ *  precondition for spawning a terminal or serving. */
+class PadiIdentity extends Context.Service<
+  PadiIdentity,
+  { readonly configured: true }
+>()("padi/boot/PadiIdentity") {}
 
-/** padiSurface + the frozen control core are served and the late-bound ctx is wired
- *  (every domain writer can now publish deltas) — the precondition for booting the
- *  kaval endpoint, whose reconcile publishes onto that ctx. Carries the served
- *  router. */
-interface SurfacesServed {
-  readonly phase: "served";
-  readonly gate: HeldGate;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC served router — the same `Router<any, any>` the served fragment narrows to (see `serveDaemonSurfaces`).
-  readonly router: Router<any, any>;
-  /** Release the surface runtime's owned sources — the daemon awaits this on
-   *  teardown (and on a boot-step failure) so the runtime's sources are released
-   *  deterministically rather than left to process death. Idempotent; the
-   *  loud-not-fatal `done` disposition is unchanged (close resolves cleanly). */
-  readonly close: () => Promise<void>;
-}
+/** padiSurface + the frozen control core are served and the late-bound ctx is
+ *  wired (every domain writer can now publish deltas) — the precondition for
+ *  booting the kaval endpoint, whose reconcile publishes onto that ctx.
+ *
+ *  Carries the two fields the spine's `DaemonSpec` takes where the retired oRPC
+ *  `router` was one, spelled the same way on both sides so the spine invents no
+ *  vocabulary padi has to learn (surface-daemon-report §1). `Rpc.Any` is the
+ *  honest erasure: a spec-walk-assembled group carries no type a caller could
+ *  trust, and route-set identity is asserted by `implementSurfaces` at boot. */
+class PadiSurfaces extends Context.Service<
+  PadiSurfaces,
+  {
+    readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+    readonly handlers: SurfaceHandlers;
+  }
+>()("padi/boot/PadiSurfaces") {}
 
 /** The local kaval endpoint has booted (adopt-or-spawn) and the saved session is
  *  reconciled — the precondition for the samplers + manifests that read the held
- *  kaval's socket. The served router is NOT re-carried here — this phase neither
- *  produces nor consumes it; the caller reads it straight off the `served` value. */
-interface EndpointBooted {
-  readonly phase: "endpoint";
-  readonly gate: HeldGate;
-}
+ *  kaval's socket. It carries nothing: this phase neither produces nor consumes
+ *  the served wire, which the program reads straight off {@link PadiSurfaces}. */
+class PadiEndpoint extends Context.Service<
+  PadiEndpoint,
+  { readonly booted: true }
+>()("padi/boot/PadiEndpoint") {}
 
-/** Open padi's state-root stores UNDER the held gate: open the `Conf`, run the
- *  one-shot legacy import BEFORE injecting (so imported values are in place before any
- *  reader), then inject the three cells' backing stores. The `gate: HeldGate` param is
- *  the compile-time proof the gate was claimed first — a padi that lost the race exits
- *  before this is reachable. */
-function openStateStores(
-  gate: HeldGate,
-  stateRoot: string,
-  log: Logger,
-): StoresReady {
+/** Open padi's state-root stores: open the `Conf`, run the one-shot legacy import
+ *  BEFORE injecting (so imported values are in place before any reader), then
+ *  inject the three cells' backing stores. Runs UNDER the held gate — that is the
+ *  {@link storesLayer}'s dependency on {@link PadiGate}, not a parameter here. */
+function openStateStores(stateRoot: string, log: Logger): { opened: true } {
   const opened = openPadiStateStores(stateRoot);
   if (opened.kind === "newer-project-version") {
     throw new NewerPadiStateProjectVersionError(opened);
@@ -216,18 +240,32 @@ function openStateStores(
   setPadiSessionStore(stores.session);
   setPadiActivityFeedStore(stores.activityFeed);
   setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
-  return { phase: "stores", gate };
+  return { opened: true };
 }
+
+/** The stores layer — REQUIRES {@link PadiGate}, so it cannot be built before the
+ *  gate is claimed. That arrow is the compile-time successor of the old
+ *  `gate: HeldGate` parameter. */
+const storesLayer = (
+  stateRoot: string,
+  log: Logger,
+): Layer.Layer<PadiStores, never, PadiGate> =>
+  Layer.effect(
+    PadiStores,
+    // The gate is DEPENDED ON, not read: nothing downstream needs its value, only
+    // the guarantee that it was claimed. A service key IS an Effect, so the
+    // dependency is spelled by consuming it.
+    PadiGate.useSync(() => openStateStores(stateRoot, log)),
+  );
 
 /** Configure padi's per-process identity + wire the autosave gate. Requires the stores
  *  token (its `koluRoot` + autosave observe the injected state), so it cannot run
  *  before injection. */
 function configureDaemonIdentity(
-  stores: StoresReady,
   opts: PadiDaemonOptions,
   socketPath: string,
   boot: PadiBoot,
-): IdentityReady {
+): { configured: true } {
   // padi's OWN pid (a standalone daemon owns its disk) — koluRoot + PTY spawns need it.
   setDaemonProcessId(String(process.pid));
   // Record padi's OWN serving socket so every terminal it spawns carries it as
@@ -253,22 +291,35 @@ function configureDaemonIdentity(
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
   });
-  return { phase: "identity", gate: stores.gate };
+  return { configured: true };
 }
+
+/** The identity layer — REQUIRES {@link PadiStores}, so the per-process identity
+ *  can never be configured before the stores it observes are injected. */
+const identityLayer = (
+  opts: PadiDaemonOptions,
+  socketPath: string,
+  boot: PadiBoot,
+): Layer.Layer<PadiIdentity, never, PadiStores> =>
+  Layer.effect(
+    PadiIdentity,
+    PadiStores.useSync(() => configureDaemonIdentity(opts, socketPath, boot)),
+  );
 
 /** Serve padiSurface + the frozen control core on ONE socket and wire the late-bound
  *  ctx. Requires the identity token (spawns/serving observe it), and takes the
  *  already-built `onDrain` so a control-core drain persists + exits. */
-function serveDaemonSurfaces(
-  identity: IdentityReady,
-  params: {
-    stateRoot: string;
-    onDrain: () => void;
-    log: Logger;
-    lifetime: DaemonLifetimeInfo;
-    boot: PadiBoot;
-  },
-): SurfacesServed {
+function serveDaemonSurfaces(params: {
+  stateRoot: string;
+  onDrain: () => void;
+  log: Logger;
+  lifetime: DaemonLifetimeInfo;
+  boot: PadiBoot;
+}): {
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  handlers: SurfaceHandlers;
+  close: () => Promise<void>;
+} {
   const { stateRoot, onDrain, log, lifetime, boot } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
   const runtime = implementSurfacesOnPublisher(
@@ -334,29 +385,47 @@ function serveDaemonSurfaces(
       "padi surface runtime faulted",
     ),
   );
-  // `implementSurfacesOnPublisher` returns the FINAL top-level router — the
-  // socket's handler routes it directly (no re-wrap; the double-prefix is gone
-  // at the framework seam).
-  // biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; the runtime shape is a valid top-level served router — the same cast every serving site uses.
-  const servedRouter = runtime.router as Router<any, any>;
   return {
-    phase: "served",
-    gate: identity.gate,
-    router: servedRouter,
+    // The flat tag map + the handlers bound to it, forwarded verbatim to the
+    // spine — a tag carries its own route now, so there is nothing to re-wrap.
+    group: runtime.group,
+    handlers: runtime.handlers,
     close: runtime.close,
   };
 }
 
+/** The serve layer — REQUIRES {@link PadiIdentity} (spawns and serving observe
+ *  it), and OWNS the surface runtime's shutdown as a SCOPED FINALIZER.
+ *
+ *  That last part is what the old `try { … } finally { await served.close() }`
+ *  spelled by hand: once the daemon stops serving — or a later boot step fails —
+ *  the runtime's owned sources are released deterministically rather than left to
+ *  process death. Idempotent, and the loud-not-fatal `done` disposition is
+ *  unchanged (close resolves cleanly and never faults `done`). */
+const surfacesLayer = (params: {
+  stateRoot: string;
+  onDrain: () => void;
+  log: Logger;
+  lifetime: DaemonLifetimeInfo;
+  boot: PadiBoot;
+}): Layer.Layer<PadiSurfaces, never, PadiIdentity> =>
+  Layer.effect(
+    PadiSurfaces,
+    PadiIdentity.use(() =>
+      Effect.acquireRelease(
+        Effect.sync(() => serveDaemonSurfaces(params)),
+        (served) => Effect.promise(() => served.close()),
+      ),
+    ),
+  );
+
 /** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
  *  PTYs against the saved session, and start the live inventory reconciler. Requires
  *  the served surfaces — the reconcile publishes onto the wired ctx. */
-async function bootLocalEndpoint(
-  served: SurfacesServed,
-  params: {
-    kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
-    legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
-  },
-): Promise<EndpointBooted> {
+async function bootLocalEndpoint(params: {
+  kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
+  legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
+}): Promise<{ booted: true }> {
   await ensureLocalEndpoint({
     home: params.kavalHome,
     // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
@@ -368,17 +437,33 @@ async function bootLocalEndpoint(
     onNotAdopted: parkSavedSession,
     onBootSettled: startInventoryReconciler,
   });
-  return { phase: "endpoint", gate: served.gate };
+  return { booted: true };
 }
 
-/** Run the padi daemon to completion: own its state-root, adopt-or-spawn its
- *  kaval, reconcile the saved session, serve `padiSurface` + the control core over
- *  padi's digest-keyed socket, and stay up until drained / signalled. Resolves the
- *  spine's {@link DaemonExit} for the bin to map to an exit code. The boot is a typed
- *  pipeline (see the phase functions above); this reads as its call graph. */
-export async function runPadiDaemon(
+/** The endpoint layer — REQUIRES {@link PadiSurfaces}: the boot reconcile
+ *  publishes onto the ctx the serve phase wires, so it cannot run first. */
+const endpointLayer = (params: {
+  kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
+  legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
+}): Layer.Layer<PadiEndpoint, never, PadiSurfaces> =>
+  Layer.effect(
+    PadiEndpoint,
+    PadiSurfaces.use(() => Effect.promise(() => bootLocalEndpoint(params))),
+  );
+
+/** The padi daemon as ONE `Effect`: own its state-root, adopt-or-spawn its kaval,
+ *  reconcile the saved session, serve `padiSurface` + the control core over padi's
+ *  digest-keyed socket, and stay up until drained / signalled. Succeeds with the
+ *  spine's {@link DaemonExit} for the bin to map to an exit code.
+ *
+ *  The boot ordering is the LAYER GRAPH above (PLAN D9): this reads as the program
+ *  that consumes it — the phases it `yield*`s pull their whole dependency chain in
+ *  with them, and the surface runtime's release rides the scope rather than a
+ *  `finally`. Its only declared failure is {@link GateRefused}, which
+ *  {@link runPadiDaemon} maps back to a `DaemonExit`. */
+function padiDaemonProgram(
   opts: PadiDaemonOptions,
-): Promise<DaemonExit> {
+): Effect.Effect<DaemonExit, GateRefused> {
   const { log } = opts;
   // Resolve identity FIRST — bind refuses without an explicit path (#1334). Logger
   // open and every path derivation need the resolved root; configureDaemonLog used
@@ -417,36 +502,45 @@ export async function runPadiDaemon(
       `osfacts could not resolve this padi process (${process.pid})`,
     );
   }
-  const claimed = await claimPidGate(
-    home.gatePath,
-    home.socketPath,
-    selfIdentity,
-    readProcessIdentity,
-  );
-  if (claimed.kind === "held") {
-    log.info(
-      { gatePath: home.gatePath, pid: claimed.pid },
-      "padi already running for this state-root; yielding to the live instance",
-    );
-    return { kind: "already-running", pid: claimed.pid };
-  }
-  if (claimed.kind === "dir-not-private") {
-    log.error(
-      { gatePath: home.gatePath, dir: claimed.dir },
-      "padi gate directory is not private (owner-only); refusing to start",
-    );
-    return { kind: "serve-failed", detail: "dir-not-private" };
-  }
-  const gate = claimed;
-
-  // Gate → stores → identity: each phase takes the prior's token, so none can run
-  // before the gate is claimed above (a lost gate-race returns before reaching here).
-  const stores = openStateStores(gate, stateRoot, log);
-  const identity = configureDaemonIdentity(
-    stores,
-    opts,
-    home.socketPath,
-    PADI_BOOT,
+  // The gate LAYER: its two refusal arms are the Effect FAILURE channel, which is
+  // what makes every later layer unreachable by construction rather than by an
+  // early `return` the compiler cannot see.
+  const gateLayer: Layer.Layer<PadiGate, GateRefused> = Layer.effect(
+    PadiGate,
+    Effect.flatMap(
+      Effect.promise(() =>
+        claimPidGate(
+          home.gatePath,
+          home.socketPath,
+          selfIdentity,
+          readProcessIdentity,
+        ),
+      ),
+      (claimed) => {
+        if (claimed.kind === "held") {
+          log.info(
+            { gatePath: home.gatePath, pid: claimed.pid },
+            "padi already running for this state-root; yielding to the live instance",
+          );
+          return Effect.fail(
+            new GateRefused({ kind: "already-running", pid: claimed.pid }),
+          );
+        }
+        if (claimed.kind === "dir-not-private") {
+          log.error(
+            { gatePath: home.gatePath, dir: claimed.dir },
+            "padi gate directory is not private (owner-only); refusing to start",
+          );
+          return Effect.fail(
+            new GateRefused({
+              kind: "serve-failed",
+              detail: "dir-not-private",
+            }),
+          );
+        }
+        return Effect.succeed(claimed);
+      },
+    ),
   );
 
   // Resolve the lifetime ONCE: `forever` in production; `boundToPid` when a
@@ -457,9 +551,9 @@ export async function runPadiDaemon(
   const lifetime = daemonLifetimeFromEnv({ kind: "forever" });
 
   // ── The drain trigger ── control-core `drain` persists + exits; the caller observes
-  // the socket close. Built HERE (not in a phase) so `onDrain` closes over
+  // the socket close. Built HERE (not in a layer) so `onDrain` closes over
   // `drainController` — which the spine's `daemonMain` also aborts on — and can be
-  // handed to the serve phase; composed with any external stop signal.
+  // handed to the serve layer; composed with any external stop signal.
   const drainController = new AbortController();
   if (opts.signal) {
     if (opts.signal.aborted) drainController.abort();
@@ -488,23 +582,32 @@ export async function runPadiDaemon(
     drainController.abort();
   };
 
-  // Serve → boot the endpoint: the reconcile publishes onto the ctx the serve phase
-  // wires, so `bootLocalEndpoint` takes the served token.
-  const served = serveDaemonSurfaces(identity, {
-    stateRoot,
-    onDrain,
-    log,
-    lifetime: lifetimeInfo(lifetime),
-    boot: PADI_BOOT,
-  });
-  try {
-    const endpoint = await bootLocalEndpoint(served, {
-      kavalHome,
-      legacyKavalHome,
-    });
+  // gate → stores → identity → surfaces → endpoint, as ONE layer whose arrows ARE
+  // the ordering. `provideMerge` keeps each phase visible to the program below
+  // (it reads the served wire and the held gate) while still feeding it to the
+  // phase that depends on it.
+  const bootLayer = endpointLayer({ kavalHome, legacyKavalHome }).pipe(
+    Layer.provideMerge(
+      surfacesLayer({
+        stateRoot,
+        onDrain,
+        log,
+        lifetime: lifetimeInfo(lifetime),
+        boot: PADI_BOOT,
+      }),
+    ),
+    Layer.provideMerge(identityLayer(opts, home.socketPath, PADI_BOOT)),
+    Layer.provideMerge(storesLayer(stateRoot, log)),
+    Layer.provideMerge(gateLayer),
+  );
 
-    // Manifests run AFTER the endpoint boot (the `endpoint` token proves it): they
-    // read the held kaval's socket / a connected daemon.
+  const program = Effect.gen(function* () {
+    const gate = yield* PadiGate;
+    const served = yield* PadiSurfaces;
+    // Depending on the endpoint phase is what orders the manifests AFTER the
+    // kaval boot — they read the held kaval's socket / a connected daemon.
+    yield* PadiEndpoint;
+
     // (padi's `processMemory` rail is now a DERIVED poll cell owned by the served
     // surface — `servePadi.ts` — so it no longer needs a boot-time sampler start.)
     // Manifests (digest → state-root) so a flag-less kaval-tui can label what it
@@ -523,42 +626,64 @@ export async function runPadiDaemon(
     // is needed. The serving padi still reports ITSELF by construction — see
     // `withSelfPadi` — reading padi's serve socket from the module global.)
 
-    return await daemonMain({
-      // Full home — gate+socket from one resolve; override absorbed at construction.
-      home,
-      processIdentity: selfIdentity,
-      readProcessIdentity,
-      // The router is the serve phase's output — read it straight off `served` rather
-      // than re-threading it through the endpoint token that neither owns nor touches it.
-      router: served.router,
-      // The same lifetime resolved above (reused, never re-derived) — so the value
-      // seeded into the padiSurface `identity` cell is provably the one governing the
-      // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
-      // forwards the same var into its kaval).
-      lifetime,
-      // padi's ANCHOR is its state-root — the identity it resolved as its very
-      // first act (#1334), known directly, no manifest indirection (unlike its
-      // kaval, which must read the root back off the manifest padi writes).
-      // When the root is deleted — `git worktree remove` on a dev workspace —
-      // padi reaps itself instead of leaking forever (juspay/kolu#2010: the
-      // very leak class its kaval already self-collected since #1713). No
-      // session persist on the way out: the place a session would persist TO
-      // is exactly what is gone.
-      // Override the default (`home.dir` = runtime rendezvous); state-root is
-      // the durable identity, not the ephemeral runtime home.
-      anchor: () => stateRoot,
-      log,
-      signal: drainController.signal,
-      onReady: opts.onReady,
-      // The gate claimed at the top, threaded through the pipeline — the spine serves
-      // under it and releases it on teardown, rather than acquiring it here (too late).
-      gate: endpoint.gate,
-    });
-  } finally {
-    // Own the surface runtime's shutdown: once the daemon has stopped serving (or a
-    // boot step above threw), release its owned sources. Awaited here so the release
-    // is deterministic rather than left to process death; disposition unchanged
-    // (loud-not-fatal — close resolves cleanly and never faults `done`).
-    await served.close();
-  }
+    return yield* Effect.promise(() =>
+      daemonMain({
+        // Full home — gate+socket from one resolve; override absorbed at construction.
+        home,
+        processIdentity: selfIdentity,
+        readProcessIdentity,
+        // The served wire is the serve phase's output — read straight off the
+        // `PadiSurfaces` service rather than re-threaded through the endpoint
+        // phase, which neither owns nor touches it.
+        group: served.group,
+        handlers: served.handlers,
+        // The same lifetime resolved above (reused, never re-derived) — so the value
+        // seeded into the padiSurface `identity` cell is provably the one governing the
+        // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
+        // forwards the same var into its kaval).
+        lifetime,
+        // padi's ANCHOR is its state-root — the identity it resolved as its very
+        // first act (#1334), known directly, no manifest indirection (unlike its
+        // kaval, which must read the root back off the manifest padi writes).
+        // When the root is deleted — `git worktree remove` on a dev workspace —
+        // padi reaps itself instead of leaking forever (juspay/kolu#2010: the
+        // very leak class its kaval already self-collected since #1713). No
+        // session persist on the way out: the place a session would persist TO
+        // is exactly what is gone.
+        // Override the default (`home.dir` = runtime rendezvous); state-root is
+        // the durable identity, not the ephemeral runtime home.
+        anchor: () => stateRoot,
+        log,
+        signal: drainController.signal,
+        onReady: opts.onReady,
+        // The gate claimed by the first layer — the spine serves under it and
+        // releases it on teardown, rather than acquiring it here (too late).
+        gate,
+      }),
+    );
+  });
+
+  // `Effect.scoped` is what makes the surface runtime's release deterministic:
+  // the serve layer acquired it, so the scope closing — on a clean stop OR on a
+  // later phase's failure — is what runs `close()`. The old hand-written
+  // `finally` is gone with the scope that replaced it.
+  return Effect.scoped(Effect.provide(program, bootLayer));
+}
+
+/** Run the padi daemon to completion, resolving the spine's {@link DaemonExit}.
+ *
+ *  The ONE `Effect.run*` edge in padi's daemon tier (PLAN D10/#25). It stays a
+ *  Promise-returning function because the process edge above it is the SHARED
+ *  spine's `daemonProcessMain` — which kaval rides too, and which owns the
+ *  exit-code map and the crash arm — so replacing it with `NodeRuntime.runMain`
+ *  here would mint a second authority for the same fact and split the two daemons
+ *  that deliberately share one. `bin.ts` keeps its `parseArgs` front unchanged. */
+export function runPadiDaemon(opts: PadiDaemonOptions): Promise<DaemonExit> {
+  return Effect.runPromise(
+    // The gate's refusal arms are honest EXITS, not faults — map them straight
+    // back to the `DaemonExit` the spine expects.
+    Effect.catch(padiDaemonProgram(opts), (refused) =>
+      Effect.succeed(refused.exit),
+    ),
+  );
 }

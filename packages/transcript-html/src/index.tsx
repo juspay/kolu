@@ -182,7 +182,7 @@ function formatTokens(value: number | null): string | null {
   }
 }
 
-function eventCounts(events: TranscriptEvent[]): {
+function eventCounts(events: readonly TranscriptEvent[]): {
   user: number;
   assistant: number;
   detail: number;
@@ -198,7 +198,7 @@ function eventCounts(events: TranscriptEvent[]): {
   return { user, assistant, detail };
 }
 
-function humanMessageCount(events: TranscriptEvent[]): number {
+function humanMessageCount(events: readonly TranscriptEvent[]): number {
   return events.filter((event) => event.kind === "user").length;
 }
 
@@ -326,7 +326,7 @@ function renderDetailEvent(event: DetailEvent): string {
 }
 
 async function renderEvents(
-  events: TranscriptEvent[],
+  events: readonly TranscriptEvent[],
   mode: TranscriptHtmlMode,
   humanTotal: number,
 ): Promise<string> {

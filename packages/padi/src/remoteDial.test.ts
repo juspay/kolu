@@ -1,3 +1,4 @@
+import { Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PADI_SURFACE_VERSION } from "./surface.ts";
 
@@ -11,11 +12,16 @@ vi.mock("@kolu/surface-remote", async (importOriginal) => {
 import { dialAgentOnce } from "@kolu/surface-remote";
 import { dialPadiViaHost } from "./dial.ts";
 
+/** The face `dialAgentOnce` hands its probe. `sshConnector` builds ONE face from
+ *  ONE surface and never hands the link's dispatch back, so padi's remote gate
+ *  reads its own `identity` CELL rather than the frozen control core — the SAME
+ *  fact, seeded at boot from the same source constants `hello` echoes. A cell read
+ *  is a lazy `Stream` now, so the fake answers with one. */
 function fakeCombinedClient(surfaceVersion: string) {
   return {
     surface: {
-      control: {
-        core: { hello: async () => ({ surfaceVersion }) },
+      identity: {
+        get: () => Stream.make({ surfaceVersion }),
       },
     },
   };

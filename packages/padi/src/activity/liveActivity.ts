@@ -11,11 +11,12 @@
  * repaint, so a switch to an idle terminal no longer flashes its dot.
  */
 
-import { pollOnEvent } from "@kolu/surface/server";
+import { pollOnEvent, streamFromAbortableSource } from "@kolu/surface/server";
 import {
   TERMINAL_IDLE_AFTER_MS,
   type TerminalId,
 } from "@kolu/terminal-vocab/schema";
+import type { Stream } from "effect";
 import type { Logger } from "pino";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import {
@@ -29,13 +30,10 @@ import {
 
 /** The `activity` stream backing shape — the live-set `source` thunk padi's
  *  `padiSurface` activity stream is wired with. Re-invoked per subscription
- *  (`(input, signal) => AsyncIterable<TerminalId[]>`), so each subscriber gets its
- *  own tracker fed by its own kaval subscription. */
+ *  (`(input) => Stream<TerminalId[]>`, S2's Effect-native source shape), so each
+ *  subscriber gets its own tracker fed by its own kaval subscription. */
 type ActivityStreamDeps = {
-  source: (
-    input: Record<string, never>,
-    signal: AbortSignal | undefined,
-  ) => AsyncIterable<TerminalId[]>;
+  source: (input: Record<string, never>) => Stream.Stream<TerminalId[]>;
 };
 
 /**
@@ -54,53 +52,52 @@ export function createLiveActivitySource(log: Logger): ActivityStreamDeps {
     // iteration (the stream `signal` is `AbortSignal | undefined`, so tying teardown
     // to it alone would leak when no signal is passed). A LOCAL abort, chained from
     // the framework signal, ends the kaval subscription.
-    source: (_input, signal) =>
-      (async function* activityFrames(): AsyncGenerator<TerminalId[]> {
-        const localAbort = new AbortController();
-        if (signal !== undefined) {
+    source: (_input) =>
+      streamFromAbortableSource<TerminalId[]>((signal) =>
+        (async function* activityFrames(): AsyncGenerator<TerminalId[]> {
+          const localAbort = new AbortController();
           if (signal.aborted) localAbort.abort();
           else
             signal.addEventListener("abort", () => localAbort.abort(), {
               once: true,
             });
-        }
-        const sig = localAbort.signal;
-        const tracker = createActivityTracker(TERMINAL_IDLE_AFTER_MS);
+          const sig = localAbort.signal;
+          const tracker = createActivityTracker(TERMINAL_IDLE_AFTER_MS);
 
-        // Feed the tracker from kaval's meaningful-output edge — the resize-excluded
-        // activity fact, shared with the finish fold. `resubscribeStream` owns the
-        // re-subscribe loop across a kaval recycle (so a long watch survives a daemon
-        // restart) AND the guard against the forwarding facade's EAGER synchronous
-        // throw when the daemon is down — see its doc. `onStreamError` is omitted
-        // (mirroring `inventoryReconcile`'s identical call) so an established
-        // subscription that breaks mid-stream keeps `bridgeStream`'s default ERROR
-        // log — a genuine connection failure, not a merely-expected-absent condition,
-        // so it must stay visible to error-level alerting (`errors-must-log-at-error`).
-        void resubscribeStream({
-          signal: sig,
-          delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-          getStream: () =>
-            ptyHostClient.surface.activity.get({}, { signal: sig }),
-          onEvent: (edge) => tracker.noteOutput(edge.id as TerminalId),
-          onDrop: (err) =>
-            log.debug(
-              { err },
-              "kaval activity subscribe failed; will re-subscribe",
-            ),
-        });
-
-        try {
-          yield* pollOnEvent<TerminalId[]>({
-            read: async () => tracker.snapshot(),
-            isEqual: sameActivitySet,
-            install: (onEvent) => tracker.onChange(onEvent),
+          // Feed the tracker from kaval's meaningful-output edge — the resize-excluded
+          // activity fact, shared with the finish fold. `resubscribeStream` owns the
+          // re-subscribe loop across a kaval recycle (so a long watch survives a daemon
+          // restart) AND the guard against the forwarding facade's EAGER synchronous
+          // throw when the daemon is down — see its doc. `onStreamError` is omitted
+          // (mirroring `inventoryReconcile`'s identical call) so an established
+          // subscription that breaks mid-stream keeps `bridgeStream`'s default ERROR
+          // log — a genuine connection failure, not a merely-expected-absent condition,
+          // so it must stay visible to error-level alerting (`errors-must-log-at-error`).
+          void resubscribeStream({
             signal: sig,
-            onReadError: () => {},
+            delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
+            getStream: () => ptyHostClient.surface.activity.get({}),
+            onEvent: (edge) => tracker.noteOutput(edge.id as TerminalId),
+            onDrop: (err) =>
+              log.debug(
+                { err },
+                "kaval activity subscribe failed; will re-subscribe",
+              ),
           });
-        } finally {
-          localAbort.abort();
-          tracker.dispose();
-        }
-      })(),
+
+          try {
+            yield* pollOnEvent<TerminalId[]>({
+              read: async () => tracker.snapshot(),
+              isEqual: sameActivitySet,
+              install: (onEvent) => tracker.onChange(onEvent),
+              signal: sig,
+              onReadError: () => {},
+            });
+          } finally {
+            localAbort.abort();
+            tracker.dispose();
+          }
+        })(),
+      ),
   };
 }

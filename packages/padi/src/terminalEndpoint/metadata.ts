@@ -57,6 +57,15 @@ import {
   PersistedSnapshotSchema,
   type TerminalClientMetadata,
 } from "../vocab.ts";
+import { Schema } from "effect";
+
+// zod's `.parse` in Effect terms, bound once at module scope — these run on the
+// ~150 ms observation firehose, and `decodeUnknownSync` compiles the schema on
+// each application.
+const decodePadiParked = Schema.decodeUnknownSync(PadiParkedTerminalSchema);
+const decodePersistedSnapshot = Schema.decodeUnknownSync(
+  PersistedSnapshotSchema,
+);
 
 /** Compose a registry entry into the served `PadiTerminal` value — the ONE
  *  server-side `authored ⋈ snapshot` join, with an EXPLICIT `parked` branch.
@@ -70,8 +79,8 @@ import {
  *  served value can never differ between a delta and a snapshot. */
 export function composePadiTerminal(entry: TerminalProcess): PadiTerminal {
   if (entry.meta.state === "parked") {
-    return PadiParkedTerminalSchema.parse({
-      ...PersistedSnapshotSchema.parse(entry.snapshot),
+    return decodePadiParked({
+      ...decodePersistedSnapshot(entry.snapshot),
       ...entry.meta,
     });
   }

@@ -20,8 +20,13 @@
  * hand-rolled snapshot loop, no second watcher.
  */
 
-import { type ImplementSurfaceDeps, pollOnEvent } from "@kolu/surface/server";
+import {
+  type ImplementSurfaceDeps,
+  pollOnEvent,
+  streamFromAbortableSource,
+} from "@kolu/surface/server";
 import type { RepoChangePulse } from "@kolu/terminal-vocab/schema";
+import type { Stream } from "effect";
 import type { Logger } from "pino";
 import type { TerminalEndpoint } from "./endpoint.ts";
 import type { padiSurface } from "./surface.ts";
@@ -34,18 +39,27 @@ type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
  *  `isEqual` dedup so each change reaches the consumer. */
 function changePulseSource(
   install: (onEvent: () => void) => () => void,
-  signal: AbortSignal | undefined,
   log: Logger,
   label: string,
-): AsyncIterable<RepoChangePulse> {
-  let seq = 0;
-  return pollOnEvent<RepoChangePulse>({
-    read: () => Promise.resolve({ seq: seq++ }),
-    isEqual: (a, b) => a.seq === b.seq,
-    install,
-    signal,
-    onReadError: (err) =>
-      log.error({ err }, `padi: ${label} pulse read failed`),
+): Stream.Stream<RepoChangePulse> {
+  // `pollOnEvent` is still the ONE snapshot-then-deltas poll implementation
+  // (S2 kept it AbortSignal-shaped because it IS the producer edge); this
+  // wraps it at that edge with the framework's single sanctioned bridge, so
+  // interruption of the subscribing fiber aborts the @parcel/watcher
+  // subscription exactly as the framework's own `signal` used to. The `seq`
+  // counter stays inside `streamFromAbortableSource`'s per-subscription
+  // factory, so it is still private to one subscriber (the whole reason this
+  // member uses the raw `source` arm).
+  return streamFromAbortableSource<RepoChangePulse>((signal) => {
+    let seq = 0;
+    return pollOnEvent<RepoChangePulse>({
+      read: () => Promise.resolve({ seq: seq++ }),
+      isEqual: (a, b) => a.seq === b.seq,
+      install,
+      signal,
+      onReadError: (err) =>
+        log.error({ err }, `padi: ${label} pulse read failed`),
+    });
   });
 }
 
@@ -75,20 +89,18 @@ export function padiFsGitDeps(
   return {
     streams: {
       subscribeRepoChange: {
-        source: ({ repoPath }, signal) =>
+        source: ({ repoPath }) =>
           changePulseSource(
             (onEvent) => endpoint.fs.subscribeRepoChange(repoPath, onEvent),
-            signal,
             log,
             "subscribeRepoChange",
           ),
       },
       subscribeFileChange: {
-        source: ({ repoPath, filePath }, signal) =>
+        source: ({ repoPath, filePath }) =>
           changePulseSource(
             (onEvent) =>
               endpoint.fs.subscribeFileChange(repoPath, filePath, onEvent),
-            signal,
             log,
             "subscribeFileChange",
           ),

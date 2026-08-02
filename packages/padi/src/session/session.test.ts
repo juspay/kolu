@@ -19,6 +19,7 @@
  */
 
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import { Schema } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import { setDaemonProcessId } from "../koluRoot.ts";
@@ -81,7 +82,9 @@ const activeSnapshot: TerminalSnapshot = {
 
 // Parse through the authored-parked schema so the fixture is a VALID parked arm —
 // the boot reconcile builds this same authored base off a saved ACTIVE record.
-const parkedMeta: AuthoredParkedTerminal = AuthoredParkedSchema.parse({
+const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
+  AuthoredParkedSchema,
+)({
   state: "parked",
   parkedAt: 999,
   location: LOCAL_LOCATION,

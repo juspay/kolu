@@ -19,10 +19,19 @@
 
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
-import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
+import {
+  type ImplementSurfaceDeps,
+  inMemoryStore,
+  streamFromAbortableSource,
+} from "@kolu/surface/server";
 import { unwrapGit } from "./terminalWorkspace/endpoint.ts";
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
+import {
+  isPadiDeclaredError,
+  KavalContractSkew,
+  ScratchWriteRejected,
+} from "./errors.ts";
 import {
   currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
@@ -36,7 +45,11 @@ import {
   requirePadiActivityFeedStore,
   requirePadiSessionStore,
 } from "./session/confStores.ts";
-import type { TerminalEndpoint } from "./endpoint.ts";
+import type {
+  EndpointGrid,
+  TerminalAttachFrame,
+  TerminalEndpoint,
+} from "./endpoint.ts";
 import { padiFsGitDeps } from "./fsGitDeps.ts";
 import { createFinishQuiet, type FinishQuiet } from "./activity/finishQuiet.ts";
 import { createLiveActivitySource } from "./activity/liveActivity.ts";
@@ -121,6 +134,63 @@ if (DEFAULT_SCROLLBACK < DEFAULT_MIRROR_SCROLLBACK + SNAPSHOT_SCROLLBACK) {
 }
 
 type PadiDeps = ImplementSurfaceDeps<typeof padiSurface.spec>;
+
+/**
+ * Bridge a plain handler body onto the `Effect` channel S2's `ProcedureImpl`
+ * requires, with padi's DECLARED errors (`./errors.ts`) routed to the FAILURE
+ * channel and everything else left a DEFECT (PLAN D4).
+ *
+ * ONE bridge rather than thirty-five hand-written `Effect.succeed` /
+ * `Effect.promise` wrappers: "which throw is declared and which is a defect" is
+ * exactly the rule that rots when it is respelled per member, and this is the
+ * one seam every padi procedure crosses. The body may be sync or async — the
+ * same latitude the retired oRPC `ProcedureImpl` gave (`O | Promise<O>`) — and
+ * it receives the AbortSignal the call's fiber owns, which is how a superseded
+ * read (`fs.filePreviewTag`) still aborts mid-flight now that there is no
+ * `signal` on the handler options (D10/#18).
+ */
+function handle<A, E>(
+  body: (signal: AbortSignal) => A | Promise<A>,
+): Effect.Effect<A, E> {
+  return Effect.catch(
+    Effect.tryPromise({
+      try: async (signal) => body(signal),
+      catch: (err: unknown) => err,
+    }),
+    (err) =>
+      isPadiDeclaredError(err)
+        ? Effect.fail(err as E)
+        : (Effect.die(err) as Effect.Effect<A, E>),
+  );
+}
+
+/** One subscriber's `terminalAttach` frames: open the terminal's endpoint attach,
+ *  emit the mandatory snapshot-first frame (carrying the backfill seed `topLine`
+ *  and the reflow generation `reflowEpoch`), then relay its deltas — including the
+ *  shipped overflow re-attach (#1591), which arrives as a further `snapshot` frame
+ *  through `reattachingDeltas`.
+ *
+ *  Routed by the terminal's OWN location so a remote tile's attach reaches its
+ *  host (a remote endpoint arrives with the cross-host work); local today. The
+ *  caller's grid rides through to the host verbatim — it arrives as one
+ *  composite, so there is nothing to validate or reassemble here. Note that makes
+ *  the attach a WRITE: the host resizes the terminal to it before serializing
+ *  (see `PadiTerminalAttachInputSchema`). */
+async function* attachFrames(
+  id: string,
+  resizeTo: EndpointGrid | undefined,
+  signal: AbortSignal,
+): AsyncGenerator<TerminalAttachFrame> {
+  const entry = requireActiveTerminal(id);
+  const { snapshot, topLine, reflowEpoch, deltas } =
+    await resolveTerminalEndpoint(entry.meta.location).attach(
+      id,
+      signal,
+      resizeTo,
+    );
+  yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
+  for await (const frame of deltas) yield frame;
+}
 
 /** Prior standing finish-quiet handle — disposed when deps are rebuilt (tests). */
 let standingFinishQuiet: FinishQuiet | undefined;
@@ -291,7 +361,13 @@ export function buildPadiSurfaceDeps(deps: {
             // publishes `next`, not a post-set get) so every wire push carries
             // host-owned membership. Persist only the disk shape — resumableIds
             // is wire-only and recomputed on every get.
-            v.resumableIds = resumableTerminalIds(v.terminals);
+            //
+            // A DECODED value is `readonly`, and rebuilding is not an option here:
+            // the cell bus publishes the very object it was handed, so a copy would
+            // carry the stamp while the wire pushed the unstamped original. The
+            // write is narrowed to the ONE wire-only field this seam owns.
+            (v as { resumableIds?: readonly string[] }).resumableIds =
+              resumableTerminalIds(v.terminals);
             requirePadiSessionStore().set({
               terminals: v.terminals,
               activeTerminalId: v.activeTerminalId,
@@ -382,25 +458,16 @@ export function buildPadiSurfaceDeps(deps: {
       // remote tile's attach reaches its host (a remote endpoint arrives with the
       // cross-host work); local today.
       terminalAttach: {
-        source: async function* ({ id, resizeTo }, signal) {
-          const entry = requireActiveTerminal(id);
-          // The caller's grid rides through to the host verbatim — it arrives as
-          // one composite, so there is nothing to validate or reassemble here.
-          // Note this makes the attach a WRITE: the host resizes the terminal to
-          // it before serializing (see `PadiTerminalAttachInputSchema`).
-          const { snapshot, topLine, reflowEpoch, deltas } =
-            await resolveTerminalEndpoint(entry.meta.location).attach(
-              id,
-              signal,
-              resizeTo,
-            );
-          // First frame is a `snapshot` carrying the backfill seed (`topLine`)
-          // and the reflow generation (`reflowEpoch`) alongside the snapshot
-          // bytes; delta frames carry `data` only, except a re-attach frame which
-          // is itself a `snapshot` (see `reattachingDeltas`).
-          yield { kind: "snapshot", data: snapshot, topLine, reflowEpoch };
-          for await (const frame of deltas) yield frame;
-        },
+        // A member `source` is Effect-native now (S2): it returns a `Stream`, and
+        // interruption of the subscribing fiber is the unsubscribe. The producer
+        // underneath is still AbortSignal-shaped (the endpoint's `attach` opens a
+        // kaval subscription it must be told to release), so it crosses at the
+        // framework's ONE producer-edge bridge rather than by threading a signal
+        // back through a handler option that no longer exists (D10/#18).
+        source: ({ id, resizeTo }) =>
+          streamFromAbortableSource((signal) =>
+            attachFrames(id, resizeTo, signal),
+          ),
       },
     },
 
@@ -410,80 +477,90 @@ export function buildPadiSurfaceDeps(deps: {
       // NOT_FOUND. The SOLE `terminalExit` generator now: koluSurface's duplicate
       // copy was deleted (W1 padi seam), so `local.ts`'s exit publish targets
       // padi's ctx and the client reads `padi.events.terminalExit`.
+      //
+      // `terminalNotFound` here is an UNDECLARED failure ⇒ a DEFECT: an
+      // `EventSpec` carries no error channel to declare it on. Deliberate, and
+      // documented in `errors.ts` — do not try to declare it.
       terminalExit: {
-        source: async function* (input, signal, { bus }) {
-          if (!getTerminal(input.id)) throw terminalNotFound(input.id);
-          for await (const exitCode of bus.subscribe(signal)) {
-            yield exitCode;
-            return;
-          }
-        },
+        source: (input, { bus }) =>
+          streamFromAbortableSource((signal) =>
+            (async function* exitFrames(): AsyncGenerator<number> {
+              if (!getTerminal(input.id)) throw terminalNotFound(input.id);
+              for await (const exitCode of bus.subscribe(signal)) {
+                yield exitCode;
+                return;
+              }
+            })(),
+          ),
       },
     },
 
     procedures: {
       lifecycle: {
-        create: ({ input }) => {
-          // A sub-terminal must hang off a LIVE parent (F3) — the same
-          // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
-          // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
-          // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
-          // later — the client can't supply it. (Only `session.restore` threads a
-          // saved `lastActivityAt` through, via `respawnActive`, not this path.)
-          if (input.parentId !== undefined)
-            requireActiveTerminal(input.parentId);
-          const info = createTerminal(input.cwd, input.parentId, {
-            // An explicit theme always wins; absent one, the pushed policy
-            // decides — HERE, so the MCP and CLI faces obey the user's
-            // new-terminal theme setting exactly as the browser does (#2045).
-            // A SPLIT gets no policy theme at all: it renders inside its parent
-            // tile with the PARENT's theme, so a tint picked for it would be
-            // invisible — and would then pollute the shuffle peer set with a
-            // colour nobody can see.
-            themeName:
-              input.themeName ??
-              (input.parentId === undefined
-                ? resolveNewTerminalTheme()
-                : undefined),
-            canvasLayout: input.canvasLayout,
-            subPanel: input.subPanel,
-            rightPanel: input.rightPanel,
-            intent: input.intent,
-          });
-          // Creating a fresh terminal DOES NOT forfeit the restore: the parked
-          // entries (and the saved session on disk they stand for) survive, so the
-          // restore stays offered — a user who reaches for a new terminal has not
-          // decided to throw their previous session away. Forfeit is now the
-          // EXPLICIT `session.forfeit` act (discard parked + clear the blob together).
-          // The old create-time `discardAllLocalParked()` traded a cosmetic parked
-          // leak for silent data loss: with parked records invisible to
-          // `snapshotSession`, a create then a close shrank the blob to nothing (PATH
-          // B). `session.restore` still takes the OTHER path — it CONSUMES each parked
-          // entry via the parked→active flip, never reaching here.
-          return info;
-        },
-        kill: async ({ input }) => {
-          const info = await killTerminal(input.id);
-          if (!info) throw terminalNotFound(input.id);
-          return info;
-        },
-        killAll: async () => {
-          await killAllTerminals();
-        },
-        sleep: async ({ input }) => {
-          log.info({ terminal: input.id }, "sleep");
-          await sleepTerminal(input.id);
-        },
-        wake: ({ input }) => {
-          log.info({ terminal: input.id }, "wake");
-          const info = wakeLocalTerminal(input.id);
-          if (!info) throw terminalNotFound(input.id);
-          return info;
-        },
-        discardSleeping: ({ input }) => {
-          log.info({ terminal: input.id }, "discard sleeping");
-          discardLocalSleeping(input.id);
-        },
+        create: ({ input }) =>
+          handle(() => {
+            // A sub-terminal must hang off a LIVE parent (F3) — the same
+            // live-PTY narrow every per-terminal handler uses. `PadiCreateInput`
+            // omits `lastActivityAt`: a fresh terminal seeds `lastActivityAt: 0`
+            // (via `createAuthoredActive` → `seedMemory`), and the fold stamps recency
+            // later — the client can't supply it. (Only `session.restore` threads a
+            // saved `lastActivityAt` through, via `respawnActive`, not this path.)
+            if (input.parentId !== undefined)
+              requireActiveTerminal(input.parentId);
+            const info = createTerminal(input.cwd, input.parentId, {
+              // An explicit theme always wins; absent one, the pushed policy
+              // decides — HERE, so the MCP and CLI faces obey the user's
+              // new-terminal theme setting exactly as the browser does (#2045).
+              // A SPLIT gets no policy theme at all: it renders inside its parent
+              // tile with the PARENT's theme, so a tint picked for it would be
+              // invisible — and would then pollute the shuffle peer set with a
+              // colour nobody can see.
+              themeName:
+                input.themeName ??
+                (input.parentId === undefined
+                  ? resolveNewTerminalTheme()
+                  : undefined),
+              canvasLayout: input.canvasLayout,
+              subPanel: input.subPanel,
+              rightPanel: input.rightPanel,
+              intent: input.intent,
+            });
+            // Creating a fresh terminal DOES NOT forfeit the restore: the parked
+            // entries (and the saved session on disk they stand for) survive, so the
+            // restore stays offered — a user who reaches for a new terminal has not
+            // decided to throw their previous session away. Forfeit is now the
+            // EXPLICIT `session.forfeit` act (discard parked + clear the blob together).
+            // The old create-time `discardAllLocalParked()` traded a cosmetic parked
+            // leak for silent data loss: with parked records invisible to
+            // `snapshotSession`, a create then a close shrank the blob to nothing (PATH
+            // B). `session.restore` still takes the OTHER path — it CONSUMES each parked
+            // entry via the parked→active flip, never reaching here.
+            return info;
+          }),
+        kill: ({ input }) =>
+          handle(async () => {
+            const info = await killTerminal(input.id);
+            if (!info) throw terminalNotFound(input.id);
+            return info;
+          }),
+        killAll: () => handle(() => killAllTerminals()),
+        sleep: ({ input }) =>
+          handle(() => {
+            log.info({ terminal: input.id }, "sleep");
+            return sleepTerminal(input.id);
+          }),
+        wake: ({ input }) =>
+          handle(() => {
+            log.info({ terminal: input.id }, "wake");
+            const info = wakeLocalTerminal(input.id);
+            if (!info) throw terminalNotFound(input.id);
+            return info;
+          }),
+        discardSleeping: ({ input }) =>
+          handle(() => {
+            log.info({ terminal: input.id }, "discard sleeping");
+            discardLocalSleeping(input.id);
+          }),
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`
         // (#1628) rather than throwing NOT_FOUND.
@@ -492,15 +569,17 @@ export function buildPadiSurfaceDeps(deps: {
         // found, whether the host accepted the new grid is the caller's business
         // — a client told "resized" while the PTY kept its old size would render
         // against a size nothing has, silently.
-        resize: async ({ input }) => {
-          await getActiveTerminal(input.id)?.handle.resize(
-            input.cols,
-            input.rows,
-          );
-        },
-        sendInput: ({ input }) => {
-          getActiveTerminal(input.id)?.handle.write(input.data);
-        },
+        resize: ({ input }) =>
+          handle(async () => {
+            await getActiveTerminal(input.id)?.handle.resize(
+              input.cols,
+              input.rows,
+            );
+          }),
+        sendInput: ({ input }) =>
+          handle(() => {
+            getActiveTerminal(input.id)?.handle.write(input.data);
+          }),
         // The "Restart kaval" button — force-recycle THIS host's kaval daemon,
         // preserving the session (B3.2). padi's INTERNAL supervisory op: capture →
         // drain → recycle (kill + spawn fresh) → park, all via `restartLocalDaemon`
@@ -508,104 +587,116 @@ export function buildPadiSurfaceDeps(deps: {
         // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
         // the separate `control.drain` upgrade path). Resolves once the fresh kaval
         // is connected; a failure rejects with the captured session safe on disk.
-        recycleKaval: async ({ errors }) => {
-          log.info({}, "recycle kaval (Restart kaval)");
-          try {
-            await restartLocalDaemon();
-          } catch (err) {
-            const skew = isContractSkewError(err);
-            // A failed restart otherwise surfaces ONLY as a client toast — padi's
-            // journal would show the "recycle kaval" start line and then an
-            // unexplained silence. Surface it: the endpoint has already reported
-            // its terminal state and the captured session is safe on disk (the
-            // user can retry or restore), but the failure must be legible in the
-            // journal — naming the ACTUAL state (skew → `incompatible`).
-            log.error(
-              { err },
-              skew
-                ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
-                : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
-            );
-            // A contract skew is the ONE failure this handler can translate — it
-            // is the knowing endpoint (the same precedent as `unwrapGit`'s
-            // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
-            // error means must retype it, not leave it to flatten downstream): a
-            // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
-            // and the user would read an opaque toast (the field failure,
-            // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
-            // error constructor (SK6) — versions as typed data, `defined: true`
-            // on the wire — one recycle attempt was the diagnosis; padi is not
-            // the actor that can fix a skew (only the binder's reprovision is).
-            if (isContractSkewError(err)) {
-              throw errors.KAVAL_CONTRACT_SKEW({
-                message: err.message,
-                data: {
+        recycleKaval: () =>
+          handle(async () => {
+            log.info({}, "recycle kaval (Restart kaval)");
+            try {
+              await restartLocalDaemon();
+            } catch (err) {
+              const skew = isContractSkewError(err);
+              // A failed restart otherwise surfaces ONLY as a client toast — padi's
+              // journal would show the "recycle kaval" start line and then an
+              // unexplained silence. Surface it: the endpoint has already reported
+              // its terminal state and the captured session is safe on disk (the
+              // user can retry or restore), but the failure must be legible in the
+              // journal — naming the ACTUAL state (skew → `incompatible`).
+              log.error(
+                { err },
+                skew
+                  ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
+                  : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+              );
+              // A contract skew is the ONE failure this handler can translate — it
+              // is the knowing endpoint (the same precedent as `unwrapGit`'s
+              // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
+              // error means must retype it, not leave it to flatten downstream): a
+              // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
+              // and the user would read an opaque toast (the field failure,
+              // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
+              // error constructor (SK6) — versions as typed data, `defined: true`
+              // on the wire — one recycle attempt was the diagnosis; padi is not
+              // the actor that can fix a skew (only the binder's reprovision is).
+              if (isContractSkewError(err)) {
+                throw new KavalContractSkew({
                   daemonVersion: err.daemonVersion,
                   requiredVersion: err.requiredVersion,
-                },
-              });
+                });
+              }
+              throw err;
             }
-            throw err;
-          }
-        },
+          }),
       },
 
       chrome: {
-        setTheme: ({ input }) => {
-          requireMutableTerminal(input.id);
-          log.info({ terminal: input.id, theme: input.themeName }, "set theme");
-          setTerminalTheme(input.id, input.themeName);
-        },
-        setIntent: ({ input }) => {
-          requireMutableTerminal(input.id);
-          log.info(
-            { terminal: input.id, intentLength: input.intent.length },
-            "set intent",
-          );
-          setTerminalIntent(input.id, input.intent);
-        },
-        setParent: ({ input }) => {
-          requireMutableTerminal(input.id);
-          log.info(
-            { terminal: input.id, parent: input.parentId },
-            "set terminal parent",
-          );
-          setTerminalParent(input.id, input.parentId);
-        },
-        setActive: ({ input }) => {
-          setActiveTerminalId(input.id);
-        },
-        setCanvasLayout: ({ input }) => {
-          requireMutableTerminal(input.id);
-          setCanvasLayout(input.id, input.layout);
-        },
-        setSubPanel: ({ input }) => {
-          requireMutableTerminal(input.id);
-          setSubPanelState(input.id, {
-            collapsed: input.collapsed,
-            panelSize: input.panelSize,
-          });
-        },
-        setRightPanel: ({ input }) => {
-          requireMutableTerminal(input.id);
-          const { id: _id, ...state } = input;
-          setRightPanelState(input.id, state);
-        },
+        setTheme: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            log.info(
+              { terminal: input.id, theme: input.themeName },
+              "set theme",
+            );
+            setTerminalTheme(input.id, input.themeName);
+          }),
+        setIntent: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            log.info(
+              { terminal: input.id, intentLength: input.intent.length },
+              "set intent",
+            );
+            setTerminalIntent(input.id, input.intent);
+          }),
+        setParent: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            log.info(
+              { terminal: input.id, parent: input.parentId },
+              "set terminal parent",
+            );
+            setTerminalParent(input.id, input.parentId);
+          }),
+        setActive: ({ input }) =>
+          handle(() => {
+            setActiveTerminalId(input.id);
+          }),
+        setCanvasLayout: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            setCanvasLayout(input.id, input.layout);
+          }),
+        setSubPanel: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            setSubPanelState(input.id, {
+              collapsed: input.collapsed,
+              panelSize: input.panelSize,
+            });
+          }),
+        setRightPanel: ({ input }) =>
+          handle(() => {
+            requireMutableTerminal(input.id);
+            const { id: _id, ...state } = input;
+            setRightPanelState(input.id, state);
+          }),
       },
 
       screen: {
         state: ({ input }) =>
-          requireActiveTerminal(input.id).handle.getScreenState(),
+          handle(() => requireActiveTerminal(input.id).handle.getScreenState()),
         text: ({ input }) =>
-          requireActiveTerminal(input.id).handle.getScreenText(
-            input.startLine,
-            input.endLine,
+          handle(() =>
+            requireActiveTerminal(input.id).handle.getScreenText(
+              input.startLine,
+              input.endLine,
+            ),
           ),
         history: ({ input }) =>
-          requireActiveTerminal(input.id).handle.getHistory(
-            input.before,
-            input.max,
-            input.epoch,
+          handle(() =>
+            requireActiveTerminal(input.id).handle.getHistory(
+              input.before,
+              input.max,
+              input.epoch,
+            ),
           ),
       },
 
@@ -615,8 +706,10 @@ export function buildPadiSurfaceDeps(deps: {
       // methods are the reused source of truth). `readFile` is TEXT-only (binary
       // goes through `preview.read`).
       fs: {
-        listAll: ({ input }) => endpoint.fs.listAll(input.repoPath),
-        listIgnored: ({ input }) => endpoint.fs.listIgnored(input.repoPath),
+        listAll: ({ input }) =>
+          handle(() => endpoint.fs.listAll(input.repoPath)),
+        listIgnored: ({ input }) =>
+          handle(() => endpoint.fs.listIgnored(input.repoPath)),
         // Delete-while-viewing — a file deleted under an open preview, a build
         // output `just clean`ed under an open row — must reach the client as a
         // TYPED `NOT_FOUND`, because that is the one status
@@ -626,47 +719,62 @@ export function buildPadiSurfaceDeps(deps: {
         // `unwrapGit` maps it, so the classification is already settled by the
         // time it reaches here. `endpoint.test.ts` pins that for all three.
         listDirectory: ({ input }) =>
-          endpoint.fs.listDirectory(input.repoPath, input.dirPath),
+          handle(() =>
+            endpoint.fs.listDirectory(input.repoPath, input.dirPath),
+          ),
         readFile: ({ input }) =>
-          endpoint.fs.readFile(input.repoPath, input.filePath),
-        // The request `signal` is threaded so a superseded preview query (input
-        // changed, or a fresh file-change pulse re-fired) aborts the whole-file
-        // hash mid-read instead of running to completion — the cost is real on
-        // a multi-GB video where the read runs for seconds.
-        filePreviewTag: ({ input, signal }) =>
-          endpoint.fs.filePreviewTag(input.repoPath, input.filePath, signal),
+          handle(() => endpoint.fs.readFile(input.repoPath, input.filePath)),
+        // The call's own AbortSignal is threaded so a superseded preview query
+        // (input changed, or a fresh file-change pulse re-fired) aborts the
+        // whole-file hash mid-read instead of running to completion — the cost is
+        // real on a multi-GB video where the read runs for seconds. There is no
+        // `signal` handler option any more (D10/#18); the signal `handle` passes
+        // is the one the call's FIBER owns, so an interrupted call — the Effect
+        // successor of a cancelled request — still aborts the read.
+        filePreviewTag: ({ input }) =>
+          handle((signal) =>
+            endpoint.fs.filePreviewTag(input.repoPath, input.filePath, signal),
+          ),
       },
 
       // git reads off the same shared endpoint; the worktree MUTATIONS are
       // padi's own (not in serveFsGit), composed beside the reads.
       git: {
         getStatus: ({ input }) =>
-          endpoint.git.getStatus(input.repoPath, input.mode),
+          handle(() => endpoint.git.getStatus(input.repoPath, input.mode)),
         getDiff: ({ input }) =>
-          endpoint.git.getDiff(
-            input.repoPath,
-            input.filePath,
-            input.mode,
-            input.oldPath,
+          handle(() =>
+            endpoint.git.getDiff(
+              input.repoPath,
+              input.filePath,
+              input.mode,
+              input.oldPath,
+            ),
           ),
-        worktreeCreate: async ({ input }) => {
-          log.info(
-            { repo: input.repoPath, name: input.name },
-            "worktree create",
-          );
-          const result = unwrapGit(
-            await worktreeCreate(input.repoPath, input.name, log),
-          );
-          log.info(
-            { repo: input.repoPath, path: result.path, branch: result.branch },
-            "worktree created",
-          );
-          return result;
-        },
-        worktreeRemove: async ({ input }) => {
-          log.info({ worktree: input.worktreePath }, "worktree remove");
-          unwrapGit(await worktreeRemove(input.worktreePath, log));
-        },
+        worktreeCreate: ({ input }) =>
+          handle(async () => {
+            log.info(
+              { repo: input.repoPath, name: input.name },
+              "worktree create",
+            );
+            const result = unwrapGit(
+              await worktreeCreate(input.repoPath, input.name, log),
+            );
+            log.info(
+              {
+                repo: input.repoPath,
+                path: result.path,
+                branch: result.branch,
+              },
+              "worktree created",
+            );
+            return result;
+          }),
+        worktreeRemove: ({ input }) =>
+          handle(async () => {
+            log.info({ worktree: input.worktreePath }, "worktree remove");
+            unwrapGit(await worktreeRemove(input.worktreePath, log));
+          }),
       },
 
       scratch: {
@@ -681,17 +789,16 @@ export function buildPadiSurfaceDeps(deps: {
         // and run `rejectionFor` (extension allowlist + 50 MB cap). "image.png"
         // passes the allowlist, so a clipboard paste is gated on size exactly as
         // the old `sizeRejectionFor` path was.
-        write: ({ input }) => {
-          requireActiveTerminal(input.terminalId);
-          const bytes = base64DecodedLength(input.data);
-          const reason = rejectionFor(input.name, bytes);
-          if (reason !== null) {
-            throw new ORPCError("BAD_REQUEST", { message: reason });
-          }
-          return {
-            path: saveTerminalFile(input.terminalId, input.name, input.data),
-          };
-        },
+        write: ({ input }) =>
+          handle(() => {
+            requireActiveTerminal(input.terminalId);
+            const bytes = base64DecodedLength(input.data);
+            const reason = rejectionFor(input.name, bytes);
+            if (reason !== null) throw new ScratchWriteRejected({ reason });
+            return {
+              path: saveTerminalFile(input.terminalId, input.name, input.data),
+            };
+          }),
       },
 
       // Range-capable, serve-dir-shaped byte read — the SAME `readPreview`
@@ -701,25 +808,26 @@ export function buildPadiSurfaceDeps(deps: {
       // rides the procedure wire; the `..`/`%2f`/symlink 403 guard is
       // re-enforced inside `readPreview` by padi's own `previewRealpathGuard`.
       preview: {
-        read: ({ input }) => readPreview(input),
+        read: ({ input }) => handle(() => readPreview(input)),
         // Resolve a terminal's repoRoot off padi's OWN registry (`snapshotFor`, the
         // source of truth) — the re-serving binder's iframe route turns the URL's
         // terminal id into a repo path with this, then STREAMS the file itself via
         // the shared `previewFile` (bounded heap), so kolu-server never holds the
         // terminal→repoRoot map and never forces a large video whole through base64.
-        repoRootForTerminal: ({ input }) => ({
-          repoRoot: snapshotFor(input.terminalId)?.git?.repoRoot ?? null,
-        }),
+        repoRootForTerminal: ({ input }) =>
+          handle(() => ({
+            repoRoot: snapshotFor(input.terminalId)?.git?.repoRoot ?? null,
+          })),
       },
 
       transcript: {
-        exportHtml: ({ input }) => exportTranscriptHtml(input),
+        exportHtml: ({ input }) => handle(() => exportTranscriptHtml(input)),
       },
 
       session: {
-        restore: ({ input }) => restoreSession(input),
-        import: ({ input }) => importSession(input),
-        forfeit: () => forfeitSession(),
+        restore: ({ input }) => handle(() => restoreSession(input)),
+        import: ({ input }) => handle(() => importSession(input)),
+        forfeit: () => handle(() => forfeitSession()),
       },
     },
   };

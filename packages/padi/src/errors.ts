@@ -241,10 +241,10 @@ export const WorktreeCreateErrorSchema = Schema.Union([
   GitFailed,
 ]);
 
-/** The whole padi error vocabulary, as one closed union — the value a consumer
- *  decodes an unknown padi failure against, and the list a new member must be
- *  added to deliberately. */
-export const PadiErrorSchema = Schema.Union([
+/** The whole declared vocabulary as CLASSES — the one list, from which both the
+ *  closed union below and the runtime predicate are derived, so neither can
+ *  drift from the other or from this file. */
+const PADI_ERROR_CLASSES = [
   TerminalNotFound,
   TerminalParentCycle,
   ScratchWriteRejected,
@@ -256,5 +256,26 @@ export const PadiErrorSchema = Schema.Union([
   WorktreeBaseBranchMissing,
   WorktreeNameCollision,
   GitFailed,
-]);
+] as const;
+
+/** The whole padi error vocabulary, as one closed union — the value a consumer
+ *  decodes an unknown padi failure against, and the list a new member must be
+ *  added to deliberately. */
+export const PadiErrorSchema = Schema.Union([...PADI_ERROR_CLASSES]);
 export type PadiError = typeof PadiErrorSchema.Type;
+
+/** Is `err` one of the DECLARED failures above?
+ *
+ *  The predicate padi's SERVING seam (`servePadi.ts`'s one handler bridge) uses
+ *  to route a THROWN value onto the Effect FAILURE channel rather than the
+ *  defect channel — the single place D4's "declared vs defect" line is drawn
+ *  for every procedure, instead of once per member.
+ *
+ *  `instanceof`, deliberately, and sound at the one place it runs: the value was
+ *  constructed by padi's own in-process code moments earlier, in this module
+ *  realm. A value that CROSSED a wire is narrowed STRUCTURALLY on its `_tag`
+ *  instead (see `terminalEndpoint/reattachingDeltas.ts`), because there the
+ *  class identity genuinely may differ. */
+export function isPadiDeclaredError(err: unknown): err is PadiError {
+  return PADI_ERROR_CLASSES.some((Cls) => err instanceof Cls);
+}

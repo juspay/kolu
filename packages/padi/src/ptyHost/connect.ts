@@ -17,34 +17,33 @@
  */
 
 import type { Socket } from "node:net";
+import { buildSurfaceFace } from "@kolu/surface/client";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
+  type ControlCoreProbeClient,
   type ConvergenceProbe,
   type DaemonConnection,
   DaemonContractSkewError,
-  daemonBuild,
   dialSocket,
   isNoListenerError,
-  instanceKeyFromStartedAt,
   probeDaemonIdentity,
   readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import { withTimeout } from "../withTimeout.ts";
 import {
+  kavalControlSurface,
+  kavalDaemonGroup,
   PTY_HOST_CONTRACT_VERSION,
   type PtyHostClient,
   type PtyHostIdentity,
-  type kavalDaemonContract,
+  ptyHostClientOver,
 } from "kaval";
-import { match } from "ts-pattern";
-import { isMissingFrozenFragment } from "./missingFrozenFragment.ts";
 
 export { isNoListenerError };
 
-/** A live daemon from before the frozen fragment gets the honest-unknown raw
- * identity (both fields empty), never the legacy `system.version.identity`.
+/** An off-Nix kaval reports the honest-unknown raw identity (both fields empty).
  * Current padi connections therefore always carry an identity. The published
  * wire status remains optional at its compatibility boundary so an older padi's
  * pre-identity survivor can still be decoded. */
@@ -101,54 +100,54 @@ const UNKNOWN_KAVAL_IDENTITY: PtyHostIdentity = Object.freeze({
   navigableCommit: "",
 });
 
-type KavalHandshake =
-  | {
-      kind: "current";
-      hello: KavalControlHello;
-      version: KavalSystemVersion;
-    }
-  | {
-      kind: "pre-fragment";
-      version: KavalSystemVersion;
-    };
+interface KavalHandshake {
+  hello: KavalControlHello;
+  version: KavalSystemVersion;
+}
 
-/** Interpret the wire handshake without owning its transport. The
- * discriminant keeps the current/pre-fragment fact explicit; the caller has
- * one failure boundary that releases the socket for every rejected handshake. */
-async function readKavalHandshake(
-  client: ReturnType<typeof stdioLink<typeof kavalDaemonContract>>,
-): Promise<KavalHandshake> {
-  let hello: KavalControlHello | undefined;
+/** The two typed faces over ONE dialed dispatch — the flat-tag successor of the
+ *  combined-contract client. `kavalDaemonGroup` carries BOTH siblings' tags, so a
+ *  single link answers the pty-host handshake AND the frozen control core. */
+interface KavalFaces {
+  pty: PtyHostClient;
+  control: ControlCoreProbeClient;
+}
+
+/** Interpret the wire handshake without owning its transport. The caller has
+ * one failure boundary that releases the socket for every rejected handshake.
+ *
+ * The `pre-fragment` arm is GONE with the protocol epoch (PLAN D6): a kaval that
+ * predates the frozen fragment also predates this wire, so its first frame is
+ * undecodable and a dial never reaches route resolution at all. Such a peer is
+ * the supervisor's `unspeakable-protocol` observation, never a handshake this
+ * function can interpret — so the frozen hello is now REQUIRED, and its absence
+ * is the loud failure it always was for a same-epoch peer. */
+async function readKavalHandshake(faces: KavalFaces): Promise<KavalHandshake> {
+  let hello: KavalControlHello;
   try {
-    hello = await readControlCoreHello(client);
+    hello = await readControlCoreHello(faces.control);
   } catch (err) {
-    if (!isMissingFrozenFragment(err)) {
-      throw new Error(
-        `pty-host handshake failed — could not read control.core.hello (${(err as Error).message})`,
-      );
-    }
-    // A live old kaval has no frozen route. Keep the versioned handshake for
-    // connectivity/metadata, but never read build identity from it: absence is
-    // the identity fact and the UI's #1671 fold turns that into the update nudge.
+    throw new Error(
+      `pty-host handshake failed — could not read control.core.hello (${(err as Error).message})`,
+    );
   }
 
   let version: KavalSystemVersion;
   try {
-    version = await readSystemVersionBounded(client as PtyHostClient);
+    version = await readSystemVersionBounded(faces.pty);
   } catch (err) {
     throw new Error(
       `pty-host handshake failed — could not read system.version (${(err as Error).message})`,
     );
   }
 
-  const reportedContractVersion =
-    hello?.surfaceVersion ?? version.contractVersion;
-  if (hello !== undefined && hello.surfaceVersion !== version.contractVersion) {
+  const reportedContractVersion = hello.surfaceVersion;
+  if (hello.surfaceVersion !== version.contractVersion) {
     throw new Error(
       `pty-host handshake failed — control-core reports surface ${hello.surfaceVersion} but system.version reports ${version.contractVersion}`,
     );
   }
-  if (hello !== undefined && hello.startedAt !== version.startedAt) {
+  if (hello.startedAt !== version.startedAt) {
     throw new Error(
       `pty-host handshake failed — control-core reports boot ${hello.startedAt} but system.version reports ${version.startedAt}`,
     );
@@ -177,9 +176,31 @@ async function readKavalHandshake(
     });
   }
 
-  return hello === undefined
-    ? { kind: "pre-fragment", version }
-    : { kind: "current", hello, version };
+  return { hello, version };
+}
+
+/** Open ONE link over the whole kaval daemon group and build both faces over its
+ *  single dispatch. `dispose()` is ASYNC and is the ONLY thing that frees the
+ *  link's protocol fibers — destroying the socket alone leaks one per dial. */
+async function openKavalFaces(
+  socket: Socket,
+): Promise<{ faces: KavalFaces; dispose: () => Promise<void> }> {
+  const link = await stdioLink({
+    group: kavalDaemonGroup,
+    read: socket,
+    write: socket,
+  });
+  // `SurfaceFace` is deliberately STRUCTURAL (D2), so reaching the frozen core's
+  // verbs costs one cast — to the shape the shared hello reader already names.
+  const control = buildSurfaceFace(kavalControlSurface, link.dispatch).surface
+    .core as unknown as ControlCoreProbeClient["surface"]["control"]["core"];
+  return {
+    faces: {
+      pty: ptyHostClientOver(link.dispatch),
+      control: { surface: { control: { core: control } } },
+    },
+    dispose: () => link.dispose(),
+  };
 }
 
 /** Project the frozen optional fields into Kaval's established raw identity.
@@ -195,46 +216,42 @@ export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
   const socket = await dialSocket(socketPath);
-  const client = stdioLink<typeof kavalDaemonContract>({
-    read: socket,
-    write: socket,
-  });
+  const { faces, dispose } = await openKavalFaces(socket);
 
   let handshake: KavalHandshake;
   try {
-    handshake = await readKavalHandshake(client);
+    handshake = await readKavalHandshake(faces);
   } catch (err) {
+    await dispose();
     socket.destroy();
     throw err;
   }
 
-  const { version } = handshake;
-  const projected = match(handshake)
-    .with({ kind: "current" }, ({ hello }) => ({
-      contractVersion: hello.surfaceVersion,
-      identity: projectKavalIdentity(hello),
-      startedAt: hello.startedAt,
-    }))
-    .with({ kind: "pre-fragment" }, ({ version: legacyVersion }) => ({
-      contractVersion: legacyVersion.contractVersion,
-      identity: UNKNOWN_KAVAL_IDENTITY,
-      startedAt: legacyVersion.startedAt,
-    }))
-    .exhaustive();
+  const { hello, version } = handshake;
   let closed = false;
   socket.once("close", () => {
     closed = true;
   });
   return {
-    client: client as PtyHostClient,
-    identity: projected.identity,
-    startedAt: projected.startedAt,
+    client: faces.pty,
+    identity: projectKavalIdentity(hello),
+    startedAt: hello.startedAt,
     metadata: {
-      contractVersion: projected.contractVersion,
+      contractVersion: hello.surfaceVersion,
       lifetime: version.lifetime,
       pid: version.pid,
     },
-    dispose: () => socket.destroy(),
+    // `DaemonConnection.dispose` is a SYNCHRONOUS seam (the supervisor tears
+    // down from paths that cannot await), so the link release is FIRED here
+    // rather than awaited — it is the only thing that frees the protocol
+    // fibers, and it must never replace the reason a caller is tearing down.
+    // Same shape `connectPadi` makes, for the same reason.
+    dispose: () => {
+      void dispose().catch(() => {
+        /* best-effort — a link already disposed is fine */
+      });
+      socket.destroy();
+    },
     onClose: (cb) => {
       if (closed) queueMicrotask(cb);
       else socket.once("close", cb);
@@ -243,69 +260,18 @@ export async function connectKaval(
 }
 
 /**
- * The convergence PROBE for kaval — reads identity only through the frozen
- * control-core fragment, before the versioned pty-host handshake. The shared
+ * The convergence PROBE for kaval — reads identity through the frozen
+ * control-core fragment only, before the versioned pty-host handshake. The shared
  * factory owns dial, timeout, transport disposal, and honest no-listener null.
  *
- * A served daemon that returns the structured missing-route frame predates the
- * fragment. By the #1671 rule, absent means older: represent it as a compatible
- * contract with an unknown build and a named instance key from the observed
- * legacy boot instant. The existing
- * not-drainable policy therefore chooses `nudge-human` (never silent adopt,
- * never destructive recycle). Every other handshake failure still throws.
+ * The pre-fragment REDIAL that used to sit behind this is GONE (PLAN D6): a kaval
+ * without the frozen route also predates this protocol epoch, so its first frame
+ * is undecodable and the factory raises `UnspeakableProtocolError` — the
+ * supervisor's observation, not a fallback this module can take. Every handshake
+ * failure now propagates, which is what the factory already documents.
  */
-const probeFrozenKavalIdentity = probeDaemonIdentity({
+export const probeKavalForConvergence: (
+  socketPath: string,
+) => Promise<ConvergenceProbe<"not-drainable"> | null> = probeDaemonIdentity({
   capability: "not-drainable",
 });
-
-/** The one finite transition read for a daemon that predates the frozen route.
- * Read only facts the old wire can honestly supply: its contract version and
- * boot instant. Its old build field is deliberately ignored; build identity is
- * trusted only from the frozen fragment. */
-async function probePreFragmentKaval(
-  socketPath: string,
-): Promise<ConvergenceProbe<"not-drainable"> | null> {
-  let socket: Socket;
-  try {
-    socket = await dialSocket(socketPath);
-  } catch (err) {
-    if (isNoListenerError(err)) return null;
-    throw err;
-  }
-  const client = stdioLink<typeof kavalDaemonContract>({
-    read: socket,
-    write: socket,
-  });
-  try {
-    const version = await readSystemVersionBounded(client as PtyHostClient);
-    return {
-      capability: "not-drainable",
-      identity: {
-        contractVersion: version.contractVersion,
-        build: daemonBuild(""),
-      },
-      instanceKey: instanceKeyFromStartedAt(version.startedAt),
-      dispose: () => socket.destroy(),
-    };
-  } catch (err) {
-    socket.destroy();
-    throw err;
-  }
-}
-
-export async function probeKavalForConvergence(
-  socketPath: string,
-): Promise<ConvergenceProbe<"not-drainable"> | null> {
-  try {
-    return await probeFrozenKavalIdentity(socketPath);
-  } catch (err) {
-    if (isMissingFrozenFragment(err)) {
-      // The framework factory disposed the failed route connection. Redial the
-      // old daemon through the only identity-era wire it has and preserve only
-      // its observed contract/boot facts; fragment absence supplies the honest
-      // unknown-build fact that drives the existing update nudge.
-      return await probePreFragmentKaval(socketPath);
-    }
-    throw err;
-  }
-}

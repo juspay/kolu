@@ -30,7 +30,11 @@
  */
 
 import { type TerminalId, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import { Result, Schema } from "effect";
 import type { PtyHostInventoryEvent, PtyHostListEntry } from "kaval";
+
+/** zod's `.safeParse` in Effect terms, bound once at module scope. */
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 import { log } from "../log.ts";
 import { ptyHostClient } from "../ptyHost/index.ts";
 import { getTerminal } from "../terminal-registry.ts";
@@ -65,7 +69,7 @@ async function runReconciler(signal: AbortSignal): Promise<void> {
   await resubscribeStream({
     signal,
     delayMs: RESUBSCRIBE_DELAY_MS,
-    getStream: () => ptyHostClient.surface.inventory.get({}, { signal }),
+    getStream: () => ptyHostClient.surface.inventory.get({}),
     onEvent: applyEvent,
     onDrop: (err) =>
       log.debug({ err }, "kaval inventory subscribe failed; will re-subscribe"),
@@ -121,19 +125,22 @@ export function inventoryAdoptions(
  *  to `onInvalid` (which fails closed — F1), and keep the untracked rest paired
  *  with their branded id. */
 function adoptableEntries(
-  entries: PtyHostListEntry[],
+  entries: readonly PtyHostListEntry[],
   isTracked: (id: TerminalId) => boolean,
   onInvalid: (rawId: string) => void,
 ): InventoryAdoption[] {
   const adoptions: InventoryAdoption[] = [];
   for (const entry of entries) {
-    const parsed = TerminalIdSchema.safeParse(entry.id);
-    if (!parsed.success) {
+    // `decodeUnknownResult` is zod `.safeParse` in Effect terms — a BRANCH, so an
+    // unrepresentable wire id routes to `onInvalid` (fail-closed) instead of
+    // throwing out of the inventory subscription.
+    const parsed = decodeTerminalId(entry.id);
+    if (Result.isFailure(parsed)) {
       onInvalid(entry.id);
       continue;
     }
-    if (!isTracked(parsed.data)) {
-      adoptions.push({ id: parsed.data, entry });
+    if (!isTracked(parsed.success)) {
+      adoptions.push({ id: parsed.success, entry });
     }
   }
   return adoptions;

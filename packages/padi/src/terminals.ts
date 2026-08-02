@@ -238,9 +238,14 @@ export function setTerminalParent(
   const entry = getTerminal(id);
   if (!entry) return;
   if (parentId !== null) requireAcyclicParent(id, parentId as TerminalId);
-  const newParent = parentId ?? undefined;
   updateClientMetadata(entry, id, (m) => {
-    m.parentId = newParent;
+    // CLEARING deletes the key rather than writing `undefined`. `parentId` is a
+    // `Schema.optionalKey` field, which — unlike zod's `.optional()` — accepts an
+    // ABSENT key and REJECTS a present `undefined` one (#17). The authored record
+    // is re-decoded on every sleep/wake/park flip, so an explicit `undefined`
+    // parked here would blow up a later decode rather than at this write.
+    if (parentId === null) delete m.parentId;
+    else m.parentId = parentId;
   });
 }
 
@@ -373,9 +378,11 @@ export function setTerminalTheme(id: TerminalId, themeName: string): void {
 export function setTerminalIntent(id: TerminalId, intent: string): void {
   const entry = getTerminal(id);
   if (!entry) return;
-  const next = intent.length > 0 ? intent : undefined;
   updateClientMetadata(entry, id, (m) => {
-    m.intent = next;
+    // Empty string CLEARS — by deleting the key, not by writing `undefined`; see
+    // `setTerminalParent` for why an `optionalKey` field can hold neither.
+    if (intent.length > 0) m.intent = intent;
+    else delete m.intent;
   });
 }
 

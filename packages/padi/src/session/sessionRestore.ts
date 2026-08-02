@@ -48,6 +48,12 @@ import type {
   SavedTerminal,
 } from "../vocab.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
+import { Schema } from "effect";
+
+/** zod's `.parse`, in Effect terms — bound once at module scope (`decodeUnknownSync`
+ *  compiles the schema on each application). Fail-fast by design: an IMPORTED blob
+ *  that does not decode after the backfill ladder is a refusal, not a silent drop. */
+const decodeSavedSession = Schema.decodeUnknownSync(SavedSessionSchema);
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
@@ -144,7 +150,7 @@ function respawnActive(
  *  subtract via `optOutIds`. `resumeAgents: false` resumes none; `true` (default)
  *  resumes every host-resumable id not listed in `optOutIds`. */
 export async function restoreSession(
-  input: { resumeAgents?: boolean; optOutIds?: string[] } = {},
+  input: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
 ): Promise<void> {
   const saved = getSavedSession();
   if (!saved) return;
@@ -371,10 +377,17 @@ export async function settleRestoreRespawns(
           // removal may have orphaned a live child, so fall through to reconcile below
           // rather than returning early.
         } else {
+          // OMIT `parentId` for a top-level record rather than spelling
+          // `undefined`: it is a `Schema.optionalKey` field, which accepts an
+          // ABSENT key and REJECTS a present `undefined` one (#17). Spelling it
+          // would make `seedParkedTerminal`'s tolerant decode DROP the record —
+          // silently losing the very re-park this path exists to perform.
           const record: SavedActiveTerminal = {
             ...r.record,
             id: r.newId,
-            parentId: r.parentIdMapped,
+            ...(r.parentIdMapped === undefined
+              ? {}
+              : { parentId: r.parentIdMapped }),
           };
           seedParkedTerminal(record); // idempotent — a repeat settle no-ops
           reparked.push(record);
@@ -479,11 +492,9 @@ export function forfeitSession(): void {
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;
-  optOutIds?: string[];
+  optOutIds?: readonly string[];
 }): Promise<void> {
-  const backfilled = SavedSessionSchema.parse(
-    backfillSavedSession(input.session),
-  );
+  const backfilled = decodeSavedSession(backfillSavedSession(input.session));
   setSavedSession(backfilled);
   await restoreSession({
     resumeAgents: input.resumeAgents,

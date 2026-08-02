@@ -33,6 +33,7 @@ import type {
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -265,7 +266,9 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     // Round-trips through the saved discriminated union — agent/foreground don't
     // leak, but the `pr` SNAPSHOT persists (a dormant tile keeps its last-known
     // PR across a daemon restart, like cwd/branch — restore-relevant now).
-    expect(() => SavedTerminalSchema.parse(saved)).not.toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(SavedTerminalSchema)(saved),
+    ).not.toThrow();
     const raw = saved as Record<string, unknown>;
     expect(raw.agent).toBeUndefined();
     expect(raw.foreground).toBeUndefined();

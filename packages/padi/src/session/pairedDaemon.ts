@@ -87,7 +87,7 @@ export function recordPairedDaemon(startedAt: number | undefined): void {
 export function isReplacedDaemon(args: {
   currentStartedAt: number | undefined;
   lastPaired: PairedDaemon | null;
-  live: PtyHostListEntry[];
+  live: readonly PtyHostListEntry[];
   saved: SavedSession | null;
 }): boolean {
   const { currentStartedAt, lastPaired, live, saved } = args;
