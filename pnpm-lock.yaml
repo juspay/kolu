@@ -4,6 +4,21 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@effect/platform-browser':
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
+    '@effect/platform-node':
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
+    '@effect/vitest':
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
+    effect:
+      specifier: 4.0.0-beta.102
+      version: 4.0.0-beta.102
+
 overrides:
   '@babel/core': ^7.29.6
   esbuild: ^0.28.1
@@ -31,6 +46,9 @@ importers:
 
   .:
     devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
@@ -86,6 +104,9 @@ importers:
       '@corvu/tooltip':
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
+      '@effect/platform-browser':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -182,6 +203,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -288,6 +312,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -372,6 +399,9 @@ importers:
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../../shell-quote
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
@@ -397,6 +427,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -422,6 +455,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -456,6 +492,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -484,6 +523,9 @@ importers:
       '@parcel/watcher':
         specifier: ^2.5.1
         version: 2.5.6
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -521,6 +563,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../anyforge
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -546,6 +591,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -590,6 +638,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -630,6 +681,9 @@ importers:
 
   packages/kaval:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
@@ -660,6 +714,9 @@ importers:
       '@xterm/headless':
         specifier: ^6.0.0
         version: 6.0.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
         version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d
@@ -691,6 +748,9 @@ importers:
 
   packages/kaval-tui:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -709,6 +769,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -737,6 +800,9 @@ importers:
 
   packages/kolu-cli:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -752,6 +818,9 @@ importers:
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
@@ -789,6 +858,9 @@ importers:
 
   packages/kolu-mcp:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -807,6 +879,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -848,6 +923,9 @@ importers:
 
   packages/padi:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
@@ -874,7 +952,7 @@ importers:
         version: 1.13.13
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
-        version: 1.13.13
+        version: 1.13.13(ioredis@5.11.1)
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
@@ -887,6 +965,9 @@ importers:
       conf:
         specifier: ^15.1.0
         version: 15.1.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -966,6 +1047,9 @@ importers:
 
   packages/padi-tui:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -987,6 +1071,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1043,6 +1130,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@hono/node-server':
         specifier: ^2.0.10
         version: 2.0.10(hono@4.12.31)
@@ -1099,7 +1189,7 @@ importers:
         version: 1.13.13(pino@10.3.1)(ws@8.21.0)
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
-        version: 1.13.13
+        version: 1.13.13(ioredis@5.11.1)
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
@@ -1112,6 +1202,9 @@ importers:
       conf:
         specifier: ^15.1.0
         version: 15.1.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -1391,6 +1484,9 @@ importers:
 
   packages/surface:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@orpc/client':
         specifier: ^1.13.13
         version: 1.13.13
@@ -1415,6 +1511,9 @@ importers:
       '@solid-primitives/scheduled':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1446,9 +1545,15 @@ importers:
 
   packages/surface-app:
     dependencies:
+      '@effect/platform-browser':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.8)
@@ -1491,10 +1596,13 @@ importers:
         version: 1.13.13
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
-        version: 1.13.13
+        version: 1.13.13(ioredis@5.11.1)
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -1535,6 +1643,9 @@ importers:
 
   packages/surface-daemon:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1544,6 +1655,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -1569,6 +1683,9 @@ importers:
 
   packages/surface-daemon-supervisor:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -1618,6 +1735,9 @@ importers:
       dequal:
         specifier: ^2.0.3
         version: 2.0.3
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1649,6 +1769,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -1665,6 +1788,9 @@ importers:
 
   packages/surface-remote:
     dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1683,6 +1809,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -1740,10 +1869,13 @@ importers:
         version: 1.13.13
       '@orpc/experimental-publisher':
         specifier: ^1.13.13
-        version: 1.13.13
+        version: 1.13.13(ioredis@5.11.1)
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -1805,6 +1937,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -1863,6 +1998,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       osfacts-client:
         specifier: workspace:*
         version: link:../../../../../osfacts-client
@@ -1903,6 +2041,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -1961,6 +2102,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2001,6 +2145,9 @@ importers:
       '@orpc/server':
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
         version: 4.12.31
@@ -2071,6 +2218,9 @@ importers:
       '@orpc/contract':
         specifier: ^1.13.13
         version: 1.13.13
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2130,6 +2280,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -2214,6 +2367,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2337,6 +2493,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.102
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -2647,6 +2806,30 @@ packages:
   '@cucumber/tag-expressions@9.1.0':
     resolution: {integrity: sha512-bvHjcRFZ+J1TqIa9eFNO1wGHqwx4V9ZKV3hYgkuK/VahHx73uiP4rKV3JVrvWSMrwrFvJG6C8aEwnCWSvbyFdQ==}
 
+  '@effect/platform-browser@4.0.0-beta.102':
+    resolution: {integrity: sha512-DXXVt+oOpukqI3lEaGvvXQxSobzIy3lAsIQvlpVK+MuYBm1o4FHZrHKbrOFItDUvSR1t0kiTncFPRi01YaJUmA==}
+    peerDependencies:
+      effect: ^4.0.0-beta.102
+
+  '@effect/platform-node-shared@4.0.0-beta.102':
+    resolution: {integrity: sha512-gVd793I72MrkX4dXo7eYtRKfNj0RW4eMRfVEKEJI16h2+mBDCzQ+gqMrog2hSTHQnaIbvbYShNQ4TVGuRCYZeQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: ^4.0.0-beta.102
+
+  '@effect/platform-node@4.0.0-beta.102':
+    resolution: {integrity: sha512-wYVAU9jAePT+gouMr/EVz1CaW6yDLjPAgXYeEFLz7wugT5iZhFRag6mqajV/wwN3bzWP2fzZHokLuPmqD/rqeA==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: ^4.0.0-beta.102
+      ioredis: ^5.7.0
+
+  '@effect/vitest@4.0.0-beta.102':
+    resolution: {integrity: sha512-4dipFAYG6imOzrY3zy3BgzCJkbb9xESyzUef0WSx8bsK0/SpITqbJpdwKeOyDWLZ+rimjua8IbTFMAde865pIQ==}
+    peerDependencies:
+      effect: ^4.0.0-beta.102
+      vitest: ^3.0.0 || ^4.0.0
+
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
 
@@ -2943,6 +3126,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@ioredis/commands@1.10.0':
+    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -2977,6 +3163,36 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
+
+  '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
+    resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@msgpackr-extract/msgpackr-extract-darwin-x64@3.0.4':
+    resolution: {integrity: sha512-zExlW9zUJKZH/tOtVMttwjKa4Xm/3KcNjnE3dPN92uCktwavMxpgCA3MoJK/DOnTWsQgo224OaST27/mPNAf+w==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm64@3.0.4':
+    resolution: {integrity: sha512-dgX0P/9wGPJeHFBG+ZmhgE6bmtMt7NP5CRBGyyktpopdk/mW4POnrpQsSLtKI1dwpc+pPLuXHDh6vvskyQE/sw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm@3.0.4':
+    resolution: {integrity: sha512-Tg3yX65f5GbtXLkrYEHE5oibZG9epyYWas7FogTTEJeDEF9JlXJzKgXaNhT3UXlTOeA+AfZpYZYZ0uPj7Cfquw==}
+    cpu: [arm]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-linux-x64@3.0.4':
+    resolution: {integrity: sha512-8TNXMEjJc3QEy7R/x1INhgiU+XakDAFUzBhaz7+Rbrs8NH5UQeHQxxmzsSBJGyV6I1jW79undiQm8tOI+D+8FQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
+    resolution: {integrity: sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==}
+    cpu: [x64]
+    os: [win32]
 
   '@napi-rs/wasm-runtime@1.1.5':
     resolution: {integrity: sha512-AWPoBRJ9tsnVhor4sjO7rkni+7p+2IAEFj6cx06UgP10jkQHqay/36uRV/bFkgrh18D9vb4cr8Q0Pthskgzy+Q==}
@@ -4010,6 +4226,10 @@ packages:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
 
+  cluster-key-slot@1.1.1:
+    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+    engines: {node: '>=0.10.0'}
+
   code-excerpt@4.0.0:
     resolution: {integrity: sha512-xxodCmBen3iy2i0WtAK8FlFNrRzjUqjRsMfho58xT/wvZU1YTM3fCnRjcy1gJPMepaRlgm/0e6w8SpWHpn3/cA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
@@ -4133,6 +4353,10 @@ packages:
   defu@6.1.7:
     resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
 
+  denque@2.1.0:
+    resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
+    engines: {node: '>=0.10'}
+
   depd@2.0.0:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
     engines: {node: '>= 0.8'}
@@ -4169,6 +4393,9 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+
+  effect@4.0.0-beta.102:
+    resolution: {integrity: sha512-z8Y+Q76Hh/kjLFZrXu8tGn6e+tDsg45R+UHhxd190pXxD53OGwf/G/zDxXTkse4HJ5mobNZfitLfUCp4fMvu6w==}
 
   electron-to-chromium@1.5.334:
     resolution: {integrity: sha512-mgjZAz7Jyx1SRCwEpy9wefDS7GvNPazLthHg8eQMJ76wBdGQQDW33TCrUTvQ4wzpmOrv2zrFoD3oNufMdyMpog==}
@@ -4283,6 +4510,10 @@ packages:
     resolution: {integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==}
     engines: {node: '>= 18'}
 
+  fast-check@4.9.0:
+    resolution: {integrity: sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==}
+    engines: {node: '>=12.17.0'}
+
   fast-copy@4.0.2:
     resolution: {integrity: sha512-ybA6PDXIXOXivLJK/z9e+Otk7ve13I4ckBvGO5I2RRmBU1gMHLVDJYEuJYhGwez7YNlYji2M2DvVU+a9mSFDlw==}
 
@@ -4311,6 +4542,9 @@ packages:
   finalhandler@2.1.1:
     resolution: {integrity: sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA==}
     engines: {node: '>= 18.0.0'}
+
+  find-my-way-ts@0.1.6:
+    resolution: {integrity: sha512-a85L9ZoXtNAey3Y6Z+eBWW658kO/MwR7zIafkIUPUMf3isZG0NCs2pjW2wtjxAKuJPxMAsHUIP4ZPGv0o5gyTA==}
 
   find-up-simple@1.0.1:
     resolution: {integrity: sha512-afd4O7zpqHeRyg4PfDQsXmlDe2PfdHtJt6Akt8jOWaApLOZk5JXs6VMR29lz03pRe9mpykrRCYIYxaJYcfpncQ==}
@@ -4466,6 +4700,10 @@ packages:
     resolution: {integrity: sha512-7PnF4oN3CvZF23ADhA5wRaYEQpJ8qygSkbtTXWBeXWXmEVRXK+1ITciHWwHhsjv1TmW0MgacIv6hEi5pX5NQdA==}
     engines: {node: '>=10'}
 
+  ini@7.0.0:
+    resolution: {integrity: sha512-ifK0CgjALofS5bkrcTy4RaQ9Vx2Knf/eLeIO+NaswQEpH1UblrtTSCIvN71qQDMq0PeQ/SSPojvEJp9vvvfr+w==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
   ink-testing-library@4.0.0:
     resolution: {integrity: sha512-yF92kj3pmBvk7oKbSq5vEALO//o7Z9Ck/OaLNlkzXNeYdwfpxMQkSowGTFUCS5MSu9bWfSZMewGpp7bFc66D7Q==}
     engines: {node: '>=18'}
@@ -4494,6 +4732,10 @@ packages:
         optional: true
       react-devtools-core:
         optional: true
+
+  ioredis@5.11.1:
+    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
+    engines: {node: '>=12.22.0'}
 
   ip-address@10.1.1:
     resolution: {integrity: sha512-1FMu8/N15Ck1BL551Jf42NYIoin2unWjLQ2Fze/DXryJRl5twqtwNHlO39qERGbIOcKYWHdgRryhOC+NG4eaLw==}
@@ -4597,6 +4839,9 @@ packages:
 
   knuth-shuffle-seeded@1.0.6:
     resolution: {integrity: sha512-9pFH0SplrfyKyojCLxZfMcvkhf5hH0d+UwR9nTVJ/DDQJGuzcXjTwB7TP7sDfehSudlGGaOLblmEWqv04ERVWg==}
+
+  kubernetes-types@1.30.0:
+    resolution: {integrity: sha512-Dew1okvhM/SQcIa2rcgujNndZwU8VnSapDgdxlYoB84ZlpAD43U6KLAFqYo17ykSFGHNPrg0qry0bP+GJd9v7Q==}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -4775,6 +5020,11 @@ packages:
     engines: {node: '>=10.0.0'}
     hasBin: true
 
+  mime@4.1.0:
+    resolution: {integrity: sha512-X5ju04+cAzsojXKes0B/S4tcYtFAJ6tTMuSPBEn9CPGlrWr8Fiw7qYeLT0XyH80HSoAoqWCaz+MWKh22P7G1cw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   mimic-fn@2.1.0:
     resolution: {integrity: sha512-OqbOk5oEQeAZ8WXWydlu9HJjz9WVdEIvamMCcXmuqUYjTknH/sqsWvhQ3vgwKFRR1HpjvNBKQ37nbJgYzGqGcg==}
     engines: {node: '>=6'}
@@ -4806,6 +5056,16 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  msgpackr-extract@3.0.4:
+    resolution: {integrity: sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==}
+    hasBin: true
+
+  msgpackr@2.0.5:
+    resolution: {integrity: sha512-cef05H/dSYpLpqp3sj/qyZh5vhUYCalnaLO7j1yOmpsR0y/XwLVtK7r5gn+U/F7CTEfMowcGhlUQJDLcLf7jcA==}
+
+  multipasta@0.2.8:
+    resolution: {integrity: sha512-ZPWuMKyv0cSO29f7hozp+k6+crZbQijV8ipMvxNxRf2SwtYGTX1ZX89Kd20VV4H9Znonx+EQn+iy1wGQsJ+b+Q==}
+
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
@@ -4827,6 +5087,10 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
+  node-gyp-build-optional-packages@5.2.2:
+    resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
+    hasBin: true
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
     resolution: {gitHosted: true, tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
@@ -5000,6 +5264,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pure-rand@8.4.2:
+    resolution: {integrity: sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==}
+
   pvtsutils@1.3.6:
     resolution: {integrity: sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg==}
 
@@ -5051,6 +5318,14 @@ packages:
   real-require@0.2.0:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
+
+  redis-errors@1.2.0:
+    resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
+    engines: {node: '>=4'}
+
+  redis-parser@3.0.0:
+    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
+    engines: {node: '>=4'}
 
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
@@ -5282,6 +5557,9 @@ packages:
   stackframe@1.3.4:
     resolution: {integrity: sha512-oeVtt7eWQS+Na6F//S4kJ2K2VbRlS9D43mAlMyVpVWovy9o+jfgH8O9agzANzaiLjclA0oYzUXEM4PurhSUChw==}
 
+  standard-as-callback@2.1.0:
+    resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
+
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
@@ -5402,6 +5680,10 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
+
+  toml@4.3.0:
+    resolution: {integrity: sha512-lVb8X9BsPVuH0M4BKeS91tXAmJvCjQ5UIyAbQFaxkKGyUFK2RPkhwaFSQH8vbpl1d23eu/IBH+dwVMHWaq9A5A==}
+    engines: {node: '>=20'}
 
   toposort@2.0.2:
     resolution: {integrity: sha512-0a5EOkAUp8D4moMi2W8ZF8jcga7BgZd91O/yabJCFY8az+XSzeGyTKs0Aoo897iV1Nj6guFq8orWDS96z91oGg==}
@@ -5529,6 +5811,10 @@ packages:
 
   util-arity@1.1.0:
     resolution: {integrity: sha512-kkyIsXKwemfSy8ZEoaIz06ApApnWsk5hQO0vLjZS6UkBiGiW++Jsyb8vSBoc0WKlffGoGs5yYy/j5pp8zckrFA==}
+
+  uuid@14.0.1:
+    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
+    hasBin: true
 
   validate-npm-package-license@3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
@@ -6153,6 +6439,36 @@ snapshots:
 
   '@cucumber/tag-expressions@9.1.0': {}
 
+  '@effect/platform-browser@4.0.0-beta.102(effect@4.0.0-beta.102)':
+    dependencies:
+      effect: 4.0.0-beta.102
+      multipasta: 0.2.8
+
+  '@effect/platform-node-shared@4.0.0-beta.102(effect@4.0.0-beta.102)':
+    dependencies:
+      '@types/ws': 8.18.1
+      effect: 4.0.0-beta.102
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@effect/platform-node@4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)':
+    dependencies:
+      '@effect/platform-node-shared': 4.0.0-beta.102(effect@4.0.0-beta.102)
+      effect: 4.0.0-beta.102
+      ioredis: 5.11.1
+      mime: 4.1.0
+      undici: 8.9.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@effect/vitest@4.0.0-beta.102(effect@4.0.0-beta.102)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))':
+    dependencies:
+      effect: 4.0.0-beta.102
+      vitest: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
   '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
@@ -6335,6 +6651,8 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
+  '@ioredis/commands@1.10.0': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -6390,6 +6708,24 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-darwin-x64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-x64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
+    optional: true
+
   '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
       '@emnapi/core': 1.11.1
@@ -6429,11 +6765,13 @@ snapshots:
       - fastify
       - ws
 
-  '@orpc/experimental-publisher@1.13.13':
+  '@orpc/experimental-publisher@1.13.13(ioredis@5.11.1)':
     dependencies:
       '@orpc/client': 1.13.13
       '@orpc/shared': 1.13.13
       '@orpc/standard-server': 1.13.13
+    optionalDependencies:
+      ioredis: 5.11.1
     transitivePeerDependencies:
       - '@opentelemetry/api'
 
@@ -7358,6 +7696,8 @@ snapshots:
 
   clone@1.0.4: {}
 
+  cluster-key-slot@1.1.1: {}
+
   code-excerpt@4.0.0:
     dependencies:
       convert-to-spaces: 2.0.1
@@ -7470,6 +7810,8 @@ snapshots:
 
   defu@6.1.7: {}
 
+  denque@2.1.0: {}
+
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
@@ -7499,6 +7841,19 @@ snapshots:
       gopd: 1.2.0
 
   ee-first@1.1.1: {}
+
+  effect@4.0.0-beta.102:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      fast-check: 4.9.0
+      find-my-way-ts: 0.1.6
+      ini: 7.0.0
+      kubernetes-types: 1.30.0
+      msgpackr: 2.0.5
+      multipasta: 0.2.8
+      toml: 4.3.0
+      uuid: 14.0.1
+      yaml: 2.8.3
 
   electron-to-chromium@1.5.334: {}
 
@@ -7634,6 +7989,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  fast-check@4.9.0:
+    dependencies:
+      pure-rand: 8.4.2
+
   fast-copy@4.0.2: {}
 
   fast-deep-equal@3.1.3: {}
@@ -7660,6 +8019,8 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  find-my-way-ts@0.1.6: {}
 
   find-up-simple@1.0.1: {}
 
@@ -7811,6 +8172,8 @@ snapshots:
 
   ini@2.0.0: {}
 
+  ini@7.0.0: {}
+
   ink-testing-library@4.0.0(@types/react@19.2.17):
     optionalDependencies:
       '@types/react': 19.2.17
@@ -7855,6 +8218,18 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  ioredis@5.11.1:
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3(supports-color@8.1.1)
+      denque: 2.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
 
   ip-address@10.1.1: {}
 
@@ -7943,6 +8318,8 @@ snapshots:
   knuth-shuffle-seeded@1.0.6:
     dependencies:
       seed-random: 2.2.0
+
+  kubernetes-types@1.30.0: {}
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -8083,6 +8460,8 @@ snapshots:
 
   mime@3.0.0: {}
 
+  mime@4.1.0: {}
+
   mimic-fn@2.1.0: {}
 
   mimic-function@5.0.1: {}
@@ -8100,6 +8479,24 @@ snapshots:
   mrmime@2.0.1: {}
 
   ms@2.1.3: {}
+
+  msgpackr-extract@3.0.4:
+    dependencies:
+      node-gyp-build-optional-packages: 5.2.2
+    optionalDependencies:
+      '@msgpackr-extract/msgpackr-extract-darwin-arm64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-darwin-x64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-arm': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-arm64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-x64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-win32-x64': 3.0.4
+    optional: true
+
+  msgpackr@2.0.5:
+    optionalDependencies:
+      msgpackr-extract: 3.0.4
+
+  multipasta@0.2.8: {}
 
   mz@2.7.0:
     dependencies:
@@ -8121,6 +8518,11 @@ snapshots:
       tslib: 2.8.1
 
   node-addon-api@7.1.1: {}
+
+  node-gyp-build-optional-packages@5.2.2:
+    dependencies:
+      detect-libc: 2.1.2
+    optional: true
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
     dependencies:
@@ -8303,6 +8705,8 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pure-rand@8.4.2: {}
+
   pvtsutils@1.3.6:
     dependencies:
       tslib: 2.8.1
@@ -8350,6 +8754,12 @@ snapshots:
       unicorn-magic: 0.4.0
 
   real-require@0.2.0: {}
+
+  redis-errors@1.2.0: {}
+
+  redis-parser@3.0.0:
+    dependencies:
+      redis-errors: 1.2.0
 
   reflect-metadata@0.2.2: {}
 
@@ -8622,6 +9032,8 @@ snapshots:
 
   stackframe@1.3.4: {}
 
+  standard-as-callback@2.1.0: {}
+
   statuses@2.0.2: {}
 
   std-env@4.1.0: {}
@@ -8724,6 +9136,8 @@ snapshots:
       tldts-core: 7.4.9
 
   toidentifier@1.0.1: {}
+
+  toml@4.3.0: {}
 
   toposort@2.0.2: {}
 
@@ -8857,6 +9271,8 @@ snapshots:
       tslib: 2.8.1
 
   util-arity@1.1.0: {}
+
+  uuid@14.0.1: {}
 
   validate-npm-package-license@3.0.4:
     dependencies:

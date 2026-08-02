@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@kolu/log": "workspace:*",
+    "effect": "catalog:",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
   },

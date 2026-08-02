@@ -53,6 +53,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@orpc/client": "^1.13.13",
     "@orpc/contract": "^1.13.13",
     "@orpc/server": "^1.13.13",
@@ -61,6 +62,7 @@
     "@preact/signals-core": "^1.8.0",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
+    "effect": "catalog:",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"
   }

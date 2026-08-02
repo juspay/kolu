@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@kolu/log": "workspace:*",
+    "effect": "catalog:",
     "zod": "^4.3.6"
   },
   "devDependencies": {

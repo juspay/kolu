@@ -19,6 +19,7 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
+    "effect": "catalog:",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",

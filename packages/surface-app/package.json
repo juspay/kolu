@@ -24,7 +24,9 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-browser": "catalog:",
     "@kolu/surface": "workspace:*",
+    "effect": "catalog:",
     "partysocket": "^1.1.16",
     "solid-js": "^1.9.0",
     "zod": "^4.3.6"

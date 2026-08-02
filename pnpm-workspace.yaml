@@ -10,6 +10,15 @@ packages:
   # under `pnpm -r test:unit`; the engine is gone (the lens stage is prose + plain
   # subagents now), so the package is pure markdown with nothing to test or build.
 
+# Effect 4 (beta). Every @effect/* package must resolve to the SAME version as
+# `effect` itself, so these are exact pins (no `^`) in one catalog: bumping the
+# stack is a single edit here and cannot drift between workspace members.
+catalog:
+  effect: 4.0.0-beta.102
+  "@effect/platform-node": 4.0.0-beta.102
+  "@effect/platform-browser": 4.0.0-beta.102
+  "@effect/vitest": 4.0.0-beta.102
+
 # @pierre/trees and @pierre/diffs declare react/react-dom as peer deps but only
 # need them for their /react entry points. Kolu consumes the vanilla classes
 # directly from SolidJS, so these are optional.

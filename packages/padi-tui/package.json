@@ -10,6 +10,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
@@ -17,6 +18,7 @@
     "@kolu/terminal-vocab": "workspace:*",
     "cleye": "^2.3.0",
     "columnify": "^1.6.0",
+    "effect": "catalog:",
     "kolu-pty": "workspace:*"
   },
   "devDependencies": {

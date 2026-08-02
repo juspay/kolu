@@ -28,6 +28,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@kolu/serve-dir": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
@@ -41,12 +42,13 @@
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
     "conf": "^15.1.0",
+    "effect": "catalog:",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
-    "kolu-grok": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
+    "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-transcript-core": "workspace:*",

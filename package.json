@@ -8,6 +8,7 @@
     "postinstall": "chmod +x node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/darwin-*/spawn-helper 2>/dev/null || true"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "vitest": "^4.1.0"
   },
   "pnpm": {
