@@ -240,9 +240,9 @@ describe("DaemonInventorySchema.boundPadi — exactly one representation of 'not
   const binding = { kind: "local" as const };
 
   it("accepts the top-level null, and an inner object with at least one non-null field", () => {
-    expect(
-      accepts(DaemonInventorySchema)({ binding, boundPadi: null }),
-    ).toBe(true);
+    expect(accepts(DaemonInventorySchema)({ binding, boundPadi: null })).toBe(
+      true,
+    );
     expect(
       accepts(DaemonInventorySchema)({
         binding,
