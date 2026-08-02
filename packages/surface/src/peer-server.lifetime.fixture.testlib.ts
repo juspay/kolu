@@ -2,34 +2,36 @@
  * Child-process fixture for `peer-server.lifetime.test.ts` — NOT a test file
  * (vitest only picks up `*.test.ts`). Run via `node --import tsx`.
  *
- * Serves the lifetime contract over the DEFAULT process stdio while holding
- * a live `setInterval` — the drishti#109 shape: any live handle keeps the
- * event loop alive after the serve promise settles, so without the
- * framework-owned exit this process is an immortal orphan the moment its
- * parent closes the pipe.
+ * Serves the lifetime surface over the DEFAULT process stdio while holding a
+ * live `setInterval` — the drishti#109 shape: any live handle keeps the event
+ * loop alive after the serve promise settles, so without the framework-owned
+ * exit this process is an immortal orphan the moment its parent closes the
+ * pipe.
  *
  * Modes (argv):
  *   (none)          — serve; live interval; post-settle sync log.
- *   --self-error    — after ready, destroy stdin with an error → exercises
- *                     the `reason: "error"` arm (must exit 1). A genuinely
- *                     abnormal read death (EIO-shaped), injected on our own
- *                     stdin because a parent closing its pipe end is a clean
- *                     EOF, not an error.
+ *   --self-error    — after ready, destroy stdin with an error → exercises the
+ *                     `reason: "error"` arm (must exit 1). A genuinely abnormal
+ *                     read death (EIO-shaped), injected on our own stdin
+ *                     because a parent closing its pipe end is a clean EOF, not
+ *                     an error.
  */
-import { setTimeout as delay } from "node:timers/promises";
-import { implement } from "@orpc/server";
+import { Effect, Schedule, Stream } from "effect";
 import { serveOverStdio } from "./peer-server";
-import { lifetimeContract } from "./peer-server.lifetime.contract";
+import { lifetimeSurface } from "./peer-server.lifetime.contract";
+import { implementSurface } from "./server";
 
-const t = implement(lifetimeContract);
-const router = t.router({
-  ping: t.ping.handler(() => "pong"),
-  tick: t.tick.handler(async function* () {
-    for (let n = 0; ; n++) {
-      yield { n };
-      await delay(25);
-    }
-  }),
+const runtime = implementSurface(lifetimeSurface, {
+  procedures: { sys: { ping: () => Effect.succeed("pong") } },
+  streams: {
+    tick: {
+      source: () =>
+        Stream.map(
+          Stream.fromSchedule(Schedule.spaced("25 millis")),
+          (n: number) => ({ n }),
+        ),
+    },
+  },
 });
 
 const args = process.argv.slice(2);
@@ -46,7 +48,10 @@ if (args.includes("--self-error")) {
   }, 50);
 }
 
-const end = await serveOverStdio({ router });
+const end = await serveOverStdio({
+  group: runtime.group,
+  handlers: runtime.handlers,
+});
 
 // Post-settle sync work must still run before the framework-owned exit
 // (teardown step 4): the parent asserts this line arrived.

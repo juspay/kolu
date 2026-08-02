@@ -1,236 +1,131 @@
 /**
- * Stdio link adapter — oRPC client over a `Readable`/`Writable` pair.
+ * Stdio link — the subprocess / ssh leg of the link family. The PARENT side of
+ * a child that serves its surface over its own stdin/stdout (`serveOverStdio`
+ * in `../peer-server.ts`), and the shape `@kolu/surface-remote` rides over an
+ * ssh pipe.
  *
- * Wires a `ClientPeer` (from `@orpc/standard-server-peer`) to a Node stream
- * pair via base64+newline framing. Direction-neutral options (`read` /
- * `write`) so client and server use the same shape.
+ * ## Framing
  *
- * Framing rationale (why base64+newline): see `./stdio-codec.ts`.
+ * ndjson — `RpcSerialization.layerNdjson`, the SAME serialization every other
+ * leg uses. The base64 codec this file used to carry (`stdio-codec.ts`) is
+ * deleted with the oRPC peer protocol: ndjson is self-framing (one JSON value
+ * per line), and no surface member carries raw binary, so there is nothing left
+ * for base64 to make newline-safe. That is what keeps `frontDaemonOverStdio`'s
+ * contract-blind byte splice legal (review #10) — the stdio leg and the
+ * unix-socket leg emit byte-identical frames, pinned by
+ * `byteSplice.test.ts`.
  *
- * Stdout-is-protocol gotcha (lesson #4): on the *server* side (the
- * subprocess), stdout IS the protocol channel. Any extraneous write to
- * stdout corrupts the next frame and the client peer dies with
- * `SyntaxError: Unexpected token '«'` (the leading byte of base64-decoded
- * garbage). Consumers of `serveOverStdio` must redirect logs to fd 2.
- * See `peer-server.ts` for the symmetric server-side note.
+ * ## Stdout IS the protocol channel
  *
- * Reconnect: this link does not reconnect — the link is bound to one
- * stream pair, and a stream close ends the link. Callers that need
- * reconnect should layer it on top by tearing down and constructing a new
- * link against a fresh stream pair. (R-2's `HostSession` is the
- * canonical example.)
+ * On the SERVER side (the subprocess) any stray write to stdout corrupts the
+ * frame stream. `serveOverStdio` redirects `console.log` to stderr when it owns
+ * stdout; on THIS side a corrupt inbound line is a decode failure that fails the
+ * in-flight calls with `SurfaceStdioTransportClosed` rather than wedging them —
+ * pinned in `procedureErrors.test.ts`.
+ *
+ * ## No reconnect, by construction
+ *
+ * A stdio link is bound to ONE stream pair: when the child exits, the pipe is
+ * gone for good and re-dialling the same fds is meaningless. So the protocol's
+ * retry schedule halts immediately (see {@link neverReconnect}) and every call —
+ * in flight or issued afterwards — fails with `SurfaceStdioTransportClosed`.
+ * Callers that need reconnect build a NEW link over a fresh pair (surface-remote's
+ * `HostSession` is the canonical consumer).
  */
 
-import type { Readable, Writable } from "node:stream";
-import type { ClientContext, ClientOptions } from "@orpc/client";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type {
-  StandardLinkClient,
-  StandardRPCLinkOptions,
-} from "@orpc/client/standard";
-import { StandardRPCLink } from "@orpc/client/standard";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import type {
-  StandardLazyResponse,
-  StandardRequest,
-} from "@orpc/standard-server";
-import { ClientPeer } from "@orpc/standard-server-peer";
-import { deadTransportError, SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
-import { wireClient, wireRetryPlugins } from "./_wire";
-import { framedSend, isBenignWriteError, readFramedLines } from "./stdio-codec";
+import { Duplex, type Readable, type Writable } from "node:stream";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import { Cause, Effect, Layer, Schedule } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { Socket } from "effect/unstable/socket";
+import { SurfaceStdioTransportClosed } from "../errors";
+import { openWireLink, type WireLink } from "./wire";
 
-/** A `Readable`/`Writable` pair the link reads and writes from. */
+/** The retry schedule for a link bound to one stream pair: halt on the first
+ *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
+ *  so the only honest schedule is "never". */
+const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
+  Schedule.fromStepWithMetadata(
+    Effect.succeed((meta: Schedule.InputMetadata<Socket.SocketError>) =>
+      Cause.done(meta.attempt),
+    ),
+  );
+
+/** A `Readable`/`Writable` pair the link reads and writes. For a subprocess
+ *  parent these are `child.stdout` / `child.stdin`; for a loopback test they are
+ *  the `client` half of a {@link import("../loopback").LoopbackPair}. */
 export interface StdioLinkOptions {
-  /** Stream the link reads inbound messages from. For a subprocess
-   *  client, this is `child.stdout`. For a loopback test, the server-side
-   *  `read` half of the cross-piped pair. */
-  read: Readable;
-  /** Stream the link writes outbound messages to. For a subprocess
-   *  client, this is `child.stdin`. For a loopback test, the server-side
-   *  `write` half of the cross-piped pair. */
-  write: Writable;
+  /** The served surface's flat `RpcGroup` (`surface.group`). */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Stream the link reads inbound frames from (the child's stdout). */
+  readonly read: Readable;
+  /** Stream the link writes outbound frames to (the child's stdin). */
+  readonly write: Writable;
 }
 
-/** Client-side `StandardLinkClient` implementation backed by a stdio pair.
- *  The browser/WebSocket counterpart is `LinkWebsocketClient`. */
-export class LinkStdioClient<T extends ClientContext>
-  implements StandardLinkClient<T>
-{
-  private readonly peer: ClientPeer;
-  /** Set once the inbound stream ends or errors — the transport is gone
-   *  (the subprocess exited, the ssh pipe dropped). The peer can never
-   *  produce a response after that, so `call()` rejects immediately
-   *  rather than awaiting one forever. Without this guard a request
-   *  issued on an already-dead link hangs: the link is bound to one
-   *  stream pair (see the header note — it does not reconnect), so a
-   *  consumer that hands a stale client to a fresh request gets a promise
-   *  that never settles. The parent's reconnect bridge did exactly that —
-   *  its `system.get` pump, re-issued against the just-exited child's
-   *  client, never resolved and never errored, so the reconnect loop
-   *  wedged and every respawned agent sat idle until the connect watchdog
-   *  reaped it. */
-  private closed = false;
-
-  constructor(opts: StdioLinkOptions) {
-    // `onPeerGone` mirrors the server's `endServing` (peer-server.ts): a
-    // `write()` on a stream `destroy()`ed without an error reports
-    // `ERR_STREAM_DESTROYED` only to the write callback — no 'error' event —
-    // so without this the link never learns the transport died and every
-    // in-flight call hangs. `handleTransportClosed` is idempotent, so the
-    // 'error'-event path below converging on it is safe. A stable reference,
-    // not an inline arrow — the sender runs per frame.
-    const onPeerGone = () => this.handleTransportClosed();
-    this.peer = new ClientPeer((message) =>
-      framedSend(opts.write, message, onPeerGone),
-    );
-    // The write half needs its own 'error' sink. A failed `write()` already
-    // rejects the in-flight frame through the callback above, but Node ALSO
-    // emits 'error' on the stream itself — and an 'error' event with no
-    // listener is a hard process crash, not a catchable rejection. The pipe
-    // torn down mid-write is the routine case, not the exotic one: the ssh
-    // transport drops, or the peer exits and our `write` is its now-closed
-    // stdin, and the next frame raises EPIPE. Without this listener that
-    // EPIPE takes the whole process down (it felled a consumer's coordinator
-    // on teardown — destroying the lane mid-write, the unhandled 'error'
-    // crashed the process). A write error means one thing — the transport is
-    // gone — so route it through the same teardown the inbound stream's
-    // end/error takes: mark the link closed so later `call()`s reject fast
-    // instead of limping on a dead pipe. Symmetric with the read half's
-    // `read.on("error", …)` guard in `stdio-codec.ts`. The diagnostic
-    // consults the codec's shared classifier, mirroring the server funnel
-    // in `peer-server.ts`: a benign peer-gone write death (EPIPE /
-    // ERR_STREAM_DESTROYED) is clean teardown on both ends of the wire,
-    // so it isn't narrated as an error here either — only a real write
-    // failure is. The teardown itself is unconditional either way.
-    opts.write.on("error", (err) => {
-      if (!isBenignWriteError(err)) {
-        process.stderr.write(
-          `[@kolu/surface/links/stdio] outbound write error: ${(err as Error).message}\n`,
-        );
-      }
-      this.handleTransportClosed();
-    });
-    readFramedLines(opts.read, (frame) => {
-      // Swallow per-frame parse errors. A bad inbound frame is most
-      // likely an agent-side stdout corruption (lesson #4); the
-      // already-in-flight RPCs continue to work, and the consumer can
-      // observe the failure via the stream's eventual end or via a
-      // request timeout. Logging to stderr keeps the diagnostic visible
-      // without crashing the link.
-      this.peer.message(frame).catch((err) => {
-        process.stderr.write(
-          `[@kolu/surface/links/stdio] inbound frame parse failure: ${
-            (err as Error).message
-          }\n`,
-        );
-      });
-      // Both settle paths tear the link down — `readFramedLines` resolves
-      // on stream 'end' and rejects on 'error'. Handle both with `.then`
-      // (NOT `.finally`, which would re-throw the rejection into this
-      // discarded promise as an unhandled rejection).
-    }).then(
-      () => this.handleTransportClosed(),
-      () => this.handleTransportClosed(),
-    );
-  }
-
-  /** Inbound stream ended (or errored): the transport is dead. Mark the
-   *  link closed so subsequent `call()`s reject, and close the peer —
-   *  which rejects any request already in flight on its response queue.
-   *
-   *  IDEMPOTENT: multiple teardown paths converge here — the outbound
-   *  `write.on("error")` (EPIPE) AND the inbound stream's end/error both fire on
-   *  a dropped transport — so a second call must no-op.
-   *
-   *  TYPED close reason (#1719 mechanism fix). `peer.close()` → orpc's
-   *  `AsyncIdQueue.close({ reason })` rejects every PENDING pull with `reason` when one
-   *  is given, else it mints a FRESH, anonymous `AbortError` ("[AsyncIdQueue] Queue[N]
-   *  … closed or aborted while waiting for pulling."). Those rejections deliver
-   *  ASYNCHRONOUSLY on the pull awaiters, so a consumer that parked a `.next()` and was
-   *  then abandoned mid-teardown floats it — and a bare `AbortError` is unowned and
-   *  untyped, so a mirror consumer's swallow predicate (`isAbortReason`, keyed on
-   *  `err === signal.reason`) cannot recognize it and mis-classifies it (the padi
-   *  reconnect flake, juspay/kolu#1719). We pass an explicit TYPED reason
-   *  ({@link deadTransportError} with {@link SURFACE_STDIO_TRANSPORT_CLOSED}), so the
-   *  ONE thing that can cross the stdio seam at close is that single owned, greppable
-   *  `ORPCError` — the same non-retriable shape `call()` already throws on a dead link,
-   *  now also carried on every abandoned pull. The consumer-side ownership fix
-   *  (mirrorCollection awaits its per-key pumps) is the other half; this typed reason is
-   *  the seam fence that makes "an anonymous AbortError escapes the seam" unconstructible.
-   *
-   *  The `try/catch` remains a DEFENSIVE guard against a SYNCHRONOUS throw out of
-   *  `peer.close()` (e.g. an in-flight request's abort listener throwing) — the async
-   *  parked-pull rejections are handled by the typed reason above, not by this catch. */
-  private handleTransportClosed(): void {
-    if (this.closed) return;
-    this.closed = true;
-    try {
-      this.peer.close({
-        reason: deadTransportError(
-          SURFACE_STDIO_TRANSPORT_CLOSED,
-          "stdio transport closed (the peer process exited or its stream ended); parked request/stream pulls are cancelled.",
-        ),
-      });
-    } catch {
-      // A synchronous throw out of `close()` (an abort listener) — the transport is
-      // gone; nothing to reject that the close didn't already reject.
-    }
-  }
-
-  async call(
-    request: StandardRequest,
-    _options: ClientOptions<T>,
-    _path: readonly string[],
-    _input: unknown,
-  ): Promise<StandardLazyResponse> {
-    if (this.closed) {
-      throw deadTransportError(
-        SURFACE_STDIO_TRANSPORT_CLOSED,
-        "stdio transport is closed (the peer process exited or its stream ended); request not sent.",
-      );
-    }
-    const response = await this.peer.request(request);
-    return { ...response, body: () => Promise.resolve(response.body) };
-  }
-}
-
-/** Options accepted by `StdioRPCLink`. `read` / `write` come from
- *  `StdioLinkOptions`; the rest mirror `StandardRPCLinkOptions` minus
- *  fields that don't apply to a non-HTTP transport (`url`, `method`,
- *  `fallbackMethod`, `maxUrlLength`). */
-export interface StdioRPCLinkOptions<T extends ClientContext>
-  extends Omit<
-      StandardRPCLinkOptions<T>,
-      "url" | "method" | "fallbackMethod" | "maxUrlLength"
-    >,
-    StdioLinkOptions {}
-
-/** RPC link that communicates over a stdio stream pair using the same
- *  framing as `serveOverStdio` on the other end.
+/** Build a wire link over an already-open Node `Duplex` — the ONE place the
+ *  stdio and unix-socket legs share, so their framing, their retry schedule and
+ *  their error vocabulary cannot drift (which is the whole basis of the
+ *  byte-splice guarantee, review #10).
  *
- *  Symmetric with `RPCLink` from `@orpc/client/websocket` — wire shape on
- *  top of the link is the same RPC codec, only the transport changes. */
-export class StdioRPCLink<T extends ClientContext> extends StandardRPCLink<T> {
-  constructor(options: StdioRPCLinkOptions<T>) {
-    super(new LinkStdioClient<T>(options), { ...options, url: "http://orpc" });
-  }
-}
+ *  `describe` names the transport in the `SurfaceStdioTransportClosed` reason,
+ *  because that string is what an operator reads when a daemon vanishes. */
+export async function duplexWireLink(opts: {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly duplex: Duplex;
+  readonly describe: string;
+}): Promise<WireLink> {
+  // A destroyed pipe emits 'error' on the stream, and an 'error' with no
+  // listener is a hard process crash — not a rejection a consumer can catch.
+  // Effect's socket attaches its own listeners only WHILE running, so this
+  // permanent one covers the windows either side (an EPIPE felled a
+  // consumer's coordinator on teardown before the oRPC-era link grew the same
+  // guard). The transport death itself is handled by the socket run failing.
+  opts.duplex.on("error", () => {});
 
-/** Connect a typed oRPC client over a stdio transport, with the same
- *  `ClientRetryPlugin` install as `websocketLink` does for WebSocket — the
- *  subprocess / ssh member of the link family. The parent-side bridge of
- *  R-1.5's remote-process-monitor demo and R-2's `RemoteTerminalBackend`
- *  both call this. */
-export function stdioLink<C extends AnyContractRouter>(
-  opts: StdioLinkOptions,
-): ContractRouterClient<C, ClientRetryPluginContext> {
-  const link = new StdioRPCLink<ClientRetryPluginContext>({
-    ...opts,
-    plugins: wireRetryPlugins(),
+  const socket = await Effect.runPromise(
+    NodeSocket.fromDuplex(
+      Effect.acquireRelease(Effect.succeed(opts.duplex), (duplex) =>
+        Effect.sync(() => {
+          if (!duplex.destroyed) duplex.destroy();
+        }),
+      ),
+    ),
+  );
+
+  const protocol = Layer.effect(RpcClient.Protocol)(
+    RpcClient.makeProtocolSocket({ retryPolicy: neverReconnect }),
+  ).pipe(
+    Layer.provide([
+      Layer.succeed(Socket.Socket)(socket),
+      RpcSerialization.layerNdjson,
+    ]),
+  );
+
+  return openWireLink({
+    group: opts.group,
+    protocol,
+    transportError: (failure) =>
+      new SurfaceStdioTransportClosed({
+        reason:
+          failure.kind === "disposed"
+            ? `${opts.describe} link disposed; request not sent`
+            : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
+      }),
   });
-  return wireClient<C>(link);
 }
 
-// The base64+newline wire-framing codec (`encodeFrame` / `decodeFrame` /
-// `readFramedLines`) lives in `./stdio-codec.ts`, shared with the server peer
-// (`../peer-server.ts`) and kept off the public link export surface.
+/** Open a link over a child process's stdio pair. Async — the protocol layer
+ *  and its fibers are built before the first call can be issued. Returns the
+ *  branded dispatch plus the `dispose` that severs the pipe. */
+export function stdioLink(opts: StdioLinkOptions): Promise<WireLink> {
+  // `Duplex.from({ readable, writable })` is Node's own composition of a read
+  // half and a write half into the single Duplex `NodeSocket.fromDuplex`
+  // wants — the existing source of truth, rather than a hand-rolled adapter.
+  return duplexWireLink({
+    group: opts.group,
+    duplex: Duplex.from({ readable: opts.read, writable: opts.write }),
+    describe: "stdio",
+  });
+}

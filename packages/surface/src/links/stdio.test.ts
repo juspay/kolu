@@ -1,407 +1,275 @@
 /**
- * Round-trip the stdio link through a loopback PassThrough pair — same
- * framing as the real ssh subprocess case, no fork required.
+ * Round-trip the stdio link through a loopback PassThrough pair — the same
+ * ndjson frames the real ssh subprocess case carries, no fork required.
  *
- * Covers: request/response (the trivial path), async iterators (the
- * non-trivial path where the peer framing has to interleave per-yield
- * EVENT_ITERATOR messages with concurrent requests), abort propagation
- * (the client aborts mid-iteration, the server stops yielding), and the
- * stdout-is-protocol gotcha (lesson #4) — when the agent corrupts the
- * wire with a stray write, the client surfaces the framing error rather
- * than hanging.
+ * Covers: unary request/response (the trivial path), a STREAMING member (the
+ * non-trivial path where the protocol interleaves per-frame pushes with
+ * concurrent requests), interruption propagation (the consumer stops pulling,
+ * the server's stream finalizes), the stdout-is-protocol gotcha (a stray line
+ * on the wire must not wedge the link), and every shape of transport death —
+ * each of which must FAIL a call with `SurfaceStdioTransportClosed` rather than
+ * hang it or crash the process.
  */
 
-import { PassThrough, Writable } from "node:stream";
-import { ORPCError } from "@orpc/client";
-import { eventIterator, oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
+import { PassThrough } from "node:stream";
+import { Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { SURFACE_STDIO_TRANSPORT_CLOSED } from "../client";
+import { defineSurface } from "../define";
+import { SurfaceStdioTransportClosed } from "../errors";
 import { createLoopbackPair } from "../loopback";
 import { serveOverStdio } from "../peer-server";
+import { implementSurface } from "../server";
 import { stdioLink } from "./stdio";
 
-describe("stdio link over loopback", () => {
-  it("round-trips a simple query procedure", async () => {
-    const contract = {
-      add: oc
-        .input(z.object({ a: z.number(), b: z.number() }))
-        .output(z.number()),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      add: t.add.handler(({ input }) => input.a + input.b),
-    });
-
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({
-      router,
-      transport: pair.server,
-    });
-
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-
-    const result = await client.add({ a: 2, b: 3 });
-    expect(result).toBe(5);
-
-    pair.client.write.end();
-    pair.server.write.end();
-    await serveDone;
-  });
-
-  it("streams async iterators per-yield across the wire", async () => {
-    const contract = {
-      counter: oc
-        .input(z.object({ to: z.number() }))
-        .output(eventIterator(z.object({ n: z.number() }))),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      counter: t.counter.handler(async function* ({ input }) {
-        for (let n = 0; n < input.to; n++) yield { n };
-      }),
-    });
-
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({
-      router,
-      transport: pair.server,
-    });
-
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-
-    const seen: number[] = [];
-    const iterable = await client.counter({ to: 4 });
-    for await (const v of iterable) seen.push(v.n);
-    expect(seen).toEqual([0, 1, 2, 3]);
-
-    pair.client.write.end();
-    pair.server.write.end();
-    await serveDone;
-  });
-
-  it("fires onFirstRequest after the first inbound frame is decoded", async () => {
-    const contract = {
-      ping: oc.input(z.object({})).output(z.string()),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      ping: t.ping.handler(() => "pong"),
-    });
-
-    const pair = createLoopbackPair();
-    let firstSeen = false;
-    const serveDone = serveOverStdio({
-      router,
-      transport: pair.server,
-      onFirstRequest: () => {
-        firstSeen = true;
+const surface = defineSurface({
+  procedures: {
+    math: {
+      add: {
+        input: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
+        output: Schema.Number,
       },
-    });
+    },
+  },
+  streams: {
+    counter: {
+      inputSchema: Schema.Struct({ to: Schema.Number }),
+      outputSchema: Schema.Struct({ n: Schema.Number }),
+    },
+  },
+});
 
-    expect(firstSeen).toBe(false);
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-    await client.ping({});
-    expect(firstSeen).toBe(true);
+/** `to: 0` means "emit one frame, then never end" — the probe for "the server
+ *  stops producing when the consumer goes away", with an observable finalizer. */
+function buildRuntime(onFinalize?: () => void) {
+  return implementSurface(surface, {
+    procedures: {
+      math: { add: ({ input }) => Effect.succeed(input.a + input.b) },
+    },
+    streams: {
+      counter: {
+        source: (input) => {
+          const frames: Stream.Stream<{ n: number }> =
+            input.to === 0
+              ? Stream.concat(Stream.make({ n: 0 }), Stream.never)
+              : Stream.map(Stream.range(0, input.to - 1), (n) => ({ n }));
+          return onFinalize === undefined
+            ? frames
+            : Stream.ensuring(
+                frames,
+                Effect.sync(() => onFinalize()),
+              );
+        },
+      },
+    },
+  });
+}
 
-    pair.client.write.end();
-    pair.server.write.end();
-    await serveDone;
+async function wired(onFinalize?: () => void) {
+  const runtime = buildRuntime(onFinalize);
+  const pair = createLoopbackPair();
+  const serving = serveOverStdio({
+    group: runtime.group,
+    handlers: runtime.handlers,
+    transport: pair.server,
+  });
+  const link = await stdioLink({
+    group: surface.group,
+    read: pair.client.read,
+    write: pair.client.write,
+  });
+  return {
+    link,
+    pair,
+    serving,
+    done: async () => {
+      await link.dispose();
+      pair.client.write.end();
+      pair.server.write.end();
+      await serving;
+      await runtime.close();
+    },
+  };
+}
+
+describe("stdio link over loopback", () => {
+  it("round-trips a unary procedure", async () => {
+    const { link, done } = await wired();
+    await expect(
+      Effect.runPromise(
+        link.dispatch.unary("surface/math/add", { a: 2, b: 3 }),
+      ),
+    ).resolves.toBe(5);
+    await done();
+  });
+
+  it("streams a member's frames across the wire", async () => {
+    const { link, done } = await wired();
+    const frames = await Effect.runPromise(
+      Stream.runCollect(
+        link.dispatch.stream("surface/counter/get", { to: 4 }) as Stream.Stream<
+          { n: number },
+          unknown
+        >,
+      ),
+    );
+    expect(frames.map((f) => f.n)).toEqual([0, 1, 2, 3]);
+    await done();
+  });
+
+  it("propagates interruption: the consumer stops pulling, the server's stream finalizes", async () => {
+    let finalized = false;
+    const { link, done } = await wired(() => {
+      finalized = true;
+    });
+    const seen: number[] = [];
+    const fiber = Effect.runFork(
+      Stream.runForEach(
+        link.dispatch.stream("surface/counter/get", { to: 0 }) as Stream.Stream<
+          { n: number },
+          unknown
+        >,
+        (frame) =>
+          Effect.sync(() => {
+            seen.push(frame.n);
+          }),
+      ),
+    );
+    await expect.poll(() => seen.length, { timeout: 2_000 }).toBeGreaterThan(0);
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    // The interrupt travels as an RPC Interrupt frame; the server-side stream
+    // is then finalized (its `ensuring` runs).
+    await expect.poll(() => finalized, { timeout: 2_000 }).toBe(true);
+    await done();
   });
 
   it("does not wedge when the agent corrupts stdout (lesson #4)", async () => {
-    const contract = {
-      ping: oc.input(z.object({})).output(z.string()),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      ping: t.ping.handler(() => "pong"),
-    });
-
+    const runtime = buildRuntime();
     const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({
-      router,
+    const serving = serveOverStdio({
+      group: runtime.group,
+      handlers: runtime.handlers,
       transport: pair.server,
     });
-
-    // Reproduce lesson #4: a stray non-base64 line on the wire from the
-    // server side. The peer codec attempts to base64-decode it and the
-    // bytes won't be valid framing.
+    // A stray non-ndjson line on the wire from the server side — a pino log
+    // line that escaped to stdout. What we forbid is the link WEDGING: the
+    // call must settle, either way.
     pair.server.write.write("«this looks like a pino log line»\n");
 
-    const client = stdioLink<typeof contract>({
+    const link = await stdioLink({
+      group: surface.group,
       read: pair.client.read,
       write: pair.client.write,
     });
-
-    // What we forbid is the link wedging indefinitely.
-    const timeoutMs = 1000;
     const winner = await Promise.race([
-      client
-        .ping({})
+      Effect.runPromise(link.dispatch.unary("surface/math/add", { a: 1, b: 1 }))
         .then(() => "ok" as const)
         .catch(() => "err" as const),
       new Promise<"timeout">((resolve) =>
-        setTimeout(() => resolve("timeout"), timeoutMs),
+        setTimeout(() => resolve("timeout"), 2_000),
       ),
     ]);
     expect(winner).not.toBe("timeout");
 
+    await link.dispose();
     pair.client.write.end();
     pair.server.write.end();
-    await serveDone;
+    await serving;
+    await runtime.close();
   });
 
-  it("propagates abort: client aborts mid-iteration, server stops yielding", async () => {
-    const contract = {
-      forever: oc
-        .input(z.object({}))
-        .output(eventIterator(z.object({ n: z.number() }))),
-    };
-    const t = implement(contract);
-    let stopped = false;
-    const router = t.router({
-      forever: t.forever.handler(async function* () {
-        try {
-          for (let n = 0; ; n++) {
-            yield { n };
-            await new Promise((r) => setTimeout(r, 10));
-          }
-        } finally {
-          stopped = true;
-        }
-      }),
-    });
+  it("fails an RPC issued after the transport closed, instead of hanging", async () => {
+    // Reconnect-wedge regression: a client whose stdio stream has ended (the
+    // agent subprocess exited) must FAIL a fresh RPC, not hang. A pump that
+    // re-issued a call against such a dead link used to await a response that
+    // never arrived and never errored, so the reconnect loop never advanced.
+    const { link, pair, serving } = await wired();
+    await expect(
+      Effect.runPromise(
+        link.dispatch.unary("surface/math/add", { a: 1, b: 1 }),
+      ),
+    ).resolves.toBe(2);
 
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({
-      router,
-      transport: pair.server,
-    });
+    // Agent exits: its stdout (our inbound stream) ends, tearing the link down.
+    pair.server.write.end();
+    await serving;
 
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
+    const failure = await Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
+    );
+    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+    await link.dispose();
+  });
 
-    const controller = new AbortController();
-    const iterable = await client.forever({}, { signal: controller.signal });
-    const seen: number[] = [];
-    try {
-      for await (const v of iterable) {
-        seen.push(v.n);
-        if (seen.length >= 3) controller.abort();
-      }
-    } catch {
-      /* expected: abort surfaces as a rejection */
-    }
-    expect(seen.length).toBeGreaterThanOrEqual(3);
-    // Give the agent a tick to receive the abort signal.
+  it("fails a call PARKED at transport close with the ONE typed transport error (#1719)", async () => {
+    // The mechanism fence for #1719: when the transport dies, a parked pull
+    // must reject with the single owned, greppable transport error — never an
+    // anonymous abort from some queue's internals, which a mirror consumer
+    // cannot classify and therefore floats.
+    const { link, pair, serving } = await wired();
+    const parked = Effect.runPromiseExit(
+      Stream.runCollect(
+        link.dispatch.stream("surface/counter/get", { to: 0 }) as Stream.Stream<
+          { n: number },
+          unknown
+        >,
+      ),
+    );
+    // Let the subscription establish and its first frames arrive.
     await new Promise((r) => setTimeout(r, 50));
-    expect(stopped).toBe(true);
-
-    pair.client.write.end();
     pair.server.write.end();
-    await serveDone;
-  });
 
-  it("rejects an RPC issued after the transport has closed, instead of hanging", async () => {
-    // Reconnect-wedge regression: a client whose stdio stream has ended
-    // (the agent subprocess exited) must FAIL a fresh RPC, not hang. In
-    // the parent's reconnect bridge, a pump that re-issued `system.get`
-    // against such a dead client used to await a response that never
-    // arrived and never errored — so `Promise.allSettled` never resolved,
-    // the reconnect loop never advanced, and every respawned agent sat
-    // idle until the connect watchdog reaped it.
-    const contract = {
-      ping: oc.input(z.object({})).output(z.string()),
-    };
-    const t = implement(contract);
-    const router = t.router({ ping: t.ping.handler(() => "pong") });
-
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({ router, transport: pair.server });
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-
-    // Link is live — one good round-trip first.
-    expect(await client.ping({})).toBe("pong");
-
-    // Agent exits: its stdout (our inbound stream) ends, tearing the link
-    // down. Let `readFramedLines` observe 'end' before the next call so
-    // this exercises the "issued after close" path, not an in-flight race.
-    pair.server.write.end();
-    await new Promise((r) => setImmediate(r));
-
-    await expect(client.ping({})).rejects.toThrow();
-
-    pair.client.write.end();
-    await serveDone;
+    const exit = await parked;
+    expect(exit._tag).toBe("Failure");
+    const rendered = JSON.stringify(exit);
+    expect(rendered).toContain("SurfaceStdioTransportClosed");
+    await serving;
+    await link.dispose();
   });
 
   it("does not crash when the write stream errors — closes the link instead (EPIPE guard)", async () => {
-    // Write-side teardown regression: the link writes outbound frames to a
-    // stream that can die under it (the ssh pipe drops, the peer exits and
-    // our `write` is its now-closed stdin). A failed write makes Node emit
-    // 'error' on the write stream, and an 'error' with no listener is a hard
-    // process crash — not a rejection a consumer can catch. A coordinator
-    // that destroyed its lane mid-write used to be felled by exactly this.
-    // The link must instead treat the write death as transport death and
-    // close itself, so a fresh RPC rejects fast rather than the process
-    // crashing.
-    //
-    // The write stream here is ISOLATED — a standalone Writable whose ONLY
-    // 'error' listener is the link's own guard — deliberately NOT a
-    // `createLoopbackPair()`. In a loopback pair the client's write IS the
-    // server's read, and `serveOverStdio` attaches a read-side 'error'
-    // listener to that same stream; that listener would absorb the destroy
-    // and the test would pass even with the link's guard removed, proving
-    // nothing. With an isolated write stream, removing the guard makes
-    // `destroy(err)` an uncaught 'error' that crashes this test — so the
-    // green run is genuine evidence the guard is load-bearing.
-    const contract = {
-      ping: oc.input(z.object({})).output(z.string()),
-    };
-
+    // A failed write makes Node emit 'error' on the write stream, and an
+    // 'error' with no listener is a hard process crash — not a rejection a
+    // consumer can catch. The write stream here is ISOLATED (only the link
+    // listens), so removing the guard makes this test die with an uncaught
+    // error rather than pass: the green run is genuine evidence.
     const read = new PassThrough(); // inbound — never fed; the link stays open
-    const write = new PassThrough(); // outbound — isolated; only the link listens
-    const client = stdioLink<typeof contract>({ read, write });
+    const write = new PassThrough(); // outbound — isolated
+    const link = await stdioLink({ group: surface.group, read, write });
 
-    // The write half dies under us. With no guard this 'error' is unhandled
-    // (an uncaught error that fails the test); with it the link closes. Let
-    // the event settle before the next call.
     write.destroy(new Error("EPIPE: write to a broken pipe"));
     await new Promise((r) => setImmediate(r));
 
-    // The link is now closed: a fresh RPC rejects fast rather than hanging
-    // (or crashing).
-    await expect(client.ping({})).rejects.toThrow();
+    const failure = await Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
+    );
+    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+    await link.dispose();
   });
 
-  it("rejects a call fast when the write stream was destroyed WITHOUT an error (callback-only ERR_STREAM_DESTROYED)", async () => {
-    // The 'error'-event guard above never fires for this shape: destroy()
-    // with no error emits NO 'error' event, and a later write() reports
-    // ERR_STREAM_DESTROYED only to the write callback. Pre-fix the link
-    // never learned the transport died, so the call hung forever. The
-    // framedSend onPeerGone hook routes the callback-only death into
-    // handleTransportClosed: the in-flight call rejects instead of hanging.
-    const contract = {
-      ping: oc.input(z.object({})).output(z.string()),
-    };
-
-    const read = new PassThrough(); // inbound — never fed; the link stays open
-    const write = new PassThrough(); // outbound — isolated
+  it("fails a call fast when the write stream was destroyed WITHOUT an error", async () => {
+    // destroy() with no error emits NO 'error' event; a later write reports
+    // ERR_STREAM_DESTROYED only through its callback. Pre-fix (in the oRPC
+    // codec) the link never learned the transport died and the call hung.
+    const read = new PassThrough();
+    const write = new PassThrough();
     write.destroy(); // silent: no 'error' event ever fires
-    const client = stdioLink<typeof contract>({ read, write });
+    const link = await stdioLink({ group: surface.group, read, write });
 
-    await expect(client.ping({})).rejects.toThrow();
+    const failure = await Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
+    );
+    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+    await link.dispose();
   });
 
-  it("PIN (i) #1719: a pull PARKED at transport close rejects with the ONE typed transport-closed error, never an anonymous AsyncIdQueue AbortError", async () => {
-    // The mechanism fence for #1719. When the transport dies,
-    // `handleTransportClosed` → `peer.close()` rejects every PENDING orpc
-    // async-iterator pull. Pre-fix, `close()` was called with NO reason, so
-    // orpc's `AsyncIdQueue` minted a FRESH, anonymous `AbortError`
-    // ("[AsyncIdQueue] Queue[N] … closed or aborted while waiting for
-    // pulling.") — an unowned, untyped rejection that a mirror consumer
-    // mis-classifies and floats (the padiBinding reconnect flake). The fix
-    // passes a TYPED reason (`deadTransportError(SURFACE_STDIO_TRANSPORT_CLOSED)`),
-    // so the ONE thing that can cross the stdio seam at close is that single
-    // owned, greppable `ORPCError` — the illegal "anonymous AbortError escapes
-    // the seam" state is made unconstructible. RED pre-fix (a bare `AbortError`,
-    // not an `ORPCError` with this code); GREEN post-fix.
-    const contract = {
-      forever: oc
-        .input(z.object({}))
-        .output(eventIterator(z.object({ n: z.number() }))),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      forever: t.forever.handler(async function* () {
-        yield { n: 0 };
-        await new Promise<never>(() => {}); // park — no further frame ever arrives
-      }),
-    });
-
-    const pair = createLoopbackPair();
-    const serveDone = serveOverStdio({ router, transport: pair.server });
-    const client = stdioLink<typeof contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-
-    const iter = (await client.forever({}))[Symbol.asyncIterator]();
-    // Drain the first frame so the NEXT pull is genuinely parked on the wire.
-    expect((await iter.next()).value).toEqual({ n: 0 });
-    const parked = iter.next();
-    // Observe it without letting an un-awaited rejection trip the runner.
-    const settled = parked.then(
-      () => "resolved" as const,
-      (e: unknown) => e,
+  it("fails a call issued after dispose(), rather than parking it on a dead protocol", async () => {
+    const { link, pair, serving } = await wired();
+    await link.dispose();
+    const failure = await Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
     );
-
-    // Transport dies → `handleTransportClosed` → `peer.close(reason)`.
+    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
     pair.server.write.end();
-    pair.client.write.end();
-
-    const err = await settled;
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe(
-      SURFACE_STDIO_TRANSPORT_CLOSED,
-    );
-    await serveDone.catch(() => {});
-  });
-
-  it("does not crash when a fire-and-forget teardown send hits a dead pipe (#32)", async () => {
-    // The #32 residual: #25 closed the stream-'error' path, but a send whose
-    // promise nobody awaits — oRPC's abort frame, an event-iterator cleanup —
-    // still rejected when the pipe was already gone. That rejection was
-    // rethrown via process.nextTick as an uncaught exception that crashed the
-    // coordinator on teardown after a green run. The request frame goes out
-    // fine; the abort frame that follows hits a now-dead write. With
-    // `framedSend` the dead-pipe write resolves, so nothing escapes.
-    //
-    // The guard is the same one the EPIPE-guard test above relies on: an
-    // uncaught error during a test fails the run, so the green run IS the
-    // evidence nothing escaped — strip the `.catch` in `framedSend` and this
-    // test errors with the exact teardown-time `write EPIPE`.
-    const contract = { ping: oc.input(z.object({})).output(z.string()) };
-
-    const read = new PassThrough(); // never fed — the request stays in flight
-    let writes = 0;
-    const write = new Writable({
-      write(_chunk, _enc, cb) {
-        writes += 1;
-        // First write (the request frame) flushes; the next — the abort frame,
-        // sent fire-and-forget by the peer — hits a dead pipe.
-        if (writes === 1) return cb();
-        cb(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
-      },
-    });
-    write.on("error", () => {}); // the link attaches exactly such a guard
-
-    const client = stdioLink<typeof contract>({ read, write });
-    const controller = new AbortController();
-    const call = client.ping({}, { signal: controller.signal });
-    await new Promise((r) => setImmediate(r)); // let the request frame flush
-    controller.abort(); // fire-and-forget abort send → 2nd write → EPIPE
-
-    // The call itself rejects (the transport is dead); what must NOT happen is
-    // the abort send's rejection escaping as an uncaught exception.
-    await expect(call).rejects.toThrow();
-    // Give a would-be escaped throw time to surface (and fail this test).
-    await new Promise((r) => setTimeout(r, 50));
+    await serving;
   });
 });
