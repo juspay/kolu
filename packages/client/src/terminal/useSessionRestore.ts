@@ -273,7 +273,11 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       const optOutIds = options.optOutIds ? [...options.optOutIds] : [];
       await activePadiRpc.session.restore({
         resumeAgents,
-        optOutIds: optOutIds.length > 0 ? optOutIds : undefined,
+        // SPREAD, never `optOutIds: … : undefined` (#17): the field is
+        // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and a
+        // present-but-`undefined` one is REJECTED. "No opt-outs" — the ordinary
+        // restore — is exactly the absent case.
+        ...(optOutIds.length > 0 && { optOutIds }),
       });
       setSavedSession(null);
       // Faithful summary — "Restored N terminals, resumed M agents". M is the

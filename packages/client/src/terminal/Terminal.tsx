@@ -57,6 +57,7 @@ import {
 import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
+import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
@@ -415,10 +416,21 @@ const Terminal: Component<{
           id: props.terminalId,
           before,
           max,
-          epoch,
+          // SPREAD, never `epoch` outright (#17): the field is
+          // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and a
+          // present-but-`undefined` one is REJECTED — where zod's `.optional()`
+          // took either. A snapshot that carried no `reflowEpoch` seeds this
+          // `undefined`, which is the ordinary first-attach case, so spelling it
+          // out would throw at the first backfill fetch.
+          ...(epoch !== undefined && { epoch }),
         }),
-      // A killed terminal's NOT_FOUND is swallowed inside the controller; any
-      // OTHER backfill fetch fault (transport, schema, server) surfaces here
+      // The killed-terminal teardown, recognised HERE because the error class is
+      // kolu's, not the kit's: padi declares `TerminalNotFound` on
+      // `screen.history`, and the kit asks this predicate about a `fetch`
+      // rejection only. Matched on the `_tag` (see `rpc/declaredErrors`) so a
+      // wire hop cannot cost us the recognition.
+      isTerminalGone: (err) => isDeclared(err, TERMINAL_NOT_FOUND),
+      // Any OTHER backfill fetch fault (transport, schema, server) surfaces here
       // rather than silently leaving a scrollback hole. A later scroll retries.
       onError: (err) =>
         toast.error(
@@ -590,10 +602,12 @@ const Terminal: Component<{
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
-              // This attempt's own signal — ending this loop, never a
-              // successor's. Its reset hook is guarded for the same reason: a
-              // superseded attempt's retry must not wipe the successor's screen.
-              signal: attemptSignal,
+              // The attempt's lifetime is `attemptSignal`, which
+              // `consumeReattachingStream` translates into ONE fiber interrupt —
+              // there is no signal to thread into the call itself any more
+              // (D10/#18). The reset hook stays guarded for the same reason as
+              // before: a superseded attempt's retry must not wipe the
+              // successor's screen.
               onRetry: resetIfLive,
             },
           );

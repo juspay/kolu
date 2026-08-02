@@ -37,13 +37,13 @@ const sub = createRoot(() =>
 
 /** Every running kaval daemon on the BOUND host, each marked `active` when that host's
  *  padi owns it (empty before the first scan). */
-export function boundHostKavals(): RunningKaval[] {
+export function boundHostKavals(): readonly RunningKaval[] {
   return sub.value()?.kavals ?? [];
 }
 
 /** Every running padi daemon on the BOUND host, each marked `active` when it is the one
  *  kolu is bound to (empty before the first scan). */
-export function boundHostPadis(): RunningPadi[] {
+export function boundHostPadis(): readonly RunningPadi[] {
   return sub.value()?.padis ?? [];
 }
 

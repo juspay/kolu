@@ -194,7 +194,16 @@ function reportToServer(id: TerminalId): void {
       collapsed: s.collapsed,
       activeTab: s.activeTab,
       codeMode: s.codeMode,
-      selectedFileByMode: s.selectedFileByMode,
+      // SPREAD, never `selectedFileByMode: s.selectedFileByMode` (#17): the
+      // field is `Schema.optionalKey` on the wire, and Effect Schema accepts an
+      // ABSENT key but REJECTS a present-but-`undefined` one — where zod's
+      // `.optional()` tolerated both. The bound face decodes its input at the
+      // edge, so an explicit `undefined` here would THROW at this call site the
+      // first time a terminal has no file selected in any mode. Absence is the
+      // only spelling of "no selection".
+      ...(s.selectedFileByMode !== undefined && {
+        selectedFileByMode: s.selectedFileByMode,
+      }),
     })
     .catch((err: Error) =>
       // A rejected `setRightPanel` means the optimistic per-terminal state
@@ -383,19 +392,23 @@ export function useRightPanel() {
      *  terminal remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode: CodeTabView): string | null =>
       activeState().selectedFileByMode?.[mode] ?? null,
+    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
+    // (Effect's `Struct.Type`), so the map is REBUILT — the deselect arm drops
+    // the mode's key entirely rather than writing `undefined` into it, which is
+    // also what keeps the reported payload decodable (#17: these inner fields are
+    // `optionalKey` too).
     setSelectedFile: (mode: CodeTabView, path: string | null) => {
-      mutateActive((s) => {
-        const cur = s.selectedFileByMode ?? {};
-        if (path === null) {
-          if (!(mode in cur)) return;
-          const { [mode]: _, ...rest } = cur;
-          s.selectedFileByMode =
-            Object.keys(rest).length > 0 ? rest : undefined;
-        } else {
-          if (cur[mode] === path) return;
-          s.selectedFileByMode = { ...cur, [mode]: path };
-        }
-      });
+      const cur = activeState().selectedFileByMode ?? {};
+      if (path === null) {
+        if (!(mode in cur)) return;
+        const { [mode]: _dropped, ...rest } = cur;
+        mutateActive({
+          selectedFileByMode: Object.keys(rest).length > 0 ? rest : undefined,
+        });
+      } else {
+        if (cur[mode] === path) return;
+        mutateActive({ selectedFileByMode: { ...cur, [mode]: path } });
+      }
     },
 
     // ── Navigation history (back / forward) ──────────────────────────

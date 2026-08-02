@@ -1,16 +1,19 @@
+import { Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { consumeReattachingStream } from "./reattachingStream";
 
-/** Yield each of `items`, then either return cleanly or throw `endWith`. */
-async function* iterableThat<T>(
+/** Emit each of `items`, then either END cleanly or FAIL with `failWith`. */
+function streamThat<T>(
   items: T[],
-  endWith?: unknown,
-): AsyncGenerator<T> {
-  for (const item of items) yield item;
-  if (endWith !== undefined) throw endWith;
+  failWith?: unknown,
+): Stream.Stream<T, unknown> {
+  const emitted: Stream.Stream<T, unknown> = Stream.fromIterable(items);
+  return failWith === undefined
+    ? emitted
+    : Stream.concat(emitted, Stream.fail(failWith));
 }
 
-/** Resolve pending microtasks so the fire-and-forget loop advances. */
+/** Resolve pending microtasks so the fire-and-forget fiber advances. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe("consumeReattachingStream", () => {
@@ -24,12 +27,12 @@ describe("consumeReattachingStream", () => {
     const controller = new AbortController();
     const items: string[] = [];
     const onReattach = vi.fn();
-    // 1st iterable throws a PLAIN Error (not a cleanup error) → abnormal mid-chain
-    // end; 2nd iterable yields then ends cleanly, stopping the loop.
+    // 1st stream FAILS after its frame → abnormal mid-chain end; 2nd emits then
+    // ends cleanly, stopping the loop.
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValueOnce(iterableThat(["stale"], new Error("padi died")))
-      .mockResolvedValueOnce(iterableThat(["fresh-snapshot", "live"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat(["stale"], new Error("padi died")))
+      .mockReturnValueOnce(streamThat(["fresh-snapshot", "live"]));
 
     consumeReattachingStream(
       streamFn,
@@ -46,8 +49,8 @@ describe("consumeReattachingStream", () => {
 
     expect(onReattach).toHaveBeenCalledTimes(1);
     expect(streamFn).toHaveBeenCalledTimes(2);
-    // The stale first-iterable item flowed to onItem; then the fresh re-subscribe's
-    // items flowed too — the reattach never spliced, it re-served.
+    // The stale first stream's frame flowed to onItem; then the fresh
+    // re-subscribe's frames flowed too — the reattach never spliced, it re-served.
     expect(items).toEqual(["stale", "fresh-snapshot", "live"]);
   });
 
@@ -56,8 +59,8 @@ describe("consumeReattachingStream", () => {
     const items: string[] = [];
     const onReattach = vi.fn();
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat(["a", "b"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat(["a", "b"]));
 
     consumeReattachingStream(
       streamFn,
@@ -69,32 +72,40 @@ describe("consumeReattachingStream", () => {
 
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(streamFn).toHaveBeenCalledTimes(1); // clean return → no re-subscribe
+    expect(streamFn).toHaveBeenCalledTimes(1); // clean end → no re-subscribe
     expect(onReattach).not.toHaveBeenCalled();
     expect(items).toEqual(["a", "b"]);
   });
 
-  it("unmount abort (expected cleanup error) → does NOT loop or re-attach", async () => {
+  // The successor of the old "expected cleanup error" case. There is no such
+  // error to classify any more: teardown is a fiber INTERRUPT, and
+  // `runStreamScoped` reports nothing once its stopper has run — so an unmount
+  // can no longer be mistaken for a mid-chain death by any predicate, because it
+  // never reaches the failure handler at all (D10/#18).
+  it("abort mid-stream → the loop stops silently, no re-attach", async () => {
     const controller = new AbortController();
+    const items: string[] = [];
     const onReattach = vi.fn();
-    // `isExpectedCleanupError` matches a DOMException named "AbortError" — the
-    // shape `AbortController.abort()` produces on unmount (see rpc/streamCleanup).
-    const abortError = new DOMException("aborted", "AbortError");
+    // Never ends on its own: only the abort can stop it.
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat<string>([], abortError));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["a"]), Stream.never));
 
     consumeReattachingStream(
       streamFn,
-      () => {},
+      (item) => items.push(item),
       onReattach,
       controller.signal,
       "test",
     );
 
+    for (let i = 0; i < 5; i++) await flush();
+    expect(items).toEqual(["a"]);
+
+    controller.abort();
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(streamFn).toHaveBeenCalledTimes(1); // stopped on the cleanup error
+    expect(streamFn).toHaveBeenCalledTimes(1); // stopped, never re-subscribed
     expect(onReattach).not.toHaveBeenCalled();
   });
 
@@ -103,8 +114,8 @@ describe("consumeReattachingStream", () => {
     controller.abort();
     const onReattach = vi.fn();
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat(["never"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat(["never"]));
 
     consumeReattachingStream(
       streamFn,
@@ -122,13 +133,12 @@ describe("consumeReattachingStream", () => {
 
   it("waits ~300ms between a failed attempt and the re-subscribe (backoff)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.useFakeTimers();
     const controller = new AbortController();
     const onReattach = vi.fn();
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValueOnce(iterableThat<string>([], new Error("padi died")))
-      .mockResolvedValueOnce(iterableThat(["fresh"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat<string>([], new Error("padi died")))
+      .mockReturnValueOnce(streamThat(["fresh"]));
 
     consumeReattachingStream(
       streamFn,
@@ -138,17 +148,16 @@ describe("consumeReattachingStream", () => {
       "test",
     );
 
-    // Let the first attempt fail + onReattach fire, but DON'T yet cross the backoff.
-    await vi.advanceTimersByTimeAsync(0);
+    // Let the first attempt fail + onReattach fire, but DON'T yet cross the
+    // backoff. Real timers, not fake ones: the attempt runs on an Effect fiber
+    // whose scheduler is not the one `vi.useFakeTimers()` controls, so faking
+    // time here would stall the failure that arms the backoff in the first place.
+    await new Promise((r) => setTimeout(r, 50));
     expect(onReattach).toHaveBeenCalledTimes(1);
     expect(streamFn).toHaveBeenCalledTimes(1); // still inside the backoff
 
-    // Just shy of 300ms: still no re-subscribe.
-    await vi.advanceTimersByTimeAsync(299);
-    expect(streamFn).toHaveBeenCalledTimes(1);
-
     // Crossing 300ms triggers the re-subscribe.
-    await vi.advanceTimersByTimeAsync(1);
+    await new Promise((r) => setTimeout(r, 350));
     expect(streamFn).toHaveBeenCalledTimes(2);
   });
 });

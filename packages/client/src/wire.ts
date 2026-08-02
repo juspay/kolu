@@ -1,19 +1,29 @@
 /**
- * One PartySocket connection feeding `surfaceClient` + module-level
+ * One reconnecting websocket wire feeding `surfaceClient` + module-level
  * `.use(...)` calls for the app's singleton reactive subscriptions.
  *
  * `app` is the SCOPED kolu surface client (`clients.kolu`) — only kolu's own
- * surface bundle, not the full link. It exposes:
+ * surface bundle, not the whole wire. It exposes:
  *   - `app.cells / .collections / .streams / .events` — bound `.use(policy)`
  *     hooks (drop `source` / `mutate` / `valueSource` / `keyToInput`)
- *   - `app.rpc` — the scoped link slice (`{ surface: link.surface.kolu }`);
+ *   - `app.rpc` — kolu's scoped member FACE (tags `surface/kolu/<member>/<verb>`);
  *     surface-managed procedures resolve through it.
  *
- * The only raw oRPC procedures left at the ROOT of the full combined link
- * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
- * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
- * DELETED at W1.R7; terminal/git mutations now go through
- * `activePadiRpc.*` (padiSurface procedures). None of these are on `app.rpc`.
+ * The raw procedures at the ROOT of the wire (`server/info`, `daemon/restart`,
+ * the five `hosts/*` verbs) are not surface members, so they get their typed
+ * face from `./rpc/rootProcedures` — exported here as `client`, read
+ * `client.server.info(...)` / `client.hosts.add(...)` exactly as before. The
+ * root `terminal.*` / `git.*` namespaces were DELETED at W1.R7; terminal/git
+ * mutations now go through `activePadiRpc.*` (padiSurface procedures).
+ *
+ * TOP-LEVEL AWAIT: `connectSurfaces` is async under Effect (the dial is an
+ * effect — surface-app break 1), and every export below is derived from the
+ * connection it returns. Awaiting it HERE, once, keeps every consumer's import
+ * synchronous-looking: an importer of this module simply evaluates after the
+ * wire exists, instead of each of the ~40 call sites learning that `padiMap`
+ * might not be there yet. The dial itself does not block on the socket OPENING
+ * (the link constructs the socket and retries in its own fiber), so this is a
+ * microtask, not a network wait.
  *
  * The `preferences` accessor below collapses what used to be a hand-rolled
  * `usePreferences` module into a module-level subscription — every consumer reads
@@ -23,9 +33,11 @@
  * `preferences` below); they are no longer defined in this module.
  */
 
+import type { UnaryProcedure } from "@kolu/surface/client";
+import type { WatchableWire } from "@kolu/surface/link";
+import type { SurfaceFace } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
-import type { contract } from "kolu-common/contract";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -37,6 +49,7 @@ import {
   type Preferences,
   type PreferencesPatch,
   surfaces,
+  type ViewerMode,
 } from "kolu-common/surface";
 import {
   type ConnectionInfo,
@@ -44,7 +57,6 @@ import {
   LOCAL_HOST,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import type { WebSocket as PartySocket } from "partysocket";
 import {
   type Accessor,
   createEffect,
@@ -58,6 +70,7 @@ import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
+import { rootProcedures } from "./rpc/rootProcedures.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -128,63 +141,65 @@ export function interpretClientError(
 }
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
-// reconnecting socket with the half-open watchdog wired in." kolu plugs into it
+// reconnecting wire with the half-open watchdog wired in." kolu plugs into it
 // like drishti does, instead of re-assembling `createSurfaceSocket` →
-// `createLiveSignal` → `surfaceClients` by hand: it owns the socket + the `pid`
+// `createLiveSignal` → `surfaceClients` by hand: it owns the wire + the `pid`
 // echo (which threads the last-observed server `processId` back as a query param on
 // every (re)connect, so a stale tab reconnecting to a RESTARTED server is recognized
-// at the handshake), the always-on half-open watchdog (probing `system.live` over
-// the first sibling's slice of the combined link it builds — the probe channel is
-// provably the reconnected channel), and the per-sibling clients. We pass the
-// combined `typeof contract` so `conn.link` is fully typed.
+// at the handshake), the always-on half-open watchdog (probing `system/live` at the
+// first sibling's TAG on the very dispatch it reconnects — the probe channel is
+// provably the reconnected channel), and the per-sibling clients. It derives the
+// combined `RpcGroup` from `surfaces` itself, so no contract is passed.
 //
-// No `retireOnStaleClose`/`restartCloseCode` here — kolu's lifecycle (`rpc.ts`)
-// owns this socket and retires it through `onStaleRestart`. The watchdog lives HERE
-// (one socket, one watchdog), which is why `rpc.ts`'s `createServerLifecycle` runs
-// with `heartbeat: false`. `siblingKey` is auto-picked (`Object.keys(surfaces)[0]`)
-// — every sibling answers `system.live`, so the choice is immaterial.
+// No `restartCloseCode` here — the stale-close vocabulary now lives in the LINK
+// (surface-app hands it `isStaleProcessClose`), which stops its own retry schedule
+// and reports the terminal `WireStatus` `"retired"`; there is no consumer action
+// left to hand out, so `rpc.ts` no longer retires the socket by hand either. The
+// watchdog lives HERE (one wire, one watchdog), which is why `rpc.ts`'s
+// `createServerLifecycle` runs with `heartbeat: false`. `siblingKey` is auto-picked
+// (`Object.keys(surfaces)[0]`) — every sibling answers `system/live`, so the choice
+// is immaterial.
 //
-// Both type args are explicit (`<combined contract, surfaces map>`): TypeScript has
-// no partial inference, so once `C` is given for the typed `conn.link`, `E` must be
-// given too or it would fall back to its loose default and untype `conn.clients`.
-//
-// `C` and `E` are INDEPENDENT: `conn.clients` types off `E`, `conn.link` off `C`.
 // kolu feeds the padi-LESS sibling set (`surfaces` = { kolu, surfaceApp }) — padi is no
 // longer a single sibling but a keyed MAP of remote surfaces (`padiMap` below), dialled
-// over a SCOPED slice of `conn.link`. `kolu` stays the first sibling (the watchdog's
-// `system.live` probe channel).
-const conn = connectSurfaces<typeof contract, typeof surfaces>({
+// over a SCOPED slice of `conn.transport`. `kolu` stays the first sibling (the
+// watchdog's `system/live` probe channel).
+const conn = await connectSurfaces({
   surfaces,
   url: wsBaseUrl,
   // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
   // route them through the ONE interpreter (design §A/m4).
   onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),
 });
-const { ws, echo } = conn;
+const { link, echo } = conn;
 
 /** Stash the latest observed server `processId` for the next reconnect's `pid`
  *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
  *  probe, so the very first connect omits the param. */
 export const rememberServerProcessId = echo.remember;
-export { ws };
 
-// Expose for e2e tests: the reconnect regression test (#410) needs to
-// drop and restore the socket directly. Same pattern as __xterm on the
-// terminal container. Harmless in production — just an attribute on window.
-(window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
+/** The watchable wire under every client here — status observability plus the
+ *  imperative `forceReconnect()`. Handed to `rpc.ts`'s `createServerLifecycle`
+ *  (which derives connecting/connected/restarted from its status stream). The
+ *  raw socket is no longer reachable: the link owns the dial, the retry
+ *  schedule and the terminal-close classifier (PLAN D5). */
+export const wire: WatchableWire = link.wire;
 
-// The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
-// surfaceApp }, server, daemon }`) — the only raw oRPC procedures left at its root
-// are `server` + `daemon` (kolu's ROOT-level multiplexed procedures, the reason
-// kolu needs the combined link back from the seam; the `terminal`/`git` roots were
-// deleted at W1.R7); the sibling surfaces live under `surface.<key>`. Typed off
-// `typeof contract`, so `client` below is fully typed.
-const link = conn.link;
+// Expose for e2e tests: the reconnect regression test (#410) drives the wire
+// directly. Same pattern as __xterm on the terminal container — harmless in
+// production, just an attribute on window.
+//
+// It is `forceReconnect()`, not the old partysocket `close()`/`reconnect()`
+// pair: under Effect the link owns its own retry schedule, so "close and stay
+// closed until told otherwise" no longer exists as a transport state. The
+// harness in `packages/tests/step_definitions/reconnect_steps.ts` must be
+// rewritten against this (W7 — the e2e lane).
+(window as Window & { __koluWire?: WatchableWire }).__koluWire = wire;
 
 // kolu serves TWO sibling surfaces over one transport (kolu#1197) — plus the
-// server-added `padi` sibling; `connectSurfaces` scopes each per-key client to its
-// slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
-// path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
+// server-added `padi` sibling; `connectSurfaces` scopes each per-key client by
+// splicing the sibling key into every TAG, so its primitives resolve at the wire
+// tag `surface/<key>/<member>/<verb>` that `implementSurfaces` serves.
 //
 // kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
 // Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
@@ -257,15 +272,54 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
     ),
 });
 
-/** Convenience alias — the FULL combined link. `client.server.info(...)` /
- *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
- *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `activePadiRpc.*`);
- *  `client.surface.kolu.preferences.patch(...)` /
- *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
- *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
- *  wrap a SCOPED slice of this same link.) */
-export const client = link;
+/** kolu's ROOT (non-surface) procedures over the combined wire —
+ *  `client.server.info(...)`, `client.daemon.restart(...)`,
+ *  `client.hosts.add(...)`. The `terminal.*` / `git.*` roots were deleted at
+ *  W1.R7; those mutations go through `activePadiRpc.*`.
+ *
+ *  Built over `conn.transport.dispatch` — the branded combined dispatch the
+ *  watchdog also probes — so a root call and a surface call ride the one wire
+ *  by construction. Sibling-surface members are reached through the bound faces
+ *  (`app.cells.*`, `surfaceApp.*`), never through here: the flat dispatch has no
+ *  nested `surface.<key>` shape to walk any more (D1/D2). */
+export const client = rootProcedures(conn.transport.dispatch);
+
+/** Read one unary verb off a surface's structural member FACE, failing LOUDLY if
+ *  the surface does not carry it.
+ *
+ *  `SurfaceFace` is deliberately un-typed per member (D2: precision lives in the
+ *  bound `.cells`/`.procedures` faces, and a second precise mapped type over the
+ *  same spec is the union blowup D2 exists to avoid), so a consumer reaching a
+ *  member through it narrows by hand — the same shape `surfaceAppProbe` uses for
+ *  its `identity.info` probe. A missing member means the face was built from a
+ *  different surface than the caller thinks: a framework/wiring bug, so it
+ *  throws at wire-up rather than answering `undefined` at call time. */
+function unaryMember<I, O>(
+  face: SurfaceFace,
+  member: string,
+  verb: string,
+): UnaryProcedure<I, O> {
+  const ref = face.surface[member]?.[verb];
+  if (typeof ref !== "function") {
+    throw new Error(
+      `wire: this surface carries no \`${member}.${verb}\` member — the face was built from the wrong surface.`,
+    );
+  }
+  return ref as UnaryProcedure<I, O>;
+}
+
+/** Publish the browser's raw OS light/dark reading into kolu's server-wide
+ *  `viewerMode` cell.
+ *
+ *  A bare WRITE, not a bound `app.cells.viewerMode.use(...)`: this browser only
+ *  ever writes the reading (the server owns the `colorScheme` leg of the
+ *  resolution), so a standing subscription on a cell nothing here reads would be
+ *  pure wire cost. */
+export const setViewerMode: UnaryProcedure<ViewerMode, void> = unaryMember(
+  app.rpc,
+  "viewerMode",
+  "set",
+);
 
 // Preferences (host-INDEPENDENT) rides the ONE app-scope reader below, beside the
 // host-membership authority — there is NO import-time module-const subscription (the

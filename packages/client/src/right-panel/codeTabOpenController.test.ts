@@ -30,7 +30,6 @@ function createHarness(options?: {
   readFresh?: (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-    signal: AbortSignal,
   ) => Promise<Paths>;
 }) {
   const req = request("t1");
@@ -185,7 +184,6 @@ describe("createCodeTabOpenController", () => {
     );
     const onResolved = vi.fn();
     let settle: (paths: readonly string[]) => void = () => {};
-    const freshSignals: AbortSignal[] = [];
 
     const dispose = createRoot((dispose) => {
       createCodeTabOpenController<readonly string[], string>({
@@ -199,12 +197,10 @@ describe("createCodeTabOpenController", () => {
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
-        readFresh: (_request, _includeIgnored, signal) => {
-          freshSignals.push(signal);
-          return new Promise((resolve) => {
+        readFresh: () =>
+          new Promise((resolve) => {
             settle = resolve;
-          });
-        },
+          }),
         onResolved,
         onNotFound: vi.fn(),
         onError: vi.fn(),
@@ -215,8 +211,10 @@ describe("createCodeTabOpenController", () => {
     await tick();
     setCurrentScope(scope("t2"));
     await tick();
-    expect(freshSignals[0]?.aborted).toBe(true);
 
+    // The retirement is asserted on the OUTCOME, not on an abort flag: the read
+    // carries no cancellation token any more (a padi call takes none under
+    // Effect, D10/#18), so what must hold is that a late answer owns nothing.
     settle(["new.ts"]);
     await tick();
     expect(onResolved).not.toHaveBeenCalled();
@@ -228,7 +226,6 @@ describe("createCodeTabOpenController", () => {
     const [includeIgnored, setIncludeIgnored] = createSignal(false);
     const reads: Array<{
       includeIgnored: boolean;
-      signal: AbortSignal;
       settle: (paths: readonly string[]) => void;
     }> = [];
     const onResolved = vi.fn();
@@ -245,9 +242,9 @@ describe("createCodeTabOpenController", () => {
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
-        readFresh: (_request, policy, signal) =>
+        readFresh: (_request, policy) =>
           new Promise((resolve) => {
-            reads.push({ includeIgnored: policy, signal, settle: resolve });
+            reads.push({ includeIgnored: policy, settle: resolve });
           }),
         onResolved,
         onNotFound: vi.fn(),
@@ -261,7 +258,6 @@ describe("createCodeTabOpenController", () => {
 
     setIncludeIgnored(true);
     await tick();
-    expect(reads[0]?.signal.aborted).toBe(true);
     expect(reads.map((read) => read.includeIgnored)).toEqual([false, true]);
 
     reads[0]?.settle(["new.ts"]);

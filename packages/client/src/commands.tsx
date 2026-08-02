@@ -1,7 +1,7 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
 import { activeArm, type RecentAgent, sleepingArm } from "@kolu/padi/surface";
-import { WorktreeNameSchema } from "kolu-git/schemas";
+import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor } from "solid-js";
 import { createMemo } from "solid-js";
@@ -49,13 +49,20 @@ import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap } from "./wire";
 
-/** Live worktree-name validator — reuses the server schema so the rule
- *  has one source of truth. Returns the first issue's message, or null
- *  when the trimmed name passes. */
+/** Live worktree-name validator — returns the message to show under the input,
+ *  or null when the trimmed name passes.
+ *
+ *  It runs `kolu-git`'s exported PREDICATE and its user-visible MESSAGE, which
+ *  are the very things `WorktreeNameSchema`'s check is built from — exported
+ *  "so the client can run the same predicate live in the worktree-naming palette
+ *  leaf". Decoding the schema and formatting its failure would read the same rule
+ *  through a `SchemaError` renderer whose prose the user never asked for; this
+ *  keeps ONE source of truth for the rule and lets the palette own its own
+ *  sentence for the empty case (which the schema states as a bare min-length). */
 function validateWorktreeName(name: string): string | null {
-  const result = WorktreeNameSchema.safeParse(name.trim());
-  if (result.success) return null;
-  return result.error.issues[0]?.message ?? "Invalid worktree name";
+  const trimmed = name.trim();
+  if (trimmed.length === 0) return "branch name cannot be empty";
+  return isValidWorktreeName(trimmed) ? null : WORKTREE_NAME_MESSAGE;
 }
 
 /** PaletteItems listing each recent agent command — used by the
@@ -63,7 +70,7 @@ function validateWorktreeName(name: string): string | null {
  *  worktree-naming leaf so agents render with the same visual treatment
  *  in both palettes. */
 function agentItems(
-  agents: RecentAgent[],
+  agents: readonly RecentAgent[],
   onPick: (command: string) => void,
 ): PaletteItem[] {
   return agents.map(
@@ -81,7 +88,7 @@ function agentItems(
  *  passive labels — Enter/click routes through the value group's
  *  `onSubmit`, not these rows' own (absent) handler. */
 function worktreeAgentOptions(
-  agents: RecentAgent[],
+  agents: readonly RecentAgent[],
 ): (PaletteLabel | PaletteHint)[] {
   return [
     {

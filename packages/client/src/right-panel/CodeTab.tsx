@@ -504,12 +504,12 @@ const CodeTab: Component<{
   // both callbacks read, rather than two conditions each has to repeat and can
   // drift on. Not reactive: nothing renders from it.
   //
-  // The abort is CLIENT-SIDE ONLY. `fs.listDirectory` takes no signal through
-  // `servePadi` → `TerminalEndpointFs` → `listDirectory`, so a superseded read
-  // still runs to completion on the host; what the abort buys is that its
-  // answer owns no outcome here. That is the whole benefit worth claiming —
-  // one bounded `readdir` per superseded expand is cheap, and threading a
-  // signal the length of that chain to reclaim it is a separate change.
+  // The abort is CLIENT-SIDE ONLY, and now unavoidably so: a padi procedure
+  // call carries no cancellation token under Effect (D10/#18), and it never
+  // reached `servePadi` → `TerminalEndpointFs` → `listDirectory` anyway. So a
+  // superseded read still runs to completion on the host; what the abort buys is
+  // that its answer owns no outcome here — one bounded `readdir` per superseded
+  // expand is cheap.
   const inFlight = new Map<string, AbortController>();
 
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
@@ -519,7 +519,7 @@ const CodeTab: Component<{
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
     return activePadiRpc.fs
-      .listDirectory({ repoPath: p, dirPath }, { signal: ctl.signal })
+      .listDirectory({ repoPath: p, dirPath })
       .then((result) => {
         if (ctl.signal.aborted) return;
         // A fresh Map per write: the merge memo reads this by reference, and an
@@ -618,12 +618,11 @@ const CodeTab: Component<{
         // directory match would wrongly reveal the folder and drop the line.
         hasLine: request.ref.startLine !== null,
       }),
-    readFresh: (request, includeIgnored, signal) =>
+    readFresh: (request, includeIgnored) =>
       readFreshCodePaths(
         request.scope.host,
         request.scope.repoRoot,
         includeIgnored,
-        signal,
       ),
     onResolved: finishOpenRequest,
     onNotFound: (request) => {

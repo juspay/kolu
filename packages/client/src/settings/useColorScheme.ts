@@ -20,7 +20,7 @@ import { createEffect, createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { wsStatus } from "../rpc/rpc";
-import { client, preferences, updatePreferences } from "../wire";
+import { preferences, setViewerMode, updatePreferences } from "../wire";
 
 export type { ColorScheme };
 
@@ -49,11 +49,11 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
   // Publish the RAW media-query fact, never the resolved `memo()`: the server
   // owns the `colorScheme` leg of the resolution. Sending an already-resolved
   // "is dark" would put the same derivation in two places, free to drift.
-  // Reached through the fully-typed combined link (`client.surface.kolu.*`)
-  // rather than a bound `app.cells.viewerMode.use()`: this browser only WRITES
-  // the reading, so a standing subscription on a cell nothing here reads would
-  // be pure wire cost. (`app.rpc` is `unknown` — the dynamic combined link can't
-  // be expanded per-key — and casting it is what `procedureCastGuard` forbids.)
+  // Reached through `wire.ts`'s `setViewerMode` — the one narrowed write ref off
+  // kolu's member face — rather than a bound `app.cells.viewerMode.use()`: this
+  // browser only WRITES the reading, so a standing subscription on a cell nothing
+  // here reads would be pure wire cost. The narrowing lives at the wire seam (one
+  // site, fail-loud if the member is absent), not here.
   const publishViewerMode = () => {
     // Never write into a socket that is down. This is a raw `.set`, not a
     // subscription, so nothing in `connectSurfaces` would resubscribe it — a set
@@ -61,11 +61,9 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
     // the server would keep serving the stale reading to every face for the rest
     // of the session.
     if (wsStatus() !== "open") return;
-    void client.surface.kolu.viewerMode
-      .set(prefersDark() ? "dark" : "light")
-      .catch((err: Error) =>
-        toast.error(`Failed to report viewer mode: ${err.message}`),
-      );
+    void setViewerMode(prefersDark() ? "dark" : "light").catch((err: Error) =>
+      toast.error(`Failed to report viewer mode: ${err.message}`),
+    );
   };
   // Tracks BOTH the media query and the transport, so the reading is (re)published
   // on the first connect, on every reconnect, and after a server restart — the

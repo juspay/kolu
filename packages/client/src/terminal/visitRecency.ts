@@ -17,6 +17,7 @@ import {
   encodeHostKey,
   type HostKey,
 } from "kolu-common/hostKey";
+import { Result, Schema } from "effect";
 import { TerminalIdSchema, type TerminalId } from "kolu-common/surface";
 import type { Accessor } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
@@ -24,6 +25,10 @@ import { persistedPref } from "../persistedPref";
 
 /** Hard cap on the MRU — enough trail for Recent + Ctrl+Tab, bounded storage. */
 export const VISIT_MRU_CAP = 50;
+
+/** zod's `safeParse` in Effect terms — a `Result`, so a corrupt persisted row is
+ *  a BRANCH (drop the row) rather than a throw at read time. */
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** Reject timestamps that would dominate ranking forever or predate the epoch. */
 const MIN_VISITED_AT = 0;
@@ -45,8 +50,7 @@ function isVisitEntry(v: unknown, now: number): v is VisitEntry {
   if (typeof o.hostKey !== "string" || !isEncodedHostKey(o.hostKey))
     return false;
   if (typeof o.terminalId !== "string") return false;
-  const id = TerminalIdSchema.safeParse(o.terminalId);
-  if (!id.success) return false;
+  if (Result.isFailure(decodeTerminalId(o.terminalId))) return false;
   if (typeof o.visitedAt !== "number" || !Number.isFinite(o.visitedAt))
     return false;
   if (o.visitedAt < MIN_VISITED_AT || o.visitedAt > maxAllowedVisitedAt(now))

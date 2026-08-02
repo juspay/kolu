@@ -18,10 +18,15 @@ import {
   type SavedSession,
   SavedSessionSchema,
 } from "@kolu/padi/surface";
+import { Result, Schema } from "effect";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 
 const EXPORT_FILENAME = "kolu-session.json";
+
+/** zod's `safeParse` in Effect terms — a `Result`, because a malformed import is
+ *  a user-facing REJECTION with its own message, not a crash. */
+const decodeSavedSession = Schema.decodeUnknownResult(SavedSessionSchema);
 
 /** Download the saved session as a pretty-printed JSON file. No-op (with a
  *  toast) when there is nothing to export. */
@@ -53,7 +58,16 @@ export function exportSession(session: SavedSession | null): void {
  *  applies, or this recovery hatch can't recover the very backups it exists for.
  *  `backfillSavedSession` runs those exact field backfills (the single source of
  *  truth shared with `state.ts`) before validation; the discriminated
- *  `SavedSessionSchema` then rejects anything still malformed. */
+ *  `SavedSessionSchema` then rejects anything still malformed.
+ *
+ *  #17 note — an explicit-`undefined` key is NOT decodable under Effect Schema
+ *  (`optionalKey`/`withDecodingDefaultKey` accept an ABSENT key, never a present
+ *  `undefined` one), so an in-process caller must never hand one in. This path
+ *  cannot: its input is `JSON.parse` output, where `undefined` is unrepresentable,
+ *  and every backfill above ADDS keys with defined values or passes the record
+ *  through untouched. So there is nothing to strip — stated rather than guarded,
+ *  because a strip pass here would be dead code pretending to hold a line the
+ *  input shape already holds. */
 export function parseSavedSession(text: string): SavedSession {
   let parsed: unknown;
   try {
@@ -61,11 +75,11 @@ export function parseSavedSession(text: string): SavedSession {
   } catch {
     throw new Error("file is not valid JSON");
   }
-  const result = SavedSessionSchema.safeParse(backfillSavedSession(parsed));
-  if (!result.success) {
+  const result = decodeSavedSession(backfillSavedSession(parsed));
+  if (Result.isFailure(result)) {
     throw new Error("not a valid kolu session export");
   }
-  return result.data;
+  return result.success;
 }
 
 /** Prompt for a JSON file and return the validated session, or null if the

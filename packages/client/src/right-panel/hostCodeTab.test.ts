@@ -34,32 +34,31 @@ type PulseSubscription = {
   emit: () => void;
 };
 
-// A multi-subscriber hand-driven pulse over the SHARED abort-aware stream mock.
+// A multi-subscriber hand-driven pulse over the SHARED controllable stream mock.
 // Subscriptions retain both the procedure identity and serialized input, so focused
 // tests can emit one exact server event instead of broadcasting an indistinguishable
-// generic pulse. A paused/re-keyed instance aborts and removes its old subscription.
+// generic pulse. A paused/re-keyed instance is INTERRUPTED, and the mock's finalizer
+// (`onTeardown`) removes its subscription — the successor of the old abort listener.
 const pulseCtl = vi.hoisted(() => ({
   repoProc: () => ({}),
   fileProc: () => ({}),
   subs: new Set<PulseSubscription>(),
 }));
 vi.mock("@kolu/surface/client", async () => {
-  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  const { makeControllableStream } = await import("./streamMock.testlib");
   return {
-    unenrolledStreamCall: async (
-      proc: unknown,
-      input: unknown,
-      opts?: { signal?: AbortSignal },
-    ) => {
-      const { iterable, push } = makeAbortAwareStream(opts?.signal);
-      const sub = {
-        proc,
-        input: JSON.stringify(input),
-        emit: () => push({ frame: true }),
-      };
+    unenrolledStreamCall: (proc: unknown, input: unknown) => {
+      const sub: {
+        proc: unknown;
+        input: string;
+        emit: () => void;
+      } = { proc, input: JSON.stringify(input), emit: () => {} };
+      const { stream, push } = makeControllableStream({
+        onTeardown: () => pulseCtl.subs.delete(sub),
+      });
+      sub.emit = () => push({ frame: true });
       pulseCtl.subs.add(sub);
-      opts?.signal?.addEventListener("abort", () => pulseCtl.subs.delete(sub));
-      return iterable;
+      return stream;
     },
   };
 });

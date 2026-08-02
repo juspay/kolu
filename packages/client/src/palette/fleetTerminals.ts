@@ -142,11 +142,10 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
       const terminalKeys: Subscription<TerminalId[]> =
         createReactiveSubscription(
           () => host,
-          (_h, signal) =>
+          () =>
             unenrolledStreamCall(
               entry.collections.terminals.unenrolledKeys,
               undefined,
-              { signal },
             ),
           {
             onError: (err) =>

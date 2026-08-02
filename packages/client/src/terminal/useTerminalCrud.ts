@@ -176,7 +176,10 @@ export const useTerminalCrud = createSharedRoot(() => {
       activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
     );
     const info = await activePadiRpc.lifecycle
-      .create({ cwd })
+      // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
+      // so an ABSENT key is accepted and a present-but-`undefined` one is
+      // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
+      .create({ ...(cwd !== undefined && { cwd }) })
       .catch((err: Error) => {
         // Create failed → no server push, so the canvas effect won't consume
         // the pending size. Clear it here (not in a `finally`, which would
@@ -200,7 +203,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
     if (refuseIfWarming()) return;
     const info = await activePadiRpc.lifecycle
-      .create({ cwd, parentId })
+      // `parentId` is always present here; `cwd` is spread for the #17 reason
+      // above (a split with no inherited cwd is the ordinary case).
+      .create({ parentId, ...(cwd !== undefined && { cwd }) })
       .catch((err: Error) => {
         toast.error(`Failed to create terminal: ${err.message}`);
         throw err;

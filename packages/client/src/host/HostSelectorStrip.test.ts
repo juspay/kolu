@@ -5,7 +5,10 @@
 
 import type { EntryState } from "@kolu/surface-map";
 import { testMembershipId } from "@kolu/surface-map/testing";
-import { HostKeySchema, hostKeysEqual as sameHost } from "kolu-common/hostKey";
+import {
+  decodeHostKeyValue,
+  hostKeysEqual as sameHost,
+} from "kolu-common/hostKey";
 import { describe, expect, it } from "vitest";
 import {
   chipStatusDot,
@@ -115,8 +118,8 @@ describe("hostGlance — exception strip + detail co-defined", () => {
 });
 
 describe("chipStatusDot — always-on for every host", () => {
-  const local = HostKeySchema.parse({ kind: "local" });
-  const remote = HostKeySchema.parse({ kind: "remote", target: "srid@zest" });
+  const local = decodeHostKeyValue({ kind: "local" });
+  const remote = decodeHostKeyValue({ kind: "remote", target: "srid@zest" });
   const connected = {
     kind: "connected" as const,
     membershipId: testMembershipId(),
@@ -179,21 +182,21 @@ describe("hostRowContext — palette host status vocabulary", () => {
 
 describe("sameHost — the active-chip click guard's comparison (no churn on a no-op click)", () => {
   it("treats two INDEPENDENTLY-DECODED HostKeys with the same encoded string as the SAME host", () => {
-    // Two fresh `HostKeySchema.parse` calls never return the same object reference —
+    // Two fresh `decodeHostKeyValue` calls never return the same object reference —
     // this is exactly `props.host` (decoded anew from `entries.use().keys()` on every
     // membership read) vs. `activeHost()` (the persisted-pref signal's own decode) on
     // a real chip click: a no-op click on the already-active chip must read as "same
     // host" here, or the click guard in HostSelectorStrip.tsx can't do its job.
-    const a = HostKeySchema.parse({ kind: "local" });
-    const b = HostKeySchema.parse({ kind: "local" });
+    const a = decodeHostKeyValue({ kind: "local" });
+    const b = decodeHostKeyValue({ kind: "local" });
     expect(a).not.toBe(b); // genuinely different references
     expect(sameHost(a, b)).toBe(true);
 
-    const remoteA = HostKeySchema.parse({
+    const remoteA = decodeHostKeyValue({
       kind: "remote",
       target: "srid@zest",
     });
-    const remoteB = HostKeySchema.parse({
+    const remoteB = decodeHostKeyValue({
       kind: "remote",
       target: "srid@zest",
     });
@@ -202,8 +205,8 @@ describe("sameHost — the active-chip click guard's comparison (no churn on a n
   });
 
   it("treats two DIFFERENT hosts as different, regardless of reference", () => {
-    const local = HostKeySchema.parse({ kind: "local" });
-    const remote = HostKeySchema.parse({ kind: "remote", target: "srid@zest" });
+    const local = decodeHostKeyValue({ kind: "local" });
+    const remote = decodeHostKeyValue({ kind: "remote", target: "srid@zest" });
     expect(sameHost(local, remote)).toBe(false);
   });
 });

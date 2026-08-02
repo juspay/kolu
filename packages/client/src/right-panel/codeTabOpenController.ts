@@ -62,10 +62,16 @@ export interface CodeTabOpenSnapshot<Paths> {
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
   snapshot: () => CodeTabOpenSnapshot<Paths>;
   resolve: (request: OpenInCodeTabRequest, paths: Paths) => Resolved | null;
+  /** Read the authoritative inventory for this request.
+   *
+   *  It takes NO cancellation token: a padi procedure call carries no
+   *  `AbortSignal` under Effect (cancellation is fiber interruption, D10/#18), so
+   *  a promise of one would be a promise this controller cannot keep. Supersession
+   *  is unaffected — it is decided HERE, by `isCurrent`, which discards the answer
+   *  of any read that is no longer the live attempt. */
   readFresh: (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-    signal: AbortSignal,
   ) => Promise<Paths>;
   onResolved: (
     request: OpenInCodeTabRequest,
@@ -235,7 +241,7 @@ export function createCodeTabOpenController<Paths, Resolved>(
       controller,
     };
     void options
-      .readFresh(request, includeIgnored, controller.signal)
+      .readFresh(request, includeIgnored)
       .then((paths) => {
         if (!isCurrent(request, includeIgnored, controller)) return;
         const freshResolved = options.resolve(request, paths);

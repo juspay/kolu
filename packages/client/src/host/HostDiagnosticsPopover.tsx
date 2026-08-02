@@ -122,11 +122,10 @@ export const HostDiagnosticsPopover: Component<{
   // `.error()` so the row can paint distinctly from "pending / no data".
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => (props.open() ? props.host : null),
-    (host, signal) =>
+    (host) =>
       unenrolledStreamCall(
         padiMap.entry(host).collections.terminals.unenrolledKeys,
         undefined,
-        { signal },
       ),
     {
       onError: (err) =>

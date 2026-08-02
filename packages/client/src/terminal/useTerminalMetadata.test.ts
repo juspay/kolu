@@ -1,3 +1,4 @@
+import { Stream } from "effect";
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -39,9 +40,9 @@ vi.mock("../wire", () => {
           : undefined,
     }),
     // `createHostWire`'s `terminalKeys` opens this un-enrolled keys-stream ref via
-    // `unenrolledStreamCall` — a no-op async iterable that completes at once (this
+    // `unenrolledStreamCall` — a `Stream` that yields nothing and stays open (this
     // test drives ids through `bag.keys`/`deps.list`, not the keys stream).
-    unenrolledKeys: async function* () {},
+    unenrolledKeys: () => Stream.never,
   };
   // Benign no-op stubs for the OTHER retained subs `createHostWire` opens beside
   // `terminals` (session / activityFeed / daemonStatus) — this test drives ONLY the

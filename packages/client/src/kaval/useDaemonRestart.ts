@@ -14,10 +14,11 @@
  */
 
 import type { DaemonStatus } from "@kolu/padi/surface";
-// The declared-error narrowing verbs come from the surface receptacle (its
-// `@kolu/surface/solid` re-export), never from `@orpc/client` directly — the
-// transport vendor stays encapsulated behind the surface boundary.
-import { isDefinedError, safe } from "@kolu/surface/solid";
+// The declared-error narrowing verbs come from the surface receptacle
+// (`@kolu/surface/solid`, which now OWNS them — they were re-exports from
+// `@orpc/client`): the transport vendor stays encapsulated behind the surface
+// boundary, and there is no longer a vendor to reach for.
+import { safe } from "@kolu/surface/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -64,27 +65,35 @@ export async function restartDaemon(): Promise<void> {
   setRestarting(true);
   const id = toast.loading("Restarting kaval…");
   // The bound face carries the DECLARED error union as its rejection phantom
-  // (SK6), and `safe()` — not try/catch, whose binding erases it to `unknown`
-  // — is what surfaces it: `isDefinedError` then narrows to the declared
-  // `{ code, data }`, so both versions arrive TYPED (a schema rename here is a
-  // compile error, never a toast printing `undefined`).
-  const { error } = await safe(activePadiRpc.lifecycle.recycleKaval());
-  if (!error) {
+  // (SK6/D4), and `safe()` — not try/catch, whose binding erases it to `unknown`
+  // — is what surfaces it. `declared` is the discriminant now: on its `true` arm
+  // `error` IS `KavalContractSkew`, the procedure's own declared union, so the
+  // `_tag` switch below is exhaustive-checked and both versions arrive TYPED (a
+  // rename in `@kolu/padi/surface` is a compile error, never a toast printing
+  // `undefined`). On the `false` arm the failure is honestly `unknown` — a
+  // transport drop, a defect, anything the procedure never promised — so it is
+  // normalised before its message is read.
+  const result = await safe(activePadiRpc.lifecycle.recycleKaval());
+  if (result.ok) {
     toast.success("kaval restarted — your session is offered for restore", {
       id,
     });
-  } else if (isDefinedError(error) && error.code === "KAVAL_CONTRACT_SKEW") {
+  } else if (result.declared && result.error._tag === "KavalContractSkew") {
     // Surface the server's own message (the versions ride it, typed —
     // toast-conventions.md: never swallow `err.message`) AND the guidance the
     // typed skew lets us add: a restart can't fix a contract skew, so point at
     // the recovery the `incompatible` daemon state surfaces beside this toast
     // (the skew card / dialog's "Update & restart kaval").
     toast.error(
-      `Couldn’t restart kaval: ${error.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
+      `Couldn’t restart kaval: ${result.error.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
       { id },
     );
   } else {
-    toast.error(`Couldn’t restart kaval: ${error.message}`, { id });
+    const err = result.error;
+    toast.error(
+      `Couldn’t restart kaval: ${err instanceof Error ? err.message : String(err)}`,
+      { id },
+    );
   }
   setRestarting(false);
 }

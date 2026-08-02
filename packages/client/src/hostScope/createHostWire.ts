@@ -112,13 +112,10 @@ export function createHostWire(host: HostKey): HostWire {
   // background-logs behaviour the declared members get for free.
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => host,
-    (_h, signal) =>
+    () =>
       unenrolledStreamCall(
         entry.collections.terminals.unenrolledKeys,
         undefined,
-        {
-          signal,
-        },
       ),
     {
       onError: (err) =>

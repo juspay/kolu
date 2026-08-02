@@ -10,26 +10,22 @@ import { describe, expect, it, vi } from "vitest";
 import { createPolledQuery } from "./createPolledQuery";
 
 // The pulse is an UNENROLLED stream (`unenrolledStreamCall`) now, not `client.rawStream`.
-// Mock it as a controllable async-iterable: the test pushes a frame via `pulse()` (→ one
-// requery) or an error via `failPulse()` (→ `surfaceError`); the iterable ends when its
-// AbortSignal fires (an input change), so a superseded pulse stops.
+// Mock it as a controllable `Stream`: the test pushes a frame via `pulse()` (→ one
+// requery) or a failure via `failPulse()` (→ `surfaceError`). A superseded pulse stops
+// by fiber INTERRUPT (no AbortSignal any more), which runs the mock's finalizer.
 const pulseCtl = vi.hoisted(() => ({
   latest: null as null | {
     emit: (e: { frame: true } | { err: Error }) => void;
   },
 }));
 vi.mock("@kolu/surface/client", async () => {
-  // The SHARED abort-aware stream mock; this fixture tracks a single `latest` emitter.
-  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  // The SHARED controllable stream mock; this fixture tracks a single `latest` emitter.
+  const { makeControllableStream } = await import("./streamMock.testlib");
   return {
-    unenrolledStreamCall: async (
-      _proc: unknown,
-      _input: unknown,
-      opts?: { signal?: AbortSignal },
-    ) => {
-      const { iterable, push } = makeAbortAwareStream(opts?.signal);
+    unenrolledStreamCall: (_proc: unknown, _input: unknown) => {
+      const { stream, push } = makeControllableStream();
       pulseCtl.latest = { emit: push };
-      return iterable;
+      return stream;
     },
   };
 });
