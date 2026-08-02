@@ -4,22 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-catalogs:
-  default:
-    '@effect/platform-browser':
-      specifier: 4.0.0-beta.102
-      version: 4.0.0-beta.102
-    '@effect/platform-node':
-      specifier: 4.0.0-beta.102
-      version: 4.0.0-beta.102
-    '@effect/vitest':
-      specifier: 4.0.0-beta.102
-      version: 4.0.0-beta.102
-    effect:
-      specifier: 4.0.0-beta.102
-      version: 4.0.0-beta.102
-
 overrides:
+  effect: 4.0.0-beta.102
+  '@effect/platform-node': 4.0.0-beta.102
+  '@effect/platform-browser': 4.0.0-beta.102
+  '@effect/vitest': 4.0.0-beta.102
   '@babel/core': ^7.29.6
   esbuild: ^0.28.1
   serialize-javascript: ^7.0.3
@@ -47,7 +36,7 @@ importers:
   .:
     devDependencies:
       '@effect/vitest':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))
       vitest:
         specifier: ^4.1.0
@@ -105,7 +94,7 @@ importers:
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
       '@effect/platform-browser':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@kolu/artifact-sdk':
         specifier: workspace:*
@@ -204,7 +193,7 @@ importers:
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       fix-webm-duration:
         specifier: ^1.0.6
@@ -313,7 +302,7 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-claude-code:
         specifier: workspace:*
@@ -400,7 +389,7 @@ importers:
         specifier: workspace:*
         version: link:../../shell-quote
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       nonempty:
         specifier: workspace:*
@@ -428,7 +417,7 @@ importers:
         specifier: workspace:*
         version: link:../../log
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       ts-pattern:
         specifier: ^5.9.0
@@ -456,7 +445,7 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
@@ -493,7 +482,7 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
@@ -524,7 +513,7 @@ importers:
         specifier: ^2.5.1
         version: 2.5.6
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
@@ -564,7 +553,7 @@ importers:
         specifier: workspace:*
         version: link:../anyforge
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
@@ -592,7 +581,7 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
@@ -639,7 +628,7 @@ importers:
         specifier: workspace:*
         version: link:../anyagent
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-shared:
         specifier: workspace:*
@@ -682,7 +671,7 @@ importers:
   packages/kaval:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/heap-diag':
         specifier: workspace:*
@@ -715,7 +704,7 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
@@ -749,7 +738,7 @@ importers:
   packages/kaval-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/shell-quote':
         specifier: workspace:*
@@ -770,7 +759,7 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kaval:
         specifier: workspace:*
@@ -801,7 +790,7 @@ importers:
   packages/kolu-cli:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
@@ -819,7 +808,7 @@ importers:
         specifier: ^2.3.0
         version: 2.3.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-mcp:
         specifier: workspace:*
@@ -859,7 +848,7 @@ importers:
   packages/kolu-mcp:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
@@ -880,7 +869,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
@@ -924,7 +913,7 @@ importers:
   packages/padi:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/serve-dir':
         specifier: workspace:*
@@ -966,7 +955,7 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kaval:
         specifier: workspace:*
@@ -1048,7 +1037,7 @@ importers:
   packages/padi-tui:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
@@ -1072,7 +1061,7 @@ importers:
         specifier: ^1.6.0
         version: 1.6.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-pty:
         specifier: workspace:*
@@ -1131,7 +1120,7 @@ importers:
   packages/server:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@hono/node-server':
         specifier: ^2.0.10
@@ -1203,7 +1192,7 @@ importers:
         specifier: ^15.1.0
         version: 15.1.0
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -1484,8 +1473,11 @@ importers:
 
   packages/surface:
     dependencies:
+      '@effect/platform-browser':
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@orpc/client':
         specifier: ^1.13.13
@@ -1512,7 +1504,7 @@ importers:
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
@@ -1546,13 +1538,13 @@ importers:
   packages/surface-app:
     dependencies:
       '@effect/platform-browser':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       partysocket:
         specifier: ^1.1.16
@@ -1601,7 +1593,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -1644,7 +1636,7 @@ importers:
   packages/surface-daemon:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
@@ -1656,7 +1648,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       ts-pattern:
         specifier: ^5.9.0
@@ -1684,7 +1676,7 @@ importers:
   packages/surface-daemon-supervisor:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
@@ -1692,6 +1684,9 @@ importers:
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
@@ -1736,7 +1731,7 @@ importers:
         specifier: ^2.0.3
         version: 2.0.3
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
@@ -1770,7 +1765,7 @@ importers:
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
@@ -1789,7 +1784,7 @@ importers:
   packages/surface-remote:
     dependencies:
       '@effect/platform-node':
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
@@ -1810,7 +1805,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       neverthrow:
         specifier: ^8.2.0
@@ -1874,7 +1869,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -1938,7 +1933,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -1999,7 +1994,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       osfacts-client:
         specifier: workspace:*
@@ -2042,7 +2037,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -2103,7 +2098,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
@@ -2146,7 +2141,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13(ws@8.21.0)
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       hono:
         specifier: ^4.12.27
@@ -2219,7 +2214,7 @@ importers:
         specifier: ^1.13.13
         version: 1.13.13
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       solid-js:
         specifier: ^1.9.0
@@ -2281,7 +2276,7 @@ importers:
         specifier: workspace:*
         version: link:../integrations/anyforge
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       kolu-claude-code:
         specifier: workspace:*
@@ -2368,7 +2363,7 @@ importers:
         specifier: workspace:*
         version: link:../log
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
       zod:
         specifier: ^4.3.6
@@ -2494,7 +2489,7 @@ importers:
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
       effect:
-        specifier: 'catalog:'
+        specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
     devDependencies:
       '@babel/parser':
@@ -2809,25 +2804,25 @@ packages:
   '@effect/platform-browser@4.0.0-beta.102':
     resolution: {integrity: sha512-DXXVt+oOpukqI3lEaGvvXQxSobzIy3lAsIQvlpVK+MuYBm1o4FHZrHKbrOFItDUvSR1t0kiTncFPRi01YaJUmA==}
     peerDependencies:
-      effect: ^4.0.0-beta.102
+      effect: 4.0.0-beta.102
 
   '@effect/platform-node-shared@4.0.0-beta.102':
     resolution: {integrity: sha512-gVd793I72MrkX4dXo7eYtRKfNj0RW4eMRfVEKEJI16h2+mBDCzQ+gqMrog2hSTHQnaIbvbYShNQ4TVGuRCYZeQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-beta.102
+      effect: 4.0.0-beta.102
 
   '@effect/platform-node@4.0.0-beta.102':
     resolution: {integrity: sha512-wYVAU9jAePT+gouMr/EVz1CaW6yDLjPAgXYeEFLz7wugT5iZhFRag6mqajV/wwN3bzWP2fzZHokLuPmqD/rqeA==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      effect: ^4.0.0-beta.102
+      effect: 4.0.0-beta.102
       ioredis: ^5.7.0
 
   '@effect/vitest@4.0.0-beta.102':
     resolution: {integrity: sha512-4dipFAYG6imOzrY3zy3BgzCJkbb9xESyzUef0WSx8bsK0/SpITqbJpdwKeOyDWLZ+rimjua8IbTFMAde865pIQ==}
     peerDependencies:
-      effect: ^4.0.0-beta.102
+      effect: 4.0.0-beta.102
       vitest: ^3.0.0 || ^4.0.0
 
   '@emnapi/core@1.11.1':

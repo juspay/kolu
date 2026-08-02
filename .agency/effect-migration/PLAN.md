@@ -201,12 +201,29 @@ see un-run Effects.
 ## Waves
 
 - **W1 Foundations** — DONE (commit 51b2e21): catalog + effect deps + FOD hash.
-- **W1.5 Hardening (new, from review)** — (#21) fix dep holes
-  (surface-daemon-supervisor lacks `effect`); (#22) literal versions in `@kolu/surface*`
-  + root `pnpm.overrides` for `effect`/`@effect/*`; canary-import proof across every
-  member (typecheck + padi `buildId.closure.test.ts`), then delete canaries; (#20) the
-  TS 7.0.2 spike (four hardest shapes) — recorded result gates W2; one lockfile change,
-  one FOD refresh.
+- **W1.5 Hardening (new, from review)** — DONE. (#21) both dep holes closed
+  (`effect` added to surface-daemon-supervisor, `@effect/platform-browser` added to
+  surface); (#22) literal `4.0.0-beta.102` in all seven `@kolu/surface*` manifests
+  (`catalog:` kept only for kolu-private members, which are workspace-local) + root
+  `pnpm.overrides` for `effect`/`@effect/platform-node`/`@effect/platform-browser`/
+  `@effect/vitest`; canary imports dropped into all 35 packages that declare an
+  effect-family dep — `pnpm typecheck` green and padi `buildId.closure.test.ts` green
+  — then deleted. Lockfile moved; the FOD hash did **not** (specifier-only change,
+  identical resolved tarballs), verified with the two-build `--rebuild` sequence.
+  - **(#20) TS 7.0.2 spike: PASS — W2 is unblocked on the compiler.** A throwaway
+    `packages/surface/src/__ts7_spike.ts` exercised, simultaneously and under the
+    repo's committed tsconfig chain: an `RpcGroup.make` of three `Rpc.make` members
+    including one `{ stream: true }`; `Schema.TaggedErrorClass`; a `Schema.Struct`
+    with `Schema.optionalKey` + `Schema.withDecodingDefaultKey`; a
+    `Context.Service` class with a `Layer.effect` static layer; `RpcGroup.toLayer`
+    handler inference; a `SurfaceTypes<S>`-shaped mapped+conditional face over a
+    `{ cells: { … schema } }` spec, instantiated and called; `RpcClient.make(group,
+    { flatten: true })`; and `RpcTest.makeClient` in both flat and object form.
+    Zero errors, **no TS2590**. Wall clock 1.31–1.34 s with the spike vs 1.25–1.33 s
+    without — inside the noise. A seven-case negative battery confirmed tsgo really
+    resolves the conditional types (wrong tag, wrong success type, unknown face
+    member, bad handler return all errored with precise messages), so the pass is
+    not a silent collapse to `any`. **No fallback to typescript@5.9.3 is needed.**
 - **W2 Framework core** — surface, surface-map, surface-remote, surface-daemon(+
   supervisor), surface-app, surface-mcp, + surface examples + tests. Explicit
   deliverables beyond the rewrite: D3's two ordering unit tests; D3's

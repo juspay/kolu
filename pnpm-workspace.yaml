@@ -11,8 +11,18 @@ packages:
   # subagents now), so the package is pure markdown with nothing to test or build.
 
 # Effect 4 (beta). Every @effect/* package must resolve to the SAME version as
-# `effect` itself, so these are exact pins (no `^`) in one catalog: bumping the
-# stack is a single edit here and cannot drift between workspace members.
+# `effect` itself, so these are exact pins (no `^`) for kolu-private members.
+#
+# `catalog:` is WORKSPACE-LOCAL, so it cannot appear in the seven @kolu/surface*
+# packages: drishti and odu vendor those DIRECTORIES from a content-addressed pin
+# and install their `dependencies` from their own workspace, where kolu's catalog
+# does not exist. Those seven spell the literal version instead. Root
+# `pnpm.overrides` (package.json) carries the same version a third time so
+# transitive resolution collapses to one copy here.
+#
+# Bumping the stack therefore means editing all three places together:
+#   1. this catalog, 2. `pnpm.overrides` in package.json,
+#   3. the literal specs in packages/surface{,-map,-app,-remote,-daemon,-daemon-supervisor,-mcp}/package.json
 catalog:
   effect: 4.0.0-beta.102
   "@effect/platform-node": 4.0.0-beta.102

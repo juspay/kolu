@@ -18,9 +18,10 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-node": "catalog:",
+    "@effect/platform-node": "4.0.0-beta.102",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
+    "effect": "4.0.0-beta.102",
     "osfacts-client": "workspace:*",
     "ts-pattern": "^5.9.0"
   },
