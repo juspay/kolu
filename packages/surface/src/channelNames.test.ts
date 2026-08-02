@@ -15,8 +15,8 @@
  * literally named "keys" and one literally named "deltas".
  */
 
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   collectionDeltasChannel,
   collectionKeyChannel,
@@ -24,7 +24,7 @@ import {
 } from "./channelNames";
 import type { CollectionDelta } from "./define";
 import { defineSurface } from "./define";
-import { directLink } from "./links/direct";
+import { flush, subscribeMember } from "./handlerDispatch.testlib";
 import { implementSurface } from "./server";
 
 describe("channel-name helpers — pure string output", () => {
@@ -45,20 +45,18 @@ describe("channel-name helpers — pure string output", () => {
 
 // ── End-to-end: a served collection with a member key "keys" / "deltas" ────
 
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
 function serveStringKeyedItems() {
   const surface = defineSurface({
     collections: {
       items: {
-        keySchema: z.string(),
-        schema: z.object({ name: z.string() }),
+        keySchema: Schema.String,
+        schema: Schema.Struct({ name: Schema.String }),
         verbs: ["keys", "get", "upsert", "delete", "deltas"],
       },
     },
   });
   const items = new Map<string, { name: string }>();
-  const { router, ctx } = implementSurface(surface, {
+  const { handlers, ctx } = implementSurface(surface, {
     collections: {
       items: {
         readAll: () => items,
@@ -71,38 +69,22 @@ function serveStringKeyedItems() {
       },
     },
   });
-  const wrapped = router;
-  const client = directLink<typeof surface.contract>(wrapped as never);
-  return { client, ctx };
+  return { handlers, ctx };
 }
 
 describe('a collection member key literally "keys"/"deltas" does not cross-wire (#1715)', () => {
   it('a key "keys": the per-key value stream and the keyset stream stay independent', async () => {
-    const { client, ctx } = serveStringKeyedItems();
+    const { handlers, ctx } = serveStringKeyedItems();
 
-    const keysSeen: string[][] = [];
-    const keysAc = new AbortController();
-    const keysDone = (async () => {
-      const stream = await client.surface.items.keys(
-        {},
-        { signal: keysAc.signal },
-      );
-      for await (const ks of stream) keysSeen.push([...ks]);
-    })().catch((e) => {
-      if (!keysAc.signal.aborted) throw e;
-    });
-
-    const valuesSeen: Array<{ name: string }> = [];
-    const valueAc = new AbortController();
-    const valueDone = (async () => {
-      const stream = await client.surface.items.get(
-        { key: "keys" },
-        { signal: valueAc.signal },
-      );
-      for await (const v of stream) valuesSeen.push(v);
-    })().catch((e) => {
-      if (!valueAc.signal.aborted) throw e;
-    });
+    const keys = subscribeMember<readonly string[]>(
+      handlers,
+      "surface/items/keys",
+    );
+    const values = subscribeMember<{ name: string }>(
+      handlers,
+      "surface/items/get",
+      { key: "keys" },
+    );
 
     await flush();
 
@@ -111,43 +93,24 @@ describe('a collection member key literally "keys"/"deltas" does not cross-wire 
 
     // The per-key value stream for key "keys" delivers ITS value — not a key-set
     // array, which is what the pre-fix aliased channel would have delivered.
-    expect(valuesSeen.at(-1)).toEqual({ name: "member named keys" });
+    expect(values.seen.at(-1)).toEqual({ name: "member named keys" });
     // The keyset stream reports "keys" as an ordinary MEMBER — not corrupted by
     // the per-key value publish landing on the same channel.
-    expect(keysSeen.at(-1)).toEqual(["keys"]);
+    expect(keys.seen.at(-1)).toEqual(["keys"]);
 
-    keysAc.abort();
-    valueAc.abort();
-    await keysDone;
-    await valueDone;
+    await keys.stop();
+    await values.stop();
   });
 
   it('a key "deltas": the per-key value stream and the batched deltas stream stay independent', async () => {
-    const { client, ctx } = serveStringKeyedItems();
+    const { handlers, ctx } = serveStringKeyedItems();
 
-    const deltaFrames: unknown[] = [];
-    const deltasAc = new AbortController();
-    const deltasDone = (async () => {
-      const stream = await client.surface.items.deltas(
-        {},
-        { signal: deltasAc.signal },
-      );
-      for await (const f of stream) deltaFrames.push(f);
-    })().catch((e) => {
-      if (!deltasAc.signal.aborted) throw e;
-    });
-
-    const valuesSeen: Array<{ name: string }> = [];
-    const valueAc = new AbortController();
-    const valueDone = (async () => {
-      const stream = await client.surface.items.get(
-        { key: "deltas" },
-        { signal: valueAc.signal },
-      );
-      for await (const v of stream) valuesSeen.push(v);
-    })().catch((e) => {
-      if (!valueAc.signal.aborted) throw e;
-    });
+    const deltas = subscribeMember(handlers, "surface/items/deltas");
+    const values = subscribeMember<{ name: string }>(
+      handlers,
+      "surface/items/get",
+      { key: "deltas" },
+    );
 
     await flush();
 
@@ -157,10 +120,10 @@ describe('a collection member key literally "keys"/"deltas" does not cross-wire 
     // The per-key value stream for key "deltas" delivers ITS value — not a
     // `{kind, upserts, removes}` delta frame, which is what the pre-fix aliased
     // channel would have delivered.
-    expect(valuesSeen.at(-1)).toEqual({ name: "member named deltas" });
+    expect(values.seen.at(-1)).toEqual({ name: "member named deltas" });
     // The batched deltas stream reports an ordinary delta for key "deltas" — its
     // own coalesced frame, uncorrupted by the per-key value publish.
-    const last = deltaFrames.at(-1) as CollectionDelta<
+    const last = deltas.seen.at(-1) as CollectionDelta<
       string,
       { name: string }
     >;
@@ -168,9 +131,7 @@ describe('a collection member key literally "keys"/"deltas" does not cross-wire 
     expect(last.upserts).toEqual([["deltas", { name: "member named deltas" }]]);
     expect(last.removes).toEqual([]);
 
-    deltasAc.abort();
-    valueAc.abort();
-    await deltasDone;
-    await valueDone;
+    await deltas.stop();
+    await values.stop();
   });
 });

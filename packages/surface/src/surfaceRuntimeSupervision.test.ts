@@ -15,8 +15,8 @@
  * first, then observe the settle — no unowned async work escapes supervision.
  */
 
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
 import {
   type CellStore,
@@ -28,13 +28,13 @@ import {
 } from "./server";
 
 const oneCell = defineSurface({
-  cells: { c: { schema: z.number(), default: 0 } },
+  cells: { c: { schema: Schema.Number, default: 0 } },
 });
 
 const twoCells = defineSurface({
   cells: {
-    a: { schema: z.number(), default: 0 },
-    b: { schema: z.number(), default: 0 },
+    a: { schema: Schema.Number, default: 0 },
+    b: { schema: Schema.Number, default: 0 },
   },
 });
 

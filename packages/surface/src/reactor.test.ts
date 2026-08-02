@@ -11,9 +11,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
+import { Effect, Schema, Stream } from "effect";
 import { defineSurface } from "./define";
-import { directLink } from "./links/direct";
 import {
   batch,
   computed,
@@ -24,7 +23,7 @@ import {
   scan,
   source,
 } from "./reactor";
-import type { CellStore } from "./server";
+import type { CellStore, SurfaceHandlers } from "./server";
 import { implementSurface, inMemoryStore } from "./server";
 
 /** A recorder that mirrors `server.ts`'s `ctxApply` write gate exactly — the
@@ -50,13 +49,20 @@ function recordingCtx<T>(
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
-async function take<T>(iterable: AsyncIterable<T>, n: number): Promise<T[]> {
-  const out: T[] = [];
-  for await (const v of iterable) {
-    out.push(v);
-    if (out.length >= n) break;
-  }
-  return out;
+/** The first `n` frames a streaming member serves, read straight off the
+ *  handler record at its full wire tag — no transport, no client face (Stage 3
+ *  owns that). Starts consuming EAGERLY, so a caller can `await flush()` to let
+ *  the subscription establish and then drive the producer. */
+function takeFrames<T>(
+  handlers: SurfaceHandlers,
+  tag: string,
+  n: number,
+): Promise<T[]> {
+  const handler = handlers[tag];
+  if (!handler) throw new Error(`no handler bound at ""`);
+  return Effect.runPromise(
+    Stream.runCollect(Stream.take(handler(undefined) as Stream.Stream<T>, n)),
+  ) as Promise<T[]>;
 }
 
 describe("source", () => {
@@ -353,20 +359,18 @@ describe("derived.cell", () => {
       cells: {
         // wire-read-only derived cell
         count: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
       },
     });
-    const { router } = implementSurface(surface, {
+    const { handlers } = implementSurface(surface, {
       cells: { count: derived.cell(count) },
     });
-    const client = directLink<typeof surface.contract>(router as never);
 
-    const iter = await client.surface.count.get(undefined);
-    const collected = take(iter, 3);
+    const collected = takeFrames(handlers, "surface/count/get", 3);
     await flush(); // let the get subscribe to the bus before we emit deltas
     emit(0); // -> 1
     emit(0); // -> 2
@@ -385,7 +389,7 @@ describe("derived.cell", () => {
       cells: {
         // A derived cell must be wire-read-only; the default no-patch verbs
         // (`["get","set"]`) declare a second writer → boot crash.
-        count: { schema: z.number(), default: 0 },
+        count: { schema: Schema.Number, default: 0 },
       },
     });
     expect(() =>
@@ -427,7 +431,7 @@ describe("derived.cell", () => {
 
   it("a non-derived cell with write verbs is unaffected by the narrowing", () => {
     const surface = defineSurface({
-      cells: { count: { schema: z.number(), default: 0 } },
+      cells: { count: { schema: Schema.Number, default: 0 } },
     });
     // Plain authored cell (not derived) — narrowing does not fire.
     expect(() =>
@@ -472,23 +476,22 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
   it("the post-equals mirror poke edge: a sibling write recomputes a derived compute cell", async () => {
     const surface = defineSurface({
       cells: {
-        a: { schema: z.number(), default: 1 },
+        a: { schema: Schema.Number, default: 1 },
         doubled: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
         },
       },
     });
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         a: { store: inMemoryStore(1) },
         doubled: derived.cell(($) => $.a() * 2),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const collected = take(await client.surface.doubled.get(undefined), 3);
+    const collected = takeFrames(handlers, "surface/doubled/get", 3);
     await flush(); // let the get subscribe before we poke
 
     ctx.cells.a.set(5); // poke a → doubled recomputes → 10
@@ -502,12 +505,12 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const surface = defineSurface({
       cells: {
         a: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y, // a dedups its own writes
         },
         mirror: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
@@ -537,17 +540,17 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const seen: Array<[number, number]> = [];
     const surface = defineSurface({
       cells: {
-        a: { schema: z.number(), default: 0 },
-        b: { schema: z.number(), default: 0 },
+        a: { schema: Schema.Number, default: 0 },
+        b: { schema: Schema.Number, default: 0 },
         sum: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
         },
       },
     });
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         a: { store: inMemoryStore(0) },
         b: { store: inMemoryStore(0) },
@@ -560,8 +563,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         }),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const collected = take(await client.surface.sum.get(undefined), 2);
+    const collected = takeFrames(handlers, "surface/sum/get", 2);
     await flush();
 
     const runsBefore = runs;
@@ -581,9 +583,9 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
   it("$ types each sibling read — a cell is its value, a collection its live map (compile-time)", () => {
     const surface = defineSurface({
       cells: {
-        n: { schema: z.number(), default: 0 },
+        n: { schema: Schema.Number, default: 0 },
         combined: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
@@ -591,8 +593,8 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ v: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ v: Schema.Number }),
           verbs: ["keys", "get"],
         },
       },
@@ -650,15 +652,15 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // never as mirror" made executable.
     const surface = defineSurface({
       cells: {
-        terminals: { schema: z.number(), default: 0 },
+        terminals: { schema: Schema.Number, default: 0 },
         urgency: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
         overview: {
-          schema: z.object({ t: z.number(), u: z.number() }),
+          schema: Schema.Struct({ t: Schema.Number, u: Schema.Number }),
           default: { t: 0, u: 0 },
           equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
             a.t === b.t && a.u === b.u,
@@ -667,7 +669,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
     });
     const seen: Array<{ t: number; u: number }> = [];
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         terminals: { store: inMemoryStore(0) },
         // Declaration order is irrelevant here — the boot walk builds every derived
@@ -681,8 +683,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         }),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.overview.get(undefined), 3);
+    const frames = takeFrames(handlers, "surface/overview/get", 3);
     await flush();
 
     ctx.cells.terminals.set(1); // → overview {t:1,u:10}
@@ -712,23 +713,23 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // pinned by the DIAMOND test above, which declares upstream-first.)
     const surface = defineSurface({
       cells: {
-        terminals: { schema: z.number(), default: 0 },
+        terminals: { schema: Schema.Number, default: 0 },
         overview: {
-          schema: z.object({ t: z.number(), u: z.number() }),
+          schema: Schema.Struct({ t: Schema.Number, u: Schema.Number }),
           default: { t: 0, u: 0 },
           equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
             a.t === b.t && a.u === b.u,
           verbs: ["get"],
         },
         urgency: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
       },
     });
-    const { router } = implementSurface(surface, {
+    const { handlers } = implementSurface(surface, {
       cells: {
         terminals: { store: inMemoryStore(3) },
         // Downstream declared FIRST — reads urgency, which is declared LAST.
@@ -736,8 +737,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         urgency: derived.cell(($) => $.terminals() * 10),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.overview.get(undefined), 1);
+    const frames = takeFrames(handlers, "surface/overview/get", 1);
     await flush();
 
     // Boot did not crash and seeded from the whole graph: overview = {t:3, u:3*10}.
@@ -753,7 +753,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const surface = defineSurface({
       cells: {
         bigCount: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -761,14 +761,14 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ n: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ n: Schema.Number }),
           verbs: ["keys", "get"],
         },
       },
     });
     const store = new Map<string, { n: number }>();
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         // count the items whose n > 1 — a fold over the whole collection
         bigCount: derived.cell(
@@ -788,8 +788,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         },
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.bigCount.get(undefined), 4);
+    const frames = takeFrames(handlers, "surface/bigCount/get", 4);
     await flush();
 
     ctx.collections.items.upsert("a", { n: 5 }); // → 1
@@ -843,9 +842,13 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // collision itself is what must fail.
     expect(() =>
       defineSurface({
-        cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
+        cells: { same: { schema: Schema.Number, default: 0, verbs: ["get"] } },
         collections: {
-          same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
+          same: {
+            keySchema: Schema.String,
+            schema: Schema.Number,
+            verbs: ["keys"],
+          },
         },
       }),
     ).toThrow(/declared as BOTH a cell and a collection/);
@@ -857,9 +860,9 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // inherited function to `$`). Boots clean and `$.toString()` reads the real cell.
     const surface = defineSurface({
       cells: {
-        toString: { schema: z.number(), default: 7, verbs: ["get"] },
+        toString: { schema: Schema.Number, default: 7, verbs: ["get"] },
         mirror: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -1297,7 +1300,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     const surface = defineSurface({
       cells: {
         temp: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: -1,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -1324,8 +1327,8 @@ describe("derived.collection — the keyed reconciler", () => {
   const surface = defineSurface({
     collections: {
       items: {
-        keySchema: z.string(),
-        schema: z.object({ n: z.number() }),
+        keySchema: Schema.String,
+        schema: Schema.Struct({ n: Schema.Number }),
         // per-key value equality — the reconciler's diff predicate
         equals: (a: { n: number }, b: { n: number }) => a.n === b.n,
         verbs: ["keys", "get"],
@@ -1433,8 +1436,8 @@ describe("derived.collection — the keyed reconciler", () => {
     const writeSurface = defineSurface({
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ n: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ n: Schema.Number }),
           verbs: ["keys", "get", "upsert", "delete"],
         },
       },

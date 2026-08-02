@@ -15,8 +15,8 @@
  *     side effect) so existing cells are unaffected.
  */
 
+import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
 import { cell } from "./index";
 import {
@@ -63,7 +63,7 @@ describe("cellHandlers: equals dedup", () => {
     const handlers = cellHandlers(
       cell({
         name: "c",
-        schema: z.object({ n: z.number() }),
+        schema: Schema.Struct({ n: Schema.Number }),
         default: { n: 0 },
       }),
       {
@@ -73,11 +73,11 @@ describe("cellHandlers: equals dedup", () => {
       },
     );
 
-    handlers.set({ input: { n: 1 } });
+    Effect.runSync(handlers.set({ n: 1 }));
     expect(setSpy).not.toHaveBeenCalled();
     expect(publishSpy).not.toHaveBeenCalled();
 
-    handlers.set({ input: { n: 2 } });
+    Effect.runSync(handlers.set({ n: 2 }));
     expect(setSpy).toHaveBeenCalledTimes(1);
     expect(publishSpy).toHaveBeenCalledTimes(1);
   });
@@ -86,7 +86,7 @@ describe("cellHandlers: equals dedup", () => {
     const { store, bus } = makeFixture<string>("a");
     const publishSpy = vi.spyOn(bus, "publish");
     const handlers = cellHandlers(
-      cell({ name: "c", schema: z.string(), default: "" }),
+      cell({ name: "c", schema: Schema.String, default: "" }),
       {
         store,
         bus,
@@ -94,10 +94,10 @@ describe("cellHandlers: equals dedup", () => {
       },
     );
 
-    handlers.test__set({ input: "a" });
+    Effect.runSync(handlers.test__set("a"));
     expect(publishSpy).not.toHaveBeenCalled();
 
-    handlers.test__set({ input: "b" });
+    Effect.runSync(handlers.test__set("b"));
     expect(publishSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -110,7 +110,7 @@ describe("cellHandlers: equals dedup", () => {
     const handlers = cellHandlers<"c", { a: number; b: number }, { b: number }>(
       cell({
         name: "c",
-        schema: z.object({ a: z.number(), b: z.number() }),
+        schema: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
         default: { a: 0, b: 0 },
       }),
       {
@@ -122,11 +122,11 @@ describe("cellHandlers: equals dedup", () => {
     );
 
     // Patch that leaves the value unchanged → deduped
-    handlers.patch({ input: { b: 2 } });
+    Effect.runSync(handlers.patch({ b: 2 }));
     expect(publishSpy).not.toHaveBeenCalled();
 
     // Patch that changes the value → publishes
-    handlers.patch({ input: { b: 3 } });
+    Effect.runSync(handlers.patch({ b: 3 }));
     expect(publishSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -136,7 +136,7 @@ describe("cellHandlers: equals dedup", () => {
     const handlers = cellHandlers(
       cell({
         name: "c",
-        schema: z.object({ n: z.number() }),
+        schema: Schema.Struct({ n: Schema.Number }),
         default: { n: 0 },
       }),
       {
@@ -145,9 +145,9 @@ describe("cellHandlers: equals dedup", () => {
       },
     );
 
-    handlers.set({ input: { n: 1 } });
-    handlers.set({ input: { n: 1 } });
-    handlers.test__set({ input: { n: 1 } });
+    Effect.runSync(handlers.set({ n: 1 }));
+    Effect.runSync(handlers.set({ n: 1 }));
+    Effect.runSync(handlers.test__set({ n: 1 }));
     expect(publishSpy).toHaveBeenCalledTimes(3);
   });
 });
@@ -157,7 +157,7 @@ describe("cellHandlers: onWrite side effect", () => {
     const { store, bus } = makeFixture<number>(1);
     const onWrite = vi.fn();
     const handlers = cellHandlers(
-      cell({ name: "c", schema: z.number(), default: 0 }),
+      cell({ name: "c", schema: Schema.Number, default: 0 }),
       {
         store,
         bus,
@@ -166,10 +166,10 @@ describe("cellHandlers: onWrite side effect", () => {
       },
     );
 
-    handlers.set({ input: 1 }); // dedup'd
+    Effect.runSync(handlers.set(1)); // dedup'd
     expect(onWrite).not.toHaveBeenCalled();
 
-    handlers.set({ input: 2 });
+    Effect.runSync(handlers.set(2));
     expect(onWrite).toHaveBeenCalledTimes(1);
     expect(onWrite).toHaveBeenCalledWith(2);
   });
@@ -180,7 +180,7 @@ describe("cellHandlers: onWrite side effect", () => {
     const handlers = cellHandlers<"c", { n: number }, { n: number }>(
       cell({
         name: "c",
-        schema: z.object({ n: z.number() }),
+        schema: Schema.Struct({ n: Schema.Number }),
         default: { n: 0 },
       }),
       {
@@ -191,9 +191,9 @@ describe("cellHandlers: onWrite side effect", () => {
       },
     );
 
-    handlers.set({ input: { n: 1 } });
-    handlers.patch({ input: { n: 2 } });
-    handlers.test__set({ input: { n: 3 } });
+    Effect.runSync(handlers.set({ n: 1 }));
+    Effect.runSync(handlers.patch({ n: 2 }));
+    Effect.runSync(handlers.test__set({ n: 3 }));
     expect(onWrite).toHaveBeenCalledTimes(3);
     expect(onWrite.mock.calls.map((c) => c[0])).toEqual([
       { n: 1 },
@@ -215,7 +215,7 @@ describe("cellHandlers: onWrite side effect", () => {
       .spyOn(bus, "publish")
       .mockImplementation(() => calls.push("bus.publish"));
     const handlers = cellHandlers(
-      cell({ name: "c", schema: z.number(), default: 0 }),
+      cell({ name: "c", schema: Schema.Number, default: 0 }),
       {
         store,
         bus,
@@ -223,7 +223,7 @@ describe("cellHandlers: onWrite side effect", () => {
       },
     );
 
-    handlers.set({ input: 1 });
+    Effect.runSync(handlers.set(1));
     expect(calls).toEqual(["onWrite", "store.set", "bus.publish"]);
   });
 });
@@ -233,7 +233,7 @@ describe("implementSurface: ctx.cells.<key>.set respects equals + onWrite", () =
     const surface = defineSurface({
       cells: {
         c: {
-          schema: z.object({ n: z.number() }),
+          schema: Schema.Struct({ n: Schema.Number }),
           default: { n: 0 },
         },
       },

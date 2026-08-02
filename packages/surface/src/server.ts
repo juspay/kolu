@@ -3,19 +3,43 @@
  *
  * Headline API: `implementSurface(surface, deps)` walks a `Surface` (from
  * `defineSurface`) and returns a supervised `SurfaceRuntime`
- * `{ router, ctx, done, close }` — every cell/collection/stream/event/procedure
- * wired in one declarative call. `router` is the FINAL top-level oRPC router:
- * serve it directly (no consumer re-finalizes the surface via oRPC `implement`).
- * The framework owns the snapshot+deltas wire protocol on both sides; client
- * `useCell` / `useCollection` / `useStream` consume what `implementSurface`
- * produces, and `ctx.cells.X.set(...)` etc. let domain code mutate without
- * parallel store-and-publish paths. `done` rejects on an owned runtime fault and
- * `close` releases every owned source (see {@link SurfaceRuntimeHandle}).
+ * `{ group, handlers, ctx, done, close }` — every cell/collection/stream/event/
+ * procedure wired in one declarative call.
  *
- * Persistence and pub/sub are pluggable via `CellStore<T>` and
- * `Channel<T>` interfaces. Adapters for `conf` (`confStore`) and
- * `@orpc/experimental-publisher` (`publisherChannel`) ship with the
+ * `handlers` is a PLAIN RECORD keyed by the member's FULL wire tag
+ * (`surface/<member>/<verb>`, or `surface/<key>/<member>/<verb>` for a composed
+ * sibling). Each entry is a function of the DECODED payload returning:
+ *
+ *   - an `Effect` for a unary member (`set`/`patch`/`upsert`/`delete`/a procedure);
+ *   - a `Stream` for a streaming member (`get`/`keys`/`deltas`).
+ *
+ * That is exactly the shape `RpcGroup.toLayer(handlers)` takes, so a wire server
+ * is `runtime.group.toLayer(runtime.handlers)` with nothing in between, and an
+ * IN-PROCESS dispatcher is `runtime.handlers[tag](payload)` — the same handler
+ * value, invoked with zero serialization. The framework owns the snapshot+deltas
+ * protocol on both sides; client `useCell` / `useCollection` / `useStream` consume
+ * what `implementSurface` produces, and `ctx.cells.X.set(...)` etc. let domain code
+ * mutate without parallel store-and-publish paths. `done` rejects on an owned
+ * runtime fault and `close` releases every owned source (see
+ * {@link SurfaceRuntimeHandle}).
+ *
+ * Persistence and pub/sub are pluggable via `CellStore<T>` and `Channel<T>`
+ * interfaces. Adapters for `conf` (`confStore`) and any
+ * `{publish, subscribe}`-shaped publisher (`publisherChannel`) ship with the
  * framework; consumers can supply their own.
+ *
+ * ── The AbortSignal seam (D10) ─────────────────────────────────────────
+ *
+ * Effect RPC has no `signal` anywhere: a handler's lifetime IS its fiber, and
+ * cancellation IS interruption. So a member's SOURCE is Effect-native — a
+ * `StreamSpec`/`EventSpec` source returns a `Stream`, and the framework's own
+ * relays are `Stream`s over the pub/sub `Channel`. `Channel<T>` itself keeps its
+ * AsyncIterable face (it is a framework-independent leaf with its own tests and
+ * out-of-package consumers); the bridge from that face to a fiber-interruptible
+ * `Stream` lives HERE, in `channelSubscription`, which registers the subscriber
+ * on acquire and drops it on scope close. An AsyncIterable producer that needs an
+ * `AbortSignal` (a PTY tap, a node API) bridges at ITS OWN edge through
+ * {@link streamFromAbortableSource}.
  *
  * Low-level escape hatches: `cellHandlers` / `collectionHandlers` /
  * `streamHandlers` / `eventHandlers` build the same handler bodies for
@@ -23,8 +47,8 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { implement, type ORPCErrorConstructorMap } from "@orpc/server";
-import type { ZodType } from "zod";
+import { Effect, type Scope, Stream } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import {
   collectionDeltasChannel,
   collectionKeyChannel,
@@ -39,18 +63,22 @@ import {
   composeSurfaceContracts,
   defineSurface,
   type EventSpec,
+  type ProcedureInputSchema,
+  type ProcedureOutputSchema,
   type ProcedureSpec,
-  type ProcedureSpecErrors,
+  type ProcedureSpecError,
   resolveCellVerbs,
   resolveCollectionVerbs,
   type StreamSpec,
   type Surface,
   type SurfaceSpec,
+  surfaceTag,
+  type WireSchemaAny,
 } from "./define";
 
-// `composeSurfaceContracts` is a browser-safe, contract-only helper — it
-// lives in `./define` so a browser-reached common module can value-import it
-// without dragging `@orpc/server` into the client bundle. Re-exported here so
+// `composeSurfaceContracts` is a browser-safe, group-only helper — it lives in
+// `./define` so a browser-reached common module can value-import it without
+// dragging the server bindings into the client bundle. Re-exported here so
 // server-only consumers that already import from `@kolu/surface/server` keep
 // working.
 export { composeSurfaceContracts };
@@ -62,7 +90,12 @@ import {
   IDENTITY_VERB,
   serveIdentity,
 } from "./identity";
-import type { Cell, Collection, Event, Stream } from "./index";
+import type {
+  Cell,
+  Collection,
+  Event,
+  Stream as StreamDescriptor,
+} from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
 // The derived-cell brands live in their own import-free leaf so the boot walk
 // can spot a reactor `derived.cell(...)` dep — and its compute-fn variant —
@@ -98,6 +131,64 @@ const SERVER_STARTED_AT = Date.now();
 // adapter authors. They are intentionally NOT re-exported here: `./project`
 // imports `./server`, so re-exporting it back would form an import cycle.
 
+// ── The handler record ─────────────────────────────────────────────────
+
+/** What a bound member handler returns: an `Effect` for a unary member, a
+ *  `Stream` for a streaming one. There is no third shape — a handler never
+ *  returns a bare value or a Promise, because the wire server and the
+ *  in-process dispatcher both need one uniform thing to run and to interrupt. */
+export type SurfaceHandlerResult =
+  // biome-ignore lint/suspicious/noExplicitAny: the record is heterogeneous by construction (one entry per member verb); per-member precision lives in `SurfaceRpcsFor<S>` in ./define, which is what the client face and the group are typed from.
+  Effect.Effect<any, any> | Stream.Stream<any, any>;
+
+/** One bound member handler: a function of the member's DECODED payload. */
+// biome-ignore lint/suspicious/noExplicitAny: see SurfaceHandlerResult — the payload type is per-tag and lives in `SurfaceRpcsFor<S>`.
+export type SurfaceHandler = (payload: any) => SurfaceHandlerResult;
+
+/** Every member of a served surface, keyed by its FULL wire tag
+ *  (`surface/<member>/<verb>`). This — not a router — is what
+ *  {@link implementSurface} produces:
+ *
+ *    - a WIRE server is `runtime.group.toLayer(runtime.handlers)`;
+ *    - an IN-PROCESS dispatcher is `runtime.handlers[tag](payload)`, with zero
+ *      serialization and the identical handler value.
+ *
+ *  The record is built with a NULL PROTOTYPE: member names are arbitrary strings,
+ *  so a member legitimately named `toString` / `constructor` must not collide with
+ *  an inherited `Object.prototype` property (which would make the duplicate-tag
+ *  guard fire falsely and make a lookup return a function nobody bound). */
+export type SurfaceHandlers = Record<string, SurfaceHandler>;
+
+/** A fresh, null-prototype handler record. */
+function emptyHandlers(): SurfaceHandlers {
+  return Object.create(null) as SurfaceHandlers;
+}
+
+/** PROVE the bound handler set is exactly the group's tag set. `defineSurface`
+ *  mints the tags and this file binds them; the two walks are separate code, so
+ *  the only honest guarantee is an assertion — a member the group advertises but
+ *  nobody bound would 404 at the far end, and a handler bound at a tag the group
+ *  does not carry is dead code that silently never runs. Both are boot crashes.
+ *  This is the runtime half of D1's route-set identity (the type-level half is
+ *  `SurfaceTags<S>`). */
+function assertHandlersMatchGroup(
+  group: RpcGroup.RpcGroup<Rpc.Any>,
+  handlers: SurfaceHandlers,
+  label: string,
+): void {
+  const bound = Object.keys(handlers);
+  const missing = Array.from(group.requests.keys()).filter(
+    (tag) => !(tag in handlers),
+  );
+  const extra = bound.filter((tag) => !group.requests.has(tag));
+  if (missing.length === 0 && extra.length === 0) return;
+  throw new Error(
+    `${label}: the bound handler set does not match the surface's wire tags — ` +
+      `${missing.length} unbound tag(s) [${missing.join(", ")}], ` +
+      `${extra.length} handler(s) at unknown tag(s) [${extra.join(", ")}].`,
+  );
+}
+
 // ── Persistence + pub/sub interfaces ───────────────────────────────────
 
 /** Persistence interface for a Cell or Collection's storage backend. */
@@ -110,7 +201,14 @@ export interface CellStore<T> {
  *  iterators to emit the value; `subscribe` returns an AsyncIterable that
  *  yields each future publish until `signal` aborts; `consume` spawns a
  *  fire-and-forget loop that dispatches each value to `onEvent` and
- *  surfaces unexpected errors via `onError`, returning a cleanup fn. */
+ *  surfaces unexpected errors via `onError`, returning a cleanup fn.
+ *
+ *  Deliberately AsyncIterable-shaped, not `Stream`-shaped: `Channel<T>` is a
+ *  framework-independent pub/sub leaf with its own tests and out-of-package
+ *  implementations (a `MemoryPublisher` adapter, a re-serve mirror's fold). The
+ *  ONE bridge from this face to a fiber-interruptible `Stream` is
+ *  {@link channelSubscription} below, so there is a single place where a
+ *  subscriber's registration and its release are decided. */
 export interface Channel<T> {
   publish(value: T): void;
   subscribe(signal: AbortSignal | undefined): AsyncIterable<T>;
@@ -126,6 +224,133 @@ export interface Channel<T> {
     onEvent: (value: T) => void;
     onError: (err: unknown) => void;
   }): () => void;
+}
+
+// ── Channel → Stream bridge ────────────────────────────────────────────
+
+/** Expose an AsyncIterable producer's PULL side ONLY — deliberately WITHOUT a
+ *  `return` method — and apply the abort-time swallow rule at the pull.
+ *
+ *  Two decisions, both load-bearing:
+ *
+ *  1. **No `return`.** `Stream.fromAsyncIterable` installs an
+ *     `Effect.promise(() => iter.return!())` finalizer when the iterator has
+ *     one, and AWAITS it. An async GENERATOR parked at an `await` (which every
+ *     wrapper in this package is — `iterateUntilAborted`, `pollOnEvent`) defers
+ *     its `.return()` until that await settles, so awaiting the return before
+ *     the producer has been told to stop is a guaranteed deadlock on teardown.
+ *     Cancellation is the `AbortSignal` the producer already documents; hiding
+ *     `return` makes that the ONE teardown path instead of two racing ones.
+ *  2. **Abort-time swallow.** A producer that rejects a pending pull with the
+ *     signal's own abort reason is reporting expected end-of-life, not a fault —
+ *     the exact rule {@link isAbortReason} names and `iterateUntilAborted`
+ *     applies at the AsyncIterable layer. Applied here, it becomes a clean
+ *     end-of-stream. Anything else propagates. */
+function pullOnly<T>(
+  iterator: AsyncIterator<T>,
+  signal: AbortSignal,
+): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: async (): Promise<IteratorResult<T>> => {
+        try {
+          return await iterator.next();
+        } catch (err) {
+          if (isAbortReason(err, signal)) {
+            return { value: undefined, done: true };
+          }
+          throw err;
+        }
+      },
+    }),
+  };
+}
+
+/** Open ONE subscription on `bus` as a scoped resource and expose it as a
+ *  `Stream`. The ONE place a surface's pub/sub face meets Effect's:
+ *
+ *    - ACQUIRE registers the subscriber SYNCHRONOUSLY (`Channel.subscribe`
+ *      registers before it returns — see `inMemoryChannel`), which is what lets
+ *      {@link subscribeBeforeSnapshot} put the registration strictly before the
+ *      snapshot read and so close the lost-update window;
+ *    - RELEASE aborts the subscription's own signal, which is the teardown
+ *      `Channel.subscribe(signal)` documents ("yields each future publish until
+ *      `signal` aborts") and which every implementation — including the wrapped
+ *      `publisherChannel` — already honors. Release runs on scope close, and a
+ *      `Stream`'s scope closes when the consuming fiber is interrupted, so FIBER
+ *      INTERRUPTION IS THE UNSUBSCRIBE: no signal is threaded through any
+ *      handler or any call option, only through this one bridge.
+ *
+ *  A channel-level failure (a bounded channel's overflow abort) is a DEFECT, not
+ *  a member failure: no surface member declares an error channel for its
+ *  snapshot/delta stream, so an undeclared fault must crash loudly rather than
+ *  masquerade as an end-of-stream the consumer would read as "no more data". */
+function channelSubscription<T>(
+  bus: Channel<T>,
+): Effect.Effect<Stream.Stream<T>, never, Scope.Scope> {
+  return Effect.map(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const controller = new AbortController();
+        return {
+          controller,
+          iterator: bus.subscribe(controller.signal)[Symbol.asyncIterator](),
+        };
+      }),
+      ({ controller }) =>
+        Effect.sync(() => {
+          controller.abort();
+        }),
+    ),
+    ({ controller, iterator }) =>
+      Stream.orDie(
+        Stream.fromAsyncIterable<T, unknown>(
+          pullOnly(iterator, controller.signal),
+          (err) => err,
+        ),
+      ),
+  );
+}
+
+/** Relay every future publish on `bus`, for as long as the consuming fiber
+ *  lives. The plain (no-snapshot) half of {@link channelSubscription}. */
+function channelStream<T>(bus: Channel<T>): Stream.Stream<T> {
+  return Stream.unwrap(channelSubscription(bus));
+}
+
+/** Bridge an ABORTSIGNAL-shaped AsyncIterable producer into a `Stream` at the
+ *  PRODUCER's edge (D10). The framework itself has no `AbortSignal` left, but a
+ *  producer that wraps a node API — a PTY tap, an fs watcher, a `fetch` — often
+ *  does; this scopes an `AbortController` to the stream, so interrupting the
+ *  consuming fiber aborts the producer exactly as `close()` used to.
+ *
+ *  Exported because the producers live in consuming packages (padi's PTY taps,
+ *  drishti's samplers): the conversion belongs at each producer, and it must be
+ *  ONE conversion, not one per site. */
+export function streamFromAbortableSource<T>(
+  make: (signal: AbortSignal) => AsyncIterable<T>,
+): Stream.Stream<T> {
+  return Stream.unwrap(
+    Effect.map(
+      Effect.acquireRelease(
+        Effect.sync(() => new AbortController()),
+        (controller) =>
+          Effect.sync(() => {
+            controller.abort();
+          }),
+      ),
+      (controller) =>
+        Stream.orDie(
+          Stream.fromAsyncIterable<T, unknown>(
+            pullOnly(
+              make(controller.signal)[Symbol.asyncIterator](),
+              controller.signal,
+            ),
+            (err) => err,
+          ),
+        ),
+    ),
+  );
 }
 
 // ── Cell handlers ──────────────────────────────────────────────────────
@@ -198,10 +423,11 @@ export interface CellHandlerDeps<T, P = T> {
 }
 
 /** The write-forwarding handlers a re-serving mirror plugs into
- *  {@link CellHandlerDeps.forward} — one per wire mutation verb. Each returns
- *  the forward's promise so oRPC awaits the upstream write and propagates its
- *  rejection to the wire client (fail-fast: a forward with no live upstream link
- *  throws loud, never a silent local no-op). */
+ *  {@link CellHandlerDeps.forward} — one per wire mutation verb. Each forward's
+ *  promise is awaited by the handler's `Effect`, so a REJECTION reaches the wire
+ *  client (fail-fast: a forward with no live upstream link throws loud, never a
+ *  silent local no-op). An upstream rejection is UNDECLARED, so it crosses as a
+ *  DEFECT — the crash-loudly channel, exactly as an undeclared throw did. */
 export interface CellForward<T, P = T> {
   set: (input: T) => void | Promise<void>;
   patch: (input: P) => void | Promise<void>;
@@ -209,27 +435,33 @@ export interface CellForward<T, P = T> {
 }
 
 export interface CellHandlers<T, P = T> {
-  /** Snapshot+deltas get handler. Plug into `t.X.get.handler(handlers.get)`. */
-  get: (opts: { signal?: AbortSignal }) => AsyncGenerator<T>;
-  /** Full-value set handler. Plug into `t.X.set.handler(handlers.set)`.
-   *  Typed `void`, but when `deps.forward` is set the body still RETURNS the
-   *  forward's promise at runtime (the void-return position permits it), so oRPC
-   *  awaits the upstream write and propagates its rejection to the wire client. */
-  set: (opts: { input: T }) => void;
+  /** Snapshot+deltas get handler. Bound at `<tagPrefix><key>/get`. */
+  get: () => Stream.Stream<T>;
+  /** Full-value set handler. */
+  set: (input: T) => Effect.Effect<void>;
   /** Patch handler — applies `deps.patch(current, input)` and persists (or, when
    *  `deps.forward` is set, forwards the raw patch upstream). */
-  patch: (opts: { input: P }) => void;
+  patch: (input: P) => Effect.Effect<void>;
   /** Test reset handler. Same as `set` but used by e2e fixtures. */
-  test__set: (opts: { input: T }) => void;
+  test__set: (input: T) => Effect.Effect<void>;
+}
+
+/** Run a mirror's write FORWARD as an `Effect`. The forward may be sync or
+ *  async; either way the handler's effect completes only once the upstream write
+ *  did, so the wire caller's `set` resolves after the authority accepted it. A
+ *  rejection is a defect (undeclared), which is the fail-fast contract. */
+function forwardWrite(run: () => void | Promise<void>): Effect.Effect<void> {
+  return Effect.promise(async () => {
+    await run();
+  });
 }
 
 /** Build the server-side handler suite for a Cell. Returns raw handler
- *  functions ready for `t.X.get.handler(handlers.get)` etc.
+ *  functions ready to bind at the cell's tags.
  *
- *  Snapshot+deltas invariant on `get`: yields `store.get()` first, then
- *  every value pushed to `bus`. The streaming retry plugin re-invokes
- *  `get` on every reconnect, so the first frame must be a fresh snapshot
- *  — the framework guarantees this here. */
+ *  Snapshot+deltas invariant on `get`: emits `store.get()` first, then
+ *  every value pushed to `bus`. A reconnect re-invokes `get`, so the first
+ *  frame must be a fresh snapshot — the framework guarantees this here. */
 export function cellHandlers<Name extends string, T, P = T>(
   _cell: Cell<Name, T>,
   deps: CellHandlerDeps<T, P>,
@@ -252,44 +484,50 @@ export function cellHandlers<Name extends string, T, P = T>(
   const forward = deps.forward;
   if (forward) {
     return {
-      get: async function* ({ signal }) {
-        // Subscribe BEFORE the snapshot decision, and make the two one
-        // synchronous step (no await between): the authority's first fold is
-        // then either already past (`hasSnapshot()` true → replay the folded
-        // value as the snapshot for a late subscriber) or still future (captured
-        // by `sub`, delivered as the first frame) — never missed, never
-        // double-served. Mirror-never-fabricate: withhold the seeded default
-        // until the fold has primed the store (`hasSnapshot()` false).
-        const sub = deps.bus.subscribe(signal);
-        if (deps.hasSnapshot?.() ?? true) yield deps.store.get();
-        for await (const v of sub) yield v;
-      },
-      set: ({ input }) => forward.set(input),
-      patch: ({ input }) => forward.patch(input),
-      test__set: ({ input }) => forward.test__set(input),
+      // Subscribe BEFORE the snapshot decision: the authority's first fold is
+      // then either already past (`hasSnapshot()` true → replay the folded value
+      // as the snapshot for a late subscriber) or still future (captured by the
+      // subscription, delivered as the first frame) — never missed, never
+      // double-served. Mirror-never-fabricate: withhold the seeded default until
+      // the fold has primed the store (`hasSnapshot()` false → an EMPTY snapshot,
+      // the same zero-or-more-frames thunk the collection `get` uses).
+      get: () =>
+        subscribeBeforeSnapshot(deps.bus, () =>
+          (deps.hasSnapshot?.() ?? true) ? [deps.store.get()] : [],
+        ),
+      set: (input) => forwardWrite(() => forward.set(input)),
+      patch: (input) => forwardWrite(() => forward.patch(input)),
+      test__set: (input) => forwardWrite(() => forward.test__set(input)),
     };
   }
 
   return {
-    get: async function* ({ signal }) {
-      yield deps.store.get();
-      for await (const v of deps.bus.subscribe(signal)) yield v;
-    },
-    set: ({ input }) => {
-      deps.onMutate?.(input as unknown as P, deps.store.get());
-      applyAndPublish(input);
-    },
-    patch: ({ input }) => {
-      const current = deps.store.get();
-      deps.onMutate?.(input, current);
-      const next = deps.patch
-        ? deps.patch(current, input)
-        : (input as unknown as T);
-      applyAndPublish(next);
-    },
-    test__set: ({ input }) => {
-      applyAndPublish(input);
-    },
+    // The AUTHORING cell serves its own store as the snapshot and then relays the
+    // bus. `Stream.suspend` keeps the read LAZY — the snapshot must be taken when
+    // the subscription starts, never when the handler value was built.
+    get: () =>
+      Stream.concat(
+        Stream.suspend(() => Stream.fromIterable([deps.store.get()])),
+        channelStream(deps.bus),
+      ),
+    set: (input) =>
+      Effect.sync(() => {
+        deps.onMutate?.(input as unknown as P, deps.store.get());
+        applyAndPublish(input);
+      }),
+    patch: (input) =>
+      Effect.sync(() => {
+        const current = deps.store.get();
+        deps.onMutate?.(input, current);
+        const next = deps.patch
+          ? deps.patch(current, input)
+          : (input as unknown as T);
+        applyAndPublish(next);
+      }),
+    test__set: (input) =>
+      Effect.sync(() => {
+        applyAndPublish(input);
+      }),
   };
 }
 
@@ -359,54 +597,44 @@ function createTickCoalescer<K, V>(
 }
 
 export interface CollectionHandlers<K, T> {
-  keys: (opts: { signal?: AbortSignal }) => AsyncGenerator<K[]>;
-  get: (opts: { input: { key: K }; signal?: AbortSignal }) => AsyncGenerator<T>;
-  deltas?: (opts: {
-    signal?: AbortSignal;
-  }) => AsyncGenerator<CollectionDeltasMsg<K, T>>;
-  upsert: (opts: { input: { key: K; value: T } }) => void;
-  delete: (opts: { input: { key: K } }) => void;
-  test__set: (opts: { input: Array<{ key: K; value: T }> }) => void;
+  keys: () => Stream.Stream<K[]>;
+  get: (input: { key: K }) => Stream.Stream<T>;
+  deltas?: () => Stream.Stream<CollectionDeltasMsg<K, T>>;
+  upsert: (input: { key: K; value: T }) => Effect.Effect<void>;
+  delete: (input: { key: K }) => Effect.Effect<void>;
+  test__set: (input: Array<{ key: K; value: T }>) => Effect.Effect<void>;
 }
 
 /** Snapshot-then-live with NO lost-update window: subscribe to `bus` FIRST, THEN
- *  produce the snapshot, then forward. `bus.subscribe()` registers the subscriber
- *  synchronously (see `inMemoryChannel`), so opening the iterator BEFORE producing
- *  the snapshot means any frame published in the snapshot→first-forward window is
- *  BUFFERED, not dropped — the gap a snapshot-then-subscribe generator leaves open
- *  (it doesn't reach `subscribe()` until the consumer's SECOND pull, so a frame born
- *  in that window publishes to ZERO subscribers).
+ *  produce the snapshot, then forward. The subscription is ACQUIRED (registered)
+ *  before the snapshot thunk runs, so any frame published in the
+ *  snapshot→first-forward window is BUFFERED by the channel, not dropped — the
+ *  gap a snapshot-then-subscribe stream leaves open.
  *
- *  `snapshot` is a THUNK, not a value: it MUST run AFTER `subscribe()`. A caller
- *  passing an already-computed value would move the read back BEFORE the subscribe
- *  and reopen the window — the thunk keeps the `readAll()` on the safe side.
+ *  `snapshot` is a THUNK, not a value: it MUST run AFTER the subscription is
+ *  acquired. A caller passing an already-computed value would move the read back
+ *  BEFORE the subscribe and reopen the window — the thunk keeps the `readAll()`
+ *  on the safe side.
  *
  *  The thunk yields ZERO-OR-MORE frames: it returns an array so a caller with an
  *  unconditional snapshot passes a single-element array, and one whose snapshot is
- *  CONDITIONAL (a `get` on an absent key) passes an empty array — the absent case
- *  collapses to `[]` instead of a bespoke `if`-guarded copy of this machine.
+ *  CONDITIONAL (a `get` on an absent key, a mirror with no fold yet) passes an
+ *  empty array — the absent case collapses to `[]` instead of a bespoke
+ *  `if`-guarded copy of this machine.
  *
- *  Cleanup: acquire ONE iterator up front and forward it via
- *  `yield* { [Symbol.asyncIterator]: () => iterator }` — NOT a bare `yield* frames`,
- *  which would call `[Symbol.asyncIterator]()` a second time and forward a different
- *  iterator than the one the `finally` returns. The snapshot `yield*` sits BEFORE the
- *  forwarding, so an early `.return()` taken after the snapshot (which makes an async
- *  generator skip everything past the suspended `yield`) still hits the `finally`,
- *  which returns the iterator and drops the subscriber. Idempotent: the channel's
- *  `return()`/`close()` are double-call-guarded. */
-async function* subscribeBeforeSnapshot<S, F>(
+ *  Cleanup: the subscription is a SCOPED resource of the returned stream, so an
+ *  early interruption — anywhere, including mid-snapshot — releases it exactly
+ *  once. That is what the old generator's `finally` + single-iterator dance was
+ *  hand-rolling. */
+function subscribeBeforeSnapshot<S, F>(
   bus: Channel<F>,
-  signal: AbortSignal | undefined,
   snapshot: () => S[],
-): AsyncGenerator<S | F> {
-  const frames = bus.subscribe(signal);
-  const iterator = frames[Symbol.asyncIterator]();
-  try {
-    yield* snapshot();
-    yield* { [Symbol.asyncIterator]: () => iterator };
-  } finally {
-    await iterator.return?.();
-  }
+): Stream.Stream<S | F> {
+  return Stream.unwrap(
+    Effect.map(channelSubscription(bus), (frames) =>
+      Stream.concat(Stream.fromIterable(snapshot()), frames),
+    ),
+  );
 }
 
 export function collectionHandlers<Name extends string, K, T>(
@@ -422,19 +650,19 @@ export function collectionHandlers<Name extends string, K, T>(
     // membership change — so it still needs subscribe-before-snapshot. That, with
     // the `broadcastKeys` publish-side fix, is what lets an already-subscribed mirror
     // never miss a key born after it connected. See `subscribeBeforeSnapshot`.
-    keys: ({ signal }) =>
-      subscribeBeforeSnapshot(deps.keysBus, signal, () => [
+    keys: () =>
+      subscribeBeforeSnapshot(deps.keysBus, () => [
         Array.from(deps.readAll().keys()),
       ]),
     // A `get` for a key that DOESN'T EXIST YET is a legitimate HELD-OPEN
     // subscription, NOT an error. A collection's membership is dynamic by design
     // (the mirror's `initialKeys` reconcile already treats it so, W2.1), so a
     // consumer watching a fixed key may subscribe BEFORE the key is born: the
-    // stream stays open, yields NOTHING until the key's first upsert, then
+    // stream stays open, emits NOTHING until the key's first upsert, then
     // delivers it and every later update. Subscribe-before-snapshot (like `keys`)
     // so a value upserted in the snapshot→forward gap isn't lost; the ONLY
-    // difference from `keys` is the snapshot is CONDITIONAL — a present key yields
-    // its current value, an absent key yields nothing.
+    // difference from `keys` is the snapshot is CONDITIONAL — a present key emits
+    // its current value, an absent key emits nothing.
     //
     // Ordering note: subscribing BEFORE the snapshot can DOUBLE-DELIVER a value
     // whose upsert lands in the subscribe→snapshot window (the snapshot reads it
@@ -446,34 +674,37 @@ export function collectionHandlers<Name extends string, K, T>(
     // by the "delivers a value published in the post-snapshot gap" test.
     //
     // This held-open-on-absent-key is a DELIBERATE, tested semantic, never an
-    // accidental hang. The alternative — throwing "key not found" on the first
-    // snapshot — surfaced to a consuming browser as a NON-RETRIABLE `ORPCError`
-    // (`STREAM_RETRY` never retries an `ORPCError`) that KILLED its standing
-    // subscription: a key born AFTER the subscription opened (kolu-server booting
-    // with an empty re-serve mirror; the gray Kaval chip, #1681) then never
-    // reached the client until a full page reload. Holding open turns "absent"
-    // into a RECOVERABLE waiting state the consumer renders honestly (`undefined`
-    // until the first value). A key that NEVER appears leaves the stream open
-    // yielding nothing — exactly as a `keys` subscription to an empty collection
-    // holds open — so the consumer shows its honest empty/absent state, not a
-    // corpse. Callers that need a bounded first read pass a `signal`.
-    get: ({ input, signal }) =>
-      subscribeBeforeSnapshot(deps.perKeyBus(input.key), signal, () => {
+    // accidental hang. The alternative — failing "key not found" on the first
+    // snapshot — surfaced to a consuming browser as a NON-RETRIABLE application
+    // error that KILLED its standing subscription: a key born AFTER the
+    // subscription opened (kolu-server booting with an empty re-serve mirror; the
+    // gray Kaval chip, #1681) then never reached the client until a full page
+    // reload. Holding open turns "absent" into a RECOVERABLE waiting state the
+    // consumer renders honestly (`undefined` until the first value). A key that
+    // NEVER appears leaves the stream open emitting nothing — exactly as a `keys`
+    // subscription to an empty collection holds open — so the consumer shows its
+    // honest empty/absent state, not a corpse. Callers that need a bounded first
+    // read interrupt their own fiber (a timeout, a race).
+    get: (input) =>
+      subscribeBeforeSnapshot(deps.perKeyBus(input.key), () => {
         const v = readOne(input.key);
         return v === undefined ? [] : [v];
       }),
-    upsert: ({ input }) => {
-      deps.upsert(input.key, input.value);
-    },
-    delete: ({ input }) => {
-      deps.remove(input.key);
-    },
-    test__set: ({ input }) => {
-      // Replace-all: clear current keys, upsert each from the fixture.
-      const before = Array.from(deps.readAll().keys());
-      for (const k of before) deps.remove(k);
-      for (const { key, value } of input) deps.upsert(key, value);
-    },
+    upsert: (input) =>
+      Effect.sync(() => {
+        deps.upsert(input.key, input.value);
+      }),
+    delete: (input) =>
+      Effect.sync(() => {
+        deps.remove(input.key);
+      }),
+    test__set: (input) =>
+      Effect.sync(() => {
+        // Replace-all: clear current keys, upsert each from the fixture.
+        const before = Array.from(deps.readAll().keys());
+        for (const k of before) deps.remove(k);
+        for (const { key, value } of input) deps.upsert(key, value);
+      }),
   };
 
   // The batched `deltas` stream, wired only when the collection opts in (the
@@ -487,10 +718,9 @@ export function collectionHandlers<Name extends string, K, T>(
   // remove of an absent key is a no-op.)
   const deltasBus = deps.deltasBus;
   if (deltasBus) {
-    handlers.deltas = ({ signal }) =>
+    handlers.deltas = () =>
       subscribeBeforeSnapshot<CollectionDeltasMsg<K, T>, CollectionDelta<K, T>>(
         deltasBus,
-        signal,
         () => [
           {
             kind: "snapshot",
@@ -506,65 +736,63 @@ export function collectionHandlers<Name extends string, K, T>(
 // ── Stream handlers ────────────────────────────────────────────────────
 
 export interface StreamHandlerDeps<I, T> {
-  /** Source factory. Must yield snapshot-then-deltas semantics: first
-   *  yield is a fresh full snapshot for the input, subsequent yields
+  /** Source factory. Must have snapshot-then-deltas semantics: the first
+   *  emission is a fresh full snapshot for the input, subsequent emissions
    *  deliver updates. The framework's `pollOnEvent` produces this shape
-   *  for poll-on-event sources. */
-  source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
+   *  for poll-on-event sources.
+   *
+   *  Effect-native (D10): the source returns a `Stream`, so the subscription's
+   *  lifetime is the consuming fiber's and cancellation is interruption. An
+   *  AbortSignal-based producer converts at its own edge via
+   *  {@link streamFromAbortableSource}. */
+  source: (input: I) => Stream.Stream<T>;
 }
 
 export interface StreamHandlers<I, T> {
-  get: (opts: { input: I; signal?: AbortSignal }) => AsyncGenerator<T>;
+  get: (input: I) => Stream.Stream<T>;
 }
 
 export function streamHandlers<Name extends string, I, T>(
-  _stream: Stream<Name, I, T>,
+  _stream: StreamDescriptor<Name, I, T>,
   deps: StreamHandlerDeps<I, T>,
 ): StreamHandlers<I, T> {
-  return {
-    get: async function* ({ input, signal }) {
-      for await (const v of deps.source(input, signal)) yield v;
-    },
-  };
+  return { get: (input) => deps.source(input) };
 }
 
 // ── Event handlers ─────────────────────────────────────────────────────
 
 export interface EventHandlerDeps<I, T> {
-  /** Occurrence source. Yields zero or more occurrences; **no snapshot
+  /** Occurrence source. Emits zero or more occurrences; **no snapshot
    *  obligation** — the framework explicitly does not require the first
-   *  yield to be a current-state snapshot, distinguishing Event from
+   *  emission to be a current-state snapshot, distinguishing Event from
    *  Stream. A late subscriber misses past occurrences; that's the
    *  contract. */
-  source: (input: I, signal: AbortSignal | undefined) => AsyncIterable<T>;
+  source: (input: I) => Stream.Stream<T>;
 }
 
 export interface EventHandlers<I, T> {
-  get: (opts: { input: I; signal?: AbortSignal }) => AsyncGenerator<T>;
+  get: (input: I) => Stream.Stream<T>;
 }
 
 /** Wire the server side of an `Event<I,T>`. Wire shape matches `streamHandlers`
- *  (oRPC iterator yielding `T`); the contract difference is that the source
- *  may yield zero items and need not start with a snapshot. The split from
- *  `streamHandlers` exists so authors can't accidentally wire an event
- *  source — which has no snapshot — to a stream handler that promises
- *  snapshot-then-deltas.
+ *  (a `Stream` of `T`); the contract difference is that the source may emit zero
+ *  items and need not start with a snapshot. The split from `streamHandlers`
+ *  exists so authors can't accidentally wire an event source — which has no
+ *  snapshot — to a stream handler that promises snapshot-then-deltas.
  *
- *  Implementation note: we forward `deps.source(input, signal)` directly
- *  as the handler's iterator rather than wrapping it in another
- *  `for await of source: yield v` generator. The extra wrap layer would
- *  put oRPC's wire one async tick behind a single-yield-then-return
- *  source — the wire's "iterator complete" frame races the yielded
- *  value's delivery, the consumer's first iteration sees `done: true`,
- *  and the yielded value is dropped. Pinned by `kill.feature` "Natural
- *  PTY exit removes terminal". */
+ *  Implementation note: the source `Stream` is forwarded DIRECTLY, with no
+ *  wrapper stream around it. Under the oRPC async-generator wire an extra wrap
+ *  layer put "iterator complete" one async tick ahead of a single-yield-then-
+ *  return source, and the yielded value was dropped — pinned by `kill.feature`
+ *  "Natural PTY exit removes terminal". A `Stream` cannot lose an emitted
+ *  element to its own completion, but the invariant is the CONTRACT, not the
+ *  mechanism, so it is pinned implementation-independently in
+ *  `streamOrdering.test.ts` and the no-wrapper shape is kept deliberately. */
 export function eventHandlers<Name extends string, I, T>(
   _event: Event<Name, I, T>,
   deps: EventHandlerDeps<I, T>,
 ): EventHandlers<I, T> {
-  return {
-    get: ({ input, signal }) => deps.source(input, signal) as AsyncGenerator<T>,
-  };
+  return { get: (input) => deps.source(input) };
 }
 
 // ── pollOnEvent (poll-on-event-tick stream source) ─────────────────────
@@ -691,8 +919,8 @@ export function inMemoryCollection<K, V>(): {
 }
 
 /** Single-process broadcast pub/sub `Channel<T>` for surfaces served from a
- *  Node-only process where the `@orpc/experimental-publisher` dependency is
- *  overkill. Each `publish` delivers to every live subscriber synchronously
+ *  Node-only process where a name-keyed external publisher would be overkill.
+ *  Each `publish` delivers to every live subscriber synchronously
  *  via per-subscriber queues; `subscribe` returns an `AsyncIterable<T>` that
  *  yields each future publish until `signal` aborts.
  *
@@ -893,9 +1121,8 @@ export function inMemoryChannel<T>(
   };
 }
 
-/** Name-keyed in-process pub/sub. Same shape `publisherChannel` already
- *  expects from `@orpc/experimental-publisher`'s `MemoryPublisher`, so
- *  the canonical wiring works uniformly:
+/** Name-keyed in-process pub/sub — the repo's OWN publisher (D7), and the shape
+ *  `publisherChannel` adapts, so the canonical wiring works uniformly:
  *
  *  ```ts
  *  const publisher = inMemoryPublisher();
@@ -1071,31 +1298,24 @@ export function confStore<T>(
   };
 }
 
-// ── Built-in Channel adapter for @orpc/experimental-publisher ──────
+// ── Built-in Channel adapter for a name-keyed publisher ────────────
 
-/** Build a `Channel<T>` from an `@orpc/experimental-publisher`-style
- *  publisher. The publisher's untyped string-channel API is hidden
- *  behind a typed bus so each cell has one named channel and consumers
- *  can't typo.
+/** Build a `Channel<T>` from any name-keyed `{publish, subscribe}` publisher
+ *  (`inMemoryPublisher` is the one this repo ships). The publisher's untyped
+ *  string-channel API is hidden behind a typed bus so each cell has one named
+ *  channel and consumers can't typo.
  *
- *  Wraps the underlying iterator with `iterateUntilAborted` for two
- *  reasons. First (correctness): oRPC's WebSocket adapter calls
- *  `peer.close()` when the socket closes, which `AbortController.abort()`s
- *  every in-flight stream's signal — the publisher iterator then rejects
- *  pending pulls with `signal.reason`. Letting that propagate produces a
- *  full DOMException stack on every disconnect; swallowing the
- *  signal-shaped error keeps the cleanup quiet. Second (ordering): the
- *  extra generator layer adds one microtask of delay per yielded event,
- *  which preserves cross-channel ordering when multiple publishes fire
- *  on the same tick. Without that delay, a list-update publish racing
- *  a per-terminal exit publish can deliver the list message first and
- *  the client's `removeAndAutoSwitch` sees an already-truncated list,
- *  picking the wrong active terminal (or null).
- *
- *  Regression-pinned by Kolu's `kill.feature` "Natural PTY exit removes
- *  terminal" e2e scenario: removing the wrapper makes that test time out
- *  on the canvas-visible step. Any future "optimization" that flattens
- *  this layer must keep that test green. */
+ *  Wraps the underlying iterator with `iterateUntilAborted`, which applies the
+ *  abort-time swallow rule at this layer: a transport that aborts every
+ *  in-flight subscription on disconnect makes the publisher iterator reject its
+ *  pending pulls with `signal.reason`, and letting that propagate produces a full
+ *  DOMException stack on every disconnect. Swallowing the signal-shaped error
+ *  keeps the cleanup quiet. (The wrapper also used to be load-bearing for
+ *  CROSS-CHANNEL ORDERING — one microtask of delay per yielded event. It no longer
+ *  is: the surface serves its channels as `Stream`s, so ordering is the fiber
+ *  scheduler's, and the INVARIANT — not the mechanism — is pinned by
+ *  `streamOrdering.test.ts`, which restates what `kill.feature` "Natural PTY exit
+ *  removes terminal" catches end-to-end.) */
 export function publisherChannel<T>(
   publisher: {
     publish: (channel: string, payload: T) => Promise<void> | void;
@@ -1156,64 +1376,72 @@ export async function* iterateUntilAborted<T>(
 
 // ── implementSurface — server-side dep wiring for a Surface ─────────────
 
+/** The DECODED domain type a spec schema describes. Spec schemas are
+ *  `WireSchema<T>` = `Schema.Codec<T, unknown, never, never>`, so the decoded
+ *  side is read by INDEXING the schema (`Sc["Type"]`) rather than by `infer`ring
+ *  through an invariant codec parameter — the same rule `SurfaceTypes<S>` uses in
+ *  `./define`, so the dep types and the consumer-facing types can't disagree
+ *  about which side of a schema a position speaks. */
+type Decoded<Sc> = Sc extends { readonly Type: infer T } ? T : never;
+
 /** Per-cell implementation deps. The surface owns the publish channel
  *  (`<key>:changed`, derived from the surface key — not configurable);
  *  the consumer supplies persistence + (when patchSchema is set) the patch
  *  merge fn. */
-export type CellImplDeps<S extends CellSpec<unknown, unknown, unknown>> =
-  S extends {
-    schema: ZodType<infer T>;
-    patchSchema: ZodType<infer P>;
-  }
-    ? {
-        store: CellStore<T>;
-        /** Pure merge for partial mutations. Optional here when the cell's
-         *  spec already declares `patch` (the spec wins; the framework
-         *  errors at boot if neither is supplied). */
-        patch?: (current: T, p: P) => T;
-        /** Optional equality predicate. Same resolution rule as `patch`:
-         *  spec-declared `equals` wins, deps may override. See
-         *  `CellSpec.equals` for semantics. */
-        equals?: (a: T, b: T) => boolean;
-        onMutate?: (patch: P, current: T) => void;
-        /** Fire-and-forget side effect on every successful write. See
-         *  `CellHandlerDeps.onWrite`. */
-        onWrite?: (next: T) => void;
-        /** Write-forwarding seam for a re-serving mirror. See
-         *  `CellHandlerDeps.forward`. */
-        forward?: CellForward<T, P>;
-        /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
-        hasSnapshot?: () => boolean;
-        /** Optional async-source republish. The runtime fires it ONCE after
-         *  the cell is wired, handing it the cell ctx setter (so a late-arriving
-         *  value flows through the same equals/onWrite/store.set/bus.publish path)
-         *  AND an abort signal. It MAY return a disposer. The connector is an
-         *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
-         *  and `close()` aborts the signal then runs the disposer. Owned by the
-         *  runtime — apps never call it. */
-        connect?: CellConnector<T>;
-      }
-    : S extends { schema: ZodType<infer T> }
-      ? {
-          store: CellStore<T>;
-          equals?: (a: T, b: T) => boolean;
-          onMutate?: (next: T, current: T) => void;
-          onWrite?: (next: T) => void;
-          /** Write-forwarding seam for a re-serving mirror. See
-           *  `CellHandlerDeps.forward`. */
-          forward?: CellForward<T, T>;
-          /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
-          hasSnapshot?: () => boolean;
-          /** Optional async-source republish. The runtime fires it ONCE after
-           *  the cell is wired, handing it the cell ctx setter (so a late-arriving
-           *  value flows through the same equals/onWrite/store.set/bus.publish
-           *  path) AND an abort signal. It MAY return a disposer. The connector is
-           *  an OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches
-           *  `done`, and `close()` aborts the signal then runs the disposer. Owned
-           *  by the runtime — apps never call it. */
-          connect?: CellConnector<T>;
-        }
-      : never;
+export type CellImplDeps<
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint over a heterogeneous spec map — the same erasure `./define`'s spec types carry; the `WireSchema<T>` bound is what keeps values honest.
+  S extends CellSpec<any, any, any>,
+> = S extends { patchSchema: WireSchemaAny }
+  ? {
+      store: CellStore<Decoded<S["schema"]>>;
+      /** Pure merge for partial mutations. Optional here when the cell's
+       *  spec already declares `patch` (the spec wins; the framework
+       *  errors at boot if neither is supplied). */
+      patch?: (
+        current: Decoded<S["schema"]>,
+        p: Decoded<S["patchSchema"]>,
+      ) => Decoded<S["schema"]>;
+      /** Optional equality predicate. Same resolution rule as `patch`:
+       *  spec-declared `equals` wins, deps may override. See
+       *  `CellSpec.equals` for semantics. */
+      equals?: (a: Decoded<S["schema"]>, b: Decoded<S["schema"]>) => boolean;
+      onMutate?: (
+        patch: Decoded<S["patchSchema"]>,
+        current: Decoded<S["schema"]>,
+      ) => void;
+      /** Fire-and-forget side effect on every successful write. See
+       *  `CellHandlerDeps.onWrite`. */
+      onWrite?: (next: Decoded<S["schema"]>) => void;
+      /** Write-forwarding seam for a re-serving mirror. See
+       *  `CellHandlerDeps.forward`. */
+      forward?: CellForward<Decoded<S["schema"]>, Decoded<S["patchSchema"]>>;
+      /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+      hasSnapshot?: () => boolean;
+      /** Optional async-source republish. The runtime fires it ONCE after
+       *  the cell is wired, handing it the cell ctx setter (so a late-arriving
+       *  value flows through the same equals/onWrite/store.set/bus.publish path)
+       *  AND an abort signal. It MAY return a disposer. The connector is an
+       *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
+       *  and `close()` aborts the signal then runs the disposer. Owned by the
+       *  runtime — apps never call it. */
+      connect?: CellConnector<Decoded<S["schema"]>>;
+    }
+  : {
+      store: CellStore<Decoded<S["schema"]>>;
+      equals?: (a: Decoded<S["schema"]>, b: Decoded<S["schema"]>) => boolean;
+      onMutate?: (
+        next: Decoded<S["schema"]>,
+        current: Decoded<S["schema"]>,
+      ) => void;
+      onWrite?: (next: Decoded<S["schema"]>) => void;
+      /** Write-forwarding seam for a re-serving mirror. See
+       *  `CellHandlerDeps.forward`. */
+      forward?: CellForward<Decoded<S["schema"]>, Decoded<S["schema"]>>;
+      /** Mirror-never-fabricate gate. See `CellHandlerDeps.hasSnapshot`. */
+      hasSnapshot?: () => boolean;
+      /** Optional async-source republish. See the patch arm above. */
+      connect?: CellConnector<Decoded<S["schema"]>>;
+    };
 
 /** Per-collection implementation deps. The surface owns both buses
  *  (`<key>:keys` and `<key>:key:<k>`, derived from the surface key — not
@@ -1223,79 +1451,87 @@ export type CellImplDeps<S extends CellSpec<unknown, unknown, unknown>> =
  *  inside the consumer's upsert/remove fns or in the imperative procedure
  *  that triggered the call. */
 export type CollectionImplDeps<
-  S extends CollectionSpec<unknown, unknown, unknown>,
-> = S extends { keySchema: ZodType<infer K>; schema: ZodType<infer T> }
-  ? {
-      readAll: () => Map<K, T>;
-      readOne?: (key: K) => T | undefined;
-      upsert: (key: K, value: T) => void;
-      remove: (key: K) => void;
-      /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
-       *  `readAll()` semantics). By default a compute reading `$.<coll>()`
-       *  re-runs `readAll()` on every access — correct for a registry
-       *  projection whose `readAll` reads a live external store, but for a
-       *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
-       *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
-       *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
-       *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
-       *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
-       *  from `readAll()` once at construction and updated per-key by the
-       *  SAME `upsert`/`remove` writes (which already carry the value) — so
-       *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
-       *  contents and same per-key `siblingChange` granularity as `readAll()`.
-       *
-       *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
-       *  seam — that is the view's SINGLE write path, so it cannot diverge
-       *  from truth. Opting in is the author VOUCHING for that invariant. A
-       *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
-       *  external store its `readAll` re-reads) must NOT opt in. */
-      materializeSiblingView?: boolean;
-    }
-  : never;
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint — see CellImplDeps.
+  S extends CollectionSpec<any, any, any>,
+> = {
+  readAll: () => Map<Decoded<S["keySchema"]>, Decoded<S["schema"]>>;
+  readOne?: (key: Decoded<S["keySchema"]>) => Decoded<S["schema"]> | undefined;
+  upsert: (key: Decoded<S["keySchema"]>, value: Decoded<S["schema"]>) => void;
+  remove: (key: Decoded<S["keySchema"]>) => void;
+  /** OPT-IN incremental `$`-sibling read (a PURE optimization behind
+   *  `readAll()` semantics). By default a compute reading `$.<coll>()`
+   *  re-runs `readAll()` on every access — correct for a registry
+   *  projection whose `readAll` reads a live external store, but for a
+   *  collection whose `readAll` is an EXPENSIVE per-key compose (padi's
+   *  `terminals`: `registryMap(composePadiTerminal)`), a derived member
+   *  folding `$.<coll>()` on a firehose re-composes ALL M entries per
+   *  poke = O(M²) composes/cycle (SR7's urgency regression). Set this and
+   *  the framework maintains a MATERIALIZED VIEW — a per-key cache seeded
+   *  from `readAll()` once at construction and updated per-key by the
+   *  SAME `upsert`/`remove` writes (which already carry the value) — so
+   *  the `$`-read returns the view WITHOUT recomposing (O(M²)→O(M)). Same
+   *  contents and same per-key `siblingChange` granularity as `readAll()`.
+   *
+   *  SAFE ONLY when EVERY mutation flows through the ctx `upsert`/`remove`
+   *  seam — that is the view's SINGLE write path, so it cannot diverge
+   *  from truth. Opting in is the author VOUCHING for that invariant. A
+   *  collection whose backing is mutated OUTSIDE `upsert`/`remove` (a live
+   *  external store its `readAll` re-reads) must NOT opt in. */
+  materializeSiblingView?: boolean;
+};
 
 /** Per-stream implementation deps. A stream is either:
  *
  *  - **Poll-on-event** (the common case for external mutable state — git,
  *    fs): supply `{ read, install, isEqual }` and the framework synthesizes
- *    `pollOnEvent` internally. Snapshot-then-deltas is preserved by
- *    construction; `onReadError` for subsequent-read failures defaults to
+ *    `pollOnEvent` internally, bridged into a `Stream` at that producer edge.
+ *    Snapshot-then-deltas is preserved by construction; `onReadError` for
+ *    subsequent-read failures defaults to
  *    `implementSurface(...).onStreamReadError`.
- *  - **Raw async iterator**: supply `{ source }` directly when the source
- *    isn't shaped as poll-on-event (e.g. a long-poll bidirectional stream,
- *    or a custom snapshot computation). The author owns snapshot-then-
- *    deltas; the framework yields whatever the iterator yields.
+ *  - **Raw `Stream`**: supply `{ source }` directly when the source isn't
+ *    shaped as poll-on-event (e.g. a long-poll bidirectional stream, or a
+ *    custom snapshot computation). The author owns snapshot-then-deltas; the
+ *    framework serves whatever the stream emits.
  *
  *  The two shapes are a discriminated union — supplying both is a type
  *  error. */
-export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
-  inputSchema: ZodType<infer I>;
-  outputSchema: ZodType<infer T>;
-}
-  ?
-      | {
-          source: (
-            input: I,
-            signal: AbortSignal | undefined,
-          ) => AsyncIterable<T>;
-        }
-      | {
-          /** Read current value for `input`. Yielded as the snapshot first
-           *  frame; re-invoked on every event tick from `install`. */
-          read: (input: I) => Promise<T>;
-          /** Install a "something changed" listener for `input`. The
-           *  callback is invoked on each potential change; the framework
-           *  re-reads and yields only when `isEqual(last, next)` is false.
-           *  Returns an unsubscribe fn. */
-          install: (input: I, onEvent: () => void) => () => void;
-          /** Equality predicate to suppress redundant yields. */
-          isEqual: (a: T, b: T) => boolean;
-          /** Subsequent-read error handler. Defaults to
-           *  `implementSurface(...).onStreamReadError` when omitted. The
-           *  initial read's error always propagates (the client has no
-           *  snapshot yet). */
-          onReadError?: (err: unknown) => void;
-        }
-  : never;
+export type StreamImplDeps<
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint — see CellImplDeps.
+  S extends StreamSpec<any, any>,
+> =
+  | {
+      /** Effect-native source (D10): interruption of the consuming fiber ends
+       *  the subscription, so no `AbortSignal` is threaded. Wrap an
+       *  AbortSignal-based producer with {@link streamFromAbortableSource}. */
+      source: (
+        input: Decoded<S["inputSchema"]>,
+      ) => Stream.Stream<Decoded<S["outputSchema"]>>;
+    }
+  | {
+      /** Read current value for `input`. Emitted as the snapshot first
+       *  frame; re-invoked on every event tick from `install`. */
+      read: (
+        input: Decoded<S["inputSchema"]>,
+      ) => Promise<Decoded<S["outputSchema"]>>;
+      /** Install a "something changed" listener for `input`. The
+       *  callback is invoked on each potential change; the framework
+       *  re-reads and emits only when `isEqual(last, next)` is false.
+       *  Returns an unsubscribe fn. */
+      install: (
+        input: Decoded<S["inputSchema"]>,
+        onEvent: () => void,
+      ) => () => void;
+      /** Equality predicate to suppress redundant emissions. */
+      isEqual: (
+        a: Decoded<S["outputSchema"]>,
+        b: Decoded<S["outputSchema"]>,
+      ) => boolean;
+      /** Subsequent-read error handler. Defaults to
+       *  `implementSurface(...).onStreamReadError` when omitted. The
+       *  initial read's error always propagates (the client has no
+       *  snapshot yet). */
+      onReadError?: (err: unknown) => void;
+    };
 
 /** Per-event implementation deps. The surface owns the per-input event
  *  channel (default name `<key>:<key-of-input>` where the key-of-input is
@@ -1305,23 +1541,20 @@ export type StreamImplDeps<S extends StreamSpec<unknown, unknown>> = S extends {
  *      which writes to that channel.
  *    - The wire handler reads from the same channel.
  *
- *  `source` is optional. The default reads from the channel forever; supply
- *  one when the read path needs pre-subscribe validation, single-yield-then-
- *  close, or any other shape. The supplied source receives `helpers.bus` —
- *  the same channel `ctx.publish` writes to — so it doesn't reference a
- *  channel name string. */
-export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
-  inputSchema: ZodType<infer I>;
-  outputSchema: ZodType<infer T>;
-}
-  ? {
-      source?: (
-        input: I,
-        signal: AbortSignal | undefined,
-        helpers: { bus: Channel<T> },
-      ) => AsyncIterable<T>;
-    }
-  : never;
+ *  `source` is optional. The default relays the channel forever; supply one when
+ *  the read path needs pre-subscribe validation, single-emission-then-complete,
+ *  or any other shape. The supplied source receives `helpers.bus` — the same
+ *  channel `ctx.publish` writes to — so it doesn't reference a channel name
+ *  string. */
+export type EventImplDeps<
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint — see CellImplDeps.
+  S extends EventSpec<any, any>,
+> = {
+  source?: (
+    input: Decoded<S["inputSchema"]>,
+    helpers: { bus: Channel<Decoded<S["outputSchema"]>> },
+  ) => Stream.Stream<Decoded<S["outputSchema"]>>;
+};
 
 // ── Procedure ctx ──────────────────────────────────────────────────────
 
@@ -1336,24 +1569,25 @@ export type EventImplDeps<S extends EventSpec<unknown, unknown>> = S extends {
  *  instead of hand-copying a narrowed cast that would drift silently. */
 export type CellCtxSetOpts = { force?: boolean };
 type CellCtxSet<T> = (v: T, opts?: CellCtxSetOpts) => void;
-type CellCtxFor<S> = S extends {
-  schema: ZodType<infer T>;
-  patchSchema: ZodType<infer P>;
-}
-  ? { get: () => T; set: CellCtxSet<T>; patch: (p: P) => void }
-  : S extends { schema: ZodType<infer T> }
-    ? { get: () => T; set: CellCtxSet<T> }
+type CellCtxFor<S> = S extends { patchSchema: WireSchemaAny; schema: unknown }
+  ? {
+      get: () => Decoded<S["schema"]>;
+      set: CellCtxSet<Decoded<S["schema"]>>;
+      patch: (p: Decoded<S["patchSchema"]>) => void;
+    }
+  : S extends { schema: unknown }
+    ? { get: () => Decoded<S["schema"]>; set: CellCtxSet<Decoded<S["schema"]>> }
     : never;
 
 type CollectionCtxFor<S> = S extends {
-  keySchema: ZodType<infer K>;
-  schema: ZodType<infer T>;
+  keySchema: unknown;
+  schema: unknown;
 }
   ? {
-      upsert: (k: K, v: T) => void;
-      remove: (k: K) => void;
-      readAll: () => Map<K, T>;
-      readOne: (k: K) => T | undefined;
+      upsert: (k: Decoded<S["keySchema"]>, v: Decoded<S["schema"]>) => void;
+      remove: (k: Decoded<S["keySchema"]>) => void;
+      readAll: () => Map<Decoded<S["keySchema"]>, Decoded<S["schema"]>>;
+      readOne: (k: Decoded<S["keySchema"]>) => Decoded<S["schema"]> | undefined;
     }
   : never;
 
@@ -1362,11 +1596,13 @@ type CollectionCtxFor<S> = S extends {
  *  `<key>:<key-of-input>` where the key-of-input is `String(input)` for
  *  primitives or `JSON.stringify(input)` for objects. Domain code never
  *  sees the channel string. */
-type EventCtxFor<S> = S extends {
-  inputSchema: ZodType<infer I>;
-  outputSchema: ZodType<infer T>;
-}
-  ? { publish: (input: I, payload: T) => void }
+type EventCtxFor<S> = S extends { inputSchema: unknown; outputSchema: unknown }
+  ? {
+      publish: (
+        input: Decoded<S["inputSchema"]>,
+        payload: Decoded<S["outputSchema"]>,
+      ) => void;
+    }
   : never;
 
 export type SurfaceCtx<S extends SurfaceSpec> = {
@@ -1383,43 +1619,37 @@ export type SurfaceCtx<S extends SurfaceSpec> = {
   };
 };
 
-/** The typed per-code error CONSTRUCTORS a declaring procedure's handler
- *  receives on `opts.errors` (SK6) — oRPC's contract-first handler face:
- *  `throw opts.errors.SOME_CODE({ data })` mints the declared `ORPCError`
- *  with its data validated against the declared schema. A spec with no
- *  `errors` resolves the empty map (via define.ts's shared
- *  {@link ProcedureSpecErrors} extractor), so the field is invisible to
- *  existing handlers. */
-type ProcedureErrorCtors<S> = ORPCErrorConstructorMap<ProcedureSpecErrors<S>>;
-
-/** The opts every procedure handler receives regardless of its input/output
- *  arms — `ctx` (the mutation helpers), the abort `signal`, and `errors` (the
- *  declared error union's typed constructors, SK6). The four arms below add
- *  `input` (or not) and vary the return; this is the ONE spelling of what they
- *  share, so a new handler-opts field lands in one place, not four. */
-type ProcedureHandlerOpts<S, Ctx> = {
-  ctx: Ctx;
-  signal?: AbortSignal;
-  errors: ProcedureErrorCtors<S>;
-};
-
-/** Handler for an imperative procedure. Receives `ctx` exposing the
- *  surface's cell/collection mutation helpers so cross-descriptor publishes
- *  (e.g. `notes.create` writing to the `notes` collection) go through the
- *  same channels the wire handlers do — plus `errors`, the declared error
- *  union's typed constructors (SK6). */
+/** Handler for an imperative procedure. ONE arm, not four: `Rpc.make` resolves a
+ *  procedure's payload / success / error POSITIONALLY (`Schema.Void` / `Schema.Void`
+ *  / `Schema.Never` when undeclared), so an input-less procedure receives
+ *  `input: void` and an output-less one returns `Effect<void>` — the four oRPC-era
+ *  arms collapse into the schema resolution `./define` already performs.
+ *
+ *  The handler returns an `Effect`:
+ *
+ *    - its DECLARED failures are the `error` schema's decoded type (normally a
+ *      union of `Schema.TaggedErrorClass`es — see `./errors` for the framework's
+ *      own vocabulary). `Effect.fail(new MyError({...}))` reaches the caller with
+ *      its `_tag` and data intact, narrowed by a `_tag` check;
+ *    - an UNDECLARED throw stays a DEFECT (`Effect.die`) — the crash-loudly
+ *      channel, unchanged;
+ *    - CANCELLATION is interruption: there is no `signal` to thread, because the
+ *      handler's fiber IS the call's lifetime (D10).
+ *
+ *  `ctx` exposes the surface's cell/collection mutation helpers so cross-descriptor
+ *  publishes (e.g. `notes.create` writing to the `notes` collection) go through the
+ *  same channels the wire handlers do. */
 export type ProcedureImpl<
-  S extends ProcedureSpec<unknown, unknown>,
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint — see CellImplDeps.
+  S extends ProcedureSpec<any, any>,
   Ctx,
-> = S extends { input: ZodType<infer I>; output: ZodType<infer O> }
-  ? (opts: ProcedureHandlerOpts<S, Ctx> & { input: I }) => Promise<O> | O
-  : S extends { input: ZodType<infer I> }
-    ? (
-        opts: ProcedureHandlerOpts<S, Ctx> & { input: I },
-      ) => Promise<void> | void
-    : S extends { output: ZodType<infer O> }
-      ? (opts: ProcedureHandlerOpts<S, Ctx>) => Promise<O> | O
-      : (opts: ProcedureHandlerOpts<S, Ctx>) => Promise<void> | void;
+> = (opts: {
+  input: Decoded<ProcedureInputSchema<S>>;
+  ctx: Ctx;
+}) => Effect.Effect<
+  Decoded<ProcedureOutputSchema<S>>,
+  Decoded<ProcedureSpecError<S>>
+>;
 
 // ── ImplementSurfaceDeps ────────────────────────────────────────────────
 
@@ -1435,27 +1665,30 @@ export type ProcedureImpl<
  *  against the cell schema), and the `S` phantom. */
 type CellDepFor<
   S extends SurfaceSpec,
-  C extends CellSpec<unknown, unknown, unknown>,
-> = C extends {
-  schema: ZodType<infer T>;
-}
-  ?
-      | CellImplDeps<C>
-      | Omit<DerivedComputeCell<S, T>, "connect" | "dispose" | "bindSiblings">
-      // A POLL-source `derived.cell(source(...))`: its synchronous face is honestly
-      // `T | undefined` (undefined until the seed), so it is NOT a `CellImplDeps<C>`
-      // (whose `store` is `CellStore<T>`). The walk seeds the private serving store
-      // from the spec default and drives it through `connect`, so the SERVED value is
-      // a `T` — the `T | undefined` dep face is never served. `connect`/`dispose`/
-      // `store` are dropped from the arm: the runtime reads `connect`/`dispose` off the
-      // branded value directly, and a second `connect` shape OR a `CellStore<T | undefined>`
-      // `store` in the union would de-contextualize a plain authored cell's own inline
-      // `connect`/`store.set` param types. The poll cell's `store: CellStore<T | undefined>`
-      // honesty lives on the {@link PollDerivedCell} return type (checked at the
-      // `derived.cell(...)` call site), not this slot — the slot only ACCEPTS the value,
-      // matched by its poll brand.
-      | Omit<PollDerivedCell<T>, "connect" | "dispose" | "store">
-  : CellImplDeps<C>;
+  // biome-ignore lint/suspicious/noExplicitAny: type-plumbing constraint — see CellImplDeps.
+  C extends CellSpec<any, any, any>,
+> =
+  | CellImplDeps<C>
+  | Omit<
+      DerivedComputeCell<S, Decoded<C["schema"]>>,
+      "connect" | "dispose" | "bindSiblings"
+    >
+  // A POLL-source `derived.cell(source(...))`: its synchronous face is honestly
+  // `T | undefined` (undefined until the seed), so it is NOT a `CellImplDeps<C>`
+  // (whose `store` is `CellStore<T>`). The walk seeds the private serving store
+  // from the spec default and drives it through `connect`, so the SERVED value is
+  // a `T` — the `T | undefined` dep face is never served. `connect`/`dispose`/
+  // `store` are dropped from the arm: the runtime reads `connect`/`dispose` off the
+  // branded value directly, and a second `connect` shape OR a `CellStore<T | undefined>`
+  // `store` in the union would de-contextualize a plain authored cell's own inline
+  // `connect`/`store.set` param types. The poll cell's `store: CellStore<T | undefined>`
+  // honesty lives on the {@link PollDerivedCell} return type (checked at the
+  // `derived.cell(...)` call site), not this slot — the slot only ACCEPTS the value,
+  // matched by its poll brand.
+  | Omit<
+      PollDerivedCell<Decoded<C["schema"]>>,
+      "connect" | "dispose" | "store"
+    >;
 
 export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
   /** Default subsequent-read error handler for poll-shape streams (those
@@ -1695,16 +1928,19 @@ export function superviseTerminalSource(
 }
 
 /** The supervision contract shared by every servable surface runtime — one
- *  axis (router + ctx + done + close) parameterized over its ctx shape, so the
- *  singular and plural runtimes below differ only in `Ctx`, never in the
- *  supervision members. The `router` is FINAL (no consumer re-finalizes the
- *  surface via oRPC `implement`); `done` rejects on an owned runtime fault (a
- *  cell connector rejecting) and resolves on a clean `close`; `close` releases
- *  every owned source and is idempotent. */
+ *  axis (group + handlers + ctx + done + close) parameterized over its ctx
+ *  shape, so the singular and plural runtimes below differ only in `Ctx`, never
+ *  in the supervision members. `done` rejects on an owned runtime fault (a cell
+ *  connector rejecting) and resolves on a clean `close`; `close` releases every
+ *  owned source and is idempotent. */
 export interface SurfaceRuntimeHandle<Ctx> {
-  /** The FINAL top-level oRPC router — ready for `RPCHandler` / `serveOverStdio`
-   *  / `directLink`, or to spread beside a consumer's own raw namespaces. */
-  readonly router: unknown;
+  /** The flat `RpcGroup` this runtime serves — every member's `Rpc`, keyed by
+   *  the same tags {@link SurfaceRuntimeHandle.handlers} is keyed by. Hand the
+   *  pair to `group.toLayer(handlers)` for a wire server. */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler, keyed by FULL wire tag. See
+   *  {@link SurfaceHandlers}. */
+  readonly handlers: SurfaceHandlers;
   /** The typed cells/collections/events mutation ctx (domain writes). */
   readonly ctx: Ctx;
   /** Rejects on an owned runtime fault; resolves on a clean {@link close}. A
@@ -1723,14 +1959,20 @@ export interface SurfaceRuntime<S extends SurfaceSpec>
 
 /** The plural sibling of {@link SurfaceRuntime} — the return of
  *  {@link implementSurfaces} / {@link implementSurfacesOnPublisher}. `ctx` is
- *  keyed per sibling surface; `router`/`done`/`close` supervise the whole map. */
+ *  keyed per sibling surface; `group`/`handlers`/`done`/`close` cover the whole
+ *  map. */
 export interface SurfacesRuntime<S extends SurfaceMap>
   extends SurfaceRuntimeHandle<SurfacesCtx<S>> {}
 
-/** Build the full server router from a surface + dep wiring. Replaces the
- *  hand-listed `t.X.<verb>.handler(handlers.<verb>)` plumbing for every
- *  cell, collection, stream, event, and imperative procedure declared in
- *  the surface.
+/** Walk a single surface's spec and bind every cell/collection/stream/event/
+ *  procedure into `handlers`, keyed by the member's FULL wire tag. The tag rule
+ *  is `surfaceTag(surface.tagPrefix, member, verb)` — the SAME algebra
+ *  `defineSurface` mints with, read off the surface value, so a standalone
+ *  surface and a composed sibling differ only in the prefix they carry and this
+ *  walk never learns which it is looking at.
+ *
+ *  Shared by `implementSurface` (singular) and `implementSurfaces` (plural)
+ *  so the two paths can never drift on how a primitive is wired.
  *
  *  Channel naming is surface-driven and not configurable: cells use
  *  `"<key>:changed"`, collections use `"<key>:keys"` + `"<key>:deltas"` +
@@ -1740,51 +1982,52 @@ export interface SurfacesRuntime<S extends SurfaceMap>
  *  persisted subscriptions, prefer adding a new key and migrating off the
  *  old one.
  *
- *  Returns a supervised `SurfaceRuntime` `{ router, ctx, done, close }`.
- *  `router` is the FINAL top-level router — serve it directly (no re-finalize
- *  via oRPC `implement`). To sit a surface beside raw-oRPC procedures the
- *  surface can't model (custom `onRetry`, binary framing, subscribe-before-
- *  yield), spread the built router's own `surface` namespaces into an assembled
- *  object rather than re-running `implement`; use `ctx` from domain code for
- *  typed mutations.
- */
-/** Walk a single surface's spec and wire every cell/collection/stream/event/
- *  procedure onto `root` — the oRPC builder node *at the surface root* (i.e.
- *  `implement(contract).surface` for a lone surface, or
- *  `implement(combined).surface[key]` for a keyed sibling). Returns the
- *  per-key handler namespaces (to feed `root.router(...)` /
- *  `t.router({ [key]: namespaces })`) plus the typed mutation `ctx`.
- *
- *  Shared by `implementSurface` (singular) and `implementSurfaces` (plural)
- *  so the two paths can never drift on how a primitive is wired.
- *
  *  `channel` is supplied by the constructor, NOT by the public deps: the
  *  ordinary constructor owns an internal `inMemoryChannelByName()`, and the
  *  `*OnPublisher` constructor injects the caller's shared channel. So the walk
  *  takes the public deps PLUS the resolved channel factory. */
 function walkSurface<const S extends SurfaceSpec>(
-  // biome-ignore lint/suspicious/noExplicitAny: the oRPC builder node is too dynamic for our runtime walk; spec types carry call-site safety.
-  root: any,
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S> & {
     channel: <T>(name: string) => Channel<T>;
   },
   identity?: BakedIdentity,
 ): {
-  namespaces: Record<string, Record<string, unknown>>;
+  handlers: SurfaceHandlers;
   ctx: SurfaceCtx<S>;
   starts: SurfaceSourceStart[];
 } {
   const spec = surface.spec;
+  const tagPrefix = surface.tagPrefix;
 
   const cellsCtx: Record<string, unknown> = {};
   const collectionsCtx: Record<string, unknown> = {};
-  const namespaces: Record<string, Record<string, unknown>> = {};
+  const handlers = emptyHandlers();
+  /** Bind one member verb at its wire tag. Throws on a duplicate: the flat tag
+   *  namespace means two members can spell the same tag, and a silent overwrite
+   *  would drop one side's handler while the group still advertises the route.
+   *  `defineSurface`'s `claim()` makes that unrepresentable on the GROUP side;
+   *  this is the same guarantee on the HANDLER side, so neither walk can drift
+   *  into a last-writer-wins `Map.set`. */
+  const bind = (
+    member: string,
+    verb: string,
+    handler: SurfaceHandler,
+  ): void => {
+    const tag = surfaceTag(tagPrefix, member, verb);
+    if (tag in handlers) {
+      throw new Error(
+        `implementSurface: duplicate handler for wire tag "${tag}" (member "${member}", verb "${verb}").`,
+      );
+    }
+    handlers[tag] = handler;
+  };
+
   // Deferred STARTS for the owned async sources this surface declares (today:
   // cell connectors). Collected here but NOT invoked — the caller starts them
-  // only after the whole surface (and, for a sibling map, every sibling + the
-  // final router) validates, so construction is transactional. The returned
-  // runtime supervises the started sources via `done` / `close`.
+  // only after the whole surface (and, for a sibling map, every sibling) validates,
+  // so construction is transactional. The returned runtime supervises the started
+  // sources via `done` / `close`.
   const starts: SurfaceSourceStart[] = [];
 
   // ── Reactor sibling-read (`$`) machinery ───────────────────────────────
@@ -1989,7 +2232,7 @@ function walkSurface<const S extends SurfaceSpec>(
         seed: () => rawStore.set(computeDeps.store.get()),
       });
     }
-    const handlers = cellHandlers(
+    const memberHandlers = cellHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.cells as any)[key] as Cell<string, unknown>,
       {
@@ -2075,17 +2318,16 @@ function walkSurface<const S extends SurfaceSpec>(
     // equals/onWrite/store.set/bus.publish path — without exposing `set` on a
     // derived cell's public ctx.
     //
-    // The connector is now an OWNED SOURCE (not fire-and-forget): it receives an
+    // The connector is an OWNED SOURCE (not fire-and-forget): it receives an
     // abort signal and MAY return a disposer, and its settle is tracked so a
     // fault reaches the runtime's `done` (never floats) and `close` aborts +
     // disposes it. A `void`-returning connector keeps working unchanged.
     if (cellDeps.connect) {
       const connect = cellDeps.connect;
       // DEFER the start: collect a thunk rather than firing the connector here,
-      // so an invalid LATER member (or a router-assembly throw upstream) can
-      // never leave this connector spun up with no abort owner / no fault
-      // observer. The caller invokes the thunk only after the whole surface —
-      // and, for a sibling map, every sibling plus the final router — has
+      // so an invalid LATER member can never leave this connector spun up with
+      // no abort owner / no fault observer. The caller invokes the thunk only
+      // after the whole surface — and, for a sibling map, every sibling — has
       // validated.
       starts.push(() => {
         const ctl = new AbortController();
@@ -2118,15 +2360,12 @@ function walkSurface<const S extends SurfaceSpec>(
       });
     }
 
-    const verbs = resolveCellVerbs(cellSpec);
-    const ns: Record<string, unknown> = {};
-    for (const v of verbs) {
+    for (const v of resolveCellVerbs(cellSpec)) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
-      const h = (handlers as any)[v];
+      const h = (memberHandlers as any)[v] as SurfaceHandler | undefined;
       if (h === undefined) continue;
-      ns[v] = root[key][v].handler(h);
+      bind(key, v, h);
     }
-    namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
 
   // ── Collections ──────────────────────────────────────────────────────
@@ -2363,7 +2602,7 @@ function walkSurface<const S extends SurfaceSpec>(
       });
     }
 
-    const handlers = collectionHandlers(
+    const memberHandlers = collectionHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.collections as any)[key] as Collection<
         string,
@@ -2381,14 +2620,12 @@ function walkSurface<const S extends SurfaceSpec>(
       },
     );
 
-    const ns: Record<string, unknown> = {};
     for (const v of collVerbs) {
       // biome-ignore lint/suspicious/noExplicitAny: handler map indexed by verb string
-      const h = (handlers as any)[v];
+      const h = (memberHandlers as any)[v] as SurfaceHandler | undefined;
       if (h === undefined) continue;
-      ns[v] = root[key][v].handler(h);
+      bind(key, v, h);
     }
-    namespaces[key] = { ...(namespaces[key] ?? {}), ...ns };
   }
 
   // ── Streams ──────────────────────────────────────────────────────────
@@ -2396,10 +2633,7 @@ function walkSurface<const S extends SurfaceSpec>(
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const streamDeps = (deps.streams as any)?.[key] as
       | {
-          source?: (
-            i: unknown,
-            s: AbortSignal | undefined,
-          ) => AsyncIterable<unknown>;
+          source?: (i: unknown) => Stream.Stream<unknown>;
           read?: (i: unknown) => Promise<unknown>;
           install?: (i: unknown, onEvent: () => void) => () => void;
           isEqual?: (a: unknown, b: unknown) => boolean;
@@ -2413,10 +2647,7 @@ function walkSurface<const S extends SurfaceSpec>(
     // directly. The poll shape is the common case for external mutable
     // state (git, fs); the framework owns `pollOnEvent` so consumers
     // don't repeat the snapshot+install+re-read+isEqual plumbing per stream.
-    let source: (
-      i: unknown,
-      s: AbortSignal | undefined,
-    ) => AsyncIterable<unknown>;
+    let source: (i: unknown) => Stream.Stream<unknown>;
     if (streamDeps.source) {
       source = streamDeps.source;
     } else if (streamDeps.read && streamDeps.install && streamDeps.isEqual) {
@@ -2436,32 +2667,36 @@ function walkSurface<const S extends SurfaceSpec>(
           `implementSurface: stream "${key}" uses poll shape but has no onReadError — supply per-stream or set top-level onStreamReadError`,
         );
       }
-      source = (input, signal) =>
-        pollOnEvent({
-          read: () => read(input),
-          install: (cb) => install(input, cb),
-          isEqual,
-          signal,
-          onReadError,
-        });
+      // `pollOnEvent` is an AsyncIterable producer that cancels through an
+      // `AbortSignal` (its `install` teardown runs when the loop observes the
+      // abort), so it bridges to a `Stream` at ITS OWN edge — the D10 rule. The
+      // signal is scoped to the stream, so interrupting the consuming fiber tears
+      // the poll loop down exactly as the old per-call `signal` did.
+      source = (input) =>
+        streamFromAbortableSource((signal) =>
+          pollOnEvent({
+            read: () => read(input),
+            install: (cb) => install(input, cb),
+            isEqual,
+            signal,
+            onReadError,
+          }),
+        );
     } else {
       throw new Error(
         `implementSurface: stream "${key}" needs either { source } or { read, install, isEqual }`,
       );
     }
-    const handlers = streamHandlers(
+    const memberHandlers = streamHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
-      (surface.descriptors.streams as any)[key] as Stream<
+      (surface.descriptors.streams as any)[key] as StreamDescriptor<
         string,
         unknown,
         unknown
       >,
       { source },
     );
-    namespaces[key] = {
-      ...(namespaces[key] ?? {}),
-      get: root[key].get.handler(handlers.get),
-    };
+    bind(key, "get", memberHandlers.get);
   }
 
   // ── Events ───────────────────────────────────────────────────────────
@@ -2475,9 +2710,8 @@ function walkSurface<const S extends SurfaceSpec>(
       | {
           source?: (
             i: unknown,
-            s: AbortSignal | undefined,
             helpers: { bus: Channel<unknown> },
-          ) => AsyncIterable<unknown>;
+          ) => Stream.Stream<unknown>;
         }
       | undefined;
     const busFor = (input: unknown): Channel<unknown> =>
@@ -2488,16 +2722,13 @@ function walkSurface<const S extends SurfaceSpec>(
       },
     };
     const consumerSource = eventDeps?.source;
-    const source = (
-      input: unknown,
-      signal: AbortSignal | undefined,
-    ): AsyncIterable<unknown> => {
+    const source = (input: unknown): Stream.Stream<unknown> => {
       const bus = busFor(input);
       return consumerSource
-        ? consumerSource(input, signal, { bus })
-        : bus.subscribe(signal);
+        ? consumerSource(input, { bus })
+        : channelStream(bus);
     };
-    const handlers = eventHandlers(
+    const memberHandlers = eventHandlers(
       // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
       (surface.descriptors.events as any)[key] as Event<
         string,
@@ -2506,10 +2737,7 @@ function walkSurface<const S extends SurfaceSpec>(
       >,
       { source },
     );
-    namespaces[key] = {
-      ...(namespaces[key] ?? {}),
-      get: root[key].get.handler(handlers.get),
-    };
+    bind(key, "get", memberHandlers.get);
   }
 
   // ── Procedures ───────────────────────────────────────────────────────
@@ -2519,10 +2747,12 @@ function walkSurface<const S extends SurfaceSpec>(
     events: eventsCtx,
   };
   for (const [ns, procs] of Object.entries(spec.procedures ?? {})) {
-    namespaces[ns] = namespaces[ns] ?? {};
     // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the keyed deps
     const procDeps = (deps.procedures as any)?.[ns] as
-      | Record<string, (opts: unknown) => unknown>
+      | Record<
+          string,
+          (opts: { input: unknown; ctx: unknown }) => SurfaceHandlerResult
+        >
       | undefined;
     for (const verb of Object.keys(procs)) {
       const handler = procDeps?.[verb];
@@ -2531,55 +2761,36 @@ function walkSurface<const S extends SurfaceSpec>(
           `implementSurface: missing handler for procedure "${ns}.${verb}"`,
         );
       }
-      namespaces[ns][verb] = root[ns][verb].handler(
-        // biome-ignore lint/suspicious/noExplicitAny: oRPC handler opts are dynamic; ctx is typed via SurfaceCtx<S>
-        (opts: any) => handler({ ...opts, ctx }),
-      );
+      bind(ns, verb, (input: unknown) => handler({ input, ctx }));
     }
   }
 
   // Auto-answer the framework-reserved liveness probe (see @kolu/surface
-  // ./liveness). It lives only in the contract (`defineSurface` injects it),
-  // never in `spec`, so the procedures loop above neither demanded a dep nor
-  // bound it — bind it here, merged into any app-owned `system.*` handlers, with
-  // a trivial `{}` reply (resolution is the liveness signal). No app implements
-  // it, so a client heartbeat / ssh watchdog gets a contract-agnostic round-trip
-  // for free.
-  namespaces[LIVENESS_NAMESPACE] = {
-    ...(namespaces[LIVENESS_NAMESPACE] ?? {}),
-    [LIVENESS_VERB]: root[LIVENESS_NAMESPACE][LIVENESS_VERB].handler(
-      () => ({}),
-    ),
-  };
+  // ./liveness). It lives only in the group (`defineSurface` claims it), never in
+  // `spec`, so the procedures loop above neither demanded a dep nor bound it —
+  // bind it here, with a trivial `{}` reply (resolution is the liveness signal).
+  // No app implements it, so a client heartbeat / ssh watchdog gets a
+  // surface-agnostic round-trip for free.
+  bind(LIVENESS_NAMESPACE, LIVENESS_VERB, () => Effect.succeed({}));
 
   // Auto-answer the framework-reserved identity probe (see @kolu/surface
   // ./identity), the identity twin of `system.live` in the SAME reserved `system`
   // namespace. Stamps the server's process start; a server that DECLARED a build
   // (`identity` arg — only padi does) is served `identified`, else `anonymous`. No
   // app implements it. The served value is constant for the process lifetime, so
-  // compute it once. (Merged into the same `system` namespace the liveness verb
-  // just wrote — the spread preserves `live`.)
+  // compute it once.
   const servedIdentity = serveIdentity(SERVER_STARTED_AT, identity);
-  namespaces[IDENTITY_NAMESPACE] = {
-    ...(namespaces[IDENTITY_NAMESPACE] ?? {}),
-    [IDENTITY_VERB]: root[IDENTITY_NAMESPACE][IDENTITY_VERB].handler(
-      () => servedIdentity,
-    ),
-  };
+  bind(IDENTITY_NAMESPACE, IDENTITY_VERB, () => Effect.succeed(servedIdentity));
 
   // Auto-answer the framework-reserved clock probe (see @kolu/surface ./clockNow),
   // the clock twin of `system.live`/`system.identity` in the SAME reserved `system`
   // namespace. Replies with this process's own wall clock — computed FRESH per call
   // (unlike the constant identity), since a consumer measures the far-end clock
-  // OFFSET off it at admit (`Date.now()` is already the uptime source above). No app
-  // implements it. (Merged into the same `system` namespace — the spread preserves
-  // `live` and `identity`.)
-  namespaces[CLOCK_NOW_NAMESPACE] = {
-    ...(namespaces[CLOCK_NOW_NAMESPACE] ?? {}),
-    [CLOCK_NOW_VERB]: root[CLOCK_NOW_NAMESPACE][CLOCK_NOW_VERB].handler(() => ({
-      epochMs: Date.now(),
-    })),
-  };
+  // OFFSET off it at admit (`Date.now()` is already the uptime source above). No
+  // app implements it.
+  bind(CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB, () =>
+    Effect.sync(() => ({ epochMs: Date.now() })),
+  );
 
   // ── Bind compute cells ($ read face) ───────────────────────────────────
   // Every member has validated and every cell/collection sibling source now
@@ -2592,31 +2803,13 @@ function walkSurface<const S extends SurfaceSpec>(
   // orders the pull, only a genuine cycle fails. A seed throw here is a boot crash
   // (mirror-never-fabricate); the graph subscriptions it installs are walk-local
   // closures, discarded with the walk if a throw unwinds it.
-  for (const { bind } of bindComputeCells) bind(siblingSources);
+  for (const { bind: bindSiblings } of bindComputeCells)
+    bindSiblings(siblingSources);
   for (const { seed } of bindComputeCells) seed();
 
-  return { namespaces, ctx: ctx as SurfaceCtx<S>, starts };
+  return { handlers, ctx: ctx as SurfaceCtx<S>, starts };
 }
 
-/** Build a directly-servable, supervised {@link SurfaceRuntime} from a surface +
- *  dep wiring. Replaces the hand-listed `t.X.<verb>.handler(handlers.<verb>)`
- *  plumbing for every cell, collection, stream, event, and imperative procedure
- *  declared in the surface.
- *
- *  Returns a {@link SurfaceRuntime}:
- *
- *    - `router` — the FINAL top-level oRPC router. Hand it straight to
- *      `RPCHandler` / `serveOverStdio` / `directLink`, or spread its
- *      `.surface` beside a consumer's own raw namespaces (kolu's server splices
- *      `server`/`daemon` this way). No consumer re-finalizes via `implement`.
- *    - `ctx` — the typed cells/collections/events helper map. Domain code
- *      mutates via `surfaceCtx.cells.X.set(value)` etc. — the surface owns the
- *      apply+publish chain, so parallel `store.set + bus.publish` paths (and
- *      their drift risk) don't exist.
- *    - `done` / `close` — the supervision contract: `done` rejects on an owned
- *      fault (a cell connector rejecting), `close` releases every owned source
- *      and is idempotent. A serving site MUST observe `done` and route it into
- *      its existing failure policy. */
 /** Optional serve-time knobs for {@link implementSurface}. */
 export interface ImplementSurfaceOptions {
   /** The server's DECLARED build triple — what the reserved `system.identity` serves
@@ -2630,9 +2823,9 @@ export interface ImplementSurfaceOptions {
 /** Serve a single surface as a directly-servable, supervised
  *  {@link SurfaceRuntime}. Owns an internal `inMemoryChannelByName()` — the
  *  in-process channel factory every self-contained consumer was passing by hand.
- *  A consumer that must serve on a SHARED, caller-owned publisher (cross-channel
- *  microtask order load-bearing) reaches for {@link implementSurfaceOnPublisher}
- *  instead — a distinct ownership promise, never a mode flag. */
+ *  A consumer that must serve on a SHARED, caller-owned publisher reaches for
+ *  {@link implementSurfaceOnPublisher} instead — a distinct ownership promise,
+ *  never a mode flag. */
 export function implementSurface<const S extends SurfaceSpec>(
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
@@ -2649,39 +2842,30 @@ export function implementSurface<const S extends SurfaceSpec>(
 /** Serve a single surface on a caller-provided channel factory (a shared
  *  publisher whose lifetime the runtime does NOT own — the runtime's `close`
  *  releases only what IT minted). Distinct from {@link implementSurface}
- *  because kolu's shared `MemoryPublisher` carries non-surface channels too, so
- *  its cross-channel microtask order is load-bearing and its teardown is the
- *  caller's, not the surface's. */
+ *  because kolu's shared publisher carries non-surface channels too, so its
+ *  teardown is the caller's, not the surface's. */
 export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
   surface: Surface<S>,
   deps: ImplementSurfaceDeps<S>,
   channel: <T>(name: string) => Channel<T>,
   opts?: ImplementSurfaceOptions,
 ): SurfaceRuntime<S> {
-  // oRPC's typed implement(contract) chain is too dynamic for our walk
-  // (we walk the spec at runtime to wire each entry); cast the whole
-  // builder + result to `any` and rely on the surface's spec types for
-  // call-site safety.
-  // biome-ignore lint/suspicious/noExplicitAny: see comment above
-  const t = implement(surface.contract as any) as any;
-  const { namespaces, ctx, starts } = walkSurface(
-    t.surface,
+  const { handlers, ctx, starts } = walkSurface(
     surface,
     { ...deps, channel },
     opts?.identity,
   );
-  // The FINAL top-level router: `implement(contract).router({ ...fragment })`
-  // flattens the bare `{ surface: t.router(namespaces) }` fragment (which
-  // would double-prefix to `/surface/surface/…`) to `/surface/…`. No consumer
-  // re-finalizes the surface via oRPC `implement` anymore.
-  // biome-ignore lint/suspicious/noExplicitAny: Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-  const router = t.router({ surface: t.router(namespaces) }) as any;
+  // Route-set identity (D1): the group `defineSurface` minted and the handlers
+  // this file bound must be the SAME tag set, or the surface serves a route
+  // nobody answers (a 404 at the far end) or answers a route nobody advertises
+  // (dead code). Both are boot crashes.
+  assertHandlersMatchGroup(surface.group, handlers, "implementSurface");
   // Transactional construction: only NOW — after the walk validated every member
-  // and the router assembled without throwing — do we start the connectors. A
-  // throw above returns before any source spins up, so none can be orphaned.
+  // and the route set proved out — do we start the connectors. A throw above
+  // returns before any source spins up, so none can be orphaned.
   const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
-  return { router, ctx, done, close };
+  return { group: surface.group, handlers, ctx, done, close };
 }
 
 // ── extendSurface — compose a local runtime onto a re-served one ────────
@@ -2690,12 +2874,13 @@ export function implementSurfaceOnPublisher<const S extends SurfaceSpec>(
  *  {@link extendSurface} composes. `reServeSurface`'s `ReServedSurface` (the
  *  re-served BASE) satisfies it directly; a local `implementSurface` runtime does
  *  once its `surface` is carried alongside (the runtime alone omits the descriptor,
- *  which the composition needs to build the combined contract). */
+ *  which the composition needs to build the combined group). */
 export interface ServedSurface<S extends SurfaceSpec> {
-  /** The surface this runtime serves — its descriptor, for the combined contract. */
+  /** The surface this runtime serves — its descriptor, for the combined group. */
   readonly surface: Surface<S>;
-  /** The FINAL top-level oRPC router (built against `surface`'s contract). */
-  readonly router: unknown;
+  /** Every bound member handler, keyed by FULL wire tag (built against
+   *  `surface`'s own tag prefix). */
+  readonly handlers: SurfaceHandlers;
   /** Rejects on an owned fault; the base's resolves on its terminal end. */
   readonly done: Promise<void>;
   /** Release this runtime's owned sources. Idempotent. */
@@ -2729,15 +2914,16 @@ export type ComposedSurfaceSpec<
 };
 
 /** The composed runtime {@link extendSurface} returns — the combined surface plus
- *  the supervision contract. `router` serves EVERY base + extension member FLAT
- *  under one `surface` namespace (byte-identical paths), `done` settles when the
- *  base's terminal source ends (or either runtime faults), `close` releases both. */
+ *  the supervision contract. `group`/`handlers` serve EVERY base + extension member
+ *  FLAT under one `surface/` tag prefix (byte-identical tags), `done` settles when
+ *  the base's terminal source ends (or either runtime faults), `close` releases both. */
 export interface ExtendedSurface<
   Base extends SurfaceSpec,
   Ext extends SurfaceSpec,
 > {
   readonly surface: Surface<ComposedSurfaceSpec<Base, Ext>>;
-  readonly router: unknown;
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
   readonly done: Promise<void>;
   close(): Promise<void>;
 }
@@ -2790,6 +2976,18 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
   return merged as SurfaceSpec;
 }
 
+/** The three framework-RESERVED wire tags every surface carries, for the given
+ *  tag prefix. They are the ONE legitimate overlap between two composed
+ *  runtimes: every surface claims them, so a composition must resolve them by
+ *  policy (base-authoritative) rather than treat them as a collision. */
+function reservedTags(tagPrefix: string): ReadonlySet<string> {
+  return new Set([
+    surfaceTag(tagPrefix, LIVENESS_NAMESPACE, LIVENESS_VERB),
+    surfaceTag(tagPrefix, IDENTITY_NAMESPACE, IDENTITY_VERB),
+    surfaceTag(tagPrefix, CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB),
+  ]);
+}
+
 /** Compose a LOCAL runtime onto a RE-SERVED one, into one served surface (SR5 —
  *  parent-owned additions stay causally separate from mirroring). The BASE is a
  *  re-served surface (`reServeSurface`, a mirror of a remote agent); `ext` is a
@@ -2798,13 +2996,24 @@ function mergeSurfaceSpecs(a: SurfaceSpec, b: SurfaceSpec): SurfaceSpec {
  *  mirror — so a parent keeps a local member (drishti's `metricHistory`) without an
  *  inert agent-side stub on the shared surface.
  *
- *  The result serves EVERY base + extension member FLAT under one `surface`
- *  namespace, at byte-identical paths — the composition is wire-matchable because
- *  both already-built router fragments are passed THROUGH `implement(combined)`'s
- *  `t.router({...})`, which re-adapts them against the combined contract's matcher
- *  meta (the same splice `buildAppRouter` uses for the re-served padi sibling; a
- *  fragment carries no matcher meta of its own, so binding against the combined
- *  contract is load-bearing, not decorative — pinned by a matcher-tree test).
+ *  The result serves EVERY base + extension member FLAT under one `surface/` tag
+ *  prefix, at byte-identical tags. On a FLAT tag namespace the composition is a
+ *  plain record merge over the combined group — there is no router fragment to
+ *  re-adapt against a matcher, because a tag carries its own route. What used to
+ *  need `implement(combined).router({...})` (so a fragment picked up the combined
+ *  contract's matcher meta) is now proved directly:
+ *  {@link assertHandlersMatchGroup} pins the merged handler set against
+ *  `combined.group.requests`, so "every member routes, at the same tag it had
+ *  standalone" is an assertion, not an inference.
+ *
+ *  Collision policy is `claim` semantics, exactly as `defineSurface`'s walk:
+ *  a tag claimed by BOTH sides throws — EXCEPT the three framework-reserved
+ *  `system/*` tags, which every surface carries and which resolve
+ *  BASE-AUTHORITATIVE (the base carries the re-served agent's identity and
+ *  liveness gate; a local retention ring adds no gate). An APP-OWNED verb in the
+ *  same namespace (`procedures.system.echo`) has its OWN tag, so it is preserved
+ *  by construction rather than by a deep-merge — the flat namespace makes the old
+ *  per-verb spread unnecessary.
  *
  *  Supervision routes through {@link superviseTerminalSource}: the base is the
  *  TERMINAL driver (its mirror pump ends when the remote session is destroyed, the
@@ -2832,39 +3041,25 @@ export function extendSurface<
     ) as unknown as SurfaceSpec<never>,
   ) as unknown as Surface<ComposedSurfaceSpec<Base, Ext>>;
 
-  // Re-adapt BOTH already-built fragments against the combined contract's matcher
-  // meta. `implement(combined.contract).router({ surface: {...} })` attaches the
-  // wire routes a fragment carries none of its own (the `buildAppRouter` splice).
-  // biome-ignore lint/suspicious/noExplicitAny: oRPC's implement chain is too dynamic for the runtime splice; the combined contract carries the matcher meta (pinned by extendSurface.test's matcher-tree assertion).
-  const t = implement(combined.contract as any) as any;
-  const baseNs = (base.router as { surface: Record<string, unknown> }).surface;
-  const extNs = (ext.router as { surface: Record<string, unknown> }).surface;
-  // Splice the two flat surface namespaces. `mergeSurfaceSpecs` guarantees the
-  // DECLARED members are disjoint (checked on the flat per-name wire axis), so the
-  // only members present in BOTH are framework-injected reserved namespaces
-  // (`system`). Those are DEEP-merged per verb rather than overwritten wholesale:
-  // the BASE is authoritative on the reserved verbs (live/identity/clockNow — it
-  // carries the re-served agent's identity + liveness gate, whereas a local `ext`
-  // retention ring adds no gate), while any APP-OWNED verb the extension declared on
-  // the same namespace (e.g. `procedures.system.echo`, which the combined contract
-  // advertises) is PRESERVED — a shallow last-wins spread would silently drop it and
-  // 404 the advertised route. `t` is already `any`; the spliced runtime shape is a
-  // valid router re-adapted against the combined contract (pinned by the matcher test).
-  const surfaceNs: Record<string, unknown> = { ...extNs };
-  for (const [name, baseMember] of Object.entries(baseNs)) {
-    const extMember = surfaceNs[name];
-    surfaceNs[name] =
-      extMember &&
-      typeof extMember === "object" &&
-      baseMember &&
-      typeof baseMember === "object"
-        ? {
-            ...(extMember as Record<string, unknown>),
-            ...(baseMember as Record<string, unknown>),
-          }
-        : baseMember;
+  // Merge the two handler records. Extension first, then base — so the reserved
+  // `system/*` tags (present in BOTH) resolve base-authoritative, and any other
+  // double-claim is a loud throw rather than a silent last-writer-wins overwrite.
+  const reserved = reservedTags(combined.tagPrefix);
+  const handlers = emptyHandlers();
+  for (const [tag, handler] of Object.entries(ext.handlers)) {
+    handlers[tag] = handler;
   }
-  const router = t.router({ surface: surfaceNs }) as unknown;
+  for (const [tag, handler] of Object.entries(base.handlers)) {
+    if (tag in handlers && !reserved.has(tag)) {
+      throw new Error(
+        `extendSurface: the base and extension both bind wire tag "${tag}" — a composed surface can't have two handlers for one tag, rename one member.`,
+      );
+    }
+    handlers[tag] = handler;
+  }
+  // Route-set identity: every tag the combined group advertises has exactly one
+  // handler, and no handler sits at a tag the group never minted.
+  assertHandlersMatchGroup(combined.group, handlers, "extendSurface");
 
   // Supervise through the framework's terminal-source combinator: the base (a
   // re-served mirror) is the TERMINAL driver — its `done` resolves when the remote
@@ -2878,14 +3073,14 @@ export function extendSurface<
     close: base.close,
   });
 
-  return { surface: combined, router, done, close };
+  return { surface: combined, group: combined.group, handlers, done, close };
 }
 
 // ── implementSurfaces — sibling surfaces over one transport ─────────────
 
 /** A keyed map of independent surfaces — the single source of *which*
  *  surfaces exist under *which* keys. Browser-safe (no server impls), so the
- *  same value feeds `composeSurfaceContracts` (contract), `surfaceClients`
+ *  same value feeds `composeSurfaceContracts` (group), `surfaceClients`
  *  (client), and `implementSurfaces` (server). Each surface is served as a
  *  SIBLING namespaced by its key — they are NOT merged into one surface. */
 // biome-ignore lint/suspicious/noExplicitAny: the map is heterogeneous; each value pins its own SurfaceSpec.
@@ -2907,28 +3102,6 @@ export type SurfacesCtx<S extends SurfaceMap> = {
   [K in keyof S]: S[K] extends Surface<infer Spec> ? SurfaceCtx<Spec> : never;
 };
 
-/** Serve a keyed MAP of independent surfaces multiplexed over one transport,
- *  each namespaced by its key. Unlike `implementSurface`, the surfaces are NOT
- *  merged — surface-app stays a complete surface served as a sibling of the
- *  app surface under its own key.
- *
- *  Three args, mirroring the contract/client side: `surfaces` (the same
- *  browser-safe `SurfaceMap` you pass to `composeSurfaceContracts` /
- *  `surfaceClients` — the single source of keys+surfaces), `base` (the one
- *  transport's `channel` + fallback `onStreamReadError`), and `deps` (the
- *  server-only per-surface impls, keyed the same as `surfaces`). The surfaces
- *  aren't re-listed here; only their deps are.
- *
- *  Routing: a combined contract of shape `{ surface: { <key>: innerContract } }`
- *  is built from `surfaces` (via `composeSurfaceContracts`, the same receptacle
- *  the contract side uses), then each surface's handlers are bound under
- *  `t.surface[key]`. Procedures route at `/surface/<key>/<prim>/<verb>` — no
- *  double-prefix, because the inner contract is re-keyed rather than raw-nested.
- *
- *  Channels are key-namespaced: each surface's `channel(name)` call is rewritten
- *  to `base.channel(key + "/" + name)`, so two surfaces that each own e.g. a
- *  `buildInfo:changed` channel can't collide on the wire. `base.onStreamReadError`
- *  is the fallback for any surface whose deps don't supply their own. */
 /** The transport-level base for {@link implementSurfaces} — everything shared
  *  across the sibling surfaces EXCEPT the channel factory (which the ordinary
  *  constructor owns internally; {@link implementSurfacesOnPublisher} injects). */
@@ -2943,6 +3116,29 @@ export interface ImplementSurfacesBase<S extends SurfaceMap> {
   identity?: { [K in keyof S]?: BakedIdentity };
 }
 
+/** Serve a keyed MAP of independent surfaces multiplexed over one transport,
+ *  each namespaced by its key. Unlike `implementSurface`, the surfaces are NOT
+ *  merged — surface-app stays a complete surface served as a sibling of the
+ *  app surface under its own key.
+ *
+ *  Three args, mirroring the group/client side: `surfaces` (the same
+ *  browser-safe `SurfaceMap` you pass to `composeSurfaceContracts` /
+ *  `surfaceClients` — the single source of keys+surfaces), `base` (the one
+ *  transport's `channel` + fallback `onStreamReadError`), and `deps` (the
+ *  server-only per-surface impls, keyed the same as `surfaces`). The surfaces
+ *  aren't re-listed here; only their deps are.
+ *
+ *  Routing: `composeSurfaceContracts` re-walks each sibling's spec with the
+ *  sibling tag prefix, so every member lands at `surface/<key>/<member>/<verb>`
+ *  in ONE flat group — no double-prefix, and no bare `RpcGroup.merge` (which
+ *  would silently collide the three reserved `system/*` tags across siblings).
+ *  The handler walk binds against the SAME per-sibling `Surface` value, so it
+ *  never learns it is scoped.
+ *
+ *  Channels are key-namespaced: each surface's `channel(name)` call is rewritten
+ *  to `base.channel(key + "/" + name)`, so two surfaces that each own e.g. a
+ *  `buildInfo:changed` channel can't collide on the wire. `base.onStreamReadError`
+ *  is the fallback for any surface whose deps don't supply their own. */
 export function implementSurfaces<const S extends SurfaceMap>(
   surfaces: S,
   base: ImplementSurfacesBase<S>,
@@ -2956,10 +3152,9 @@ export function implementSurfaces<const S extends SurfaceMap>(
 }
 
 /** The shared-publisher sibling of {@link implementSurfaces}: the caller injects
- *  the one transport's `channel` (a shared `MemoryPublisher` whose lifetime the
- *  runtime does NOT own). Distinct constructor, not a mode flag — the shared
- *  publisher's cross-channel microtask order is load-bearing (kolu's terminal
- *  list vs. per-terminal exit ordering) and its teardown is the caller's. */
+ *  the one transport's `channel` (a shared publisher whose lifetime the runtime
+ *  does NOT own). Distinct constructor, not a mode flag — the shared publisher
+ *  carries non-surface channels too, and its teardown is the caller's. */
 export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
   surfaces: S,
   base: ImplementSurfacesBase<S> & {
@@ -2967,18 +3162,17 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
   },
   deps: SurfaceDepsFor<S>,
 ): SurfacesRuntime<S> {
-  // The combined contract envelope has ONE definition — the receptacle the
-  // contract side already uses. We re-key rather than raw-nest the built
-  // routers (a built router keeps its baked `surface.*` path, which would
-  // double-prefix to /surface/<key>/surface/…).
-  const combinedContract = composeSurfaceContracts(surfaces);
-  // biome-ignore lint/suspicious/noExplicitAny: oRPC implement chain is too dynamic for our runtime walk.
-  const t = implement(combinedContract as any) as any;
+  // The combined group envelope has ONE definition — the receptacle the
+  // group side already uses. Each sibling comes back as a full `Surface`
+  // whose `tagPrefix` is `surface/<key>/`, so the handler walk below is the
+  // SAME walk a standalone surface takes.
+  const composed = composeSurfaceContracts(surfaces);
 
-  const byKey: Record<string, Record<string, Record<string, unknown>>> = {};
+  const handlers = emptyHandlers();
   const ctxByKey: Record<string, unknown> = {};
   const starts: SurfaceSourceStart[] = [];
-  for (const [key, surface] of Object.entries(surfaces)) {
+  for (const key of Object.keys(surfaces)) {
+    const sibling = composed.siblings[key] as Surface<SurfaceSpec>;
     const keyedChannel = <T>(name: string): Channel<T> =>
       base.channel<T>(`${key}/${name}`);
     const surfaceDeps = (
@@ -2988,8 +3182,7 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
       throw new Error(`implementSurfaces: missing deps for surface "${key}"`);
     }
     const walked = walkSurface(
-      t.surface[key],
-      surface,
+      sibling,
       {
         ...surfaceDeps,
         channel: keyedChannel,
@@ -2998,23 +3191,31 @@ export function implementSurfacesOnPublisher<const S extends SurfaceMap>(
       },
       base.identity?.[key as keyof S],
     );
-    byKey[key] = walked.namespaces;
+    for (const [tag, handler] of Object.entries(walked.handlers)) {
+      // Sibling prefixes make cross-sibling tags disjoint by construction, so a
+      // duplicate here means the composition itself is broken — crash rather
+      // than let one sibling's member silently answer for another's.
+      if (tag in handlers) {
+        throw new Error(
+          `implementSurfaces: duplicate wire tag "${tag}" while binding sibling "${key}".`,
+        );
+      }
+      handlers[tag] = handler;
+    }
     ctxByKey[key] = walked.ctx;
     starts.push(...walked.starts);
   }
 
-  // FINAL top-level router (see `implementSurface` — the outer `t.router`
-  // flattens the `{ surface: … }` fragment to `/surface/<key>/…`).
-  // biome-ignore lint/suspicious/noExplicitAny: combined Lazy<Router> spread isn't typed by oRPC; runtime shape is a valid router.
-  const router = t.router({ surface: t.router(byKey) }) as any;
+  assertHandlersMatchGroup(composed.group, handlers, "implementSurfaces");
   // Transactional construction across the WHOLE map: every sibling has been
-  // walked (an invalid one threw above) and the combined router assembled, so
+  // walked (an invalid one threw above) and the route set proved out, so
   // starting the connectors now can never orphan a source spun up for an
   // earlier sibling when a later sibling fails to validate.
   const sources = starts.map((start) => start());
   const { done, close } = superviseSurface(sources);
   return {
-    router,
+    group: composed.group,
+    handlers,
     ctx: ctxByKey as SurfacesCtx<S>,
     done,
     close,
