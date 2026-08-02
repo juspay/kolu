@@ -25,6 +25,7 @@
 
 import { chmodSync, copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
+import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
@@ -32,7 +33,6 @@ import {
   PreferencesSchema,
   ViewerModeSchema,
 } from "kolu-common/surface";
-import { z } from "zod";
 import { log } from "./log.ts";
 
 /** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
@@ -149,13 +149,37 @@ export function migratePreferences_1_34_0(
  *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
  *  resolves an "auto" shuffle against a real answer. Adding a new domain key
  *  requires a migration entry below. */
-const PersistedStateSchema = z.object({
+const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
 });
 
-type PersistedState = z.infer<typeof PersistedStateSchema>;
+/** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
+ *  typed against a MUTABLE record (its `set`/`get` signatures index it), and the
+ *  migration ladder below writes whole domain values back through `store.set`.
+ *  So the store's type parameter is the mutable projection of the decoded shape —
+ *  the SAME fields, the same bytes, just without the `readonly` markers that would
+ *  make every `store.set("preferences", …)` a compile error. Nothing outside this
+ *  module sees it (the schema is deliberately unexported — `.claude/rules/state.md`). */
+type PersistedState = {
+  -readonly [K in keyof typeof PersistedStateSchema.Type]: (typeof PersistedStateSchema.Type)[K];
+};
+
+/** Decode a value against {@link PersistedStateSchema}, as a `Result` — the
+ *  Effect Schema successor of zod's `.safeParse`. Compiled once at module scope:
+ *  `decodeUnknownResult` re-derives the parser per application otherwise, and the
+ *  boot check below runs on every process start.
+ *
+ *  There is NO explicit-`undefined` strip in front of it (PLAN #17's obligation for
+ *  in-process `.parse` callers), and that is a fact about this schema rather than an
+ *  omission: every field of the disk shape — the three top-level keys, all eleven
+ *  `Preferences` fields, both `rightPanel` fields — is REQUIRED. No `optionalKey`
+ *  appears anywhere in it, so there is no key an explicit `undefined` could ride in
+ *  on, and `Schema.optionalKey`'s stricter-than-zod rejection has nothing to bite.
+ *  The one place the repo's optional keys live (`PreferencesPatchSchema`) is a WIRE
+ *  patch, never persisted. */
+const decodePersistedState = Schema.decodeUnknownResult(PersistedStateSchema);
 
 /**
  * Schema version — bump this when adding migrations.
@@ -668,17 +692,19 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
 // invalid `hosts` value additionally crashes the boot loud where it's read
 // (`getPersistedHosts`). No "delete to reset" advice: `hosts` is user data, so blindly
 // deleting the store would empty the fleet — the offending domain must be fixed.
-const result = PersistedStateSchema.safeParse({
+const result = decodePersistedState({
   preferences: store.get("preferences"),
   hosts: store.get("hosts"),
   viewerMode: store.get("viewerMode"),
 });
-if (!result.success) {
-  const summary = result.error.issues
-    .map((i) => `${i.path.join(".")}: ${i.message}`)
-    .join("; ");
+if (Result.isFailure(result)) {
+  // Effect's `SchemaError` renders as a path-annotated tree, so the ONE string
+  // carries what zod's `issues.map(i => …)` summary spelled by hand — every
+  // failing path and its message. Kept on both the message and the structured
+  // field so `journalctl -o json` and a plain tail read the same thing.
+  const summary = String(result.failure);
   log.error(
-    { issues: result.error.issues, path: store.path },
+    { issue: summary, path: store.path },
     `Persisted state does not match schema (${summary}) at ${store.path}.`,
   );
 }
