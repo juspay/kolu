@@ -18,10 +18,13 @@ override) use `./pidGate.testlib` — never re-exported from the production root
 ## The frozen control core
 
 `controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
-onDrain })` implements the immutable `control.core.hello` identity and `drain`
-verb. It is served beside the versioned application surface, so a supervisor can
-identify and drain a resident daemon before knowing whether that versioned
-surface is compatible. The hello fields are fixed:
+onDrain })` implements the immutable `core.hello` identity and `core.drain` verb.
+It is served beside the versioned application surface — composed as the sibling
+`control`, so the two members sit at the wire tags `surface/control/core/hello`
+and `surface/control/core/drain` and cannot collide with anything the application
+surface mints. A supervisor can therefore identify and drain a resident daemon
+before knowing whether that versioned surface is compatible. The hello fields are
+fixed:
 `stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
 `CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
 version. Build id and commit are one observation: the shared reader accepts both
@@ -42,14 +45,27 @@ contract holds again, unchanged.
 
 The wire says only `drain(): void`; it does not promise that every daemon is
 drainable. A daemon whose durable state cannot survive a drain implements the
-verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
-the supervisor capability `not-drainable`, which makes policy-driven invocation
+verb as an honest **refusal** — kaval's `onDrain` throws — and declares the
+supervisor capability `not-drainable`, which makes policy-driven invocation
 unrepresentable. The refusal must leave the daemon and its owned resources alive.
+
+That refusal is a **defect**, not a member error, and deliberately so. `drain`
+declares no error schema (the frozen fragment's shape is not a consumer's to
+widen), so `controlCoreFragment` runs the hook under `Effect.promise`: an
+undeclared throw stays a defect rather than masquerading as something a supervisor
+could narrow on and "handle". The oRPC-era `PRECONDITION_FAILED` code said the
+same thing with a string the caller had to compare.
+
+Both members are Effect Schema-typed: `hello` declares
+`ControlCoreHelloSchema` as its output, `drain` declares nothing at all.
+`commit` / `buildId` are `Schema.optionalKey` — the key is present with a string
+or absent, never an explicit `undefined` round-tripped through `null`.
 
 | Export | Role |
 | --- | --- |
-| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws a typed refusal without exiting |
-| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws, and the throw stays a defect without exiting |
+| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment surface (`procedures: { core: … }`), plus the spec seam for a daemon retaining extra frozen members |
+| `ControlCoreFragment` | the `ImplementSurfaceDeps` type of that surface — what `controlCoreFragment` satisfies |
 | `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />

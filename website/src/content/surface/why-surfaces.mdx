@@ -24,9 +24,9 @@ client hooks from that one declaration. The declaration is the contract.
 
 `defineSurface` takes a spec and returns a `Surface`. From it:
 
-- the **contract** is a compile-time [oRPC](https://orpc.dev/docs/contract-first/define-contract) router — a typed literal, not runtime reflection, because the typed client has to know the shape at compile time;
+- the **wire shape** is a flat [Effect RPC](https://effect.website) group — one member per verb, at a string tag like `surface/load/get`, derived from the spec rather than reflected at runtime, because the typed client has to know the shape at compile time;
 - the **server** is `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
-- the **client** is `surfaceClient(surface, link)`, whose bound hooks you just read.
+- the **client** is `surfaceClient(surface, transport)`, whose bound hooks you just read.
 
 <SurfaceAnatomy />
 
@@ -48,9 +48,11 @@ should not lie about what the state *is*:
 
 A one-off command is not outside these shapes — that is what the fifth member,
 `procedures`, is for: the imperative escape hatch for a plain request/response
-call. What stays as raw oRPC is only what is genuinely outside the model — a
-bidirectional binary stream, bespoke retry plumbing. The surface is not trying to
-be the whole protocol; it is the typed, reactive slice of it.
+call. What stays a hand-written `Rpc` in the host's own group is only what is
+genuinely outside the model — a bidirectional binary stream, bespoke retry
+plumbing. The wire namespace is flat and every surface member is rooted at
+`surface/`, so those two groups merge without a collision. The surface is not
+trying to be the whole protocol; it is the typed, reactive slice of it.
 
 ## The same shape, everywhere
 

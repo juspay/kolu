@@ -54,6 +54,7 @@ It is generic over the client `C` and identity `I`.
 | `createEndpoint({ home, readProcessIdentity, readSocketHolders, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is `ReadProcessIdentityAsync` (may be async so osfacts does not block the serving loop — prefer `processIdentityAsync(bin)`, with `bin` resolved once at the composition root). The async type lives in this package beside `EndpointSpec`; the daemon half keeps only the sync `ReadProcessIdentity`. `readSocketHolders` is the second OS-fact inject (`ReadSocketHolders`) — both are **required**, because the endpoint performs no platform traversal of its own. **Gate unreadable** (EACCES/EIO) → throw before unlink/kill/spawn; emit `dead` then rethrow |
 | `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
 | `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise |
+| `scrubDaemonNodeOptions(nodeOptions)` | strip dev-only Node flags from an inherited `NODE_OPTIONS` so a spawned daemon never opens the SUPERVISOR's inspector or writes its profiles; returns `undefined` when nothing of value remains, so the var is dropped rather than emptied. Opt-in per driver |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
 | `ReadSocketHolders` | the TYPE of the `readSocketHolders` inject: `(socketPath: string) => Promise<SocketOccupancy>`. The reader that satisfies it is `osfactsSocketHolders(bin)` from **`osfacts-client`**, bound to an already-resolved osfacts binary path (`bakedOsFactsBin(<your env var>)` — this package never learns which var a consumer bakes). It calls `osfacts socket-holders <path> --procs`; the platform split, the parse, the honesty policy AND the fold live in the tool and its client, not here. Bind it to the same resolved path as `processIdentityAsync` so one root spells its env var once for both OS facts |
@@ -115,8 +116,10 @@ mismatch is `uncorrelated`.
 | --- | --- |
 | `converge(endpoint)` | single fold over every observation → decide → budget-gated drain → private bind; genuine createEndpoint handle only; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b); give-up re-decides characterization without re-draining |
 | `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget` (recycle/nudge-human unspellable); `awaitExit` resolves only on process exit, not link loss (F3) |
-| `probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)` | endpoint probe for the frozen fragment; full `ConvergenceProbe`, `null` only for honest `ECONNREFUSED`/`ENOENT`, all other dial/hello failures—including a control-core version other than frozen `1.0`, and an undecodable first frame (`UnspeakableProtocolError`)—throw |
+| `probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)` | endpoint probe for the frozen fragment; full `ConvergenceProbe`, `null` only for honest `ECONNREFUSED`/`ENOENT`, all other dial/hello failures—including a control-core version other than frozen `1.0`, and an unspeakable peer (`UnspeakableProtocolError`)—throw |
 | `probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })` | single probe-assembly authority for an already-dialed connector; drainable probes require both exit-oracle fields, while not-drainable probes omit them; SSH keeps its stronger process-exit oracle instead of treating link loss as exit |
+| `readControlCoreHello(client)` · `ControlCoreProbeClient` | read + validate the frozen hello on its one baked 30 s deadline (frozen-version check, plus the joint `buildId`/`commit` fact), and the already-dialed client shape it takes — `client.surface.control.core.hello()` |
+| `dialSocket(socketPath)` | the package's own unix-socket dial, so the control-core leg owns its framing tap |
 | `isNoListenerError(error)` | the one `ECONNREFUSED`/`ENOENT` classifier shared by generic and pre-fragment daemon probes |
 | `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg); sole decision authority under `converge` |
 | `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles (no public admit/can-openers); connector mint is type-gated |
@@ -124,33 +127,54 @@ mismatch is `uncorrelated`.
 | `BindResult` · `BoundResidentCharacterization` | private-bind result; adopted residents carry four-valued characterization (`characterized \| absent \| failed \| uncorrelated`) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
 | `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `unconverged.running` is nullable (unknown); `link-failed` is session-owned |
-| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged` |
-| `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)` | the TRANSPORT fact: the peer's FIRST frame could not be decoded. Raised by `probeDaemonIdentity`'s dial at the decode itself — never by the hello deadline, a close, or a member error. Carries `socketPath` and a bounded, JSON-quoted `frame` excerpt. Uncorroborated it is an ordinary `probe-failed`. Brand-checked, realm-robust |
-| `UnspeakablePeerError` · `isUnspeakablePeerError(err)` | the CORROBORATED verdict — the same fact plus the two attestations the endpoint adds: the gate at this rendezvous is OURS and its `pid` passed the holder identity law. Only this becomes the `unspeakable-protocol` observation |
+| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged`. The `unspeakable-protocol` arm carries `socketPath` · `gatePath` · the verified `pid` left standing |
+| `UnspeakableEvidence` · `unspeakableClause(evidence)` | WHY a peer is unspeakable, as DATA: `{ trigger: "undecodable-frame", frame }` or `{ trigger: "silence", silentForMs }`. There is no third arm, and the renderer is shared so the dial path, the corroboration site and the fold cannot drift in what they tell an operator |
+| `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)` | the TRANSPORT fact, raised by `probeDaemonIdentity`'s dial at one of those two triggers — never by the hello deadline, a close, or a member error. Carries `socketPath` and the `evidence` field. Uncorroborated it is an ordinary `probe-failed`. Brand-checked, realm-robust |
+| `UnspeakablePeerError` · `isUnspeakablePeerError(err)` | the CORROBORATED verdict — the same fact plus the two attestations the endpoint adds: the gate at this rendezvous is OURS and its `pid` passed the holder identity law. Carries `gatePath` and `pid` beside them. Only this becomes the `unspeakable-protocol` observation |
+| `UNSPEAKABLE_SILENCE_MS` | the silence bound (8 s), pinned between two protocol facts: Effect's RPC socket protocol pongs every 5 s *below* the handlers (so a merely slow daemon has still demonstrably spoken), and kills the connection itself at ~10 s (past which there is nothing left to classify) |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
 The generic probe deliberately throws when a live pre-fragment daemon answers
-the socket but has no `control.core.hello` route. A consumer with a named upgrade
-window may catch only that structured route-missing failure and project it as an
+the socket but has no `core.hello` route. A consumer with a named upgrade window
+may catch only that structured route-missing failure and project it as an
 older-build observation. Kaval does this so its not-drainable policy reports the
 existing human nudge; it never turns the served-daemon fact into `null`, and no
 other probe error is caught. (The oRPC `NOT_FOUND` *frame* that carried this
 failure is gone with the protocol epoch; a consumer's narrowing re-derives on the
-Effect RPC failure it was replaced by.)
+Effect RPC failure it was replaced by. A previous-**epoch** daemon is a different
+observation entirely — see below.)
 
 ### The third observation — `unspeakable-protocol`
 
 A daemon from a **previous protocol epoch** cannot be asked its version at all:
-version negotiation happens inside the protocol that was replaced, so its first
-frame is undecodable. Convergence therefore has a third narrowly-typed peer
-observation beside "identity" and "absent", and it is raised under exactly two
-attestations — **an explicit first-frame decode failure** from a peer whose
-**gate file is ours** and whose **pid we verified**. Nothing else earns it:
-an uncorroborated decode failure stays `probe-failed`, and a foreign
-socket-squatter keeps the untouched `SocketSquatterForeignError` path, so the
-observation can never put a SIGTERM near a process we have not proven is ours.
+version negotiation happens inside the protocol that was replaced. Convergence
+therefore has a third narrowly-typed peer observation beside "identity" and
+"absent".
 
-Classification happens **at the decode**, not by waiting out the frozen hello's
+Such a peer betrays itself in exactly **two** ways, and which one you get depends
+on who greets whom:
+
+| Trigger | What happens | Evidence |
+| --- | --- | --- |
+| `undecodable-frame` | the peer speaks FIRST, in a framing we cannot parse | a bounded, JSON-quoted `frame` excerpt |
+| `silence` | the peer waits for a greeting in a protocol we do not speak — it accepts the connection, takes our frames, and answers nothing | `silentForMs`, the bound it stayed mute through |
+
+The `silence` arm is measured against the real previous release: the old oRPC
+`ServerPeer` waits for its own client hello, our ndjson frames never look like
+one, and the connection dies by timeout with **no first frame to fail decoding**.
+Both are the same verdict, so they are one error type with the trigger as a
+tagged field, never two classes a consumer would have to union.
+
+The fact is raised under those triggers alone; the **observation** additionally
+requires two attestations — the **gate file at this rendezvous is ours** and its
+**pid passed the holder identity law**. Nothing else earns it: an uncorroborated
+trigger stays `probe-failed`, and a foreign socket-squatter keeps the untouched
+`SocketSquatterForeignError` path. That split is the whole safety story, and it
+is what lets the `silence` trigger exist at all — a merely slow peer and a
+stranger on our socket both stop at the transport fact, so the observation can
+never put a SIGTERM near a process we have not proven is ours.
+
+Classification happens at the trigger, not by waiting out the frozen hello's
 30 s deadline — which is also what keeps `awaitHelloGone` responsive inside a
 drain ceiling when the peer will never answer.
 

@@ -28,7 +28,8 @@ does not change at all — only how it is reached and kept alive.
 ## Wrap the engine in a daemon
 
 `daemonMain` is the entire **gate → serve → teardown** lifecycle. It claims an
-atomic single-instance gate, serves the router over a socket, waits for the
+atomic single-instance gate, serves the surface's `{ group, handlers }` over a
+socket, waits for the
 lifetime to end, then closes the socket and releases the gate — returning a
 `DaemonExit` rather than calling `process.exit`, so the whole thing is drivable
 from a test. The *bin* wraps it in `daemonProcessMain`, which owns the process
@@ -38,8 +39,10 @@ interval can't keep a finished daemon alive.
 <Snippet src="packages/surface/example/fleet-top/part-2/src/daemon/main.ts" />
 
 We choose `{ kind: "forever" }`: an idle `top` still watches your machine, so an
-idle timeout would wrongly kill it. Note the router is the *same* `createTop()`
-from part 1, served verbatim. (`forever` is one of three lifetimes — the
+idle timeout would wrongly kill it. Note the daemon hands the spine the *same*
+two fields every transport takes — the flat `group` and the tag-keyed `handlers`
+— from the *same* `createTop()` runtime as part 1, served verbatim. (`forever` is
+one of three lifetimes — the
 [Reference](/surface/ref-surface-daemon) lists `idleTimeout` for a quiet
 coordinator and `boundToPid` for a daemon a test/smoke run wants to die with it.)
 

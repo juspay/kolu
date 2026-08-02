@@ -10,9 +10,9 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Run a typed `@kolu/surface` agent on a remote machine over ssh. The package owns
 provisioning (ship a `.drv`, realise it on the target), the long-lived ssh
-subprocess (ref-counting, reconnect, backoff), and a reactive cell for the link's
-own lifecycle. It has two subpaths: `@kolu/surface-remote` and
-`@kolu/surface-remote/connection`.
+subprocess (ref-counting, reconnect, backoff), and the observable state of the
+link's own lifecycle. It has two public subpaths: `@kolu/surface-remote` and the
+browser-safe `@kolu/surface-remote/connection`.
 
 ## The session
 
@@ -22,9 +22,9 @@ shared pool; key your own map and `destroy()` them yourself.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `makeSession<C>(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient<C>>`. Owns no transport — you supply `connectOnce` |
-| `sshConnector<C>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client |
-| `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
+| `makeSession(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient, Prov>`. Owns no transport — you supply `connectOnce` |
+| `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
+| `dialAgentOnce<S>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. Takes the same `surface` value. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
 | `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()` | `.` | the framework-owned wrapper handoff and its sole process-environment adapter; the reader returns the normalized exact source or throws `AgentSourceUnbakedError` |
 | `resolveBakedAgentDrv(host, packageName, opts)` | `.` | resolve from the wrapper-baked source inside a long-lived consumer's own dial/failure boundary, without exposing the environment handoff to that consumer |
 | `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress, budget })` | `.` | probe the host system and lazily resolve one package as `{ kind: "flake-installable", drvPath, installable, binaryCache }` inside the owning dial's cancellation/progress budget; the installable lets one Nix process own evaluation through remote realisation, so GC cannot break the handoff. `binaryCache` is read from the baked source's `binary-cache.json` FIRST — before the host probe and before any evaluation — so a pre-contract wrapper fails with the deterministic `AgentBinaryCacheUnbakedError` instead of whatever transport fault an unreachable host would have reported first |
@@ -34,9 +34,10 @@ shared pool; key your own map and `destroy()` them yourself.
 | `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
-`sshConnector` opts are `{ host, binary, resolveDrvPath, localEnv }`: `host` is any
+`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs? }`:
+`surface` is the `Surface<S>` the remote agent serves, `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: ({ signal, localProgress }) => Promise<AgentDerivation>` resolves
+closure, `resolveDrvPath: ({ signal, localProgress, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
 the agent derivation for the *target* arch as an `AgentDerivation` inside the
 owning dial's cancellation and progress lifetime. A direct path is
 `directAgentDerivation(drvPath, binaryCache)` — obtain the `binaryCache` with
@@ -85,7 +86,7 @@ your sink until the link dies.
 | --- | --- | --- |
 | `pumpRemoteSurface(opts)` | `.` | pin → per-spawn `mirrorRemoteSurface` into `makeSink()` until each link dies, then await the next spawn |
 | `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
-| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, router, done, close }` (the `router` is the FINAL top-level router) |
+| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, group, handlers, done, close }` — the same value pair `implementSurface` returns, so a host merges it into its own served surface with nothing to re-prefix |
 | `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
 
 `pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
@@ -99,19 +100,20 @@ from a fresh snapshot.
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
 across an upstream drop; a `delta` member (byte or liveness stream) **fails
-through** — a **mid-stream** upstream drop ends the downstream stream with the
-**named retryable transport end** `RelayTransportLostError` (an `ORPCError`
-carrying the `SURFACE_RELAY_TRANSPORT_LOST` code, the one code the shared retry
-fence retries) so the client re-subscribes end-to-end and a snapshot only ever
-leads a fresh stream. A subscribe **before** any live spawn is up **waits** for
-the next spawn (same pre-connect arm as hold-open) rather than throwing that
-retryable end every second — which used to spam the journal for the whole
-provisioning window. Direct callers of `relayFailThroughStream` (and its
-hold-open sibling) must pass an **`ObservableHolder`** from
-`observableHolder()` — the pre-bind wait needs `whenChanged()`, which a plain
-`LiveSpawnHolder` does not expose. A raw re-throw would cross oRPC sanitized to
-a non-retriable error and strand the downstream — this named end is what makes
-fail-through actually recover. Holding open a byte stream is a compile error.
+through** — a **mid-stream** upstream drop ends the downstream stream with
+`SurfaceRelayTransportLost` (`@kolu/surface/errors`), the **one retryable**
+framework error the shared retry fence accepts — so the client re-subscribes
+end-to-end and a snapshot only ever leads a fresh stream. A subscribe **before**
+any live spawn is up **waits** for the next spawn (same pre-connect arm as
+hold-open) rather than raising that retryable end every second — which used to
+spam the journal for the whole provisioning window. Direct callers of
+`relayFailThroughStream` (and its hold-open sibling) must pass an
+**`ObservableHolder`** from `observableHolder()` — the pre-bind wait needs
+`whenChanged()`, which a plain `LiveSpawnHolder` does not expose. This is the
+error whose class both ends were built from, which is what lets its `_tag`
+survive the parent's decode-and-re-encode; a raw re-raise would reach the
+downstream as an opaque, non-retriable failure and strand it. Holding open a byte
+stream is a compile error.
 
 A collection that declares the `deltas` verb is mirrored through its **single**
 batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`
@@ -244,7 +246,7 @@ is the `source` field.
 | `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
 | `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
 | `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
-| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the zod-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no contract code) |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the schema-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no group-assembly code) |
 
 ## A mirror, end to end
 

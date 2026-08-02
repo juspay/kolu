@@ -93,12 +93,14 @@ with it. Misroute-by-collision isn't unlikely; it is unconstructible.
 The subtle clause is void. A member that takes no input carries **no** `input`
 field at all — `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting
 version relies on two accidents: that JSON drops an `undefined` value, and that
-the validator accepts the resulting missing key. Both are quicksand — a validator
-tightened `z.object({ input: z.void() })` to *reject* a missing key, and every
-void-input call would have broken the moment a lockfile drifted onto it. Omitting
-the field makes "void = no input key" the one representation on both encode and
-validate, independent of any validator's mood. It is a small thing that exists so
-a dependency bump can't silently break the wire.
+the decoder accepts the resulting missing key. Both are quicksand — a schema
+library that tightens "a declared-void field" to *reject* a missing key would
+break every void-input call the moment a lockfile drifted onto it, and one did.
+Omitting the field makes "void = no input key" the one representation on both
+encode and decode, independent of any library's mood. It is a small thing that
+exists so a dependency bump can't silently break the wire — and it survived the
+move from zod to Effect Schema without a byte changing, which is the test it was
+written for.
 
 ## Why keys are codecs, not strings
 

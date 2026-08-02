@@ -1,6 +1,6 @@
 ---
 title: How to test a surface
-description: "Exercise a surface in-process with directLink — no socket, no server — and assert on snapshots, procedures, and streams."
+description: "Exercise a surface in-process with directDispatch — no socket, no server — and assert on snapshots, procedures, and streams."
 order: 223
 section: Basics · How-to
 ---
@@ -8,47 +8,60 @@ section: Basics · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-`directLink` is the identity transport: it wraps the served router and invokes
-handlers in-process, with no socket and no subprocess. That makes it the tool for
-testing a surface — the client you drive in the test is the exact typed client a
-socket consumer would hold.
+`directDispatch` is the identity transport: it takes the served surface itself
+and invokes its handlers in-process, with no socket and no subprocess. That makes
+it the tool for testing a surface — the face you drive in the test is the exact
+face a socket consumer would hold.
 
 ## Build an in-process client
 
-Implement the surface and wrap its ready `.router` in `directLink` —
-`implementSurface` returns a FINAL top-level router, so there is no fragment to
-flatten. Pass it bare — `directLink` is the one link `surfaceClient` accepts
-without a watchdog, because its transport is always-live.
+Hand `directDispatch` the value `implementSurface` returned (it needs only the
+bound `handlers`, so pass the runtime bare) and wrap it in `buildSurfaceFace` for
+the nested `client.surface.<member>.<verb>` addressing. Nothing is finalized and
+nothing is re-prefixed — a tag carries its own route. `directDispatch` is also the
+one dispatch `surfaceClient` accepts without a watchdog, because with no transport
+there is nothing that could half-open.
+
+The face is deliberately **structural**: each leaf types as `unknown`, because
+per-member precision lives in the spec-derived hooks a Solid consumer gets, and a
+second precise mapped type over the same spec is the union-budget blow-up the
+framework avoids. So a test names the shape of each member it uses **once** — as a
+`UnaryProcedure<I, O>` or a `StreamingProcedure<I, O>` — after which every call
+site is fully typed.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="client" />
 
 ## Assert on a snapshot
 
-A cell or stream read yields a snapshot first, then deltas, as an async
-iterable. To assert on the current value, take the first frame. `firstFrameOrThrow`
-(`@kolu/surface/first-frame`) does exactly that, and throws if the stream closes
-empty — so a broken read fails the test instead of asserting on `undefined`.
+A cell or stream read opens with a snapshot and then sends deltas, as an Effect
+`Stream`. So the current value *is* the first frame, and `Stream.runHead` is the
+one-shot read — it interrupts the subscription as soon as that frame lands. Wrap
+it in a helper that **throws on an empty stream**, so a broken read fails the test
+instead of asserting on `undefined`. (`firstFrameOrThrow` in
+`@kolu/surface/first-frame` is the same policy for an async-iterable source.)
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="snapshot" />
 
 ## Drive a procedure and assert the effect
 
-Procedures are plain awaited calls. Call one, then read the affected cell or
-collection back and assert the new snapshot.
+Procedures are plain awaited calls — the framework's one `Promise` edge. Call
+one, then read the affected cell or collection back and assert the new snapshot.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="procedure" />
 
 ## Read a run of stream frames
 
-When the value under test is a stream that emits over time, iterate it and
-collect the frames you care about. Because there is no socket, delivery is
-deterministic — no timers, no flushing.
+When the value under test is a stream that emits over time, run it and collect the
+frames you care about. `Stream.takeUntil` ends it on the terminal frame — the
+Stream-native `break` — and ending the stream finalizes the subscription, so
+there is no signal to thread and none to forget. Because there is no socket,
+delivery is deterministic: no timers, no flushing.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="stream" />
 
 <Aside type="tip" title="Same client, real transport later">
   Nothing above changes when the surface moves to a socket — the call sites are
-  identical across links. A directLink test therefore also protects the wire
-  contract: if a handler breaks, the in-process test catches it before a byte
-  ever crosses a socket.
+  identical across links, because every link hands back the same
+  `SurfaceDispatch`. An in-process test therefore also protects the wire: if a
+  handler breaks, the test catches it before a byte ever crosses a socket.
 </Aside>

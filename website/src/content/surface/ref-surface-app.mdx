@@ -40,40 +40,84 @@ bundle is always re-fetched.
 
 `acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket
 onto a served surface. It owns the server-side liveness reaper and sequences
-**stale-gate → enrol → dispatch** in one `accept(...)`, so a socket can never be
-dispatched un-enrolled. It is the server twin of the client's `connectSurface`
+**stale-gate → enrol → serve** in one `accept(...)`, so a socket can never be
+served un-enrolled. It is the server twin of the client's `connectSurface`
 watchdog.
+
+`serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half —
+the browser-facing counterpart of `serveOverStdio` / `serveOverUnixSocket`,
+taking the same `{ group, handlers }` pair `implementSurface` returns (it replaces
+the oRPC `RPCHandler(...).upgrade(ws)` call). `services` is a `Layer` supplying
+whatever this **one** connection's handlers require — the seam a per-viewer fact
+rides (kolu's `viewerAddress` / `forwardedFor`, taken off the upgrade request's
+own socket and headers), because Effect's socket-server protocol has no
+per-request header channel.
 
 | Export | Role |
 | --- | --- |
 | `acceptSurfaceSocket` | accept + reap + sequence, in one call |
+| `serveSurfaceSocket` | serve `{ group, handlers }` over one accepted socket, with per-connection `services` |
 | `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`) |
-| `startWsHeartbeat` | the server-side liveness reaper |
+| `startWsHeartbeat` · `heartbeatSweep` | the server-side liveness reaper and its one sweep |
+| `rejectStaleProcess` · `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |
 
 ## Connecting from the client
 
 `connectSurface` / `connectSurfaces` (`@kolu/surface-app/solid`) are the turnkey
 single- and multi-surface seams: each builds a socket, a `websocketLink`, the
 `surfaceClient(s)`, and a **default-on liveness heartbeat** in one call. The
-heartbeat probe defaults to the framework-reserved `system.live`
-(`@kolu/surface/liveness`), so no app supplies — or forgets — a probe.
+heartbeat probes the framework-reserved `system/live` tag
+(`@kolu/surface/liveness`) over the very dispatch it guards, so no app supplies —
+or forgets — a probe.
+
+Both seams are **async**: the dial is `websocketLink`, and building a protocol and
+its fibers is an effect. Each takes the **surface** (or the sibling map), never a
+separate group — the wire is built from `surface.group` / `composeSurfaceContracts`
+right here, so a client and a wire that disagreed about which members exist is
+unspellable. `connectSurfaces` refuses an empty map: with no sibling there is no
+tag for the watchdog to probe.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
-`createServerLifecycle({ ws, probe })` derives the connection lifecycle
-(`connecting → connected → disconnected → reconnected / restarted`) from
-transport open/close plus a `processId` probe. Deriving a lifecycle cannot leave
-the socket un-watched: it owns a default-on half-open watchdog that reuses the
-`probe` on an interval and forces `ws.reconnect()` when a probe times out —
-catching a socket that is TCP-dead with no FIN/RST (laptop sleep, Wi-Fi roam,
-NAT idle-eviction).
+`connectSurface` returns `{ link, echo, client, status, dispose }`;
+`connectSurfaces` returns `{ link, echo, clients, transport, status, health, dispose }`.
+
+| Member | Meaning |
+| --- | --- |
+| `link` | the `WebsocketLink` — `{ dispatch, wire, dispose }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`) |
+| `client` / `clients` | the reactive surface client, or one scoped client per sibling |
+| `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live` |
+| `status` | `connecting` / `live` / `reconnecting` / `down`, derived from the wire's own status stream |
+| `health` | *(multi only)* `surfaceClientsHealth(clients)` — every sibling's subs AND-reduced with the shared transport leg |
+| `dispose` | async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
+
+There is deliberately **no** `heartbeat: false` on these seams: they mint the
+watchdog-backed brand `surfaceClient` requires, and a disabled watchdog would mint
+a branded-but-blind signal. A wire whose liveness another layer owns simply does
+not use this seam.
+
+`createServerLifecycle({ wire, probe })` derives the connection lifecycle
+(`connecting → connected → disconnected → reconnected / restarted`) from the
+wire's own status stream plus a `processId` probe. It observes a
+**`WatchableWire`** — `link.wire` — not a socket object, so the same lifecycle
+rides any transport that can report status and force a re-dial. Deriving a
+lifecycle cannot leave the wire un-watched: it owns a default-on half-open
+watchdog that probes on an interval and calls `wire.forceReconnect()` when a
+probe times out — catching a socket that is TCP-dead with no FIN/RST (laptop
+sleep, Wi-Fi roam, NAT idle-eviction).
 
 | Option | Effect |
 | --- | --- |
-| `heartbeat: false` | opt out of the default-on watchdog |
+| `livenessProbe` | the watchdog's round-trip — pass `() => probeSurfaceLive(client.rpc)` so it asks the one reserved question, not an app-nominated verb. `probe` answers *which* process; this answers *is it answering at all* |
+| `heartbeat: false` | opt out of the default-on watchdog (only when you wire your own `createHeartbeat`); an object tunes `intervalMs` / `timeoutMs` / `onStale` |
+| `onProbeError` | surface a failed identity probe instead of silently holding the prior state |
 | `onProcessId` | publish each observed id to echo back as the next reconnect's `pid` |
-| `onStaleRestart` | teardown hook fired at the single stale-close decode site |
-| `restartCloseCode` | that exact close code routes straight to `restarted` |
+
+There is no `onStaleRestart` and no `restartCloseCode`. The **link** owns the
+close-code classifier now: a `4001` close retires the wire (status `retired`,
+retry schedule halted, every call failing with `SurfaceTransportRetired`), and the
+lifecycle reads that terminal status as a definitive `restarted`. Nothing is left
+for a consumer to tear down at the decode site.
 
 `ConnectSurfacesOptions.onClientError?: (policy, err) => void` is the app's
 **client error interpreter** — the single seam a multi-surface app registers so a
@@ -88,19 +132,23 @@ can never route nowhere.
 
 <Aside type="caution" title="A websocket client requires a watchdog">
   `surfaceClient` over a websocket requires a watchdog-backed, branded
-  `LiveSignal`; a bare or unbranded socket link throws, because it can
-  half-open. `createLiveSignal` (re-exported on `/solid`) is the only minter —
-  the seams wrap it; a hand-built client calls it directly. There is no
-  `HostSession` export; the per-host fleet seam is `connectSurface`.
+  `LiveSignalHandle`; a bare or unbranded wire dispatch throws, because it can
+  half-open. `createLiveSignal` (re-exported on `/solid`, it lives in
+  `@kolu/surface/solid` beside its module-private brand) is the only minter — the
+  seams wrap it; a hand-built client calls it directly, passing the **whole**
+  `{ dispatch, wire }` the link factory minted so the watchdog provably probes
+  the transport it reconnects. There is no `HostSession` export; the per-host
+  fleet seam is `connectSurface`.
 </Aside>
 
 ## The client model
 
 `SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that
-handles the stale-tab handshake; its connection source is a union of `{ ws, probe }`
-(the provider derives the lifecycle) or `{ status }` (you already did). It takes
-a typed `controlPlane` whose `buildInfo` cell yields build identity, plus
-`clientCommit={shellCommit()}`.
+handles the stale-tab handshake; its connection source is a union of
+`{ wire, probe }` (the provider derives the lifecycle off the link's
+`WatchableWire` — there is no socket shape to satisfy) or `{ status }` (you
+already did). It takes a typed `controlPlane` whose `buildInfo` cell yields build
+identity, plus `clientCommit={shellCommit()}`.
 
 `useSurfaceApp()` is the headless model — no styled components ship:
 
@@ -116,8 +164,12 @@ a typed `controlPlane` whose `buildInfo` cell yields build identity, plus
 ## Build identity
 
 Build identity is an interface. `defineBuildInfo({ schema, default, isStale? })`
-declares it; `buildInfoServer({ buildInfo? })` and `surfaceAppServer({ buildInfo?, equals? })`
-(`@kolu/surface-app/surface` / `/server`) implement it.
+declares it — `schema` is an Effect `WireSchema<T>`, and the minted cell is
+`verbs: ["get"]`, so build identity is **read-only on the wire** and no client
+can fabricate or hide stale-client state (the server still writes it through
+`ctx.cells.buildInfo.set`). `buildInfoServer({ buildInfo? })` and
+`surfaceAppServer({ buildInfo?, equals? })` (`@kolu/surface-app/surface` /
+`/server`) implement it.
 
 <Aside type="note" title="buildInfo is a server cell">
   Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local
