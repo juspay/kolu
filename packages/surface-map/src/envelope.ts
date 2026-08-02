@@ -8,9 +8,9 @@
  * rides `input`, nested).
  *
  * The envelope shape is ONE axis of change, so it lives in exactly one place: the
- * zod schema (`foldInput`, define.ts), the client encode (`foldMapKey`, client.ts),
- * and the server decode (`unwrapInput`/`parseMapKey`, server.ts) all reference
- * these constants and codecs rather than re-spelling the field literals.
+ * wire schema (`foldInput`, define.ts), the client encode (`keyInjectingDispatch`,
+ * client.ts), and the server decode (`unwrapInput`/`decodeMapKey`, server.ts) all
+ * reference these constants and codecs rather than re-spelling the field literals.
  */
 
 /** The envelope field carrying the encoded wire key (per {@link KeyCodec}). */
@@ -20,13 +20,17 @@ export const INPUT_FIELD = "input";
 
 /** ENCODE — wrap a map key + an entry member's own input into the fold envelope.
  *  A void-input member carries NO input field at all — `{ mapKey }`, not
- *  `{ mapKey, input: undefined }`. Relying on the wire (JSON) dropping an
- *  `undefined` value AND on zod accepting the resulting MISSING key for
- *  `z.void()` is fragile: zod tightened `z.object({ input: z.void() })` in
- *  >=4.3.7 to REJECT a missing key, which would break every void-input fold the
- *  moment a consumer's lockfile drifts onto it. Omitting the field makes
- *  "void = no input key" the ONE representation on both encode and validate,
- *  independent of zod's version (the server schema for a void member likewise
+ *  `{ mapKey, input: undefined }`.
+ *
+ *  The rule survives the schema-library change unchanged, and for the same reason.
+ *  Relying on the wire dropping an `undefined` value AND on the validator accepting
+ *  the resulting MISSING key for a void schema is fragile: zod tightened
+ *  `z.object({ input: z.void() })` in >=4.3.7 to REJECT a missing key, which broke
+ *  every void-input fold the moment a consumer's lockfile drifted onto it (the
+ *  drishti fleet incident). Effect Schema is stricter still — `Schema.Struct({ input:
+ *  Schema.Void })` demands the key outright. Omitting the field makes "void = no input
+ *  key" the ONE representation on both encode and validate, independent of any
+ *  validator's missing-key policy (the served schema for a void member likewise
  *  declares no `input` field — see `foldInput`). */
 export function fold(mapKey: unknown, input: unknown): unknown {
   return input === undefined

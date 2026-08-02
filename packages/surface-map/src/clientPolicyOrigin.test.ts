@@ -7,26 +7,20 @@
  * `entries` collection (no per-key origin) forwards origin-OMITTED (design §B/§C).
  *
  * This file drives both halves through a REAL served map (`serveSurfaceMap` +
- * `connectSurfaceMap` over `directLink`), modelled on `mapHarness.testlib.ts` and the
- * `armableRegistry` in `mapHarness.test.ts`:
+ * `connectSurfaceMap` over `directDispatch`), modelled on `mapHarness.testlib.ts` and
+ * the `armableRegistry` in `mapHarness.test.ts`:
  *   - a per-key ENTRY member's policy fires with `origin: { key }` (the decoded key);
  *   - the membership ENTRIES policy fires with `origin` UNDEFINED.
  */
 
 import { defineSurfaceWithPolicy } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
-import type { AnyContractRouter } from "@orpc/contract";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
+import { Effect, Schema, Stream } from "effect";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { connectSurfaceMap } from "./client";
 import { defineSurfaceMap } from "./define";
-import {
-  type EntryConnectionState,
-  type EntrySession,
-  type MapRegistry,
-  serveSurfaceMap,
-} from "./server";
 import {
   A,
   connected,
@@ -37,6 +31,12 @@ import {
   type TestFailure,
   testFailureSchema,
 } from "./mapHarness.testlib";
+import {
+  type EntryConnectionState,
+  type EntrySession,
+  type MapRegistry,
+  serveSurfaceMap,
+} from "./server";
 
 // The app-owned policy union — opaque to the framework; only the interpreter reads it.
 type Policy = { kind: "toast"; label: string };
@@ -48,7 +48,7 @@ const ENTRIES_POLICY: Policy = { kind: "toast", label: "entries" };
 const policyEntrySurface = defineSurfaceWithPolicy<Policy>()({
   cells: {
     urgency: {
-      schema: z.object({ awaiting: z.number() }),
+      schema: Schema.Struct({ awaiting: Schema.Number }),
       default: { awaiting: 0 },
       verbs: ["get"],
       client: { onError: URGENCY_POLICY },
@@ -104,10 +104,10 @@ function armableRegistry() {
     registry,
     addSession(
       k: HostKey,
-      link: unknown,
+      dispatch: SurfaceDispatch,
       state: EntryConnectionState<"copying", TestFailure>,
     ) {
-      entries.set(k, { kind: "session", link, state });
+      entries.set(k, { kind: "session", dispatch, state });
       fire();
     },
     armResolveThrow(k: HostKey) {
@@ -116,15 +116,13 @@ function armableRegistry() {
   };
 }
 
-/** A stub entry-surface host link the map FORWARDS to (`link.surface.urgency.get`) —
- *  its `urgency` stream REJECTS, so the per-key entry subscription faults for real. */
-const brokenHostLink = {
-  surface: {
-    urgency: {
-      // biome-ignore lint/suspicious/noExplicitAny: rejected thunk stands in for a failing forwarded stream.
-      get: () => Promise.reject(new Error("urgency boom")) as any,
-    },
-  },
+/** A stub entry-surface DISPATCH the map FORWARDS to — its `urgency` stream FAILS, so
+ *  the per-key entry subscription faults for real. A stubbed dispatch is the honest
+ *  test seam now: the face is framework-built, so there is nothing partial to mock one
+ *  layer up. */
+const brokenHostDispatch: SurfaceDispatch = {
+  unary: () => Effect.fail(new Error("urgency boom")),
+  stream: () => Stream.fail(new Error("urgency boom")),
 };
 
 function connectPolicyMap(
@@ -137,8 +135,9 @@ function connectPolicyMap(
   const map = buildPolicyMap();
   const reg = armableRegistry();
   const served = serveSurfaceMap(map, reg.registry);
-  const mapLink = directLink<AnyContractRouter>(served.router as never);
-  const client = connectSurfaceMap(map, mapLink, { onClientError });
+  const client = connectSurfaceMap(map, directDispatch(served), {
+    onClientError,
+  });
   return { map, client, ...reg };
 }
 
@@ -148,10 +147,11 @@ describe("SR11 surface-map origin — the per-key { key } vs origin-free members
       vi.fn<(policy: unknown, err: Error, origin?: { key: HostKey }) => void>();
     await createRoot(async (dispose) => {
       const { client, addSession } = connectPolicyMap(onClientError);
-      // A is a live member whose forwarded `urgency` stream rejects.
-      addSession(A, brokenHostLink, connected(0));
+      // A is a live member whose forwarded `urgency` stream fails.
+      addSession(A, brokenHostDispatch, connected(0));
       // Open A's per-key entry cell — its subscription forwards to the broken host
-      // link and faults, routing the declared policy through the { key }-wrapped interpreter.
+      // dispatch and faults, routing the declared policy through the { key }-wrapped
+      // interpreter.
       client.entry(A).cells.urgency.use();
       await settle();
       expect(onClientError).toHaveBeenCalledTimes(1);
@@ -170,9 +170,9 @@ describe("SR11 surface-map origin — the per-key { key } vs origin-free members
     await createRoot(async (dispose) => {
       const { client, addSession, armResolveThrow } =
         connectPolicyMap(onClientError);
-      // A healthy live member (its host link is never forwarded here — we fault the
+      // A healthy live member (its host dispatch is never forwarded here — we fault the
       // MEMBERSHIP status stream, not the entry surface).
-      addSession(A, brokenHostLink, connected(0));
+      addSession(A, brokenHostDispatch, connected(0));
       const view = client.entries.use();
       await settle();
       // Arm A's next resolve() to throw, then read its status lazily → the membership
@@ -196,12 +196,12 @@ describe("SR11 surface-map fail-fast — a membership policy with no interpreter
     const map = buildPolicyMap();
     const reg = armableRegistry();
     const served = serveSurfaceMap(map, reg.registry);
-    const mapLink = directLink<AnyContractRouter>(served.router as never);
+    const mapDispatch = directDispatch(served);
     createRoot((dispose) => {
       expect(() =>
         // No `onClientError` — the membership `entries` policy would route nowhere, so
         // the eager `entriesClient` build fails fast at connect time.
-        connectSurfaceMap(map, mapLink),
+        connectSurfaceMap(map, mapDispatch),
       ).toThrow(/no `onClientError` interpreter was threaded/);
       dispose();
     });

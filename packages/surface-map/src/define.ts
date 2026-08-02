@@ -2,11 +2,11 @@
  * `defineSurfaceMap` — the CONTRACT half of a keyed map of remote surfaces.
  *
  * A `SurfaceMap` is one entry spec (`Surface<ES>`) typed ONCE, keyed at runtime by a
- * `keySchema`-validated key `K` (`Key<M>`, `z.infer<KS>`) — a plain string in the
+ * `keySchema`-validated key `K` (`Key<M>`, `KS["Type"]`) — a plain string in the
  * common case, but not required to be one (kolu's own `HostKey` is a discriminated
  * sum object). The map keeps the entry surface's `Surface<ES>` verbatim (it is the
  * type the client subtree is generated from) and, alongside it, derives a WIRE
- * contract that folds a key into EVERY entry-member procedure's input — so a call
+ * `RpcGroup` that folds a key into EVERY entry-member procedure's payload — so a call
  * carries its key in every frame by construction (a subscription can't cross keys
  * any more than it can cross procs).
  *
@@ -21,15 +21,34 @@
  * (also the channel-name/dedup key), `decode` inverts it. For a `K` that is already
  * a plain string, the codec is the identity pair.
  *
- * `keySchema.parse` (paired with `codec.decode`, on the client's `decodeKey` and the
+ * `keySchema` decoding (paired with `codec.decode`, on the client's `decodeKey` and the
  * server's wire handler) is the sole producer of a validated `K` from a wire string —
  * a raw unvalidated value is a type error wherever `Key` is expected (P4 at the typed
- * API); the wire handler re-validates via the same `keySchema.parse` (P5 gate).
+ * API); the wire handler re-validates via the same schema (P5 gate).
  *
  * Membership is published as ONE authoritative collection: `entries:
  * Collection<Key, EntryStatus>`. Absence = the key is not in the collection —
  * there is NO `absent` status variant. One writer (the server, from its
  * `MapRegistry`) publishes membership + status together.
+ *
+ * ## The tag namespace (W2 / PLAN D1)
+ *
+ * The wire namespace is FLAT and slash-joined, exactly as `@kolu/surface`'s own is:
+ * a map served standalone mints `surface/<member>/<verb>`; a map DECLARED with a
+ * mount `name` mints `surface/<name>/<member>/<verb>` — the same tags
+ * `composeSurfaceContracts` would give the sibling. {@link SurfaceMap.tagPrefix}
+ * carries that decision as a VALUE, so the server (which binds handlers at those
+ * tags) and the client (which re-tags the entry face onto them) read one authority
+ * rather than each re-deriving it. Every assembly goes through {@link assembleMapGroup},
+ * which claims each tag and then proves `group.requests.size` matches — `RpcGroup.make`
+ * is a last-writer-wins `Map.set` with no collision detection (review #16).
+ *
+ * ## The #17 mapping law
+ *
+ * Every `.optional()` in this file is `Schema.optionalKey` — NEVER `Schema.optional`,
+ * which round-trips an explicit `undefined` through `null` and so changes the bytes.
+ * No `.default()` idiom exists here; if one is ever added it is
+ * `Schema.withDecodingDefaultKey`.
  */
 
 import type {
@@ -41,14 +60,24 @@ import type {
   StreamSpec,
   Surface,
   SurfaceSpec,
+  WireSchema,
+  WireSchemaAny,
 } from "@kolu/surface/define";
 import {
   collectionDeltasSchema,
   resolveCellVerbs,
   resolveCollectionVerbs,
+  siblingTagPrefix,
+  SURFACE_TAG_PREFIX,
+  surfaceTag,
 } from "@kolu/surface/define";
-import { type AnyContractRouter, eventIterator, oc } from "@orpc/contract";
-import { type ZodType, z } from "zod";
+import {
+  MapEntryFailed,
+  MapKeyNonCanonical,
+  MapKeyUnknown,
+} from "@kolu/surface/errors";
+import { Schema } from "effect";
+import { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { INPUT_FIELD, MAP_KEY_FIELD } from "./envelope";
 import type { FailureEvidence } from "./evidence";
 import { FailureEvidenceSchema } from "./evidence";
@@ -64,15 +93,24 @@ export {
 
 /** The opaque per-add membership identity — a BRANDED string, so an id can be
  *  produced ONLY two ways: `serveSurfaceMap`'s mint (a fresh
- *  `MembershipIdSchema.parse(crypto.randomUUID())`) and the wire schema's
- *  `entryStatusSchema` parse (the one boundary a status is decoded through). A bare
+ *  {@link decodeMembershipId} of `crypto.randomUUID()`) and the wire schema's
+ *  `entryStatusSchema` decode (the one boundary a status is decoded through). A bare
  *  `string` — an empty `""` or a client-fabricated value — is NOT assignable to
  *  `MembershipId`, so the "spellable empty/fabricated id" gap is a COMPILE ERROR,
- *  not a runtime convention (P4: the illegal value is unrepresentable). `.min(1)`
- *  is the paired RUNTIME guard at the parse boundary; the brand is erased at
- *  runtime (the value is the plain string), so keying/serialization are unchanged. */
-export const MembershipIdSchema = z.string().min(1).brand("MembershipId");
-export type MembershipId = z.infer<typeof MembershipIdSchema>;
+ *  not a runtime convention (P4: the illegal value is unrepresentable; pinned by
+ *  `membershipId.test-d.ts`). `isMinLength(1)` is the paired RUNTIME guard at the
+ *  decode boundary; the brand is erased at runtime (the value is the plain string),
+ *  so keying/serialization are unchanged. */
+export const MembershipIdSchema = Schema.String.check(
+  Schema.isMinLength(1),
+).pipe(Schema.brand("MembershipId"));
+export type MembershipId = typeof MembershipIdSchema.Type;
+
+/** The ONE decode of a {@link MembershipId} — the Effect-Schema successor of
+ *  `MembershipIdSchema.parse`. Throws (`SchemaError`) on an empty string, which is
+ *  the fail-fast semantic the old `.parse` had at exactly this boundary. */
+export const decodeMembershipId: (value: unknown) => MembershipId =
+  Schema.decodeUnknownSync(MembershipIdSchema);
 
 /** The client-only PENDING membership marker (PR3) — the single sanctioned id for
  *  the transient pre-frame gap, where a key is seen in the membership keyset before
@@ -83,11 +121,11 @@ export type MembershipId = z.infer<typeof MembershipIdSchema>;
  *  here) — NEVER this marker — so it can never be keyed against or collide with a
  *  real minted id (a UUID). Replaced by the real id on the next frame. */
 export const PENDING_MEMBERSHIP_ID: MembershipId =
-  MembershipIdSchema.parse("pending");
+  decodeMembershipId("pending");
 
 // ── Failure evidence ───────────────────────────────────────────────────
 //
-// The vocabulary itself lives in the zod-only leaf `./evidence` (see its header for
+// The vocabulary itself lives in the schema-only leaf `./evidence` (see its header for
 // why), and is re-exported here so `define.ts` remains the one import site for a map's
 // whole contract vocabulary.
 
@@ -183,8 +221,8 @@ export type EntryState<Failure = unknown, Conn = unknown> =
   | EntryStatus<Failure, Conn>
   | { kind: "not-a-member" };
 
-/** The wire/zod schema for {@link EntryStatus}, built from the map's OWN domain
- *  `failure` schema. Backs both the `entries` collection contract and the
+/** The wire schema for {@link EntryStatus}, built from the map's OWN domain
+ *  `failure` schema. Backs both the `entries` collection's `get` success and the
  *  client-side bound collection value. The `failed` arm carries `failure:
  *  <the map's domain schema>` — so the domain value is VALIDATED on the wire
  *  (PR4: the old loose `cause: z.string()` is gone; a domain's structural cause
@@ -193,304 +231,442 @@ export type EntryState<Failure = unknown, Conn = unknown> =
  *  waved through as unknown extras). A generic package can't know the domain's
  *  schema, so this is a FUNCTION of it rather than a module const. Every arm also
  *  carries `membershipId: MembershipIdSchema` (PR3) — the opaque per-add identity,
- *  BRANDED here so this parse is (with `serveSurfaceMap`'s mint) one of the only two
+ *  BRANDED here so this decode is (with `serveSurfaceMap`'s mint) one of the only two
  *  producers of a `MembershipId`; a status decoded off the wire is branded by
- *  construction. */
+ *  construction.
+ *
+ *  A `Schema.Union` of three `Schema.Struct`s, NOT a `Schema.TaggedUnion`: the
+ *  discriminant is `kind`, not `_tag`, and the encoded bytes must stay exactly what
+ *  the zod `z.discriminatedUnion("kind", …)` produced. */
 export function entryStatusSchema<Failure, Conn = unknown>(
-  failureSchema: ZodType<Failure>,
+  failureSchema: WireSchema<Failure>,
   // SR9: the FINE connection payload's schema. Optional — a map that carries no fine
   // connection (the in-process harness) omits it and no arm carries a `connection`
   // field. When present, the LIVE arms (`warming`/`connected`) gain
-  // `connection: <schema>.optional()`; the `failed` arm below deliberately does not,
-  // because a failed entry has no work in flight to narrate. The domain provides the
-  // schema; this package validates against it, never enumerating it — the same
-  // volatility-neutral posture as `failure`.
-  connectionSchema?: ZodType<Conn>,
-): ZodType<EntryStatus<Failure, Conn>> {
-  const conn = connectionSchema
-    ? { connection: connectionSchema.optional() }
-    : {};
-  return z.discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("warming"),
+  // `connection: Schema.optionalKey(<schema>)`; the `failed` arm below deliberately
+  // does not, because a failed entry has no work in flight to narrate. The domain
+  // provides the schema; this package validates against it, never enumerating it — the
+  // same volatility-neutral posture as `failure`.
+  //
+  // `optionalKey`, never `optional` (#17): `Schema.optional` admits an EXPLICIT
+  // `undefined` and JSON-encodes it as `null`, where the zod original simply omitted
+  // the key. `optionalKey` is key-absent-only, which is byte-identical.
+  connectionSchema?: WireSchema<Conn>,
+): WireSchema<EntryStatus<Failure, Conn>> {
+  // Annotated as `Struct.Fields` (not left to inference): the two branches would
+  // otherwise UNION into `{ connection?: undefined } | { connection: … }`, whose spread
+  // TypeScript reads as a field literally typed `undefined`.
+  const conn: Schema.Struct.Fields =
+    connectionSchema === undefined
+      ? {}
+      : { connection: Schema.optionalKey(connectionSchema) };
+  return Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("warming"),
       membershipId: MembershipIdSchema,
       ...conn,
     }),
-    z.object({
-      kind: z.literal("connected"),
+    Schema.Struct({
+      kind: Schema.Literal("connected"),
       membershipId: MembershipIdSchema,
       // `null` = not-yet-measured (ONE meaning); readiness is link-liveness, so a
       // connected entry stays connected whether or not the offset has landed.
-      clockOffset: z.number().nullable(),
+      clockOffset: Schema.NullOr(Schema.Number),
       ...conn,
     }),
-    z.object({
-      kind: z.literal("failed"),
+    Schema.Struct({
+      kind: Schema.Literal("failed"),
       membershipId: MembershipIdSchema,
       failure: failureSchema,
       // REQUIRED on the wire, not merely in TypeScript: a failed status without its
-      // evidence FAILS this parse. Enforcement lives at the codec, so "reason without
+      // evidence FAILS this decode. Enforcement lives at the codec, so "reason without
       // evidence" cannot be decoded even from a hand-crafted frame.
       evidence: FailureEvidenceSchema,
       // No `...conn` — the failed arm carries no `connection` (see `EntryStatus`). The
       // wire must agree with the type or a hand-crafted frame could smuggle back the
       // duplicate live tail the type just removed.
     }),
-  ]) as unknown as ZodType<EntryStatus<Failure, Conn>>;
+  ]) as unknown as WireSchema<EntryStatus<Failure, Conn>>;
 }
 
-// ── Key-fold contract builders (mirror @kolu/surface/define, +mapKey) ───
+// ── The map's declared rejection vocabulary (D4) ────────────────────────
+
+/** The three typed rejections a map hop can raise, as ONE declared error channel.
+ *  They live in `@kolu/surface/errors`, not here (S1/D4): a map entry's call crosses
+ *  the SAME re-serving parent hop as every other surface error, so both ends must
+ *  have been built from one schema for `_tag` and data to survive
+ *  serialize → deserialize → re-serialize. Location is structure — the shared wire
+ *  vocabulary is a property of the wire, not of the package that happens to raise it.
+ *
+ *  Declared on EVERY folded member, streaming ones included: membership loss is a
+ *  typed END, but a NON-CANONICAL wire key is a real rejection on any verb, and a
+ *  stream whose error channel did not declare it would flatten it into a defect. */
+export const MapRejectionSchema = Schema.Union([
+  MapKeyNonCanonical,
+  MapKeyUnknown,
+  MapEntryFailed,
+]);
+
+/** The decoded union of {@link MapRejectionSchema}. */
+export type MapRejection = typeof MapRejectionSchema.Type;
+
+// ── Key-fold schema builders (mirror @kolu/surface/define, +mapKey) ─────
 //
-// Each mirrors a per-primitive builder in `@kolu/surface/define`, wrapping the
-// member's input `S` in a UNIFORM ENVELOPE — `z.object({ mapKey, input: S })` —
-// before `oc.input(...)`; a member with NO input carries NO `input` field at all
-// (`z.object({ mapKey })`), NOT `input: z.void()` (see `foldInput` / the envelope).
-// Outputs are untouched. The envelope (not a spread merge) is deliberate: ONE
-// wire shape for every proc regardless of `S` (object, primitive, or none — a
-// primitive `terminalAttach`/`cell.set` input rides `input` verbatim), and,
+// Each mirrors a per-primitive Rpc emitter in `@kolu/surface/define`, wrapping the
+// member's payload `S` in a UNIFORM ENVELOPE — `Schema.Struct({ mapKey, input: S })`
+// — before `Rpc.make`; a member with NO input carries NO `input` field at all
+// (`Schema.Struct({ mapKey })`), NOT `input: Schema.Void` (see `foldInput` / the
+// envelope). Successes are untouched. The envelope (not a spread merge) is
+// deliberate: ONE wire shape for every proc regardless of `S` (object, primitive, or
+// none — a primitive `terminalAttach`/`cell.set` input rides `input` verbatim), and,
 // decisively, an entry input that itself carries a `mapKey` field cannot collide
 // with the folded key (it is nested under `input`), so misroute-by-collision is
 // UNCONSTRUCTIBLE (P4), not merely unlikely.
 //
-// The folded `mapKey` field is ALWAYS `z.string()` here — the canonical wire form
+// The folded `mapKey` field is ALWAYS `Schema.String` here — the canonical wire form
 // {@link KeyCodec} produces — regardless of what the map's own `K` is. The server
-// re-derives + re-validates the real `K` from it (`codec.decode` + `keySchema.parse`,
-// the P5 gate); these builders never see `K` at all.
+// re-derives + re-validates the real `K` from it (`codec.decode` + a `keySchema`
+// decode, the P5 gate); these builders never see `K` at all.
 
-/** True for `z.void()` / `z.undefined()` — a member whose input carries no wire
- *  payload. Checked via zod v4's stable `.def.type`. Such a member's envelope
- *  OMITS the input field entirely (see {@link foldInput}), so validation never
- *  depends on zod accepting a MISSING key for `z.void()` — a leniency zod
- *  tightened in >=4.3.7 (`z.object({ input: z.void() }).parse({})` now throws
- *  "expected nonoptional"). Without this, a consumer's lockfile drifting onto a
- *  later zod patch silently breaks every void-input fold over the wire. */
-function isVoidInput(inner: ZodType<unknown>): boolean {
-  const type = (inner as { def?: { type?: string } }).def?.type;
-  return type === "void" || type === "undefined";
+/** True for `Schema.Void` / `Schema.Undefined` — a member whose input carries no wire
+ *  payload. Checked via the schema's own AST `_tag` (the Effect successor of zod's
+ *  `.def.type` probe). Such a member's envelope OMITS the input field entirely (see
+ *  {@link foldInput}), so validation never depends on the validator accepting a MISSING
+ *  key for a void schema — a leniency zod tightened in >=4.3.7 (`z.object({ input:
+ *  z.void() }).parse({})` throws "expected nonoptional") and which Effect Schema never
+ *  granted at all (`Schema.Struct({ input: Schema.Void })` demands the key). Without
+ *  this, every void-input fold over the wire would break. */
+function isVoidInput(inner: WireSchemaAny): boolean {
+  const tag = inner.ast._tag;
+  return tag === "Void" || tag === "Undefined";
 }
 
-/** The fold envelope schema. For a member WITH input: `z.object({ mapKey, input })`.
- *  For a VOID member (no input, or an explicit `z.void()`/`z.undefined()`):
- *  `z.object({ mapKey })` with NO input field — `{ mapKey }` is the ONE valid wire
- *  shape, and a schema without an `input` field cannot strict-reject its absence,
- *  so the fold is independent of zod's missing-key leniency (see `isVoidInput`).
- *  The single home of the shape. Exported for the round-trip pin. */
-export function foldInput(inner?: ZodType<unknown>): ZodType {
+/** The fold envelope schema. For a member WITH input:
+ *  `Schema.Struct({ mapKey, input })`. For a VOID member (no input, or an explicit
+ *  `Schema.Void`/`Schema.Undefined`): `Schema.Struct({ mapKey })` with NO input field
+ *  — `{ mapKey }` is the ONE valid wire shape, and a schema without an `input` field
+ *  cannot reject its absence, so the fold is independent of the validator's
+ *  missing-key policy (see `isVoidInput`). The single home of the shape. Exported for
+ *  the round-trip pin. */
+export function foldInput(inner?: WireSchemaAny): WireSchemaAny {
   if (inner === undefined || isVoidInput(inner)) {
-    return z.object({ [MAP_KEY_FIELD]: z.string() }) as ZodType;
+    return Schema.Struct({
+      [MAP_KEY_FIELD]: Schema.String,
+    }) as unknown as WireSchemaAny;
   }
-  return z.object({
-    [MAP_KEY_FIELD]: z.string(),
+  return Schema.Struct({
+    [MAP_KEY_FIELD]: Schema.String,
     [INPUT_FIELD]: inner,
-  }) as ZodType;
+  }) as unknown as WireSchemaAny;
 }
 
-function foldedCell(
+/** A folded member's declared error channel: the map's own three rejections, plus
+ *  the ENTRY's declared error union when it has one (SK6). Without threading the
+ *  leaf's declaration through, the map hop would decode the leaf's typed failure
+ *  against a union that does not contain it and flatten it into an opaque defect —
+ *  exactly the collapse the declaration exists to kill. */
+function foldedError(entryError?: WireSchemaAny): WireSchemaAny {
+  return (entryError === undefined
+    ? MapRejectionSchema
+    : Schema.Union([
+        MapRejectionSchema,
+        entryError,
+      ])) as unknown as WireSchemaAny;
+}
+
+function foldedCellRpcs(
+  tagBase: string,
   spec: CellSpec<unknown, unknown, unknown>,
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
+): Record<string, Rpc.Any> {
+  const out: Record<string, Rpc.Any> = {};
   for (const v of resolveCellVerbs(spec)) {
     if (v === "get") {
-      out.get = oc.input(foldInput()).output(eventIterator(spec.schema));
+      out.get = Rpc.make(`${tagBase}/get`, {
+        payload: foldInput(),
+        success: spec.schema,
+        error: foldedError(),
+        stream: true,
+      });
     } else if (v === "set") {
-      out.set = oc.input(foldInput(spec.schema)).output(z.void());
+      out.set = Rpc.make(`${tagBase}/set`, {
+        payload: foldInput(spec.schema),
+        error: foldedError(),
+      });
     } else if (v === "patch") {
       if (!spec.patchSchema) {
         throw new Error(
           "defineSurfaceMap: cell exposes 'patch' but has no patchSchema",
         );
       }
-      out.patch = oc.input(foldInput(spec.patchSchema)).output(z.void());
+      out.patch = Rpc.make(`${tagBase}/patch`, {
+        payload: foldInput(spec.patchSchema),
+        error: foldedError(),
+      });
     } else if (v === "test__set") {
-      out.test__set = oc.input(foldInput(spec.schema)).output(z.void());
+      out.test__set = Rpc.make(`${tagBase}/test__set`, {
+        payload: foldInput(spec.schema),
+        error: foldedError(),
+      });
     }
   }
   return out;
 }
 
-function foldedCollection(
+function foldedCollectionRpcs(
+  tagBase: string,
   spec: CollectionSpec<unknown, unknown, unknown>,
-): Record<string, unknown> {
-  const keyShape = z.object({ key: spec.keySchema });
-  const upsertShape = z.object({ key: spec.keySchema, value: spec.schema });
-  const out: Record<string, unknown> = {};
+): Record<string, Rpc.Any> {
+  const keyShape = Schema.Struct({ key: spec.keySchema });
+  const upsertShape = Schema.Struct({
+    key: spec.keySchema,
+    value: spec.schema,
+  });
+  const out: Record<string, Rpc.Any> = {};
   for (const v of resolveCollectionVerbs(spec)) {
     if (v === "keys") {
-      out.keys = oc
-        .input(foldInput())
-        .output(eventIterator(z.array(spec.keySchema)));
+      out.keys = Rpc.make(`${tagBase}/keys`, {
+        payload: foldInput(),
+        success: Schema.Array(spec.keySchema),
+        error: foldedError(),
+        stream: true,
+      });
     } else if (v === "get") {
-      out.get = oc
-        .input(foldInput(keyShape))
-        .output(eventIterator(spec.schema));
+      out.get = Rpc.make(`${tagBase}/get`, {
+        payload: foldInput(keyShape),
+        success: spec.schema,
+        error: foldedError(),
+        stream: true,
+      });
     } else if (v === "deltas") {
-      out.deltas = oc
-        .input(foldInput())
-        .output(
-          eventIterator(collectionDeltasSchema(spec.keySchema, spec.schema)),
-        );
+      out.deltas = Rpc.make(`${tagBase}/deltas`, {
+        payload: foldInput(),
+        success: collectionDeltasSchema(spec.keySchema, spec.schema),
+        error: foldedError(),
+        stream: true,
+      });
     } else if (v === "upsert") {
-      out.upsert = oc.input(foldInput(upsertShape)).output(z.void());
+      out.upsert = Rpc.make(`${tagBase}/upsert`, {
+        payload: foldInput(upsertShape),
+        error: foldedError(),
+      });
     } else if (v === "delete") {
-      out.delete = oc.input(foldInput(keyShape)).output(z.void());
+      out.delete = Rpc.make(`${tagBase}/delete`, {
+        payload: foldInput(keyShape),
+        error: foldedError(),
+      });
     } else if (v === "test__set") {
-      out.test__set = oc
-        .input(foldInput(z.array(upsertShape)))
-        .output(z.void());
+      out.test__set = Rpc.make(`${tagBase}/test__set`, {
+        payload: foldInput(Schema.Array(upsertShape)),
+        error: foldedError(),
+      });
     }
   }
   return out;
 }
 
-function foldedStream(
+function foldedStreamRpcs(
+  tagBase: string,
   spec: StreamSpec<unknown, unknown>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   return {
-    get: oc
-      .input(foldInput(spec.inputSchema))
-      .output(eventIterator(spec.outputSchema)),
+    get: Rpc.make(`${tagBase}/get`, {
+      payload: foldInput(spec.inputSchema),
+      success: spec.outputSchema,
+      error: foldedError(),
+      stream: true,
+    }),
   };
 }
 
-function foldedEvent(
+function foldedEventRpcs(
+  tagBase: string,
   spec: EventSpec<unknown, unknown>,
-): Record<string, unknown> {
+): Record<string, Rpc.Any> {
   return {
-    get: oc
-      .input(foldInput(spec.inputSchema))
-      .output(eventIterator(spec.outputSchema)),
+    get: Rpc.make(`${tagBase}/get`, {
+      payload: foldInput(spec.inputSchema),
+      success: spec.outputSchema,
+      error: foldedError(),
+      stream: true,
+    }),
   };
 }
 
-function foldedProcedure(spec: ProcedureSpec<unknown, unknown>): unknown {
-  const input = foldInput(spec.input);
-  const output = spec.output ?? z.void();
-  // The entry's DECLARED error union rides the folded contract too (SK6):
-  // without it, the map hop's `validateORPCError` finds the code undeclared
-  // and RESETS `defined` to false — the leaf's typed error would arrive
-  // demoted at the outer client, exactly the flatten the declaration kills.
-  return oc
-    .input(input)
-    .output(output)
-    .errors(spec.errors ?? {});
+function foldedProcedureRpc(
+  tag: string,
+  spec: ProcedureSpec<unknown, unknown>,
+): Rpc.Any {
+  return Rpc.make(tag, {
+    payload: foldInput(spec.input),
+    success: spec.output ?? Schema.Void,
+    // The entry's DECLARED error union rides the folded member too (SK6).
+    error: foldedError(spec.error),
+  });
 }
 
-/** Walk the entry spec and produce the key-folded inner contract — one
- *  namespace per member, mirroring `defineSurface`'s spec walk. */
-function foldedMembers(
+/** The reserved membership member name. An entry member may not claim it. */
+export const ENTRIES_MEMBER = "entries";
+
+/** The read-only `entries` membership collection's Rpcs — NOT folded (its key IS the
+ *  map key). Its wire key is ALWAYS `Schema.String` (the canonical encoded form; see
+ *  the module doc) — the client reads it (`keys`/`get`) and decodes through
+ *  {@link KeyCodec}; the server is the sole writer (membership is published, not
+ *  mutated over the wire). Takes the ALREADY-built {@link entryStatusSchema} (derived
+ *  ONCE in {@link defineSurfaceMap}) as the per-entry `get` success, so the same
+ *  instance backs both this group and `entriesSpec.schema` rather than being computed
+ *  twice.
+ *
+ *  Minted at exactly the tags `defineSurface({ collections: { entries: entriesSpec } })`
+ *  would mint — that surface is what `connectSurfaceMap` builds the membership face
+ *  from, so the two must agree. `mapGroup.test.ts` spells both key sets and compares
+ *  them. */
+function entriesRpcs(
+  tagPrefix: string,
+  statusSchema: WireSchemaAny,
+): Record<string, Rpc.Any> {
+  return {
+    keys: Rpc.make(surfaceTag(tagPrefix, ENTRIES_MEMBER, "keys"), {
+      success: Schema.Array(Schema.String),
+      stream: true,
+    }),
+    get: Rpc.make(surfaceTag(tagPrefix, ENTRIES_MEMBER, "get"), {
+      payload: Schema.Struct({ key: Schema.String }),
+      success: statusSchema,
+      error: foldedError(),
+      stream: true,
+    }),
+  };
+}
+
+/** Walk the entry spec and produce the key-folded Rpcs, keyed by wire tag —
+ *  mirroring `defineSurface`'s spec walk. */
+function foldedMemberRpcs(
+  tagPrefix: string,
   entry: SurfaceSpec,
-): Record<string, Record<string, unknown>> {
-  const out: Record<string, Record<string, unknown>> = {};
-  const claim = (key: string, entries: Record<string, unknown>): void => {
-    if (key === "entries") {
+): Array<[member: string, rpcs: Record<string, Rpc.Any>]> {
+  const out: Array<[string, Record<string, Rpc.Any>]> = [];
+  const claim = (key: string, rpcs: Record<string, Rpc.Any>): void => {
+    if (key === ENTRIES_MEMBER) {
       throw new Error(
         'defineSurfaceMap: an entry member named "entries" collides with the ' +
           "map's reserved membership collection — rename the member.",
       );
     }
-    out[key] = { ...(out[key] ?? {}), ...entries };
+    out.push([key, rpcs]);
   };
   for (const [key, s] of Object.entries(entry.cells ?? {})) {
-    claim(key, foldedCell(s));
+    claim(key, foldedCellRpcs(tagPrefix + key, s));
   }
   for (const [key, s] of Object.entries(entry.collections ?? {})) {
-    claim(key, foldedCollection(s));
+    claim(key, foldedCollectionRpcs(tagPrefix + key, s));
   }
   for (const [key, s] of Object.entries(entry.streams ?? {})) {
-    claim(key, foldedStream(s));
+    claim(key, foldedStreamRpcs(tagPrefix + key, s));
   }
   for (const [key, s] of Object.entries(entry.events ?? {})) {
-    claim(key, foldedEvent(s));
+    claim(key, foldedEventRpcs(tagPrefix + key, s));
   }
   for (const [ns, procs] of Object.entries(entry.procedures ?? {})) {
-    const procEntries: Record<string, unknown> = {};
+    const procRpcs: Record<string, Rpc.Any> = {};
     for (const [verb, ps] of Object.entries(procs)) {
-      procEntries[verb] = foldedProcedure(ps);
+      procRpcs[verb] = foldedProcedureRpc(surfaceTag(tagPrefix, ns, verb), ps);
     }
-    claim(ns, procEntries);
+    claim(ns, procRpcs);
   }
   return out;
 }
 
-/** The read-only `entries` membership collection contract — NOT folded (its key
- *  IS the map key). Its wire key is ALWAYS `z.string()` (the canonical encoded
- *  form; see the module doc) — the client reads it (`keys`/`get`) and decodes
- *  through {@link KeyCodec}; the server is the sole writer (membership is
- *  published, not mutated over the wire). Takes the ALREADY-built
- *  {@link entryStatusSchema} (derived ONCE in {@link defineSurfaceMap}) as the
- *  per-entry `get` output, so the same instance backs both this contract and
- *  `entriesSpec.schema` rather than being computed twice. */
-function entriesContract(statusSchema: ZodType): Record<string, unknown> {
-  return {
-    keys: oc.output(eventIterator(z.array(z.string()))),
-    get: oc
-      .input(z.object({ key: z.string() }))
-      .output(eventIterator(statusSchema)),
-  };
+/** Claim every tag and PROVE nothing was dropped (PLAN D1 / review #16).
+ *  `RpcGroup.make` is `new Map(rpcs.map(r => [r._tag, r]))` — a colliding tag is
+ *  silently overwritten, last writer wins — so the walk claims into a flat map that
+ *  throws on a duplicate, and the assembled group's size is then compared against the
+ *  claim count. Both halves are load-bearing: `claim` catches the collisions it can
+ *  SEE, and the size assertion catches any the walk failed to. */
+export function assembleMapGroup(
+  entries: Iterable<readonly [member: string, rpcs: Record<string, Rpc.Any>]>,
+): RpcGroup.RpcGroup<Rpc.Any> {
+  const byTag = new Map<string, Rpc.Any>();
+  for (const [member, rpcs] of entries) {
+    for (const [verb, rpc] of Object.entries(rpcs)) {
+      if (byTag.has(rpc._tag)) {
+        throw new Error(
+          `defineSurfaceMap: duplicate verb "${verb}" claimed at "${member}" (wire tag "${rpc._tag}"). ` +
+            "Multiple folded primitives or procedures resolve to the same wire tag.",
+        );
+      }
+      byTag.set(rpc._tag, rpc);
+    }
+  }
+  const group = RpcGroup.make(...byTag.values());
+  if (group.requests.size !== byTag.size) {
+    throw new Error(
+      `defineSurfaceMap: RpcGroup assembly dropped ${byTag.size - group.requests.size} tag(s) — ` +
+        `claimed ${byTag.size}, group carries ${group.requests.size}.`,
+    );
+  }
+  return group;
 }
 
 // ── SurfaceMap value ────────────────────────────────────────────────────
 
-/** The branded key of a `SurfaceMap` — `z.infer` of its `keySchema`. */
+/** The branded key of a `SurfaceMap` — the decoded type of its `keySchema`. */
 export type Key<M> =
-  M extends SurfaceMap<infer KS, SurfaceSpec> ? z.infer<KS> : never;
+  M extends SurfaceMap<infer KS, SurfaceSpec> ? KS["Type"] : never;
 
 /** The string <-> key bridge every map needs: {@link encode} produces the
  *  canonical wire string a key is transmitted/channel-named as; {@link decode}
  *  inverts it. For a `K` that is already a plain string this is the identity
  *  pair; kolu's `HostKey` (a discriminated-sum object) passes its own
- *  `encodeHostKey`/`decodeHostKey`. `decode` is paired with `keySchema.parse` at
+ *  `encodeHostKey`/`decodeHostKey`. `decode` is paired with a `keySchema` decode at
  *  every call site (the P5 re-validation gate) — it need not validate on its own.
  *
- *  Considered (and rejected) folding this into zod 4's `z.codec` — a direct dep,
- *  and the obvious "reuse the ecosystem's own bidirectional-transform primitive"
- *  move. It doesn't fit here: `z.encode(codec, key)` re-validates `key` against
- *  `keySchema` on EVERY call (zod4's generic `z.encode`/`z.decode` always
- *  round-trip through both schemas), but `encode` runs on an ALREADY-validated
- *  `K` at the hottest, most frequent call sites in this module (the per-key
- *  client-cache lookup on every `entry(key)`/`clientFor` call, the membership
- *  fold on every `entries` read, the server's per-tick republish loop over every
- *  member) — the module's own contract is "`decode` is paired with
- *  `keySchema.parse`... it need not validate on its own", i.e. encode is meant to
- *  be a bare, cheap function call. Folding `keySchema` + `codec` into one
- *  `z.codec` schema would also entangle two orthogonal generics: `KS` alone
- *  types `Key<M>`/`MapRegistry<K>` today, with no wire concern at all. A `z.codec`
- *  win only shows up on the DECODE leg (collapsing `keySchema.parse(codec.decode(wire))`
- *  into one `.parse`) — adopting it there alone would mean maintaining two
- *  representations of the same transform, which is more surface, not less. */
+ *  Considered (and rejected) folding this into a bidirectional Schema transform — the
+ *  obvious "reuse the ecosystem's own primitive" move; the same argument that ruled
+ *  out zod 4's `z.codec` rules it out here. `encode` runs on an ALREADY-validated `K`
+ *  at the hottest, most frequent call sites in this module (the per-key client-cache
+ *  lookup on every `entry(key)`/`clientFor` call, the membership fold on every
+ *  `entries` read, the server's per-tick republish loop over every member) — the
+ *  module's own contract is "`decode` is paired with the key decode... it need not
+ *  validate on its own", i.e. encode is meant to be a bare, cheap function call, not a
+ *  full re-validation. Folding `keySchema` + `codec` into one transforming schema
+ *  would also entangle two orthogonal generics: `KS` alone types `Key<M>`/
+ *  `MapRegistry<K>` today, with no wire concern at all. The win only shows up on the
+ *  DECODE leg (collapsing `decodeKey(codec.decode(wire))` into one decode) — adopting
+ *  it there alone would mean maintaining two representations of the same transform,
+ *  which is more surface, not less. */
 export interface KeyCodec<K> {
   encode(key: K): string;
   decode(wire: string): K;
 }
 
 export interface SurfaceMap<
-  KS extends ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec = SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
 > {
-  /** The key schema — `keySchema.parse` (paired with `codec.decode`) is the sole
+  /** The key schema — a decode through it (paired with `codec.decode`) is the sole
    *  producer of a validated key from a wire string. */
   readonly keySchema: KS;
   /** The entry surface, kept verbatim — the type the client subtree is
    *  generated from, and the spec the server/client walk. */
   readonly entry: Surface<ES>;
-  /** The key-folded WIRE contract: `{ surface: { <member>: {...folded},
-   *  entries } }`. A canonical-string `mapKey` is folded into every entry-member
-   *  input; `entries` is the membership collection (unfolded). */
-  readonly contract: AnyContractRouter;
-  /** The `.surface` FRAGMENT of {@link contract} — `{ <member>: {...folded}, entries }`
-   *  — exposed as a first-class field so a host that mounts this map as a sibling of its
-   *  own surface (`{ surface: { ...ownSiblings, [name]: map.surfaceContract } }`) splices
-   *  a TYPED value, never reaching into `contract` with an `as any`. The folded fragment
-   *  is dynamically built, so its honest type is `AnyContractRouter` — the single
-   *  library-side cast that lets EVERY connection site stay cast-free (PR3). */
-  readonly surfaceContract: AnyContractRouter;
+  /** The key-folded WIRE group: one `Rpc` per entry-member verb (with a canonical-string
+   *  `mapKey` folded into its payload) plus the two unfolded `entries` membership
+   *  members. A host that serves this map merges this group into its own; there is no
+   *  second "fragment" value to splice, because a tag carries its own route. */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** The tag prefix every member of {@link group} carries — `"surface/"` for a map
+   *  served standalone, `"surface/<name>/"` for one DECLARED with a mount
+   *  {@link SurfaceMap.name}. Carried on the value (not re-derived by callers) so the
+   *  server's handler keys and the client's re-tagging read ONE authority. */
+  readonly tagPrefix: string;
   /** The map's mount NAME — the sibling key it is served under in a combined surface
-   *  (kolu's `"padi"`, drishti's `"hosts"`). When set, `connectSurfaceMap` derives the
-   *  transport-slice key FROM it, so the connection site carries no stringly sibling key
-   *  (PR3 — "the key derives from the declaration"). Omitted for a map served standalone
-   *  at the transport root (the in-process test harness), where nothing is sliced. */
+   *  (kolu's `"padi"`, drishti's `"hosts"`). When set, every tag this map mints is
+   *  scoped under it and `connectSurfaceMap` re-tags the entry face onto them, so the
+   *  connection site carries no stringly sibling key (PR3 — "the key derives from the
+   *  declaration"). Omitted for a map served standalone at the transport root (the
+   *  in-process test harness), where nothing is scoped. */
   readonly name?: string;
   /** The membership collection's spec — `Collection<string, EntryStatus<Failure>>`
    *  on the wire (see the module doc for why the collection key is always a plain
@@ -499,7 +675,7 @@ export interface SurfaceMap<
    *  API boundary. */
   readonly entriesSpec: CollectionSpec<string, EntryStatus<Failure, Conn>>;
   /** The string <-> key codec — see {@link KeyCodec}. */
-  readonly codec: KeyCodec<z.infer<KS>>;
+  readonly codec: KeyCodec<KS["Type"]>;
 }
 
 /** Build a `SurfaceMap` from a key schema, an entry surface, the key's string
@@ -511,7 +687,7 @@ export interface SurfaceMap<
  *  `SurfaceMap<…, PadiEntryFailure>` whose `failed` arm can only carry a
  *  schema-valid `PadiEntryFailure`. */
 export function defineSurfaceMap<
-  KS extends ZodType,
+  KS extends WireSchemaAny,
   const ES extends SurfaceSpec,
   Failure,
   Conn = unknown,
@@ -519,8 +695,8 @@ export function defineSurfaceMap<
 >(opts: {
   key: KS;
   entry: Surface<ES>;
-  codec: KeyCodec<z.infer<KS>>;
-  failure: ZodType<Failure>;
+  codec: KeyCodec<KS["Type"]>;
+  failure: WireSchema<Failure>;
   /** The OPAQUE, app-typed client error policy for the membership `entries`
    *  collection (SR11). Threaded onto `entriesSpec.client` so a map-membership
    *  subscription failure reaches the app's registered `onClientError`
@@ -535,32 +711,31 @@ export function defineSurfaceMap<
    *  type argument. Omit for a map that carries no fine connection (the in-process
    *  harness); its entries then have no `connection` field. Validated against on the
    *  wire, never enumerated here — the same volatility-neutral posture as `failure`. */
-  connection?: ZodType<Conn>;
+  connection?: WireSchema<Conn>;
   /** The sibling key this map is mounted under in a combined surface (see
    *  {@link SurfaceMap.name}). Omit for a standalone/at-root map. */
   name?: string;
 }): SurfaceMap<KS, ES, Failure, Conn> {
   const { key: keySchema, entry, codec, failure, connection, name } = opts;
-  const members = foldedMembers(entry.spec);
+  // The tag prefix is decided ONCE, here, from the declaration — never re-derived by
+  // the server or the client (both read it off the value).
+  const tagPrefix =
+    name === undefined ? SURFACE_TAG_PREFIX : siblingTagPrefix(name);
   // Build the EntryStatus schema from the map's `failure` (and, SR9, its `connection`)
   // ONCE, then thread the SAME instance to both homes that need it — the `entries.get`
-  // contract output and the `entriesSpec` collection value — rather than deriving the
+  // success schema and the `entriesSpec` collection value — rather than deriving the
   // identical schema twice.
   const statusSchema = entryStatusSchema(failure, connection);
-  // Keep the `.surface` fragment as a named value so it backs BOTH the full `contract`
-  // and the first-class `surfaceContract` field a host splices — one dynamic fragment,
-  // one library-side cast, no `as any` at any connection site.
-  const surfaceFragment = {
-    ...members,
-    entries: entriesContract(statusSchema),
-  };
-  const contract = oc.router({
-    surface: surfaceFragment,
-  } as unknown as AnyContractRouter) as AnyContractRouter;
-  const surfaceContract = surfaceFragment as unknown as AnyContractRouter;
+  const group = assembleMapGroup([
+    ...foldedMemberRpcs(tagPrefix, entry.spec),
+    [
+      ENTRIES_MEMBER,
+      entriesRpcs(tagPrefix, statusSchema as unknown as WireSchemaAny),
+    ],
+  ]);
 
   const entriesSpec: CollectionSpec<string, EntryStatus<Failure, Conn>> = {
-    keySchema: z.string(),
+    keySchema: Schema.String,
     schema: statusSchema,
     verbs: ["keys", "get"],
     // The app-typed membership error policy (SR11) — inert data the framework only
@@ -575,8 +750,8 @@ export function defineSurfaceMap<
   return {
     keySchema,
     entry,
-    contract,
-    surfaceContract,
+    group,
+    tagPrefix,
     entriesSpec,
     codec,
     name,

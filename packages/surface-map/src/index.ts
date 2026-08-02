@@ -9,7 +9,9 @@
  */
 
 export {
+  decodeMembershipId,
   defineSurfaceMap,
+  ENTRIES_MEMBER,
   type EntryState,
   type EntryStatus,
   entryStatusSchema,
@@ -20,6 +22,8 @@ export {
   type FailureRecord,
   type Key,
   type KeyCodec,
+  type MapRejection,
+  MapRejectionSchema,
   type MembershipId,
   MembershipIdSchema,
   PENDING_MEMBERSHIP_ID,
@@ -29,7 +33,7 @@ export {
 // `export type … from "./client"` still makes TS typecheck the Solid client for a NODE
 // consumer of this index — surface-remote's serveHostMap imports `SurfaceMap` here — pulling
 // onWake's `window`/`document` into a DOM-less typecheck.)
-// The uniform fold envelope's field constants + encoder — dependency-free (no zod, no
+// The uniform fold envelope's field constants + encoder — dependency-free (no schema, no
 // solid), so it belongs on this node-safe default entry alongside `EntryState` rather
 // than the Solid `./client`. A hand-folding consumer OUTSIDE the typed client (e.g. the
 // e2e harness, which bypasses `connectSurfaceMap` for raw HTTP resets) reads `fold`/the

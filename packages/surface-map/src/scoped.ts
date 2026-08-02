@@ -34,7 +34,7 @@
  * narrows but never closes).
  */
 
-import type { SurfaceSpec } from "@kolu/surface/define";
+import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import type { Subscription } from "@kolu/surface/solid";
 import { keyArray } from "@solid-primitives/keyed";
 import {
@@ -45,7 +45,6 @@ import {
   getOwner,
   onCleanup,
 } from "solid-js";
-import type { z } from "zod";
 import type { Entry, SurfaceMapClient } from "./client";
 
 // ── The shared membership kernel ──────────────────────────────────────────
@@ -79,11 +78,11 @@ interface MembershipKernel<K> {
 }
 
 function membershipKernel<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure,
->(client: SurfaceMapClient<KS, ES, Failure>): MembershipKernel<z.infer<KS>> {
-  const enc = (key: z.infer<KS>): string => client.codec.encode(key);
+>(client: SurfaceMapClient<KS, ES, Failure>): MembershipKernel<KS["Type"]> {
+  const enc = (key: KS["Type"]): string => client.codec.encode(key);
   const entriesView = client.entries.use();
   const memberKeys = createMemo(() => entriesView.keys());
   return { enc, memberKeys };
@@ -147,16 +146,16 @@ export interface ScopedByEntry<K, T> {
  * when the key leaves membership.
  */
 export function scopedByEntry<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure,
   T,
 >(
   client: SurfaceMapClient<KS, ES, Failure>,
-  active: Accessor<z.infer<KS> | null>,
-  build: (key: z.infer<KS>, ctx: { isActive: Accessor<boolean> }) => T,
-): ScopedByEntry<z.infer<KS>, T> {
-  type K = z.infer<KS>;
+  active: Accessor<KS["Type"] | null>,
+  build: (key: KS["Type"], ctx: { isActive: Accessor<boolean> }) => T,
+): ScopedByEntry<KS["Type"], T> {
+  type K = KS["Type"];
 
   requireOwner("scopedByEntry");
 
@@ -296,7 +295,7 @@ export interface WatchByEntry<K, A> {
  * registration) tears down when the key leaves membership.
  */
 export function watchByEntry<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure,
   A,
@@ -310,7 +309,7 @@ export function watchByEntry<
   client: SurfaceMapClient<KS, ES, Failure>,
   cell: (entry: Entry<ES, Failure>) => WatchableCell<A>,
   items: (value: A) => I[],
-  onRaise: (key: z.infer<KS>, raised: I[], value: A) => void,
+  onRaise: (key: KS["Type"], raised: I[], value: A) => void,
   opts?: {
     /** Called when a watched entry's cell subscription ERRORS. Without this a
      *  per-host cell failure would only dim the point read to `stale` (the badge
@@ -320,10 +319,10 @@ export function watchByEntry<
      *  silent-dim deliberately. This is the app's error CHANNEL — distinct from the
      *  live/stale point read, matching the map API's other `use({ onError })` seams
      *  rather than fattening `WatchedValue` with an error arm. */
-    onError?: (key: z.infer<KS>, err: Error) => void;
+    onError?: (key: KS["Type"], err: Error) => void;
   },
-): WatchByEntry<z.infer<KS>, A> {
-  type K = z.infer<KS>;
+): WatchByEntry<KS["Type"], A> {
+  type K = KS["Type"];
 
   requireOwner("watchByEntry");
 
