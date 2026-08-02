@@ -1,33 +1,33 @@
 /** Browser-safe schemas and pure types from anyagent.
  *
  *  Split out from `index.ts` so kolu-common (and the client bundle) can
- *  import zod schemas without dragging in node-only modules transitively. */
+ *  import these schemas without dragging in node-only modules transitively. */
 
+import { Schema } from "effect";
 import { resumeFormFor } from "./agent-cli.ts";
-import { z } from "zod";
 
 /** Task/todo progress — total items and completed count.
  *  Used by both Claude Code (from TaskCreate/TaskUpdate tool calls)
  *  and OpenCode (from the `todo` SQLite table). */
-export const TaskProgressSchema = z.object({
-  total: z.number(),
-  completed: z.number(),
+export const TaskProgressSchema = Schema.Struct({
+  total: Schema.Number,
+  completed: Schema.Number,
 });
 
-export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+export type TaskProgress = typeof TaskProgressSchema.Type;
 
 /** Agent discriminator literals — the vocabulary anyagent's own helpers
  *  (`agentKindFromCommand`, the `BASENAME_TO_KIND` bridge) return and that
  *  `AgentInfoSchema` in kolu-common discriminates on. Owned here (the lower
  *  layer) so the single home is browser-safe and re-exportable upward;
  *  the basename axis (`claude`/`codex`/`opencode`) maps onto it. */
-export const AgentKindSchema = z.enum([
+export const AgentKindSchema = Schema.Literals([
   "claude-code",
   "codex",
   "opencode",
   "grok",
 ]);
-export type AgentKind = z.infer<typeof AgentKindSchema>;
+export type AgentKind = typeof AgentKindSchema.Type;
 
 /** The agent IDENTITY a terminal can RESUME — the agent `kind` (matching
  *  `AgentInfo.kind`) paired with its native session id under the name `sessionId`
@@ -41,11 +41,11 @@ export type AgentKind = z.infer<typeof AgentKindSchema>;
  *  CLI: `resumeAgentCommand` only uses it when `kind` names the same agent the
  *  command head does. The `{kind, sessionId}` shape `resumeAgentCommand` consumes
  *  DIRECTLY — `resumeFormFor` passes it straight through, no remap. */
-export const AgentIdentitySchema = z.object({
+export const AgentIdentitySchema = Schema.Struct({
   kind: AgentKindSchema,
-  sessionId: z.string(),
+  sessionId: Schema.String,
 });
-export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
+export type AgentIdentity = typeof AgentIdentitySchema.Type;
 
 /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
  *  waking this terminal do?", made a single value so the wake/restore path can
@@ -66,16 +66,19 @@ export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
  *  identity read alongside `lastAgentCommand` — left `(command set, identity
  *  absent)` meaning BOTH "quit, restore nothing" and "no id captured, resume
  *  most-recent"; this discriminant splits those two into distinct values. */
-export const RestoreTargetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("none") }),
-  z.object({
-    kind: z.literal("exact"),
-    command: z.string(),
+export const RestoreTargetSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("exact"),
+    command: Schema.String,
     agent: AgentIdentitySchema,
   }),
-  z.object({ kind: z.literal("legacyMostRecent"), command: z.string() }),
+  Schema.Struct({
+    kind: Schema.Literal("legacyMostRecent"),
+    command: Schema.String,
+  }),
 ]);
-export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
+export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
 /** The raw launch command a restore card COUNTS and a tile DISPLAYS, or `null`
  *  when wake lands on a bare shell — the ONE projection the display sites share
