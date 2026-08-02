@@ -15,9 +15,9 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
 import {
   buildAgentCommand,
   forEachLine,
@@ -35,16 +35,17 @@ import {
   surfaceLiveProbe,
 } from "./session";
 
-/** The typed RPC client an ssh agent yields — a contract-router client carrying the
- *  retry plugin's context. Generic so consumers can name their own:
+/** What an ssh agent's dial yields: the surface FACE —
+ *  `client.surface.<member>.<verb>` — re-nested over the stdio link's erased
+ *  dispatch by `buildSurfaceFace`.
  *
- *  ```ts
- *  type MyClient = AgentClient<typeof myContract>;
- *  ``` */
-export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
-  C,
-  ClientRetryPluginContext
->;
+ *  NON-generic now, and deliberately STRUCTURAL (PLAN D2): the wire namespace is
+ *  flat, and per-member precision lives in the spec-derived bound faces a consumer
+ *  builds ON TOP of this one, never in a second precise mapped type over the same
+ *  spec. It is the same value `probeSurfaceLive` / `probeSurfaceIdentity` /
+ *  `measureSurfaceClockOffset` / `mirrorRemoteSurface` already walk structurally,
+ *  so nothing in the session or the mirror changed shape. */
+export type AgentClient = SurfaceFace;
 
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
@@ -66,7 +67,13 @@ export interface ResolveDrvPathContext extends AgentResolutionContext {
   localProgress: (line: string) => void;
 }
 
-export interface SshConnectorOptions {
+export interface SshConnectorOptions<S extends SurfaceSpec> {
+  /** The surface the remote agent SERVES. Required, and a VALUE rather than the
+   *  old type parameter: Effect RPC builds its client from the surface's flat
+   *  `RpcGroup` (`surface.group`), and the face is re-nested from `surface.spec`
+   *  at `surface.tagPrefix` — neither is recoverable from a type alone. It is also
+   *  what keeps the dialled face and the served group provably the same tag set. */
+  surface: Surface<S>;
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
   /** Executable name inside the realised closure — the full spawn path is
@@ -106,16 +113,16 @@ export interface SshConnectorOptions {
  *  resolves the drv (fail → classified `ConnectError`), provisions the closure,
  *  spawns the ssh child, and returns a {@link Connection} whose `closed` resolves on
  *  the child's exit/error and whose `isAlive` is the reserved `system.live` probe. */
-export function sshConnector<C extends AnyContractRouter>(
-  opts: SshConnectorOptions,
-): Connector<AgentClient<C>, SshProv> {
+export function sshConnector<S extends SurfaceSpec>(
+  opts: SshConnectorOptions<S>,
+): Connector<AgentClient, SshProv> {
   // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
   // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
   // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
   // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
 
-  return async (ctx): Promise<Connection<AgentClient<C>>> => {
+  return async (ctx): Promise<Connection<AgentClient>> => {
     // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
     // campaign generation is known — so `provisionAgent` stays campaign-ignorant. Monotonic
     // (`onCampaign` ignores an epoch `<= last`), so a stale/superseded dial can't roll a
@@ -242,10 +249,15 @@ export function sshConnector<C extends AnyContractRouter>(
       }
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
-    const client = stdioLink<C>({
+    // The wire link is ASYNC now (building the protocol layer and its fibers is
+    // an effect) and owns a `Scope` holding those fibers — so `teardown` must
+    // dispose it, not just kill the child, or every dial leaks a protocol fiber.
+    const link = await stdioLink({
+      group: opts.surface.group,
       read: child.stdout,
       write: child.stdin,
     });
+    const client = buildSurfaceFace(opts.surface, link.dispatch);
 
     return {
       client,
@@ -255,6 +267,13 @@ export function sshConnector<C extends AnyContractRouter>(
       // completed); only a true non-answer (the loop's watchdog timeout) cycles.
       isAlive: surfaceLiveProbe(client),
       teardown: () => {
+        // Release the link's scope FIRST (its protocol fibers, its response
+        // handlers), then kill the child. `dispose` is async and idempotent; a
+        // teardown fault must not replace the reason the caller is tearing down,
+        // so it is swallowed the same way the kill already is.
+        void link.dispose().catch(() => {
+          /* best-effort — a link already disposed is fine */
+        });
         try {
           child.kill("SIGTERM");
         } catch {

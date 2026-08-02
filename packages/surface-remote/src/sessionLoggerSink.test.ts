@@ -14,6 +14,8 @@
  * driven exactly the way the real consumers drove it: zero lines landed.)
  */
 
+import { defineSurface } from "@kolu/surface/define";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
@@ -79,6 +81,9 @@ describe("session diagnostics land in a receiver-sensitive structured logger", (
     const session = makeSession({
       initialConnection: "probing",
       connectOnce: sshConnector({
+        surface: defineSurface({
+          cells: { ping: { schema: Schema.String, default: "" } },
+        }),
         host: "strictlog",
         binary: "agent",
         localEnv: {},

@@ -20,7 +20,10 @@ import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  TEST_AGENT_SURFACE,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -75,6 +78,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
     const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const connector = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "localhost",
       binary: "agent",
       resolveDrvPath: () =>
@@ -92,6 +96,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
 
   it("leaves the ssh arm's env undefined — the local ssh client inherits (SSH_AUTH_SOCK / ~/.ssh)", async () => {
     const connector = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "bob.example",
       binary: "agent",
       resolveDrvPath: () =>

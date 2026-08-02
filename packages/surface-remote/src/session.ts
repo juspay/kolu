@@ -47,6 +47,7 @@ import {
   ClockNowUnavailableError,
   measureSurfaceClockOffset,
 } from "@kolu/surface/clock-now";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -60,7 +61,6 @@ import {
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
-import { ORPCError } from "@orpc/client";
 import type { LogEntry } from "./connection";
 import { MAX_PROGRESS_LINES } from "./progressTail";
 
@@ -933,12 +933,38 @@ export function makeSession<
         // the already-struggling process every ~25s. The reused promise still times out
         // against the heartbeat each cycle so the process oracle is re-checked.
         if (ep.inFlight !== null) return ep.inFlight;
-        const probe: Promise<void> = conn.isAlive().finally(() => {
-          // Clear only if still OURS — a stale settle must not null out a newer probe's
-          // in-flight tracking. `ep` is this connection's episode record; once the
-          // connection is retired the record is detached, so writing it is inert.
-          if (ep.inFlight === probe) ep.inFlight = null;
-        });
+        const probe: Promise<void> = conn
+          .isAlive()
+          .catch((err: unknown) => {
+            // A rejection normally counts as ALIVE — the round-trip completed and the
+            // far end answered, even if it answered "no". A DEAD-TRANSPORT rejection is
+            // the one rejection that is not an answer at all: the link itself reported
+            // that it is gone. Effect RPC's protocol carries a ping/pong keepalive, so a
+            // silently wedged peer (process alive, app hung — no stdio EOF, ssh
+            // keepalive ~30s away) now fails the LINK within ~10s and every later call
+            // rejects with `SurfaceStdioTransportClosed`. Reading that as "alive" would
+            // park the session `connected` over a corpse forever, since a stdio leg never
+            // reconnects itself and no `closed` fires while the wedged child lives — the
+            // green-dot-over-a-dead-link lie, one hop out.
+            //
+            // So force-cycle NOW instead of waiting out a timeout the link can no longer
+            // meet. This is the SAME verdict `onStale` reaches for a wedged remote, taken
+            // one signal earlier and on harder evidence — and it needs no process oracle:
+            // a dead transport cannot be reused whether or not the far process is alive.
+            if (!isDeadTransportError(err)) return;
+            // Supersession guard, the same one the `finally` below carries: a reject that
+            // lands after this connection was replaced must not cycle its successor.
+            if (destroyed || current !== conn) return;
+            forceCycle(
+              "liveness probe hit a dead transport — force-cycling the link",
+            );
+          })
+          .finally(() => {
+            // Clear only if still OURS — a stale settle must not null out a newer probe's
+            // in-flight tracking. `ep` is this connection's episode record; once the
+            // connection is retired the record is detached, so writing it is inert.
+            if (ep.inFlight === probe) ep.inFlight = null;
+          });
         ep.inFlight = probe;
         return probe;
       },
@@ -1419,13 +1445,24 @@ export function makeSession<
         //
         // EXPECTED-ABSENT vs GENUINE FAILURE (`.agency/code-police.md`: genuine failed I/O
         // at `error`, expected-absent at `info`). EXPECTED-ABSENT is the missing-member dial:
-        // its client has no `system.clockNow` — the route is STRUCTURALLY absent, so
-        // `probeSurfaceClockNow` threw a TYPED `ClockNowUnavailableError` (client-side
-        // navigation), or the server refused it with an oRPC `NOT_FOUND` (server-side). Both
-        // are detected by an `instanceof` check — NEVER by string-matching a `TypeError`
-        // message (which differs by which navigation step is undefined and by JS engine; a
-        // genuine transient `TypeError` must not be misfiled as permanent-absent and silently
-        // stop the probe). That condition is PERMANENT on this dial (the member will never
+        // the client in THIS process's own hand has no `system.clockNow` — the route is
+        // STRUCTURALLY absent, so `probeSurfaceClockNow` threw a TYPED
+        // `ClockNowUnavailableError`. Detected by an `instanceof` check — NEVER by
+        // string-matching a `TypeError` message (which differs by which navigation step is
+        // undefined and by JS engine; a genuine transient `TypeError` must not be misfiled as
+        // permanent-absent and silently stop the probe).
+        //
+        // The SERVER-side twin is gone (PLAN D6). It used to be an oRPC `NOT_FOUND`: a
+        // pre-`clockNow` agent answered the rest of the surface and 404'd this one route,
+        // which was a real rolling-upgrade state worth tolerating. Under the flag day a
+        // peer either speaks THIS protocol epoch — in which case its group carries the
+        // reserved `system/clockNow` tag, because `defineSurface` mints it and
+        // `implementSurface` asserts route-set identity at boot (D1) — or it cannot decode
+        // a frame at all and the dial never reaches a probe. So a far-end refusal of this
+        // tag is no longer an older-server condition to expect: it is a framework defect or
+        // a genuine transport fault, and both belong in the loud, retried arm below. Reading
+        // it as "expected-absent" would silently stop probing a peer that should answer.
+        // That condition is PERMANENT on this dial (the member will never
         // appear), so retrying it every cadence forever is pure waste: emit ONCE at `debug`
         // (the "tool not installed" analogue — not a fault), leave the honest `null` standing,
         // and STOP. A fresh `enterConnected` on the next reconnect re-fires the probe, so a
@@ -1435,9 +1472,7 @@ export function makeSession<
         // never lands) AND retried on `clockProbeRetryMs` cadence while connected, until it
         // lands or the link drops. On the padi bindings `system.clockNow` is framework-reserved
         // and always present, so every rejection there is genuine.
-        const expectedAbsent =
-          err instanceof ClockNowUnavailableError ||
-          (err instanceof ORPCError && err.code === "NOT_FOUND");
+        const expectedAbsent = err instanceof ClockNowUnavailableError;
         const reason = err instanceof Error ? err.message : String(err);
         if (expectedAbsent) {
           emit(

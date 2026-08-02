@@ -17,7 +17,7 @@
  *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
  *     lifecycle (add / remove / retire + per-host socket eviction, plus the optional
  *     fleet verbs a `controls` supplies); the app supplies `buildEntry` (how a host
- *     becomes a session + an oRPC handler) and an optional `persist` hook.
+ *     becomes a session + a served handler) and an optional `persist` hook.
  *
  * Both are lifted verbatim-in-shape from drishti's `bridgeAgentToParent` +
  * `hostRegistry.ts` — the two consumers (drishti's process monitor, kolu-server's
@@ -27,6 +27,7 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import { Effect } from "effect";
 import {
   mirrorRemoteSurface,
   type ProcedureForwarders,
@@ -62,21 +63,27 @@ export interface LiveSpawnHolder<T> {
   onChange?: () => void;
 }
 
-/** A {@link LiveSpawnHolder} that NOTIFIES — `whenChanged()` resolves on the
- *  next `.current` mutation the pump makes, so a forwarder can `await` the next
- *  live client (or its clear) rather than poll. The pump mutates `.current` and
- *  calls `onChange`; the holder fans that out to everyone waiting. Use this (not
- *  a bare `{ current: null }`) when a re-served stream must rebind across remote
- *  respawns instead of completing when one spawn's link dies. */
+/** A {@link LiveSpawnHolder} that NOTIFIES — `changed` completes on the next
+ *  `.current` mutation the pump makes, so a forwarder can await the next live
+ *  client (or its clear) rather than poll. The pump mutates `.current` and calls
+ *  `onChange`; the holder fans that out to everyone waiting. Use this (not a bare
+ *  `{ current: null }`) when a re-served stream must rebind across remote respawns
+ *  instead of completing when one spawn's link dies. */
 export interface ObservableHolder<T> extends LiveSpawnHolder<T> {
-  /** Resolve on the next `.current` change. One-shot: re-await for the one after. */
-  whenChanged(signal?: AbortSignal): Promise<void>;
+  /** An EFFECT that completes on the next `.current` change. One-shot — re-run it
+   *  for the one after.
+   *
+   *  Effect-shaped rather than the old `whenChanged(signal): Promise<void>`
+   *  (PLAN D10): its one consumer is `relayStream`'s rebind wait, which is now a
+   *  `Stream`, and cancellation there is fiber INTERRUPTION, not an `AbortSignal`.
+   *  Interrupting the awaiting fiber runs the effect's own finalizer, which
+   *  detaches the waiter — so a torn-down subscription still leaks no listener,
+   *  with no signal to thread and none to forget. */
+  readonly changed: Effect.Effect<void>;
 }
 
 /** Build an {@link ObservableHolder}. The `onChange` the pump fires wakes every
- *  pending `whenChanged()` waiter exactly once; an aborted waiter rejects with
- *  the signal's reason and detaches, so a torn-down subscription never leaks a
- *  listener. */
+ *  pending `changed` waiter exactly once. */
 export function observableHolder<T>(): ObservableHolder<T> {
   const waiters = new Set<() => void>();
   return {
@@ -84,25 +91,18 @@ export function observableHolder<T>(): ObservableHolder<T> {
     onChange() {
       for (const wake of [...waiters]) wake();
     },
-    whenChanged(signal) {
-      return new Promise<void>((resolve, reject) => {
-        if (signal?.aborted) {
-          reject(signal.reason);
-          return;
-        }
-        const wake = (): void => {
-          waiters.delete(wake);
-          signal?.removeEventListener("abort", onAbort);
-          resolve();
-        };
-        const onAbort = (): void => {
-          waiters.delete(wake);
-          reject(signal?.reason);
-        };
-        waiters.add(wake);
-        signal?.addEventListener("abort", onAbort, { once: true });
+    changed: Effect.callback<void>((resume) => {
+      const wake = (): void => {
+        waiters.delete(wake);
+        resume(Effect.void);
+      };
+      waiters.add(wake);
+      // Interruption finalizer — detaching here is what makes an interrupted
+      // waiter leave nothing behind (the old `signal.removeEventListener` pair).
+      return Effect.sync(() => {
+        waiters.delete(wake);
       });
-    },
+    }),
   };
 }
 
@@ -259,12 +259,12 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
 
 // ── buildRemotePool — the keyed per-host fan-out ─────────────────────────
 
-/** One host's entry: its session and the oRPC handler a `?host=` dispatcher
+/** One host's entry: its session and the served handler a `?host=` dispatcher
  *  upgrades a browser socket onto. The session slot is the minimal
  *  {@link DestroyableSession} (S1) — the registry only ever `destroy()`s it; a
  *  richer type (`Session`) still fits, and the app's `S` is what `getSession`
- *  hands back. `H` stays generic (the app's `RPCHandler<…>`) so this package needs
- *  no `@orpc/server/ws` dependency. */
+ *  hands back. `H` stays generic (whatever the app's serving layer hands a socket),
+ *  so this package needs no dependency on it. */
 export interface RemoteEntry<S extends DestroyableSession, H> {
   session: S;
   handler: H;
@@ -272,8 +272,8 @@ export interface RemoteEntry<S extends DestroyableSession, H> {
 
 /** The structural subset of a server-side WebSocket the registry closes on
  *  host removal — kept structural (the `@kolu/surface-app` `GateableSocket`
- *  stance) so this package needn't depend on `ws`. partysocket auto-reconnects
- *  a browser, so a removal only "sticks" if the parent closes the socket. */
+ *  stance) so this package needn't depend on `ws`. The browser's link re-dials on
+ *  its own, so a removal only "sticks" if the parent closes the socket. */
 export interface ClosableSocket {
   close(code: number, reason?: string): void;
 }
@@ -295,7 +295,8 @@ export interface RemotePoolOptions<S extends DestroyableSession, H> {
   /** Hosts seeded synchronously at construction. */
   initialHosts: readonly string[];
   /** Build one host's `{ session, handler }`. Owns session provisioning
-   *  (`makeSession`), the re-serve router, and the oRPC handler — all the
+   *  (`makeSession`), the re-serve's `{ group, handlers }`, and the serving handler
+   *  — all the
    *  surface-specific knowledge the registry deliberately doesn't hold. Sync
    *  (matching `makeSession`, which defers the dial into the session's own
    *  reconnect machinery): a host unreachable at boot surfaces as a per-host
@@ -344,7 +345,7 @@ export interface RemotePool<S extends DestroyableSession, H> {
   has(host: string): boolean;
   /** The known hosts, in insertion order. */
   hosts(): string[];
-  /** The host's entry — its oRPC handler (what a `?host=` upgrade dispatcher
+  /** The host's entry — its served handler (what a `?host=` upgrade dispatcher
    *  hands the browser socket) plus its session — or `undefined` for an
    *  unknown host. Returns the whole {@link RemoteEntry}, not a bare `H`:
    *  `H` is an open type parameter a caller may instantiate with a value
@@ -512,8 +513,8 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   //
   // Ordering is load-bearing: membership is dropped + notified BEFORE `session.destroy()`,
   // so `has(host)` is already false when the destroy fault reaches the map's
-  // `forwardStream` — its error→typed-end guard fires and each delta/fail-through iterator
-  // ends TYPED, never a raw session-death `ORPCError` reaching the browser (and it honors
+  // `forwardStream` — its error→typed-end guard fires and each delta/fail-through stream
+  // ends TYPED, never a raw session-death failure reaching the browser (and it honors
   // the MapRegistry clause that `has()` reflects the change before `onChange` fires). The
   // destroy throw is SWALLOWED: kolu sheds a guest fire-and-forget (`void pool.retire(h)`),
   // so an unguarded throw here would float an unhandledRejection → the server's fatal
@@ -643,7 +644,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     destroyAll() {
       // Mirror `remove()`'s ordering + guard: snapshot, then drop membership + notify
       // BEFORE destroying any session (so a live `forwardStream` sees `has(host) ===
-      // false` and ends each stream TYPED, never a raw session-death `ORPCError`), and
+      // false` and ends each stream TYPED, never a raw session-death failure), and
       // destroy each snapshotted session inside its OWN try/catch (`session.destroy()`
       // CAN throw — it kills the ssh child + clears timers) so one throwing teardown
       // can't abort the loop and strand the rest un-destroyed.

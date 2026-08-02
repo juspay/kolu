@@ -26,20 +26,23 @@
  */
 
 import type { Logger } from "@kolu/log";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
-import type { AnyContractRouter } from "@orpc/contract";
 import { readBakedAgentSource } from "./agentDrv";
 import { makeSession } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
-/** A live one-shot agent connection: the client plus a `dispose` that tears the
- *  ssh session down. */
-export interface AgentDial<C extends AnyContractRouter> {
-  client: AgentClient<C>;
+/** A live one-shot agent connection: the surface FACE plus a `dispose` that tears
+ *  the ssh session down. NON-generic — see {@link AgentClient}. */
+export interface AgentDial {
+  client: AgentClient;
   dispose: () => void;
 }
 
-export interface DialAgentOnceOptions<C extends AnyContractRouter> {
+export interface DialAgentOnceOptions<S extends SurfaceSpec> {
+  /** The surface the remote agent serves — threaded to `sshConnector` to build
+   *  the wire link's group and the face. Required, never inferred. */
+  surface: Surface<S>;
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
   /** Executable name inside the realised closure, run as `<binary> --stdio`. */
@@ -76,7 +79,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  gates the padiSurface contract version, which is a contract check,
    *  not merely "is the link alive". The result is discarded; a rejection fails
    *  the dial (and destroys the session). */
-  probe?: (client: AgentClient<C>) => Promise<unknown>;
+  probe?: (client: AgentClient) => Promise<unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `SshConnectorOptions.extraArgs` / `buildAgentCommand` — what the args mean is
@@ -109,9 +112,9 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
  *  misclassify it as a retryable `"network"` fault and a long-lived consumer
  *  would spin on it forever. The genuinely-per-host arch probe and one-package
  *  Nix evaluation stay deferred inside `resolveDrvPath`. */
-export async function dialAgentOnce<C extends AnyContractRouter>(
-  opts: DialAgentOnceOptions<C>,
-): Promise<AgentDial<C>> {
+export async function dialAgentOnce<S extends SurfaceSpec>(
+  opts: DialAgentOnceOptions<S>,
+): Promise<AgentDial> {
   const source = readBakedAgentSource();
   if (source.isErr()) throw source.error;
   const flakeRef = source.value;
@@ -120,8 +123,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // `session.destroy()`, and each dial gets its own connector (source resolver)
   // and its own teardown, so two concurrent dials never share a session where
   // either `dispose()` kills the other's link.
-  const session = makeSession<AgentClient<C>, SshProv>({
-    connectOnce: sshConnector<C>({
+  const session = makeSession<AgentClient, SshProv>({
+    connectOnce: sshConnector<S>({
+      surface: opts.surface,
       host: opts.host,
       binary: opts.binary,
       extraArgs: opts.extraArgs,

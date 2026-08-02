@@ -33,7 +33,10 @@ import {
   type SessionState,
 } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  TEST_AGENT_SURFACE,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -71,6 +74,7 @@ function failingSession() {
   return makeSession({
     initialConnection: "probing",
     connectOnce: sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "testhost",
       binary: "agent",
       localEnv: {},
@@ -94,6 +98,7 @@ function unresolvableSession(onLine?: (line: string) => void) {
   return makeSession({
     initialConnection: "probing",
     connectOnce: sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "testhost",
       binary: "agent",
       localEnv: {},
@@ -126,6 +131,7 @@ describe("HostSession log sink (alt-screen consumers divert all diagnostics)", (
     const session = makeSession({
       initialConnection: "probing",
       connectOnce: sshConnector({
+        surface: TEST_AGENT_SURFACE,
         host: "altscreen",
         binary: "agent",
         localEnv: {},

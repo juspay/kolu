@@ -1,7 +1,7 @@
 import { defineSurface } from "@kolu/surface/define";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it, type Mock, vi } from "vitest";
-import { z } from "zod";
 import {
   buildRemotePool,
   type ClosableSocket,
@@ -413,7 +413,9 @@ const pumpSurface = defineSurface({
   cells: {},
   collections: {},
   // One open stream — the mirror stays live until the source generator returns.
-  streams: { ticks: { inputSchema: z.object({}), outputSchema: z.number() } },
+  streams: {
+    ticks: { inputSchema: Schema.Struct({}), outputSchema: Schema.Number },
+  },
   events: {},
 });
 
@@ -455,11 +457,13 @@ describe("pumpRemoteSurface — onLinkDown", () => {
     const client = {
       surface: {
         ticks: {
-          get: async () =>
-            (async function* () {
-              yield 1;
-              await ticksOpen; // stay live until the test closes the link
-            })(),
+          // One frame, then hold the stream open until the test closes it —
+          // `Stream.fromEffect(ticksOpen)` ends exactly when the promise settles.
+          get: () =>
+            Stream.concat(
+              Stream.make(1),
+              Stream.drain(Stream.fromEffect(Effect.promise(() => ticksOpen))),
+            ),
         },
       },
       // biome-ignore lint/suspicious/noExplicitAny: structural fake client; the mirror reads `.surface` structurally.

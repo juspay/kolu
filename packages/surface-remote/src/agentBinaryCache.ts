@@ -11,10 +11,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import { Result as EffectResult, Schema } from "effect";
 import { ResolveDrvError } from "./host";
 import agentEnv from "../agent-env.json" with { type: "json" };
 import { err, ok, type Result } from "neverthrow";
-import { z } from "zod";
 
 /** The binary-cache declaration `mkProvenAgentSource` writes next to the baked
  * flake's `commit-hash` — derived from the agent flake's own `nixConfig`, so
@@ -63,29 +63,42 @@ export interface AgentBinaryCache {
  *  the cache-blind provisioning path {@link AgentBinaryCache} exists to make
  *  unspellable, so it never becomes a value.
  *
- *  Declared as a schema rather than hand-rolled predicates: `zod` is already
- *  this package's validation vocabulary (see `connection.ts`), `.trim()` makes
- *  the value that PASSES the gate the value nix receives (an untrimmed
+ *  Declared as a schema rather than hand-rolled predicates: Effect Schema is
+ *  this package's validation vocabulary (see `connection.ts`), the TRIM decode
+ *  makes the value that PASSES the gate the value nix receives (an untrimmed
  *  " https://cache…" would otherwise satisfy "non-blank" and then fail at
  *  `nix copy` looking like a cache miss), and a field added later is one line
- *  here instead of another hand-written check. */
-const AgentBinaryCacheSchema = z.object({
-  substituters: z.array(z.string().trim().min(1)).min(1),
-  trustedPublicKeys: z.array(z.string().trim().min(1)).min(1),
+ *  here instead of another hand-written check.
+ *
+ *  `zod`'s `.trim()` was a *decode-time transform* (it rewrote the value, then
+ *  applied `.min(1)` to the trimmed result), so it is `Schema.Trim` here — NOT a
+ *  `.check(isNonEmpty)` on the raw string, which would accept `"  "`. The
+ *  non-empty check therefore runs on the DECODED (trimmed) side, exactly as it
+ *  did in zod. */
+const TrimmedNonEmpty = Schema.Trim.pipe(
+  Schema.decodeTo(Schema.String.check(Schema.isMinLength(1))),
+);
+const NonEmptyList = Schema.Array(TrimmedNonEmpty).check(Schema.isMinLength(1));
+const AgentBinaryCacheSchema = Schema.Struct({
+  substituters: NonEmptyList,
+  trustedPublicKeys: NonEmptyList,
 });
 
 export function agentBinaryCache(raw: {
   substituters?: unknown;
   trustedPublicKeys?: unknown;
 }): AgentBinaryCache {
-  const parsed = AgentBinaryCacheSchema.safeParse(raw);
-  if (!parsed.success) {
+  const parsed = Schema.decodeUnknownResult(AgentBinaryCacheSchema)(raw);
+  if (EffectResult.isFailure(parsed)) {
+    // `SchemaError.message` renders the whole issue tree — the Effect Schema
+    // counterpart of zod's `prettifyError`. Collapsed onto one line so the loud
+    // throw stays one readable sentence, exactly as before.
     throw new Error(
-      `agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind (${z.prettifyError(parsed.error).replace(/\s+/g, " ").trim()})`,
+      `agent binary cache must name at least one substituter and one trusted public key — an empty declaration would leave provisioning cache-blind (${parsed.failure.message.replace(/\s+/g, " ").trim()})`,
     );
   }
   return {
-    ...parsed.data,
+    ...parsed.success,
     [agentBinaryCacheBrand]: "agent-binary-cache",
   };
 }

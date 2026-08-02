@@ -10,7 +10,9 @@ the surface through the exact `useCell` / `useCollection` shape it always uses.
 ```ts
 import { makeSession, sshConnector, pumpRemoteSurface } from "@kolu/surface-remote";
 
-const session = makeSession({ connectOnce: sshConnector({ host, binary, resolveDrvPath, localEnv }) });
+const session = makeSession({
+  connectOnce: sshConnector({ surface, host, binary, resolveDrvPath, localEnv }),
+});
 pumpRemoteSurface({ source: surface, session, makeSink: ({ seq }) => sink });
 ```
 

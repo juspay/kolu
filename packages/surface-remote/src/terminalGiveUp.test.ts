@@ -20,7 +20,10 @@ import { PROVISION_STEP_MAX_EXPIRIES } from "./nixCopy";
 import { type CaptureResult, runCapture } from "./process";
 import { makeSession } from "./session";
 import { sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  TEST_AGENT_SURFACE,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 import { makeTestAgentSourceDir } from "./agentDrv.testutil";
 
 vi.mock("./process", async (importOriginal) => ({
@@ -92,6 +95,7 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
     );
     const session = makeSession({
       connectOnce: sshConnector({
+        surface: TEST_AGENT_SURFACE,
         host: "warm-root-stall",
         binary: "agent",
         resolveDrvPath: () =>
@@ -119,6 +123,7 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
 
   it("gives up terminally after the provisioning budget is exhausted", async () => {
     const connectOnce = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "testhost",
       binary: "agent",
       resolveDrvPath: () =>
@@ -174,6 +179,7 @@ describe("#1908 — a permanently silent provision reaches `failed`, bounded", (
     // spending the evaluation this test expires.
     const srcDir = makeTestAgentSourceDir();
     const connectOnce = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "silent-evaluator",
       binary: "agent",
       resolveDrvPath: (ctx) => ctx.resolveAgentDrv(srcDir, "agent"),

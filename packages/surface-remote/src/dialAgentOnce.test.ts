@@ -50,8 +50,18 @@ vi.mock("./agentDrv", async (importOriginal) => {
 vi.mock("./session", () => ({ makeSession: h.makeSession }));
 vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
+import { defineSurface } from "@kolu/surface/define";
+import { Schema } from "effect";
 import { dialAgentOnce } from "./dialAgentOnce";
 import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
+
+/** The surface every dial below names. `dialAgentOnce` now takes the surface as a
+ *  VALUE (the wire link is built from its `RpcGroup`), so a dial cannot be spelled
+ *  without one — but `sshConnector` is mocked here, so its content is irrelevant to
+ *  this suite: it only has to be a real surface. */
+const dialSurface = defineSurface({
+  cells: { ping: { schema: Schema.String, default: "" } },
+});
 
 /** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
  *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
@@ -121,6 +131,7 @@ describe("dialAgentOnce: eager source-ref validation", () => {
   // session's retryable "network" classification.
   const base = {
     host: "nix@prod",
+    surface: dialSurface,
     package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",
@@ -155,6 +166,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
@@ -177,6 +189,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent-full",
       binary: "agent",
       fatalPrefix: "agent:",
@@ -192,6 +205,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
@@ -208,6 +222,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
@@ -224,6 +239,7 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "widget",
       binary: "widget",
       fatalPrefix: "widget:",
@@ -250,6 +266,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const dial = await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
@@ -275,6 +292,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        surface: dialSurface,
         package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
@@ -331,6 +349,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
@@ -375,6 +394,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "kaval",
       binary: "kaval",
       fatalPrefix: "kaval --stdio:",
@@ -399,6 +419,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        surface: dialSurface,
         package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
@@ -418,6 +439,7 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
   // cross-destroys the other. These tests pin "one session per dial".
   const dialArgs = {
     host: "nix@prod",
+    surface: dialSurface,
     package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",

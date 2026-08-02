@@ -19,12 +19,12 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
-import { eventIterator, oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
+import { implementSurface } from "@kolu/surface/server";
+import { Schema, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import {
@@ -41,11 +41,16 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
-const contract = {
-  tick: oc
-    .input(z.object({}))
-    .output(eventIterator(z.object({ n: z.number() }))),
-};
+/** The surface the fake agent serves. A single streaming member is enough — this
+ *  suite is about the session's reconnect/give-up classification, not the wire. */
+const tickSurface = defineSurface({
+  streams: {
+    tick: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Struct({ n: Schema.Number }),
+    },
+  },
+});
 
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
  *  the UP arm carries no `error`/`cause` fields at all, so a test that expects a
@@ -65,14 +70,19 @@ function down(s: SessionState<SshProv>): DownSessionState {
  *  live link was actually force-cycled. */
 function controllableChild() {
   const pair = createLoopbackPair();
-  const t = implement(contract);
-  const router = t.router({
-    tick: t.tick.handler(async function* () {
-      yield { n: 0 };
-      await new Promise((r) => setTimeout(r, 600_000));
-    }),
+  const runtime = implementSurface(tickSurface, {
+    // One frame, then park forever — the link stays live until the child is killed.
+    streams: {
+      tick: {
+        source: () => Stream.concat(Stream.make({ n: 0 }), Stream.never),
+      },
+    },
   });
-  void serveOverStdio({ router, transport: pair.server });
+  void serveOverStdio({
+    group: runtime.group,
+    handlers: runtime.handlers,
+    transport: pair.server,
+  });
 
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
@@ -124,9 +134,10 @@ describe("HostSession child-exit classification", () => {
     // the command and it died — a "remote" fault, so the give-up gate must
     // bound it. Pre-fix every child exit was "network" → infinite retry.
     vi.mocked(spawn).mockImplementation(() => crashingChild(127) as never);
-    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+    const session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "testhost",
         binary: "agent",
         localEnv: {},
@@ -176,9 +187,10 @@ describe("HostSession.recheck", () => {
   });
 
   it("force-cycles a live (connected) link and reconnects", async () => {
-    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+    const session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "testhost",
         binary: "agent",
         localEnv: {},
@@ -220,9 +232,10 @@ describe("HostSession.recheck", () => {
   });
 
   it("a recheck() cycle mid-connecting retries as network, not bounded remote (Codex P1)", async () => {
-    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+    const session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "testhost",
         binary: "agent",
         localEnv: {},
@@ -260,9 +273,10 @@ describe("HostSession.recheck", () => {
   });
 
   it("is a no-op on an unreferenced session (no spawn, no throw)", () => {
-    const session = makeSession<AgentClient<typeof contract>, SshProv>({
+    const session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "testhost",
         binary: "agent",
         localEnv: {},

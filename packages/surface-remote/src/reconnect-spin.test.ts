@@ -2,26 +2,31 @@
  * Regression: the reconnect bridge loop must not busy-spin after a
  * connected link drops.
  *
- * The client is an oRPC proxy that intercepts `.then` as a procedure path,
- * so it is *thenable*: `await session.currentClient()` re-invokes it and
- * yields a fresh object every call. A `waitForNextClient` that compared the
- * awaited *client* by identity therefore resolved on every consumer
- * iteration; once the stdio link fails fast (#1060) instead of hanging, the
- * consumer loop spun at CPU speed — pegging the event loop so the child
- * `exit` handler and reconnect-backoff timer never ran. `waitForNextClient`
- * now keys on the `clientPromise` identity (stable per spawn), so the loop
- * blocks until a real reconnect.
+ * The original defect: the oRPC client was a proxy that intercepted `.then` as a
+ * procedure path, so it was *thenable* — `await session.currentClient()`
+ * re-invoked it and yielded a fresh object every call. A `waitForNextClient`
+ * that compared the awaited *client* by identity therefore resolved on every
+ * consumer iteration; once the stdio link failed fast (#1060) instead of hanging,
+ * the consumer loop spun at CPU speed, pegging the event loop so the child
+ * `exit` handler and reconnect-backoff timer never ran. `waitForNextClient` keys
+ * on the `clientPromise` identity (stable per spawn) instead, so the loop blocks
+ * until a real reconnect.
+ *
+ * The surface FACE is a plain object, so the thenable trap has no spelling any
+ * more — but the LAW is the cursor's, not the client's, and this test still
+ * measures it: a consumer loop over `cursor.next()` must make a handful of
+ * attempts across a reconnect, never thousands.
  */
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import { eventIterator, oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
+import { implementSurface } from "@kolu/surface/server";
+import { Effect, Schema, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import { makeSession, type Session } from "./session";
@@ -35,11 +40,33 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 }));
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
-const contract = {
-  tick: oc
-    .input(z.object({}))
-    .output(eventIterator(z.object({ n: z.number() }))),
-};
+const tickSurface = defineSurface({
+  streams: {
+    tick: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Struct({ n: Schema.Number }),
+    },
+  },
+});
+
+/** Drain the face's `tick` stream to completion, swallowing the link-drop
+ *  failure — the Effect-native form of the old `for await (… of client.tick({}))`.
+ *  `onFirst` fires on the first frame (what the consumer marks connected on). */
+async function drainTick(
+  client: SurfaceClientLike,
+  onFirst: () => void,
+): Promise<void> {
+  const tick = (
+    client.surface as {
+      tick: { get: (i: unknown) => Stream.Stream<unknown, unknown> };
+    }
+  ).tick;
+  await Effect.runPromise(
+    Stream.runForEach(tick.get({}), () => Effect.sync(onFirst)).pipe(
+      Effect.ignore,
+    ),
+  );
+}
 
 // A child that serves a real agent (so the pump gets a first yield and the
 // consumer calls `markConnected`), then drops its link by ending the
@@ -48,14 +75,18 @@ const contract = {
 // the event loop so the real `exit` could never be delivered).
 function flakyChild(liveMs: number) {
   const pair = createLoopbackPair();
-  const t = implement(contract);
-  const router = t.router({
-    tick: t.tick.handler(async function* () {
-      yield { n: 0 };
-      await new Promise((r) => setTimeout(r, 60_000));
-    }),
+  const runtime = implementSurface(tickSurface, {
+    streams: {
+      tick: {
+        source: () => Stream.concat(Stream.make({ n: 0 }), Stream.never),
+      },
+    },
   });
-  void serveOverStdio({ router, transport: pair.server });
+  void serveOverStdio({
+    group: runtime.group,
+    handlers: runtime.handlers,
+    transport: pair.server,
+  });
 
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
@@ -74,7 +105,7 @@ function flakyChild(liveMs: number) {
 }
 
 describe("reconnect bridge loop", () => {
-  let session: Session<AgentClient<typeof contract>, SshProv>;
+  let session: Session<AgentClient, SshProv>;
 
   beforeEach(() => {
     vi.mocked(provisionAgent).mockResolvedValue({
@@ -89,9 +120,10 @@ describe("reconnect bridge loop", () => {
   });
 
   it("does not busy-spin after a connected link drops", async () => {
-    session = makeSession<AgentClient<typeof contract>, SshProv>({
+    session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "testhost",
         binary: "agent",
         localEnv: {},
@@ -112,10 +144,6 @@ describe("reconnect bridge loop", () => {
     // the exact shape a real consumer writes. If the fix regressed (comparing
     // the thenable client instead of the clientPromise), `next()` would
     // resolve every iteration and the count would explode into the thousands.
-    // The bare `{ tick }` test contract's client isn't surface-shaped, so the
-    // cursor (which consumes the loose `Session<SurfaceClientLike>` role) takes
-    // it via the role — runtime is untouched; only the client's static shape
-    // differs from a real surface's.
     const cursor = makeClientCursor(session as unknown as Session);
     let iterations = 0;
     const deadline = Date.now() + 500;
@@ -127,14 +155,7 @@ describe("reconnect bridge loop", () => {
         break;
       }
       iterations += 1;
-      try {
-        // biome-ignore lint/suspicious/noExplicitAny: proxy call in a repro
-        for await (const _ of await (client as any).tick({})) {
-          session.markConnected();
-        }
-      } catch {
-        /* link drop surfaces as rejection */
-      }
+      await drainTick(client, () => session.markConnected());
     }
 
     // A sane reconnect cadence is a handful of attempts in 500ms; the
@@ -152,9 +173,10 @@ describe("reconnect bridge loop", () => {
     // parked `next()` rejects and the pump loop can exit.
     vi.mocked(spawn).mockImplementation(() => flakyChild(40) as never);
 
-    session = makeSession<AgentClient<typeof contract>, SshProv>({
+    session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<typeof contract>({
+      connectOnce: sshConnector({
+        surface: tickSurface,
         host: "destroyhost",
         binary: "agent",
         localEnv: {},
@@ -173,23 +195,12 @@ describe("reconnect bridge loop", () => {
     });
     session.pin().catch(() => {});
 
-    // The bare `{ tick }` test contract's client isn't surface-shaped, so the
-    // cursor (which consumes the loose `Session<SurfaceClientLike>` role) takes
-    // it via the role — runtime is untouched; only the client's static shape
-    // differs from a real surface's.
     const cursor = makeClientCursor(session as unknown as Session);
     // Advance past the first spawn's live client and drain its stream until the
     // link dies — exactly what a real pump loop does. This leaves the session in
     // backoff with `clientPromise` cleared.
     const client = await cursor.next();
-    try {
-      // biome-ignore lint/suspicious/noExplicitAny: proxy call in a repro
-      for await (const _ of await (client as any).tick({})) {
-        session.markConnected();
-      }
-    } catch {
-      /* the link drops → rejection ends the drain */
-    }
+    await drainTick(client, () => session.markConnected());
 
     // Now park a SECOND next(): no spawn in flight (mid-backoff), so it blocks.
     const parked = cursor.next();

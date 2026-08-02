@@ -18,8 +18,8 @@ import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import {
@@ -41,18 +41,19 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 // `implementSurface` auto-answers it, so the healthy child below responds to the
 // watchdog's probe with no hand-wiring.
 const surface = defineSurface({
-  cells: { v: { schema: z.object({ n: z.number() }), default: { n: 0 } } },
+  cells: {
+    v: { schema: Schema.Struct({ n: Schema.Number }), default: { n: 0 } },
+  },
 });
-type SurfaceContract = typeof surface.contract;
 
 /** A child serving the real surface over a loopback pair — it ANSWERS
  *  `system.live` — and stays alive until killed. */
 function healthyChild() {
   const pair = createLoopbackPair();
-  const { router } = implementSurface(surface, {
+  const { group, handlers } = implementSurface(surface, {
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
-  void serveOverStdio({ router: router as never, transport: pair.server });
+  void serveOverStdio({ group, handlers, transport: pair.server });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
@@ -86,9 +87,10 @@ function wedgedChild() {
 }
 
 function buildSession(extra: Record<string, unknown> = {}) {
-  return makeSession<AgentClient<SurfaceContract>, SshProv>({
+  return makeSession<AgentClient, SshProv>({
     initialConnection: "probing",
-    connectOnce: sshConnector<SurfaceContract>({
+    connectOnce: sshConnector({
+      surface,
       host: "testhost",
       binary: "agent",
       localEnv: {},
@@ -128,7 +130,12 @@ describe("HostSession liveness watchdog", () => {
     });
     const session = buildSession();
     session.pin().catch(() => {});
-    await vi.advanceTimersByTimeAsync(1);
+    // The wire link is ASYNC now (building the RPC protocol layer and its fibers is
+    // an effect), so the connector resolves a few ticks after the spawn. Advance far
+    // enough that the session actually HOLDS a connection before marking connected —
+    // the watchdog only probes while `current !== null`, so a birth with no
+    // connection would make this test measure nothing.
+    await vi.advanceTimersByTimeAsync(20);
     expect(session.currentState().phase).toBe("connecting");
     // The bridge marks `connected` after the first RPC — simulate it (the watchdog
     // is born here, so it can never probe before the first connect).
@@ -136,11 +143,17 @@ describe("HostSession liveness watchdog", () => {
     expect(session.currentState().phase).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
-    // The watchdog probes at +15s; the wedged remote never answers.
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(kills[0]).not.toHaveBeenCalled(); // probe armed, not yet timed out
-    // At +10s the probe times out ⇒ the link is wedged ⇒ force-cycle.
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The LAW: a wedged link is force-cycled within one watchdog cycle
+    // (interval + timeout), never left reporting `connected` over a corpse. The
+    // MECHANISM moved and the test is deliberately stated on the law, not on it:
+    // Effect RPC's protocol carries its own ping/pong keepalive, so the wedged peer
+    // now fails the LINK at ~10s and the watchdog's first probe REJECTS with
+    // `SurfaceStdioTransportClosed` rather than hanging until the probe deadline.
+    // (Under oRPC nothing pinged, so the probe hung and the heartbeat's own timeout
+    // was the only signal.) Either way the verdict and the deadline are the same.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(kills[0]).not.toHaveBeenCalled(); // before the first probe: untouched
+    await vi.advanceTimersByTimeAsync(20_000); // one full interval + timeout
     expect(kills[0]).toHaveBeenCalledTimes(1);
 
     // …and the killed child routes through the reconnect loop → a fresh child.
