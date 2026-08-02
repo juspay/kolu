@@ -778,11 +778,14 @@ export function createEndpoint<
    * The convergence probe, plus the ONE corroboration PLAN D6/#3 demands before
    * an undecodable wire may become a convergence verdict.
    *
-   * The soul's probe raises {@link UnspeakableProtocolError} at an explicit
-   * first-frame decode failure — a TRANSPORT fact about whoever answered. That
-   * alone is not a licence to act: a stranger squatting our socket may send any
-   * bytes it likes, and this package never disposes of a process it has not
-   * proven is its own. So the fact is escalated to the corroborated
+   * The soul's probe raises {@link UnspeakableProtocolError} at one of the two
+   * bounded triggers `UnspeakableEvidence` names — an explicit first-frame decode
+   * failure, or a peer that accepted the connection and stayed mute past the
+   * dial's silence deadline. Either way it is a TRANSPORT fact about whoever
+   * answered. That alone is not a licence to act: a stranger squatting our socket
+   * may send any bytes it likes — or none — and this package never disposes of a
+   * process it has not proven is its own. So the fact is escalated to the
+   * corroborated
    * {@link UnspeakablePeerError} only when BOTH attestations hold — the gate
    * file at this rendezvous is ours, and the pid it names passes the same
    * identity law {@link liveServingHolderProbe} applies before any SIGTERM.
@@ -811,14 +814,15 @@ export function createEndpoint<
         // is "we could not ask". Either way we have not proven the peer is ours,
         // so the transport fact is reported as the probe failure it is. Logged
         // rather than swallowed: the gate read's own error would otherwise
-        // vanish behind the decode failure.
+        // vanish behind the transport fact.
         spec.log.warn(
           {
             hostId: spec.hostId,
             socketPath: primaryRv.socketPath,
+            trigger: err.evidence.trigger,
             err: String(gateErr),
           },
-          "a peer spoke an undecodable first frame, but its gate could not be read — reporting a probe failure, never a convergence verdict",
+          "a peer proved unspeakable, but its gate could not be read — reporting a probe failure, never a convergence verdict",
         );
         throw err;
       }
@@ -828,9 +832,9 @@ export function createEndpoint<
             hostId: spec.hostId,
             socketPath: primaryRv.socketPath,
             gatePath: primaryRv.gatePath,
-            frame: err.frame,
+            trigger: err.evidence.trigger,
           },
-          "a peer spoke an undecodable first frame at our rendezvous, but no gate of ours names a verified holder — refusing to treat a stranger as our daemon",
+          "a peer proved unspeakable at our rendezvous, but no gate of ours names a verified holder — refusing to treat a stranger as our daemon",
         );
         throw err;
       }
@@ -838,7 +842,7 @@ export function createEndpoint<
         socketPath: primaryRv.socketPath,
         gatePath: primaryRv.gatePath,
         pid: holder,
-        frame: err.frame,
+        evidence: err.evidence,
         cause: err,
       });
     }
@@ -908,11 +912,11 @@ export function createEndpoint<
    * mismatch (or connection replaced mid-probe) ⇒ uncorrelated. Never overwrites
    * the probe's instance key with the connection key.
    *
-   * An undecodable first frame is deliberately NOT escalated here: this path
+   * An unspeakable transport fact is deliberately NOT escalated here: this path
    * runs only AFTER the soul's `connect` handshaked successfully at this very
-   * rendezvous, so a peer that suddenly cannot be decoded is a fresh anomaly
-   * about a connection we already hold — `failed` (⇒ probe-failed) is the honest
-   * reading, and the conservative one.
+   * rendezvous, so a peer that suddenly cannot be decoded — or suddenly goes
+   * mute — is a fresh anomaly about a connection we already hold; `failed`
+   * (⇒ probe-failed) is the honest reading, and the conservative one.
    */
   const characterizeHeld = async (
     socketPath: string,

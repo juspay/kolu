@@ -13,6 +13,7 @@ import {
   probeDaemonIdentity,
   probeDaemonIdentityFrom,
   readControlCoreHello,
+  UNSPEAKABLE_SILENCE_MS,
 } from "./probeDaemonIdentity.ts";
 
 const listeners: Array<{ close(): void }> = [];
@@ -190,8 +191,12 @@ describe("probeDaemonIdentity", () => {
     // Evidence as a FIELD, JSON-quoted so a hostile peer's newlines or control
     // bytes cannot reshape the operator log line it lands in — and never
     // re-parsed back out of the prose.
-    expect(err.frame).toContain("not ndjson at all");
-    expect(err.frame).toBe(JSON.stringify("not ndjson at all\n"));
+    expect(err.evidence.trigger).toBe("undecodable-frame");
+    if (err.evidence.trigger !== "undecodable-frame") {
+      throw new Error("unreachable");
+    }
+    expect(err.evidence.frame).toContain("not ndjson at all");
+    expect(err.evidence.frame).toBe(JSON.stringify("not ndjson at all\n"));
   });
 
   it("classifies at the decode, not by waiting out the 30s hello deadline (#9)", async () => {
@@ -214,6 +219,112 @@ describe("probeDaemonIdentity", () => {
     ]);
     expect(outcome).toBe("unspeakable");
   });
+
+  // ── The SECOND trigger: a peer that accepts and never speaks ──────────────
+  //
+  // A real previous-release daemon never gets as far as an undecodable frame:
+  // its oRPC server waits for a client hello it can recognise, our ndjson is not
+  // one, and nobody says anything until the protocol's own ping timeout kills
+  // the connection ~10 s later as an ordinary transport death. That is the
+  // measured failure `previousRelease.e2e` hit (probe-failed ⇒ refuse ⇒ the old
+  // daemon left standing), and these three tests are its fix.
+
+  it("classifies a peer that accepts and stays SILENT as unspeakable", async () => {
+    const path = socketPath("probe-silent-");
+    // Accept, read everything, answer nothing — ever. That is what a peer from
+    // another protocol epoch does: it parses our frames and recognises none of
+    // them, so it goes on waiting for a greeting that will never come.
+    const server = createServer((socket) => {
+      socket.on("error", () => {});
+      socket.resume();
+    });
+    rawServers.push(server);
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(path, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+
+    const started = Date.now();
+    const err = await probeDaemonIdentity({ capability: "not-drainable" })(
+      path,
+    ).then(
+      (value) => {
+        throw new Error(`expected a rejection, got ${JSON.stringify(value)}`);
+      },
+      (e: unknown) => e,
+    );
+    const elapsed = Date.now() - started;
+
+    expect(isUnspeakableProtocolError(err)).toBe(true);
+    if (!isUnspeakableProtocolError(err)) throw new Error("unreachable");
+    expect(err.socketPath).toBe(path);
+    expect(err.evidence).toEqual({
+      trigger: "silence",
+      silentForMs: UNSPEAKABLE_SILENCE_MS,
+    });
+    // The bound must WIN against the RPC protocol's own ping timeout — past
+    // that the connection is dead of an ordinary transport error and there is
+    // nothing left to classify. This is the assertion that would have caught
+    // the previousRelease regression at unit scale.
+    expect(elapsed).toBeLessThan(9_500);
+  }, 20_000);
+
+  it("brackets the silence bound between the protocol's ping and its ping timeout", () => {
+    // Not a magic number: Effect's RPC socket protocol pings every 5 s (so a
+    // peer of this epoch has demonstrably spoken by then, below its handlers)
+    // and fails the connection after two unanswered intervals.
+    expect(UNSPEAKABLE_SILENCE_MS).toBeGreaterThan(5_000);
+    expect(UNSPEAKABLE_SILENCE_MS).toBeLessThan(10_000);
+  });
+
+  it("does NOT misfire on a slow-but-speaking daemon: a pong is speech (#9)", async () => {
+    const path = socketPath("probe-slow-hello-");
+    // A hello that answers only AFTER the silence bound would have expired if
+    // nothing else spoke. Nothing else has to: the protocol's 5 s ping draws a
+    // pong from the peer's protocol layer while its handler is still parked,
+    // and that byte disarms the deadline. This is why the floor is the ping
+    // interval and not the handler's latency.
+    const runtime = implementSurfaces(
+      { control: controlCoreSurface },
+      {},
+      {
+        control: {
+          procedures: {
+            core: {
+              hello: () =>
+                Effect.succeed({
+                  stateRoot: "/state/daemon",
+                  surfaceVersion: "2.4",
+                  controlCoreVersion: "1.0",
+                  startedAt: 99,
+                  commit: "abc1234",
+                  buildId: "build-9",
+                }).pipe(Effect.delay(UNSPEAKABLE_SILENCE_MS - 2_000)),
+              drain: () => Effect.void,
+            },
+          },
+        },
+      },
+    );
+    const listener = await serveOverUnixSocket({
+      socketPath: path,
+      group: runtime.group,
+      handlers: runtime.handlers,
+    });
+    listeners.push(listener);
+
+    const probe = await probeDaemonIdentity({ capability: "not-drainable" })(
+      path,
+    );
+    expect(probe?.identity).toEqual({
+      contractVersion: "2.4",
+      build: { kind: "known", id: "build-9" },
+    });
+    probe?.dispose();
+  }, 30_000);
 
   it("a peer whose framing decodes is SPEAKABLE even when its payload is not ours", async () => {
     // A well-framed ndjson line that is not an RPC message at all. The

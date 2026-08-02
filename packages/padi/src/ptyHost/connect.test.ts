@@ -49,7 +49,10 @@ import {
   serveKavalDaemonSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
-import { instanceKeyFromStartedAt } from "@kolu/surface-daemon-supervisor";
+import {
+  instanceKeyFromStartedAt,
+  isUnspeakableProtocolError,
+} from "@kolu/surface-daemon-supervisor";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   connectKaval,
@@ -405,27 +408,35 @@ describe("probeKavalForConvergence — frozen production path", () => {
     expect(isNoListenerError(new Error("boom"))).toBe(false);
   });
 
-  it("socket accepts but handshake never answers ⇒ REJECTS (not null)", async () => {
+  it("socket accepts but nothing ever answers ⇒ REJECTS (not null)", async () => {
     // Distinguishes catch-to-null (wave-6 regression) from honest absence:
     // resolving null here would mute the failure and adopt nothing as free.
     const socketPath = sockPath("kolu-probe-silent-");
-    const server = createServer(() => {
-      // accept, never answer control.core.hello
+    const server = createServer((sock) => {
+      sock.on("error", () => {});
+      // Read our frames, answer none of them — never `control.core.hello`.
+      sock.resume();
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
       const outcome = probeKavalForConvergence(socketPath).then(
-        (v) => (v === null ? "null" : "probe"),
-        (e: unknown) => (e as Error).message,
+        (v) => (v === null ? ("null" as const) : ("probe" as const)),
+        (e: unknown) => e,
       );
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(30_000);
+      // Deliberately LESS than the frozen hello's 30 s deadline: a peer that
+      // accepts and stays mute is classified at the dial's own silence bound
+      // (D6/#9), so this probe must already have settled here. Before that
+      // bound existed this same clock had to run all the way to 30 s.
+      await vi.advanceTimersByTimeAsync(10_000);
       const result = await outcome;
-      // Must reject with the deadline message — never resolve null.
+      // Must reject — never resolve null, never yield an identity.
       expect(result).not.toBe("null");
       expect(result).not.toBe("probe");
-      expect(result).toMatch(/control-core hello timed out after 30000ms/);
+      expect(isUnspeakableProtocolError(result)).toBe(true);
+      if (!isUnspeakableProtocolError(result)) throw new Error("unreachable");
+      expect(result.evidence.trigger).toBe("silence");
     } finally {
       vi.useRealTimers();
       server.close();

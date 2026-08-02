@@ -66,6 +66,7 @@ export {
   probeDaemonIdentityFrom,
   readControlCoreHello,
   type ProbeDaemonIdentityFromOptions,
+  UNSPEAKABLE_SILENCE_MS,
 } from "./probeDaemonIdentity.ts";
 export {
   type DaemonDriver,

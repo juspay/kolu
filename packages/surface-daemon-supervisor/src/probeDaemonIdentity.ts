@@ -26,6 +26,33 @@ const controlCoreContract = composeSurfaceContracts({
 });
 const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
 
+/**
+ * Review #9's OWN bound for the second unspeakable trigger: how long a peer that
+ * accepted our connection may say **nothing at all** before it is classified as
+ * not-of-this-epoch.
+ *
+ * The value is not a free knob — it is pinned between two facts of the protocol
+ * we run, both pinned by `probeDaemonIdentity.test.ts`:
+ *
+ * - **Floor (5 s).** Effect's RPC socket protocol pings every 5 s and a peer of
+ *   this epoch answers `Pong` from the protocol layer, *below* its handlers. So
+ *   a daemon that is merely SLOW — one whose `hello` handler is blocked, or
+ *   whose event loop stalled — has still demonstrably spoken within 5 s. Any
+ *   bound above that cannot mistake slowness for silence.
+ * - **Ceiling (~10 s).** Two ping intervals with no pong and that same protocol
+ *   kills the connection itself, with a `SocketOpenError` the leg reports as an
+ *   ordinary transport death. Past ~10 s there is nothing left to classify: the
+ *   outcome degrades to `probe-failed`, which is exactly the measured failure
+ *   this trigger exists to fix (a real previous-release kaval, silent, refused
+ *   instead of recycled).
+ *
+ * 8 s takes the generous end of that band — 3 s of headroom over a slow peer's
+ * pong, 2 s of margin under the protocol's own execution. Both timers live in
+ * THIS process's event loop and Node fires timers in deadline order, so the
+ * ordering is deterministic under load, not a race we hope to win.
+ */
+export const UNSPEAKABLE_SILENCE_MS = 8_000;
+
 /** The already-dialed client shape the assembly authority needs. */
 export interface ControlCoreProbeClient {
   readonly surface: {
@@ -171,14 +198,16 @@ export function isNoListenerError(err: unknown): boolean {
 /**
  * A dialed control-core connection, plus the ONE extra observation the epoch
  * break demands (PLAN D6 / #3): `unspeakable` settles — and only ever settles —
- * when the peer's FIRST frame fails to decode.
+ * at one of the two triggers `UnspeakableEvidence` enumerates.
  */
 type ControlCoreConnection = {
   client: ControlCoreProbeClient;
   dispose: () => void;
   /** Resolves with the typed transport fact at an explicit first-frame decode
-   *  failure. Never rejects, never settles for a close, a timeout, or a member
-   *  error — those stay ordinary probe failures. */
+   *  failure, or at {@link UNSPEAKABLE_SILENCE_MS} of total silence from a peer
+   *  that accepted the connection. Never rejects, never settles for a close, for
+   *  the frozen hello's own deadline, or for a member error — those stay
+   *  ordinary probe failures. */
   unspeakable: Promise<UnspeakableProtocolError>;
 };
 
@@ -207,6 +236,15 @@ type ControlCoreConnection = {
  * A frame that decodes — even into a JSON value that is not an RPC message —
  * is SPEAKABLE. This tap classifies FRAMING, never semantics: that is what keeps
  * the observation as narrow as D6/#3 requires.
+ *
+ * **The silence deadline.** The tap above only fires against a peer that SPEAKS
+ * first, and a real previous-release daemon does not: its oRPC `ServerPeer` sits
+ * waiting for a client hello it can recognise, our ndjson frames never look like
+ * one, and there is no first frame to fail decoding at all. That peer is every
+ * bit as unspeakable, so the same `unspeakable` promise carries a second, equally
+ * explicit trigger — {@link UNSPEAKABLE_SILENCE_MS} elapsed with **not one
+ * inbound byte**. The two triggers are mutually exclusive by construction: the
+ * first byte of any kind disarms the deadline, whether or not it decodes.
  */
 async function openControlCore(
   socketPath: string,
@@ -219,7 +257,25 @@ async function openControlCore(
   const unspeakable = new Promise<UnspeakableProtocolError>((resolve) => {
     raiseUnspeakable = resolve;
   });
+  // Armed before the link is built (so the deadline covers the whole life of the
+  // connection, protocol handshake included) and disarmed by the first inbound
+  // byte. `unref` so a probe's deadline never by itself keeps a process alive.
+  const silenceDeadline = setTimeout(() => {
+    raiseUnspeakable(
+      new UnspeakableProtocolError({
+        socketPath,
+        evidence: {
+          trigger: "silence",
+          silentForMs: UNSPEAKABLE_SILENCE_MS,
+        },
+      }),
+    );
+  }, UNSPEAKABLE_SILENCE_MS);
+  silenceDeadline.unref();
   const onData = (chunk: Buffer): void => {
+    // ANY byte, decodable or not, proves the peer is talking to us — the silence
+    // trigger is off the table for the rest of this connection.
+    clearTimeout(silenceDeadline);
     if (framingSettled) return;
     try {
       // An empty result is a PARTIAL frame (no delimiter yet) — keep listening.
@@ -229,7 +285,10 @@ async function openControlCore(
       raiseUnspeakable(
         new UnspeakableProtocolError({
           socketPath,
-          frame: frameExcerpt(chunk),
+          evidence: {
+            trigger: "undecodable-frame",
+            frame: frameExcerpt(chunk),
+          },
           cause,
         }),
       );
@@ -258,6 +317,7 @@ async function openControlCore(
     // the assertion here is the same one the oRPC-era dial made.
     client: { surface: { control: face.surface } } as ControlCoreProbeClient,
     dispose: () => {
+      clearTimeout(silenceDeadline);
       socket.off("data", onData);
       // Fire-and-forget: `ConvergenceProbeBase.dispose` is synchronous (connector
       // arms hand us their own sync disposer). A scope-close failure is a
@@ -270,11 +330,12 @@ async function openControlCore(
 }
 
 /**
- * Run `work`, but let an explicit first-frame decode failure win the race.
+ * Run `work`, but let an unspeakable classification win the race.
  *
  * This is review #9's bound in one line: the classification happens AT the
- * decode, so an unspeakable peer never costs a caller the 30 s hello deadline it
- * would otherwise sit out (the hello it will never answer).
+ * decode, or at {@link UNSPEAKABLE_SILENCE_MS} for a peer that never speaks — so
+ * an unspeakable peer never costs a caller the 30 s hello deadline it would
+ * otherwise sit out (the hello it will never answer).
  */
 function raceUnspeakable<T>(
   work: Promise<T>,
@@ -308,8 +369,9 @@ async function waitForPoll(signal: AbortSignal): Promise<void> {
  * the loop keeps polling for its actual disappearance. What review #9 bounds is
  * the COST of each pass: without the race below, one attempt against a peer that
  * will never answer `hello` would burn the whole 30 s deadline (and, under a
- * drain ceiling, the entire wait). The decode failure ends the attempt at once
- * and the poll continues, so the oracle stays responsive inside the ceiling.
+ * drain ceiling, the entire wait). A decode failure ends the attempt at once and
+ * a silent peer ends it after {@link UNSPEAKABLE_SILENCE_MS}, so no pass can
+ * exceed that bound and the oracle stays responsive inside the ceiling.
  */
 async function awaitHelloGone(
   socketPath: string,
@@ -364,9 +426,9 @@ export function probeDaemonIdentity(
 /**
  * Curried endpoint probe. Returns `null` only for ECONNREFUSED/ENOENT; any
  * other dial or frozen-handshake failure throws — including the typed
- * {@link UnspeakableProtocolError} an undecodable first frame raises, which the
- * endpoint (and only the endpoint, which owns the gate) may corroborate into a
- * convergence observation.
+ * {@link UnspeakableProtocolError} raised by an undecodable first frame or by
+ * {@link UNSPEAKABLE_SILENCE_MS} of silence, which the endpoint (and only the
+ * endpoint, which owns the gate) may corroborate into a convergence observation.
  */
 export function probeDaemonIdentity(
   opts: DrainableFactoryOptions | PlainFactoryOptions,

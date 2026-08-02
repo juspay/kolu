@@ -13,16 +13,19 @@
  * What the UPGRADE WINDOW still has to answer is the pair below, and they are
  * deliberately the two SIDES of the epoch boundary:
  *
- *   1. **cross-epoch** — a survivor at our rendezvous whose bytes we cannot
- *      parse is classified AT THE DECODE as the supervisor's
- *      `UnspeakableProtocolError` (D6/#3, #9). It is never a null (which would
- *      read as "nobody home" and let a fresh daemon race a live one for the
- *      socket) and never a silently-degraded identity (which is what the deleted
- *      fallback produced). The corroborated verdict + its per-policy disposition
- *      — kaval RECYCLES — belongs to the endpoint, and is pinned by the
- *      supervisor's `unspeakableProtocol.test.ts` and by `previousRelease.e2e`.
- *      Here we pin the FACT padi's own probe raises, because padi is what hands
- *      that probe to `createEndpoint`.
+ *   1. **cross-epoch** — a survivor at our rendezvous we cannot speak to is the
+ *      supervisor's `UnspeakableProtocolError` (D6/#3, #9), raised at whichever
+ *      of its two bounded triggers the peer fires: bytes we cannot parse, or
+ *      total silence past the dial's silence bound. A real previous release
+ *      fires the second one — it waits for a greeting in a protocol we no longer
+ *      speak — so both are pinned here. It is never a null (which would read as
+ *      "nobody home" and let a fresh daemon race a live one for the socket) and
+ *      never a silently-degraded identity (which is what the deleted fallback
+ *      produced). The corroborated verdict + its per-policy disposition — kaval
+ *      RECYCLES — belongs to the endpoint, and is pinned by the supervisor's
+ *      `unspeakableProtocol.test.ts` and by `previousRelease.e2e`. Here we pin
+ *      the FACT padi's own probe raises, because padi is what hands that probe
+ *      to `createEndpoint`.
  *
  *   2. **in-epoch** — a survivor that speaks this wire but was built from a
  *      different tree is a BUILD mismatch, and kaval's non-drainable policy
@@ -73,11 +76,11 @@ const kavalPolicy = {
 describeDaemon("yesterday kaval at our rendezvous", () => {
   it("PREVIOUS EPOCH: an undecodable first frame is classified at the decode, never as absence", async () => {
     // The socket is planted by hand rather than by the fixture's own listener
-    // because the fact under test is what the peer SAYS: the fixture's server
-    // accepts and stays silent (which is the 30 s hello deadline, a different
-    // failure), while a previous-epoch daemon answers promptly in a framing this
-    // build cannot parse. That difference is exactly review #9's point — the
-    // classification must cost the caller one round-trip, not the deadline.
+    // because the fact under test is what the peer SAYS: this one answers
+    // promptly, in a framing this build cannot parse. (The fixture's own
+    // listener accepts and stays MUTE — the other trigger, exercised by the
+    // test right below.) The classification must cost the caller one
+    // round-trip, not a deadline: that is review #9's point.
     const yesterday = await plantYesterdayDaemon(
       padiYesterdayDaemonOptions({ withSocket: false }),
     );
@@ -113,8 +116,12 @@ describeDaemon("yesterday kaval at our rendezvous", () => {
       expect(raised.socketPath).toBe(yesterday.socketPath);
       // JSON-quoted, so the peer's own newlines cannot reshape an operator log
       // line — and the excerpt really is the peer's bytes, not a placeholder.
-      expect(raised.frame).toContain("EVENT: hello");
-      expect(raised.frame.startsWith('"')).toBe(true);
+      expect(raised.evidence.trigger).toBe("undecodable-frame");
+      if (raised.evidence.trigger !== "undecodable-frame") {
+        throw new Error("unreachable");
+      }
+      expect(raised.evidence.frame).toContain("EVENT: hello");
+      expect(raised.evidence.frame.startsWith('"')).toBe(true);
 
       // NOT the corroborated verdict: only the endpoint, which owns the gate and
       // verifies the holder pid, may mint that — and only that one may buy a
@@ -126,6 +133,47 @@ describeDaemon("yesterday kaval at our rendezvous", () => {
       await yesterday.dispose();
     }
   });
+
+  it("PREVIOUS EPOCH, SILENT: a peer that accepts and never answers is classified at the silence bound", async () => {
+    // The trigger a REAL previous release actually fires, and the one the first
+    // cut of this observation missed. An old kaval's oRPC server does not greet
+    // us: it waits for a client hello in a protocol we no longer speak, reads
+    // our ndjson without recognising a single frame of it, and says nothing.
+    // There is no undecodable FIRST FRAME anywhere in that exchange — measured
+    // against the real binary in `previousRelease.e2e`, where the connection
+    // instead died of the RPC protocol's ping timeout and the whole boot
+    // degraded to probe-failed ⇒ refuse, leaving the old daemon holding the
+    // rendezvous. The fixture's own listener is exactly that peer.
+    const yesterday = await plantYesterdayDaemon(
+      padiYesterdayDaemonOptions({ withSocket: true }),
+    );
+    try {
+      const raised = await probeKavalForConvergence(yesterday.socketPath).then(
+        (probe) => {
+          probe?.dispose();
+          throw new Error(
+            `probe resolved ${probe === null ? "null" : "an identity"} against a silent peer`,
+          );
+        },
+        (error: unknown) => error,
+      );
+
+      expect(isUnspeakableProtocolError(raised)).toBe(true);
+      if (!isUnspeakableProtocolError(raised)) throw new Error("unreachable");
+      expect(raised.socketPath).toBe(yesterday.socketPath);
+      // Same verdict as an undecodable frame, different evidence — as DATA, so
+      // the disposition never has to read a sentence to know what happened.
+      expect(raised.evidence.trigger).toBe("silence");
+
+      // Still ONLY the transport fact. Silence is the cheapest thing a stranger
+      // can produce, so the corroboration (our gate, our verified pid) stays the
+      // endpoint's job — it is what buys the SIGTERM, and it is pinned with the
+      // recycle it earns in the supervisor's `unspeakableProtocol.test.ts`.
+      expect(isUnspeakablePeerError(raised)).toBe(false);
+    } finally {
+      await yesterday.dispose();
+    }
+  }, 30_000);
 
   it("SAME EPOCH, different build: the not-drainable policy nudges the human", async () => {
     const yesterday = await plantYesterdayDaemon(

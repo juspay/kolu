@@ -116,12 +116,18 @@ export async function plantYesterdayDaemon(
     .exhaustive();
 
   if (withSocket) {
-    server = createServer((socket) =>
+    server = createServer((socket) => {
       socket.on("error", () => {
-        // Accepted peers are deliberately unread fixture traffic; a peer reset
-        // has no fixture state to repair and must not become an unhandled error.
-      }),
-    );
+        // A peer reset has no fixture state to repair and must not become an
+        // unhandled error.
+      });
+      // DRAIN, then answer nothing — the shape of a daemon from another protocol
+      // epoch, which parses everything we send and recognises none of it. It also
+      // has to be drained to be disposable: a paused socket with buffered bytes
+      // never emits `end`, so it would outlive the peer that hung up and wedge
+      // this fixture's own `server.close()`.
+      socket.resume();
+    });
     await new Promise<void>((resolve, reject) => {
       server?.once("error", reject);
       server?.listen(socketPath, () => {

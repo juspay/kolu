@@ -47,6 +47,7 @@ import {
 import type { ConvergencePolicy, DrainCapability } from "./policy.ts";
 import {
   isUnspeakablePeerError,
+  unspeakableClause,
   type UnspeakablePeerError,
 } from "./unspeakable.ts";
 import { endpointPrivate } from "../endpoint.private.ts";
@@ -329,7 +330,7 @@ function unspeakableRefusedOutcome(args: {
   args.releaseHeld();
   const detail =
     `the daemon holding ${args.peer.socketPath} (pid ${args.peer.pid}, named by our gate ` +
-    `${args.peer.gatePath}) answered our first frame with ${args.peer.frame} — it speaks a ` +
+    `${args.peer.gatePath}) ${unspeakableClause(args.peer.evidence)} — it speaks a ` +
     `protocol epoch this supervisor cannot decode. Its drain verb is therefore unreachable, so ` +
     `drain-newer-else-refuse degenerates to REFUSE: the survivor is left standing + degraded and ` +
     `is never killed. Stop that daemon out of band (its children will not survive) and boot again ` +
@@ -339,7 +340,7 @@ function unspeakableRefusedOutcome(args: {
       socketPath: args.peer.socketPath,
       gatePath: args.peer.gatePath,
       pid: args.peer.pid,
-      frame: args.peer.frame,
+      trigger: args.peer.evidence.trigger,
       mineContract: args.expected.contractVersion,
     },
     `convergence: UNCONVERGED — ${detail}`,
@@ -381,7 +382,7 @@ async function enactUnspeakable(
           socketPath: peer.socketPath,
           gatePath: peer.gatePath,
           pid: peer.pid,
-          frame: peer.frame,
+          trigger: peer.evidence.trigger,
         },
         "convergence: the daemon at our rendezvous speaks an undecodable protocol epoch — recycling it (verified gate holder; its children do not survive a wire break)",
       );

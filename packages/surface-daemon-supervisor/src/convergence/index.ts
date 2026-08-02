@@ -76,6 +76,8 @@ export {
 export {
   isUnspeakablePeerError,
   isUnspeakableProtocolError,
+  type UnspeakableEvidence,
+  unspeakableClause,
   UnspeakablePeerError,
   UnspeakableProtocolError,
 } from "./unspeakable.ts";
