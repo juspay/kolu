@@ -1,55 +1,58 @@
 /**
- * TYPE-LEVEL drift-catch (lens debate, lowy-2) — `BoundProcedure<S>` (this
- * package's hand-rolled ProcedureSpec→callable arm-ladder) is pinned against the
- * OTHER derivation of the same axis: `ProcedureContract<S>` in `define.ts`, walked
- * through the REAL contract → oRPC `ContractRouterClient` the wire actually uses.
+ * TYPE-LEVEL drift-catch — `BoundProcedure<S>` (this package's hand-rolled
+ * ProcedureSpec→callable arm-ladder) is pinned against the OTHER derivation of the
+ * same axis: `SurfaceRpcsFor<S>` in `define.ts`, the type-level image of the
+ * runtime `Rpc` walk the wire actually carries.
  *
  * Both derivations discriminate ONE axis — how a `ProcedureSpec`'s optional
  * `input`/`output` combine into the four callable arms ({input,output} / {input} /
- * {output} / neither). `ProcedureContract` maps each arm to an oRPC contract
- * builder; `BoundProcedure` maps each arm to a hand-written client callable. They
- * are structurally unrelated types, so TS catches no drift on its own. Adding a
- * fifth arm, or changing input-optionality semantics, must move BOTH ladders in
- * lockstep — this file fails to compile if only one moves.
+ * {output} / neither). `SurfaceRpcsFor` maps each arm to an `Rpc` (payload /
+ * success / error schemas, resolved through `ProcedureInputSchema` et al.);
+ * `BoundProcedure` maps each arm to a hand-written client callable. They are
+ * structurally unrelated types, so TS catches no drift on its own. Adding a fifth
+ * arm, or changing input-optionality semantics, must move BOTH ladders in lockstep
+ * — this file fails to compile if only one moves.
  *
- * WHY the two axes and not full mutual assignability: oRPC's own client callable
- * types its INPUT loosely (`input?: unknown` when a spec has input, `input?: void`
- * when it doesn't) and does NOT re-narrow it to the schema type — that looseness is
- * exactly why `BoundProcedure` is hand-rolled (to recover a typed `(input: I) =>`
- * face). So the two callables are deliberately NOT assignable in either direction;
- * pinning that would pin an accident, not the contract. What the wire callable DOES
- * carry, straight from `ProcedureContract`, are the two discrimination bits: whether
- * an input is present (`unknown` vs `void`) and the resolved output type
- * (`Promise<O>` vs `Promise<void>`). This file asserts `BoundProcedure`'s own
- * input-presence and output resolution agree with those, per arm.
+ * WHY the two axes and not full mutual assignability: the two derivations
+ * deliberately speak DIFFERENT SIDES of the payload schema. `Rpc`'s generated
+ * client takes the make-in/`Type` side; the face takes the `Encoded` side and
+ * decodes at its edge (PLAN D2, review #13). Pinning mutual assignability would
+ * pin the very inversion the face exists to correct. What the two DO share are the
+ * three facts below, asserted per arm: whether an input is present at all, the
+ * resolved SUCCESS type, and the resolved declared-ERROR union.
+ *
+ * The last section is the #13 spec proper: for a schema whose Encoded and Type
+ * sides DIVERGE (a decoding default; a transforming codec), the face's input must
+ * be the Encoded side — positively (the wire-shaped literal is accepted) and
+ * negatively (the Rpc client's own make-in side would have REJECTED it, which is
+ * the regression this file exists to catch).
  *
  * The catch lives HERE, in the package that owns both derivations, for a FIXED
- * concrete spec exercising all four arms (a single-procedure non-generic spec has
- * no generic explicit-supertype, so the TS2590 "union too complex" that forces the
- * hand-rolling in the first place does not fire). `tsc --noEmit` green over this
- * file IS the assertion; there is no runtime.
+ * concrete spec exercising all four arms. `tsc --noEmit` green over this file IS
+ * the assertion; there is no runtime.
  */
 
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
+import { Effect, Schema } from "effect";
+import type { Rpc } from "effect/unstable/rpc";
 import { expectTypeOf } from "vitest";
-import { z } from "zod";
-import { defineSurface } from "../define";
-import type { BoundProcedure } from "./surfaceClient";
+import { defineSurface, type SurfaceRpcsFor } from "../define";
+import type { BoundProcedure, ProcedureResult } from "./surfaceClient";
 
 // Exact (invariant) equality is vitest's `expectTypeOf().toEqualTypeOf()` and
 // assignability its `toMatchTypeOf()` — both tsc-native (they error under
-// `tsc --noEmit`, so this file needs no vitest run), replacing a hand-rolled
-// `Equals`/`Assert` pair.
+// `tsc --noEmit`, so this file needs no vitest run).
 
-// A FIXED concrete spec touching all four arms. `defineSurface` runs its
-// `ProcedureContract` derivation over these to produce `fixture.contract`.
+// A FIXED concrete spec touching all four arms. `defineSurface` runs its runtime
+// `Rpc` walk over these; `SurfaceRpcsFor` is that walk's type-level image.
 const fixture = defineSurface({
   procedures: {
     ns: {
-      both: { input: z.object({ a: z.string() }), output: z.number() },
-      inputOnly: { input: z.object({ b: z.string() }) },
-      outputOnly: { output: z.boolean() },
+      both: {
+        input: Schema.Struct({ a: Schema.String }),
+        output: Schema.Number,
+      },
+      inputOnly: { input: Schema.Struct({ b: Schema.String }) },
+      outputOnly: { output: Schema.Boolean },
       neither: {},
     },
   },
@@ -57,24 +60,21 @@ const fixture = defineSurface({
 
 type Procs = NonNullable<(typeof fixture.spec)["procedures"]>["ns"];
 
-// The client the WIRE actually hands back — `ProcedureContract<arm>` per arm,
-// threaded through oRPC's `ContractRouterClient` exactly as `surfaceClient` types
-// `.rpc`. `WireProcs[verb]` is the callable that derivation produces.
-type WireProcs = ContractRouterClient<
-  typeof fixture.contract,
-  ClientRetryPluginContext
->["surface"]["ns"];
+// The `Rpc` the WIRE actually carries, per arm — extracted from the spec's own Rpc
+// union by the tag `defineSurface` minted (`surface/<ns>/<verb>`). This is the
+// derivation `BoundProcedure` must not drift from.
+type Rpcs = SurfaceRpcsFor<typeof fixture.spec>;
+type WireRpc<V extends string> = Rpc.ExtractTag<Rpcs, `surface/ns/${V}`>;
 
-// ── The two discrimination bits, read off each derivation ────────────────
+// ── The three shared facts, read off each derivation ─────────────────────
 
-// oRPC's wire callable: input-present ⇒ first param `unknown`, input-absent ⇒
-// `void`. `[void] extends [void]` distinguishes them (`unknown` is not `void`).
-// biome-ignore lint/suspicious/noExplicitAny: type-level predicate over any callable arm.
-type WireHasInput<F extends (...args: any) => any> =
-  // biome-ignore lint/suspicious/noConfusingVoidType: matching oRPC's absent-input `input?: void` marker structurally requires `void` here.
-  [Parameters<F>[0]] extends [void] ? false : true;
-// BoundProcedure: input-present arms have a REQUIRED first param of the schema
-// type; input-absent arms have `input?: undefined`, so the param widens to
+// The Rpc derivation: an input-less procedure resolves `payload: Schema.Void`, so
+// its decoded payload is `void`. `[void] extends [void]` distinguishes it (a real
+// payload type is not `void`).
+// biome-ignore lint/suspicious/noConfusingVoidType: matching the absent-payload `Schema.Void` marker structurally requires `void` here.
+type WireHasInput<R> = [Rpc.Payload<R>] extends [void] ? false : true;
+// BoundProcedure: input-present arms have a REQUIRED first param of the encoded
+// schema type; input-absent arms have `input?: undefined`, so the param widens to
 // `undefined`. `[undefined] extends [void]` is true, so reuse the same predicate
 // shape but keyed on `undefined` (the absent-input marker BoundProcedure uses).
 // biome-ignore lint/suspicious/noExplicitAny: type-level predicate over any callable arm.
@@ -84,62 +84,70 @@ type BoundHasInput<F extends (...args: any) => any> = [
   ? false
   : true;
 
-// ── Per-arm assertions: BoundProcedure agrees with ProcedureContract ─────
-// Each arm: the resolved OUTPUT (Awaited return) and the INPUT-presence bit agree
-// between the two derivations.
+// The declared-error union each derivation resolves. On the bound side it is the
+// `ProcedureResult` phantom; on the wire side it is `Rpc.Error`.
+// biome-ignore lint/suspicious/noExplicitAny: type-level extraction over any callable arm.
+type BoundErrorOf<F extends (...args: any) => any> =
+  ReturnType<F> extends ProcedureResult<unknown, infer E> ? E : never;
 
-expectTypeOf<
-  Awaited<ReturnType<BoundProcedure<Procs["both"]>>>
->().toEqualTypeOf<Awaited<ReturnType<WireProcs["both"]>>>();
+// ── Per-arm assertions: BoundProcedure agrees with the Rpc walk ──────────
+
+expectTypeOf<Awaited<ReturnType<BoundProcedure<Procs["both"]>>>>().toEqualTypeOf<
+  Rpc.Success<WireRpc<"both">>
+>();
 expectTypeOf<BoundHasInput<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
-  WireHasInput<WireProcs["both"]>
+  WireHasInput<WireRpc<"both">>
 >();
 
 expectTypeOf<
   Awaited<ReturnType<BoundProcedure<Procs["inputOnly"]>>>
->().toEqualTypeOf<Awaited<ReturnType<WireProcs["inputOnly"]>>>();
+>().toEqualTypeOf<Rpc.Success<WireRpc<"inputOnly">>>();
 expectTypeOf<BoundHasInput<BoundProcedure<Procs["inputOnly"]>>>().toEqualTypeOf<
-  WireHasInput<WireProcs["inputOnly"]>
+  WireHasInput<WireRpc<"inputOnly">>
 >();
 
 expectTypeOf<
   Awaited<ReturnType<BoundProcedure<Procs["outputOnly"]>>>
->().toEqualTypeOf<Awaited<ReturnType<WireProcs["outputOnly"]>>>();
+>().toEqualTypeOf<Rpc.Success<WireRpc<"outputOnly">>>();
 expectTypeOf<
   BoundHasInput<BoundProcedure<Procs["outputOnly"]>>
->().toEqualTypeOf<WireHasInput<WireProcs["outputOnly"]>>();
+>().toEqualTypeOf<WireHasInput<WireRpc<"outputOnly">>>();
 
 expectTypeOf<
   Awaited<ReturnType<BoundProcedure<Procs["neither"]>>>
->().toEqualTypeOf<Awaited<ReturnType<WireProcs["neither"]>>>();
+>().toEqualTypeOf<Rpc.Success<WireRpc<"neither">>>();
 expectTypeOf<BoundHasInput<BoundProcedure<Procs["neither"]>>>().toEqualTypeOf<
-  WireHasInput<WireProcs["neither"]>
+  WireHasInput<WireRpc<"neither">>
 >();
 
-// ── Input arm uses z.INPUT, result arm uses z.OUTPUT (not the parsed input) ─
+// ── Input arm = ENCODED side, result arm = DECODED side (D2 / #13) ───────
 //
-// A `.default()` makes a key OPTIONAL on the wire but REQUIRED after parse; a
-// `.transform()` changes the type across the parse. The bound INPUT must be the
-// accepted-on-the-wire shape (`z.input`), and the bound RESULT the parsed shape
-// (`z.output`). Inferring the ZodType's first generic param (its OUTPUT) for the
-// input — the pre-fix bug — would wrongly REQUIRE a defaulted key / demand the
-// transformed type as input. These specs have DIVERGENT input/output, so they fail
-// unless `BoundProcedure` splits the two directions.
+// A decoding default makes a key OPTIONAL on the wire but REQUIRED after decode; a
+// transforming codec changes the type across the parse. The bound INPUT must be
+// the accepted-on-the-wire shape (`Encoded`), and the bound RESULT the decoded
+// shape (`Type`). Inferring the schema's decoded type for the input — which is
+// what Effect RPC's own generated client does — would wrongly REQUIRE a defaulted
+// key and demand the transformed type as input. These specs have DIVERGENT
+// Encoded/Type sides, so they fail unless `BoundProcedure` splits the two
+// directions.
+
 const divergent = defineSurface({
   procedures: {
     ns: {
-      // input `{ pid; signal? }` (signal defaulted) → output `{ pid; signal }`.
+      // Encoded `{ pid; signal? }` (signal defaulted) → Type `{ pid; signal }`.
       defaulted: {
-        input: z.object({
-          pid: z.number(),
-          signal: z.enum(["TERM", "KILL"]).default("TERM"),
+        input: Schema.Struct({
+          pid: Schema.Number,
+          signal: Schema.Literals(["TERM", "KILL"]).pipe(
+            Schema.withDecodingDefaultKey(Effect.succeed("TERM" as const)),
+          ),
         }),
-        output: z.object({ ok: z.boolean() }),
+        output: Schema.Struct({ ok: Schema.Boolean }),
       },
-      // input `string` (raw) → output `number` (transformed length).
+      // Encoded `string` (raw) → Type `number` (parsed).
       transformed: {
-        input: z.string().transform((s) => s.length),
-        output: z.number(),
+        input: Schema.NumberFromString,
+        output: Schema.Number,
       },
     },
   },
@@ -148,107 +156,86 @@ type Divergent = NonNullable<(typeof divergent.spec)["procedures"]>["ns"];
 
 type DefaultedInput = Parameters<BoundProcedure<Divergent["defaulted"]>>[0];
 // The wire ACCEPTS `{ pid }` (signal filled by the default) — so it must be
-// assignable to the bound input. With the output type it would be REQUIRED and
-// this assignability would fail.
+// assignable to the bound input.
 expectTypeOf<{ pid: 1 }>().toMatchTypeOf<DefaultedInput>();
+// …and the NEGATIVE half, which is the actual #13 regression: Effect RPC's own
+// generated client types its payload on the make-in side, where the defaulted key
+// is REQUIRED. If `BoundProcedure` ever drifted to that side, the assertion above
+// would fail — and this one records what it would have drifted TO, so the
+// difference is stated, not merely relied upon.
+type DefaultedMakeIn = Rpc.PayloadConstructor<
+  Rpc.ExtractTag<
+    SurfaceRpcsFor<typeof divergent.spec>,
+    "surface/ns/defaulted"
+  >
+>;
+expectTypeOf<{ pid: 1 }>().not.toMatchTypeOf<DefaultedMakeIn>();
 
 type TransformedInput = Parameters<BoundProcedure<Divergent["transformed"]>>[0];
-// The RAW input is `string`; the transformed `number` is the OUTPUT, which must
-// NOT be what the callable accepts.
+// The RAW input is `string`; the parsed `number` is the OUTPUT, which must NOT be
+// what the callable accepts.
 expectTypeOf<TransformedInput>().toEqualTypeOf<string>();
 expectTypeOf<
   Awaited<ReturnType<BoundProcedure<Divergent["transformed"]>>>
 >().toEqualTypeOf<number>();
 
-// ── The DECLARED-ERRORS axis (SK6) threads through BOTH ladders, all four arms ─
+// ── The DECLARED-ERRORS axis (SK6 / D4) threads through BOTH ladders ─────
 //
-// `ProcedureSpec.errors` must reach the wire callable's error phantom via
-// `ProcedureContract` (so `safe()` narrows a raw `.rpc` call) AND the
-// hand-rolled `BoundProcedure` face (so `client.procedures.*` rejections carry
-// the same union) — for EVERY input/output arm, not just the shape one caller
-// happens to use (the define.ts drift-watch: all four `buildProcedure*`
-// oracles moved, this pins that none regresses). The declared code's DATA
-// shape survives to the narrowed `ORPCError`.
+// `ProcedureSpec.error` must reach the wire `Rpc`'s error channel AND the
+// hand-rolled `BoundProcedure` face (so a `client.procedures.*` rejection carries
+// the same union a `safe(...)` call narrows) — for EVERY input/output arm, not
+// just the shape one caller happens to use. The declared error's DATA survives to
+// the narrowed tagged class.
 
-const skewData = z.object({
-  daemonVersion: z.string(),
-  requiredVersion: z.string(),
-});
+class Skew extends Schema.TaggedErrorClass<Skew>("test/Skew")("Skew", {
+  daemonVersion: Schema.String,
+  requiredVersion: Schema.String,
+}) {}
 
 const withErrors = defineSurface({
   procedures: {
     ns: {
       both: {
-        input: z.object({ a: z.string() }),
-        output: z.number(),
-        errors: { E_BOTH: { data: skewData } },
+        input: Schema.Struct({ a: Schema.String }),
+        output: Schema.Number,
+        error: Skew,
       },
-      inputOnly: {
-        input: z.object({ b: z.string() }),
-        errors: { E_IN: { data: skewData } },
-      },
-      outputOnly: {
-        output: z.boolean(),
-        errors: { E_OUT: { data: skewData } },
-      },
-      neither: { errors: { E_NONE: { data: skewData } } },
+      inputOnly: { input: Schema.Struct({ b: Schema.String }), error: Skew },
+      outputOnly: { output: Schema.Boolean, error: Skew },
+      neither: { error: Skew },
     },
   },
 });
 
 type EProcs = NonNullable<(typeof withErrors.spec)["procedures"]>["ns"];
-type EWire = ContractRouterClient<
-  typeof withErrors.contract,
-  ClientRetryPluginContext
->["surface"]["ns"];
+type ERpcs = SurfaceRpcsFor<typeof withErrors.spec>;
+type EWireRpc<V extends string> = Rpc.ExtractTag<ERpcs, `surface/ns/${V}`>;
 
-// Extract the error phantom off a callable's `ClientPromiseResult` return.
-// biome-ignore lint/suspicious/noExplicitAny: type-level extraction over any callable arm.
-type ErrOf<F extends (...args: any) => any> = NonNullable<
-  ReturnType<F>["__error"]
->["type"];
-
-// The declared code is present in the union with its declared data type, on
-// BOTH derivations, for each arm.
-type DataOf<E, Code extends string> =
-  Extract<E, { code: Code }> extends {
-    data: infer D;
-  }
-    ? D
-    : never;
-
-expectTypeOf<DataOf<ErrOf<EWire["both"]>, "E_BOTH">>().toEqualTypeOf<
-  z.output<typeof skewData>
+// The declared error is present on BOTH derivations, for each arm, as the SAME
+// tagged class — so a `_tag` narrowing at a call site reads the declared data.
+expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["both"]>>>().toEqualTypeOf<
+  Rpc.Error<EWireRpc<"both">>
 >();
+expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["inputOnly"]>>>().toEqualTypeOf<
+  Rpc.Error<EWireRpc<"inputOnly">>
+>();
+expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["outputOnly"]>>>().toEqualTypeOf<
+  Rpc.Error<EWireRpc<"outputOnly">>
+>();
+expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["neither"]>>>().toEqualTypeOf<
+  Rpc.Error<EWireRpc<"neither">>
+>();
+
+// The declared class's DATA is reachable off the narrowed union (the old
+// `{ code, data }` read, restated on the tagged-error discriminant).
 expectTypeOf<
-  DataOf<ErrOf<BoundProcedure<EProcs["both"]>>, "E_BOTH">
->().toEqualTypeOf<z.output<typeof skewData>>();
+  Extract<BoundErrorOf<BoundProcedure<EProcs["both"]>>, { _tag: "Skew" }>
+>().toMatchTypeOf<{ daemonVersion: string; requiredVersion: string }>();
 
-expectTypeOf<DataOf<ErrOf<EWire["inputOnly"]>, "E_IN">>().toEqualTypeOf<
-  z.output<typeof skewData>
+// An errors-LESS spec resolves `never` on BOTH derivations — the cross-derivation
+// equality the rest of this file pins, applied to the new axis's absent case. A
+// caller therefore reads the plain `Promise` face, unchanged.
+expectTypeOf<BoundErrorOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
+  Rpc.Error<WireRpc<"both">>
 >();
-expectTypeOf<
-  DataOf<ErrOf<BoundProcedure<EProcs["inputOnly"]>>, "E_IN">
->().toEqualTypeOf<z.output<typeof skewData>>();
-
-expectTypeOf<DataOf<ErrOf<EWire["outputOnly"]>, "E_OUT">>().toEqualTypeOf<
-  z.output<typeof skewData>
->();
-expectTypeOf<
-  DataOf<ErrOf<BoundProcedure<EProcs["outputOnly"]>>, "E_OUT">
->().toEqualTypeOf<z.output<typeof skewData>>();
-
-expectTypeOf<DataOf<ErrOf<EWire["neither"]>, "E_NONE">>().toEqualTypeOf<
-  z.output<typeof skewData>
->();
-expectTypeOf<
-  DataOf<ErrOf<BoundProcedure<EProcs["neither"]>>, "E_NONE">
->().toEqualTypeOf<z.output<typeof skewData>>();
-
-// An errors-LESS spec keeps the plain face — the SAME error phantom the wire
-// derivation resolves for it (oRPC's default `ThrowableError`, no declared
-// union): the cross-derivation equality the rest of this file pins, applied
-// to the new axis's absent case.
-expectTypeOf<ErrOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
-  ErrOf<WireProcs["both"]>
->();
+expectTypeOf<BoundErrorOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<never>();

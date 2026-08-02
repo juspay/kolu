@@ -14,6 +14,7 @@
  */
 
 import { type StreamingProcedure, unenrolledStreamCall } from "./client";
+import { runStreamScoped } from "./runStream";
 
 export interface PollOnChangeOpts<PulseInput, Pulse, Result> {
   /** The value-bearing PULSE stream — a `{seq}` distinguisher. `unenrolledStreamCall`
@@ -69,34 +70,44 @@ export function pollOnChange<PulseInput, Pulse, Result>(
   const abortInFlightQuery = (): void => {
     queryCtl?.abort();
   };
-  // Teardown aborts the in-flight requery too (not just the pulse) — the caller's
-  // `signal` is the single owner of the whole poll's lifetime.
-  opts.signal.addEventListener("abort", abortInFlightQuery, { once: true });
+  if (opts.signal.aborted) return;
 
-  void (async () => {
-    try {
-      for await (const _frame of await unenrolledStreamCall(
-        opts.pulse,
-        opts.pulseInput,
-        { signal: opts.signal },
-      )) {
-        runQuery();
-      }
-      // Normal completion — the pulse iterable ended on its own, not an abort (an
-      // aborted loop never falls through the `for await` here with `aborted` false).
-      // Abort any in-flight requery FIRST: the pulse owns the query's lifetime, so a
-      // late result must not call `onResult` AFTER `onComplete` has latched (the
-      // subscription's value must not change once complete). The entry is gone, so
-      // the discarded final requery would only have surfaced a stale/erroring read.
-      abortInFlightQuery();
-      if (!opts.signal.aborted) opts.onComplete();
-    } catch (err) {
+  // The pulse subscription runs on its own scoped fiber (the ONE Effect→callback
+  // edge). `runStreamScoped` guarantees that once its stopper has run, nothing
+  // reports — so the old `!opts.signal.aborted` guards on the terminal callbacks
+  // are gone: teardown silence is the edge's rule, held in one place.
+  const stopPulse = runStreamScoped<Pulse>(
+    unenrolledStreamCall(opts.pulse, opts.pulseInput),
+    {
+      onFrame: runQuery,
+      // Normal completion — the pulse ended on its own. Abort any in-flight requery
+      // FIRST: the pulse owns the query's lifetime, so a late result must not call
+      // `onResult` AFTER `onComplete` has latched (the subscription's value must not
+      // change once complete). The entry is gone, so the discarded final requery
+      // would only have surfaced a stale/erroring read.
+      onEnd: () => {
+        abortInFlightQuery();
+        opts.onComplete();
+      },
       // Pulse failure — abort the in-flight requery FIRST, for the SAME reason: a
       // query that resolves after `onError` would call `onResult` and clear the
       // just-recorded failure, presenting a dead watcher (e.g. inotify ENOSPC) as
       // healthy stale data. The terminal error must own the query.
+      onFailure: (err) => {
+        abortInFlightQuery();
+        opts.onError(err);
+      },
+    },
+  );
+
+  // Teardown stops the pulse fiber AND aborts the in-flight requery (not just one) —
+  // the caller's `signal` is the single owner of the whole poll's lifetime.
+  opts.signal.addEventListener(
+    "abort",
+    () => {
+      stopPulse();
       abortInFlightQuery();
-      if (!opts.signal.aborted) opts.onError(err);
-    }
-  })();
+    },
+    { once: true },
+  );
 }

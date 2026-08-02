@@ -16,6 +16,7 @@
     "./define": "./src/define.ts",
     "./errors": "./src/errors.ts",
     "./heartbeat": "./src/heartbeat.ts",
+    "./link": "./src/link.ts",
     "./identity": "./src/identity.ts",
     "./liveness": "./src/liveness.ts",
     "./first-frame": "./src/firstFrame.ts",

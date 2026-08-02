@@ -12,17 +12,18 @@
  * can't regrow the phantom mutation path on the Solid client.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "../define";
+import type { SurfaceDispatch } from "../link";
 import { surfaceClient } from "./surfaceClient";
 
 const surface = defineSurface({
   cells: {
     // Read-only: the parent owns it server-side; the wire carries only `get`.
     conn: {
-      schema: z.object({ state: z.string() }),
+      schema: Schema.Struct({ state: Schema.String }),
       default: { state: "connecting" },
       verbs: ["get"],
     },
@@ -31,13 +32,13 @@ const surface = defineSurface({
     // read-only branch must thread it to `useCellServer` so a get-only stream
     // failure reaches callback-based error handling, not just `error()`.
     connFail: {
-      schema: z.object({ state: z.string() }),
+      schema: Schema.Struct({ state: Schema.String }),
       default: { state: "connecting" },
       verbs: ["get"],
     },
     // Mutable (default verbs `["get", "set"]`) — the contrast case.
     prefs: {
-      schema: z.object({ theme: z.string() }),
+      schema: Schema.Struct({ theme: Schema.String }),
       default: { theme: "dark" },
     },
     // Read-only on the client: `test__set` is the e2e reset procedure, not a
@@ -45,7 +46,7 @@ const surface = defineSurface({
     // sole writer, so the bound cell must NOT advertise `.set` the runtime
     // can't service — `mutate` stays undefined despite the non-`get` verb.
     feed: {
-      schema: z.object({ items: z.array(z.string()) }),
+      schema: Schema.Struct({ items: Schema.Array(Schema.String) }),
       default: { items: [] },
       verbs: ["get", "test__set"],
     },
@@ -57,9 +58,9 @@ const surface = defineSurface({
     // cell must collapse its client patch shape to the full value `T` — a
     // `.patch({ delta })` would post a partial the `set` endpoint rejects.
     explicitSet: {
-      schema: z.object({ n: z.number(), label: z.string() }),
+      schema: Schema.Struct({ n: Schema.Number, label: Schema.String }),
       default: { n: 0, label: "" },
-      patchSchema: z.object({ delta: z.number() }),
+      patchSchema: Schema.Struct({ delta: Schema.Number }),
       verbs: ["get", "set"],
       // A spec-level `patch` merger over the partial `P` (`{ delta }`). The
       // server uses it for the `patch` wire verb — but this cell exposes only
@@ -87,51 +88,60 @@ const surface = defineSurface({
  *  a `T` through this `P`-merger. */
 const specPatchCalls: { delta: number }[] = [];
 
-/** A stub link exposing only `surface.<cell>.get` per cell — NO `set`/`patch`,
- *  exactly what the contract router serves for a get-only cell. `surfaceClient`
- *  must not reach for an absent `set`. */
-function stubLink() {
-  const get = () =>
-    // biome-ignore lint/suspicious/noExplicitAny: the bound `.use()` is never invoked here; we assert on the binding, not a subscription.
-    (async function* () {})() as any;
+/** A stub DISPATCH exposing only the tags the contract actually carries — the
+ *  get-only cells have `surface/<cell>/get` and nothing else, so a `surfaceClient`
+ *  that reached for an absent `set` would hit the unbound-tag failure below.
+ *
+ *  `surfaceClient` no longer takes a hand-built nested link: it takes a
+ *  {@link SurfaceDispatch} and builds the `surface.<member>.<verb>` face itself
+ *  (`buildSurfaceFace`), so the stub moved one layer down to the flat wire tags. */
+function stubDispatch() {
+  // A live-but-silent stream (never yields, never ends): the bound `.use()` here is
+  // asserted on its BINDING, not on a delivered frame.
+  const silent = Stream.never;
   const setSpy = { called: false };
-  const noop = () => Promise.resolve();
-  return {
-    setSpy,
-    link: {
-      surface: {
-        conn: { get },
-        // A get-only cell whose stream source REJECTS the moment it's awaited —
-        // `createSubscription` catches it, sets `error()`, and (only if `onError`
-        // was threaded through) invokes the callback.
-        connFail: {
-          // biome-ignore lint/suspicious/noExplicitAny: the rejected thunk stands in for a failing wire stream.
-          get: () => Promise.reject(new Error("stream boom")) as any,
-        },
-        prefs: {
-          get,
-          set: () => {
-            setSpy.called = true;
-            return Promise.resolve();
-          },
-        },
-        // Mirrors the contract router for a `["get", "test__set"]` cell — a
-        // `test__set` verb but NO `set`/`patch`. `surfaceClient` must not reach
-        // for an absent `ns.set`/`ns.patch`.
-        feed: { get, test__set: noop },
-        // A `patchSchema` cell exposing `set` (not `patch`) — only `ns.set` is
-        // on the wire. The binding must capture `set`, not the absent `patch`.
-        explicitSet: { get, set: noop },
-      },
+  const streams: Record<string, () => Stream.Stream<unknown, unknown>> = {
+    "surface/conn/get": () => silent,
+    // A get-only cell whose stream FAILS the moment it is run —
+    // `createSubscription` records it in `error()` and (only if `onError` was
+    // threaded through) invokes the callback.
+    "surface/connFail/get": () => Stream.fail(new Error("stream boom")),
+    "surface/prefs/get": () => silent,
+    "surface/feed/get": () => silent,
+    "surface/explicitSet/get": () => silent,
+  };
+  const unaries: Record<string, () => Promise<unknown>> = {
+    "surface/prefs/set": () => {
+      setSpy.called = true;
+      return Promise.resolve();
+    },
+    // Mirrors the served tag set for a `["get", "test__set"]` cell — a
+    // `test__set` verb but NO `set`/`patch`. `surfaceClient` must not reach for
+    // an absent `surface/feed/set`.
+    "surface/feed/test__set": () => Promise.resolve(),
+    // A `patchSchema` cell exposing `set` (not `patch`) — only the `set` tag is
+    // on the wire. The binding must capture `set`, not the absent `patch`.
+    "surface/explicitSet/set": () => Promise.resolve(),
+  };
+  const dispatch: SurfaceDispatch = {
+    unary: (tag) => {
+      const fn = unaries[tag];
+      if (!fn) return Effect.fail(new Error(`no member served at "${tag}"`));
+      return Effect.tryPromise({ try: () => fn(), catch: (e) => e });
+    },
+    stream: (tag) => {
+      const fn = streams[tag];
+      if (!fn) return Stream.fail(new Error(`no member served at "${tag}"`));
+      return Stream.suspend(fn);
     },
   };
+  return { setSpy, dispatch };
 }
 
 describe("surfaceClient cell verbs", () => {
   it("does NOT bind a mutate for a get-only cell (no phantom `ns.set`)", () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     // The bound read-only cell exposes `.use` but no imperative mutate; the
     // runtime closure captured `mutate === undefined`, so even reaching the
     // server-authority `set` would throw rather than call an absent `ns.set`.
@@ -150,9 +160,8 @@ describe("surfaceClient cell verbs", () => {
   });
 
   it("a get-only cell's `.use()` is read-only at RUNTIME — no `set`/`patch`, and forced `authority: 'local'` throws BEFORE any local store is seeded", () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     createRoot((dispose) => {
       // The runtime dual of the type-level guard above: a JS / `any` caller can't
       // be stopped by TS, so the binding must REFUSE the local-authority path
@@ -182,9 +191,8 @@ describe("surfaceClient cell verbs", () => {
   });
 
   it("threads `onError` through a get-only cell's read-only `.use()` so a stream failure reaches the callback", async () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     await createRoot(async (dispose) => {
       const errors: Error[] = [];
       // `ReadOnlyBoundCellOptions` carries only `onError`. The read-only branch
@@ -203,9 +211,8 @@ describe("surfaceClient cell verbs", () => {
   });
 
   it("binds `set` for a default mutable cell", () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     const prefs = app.cells.prefs;
     // The mutable cell keeps its imperative mutate surface.
     type Result = ReturnType<typeof prefs.use>;
@@ -215,9 +222,8 @@ describe("surfaceClient cell verbs", () => {
   });
 
   it("treats a `['get', 'test__set']` cell as read-only (test__set is not a consumer mutation)", () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     const feed = app.cells.feed;
     expect(typeof feed.use).toBe("function");
     // @ts-expect-error — `test__set` doesn't make the cell mutable on the client.
@@ -232,9 +238,8 @@ describe("surfaceClient cell verbs", () => {
   });
 
   it("binds the exposed `set` for a patchSchema cell that lists `set` (not `patch`)", () => {
-    const { link } = stubLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch } = stubDispatch();
+    const app = surfaceClient(surface, dispatch);
     const explicitSet = app.cells.explicitSet;
     // Mutable: `set` is exposed, so the imperative mutate surface is present.
     type Result = ReturnType<typeof explicitSet.use>;
@@ -259,10 +264,9 @@ describe("surfaceClient cell verbs", () => {
 
   it("does NOT auto-inject the spec-level `patch` merger as the local-authority applyPatch for a set-only cell", async () => {
     specPatchCalls.length = 0;
-    const { link } = stubLink();
+    const { dispatch } = stubDispatch();
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link shape stands in for the typed ContractRouterClient.
-      const app = surfaceClient(surface, link as any);
+      const app = surfaceClient(surface, dispatch);
       // Local authority over the set-only cell. The bound shape is
       // `BoundCell<T, T>`, so `.patch` carries the FULL value `{ n, label }`.
       const cell = app.cells.explicitSet.use({

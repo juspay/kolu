@@ -1,12 +1,27 @@
 /**
- * SolidJS primitive for consuming async streams as reactive signals.
+ * SolidJS primitive for consuming Effect streams as reactive signals.
  *
- * `createSubscription()` — AsyncIterable → SolidJS Accessor
+ * `createSubscription()` — `Stream<T>` → SolidJS Accessor
  *
- * For mutations, call the server directly (plain RPC). If you need
- * loading/error tracking for a mutation, use SolidJS's `createResource`.
+ * **The Effect↔Solid edge (PLAN D10).** This is a SANCTIONED `Effect.runFork`
+ * boundary, and one of very few: SolidJS's reactive graph is push-based and
+ * synchronous, so a stream has to be *run* somewhere for its frames to become
+ * signal writes. The fiber is SCOPED — it is interrupted by the subscription's own
+ * teardown (the caller's `onCleanup`, or an external `signal`), and interruption
+ * propagates into the stream's finalizers, which is what closes the wire
+ * subscription. There is no abort signal to thread and none to forget: cancellation
+ * IS interruption.
+ *
+ * The stream handed in is expected to already carry the framework's retry fence
+ * (`unenrolledStreamCall` / the bound `.use()` hooks apply it), so a transport drop
+ * never reaches this loop as an error — it reaches it as a fresh snapshot, which is
+ * exactly what the change-iff-fired law below is written against.
+ *
+ * For mutations, call the server directly (a unary member call returns a Promise).
+ * If you need loading/error tracking for a mutation, use SolidJS's `createResource`.
  */
 
+import type { Stream } from "effect";
 import {
   type Accessor,
   createEffect,
@@ -15,6 +30,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
 
 /** A teardown handle — call to unsubscribe. */
@@ -93,6 +109,10 @@ export interface SubscriptionOptions<T, R = T> {
    * External abort signal for imperative lifecycle management.
    * When provided, used instead of `onCleanup` — allows creating
    * subscriptions outside a reactive owner (e.g. dynamic per-entity maps).
+   *
+   * An `AbortSignal` and not a fiber/scope because the CALLERS are non-Effect
+   * (a Solid map keyed by entity id, a DOM lifecycle): it is the edge's own
+   * cancellation vocabulary, translated here into the one fiber interrupt.
    */
   signal?: AbortSignal;
   /** Called when the stream errors. Use to surface failures to the user
@@ -114,8 +134,8 @@ export interface SubscriptionOptions<T, R = T> {
  *
  *  **Conservative by construction: it NEVER yields a false-positive that hides a
  *  real change.** The subscription primitives are generic over arbitrary
- *  `AsyncIterable<T>` (and a `directLink` passes values through WITHOUT
- *  serialization, and Zod admits `z.date()`/`z.map()`/`z.set()`), so a frame is not
+ *  `Stream<T>` (and the in-process `directDispatch` passes values through WITHOUT
+ *  serialization, and Effect Schema admits `Date`/`Map`/`Set`), so a frame is not
  *  guaranteed to be JSON-shaped — nor acyclic. Rather than a naive plain-object walk
  *  that would read two distinct `Date`s (or symbol-keyed objects) as equal and
  *  SUPPRESS a real `updated`, this handles the common cases exactly — primitives,
@@ -136,7 +156,7 @@ export interface SubscriptionOptions<T, R = T> {
  *  and its reactive twin.
  *
  *  Why hand-rolled and not `dequal` / `fast-deep-equal` (both already in the
- *  lockfile): a deep-equal here MUST be cycle-safe (a `directLink` frame can be
+ *  lockfile): a deep-equal here MUST be cycle-safe (a `directDispatch` frame can be
  *  cyclic) AND never false-positive (a false-positive DROPS a real change — the
  *  bug). `dequal` and `fast-deep-equal` recurse without cycle tracking, so a
  *  cyclic frame stack-overflows rather than compares — the exact case this
@@ -322,31 +342,32 @@ export function createUpdatedTracker<V>(): {
   };
 }
 
-/** Convert an async stream into a SolidJS signal. `source` receives the
- *  subscription's OWN abort signal (the external `options.signal` when supplied,
- *  else the internal `AbortController` this call creates) — thread it into the
- *  underlying procedure call (`unenrolledStreamCall(proc, input, { signal })` /
- *  a `StreamingProcedure`'s `{ signal }` opt) so disposing the subscription
- *  actually cancels the wire stream, not just the local consume loop. Without
- *  this, teardown only stops READING the stream — the server-side subscription
- *  (and its bounded frame queue) stays open until the stream happens to end on
- *  its own, or forever for a quiet cell/collection that never publishes again.
- *  A `source` that ignores the signal (a test double, an in-memory iterable
- *  with nothing to cancel) is unaffected — the loop's own `abortSignal.aborted`
- *  check still stops consumption either way. */
+/** Convert an Effect `Stream` into a SolidJS signal.
+ *
+ *  `source` is LAZY and is run on a scoped fiber owned by this subscription (see
+ *  `./runStream`). Disposing the subscription — the caller's `onCleanup`, or the
+ *  external `options.signal` — INTERRUPTS that fiber, and interruption runs the
+ *  stream's own finalizers, which is what cancels the wire subscription. Without
+ *  that, teardown would only stop READING the stream while the server-side
+ *  subscription (and its bounded frame queue) stayed open until the stream happened
+ *  to end on its own — forever, for a quiet cell that never publishes again.
+ *
+ *  Hand in a stream that already carries the retry fence
+ *  (`unenrolledStreamCall`, or one of the bound `.use()` hooks): a transport drop
+ *  must reach this loop as a fresh SNAPSHOT, never as an `error()`. */
 export function createSubscription<T>(
-  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
 ): Subscription<T>;
 export function createSubscription<T>(
-  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
   options: Omit<SubscriptionOptions<T>, "reduce" | "initial">,
 ): Subscription<T>;
 export function createSubscription<T, R>(
-  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
   options: SubscriptionOptions<T, R> & { initial: R },
 ): Subscription<R>;
 export function createSubscription<T, R = T>(
-  source: (signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
   options?: SubscriptionOptions<T, R>,
 ): Subscription<T | R> {
   const reduce = options?.reduce as
@@ -377,49 +398,46 @@ export function createSubscription<T, R = T>(
   // `createReactiveSubscription` via `createUpdatedTracker`.
   const tracker = createUpdatedTracker<T | R>();
 
-  function toError(err: unknown): Error {
-    return err instanceof Error ? err : new Error(String(err));
+  // Run the stream on this subscription's own scoped fiber. `runStreamScoped`
+  // owns the "a disposed subscription reports nothing" rule, so nothing below
+  // re-checks an aborted flag.
+  const stop = runStreamScoped<T>(source, {
+    onFrame: (item) => {
+      const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
+      tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
+      updateValue(next);
+      if (pending()) setPending(false);
+      // NOT "clear a stale error here". A failure is the FIBER'S EXIT, so no frame
+      // can follow one on the same subscription — an `error()` is terminal for this
+      // stream, and a clear-on-next-frame branch would be dead code implying a
+      // recovery that cannot happen. What actually keeps `error()` from LATCHING is
+      // one layer up: the retry fence re-subscribes transparently, so a transport
+      // drop never lands here at all. What DOES land is a declared (D4) failure,
+      // and terminal is the honest reading of it — the stream is over.
+    },
+    // A TYPED end (the server/map completed the stream), never an interruption.
+    // Clear any lingering `pending` and latch `complete` so the dedup cache can
+    // evict this slot and a re-added member never reuses an ended stream.
+    onEnd: () => {
+      if (pending()) setPending(false);
+      setComplete(true);
+      options?.onComplete?.();
+    },
+    onFailure: (err) => {
+      setError(err);
+      if (pending()) setPending(false);
+    },
+  });
+
+  // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual
+  // lifecycle braiding. The external-signal arm is what lets a subscription be
+  // created outside a reactive owner (a dynamic per-entity map).
+  if (options?.signal) {
+    if (options.signal.aborted) stop();
+    else options.signal.addEventListener("abort", stop, { once: true });
+  } else {
+    onCleanup(stop);
   }
-
-  // Single cleanup path: external signal OR internal AbortController + onCleanup.
-  // Never both — avoids dual lifecycle braiding.
-  const abortSignal =
-    options?.signal ??
-    (() => {
-      const controller = new AbortController();
-      onCleanup(() => controller.abort());
-      return controller.signal;
-    })();
-
-  // Consume the stream
-  void (async () => {
-    try {
-      const iterable = await source(abortSignal);
-      for await (const item of iterable) {
-        if (abortSignal.aborted) break;
-        const next = reduce ? reduce(store.v as T | R, item) : (item as T | R);
-        tracker.noteFrame(next); // fire `updated` on a genuine change, before the write
-        updateValue(next);
-        if (pending()) setPending(false);
-        if (error()) setError(undefined);
-      }
-      // Normal completion — the iterable ended because the server/map sent a TYPED
-      // end (not an abort: an aborted loop takes the `break` above and its
-      // `abortSignal.aborted` is already true here). Clear any lingering `pending`
-      // and signal the typed end so the dedup cache can evict this slot. An aborted
-      // (disposed) subscription reports nothing.
-      if (!abortSignal.aborted) {
-        if (pending()) setPending(false);
-        setComplete(true);
-        options?.onComplete?.();
-      }
-    } catch (err) {
-      if (!abortSignal.aborted) {
-        setError(toError(err));
-        if (pending()) setPending(false);
-      }
-    }
-  })();
 
   const sub = Object.assign(() => store.v as (T | R) | undefined, {
     error,
@@ -435,10 +453,11 @@ export function createSubscription<T, R = T>(
   return sub;
 }
 
-/** Wire a per-consumer error handler onto a subscription's self-clearing `error()`
- *  signal, via an EDGE effect — fires once per rising error transition and clears
- *  with the signal (never the inline-in-catch double-fire, and never latching a
- *  transient blip the signal already cleared). Factored out of `createSubscription`
+/** Wire a per-consumer error handler onto a subscription's `error()` signal, via an
+ *  EDGE effect — fires once per rising error transition and tracks the signal, so
+ *  the callback and the signal can never disagree about whether this subscription is
+ *  failed (never the inline-at-the-failure-site double-fire, and never a handler
+ *  latched on a failure a slot rebuild has since cleared). Factored out of `createSubscription`
  *  so the keyed subscription cache can share ONE upstream subscription across N
  *  consumers while each consumer still gets its OWN `onError` (a per-call label /
  *  toast), wired under that consumer's own reactive owner.

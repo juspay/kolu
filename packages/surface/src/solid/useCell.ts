@@ -20,23 +20,27 @@
  * completes. Local authority requires T to be an object/array shape so
  * Solid's createStore can reconcile field-level changes.
  *
- * `source` and `mutate` are typed oRPC procedure refs (e.g.
- * `client.preferences.get` / `client.preferences.update`). The hook
- * threads `STREAM_RETRY` context onto `source` internally; mutations
- * fail fast (no retry) per the plugin default.
+ * `source` and `mutate` are typed member refs off the surface face (e.g.
+ * `client.cells.preferences`'s bound `get` / `patch`). The hook applies the
+ * framework's retry fence to `source` internally, so a transport drop re-subscribes
+ * and the next frame is a fresh snapshot; mutations fail fast (a unary call is not
+ * retried — retrying a write would repeat it).
  */
 
 import { debounce } from "@solid-primitives/scheduled";
 import { type Accessor, createEffect, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
-import { STREAM_RETRY, type StreamingProcedure } from "../client";
+import {
+  type StreamingProcedure,
+  type UnaryProcedure,
+  unenrolledStreamCall,
+} from "../client";
 import type { Cell } from "../index";
 import { createSubscription, type Subscription } from "./createSubscription";
 
 export type Authority = "server" | "local";
 
-/** A unary procedure ref (mutation/query — non-streaming). */
-export type UnaryProcedure<I, O> = (input: I) => Promise<O>;
+export type { UnaryProcedure };
 
 export interface UseCellServerOptions<T, P = T> {
   source: StreamingProcedure<undefined, T>;
@@ -157,15 +161,13 @@ function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
-/** Wrap a streaming procedure ref into the thunk shape `createSubscription`
- *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
- *  transparently, AND the subscription's own abort signal — so disposing the
- *  cell (the last consumer of a shared dedup slot leaving) cancels the wire
- *  stream instead of leaving it open with nothing left to read it. */
-function streamingThunk<T>(
-  source: StreamingProcedure<undefined, T>,
-): (signal: AbortSignal) => Promise<AsyncIterable<T>> {
-  return (signal) => source(undefined, { signal, context: STREAM_RETRY });
+/** The cell's fenced stream: the member's own `get`, wrapped in the framework's
+ *  per-subscription retry fence so a transport drop re-subscribes transparently and
+ *  the next frame is a fresh snapshot. Disposing the cell (the last consumer of a
+ *  shared dedup slot leaving) interrupts the subscription's fiber, which tears the
+ *  wire stream down through the stream's own finalizers. */
+function cellStream<T>(source: StreamingProcedure<undefined, T>) {
+  return unenrolledStreamCall(source, undefined);
 }
 
 function useCellServer<Name extends string, T, P>(
@@ -175,7 +177,7 @@ function useCellServer<Name extends string, T, P>(
   // No wrapping `createRoot`: the subscription runs under the CALLER's owner — the
   // keyed-cache slot when the surface client shares it, else the consumer's own
   // owner — so it aborts when that owner disposes instead of leaking app-lifetime.
-  const sub = createSubscription(streamingThunk(options.source), {
+  const sub = createSubscription(cellStream(options.source), {
     onError: options.onError,
     onComplete: options.onComplete,
   });
@@ -214,7 +216,7 @@ function useCellLocal<Name extends string, T extends object, P>(
   // No wrapping `createRoot`: the subscription + its seed effect run under the
   // CALLER's owner (the keyed-cache slot when shared, else the consumer's own owner),
   // so they dispose with that owner instead of leaking app-lifetime.
-  const sub = createSubscription(streamingThunk(options.source), {
+  const sub = createSubscription(cellStream(options.source), {
     onError: options.onError,
     onComplete: options.onComplete,
   });

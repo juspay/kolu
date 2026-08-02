@@ -21,15 +21,17 @@
  * LIVE; without an observer `mapArray` never instantiates a key's sub.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "../define";
-import { stdioLink } from "../links/stdio";
-import { websocketLink } from "../links/websocket";
-import { createLoopbackPair } from "../loopback";
+import {
+  brandHalfOpenDispatch,
+  type SurfaceDispatch,
+  type WatchableWire,
+} from "../link";
 import type { SurfaceHealth } from "./health";
-import { createLiveSignal } from "./liveSignal";
+import { createLiveSignal, type LiveSignalHandle } from "./liveSignal";
 import {
   buildSurfaceClient,
   surfaceClient,
@@ -37,66 +39,108 @@ import {
   surfaceClientsHealth,
 } from "./surfaceClient";
 
-/** A socket reduced to listeners — tolerant of arbitrary event types so it
- *  survives `websocketLink(ws)` construction without ever sending an RPC. */
-function fakeWs(): WebSocket {
+/** A tag-keyed {@link SurfaceDispatch} — the shape `surfaceClient` consumes now.
+ *  The client builds the nested `surface.<member>.<verb>` face ITSELF
+ *  (`buildSurfaceFace`), so a test stubs the DISPATCH one layer down, keyed by the
+ *  flat wire tag `surface/<member>/<verb>`. Each streaming entry is a FACTORY run
+ *  per subscribe; an unlisted tag FAILS loudly rather than reading `undefined`. */
+function fakeDispatch(
+  streams: Record<string, () => Stream.Stream<unknown, unknown>> = {},
+  unaries: Record<string, () => Promise<unknown>> = {},
+): SurfaceDispatch {
   return {
-    addEventListener: () => {},
-    removeEventListener: () => {},
-    send: () => {},
-    close: () => {},
-    reconnect: () => {},
-    readyState: 0,
-    OPEN: 1,
-    // biome-ignore lint/suspicious/noExplicitAny: minimal stand-in for the WebSocket shape websocketLink threads through.
-  } as any;
+    unary: (tag) => {
+      const fn = unaries[tag];
+      if (!fn) return Effect.fail(new Error(`no member served at "${tag}"`));
+      return Effect.tryPromise({ try: () => fn(), catch: (e) => e });
+    },
+    stream: (tag) => {
+      const fn = streams[tag];
+      if (!fn) return Stream.fail(new Error(`no member served at "${tag}"`));
+      return Stream.suspend(fn);
+    },
+  };
+}
+
+/** A dispatch BRANDED as crossing a half-openable WIRE — literally what every wire
+ *  link factory (websocket / stdio / unix-socket) hands back, because they all
+ *  apply this brand at the ONE seam they cross (`links/wire.ts`'s `openWireLink`).
+ *  `resolveTransport` reads exactly that brand, so branding a bare fake exercises
+ *  the guard at the precise seam it consults — no socket to stand up, and a future
+ *  wire leg is covered by the same chokepoint. */
+function halfOpenWireDispatch(): SurfaceDispatch {
+  return brandHalfOpenDispatch(
+    fakeDispatch({}, { "surface/system/live": () => Promise.resolve({}) }),
+  );
+}
+
+/** A watchable wire whose socket is (and stays) open — the observability +
+ *  recovery seam `createLiveSignal`'s watchdog needs. */
+function fakeWire(): WatchableWire {
+  return {
+    status: () => "open",
+    onStatus: () => () => {},
+    forceReconnect: () => {},
+  };
 }
 
 /** Mint a REAL `LiveSignalHandle` via `createLiveSignal` (the only minter) over a
- *  fake watchable socket — proving the brand round-trips end-to-end (no test-only
- *  stub brander; the handle is branded at mint and there is no importable stamper).
- *  The handle bundles the `live` and the `link` `createLiveSignal` built over that
- *  socket as ONE object, so a client accepts the WHOLE handle (real usage —
+ *  branded wire dispatch + a fake watchable wire — proving the brand round-trips
+ *  end-to-end (no test-only stub brander; the handle is branded at mint and there is
+ *  no importable stamper). The handle bundles the `live` and the DISPATCH the
+ *  watchdog probes as ONE object, so a client accepts the WHOLE handle (real usage —
  *  `surfaceClient(surface, transport)`). The 15s watchdog interval never fires within
  *  a sync test; dispose it to be tidy. */
-function brandedHandle(): ReturnType<typeof createLiveSignal> {
-  // biome-ignore lint/suspicious/noExplicitAny: fakeWs is a structural stand-in for a partysocket.
-  return createLiveSignal(fakeWs() as any, {});
+function brandedHandle(): LiveSignalHandle {
+  return createLiveSignal(
+    { dispatch: halfOpenWireDispatch(), wire: fakeWire() },
+    {},
+  );
 }
 
 const surface = defineSurface({
   cells: {
     conn: {
-      schema: z.object({ state: z.string() }),
+      schema: Schema.Struct({ state: Schema.String }),
       default: { state: "connecting" },
       verbs: ["get"],
     },
   },
   collections: {
-    items: { keySchema: z.string(), schema: z.object({ v: z.number() }) },
+    items: {
+      keySchema: Schema.String,
+      schema: Schema.Struct({ v: Schema.Number }),
+    },
   },
   streams: {
-    activity: { inputSchema: z.object({}), outputSchema: z.array(z.string()) },
+    activity: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Array(Schema.String),
+    },
   },
 });
 
 /** A wire stream that yields `value` once then completes — the sub goes
- *  past-first-frame (pending → false) and stays healthy. Ignores its
- *  `(input, opts)` args. */
-function once<T>(value: T) {
-  return (..._args: unknown[]): Promise<AsyncIterable<T>> =>
-    Promise.resolve(
-      (async function* () {
-        yield value;
-      })(),
-    );
+ *  past-first-frame (pending → false) and stays healthy.
+ *
+ *  Deliberately ASYNC (an async generator, not `Stream.make`): a real wire stream
+ *  always crosses an await before its first frame, and a SYNCHRONOUS stream runs to
+ *  completion inside `Effect.runFork` — its typed end would land before `.use()`
+ *  even returned, evicting the dedup slot mid-construction. */
+function once<T>(value: T): Stream.Stream<T, unknown> {
+  return Stream.fromAsyncIterable(
+    (async function* () {
+      yield value;
+    })(),
+    (e) => e,
+  );
 }
 
-/** A wire stream source whose await REJECTS — `createSubscription` catches it and
- *  sets `error()`. */
-function rejecting() {
-  return (..._args: unknown[]): Promise<AsyncIterable<never>> =>
-    Promise.reject(new Error("stream boom"));
+/** A wire stream that FAILS — `runStreamScoped` reports it and
+ *  `createSubscription` records it in `error()`. A plain `Error` (not an
+ *  `RpcClientError`), so the face's retry fence refuses to retry it. */
+function rejecting(): Stream.Stream<never, unknown> {
+  return Stream.fail(new Error("stream boom"));
 }
 
 /** A DRIVEABLE wire stream: each `push(v)` delivers `v` as the next frame (or
@@ -119,8 +163,8 @@ function feed<T>() {
     },
   };
   return {
-    procedure: (..._args: unknown[]): Promise<AsyncIterable<T>> =>
-      Promise.resolve(iterable),
+    stream: (): Stream.Stream<T, unknown> =>
+      Stream.fromAsyncIterable(iterable, (e) => e),
     push(value: T): void {
       const frame: IteratorResult<T> = { value, done: false };
       if (waiting) {
@@ -147,21 +191,17 @@ const settle = async (): Promise<void> => {
 
 describe("surfaceClient health registry — totality", () => {
   it("enrols a cell, the keys-stream, every per-key value sub, and a stream", async () => {
-    const link = {
-      surface: {
-        conn: { get: once({ state: "connected" }) },
-        items: {
-          keys: once(["a", "b"]),
-          get: once({ v: 1 }),
-          upsert: noop,
-          delete: noop,
-        },
-        activity: { get: once<string[]>([]) },
+    const dispatch = fakeDispatch(
+      {
+        "surface/conn/get": () => once({ state: "connected" }),
+        "surface/items/keys": () => once(["a", "b"]),
+        "surface/items/get": () => once({ v: 1 }),
+        "surface/activity/get": () => once<string[]>([]),
       },
-    };
+      { "surface/items/upsert": noop, "surface/items/delete": noop },
+    );
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-      const app = surfaceClient(surface, link as any);
+      const app = surfaceClient(surface, dispatch);
       app.cells.conn.use();
       const items = app.collections.items.use({});
       app.streams.activity.use(() => ({}));
@@ -193,21 +233,17 @@ describe("surfaceClient health registry — totality", () => {
   });
 
   it("surfaces a forced stream failure through health() (not a silent error())", async () => {
-    const link = {
-      surface: {
-        conn: { get: rejecting() },
-        items: {
-          keys: once<string[]>([]),
-          get: once({ v: 1 }),
-          upsert: noop,
-          delete: noop,
-        },
-        activity: { get: once<string[]>([]) },
+    const dispatch = fakeDispatch(
+      {
+        "surface/conn/get": rejecting,
+        "surface/items/keys": () => once<string[]>([]),
+        "surface/items/get": () => once({ v: 1 }),
+        "surface/activity/get": () => once<string[]>([]),
       },
-    };
+      { "surface/items/upsert": noop, "surface/items/delete": noop },
+    );
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-      const app = surfaceClient(surface, link as any);
+      const app = surfaceClient(surface, dispatch);
       app.cells.conn.use();
       app.collections.items.use({});
       app.streams.activity.use(() => ({}));
@@ -248,15 +284,16 @@ describe("surfaceClient health registry — totality", () => {
   });
 
   it("folds a transport `live` accessor into health().live", async () => {
-    // The fold itself, exercised through the internal builder so a stub link and a
-    // toggling `live` can be driven together (the public `surfaceClient` collapses
-    // link+live into one `LiveSignalHandle` — the end-to-end fold over a real
+    // The fold itself, exercised through the internal builder so a stub dispatch and
+    // a toggling `live` can be driven together (the public `surfaceClient` collapses
+    // dispatch+live into one `LiveSignalHandle` — the end-to-end fold over a real
     // watchdog-backed handle is pinned in `createLiveSignal`/`transportLive` tests).
-    const link = { surface: { conn: { get: once({ state: "x" }) } } };
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => once({ state: "x" }),
+    });
     await createRoot(async (dispose) => {
       let alive = true;
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-      const app = buildSurfaceClient(surface, link as any, () => alive);
+      const app = buildSurfaceClient(surface, dispatch, () => alive);
       app.cells.conn.use();
       await settle();
       expect(app.health().live).toBe(true);
@@ -268,18 +305,19 @@ describe("surfaceClient health registry — totality", () => {
 });
 
 describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)", () => {
-  const link = { surface: { conn: { get: once({ state: "x" }) } } };
+  const dispatch = fakeDispatch({
+    "surface/conn/get": () => once({ state: "x" }),
+  });
 
   it("THROWS when driven outside a reactive owner (structural, not a doc warning)", () => {
-    // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-    const app = surfaceClient(surface, link as any);
+    const app = surfaceClient(surface, dispatch);
     // No `createRoot` ⇒ no owner ⇒ the enrolment would leak. It must THROW (the
     // `reduce`-without-`initial` precedent), never silently bypass health().
     expect(() =>
       app.rawStream(
         "raw",
-        // biome-ignore lint/suspicious/noExplicitAny: trivial stub procedure (never reached — the owner check throws first).
-        once<number>(1) as any,
+        // A trivial stub procedure — never reached, the owner check throws first.
+        () => once<number>(1),
         undefined,
         { onItem: () => {} },
       ),
@@ -288,16 +326,11 @@ describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)",
 
   it("enrols structurally — a raw-stream failure surfaces through health()", async () => {
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(surface, link as any);
-      // A raw stream whose await rejects — the example's processesSnapshot 500.
-      app.rawStream(
-        "processesSnapshot",
-        // biome-ignore lint/suspicious/noExplicitAny: rejecting stub procedure.
-        rejecting() as any,
-        undefined,
-        { onItem: () => {} },
-      );
+      const app = surfaceClient(surface, dispatch);
+      // A raw stream that fails — the example's processesSnapshot 500.
+      app.rawStream("processesSnapshot", rejecting, undefined, {
+        onItem: () => {},
+      });
       await settle();
       const raw = app.health().subs.find((s) => s.name === "processesSnapshot");
       expect(raw).toBeDefined();
@@ -311,16 +344,11 @@ describe("surfaceClient.rawStream — structural raw-stream enrolment (Leak A)",
 
   it("goes healthy once its stream yields (pending → false, no error), returning the enrolled source", async () => {
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(surface, link as any);
+      const app = surfaceClient(surface, dispatch);
       const got: number[] = [];
-      const src = app.rawStream(
-        "snap",
-        // biome-ignore lint/suspicious/noExplicitAny: yielding stub procedure.
-        once<number>(7) as any,
-        undefined,
-        { onItem: (n) => got.push(n as number) },
-      );
+      const src = app.rawStream("snap", () => once<number>(7), undefined, {
+        onItem: (n) => got.push(n),
+      });
       await settle();
       expect(got).toEqual([7]);
       const raw = app.health().subs.find((s) => s.name === "snap");
@@ -342,7 +370,7 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
   const mirrored = defineSurface({
     cells: {
       connection: {
-        schema: z.object({ state: z.string() }),
+        schema: Schema.Struct({ state: Schema.String }),
         default: { state: "connecting" },
         verbs: ["get"],
         liveWhen: (v: { state: string }) => v.state === "connected",
@@ -352,10 +380,9 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
 
   it("folds the liveWhen cell into health().live EAGERLY — no `.use()`, by construction", async () => {
     const f = feed<{ state: string }>();
-    const link = { surface: { connection: { get: f.procedure } } };
+    const dispatch = fakeDispatch({ "surface/connection/get": f.stream });
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed ContractRouterClient.
-      const app = surfaceClient(mirrored, link as any);
+      const app = surfaceClient(mirrored, dispatch);
       // CRITICAL: NO `.use()` anywhere. The readiness fold must be eager — a
       // dot-only viewer (or `<SurfaceGate>`/`<HostStatusPip>` that never mounts
       // the cell for presentation) must STILL read the complete fact, or the
@@ -385,13 +412,12 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
 
   it("AND-folds the transport leg AND the mirror leg — both must hold for live", async () => {
     const f = feed<{ state: string }>();
-    const link = { surface: { connection: { get: f.procedure } } };
+    const dispatch = fakeDispatch({ "surface/connection/get": f.stream });
     await createRoot(async (dispose) => {
       let transport = true;
       // Internal builder: drive a stub mirror cell (feed) AND a toggling transport
       // leg together — the public `surfaceClient` collapses the pair into a handle.
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = buildSurfaceClient(mirrored, link as any, () => transport);
+      const app = buildSurfaceClient(mirrored, dispatch, () => transport);
       f.push({ state: "connected" });
       await settle();
       expect(app.health().live).toBe(true); // transport ∧ mirror both hold
@@ -406,10 +432,9 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
 
   it("`.use()` SHARES the eager standing sub — ONE `connection` member, same value", async () => {
     const f = feed<{ state: string }>();
-    const link = { surface: { connection: { get: f.procedure } } };
+    const dispatch = fakeDispatch({ "surface/connection/get": f.stream });
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(mirrored, link as any);
+      const app = surfaceClient(mirrored, dispatch);
       const cell = app.cells.connection.use();
       f.push({ state: "connected" });
       await settle();
@@ -442,22 +467,17 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
         };
       },
     };
-    const link = {
-      surface: {
-        connection: {
-          get: (): Promise<AsyncIterable<{ state: string }>> =>
-            Promise.resolve(iterable),
-        },
-      },
-    };
+    const dispatch = fakeDispatch({
+      "surface/connection/get": () =>
+        Stream.fromAsyncIterable(iterable, (e) => e),
+    });
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(mirrored, link as any);
+      const app = surfaceClient(mirrored, dispatch);
       const errors: Error[] = [];
       app.cells.connection.use({ onError: (e) => errors.push(e) });
       await settle();
       // Fault the standing sub's stream — a real rejection, the exact path
-      // `createSubscription`'s catch takes.
+      // `runStreamScoped`'s failure channel takes.
       reject?.(new Error("mirror stream broke"));
       await settle();
       // The forwarded callback fires exactly once for the one fault, proving the
@@ -472,18 +492,15 @@ describe("surfaceClient readiness fold — `liveWhen` completes the fact (round-
   it("surfaceClientsHealth AND-folds a sibling's mirror leg (Leak D × readiness)", async () => {
     const fa = feed<{ state: string }>();
     const fb = feed<{ state: string }>();
-    const combined = {
-      surface: {
-        a: { connection: { get: fa.procedure } },
-        b: { connection: { get: fb.procedure } },
-      },
-    };
+    // The COMBINED dispatch: `surfaceClients` scopes each sibling's tags by
+    // splicing the key in (`surface/<key>/<member>/<verb>`), so the stub is keyed
+    // by exactly those composed tags.
+    const combined = fakeDispatch({
+      "surface/a/connection/get": fa.stream,
+      "surface/b/connection/get": fb.stream,
+    });
     await createRoot(async (dispose) => {
-      const clients = surfaceClients(
-        // biome-ignore lint/suspicious/noExplicitAny: stub combined link.
-        combined as any,
-        { a: mirrored, b: mirrored },
-      );
+      const clients = surfaceClients(combined, { a: mirrored, b: mirrored });
       fa.push({ state: "connected" });
       fb.push({ state: "connected" });
       await settle();
@@ -510,49 +527,54 @@ describe("every half-openable WIRE link (websocket / stdio / unix-socket) demand
   // can't be spelled, not merely not-rendered.
   //
   // And it is refused for EVERY wire link, not just websocket: the half-open brand
-  // is applied at `wireClient` — the one chokepoint every wire link crosses — so a
+  // is applied at `openWireLink` — the one chokepoint every wire link crosses — so a
   // bare `stdioLink` / `unixSocketLink` (a pipe that wedges or an ssh tunnel that
   // partitions half-opens exactly like a websocket; `surface-remote`'s
   // `hostSession.startLiveness` hand-wires a watchdog over stdio for that reason)
   // is refused too, and a FUTURE wire link inherits the guard by construction.
+  //
+  // The guard reads exactly ONE thing — `isHalfOpenDispatch(transport)` — so the
+  // tests below drive it with a `brandHalfOpenDispatch`-branded dispatch, which is
+  // literally what a wire link factory hands back. That every real factory APPLIES
+  // the brand is the transports tier's own contract, pinned where those factories
+  // live (`links/*.test.ts`); what belongs HERE is that the face refuses a branded
+  // dispatch, for every leg that carries the brand.
 
-  it("surfaceClient over a bare websocketLink throws, naming connectSurface / the cure", () => {
-    const link = websocketLink(fakeWs());
-    expect(() => surfaceClient(surface, link)).toThrow(
+  it("surfaceClient over a bare half-openable WIRE dispatch throws, naming connectSurface / the cure", () => {
+    const wire = halfOpenWireDispatch();
+    expect(() => surfaceClient(surface, wire)).toThrow(
       /can silently half-open/,
     );
     // The message points at the cure (the turnkey seams / `createLiveSignal`).
-    expect(() => surfaceClient(surface, link)).toThrow(/connectSurface/);
+    expect(() => surfaceClient(surface, wire)).toThrow(/connectSurface/);
   });
 
   it("surfaceClient over a BRANDED `LiveSignalHandle` is accepted — the watchdog-backed handle is the cure", () => {
     // The handle is minted ONLY by `createLiveSignal` (which wires the watchdog);
     // there is no importable stamper to forge one with. The client takes the WHOLE
-    // handle — `link` and `live` paired on one object, the only shape `resolveTransport`
-    // accepts over a half-openable link.
+    // handle — `dispatch` and `live` paired on one object, the only shape
+    // `resolveTransport` accepts over a half-openable dispatch.
     const t = brandedHandle();
     expect(() => surfaceClient(surface, t)).not.toThrow();
     t.dispose();
   });
 
-  it("the `watch ws1, build over ws2` forge is UNSPELLABLE — there is no API to pass a `live` paired with a separate link", () => {
-    // The old forge handed a genuine brand alongside a self-rolled `websocketLink(ws2)`.
-    // Collapsing link+live into ONE handle removes the seam: a caller has only the
-    // handle (whose link the watchdog probes) or a bare link (no live at all). A bare
-    // second websocketLink is still refused — pass the handle.
-    const otherLink = websocketLink(fakeWs());
-    // biome-ignore lint/suspicious/noExplicitAny: bare websocket link, no handle.
-    expect(() => surfaceClient(surface, otherLink as any)).toThrow(
+  it("the `watch ws1, build over ws2` forge is UNSPELLABLE — there is no API to pass a `live` paired with a separate dispatch", () => {
+    // The old forge handed a genuine brand alongside a self-rolled second link.
+    // Collapsing dispatch+live into ONE handle removes the seam: a caller has only
+    // the handle (whose dispatch the watchdog probes) or a bare dispatch (no live at
+    // all). A bare SECOND wire dispatch is still refused — pass the handle.
+    const otherWire = halfOpenWireDispatch();
+    expect(() => surfaceClient(surface, otherWire)).toThrow(
       /can silently half-open/,
     );
   });
 
-  it("surfaceClients (the multi-surface bundle) refuses a bare combined link, accepts a branded handle", () => {
-    const link = websocketLink(fakeWs());
-    expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: combined link is walk-by-string.
-      surfaceClients(link as any, { a: surface, b: surface }),
-    ).toThrow(/can silently half-open/);
+  it("surfaceClients (the multi-surface bundle) refuses a bare combined wire dispatch, accepts a branded handle", () => {
+    const wire = halfOpenWireDispatch();
+    expect(() => surfaceClients(wire, { a: surface, b: surface })).toThrow(
+      /can silently half-open/,
+    );
     // Accepted as the WHOLE handle (built by `createLiveSignal`), the real
     // multi-surface shape: `surfaceClients(transport, surfaces)`.
     const t = brandedHandle();
@@ -560,39 +582,39 @@ describe("every half-openable WIRE link (websocket / stdio / unix-socket) demand
     t.dispose();
   });
 
-  it("a REAL wire link — stdioLink (hence unixSocketLink) — is REFUSED bare, the green-dot lie #1568 closed for websocket relocated one transport over", () => {
+  it("the NON-websocket wire legs (stdio, hence unixSocketLink) are REFUSED bare too — the green-dot lie #1568 closed for websocket relocated one transport over", () => {
     // The class, not the websocket PoC: a stdio/ssh pipe wedges or partitions
     // with no FIN exactly as a websocket half-opens (`closed` never flips, the
-    // stream iterator hangs on the last frame, `health().live` would read true
-    // forever). The brand rides `wireClient`, so a bare stdioLink demands a
-    // watchdog-backed handle just like a websocket — `surface-remote` proves
-    // this is real by hand-wiring `hostSession.startLiveness` over its own
-    // stdioLink. `unixSocketLink` wraps `stdioLink`, so it inherits the guard.
-    const pair = createLoopbackPair();
-    const stdio = stdioLink({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-    expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: bare wire link, no handle.
-      surfaceClient(surface, stdio as any),
-    ).toThrow(/can silently half-open/);
-    // `surfaceClient` throws at `resolveTransport` before any RPC, so the link
-    // never wrote a frame; end the loopback write half cleanly (no EPIPE) so the
-    // read side sees EOF and the link's stream listeners settle.
-    pair.client.write.end();
+    // stream hangs on the last frame, `health().live` would read true forever).
+    // `surface-remote` proves this is real by hand-wiring
+    // `hostSession.startLiveness` over its own stdioLink.
+    //
+    // One branded fake covers ALL of them, and that is not a shortcut — it is the
+    // structure of the guard. `brandHalfOpenDispatch` is the SINGLE chokepoint
+    // every wire link factory (websocket, stdio, unix-socket — `unixSocketLink`
+    // literally wraps `stdioLink`) crosses in `links/wire.ts`'s `openWireLink`, and
+    // `resolveTransport` reads exactly that brand. So a per-leg reconstruction
+    // would re-test one `WeakSet` membership check three times, while a FUTURE wire
+    // leg inherits the guard from the same chokepoint without a test at all.
+    const stdioLike = halfOpenWireDispatch();
+    expect(() => surfaceClient(surface, stdioLike)).toThrow(
+      /can silently half-open/,
+    );
+    // …and the message still names the STDIO cure, not only the websocket one.
+    expect(() => surfaceClient(surface, stdioLike)).toThrow(
+      /STDIO\/UNIX-SOCKET/,
+    );
   });
 
-  it("a direct/in-process link (no wire — directLink) is accepted bare — constant-true is honest there", () => {
-    // `directLink` is the ONE link with no transport (a microtask handler call via
-    // `createRouterClient`), so it bypasses `wireClient` and is never branded
+  it("a direct/in-process dispatch (no wire — directDispatch) is accepted bare — constant-true is honest there", () => {
+    // `directDispatch` is the ONE dispatch with no transport (a handler call in
+    // process), so it never crosses `openWireLink` and is never branded
     // half-openable — its constant-`true` transport leg is honest by construction.
-    // A plain in-process stub stands in for it here (the same unbranded path); a
-    // real wire link, by contrast, throws (above).
-    const direct = { surface: { conn: { get: once({ state: "ok" }) } } };
-    expect(() =>
-      // biome-ignore lint/suspicious/noExplicitAny: stub direct/in-process link.
-      surfaceClient(surface, direct as any),
-    ).not.toThrow();
+    // A plain UNBRANDED stub stands in for it here (the same by-exclusion path); a
+    // real wire dispatch, by contrast, throws (above).
+    const direct = fakeDispatch({
+      "surface/conn/get": () => once({ state: "ok" }),
+    });
+    expect(() => surfaceClient(surface, direct)).not.toThrow();
   });
 });

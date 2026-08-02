@@ -16,7 +16,7 @@
  *
  * The honest producers — `surfaceClient` / `surfaceClients`, which derive `live`
  * from a branded `LiveSignalHandle` (or constant-true for an in-process
- * `directLink`) — must stay the ONLY public way to obtain a health fact carrying
+ * `directDispatch`) — must stay the ONLY public way to obtain a health fact carrying
  * a transport leg. This test pins the asymmetry closed: it goes RED the instant
  * the blind-`live` minter is re-exposed from the public Solid barrel.
  */

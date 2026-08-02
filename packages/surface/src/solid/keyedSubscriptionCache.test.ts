@@ -9,15 +9,46 @@
  * enrol-once (enrolling per consumer) or the ref-counted teardown fails it.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { createRoot, onCleanup } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "../define";
+import type { SurfaceDispatch } from "../link";
 
-// The cache is wired inside `buildSurfaceClient`; a plain in-process link (no wire,
-// no half-open) is accepted bare, so we drive the real client with a stub link.
+// The cache is wired inside `buildSurfaceClient`; a plain in-process dispatch (no
+// wire, no half-open brand) is accepted bare, so we drive the real client with a
+// stub dispatch.
 import { runUnderOwner, stableOptsKey } from "./keyedSubscriptionCache";
 import { surfaceClient } from "./surfaceClient";
+
+/** A tag-keyed {@link SurfaceDispatch} — the shape `surfaceClient` now consumes.
+ *  The client builds the nested member face (`surface.<member>.<verb>`) ITSELF via
+ *  `buildSurfaceFace`, so a test stubs the DISPATCH one layer down, keyed by the
+ *  flat wire tag `surface/<member>/<verb>`.
+ *
+ *  Each streaming entry is a FACTORY invoked per subscribe (through
+ *  `Stream.suspend`), which is what lets the dedup pins below count subscriptions.
+ *  An unlisted tag FAILS loudly rather than resolving to `undefined`. */
+function fakeDispatch(
+  streams: Record<
+    string,
+    (payload: unknown) => Stream.Stream<unknown, unknown>
+  >,
+  unaries: Record<string, (payload: unknown) => Promise<unknown>> = {},
+): SurfaceDispatch {
+  return {
+    unary: (tag, payload) => {
+      const fn = unaries[tag];
+      if (!fn) return Effect.fail(new Error(`no unary bound at "${tag}"`));
+      return Effect.tryPromise({ try: () => fn(payload), catch: (e) => e });
+    },
+    stream: (tag, payload) => {
+      const fn = streams[tag];
+      if (!fn) return Stream.fail(new Error(`no stream bound at "${tag}"`));
+      return Stream.suspend(() => fn(payload));
+    },
+  };
+}
 
 describe("runUnderOwner — THE CLASS pin: an ownerless increment/onCleanup-decrement pair must net to zero", () => {
   // This recurring bug class (SIX prior instances: the keyed-slot ref-count, the
@@ -148,7 +179,7 @@ describe("stableOptsKey — divergent options are distinct keys; non-plain-JSON 
 const cellSurface = defineSurface({
   cells: {
     conn: {
-      schema: z.object({ state: z.string() }),
+      schema: Schema.Struct({ state: Schema.String }),
       default: { state: "connecting" },
       verbs: ["get"],
     },
@@ -159,7 +190,7 @@ const cellSurface = defineSurface({
 const prefsSurface = defineSurface({
   cells: {
     prefs: {
-      schema: z.object({ n: z.number() }),
+      schema: Schema.Struct({ n: Schema.Number }),
       default: { n: 0 },
       verbs: ["get", "set"],
     },
@@ -169,30 +200,33 @@ const prefsSurface = defineSurface({
 /** A stream — accessor-input, per-consumer, NOT deduped. */
 const streamSurface = defineSurface({
   streams: {
-    activity: { inputSchema: z.object({}), outputSchema: z.array(z.string()) },
+    activity: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Array(Schema.String),
+    },
   },
 });
 
-/** A wire stream that yields `value` once then COMPLETES (typed end). */
-function once<T>(value: T) {
-  return (..._args: unknown[]): Promise<AsyncIterable<T>> =>
-    Promise.resolve(
-      (async function* () {
-        yield value;
-      })(),
-    );
+/** A wire stream that yields `value` once then COMPLETES (typed end).
+ *
+ *  Deliberately ASYNC (an async generator rather than `Stream.make`): a real wire
+ *  stream always crosses an await before its first frame, and a SYNCHRONOUS stream
+ *  runs to completion inside `Effect.runFork` — i.e. the typed end (and the dedup
+ *  slot eviction it triggers) would land BEFORE `.use()` even returned, so the
+ *  dedup pins below would be measuring an artefact of the stub rather than the
+ *  cache. */
+function once<T>(value: T): Stream.Stream<T, unknown> {
+  return Stream.fromAsyncIterable(
+    (async function* () {
+      yield value;
+    })(),
+    (e) => e,
+  );
 }
 
-/** A wire stream that stays OPEN (never yields, never completes) until aborted —
- *  for the abort-suppression pin. */
-function pendingForever<T>() {
-  return (..._args: unknown[]): Promise<AsyncIterable<T>> =>
-    Promise.resolve({
-      [Symbol.asyncIterator]() {
-        return { next: () => new Promise<IteratorResult<T>>(() => {}) };
-      },
-    });
-}
+/** A wire stream that stays OPEN (never yields, never completes) until the
+ *  subscription's fiber is interrupted — for the abort-suppression pin. */
+const pendingForever: Stream.Stream<never> = Stream.never;
 
 /** Flush microtasks (the `queueMicrotask` teardown) + macrotasks (async stream
  *  consumption) — matches the package's other subscription tests. */
@@ -207,10 +241,11 @@ const connCount = (app: {
 
 describe("keyed subscription cache — dedup + lifetime", () => {
   it("THE PIN: health() counts a shared slot ONCE with N consumers, un-enrols on last-listener disposal", async () => {
-    const link = { surface: { conn: { get: once({ state: "connected" }) } } };
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => once({ state: "connected" }),
+    });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed client.
-      const app = surfaceClient(cellSurface, link as any);
+      const app = surfaceClient(cellSurface, dispatch);
       // Three consumers, each under its OWN reactive owner (three components).
       const disposers: Array<() => void> = [];
       for (let i = 0; i < 3; i++) {
@@ -234,16 +269,14 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it("two views of one cell share ONE upstream subscription (source called once)", async () => {
     let calls = 0;
-    const src = (
-      ..._a: unknown[]
-    ): Promise<AsyncIterable<{ state: string }>> => {
-      calls++;
-      return once({ state: "connected" })();
-    };
-    const link = { surface: { conn: { get: src } } };
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => {
+        calls++;
+        return once({ state: "connected" });
+      },
+    });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(cellSurface, link as any);
+      const app = surfaceClient(cellSurface, dispatch);
       app.cells.conn.use();
       app.cells.conn.use();
       await settle();
@@ -254,16 +287,14 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it("a TYPED completion evicts the slot — a later view re-subscribes (source called again)", async () => {
     let calls = 0;
-    const src = (
-      ..._a: unknown[]
-    ): Promise<AsyncIterable<{ state: string }>> => {
-      calls++;
-      return once({ state: "connected" })(); // yields once then COMPLETES
-    };
-    const link = { surface: { conn: { get: src } } };
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => {
+        calls++;
+        return once({ state: "connected" }); // yields once then COMPLETES
+      },
+    });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(cellSurface, link as any);
+      const app = surfaceClient(cellSurface, dispatch);
       app.cells.conn.use();
       await settle(); // the stream yields + completes → onComplete → slot evicted
       expect(calls).toBe(1);
@@ -276,13 +307,10 @@ describe("keyed subscription cache — dedup + lifetime", () => {
   });
 
   it("disposing a consumer (abort) sets no error and fires no onError — abort-suppression through the cache", async () => {
-    const link = {
-      surface: { conn: { get: pendingForever<{ state: string }>() } },
-    };
+    const dispatch = fakeDispatch({ "surface/conn/get": () => pendingForever });
     let errored = false;
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(cellSurface, link as any);
+      const app = surfaceClient(cellSurface, dispatch);
       createRoot((d) => {
         app.cells.conn.use({ onError: () => (errored = true) });
         d(); // dispose immediately — the last (only) listener leaves → slot aborts
@@ -298,19 +326,16 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it("two consumers of a LOCAL-authority cell share ONE store — a .set from one is seen by the other", async () => {
     let serverWrites = 0;
-    const link = {
-      surface: {
-        prefs: {
-          get: once({ n: 0 }),
-          set: async () => {
-            serverWrites++;
-          },
+    const dispatch = fakeDispatch(
+      { "surface/prefs/get": () => once({ n: 0 }) },
+      {
+        "surface/prefs/set": async () => {
+          serverWrites++;
         },
       },
-    };
+    );
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(prefsSurface, link as any);
+      const app = surfaceClient(prefsSurface, dispatch);
       const a = app.cells.prefs.use({ authority: "local", initial: { n: 0 } });
       const b = app.cells.prefs.use({ authority: "local", initial: { n: 0 } });
       await settle();
@@ -325,21 +350,18 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it("FIX 1 — divergent shared options are TWO subscriptions (opts-in-key); identical fold to ONE", async () => {
     let calls = 0;
-    const link = {
-      surface: {
-        prefs: {
-          // Stays open (never completes) so a typed-end eviction can't skew the count.
-          get: (..._a: unknown[]): Promise<AsyncIterable<{ n: number }>> => {
-            calls++;
-            return pendingForever<{ n: number }>()();
-          },
-          set: async () => {},
+    const dispatch = fakeDispatch(
+      {
+        // Stays open (never completes) so a typed-end eviction can't skew the count.
+        "surface/prefs/get": () => {
+          calls++;
+          return pendingForever;
         },
       },
-    };
+      { "surface/prefs/set": async () => {} },
+    );
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(prefsSurface, link as any);
+      const app = surfaceClient(prefsSurface, dispatch);
       app.cells.prefs.use({ authority: "local", initial: { n: 0 } }); // slot A
       app.cells.prefs.use({ authority: "server" }); // slot B — DIVERGENT authority
       app.cells.prefs.use({ authority: "server" }); // folds into slot B (identical)
@@ -355,14 +377,14 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it("streams (ACCESSOR-input) are NOT deduped — two consumers open two subscriptions", async () => {
     let calls = 0;
-    const src = (..._a: unknown[]): Promise<AsyncIterable<string[]>> => {
-      calls++;
-      return once<string[]>([])();
-    };
-    const link = { surface: { activity: { get: src } } };
+    const dispatch = fakeDispatch({
+      "surface/activity/get": () => {
+        calls++;
+        return once<string[]>([]);
+      },
+    });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(streamSurface, link as any);
+      const app = surfaceClient(streamSurface, dispatch);
       app.streams.activity.use(() => ({}));
       app.streams.activity.use(() => ({}));
       await settle();
@@ -375,20 +397,17 @@ describe("keyed subscription cache — dedup + lifetime", () => {
 
   it('MINOR FIX — omitted and explicit-default `authority: "server"` fold to the SAME slot', async () => {
     let calls = 0;
-    const link = {
-      surface: {
-        prefs: {
-          get: (..._a: unknown[]): Promise<AsyncIterable<{ n: number }>> => {
-            calls++;
-            return pendingForever<{ n: number }>()();
-          },
-          set: async () => {},
+    const dispatch = fakeDispatch(
+      {
+        "surface/prefs/get": () => {
+          calls++;
+          return pendingForever;
         },
       },
-    };
+      { "surface/prefs/set": async () => {} },
+    );
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(prefsSurface, link as any);
+      const app = surfaceClient(prefsSurface, dispatch);
       // Omitted `authority` and explicit `authority: "server"` (the documented
       // default) are the SAME logical site — `useCell` treats them identically —
       // so both must fold onto ONE upstream subscription, not silently open two.
@@ -401,91 +420,108 @@ describe("keyed subscription cache — dedup + lifetime", () => {
     });
   });
 
-  it("PIN — disposing the last consumer of a cached CELL sub ABORTS the upstream source() stream", async () => {
-    let capturedSignal: AbortSignal | undefined;
-    const get = (
-      _input: unknown,
-      opts?: { signal?: AbortSignal },
-    ): Promise<AsyncIterable<{ state: string }>> => {
-      capturedSignal = opts?.signal;
-      return pendingForever<{ state: string }>()();
-    };
-    const link = { surface: { conn: { get } } };
+  /** A never-ending upstream stream that RECORDS its own lifecycle: `opened` on
+   *  subscribe, `torn` when its finalizer runs.
+   *
+   *  This is the Effect-4 spelling of the old `opts.signal` capture. There is no
+   *  `AbortSignal` on the wire any more — cancellation IS fiber interruption
+   *  (D10/#18), and interruption is what runs the stream's finalizers, which is
+   *  what cancels the wire subscription. So the SAME law ("the dedup slot's
+   *  teardown reaches the upstream call itself, not just the local consume loop")
+   *  is now observed at the finalizer instead of at a signal flag. */
+  function lifecycleTracked(): {
+    stream: Stream.Stream<never>;
+    opened: () => boolean;
+    torn: () => boolean;
+  } {
+    let opened = false;
+    let torn = false;
+    const stream = Stream.ensuring(
+      Stream.suspend(() => {
+        opened = true;
+        return Stream.never;
+      }),
+      Effect.sync(() => {
+        torn = true;
+      }),
+    );
+    return { stream, opened: () => opened, torn: () => torn };
+  }
+
+  it("PIN — disposing the last consumer of a cached CELL sub TEARS DOWN the upstream stream", async () => {
+    const upstream = lifecycleTracked();
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => upstream.stream,
+    });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(cellSurface, link as any);
+      const app = surfaceClient(cellSurface, dispatch);
       let disposeConsumer = (): void => {};
       createRoot((d) => {
         disposeConsumer = d;
         app.cells.conn.use();
       });
       await settle();
-      // The stream is open and NOT aborted while the (only) consumer is mounted.
-      expect(capturedSignal).toBeDefined();
-      expect(capturedSignal?.aborted).toBe(false);
+      // The stream is open and NOT torn down while the (only) consumer is mounted.
+      expect(upstream.opened()).toBe(true);
+      expect(upstream.torn()).toBe(false);
 
       disposeConsumer(); // last consumer leaves → the shared slot tears down
       await settle();
       // The dedup slot's teardown must reach all the way to the wire call's own
-      // signal — not just stop the local consume loop — so the server-side
+      // finalizers — not just stop the local consume loop — so the server-side
       // subscription actually closes instead of surviving indefinitely.
-      expect(capturedSignal?.aborted).toBe(true);
+      expect(upstream.torn()).toBe(true);
       outer();
     });
   });
 
-  it("PIN — disposing the last consumer of a cached whole-COLLECTION's keys-stream aborts it too", async () => {
-    let capturedSignal: AbortSignal | undefined;
-    const link = {
-      surface: {
-        plain: {
-          keys: (
-            _input: unknown,
-            opts?: { signal?: AbortSignal },
-          ): Promise<AsyncIterable<string[]>> => {
-            capturedSignal = opts?.signal;
-            return pendingForever<string[]>()();
-          },
-          get: () => pendingForever<{ v: number }>()(),
-          upsert: () => Promise.resolve(),
-          delete: () => Promise.resolve(),
-        },
+  it("PIN — disposing the last consumer of a cached whole-COLLECTION's keys-stream tears it down too", async () => {
+    const upstream = lifecycleTracked();
+    const dispatch = fakeDispatch(
+      {
+        "surface/plain/keys": () => upstream.stream,
+        "surface/plain/get": () => pendingForever,
       },
-    };
+      {
+        "surface/plain/upsert": () => Promise.resolve(),
+        "surface/plain/delete": () => Promise.resolve(),
+      },
+    );
     const surface = defineSurface({
       collections: {
-        plain: { keySchema: z.string(), schema: z.object({ v: z.number() }) },
+        plain: {
+          keySchema: Schema.String,
+          schema: Schema.Struct({ v: Schema.Number }),
+        },
       },
     });
     await createRoot(async (outer) => {
-      // biome-ignore lint/suspicious/noExplicitAny: stub link.
-      const app = surfaceClient(surface, link as any);
+      const app = surfaceClient(surface, dispatch);
       let disposeConsumer = (): void => {};
       createRoot((d) => {
         disposeConsumer = d;
         app.collections.plain.use({});
       });
       await settle();
-      expect(capturedSignal?.aborted).toBe(false);
+      expect(upstream.opened()).toBe(true);
+      expect(upstream.torn()).toBe(false);
 
       disposeConsumer();
       await settle();
-      expect(capturedSignal?.aborted).toBe(true);
+      expect(upstream.torn()).toBe(true);
       outer();
     });
   });
 
   it("WEAKENED FIX — an ownerless .use() does not leak the listener count; it tears down instead of standing forever", async () => {
     let calls = 0;
-    const src = (
-      ..._a: unknown[]
-    ): Promise<AsyncIterable<{ state: string }>> => {
-      calls++;
-      return pendingForever<{ state: string }>()();
-    };
-    const link = { surface: { conn: { get: src } } };
-    // biome-ignore lint/suspicious/noExplicitAny: stub link.
-    const app = surfaceClient(cellSurface, link as any);
+    const dispatch = fakeDispatch({
+      "surface/conn/get": () => {
+        calls++;
+        return pendingForever;
+      },
+    });
+    const app = surfaceClient(cellSurface, dispatch);
 
     // Call `.use()` completely OWNERLESS — no `createRoot` wrapping, mirroring
     // kolu's `refuseIfWarming` → `entry(host).state()` called from a DOM handler.

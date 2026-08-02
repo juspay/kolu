@@ -30,15 +30,35 @@ export interface SurfaceDispatch {
   ) => Effect.Effect<unknown, unknown>;
   /** Streaming member call. The RAW stream — the per-subscription retry fence
    *  (PLAN D3: the face owns it, review #12) is layered ON TOP by the face,
-   *  never inside a link. */
+   *  never inside a link.
+   *
+   *  **INVARIANT: the returned stream must not emit or END synchronously with the
+   *  subscribe.** Every wire dispatch satisfies this for free (a request has to go
+   *  out and an answer come back); the in-process `directDispatch` satisfies it
+   *  DELIBERATELY, with an `Effect.yieldNow` before it touches a handler. It is
+   *  stated here because the consequence is not local: a stream that reaches its
+   *  typed end inside the subscribe fires the keyed subscription cache's
+   *  slot-eviction while the slot is still being constructed, so N consumers of one
+   *  member each open their own upstream subscription and a shared local-authority
+   *  store splits in two. A synchronous dispatch is therefore not merely "faster" —
+   *  it silently changes the sharing semantics of every consumer above it. */
   readonly stream: (
     tag: string,
     payload: unknown,
   ) => Stream.Stream<unknown, unknown>;
 }
 
-/** Transport status a watchdog can observe. */
-export type WireStatus = "connecting" | "open" | "closed";
+/** Transport status a watchdog can observe.
+ *
+ *  `retired` is TERMINAL (D5/#5): the SERVER retired this wire — a stale tab bound
+ *  to a previous server instance, closed with `STALE_PROCESS_CLOSE_CODE` (4001).
+ *  The link's own close classifier raises it INSTEAD of `closed`, having already
+ *  stopped its retry schedule; it will never re-dial, and every in-flight and
+ *  future call fails with `SurfaceTransportRetired`. The watchdog reads this as
+ *  "down forever, reload to recover" rather than "reconnecting", which is why the
+ *  close-CODE knowledge lives in the link (where the socket is) and not in
+ *  `createLiveSignal` (where it used to be a `restartCloseCode` option). */
+export type WireStatus = "connecting" | "open" | "closed" | "retired";
 
 /** The observability + recovery affordances `createLiveSignal`'s half-open
  *  watchdog needs from a wire transport (review #4): Effect's socket layers
@@ -50,6 +70,23 @@ export interface WatchableWire {
   readonly status: () => WireStatus;
   readonly onStatus: (cb: (s: WireStatus) => void) => () => void;
   readonly forceReconnect: () => void;
+}
+
+/** What a WIRE link factory hands back: the dispatch AND the watchable transport
+ *  it rides, as ONE value minted together.
+ *
+ *  This pairing is the whole point (review #4): `createLiveSignal` must probe the
+ *  SAME transport it reconnects, so it takes this one object rather than a
+ *  separate `{ dispatch }` and `{ wire }` a caller could mismatch ("watch ws1,
+ *  dispatch over ws2"). The old `createLiveSignal(ws)` got the property by
+ *  BUILDING the link itself over the socket it watched; under the staged seam the
+ *  link factory owns socket construction, so the property is carried by this type
+ *  plus the {@link brandHalfOpenDispatch} brand — `createLiveSignal` refuses a
+ *  transport whose dispatch is not branded, so the only reachable inputs are the
+ *  ones a real wire link factory minted. */
+export interface WireTransport {
+  readonly dispatch: SurfaceDispatch;
+  readonly wire: WatchableWire;
 }
 
 // Every dispatch built over a real WIRE transport — by identity. A wire
