@@ -132,7 +132,7 @@ let conn: Connection;
 let killAll: () => Promise<unknown>;
 
 beforeAll(async () => {
-  const { servedRouter, client } = createInProcessPtyHost({
+  const { served, client } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     lifetime: { kind: "forever" },
@@ -144,7 +144,7 @@ beforeAll(async () => {
   );
   listener = await servePtyHostOverUnixSocket({
     socketPath,
-    router: servedRouter,
+    served,
     log: silentLog,
   });
   conn = await connectPtyHost(socketPath);
@@ -152,8 +152,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await killAll();
-  conn.dispose();
-  listener.close();
+  await conn.dispose();
+  await listener.close();
 });
 
 describeDaemon("runAttach — over a real unix socket", () => {

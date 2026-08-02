@@ -43,6 +43,7 @@ import {
 import { cli, command } from "cleye";
 import {
   PTY_HOST_CONTRACT_VERSION,
+  ptyHostClientOver,
   type PtyHostSpawnInput,
   resolveRunningKavalSocket,
 } from "kaval";
@@ -468,7 +469,13 @@ async function cmdHistory(
   for (;;) {
     const res = await conn.client.surface.terminal.getHistory({
       id,
-      before,
+      // `before` is `Schema.optionalKey` (PLAN #17), which means the key is
+      // ABSENT — an explicit `before: undefined` is a decode failure, not the
+      // "self-seed from the top of the screen" request the pager's first
+      // iteration means. zod's `.optional()` tolerated the explicit undefined;
+      // this schema deliberately does not, so the key is SPREAD in only once
+      // there is a cursor to send.
+      ...(before === undefined ? {} : { before }),
       max: HISTORY_PAGE_ROWS,
     });
     if (res.kind === "stale") break;
@@ -916,9 +923,11 @@ async function cmdAttach(
 
 /** Confirm the running daemon speaks a wire-compatible pty-host contract before
  *  we invoke any command — a newer kaval-tui against an older/different daemon
- *  would otherwise fail deep inside oRPC with an opaque schema/procedure error
- *  instead of an honest "restart it" line. A major mismatch (or a newer-minor
- *  daemon) is a clean, actionable failure here. */
+ *  would otherwise fail deep inside the RPC layer with an opaque schema/route
+ *  error instead of an honest "restart it" line. A major mismatch (or a
+ *  newer-minor daemon) is a clean, actionable failure here. A peer from a
+ *  DIFFERENT protocol epoch cannot answer this at all (it cannot decode the
+ *  frame) — that one is the transport's verdict, not this check's. */
 async function assertCompatible(conn: Connection): Promise<void> {
   const { contractVersion } = await conn.client.surface.system
     .version({})
@@ -958,10 +967,29 @@ function connectLocal(socketPath: string): Promise<Connection> {
  *  (no passwordless ssh, the user not in the remote's `trusted-users`) reads as
  *  actionable rather than an opaque hang — the CLI is one-shot, so it surfaces
  *  the first failure instead of spinning on HostSession's reconnect loop. */
-function connectHost(host: string): Promise<Connection> {
-  return dialAgentOnce(kavalHostDialOptions(host, process.env)).catch((err) =>
+async function connectHost(host: string): Promise<Connection> {
+  const dial = await dialAgentOnce(
+    kavalHostDialOptions(host, process.env),
+  ).catch((err) =>
     fail(`could not reach kaval on ${host} — ${(err as Error).message}`),
   );
+  // The dial hands back a STRUCTURAL face plus the transport's tag-keyed
+  // dispatch. We rebuild the face through kaval's own `ptyHostClientOver` so
+  // both transports carry the identical spec-typed client and every `cmd*()`
+  // stays transport-blind. `dispatch` is optional on the dial because it is a
+  // property of the transport, not of the dial — every real ssh dial supplies
+  // one, so its absence is a framework bug to crash on, never a shape to
+  // degrade around.
+  if (dial.dispatch === undefined) {
+    dial.dispose();
+    fail(
+      `the ssh dial to ${host} returned no transport dispatch — the kaval client cannot be built over it (a @kolu/surface-remote bug, not a host problem).`,
+    );
+  }
+  return {
+    client: ptyHostClientOver(dial.dispatch),
+    dispose: async () => dial.dispose(),
+  };
 }
 
 async function main(): Promise<void> {
@@ -1182,7 +1210,9 @@ async function main(): Promise<void> {
       );
     else fail("unhandled command — add a dispatch branch for it");
   } finally {
-    conn.dispose();
+    // Awaited: a wire link's dispose releases the scope holding its protocol
+    // fibers, and dropping it unawaited leaks them into the exit path.
+    await conn.dispose();
   }
   process.exit(0);
 }

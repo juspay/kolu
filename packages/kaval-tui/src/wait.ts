@@ -30,7 +30,7 @@
  * terminal (a plain `kaval-tui create`'d `claude`/`codex`/`grok`/`opencode`).
  */
 
-import { isDeadTransportError } from "@kolu/surface/client";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   isValidTimerMs,
   MAX_TIMER_MS,
@@ -40,6 +40,7 @@ import {
   type WaitOutcome as SharedWaitOutcome,
 } from "@kolu/surface/wait";
 import type { PtyTuiClient } from "./connect.ts";
+import { subscribe } from "./stream.ts";
 
 // The timer-range vocabulary graduated into the shared wait scaffold; re-used
 // here for the `--until idle:<ms>` / `--timeout` boundary guards.
@@ -193,6 +194,40 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/** Await `call`, but give up the moment `signal` aborts — resolving `undefined`
+ *  for "the race settled elsewhere; this answer is no longer wanted".
+ *
+ *  A streaming member takes its cancellation from fiber interruption (see
+ *  `./stream.ts`), but a UNARY call has no such handle at this Promise edge:
+ *  Effect RPC carries no cancellation token (PLAN D10/#18) and the face runs the
+ *  call with `Effect.runPromise`. The bound still matters for the same reason it
+ *  did when a `{ signal }` call option carried it — a half-open wire makes even
+ *  a cheap read park, and `runWait` AWAITS its watchers, so an unbounded read
+ *  would let the "bounded" wait outlive its own timeout or Ctrl+C. What we
+ *  cannot do is stop the abandoned call; it runs to completion (or to the link's
+ *  own keepalive failure) unobserved, which is stated here rather than implied.
+ *  Its later rejection is attached, never orphaned. */
+function untilAborted<T>(
+  call: Promise<T>,
+  signal: AbortSignal,
+): Promise<T | undefined> {
+  if (signal.aborted) return Promise.resolve(undefined);
+  return new Promise<T | undefined>((resolve, reject) => {
+    const onAbort = (): void => resolve(undefined);
+    signal.addEventListener("abort", onAbort, { once: true });
+    call.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 /**
  * Block until PTY `id`'s output meets `condition` (idle quiescence or a regex
  * match on new output), then resolve `met`; or resolve `timeout` after
@@ -265,15 +300,16 @@ export async function awaitOutputCondition(
       const settleOnLostFeed = async (): Promise<void> => {
         disarmIdle();
         try {
-          // Thread ctx.signal: a half-open wire makes even this unary read hang
-          // indefinitely, and runWait still awaits the watcher — so without the
-          // signal the "bounded" wait outlives its own timeout/cancel. An abort
-          // rejects the read into the catch below (a first-writer settle no-op).
-          const { entries } = await client.surface.terminal.list(
-            {},
-            { signal: ctx.signal },
+          // Bound the unary read against ctx.signal by hand — the call option
+          // that used to carry it is gone (see `untilAborted`). An abort means
+          // the race already settled, so there is no verdict left to reach:
+          // return rather than settling `closed` over an outcome that won.
+          const listed = await untilAborted(
+            client.surface.terminal.list({}),
+            ctx.signal,
           );
-          if (!entries.some((e) => e.id === opts.id)) {
+          if (listed === undefined) return;
+          if (!listed.entries.some((e) => e.id === opts.id)) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }
@@ -297,11 +333,16 @@ export async function awaitOutputCondition(
       const consumeOutput = async (): Promise<void> => {
         let buffer = "";
         try {
-          const stream = await client.surface.terminalAttach.get(
-            { id: opts.id },
-            { signal: ctx.signal },
+          // The subscription's teardown IS ctx.signal's abort (the wait race's
+          // settle, the timeout, a Ctrl+C): `subscribe` wires the abort to the
+          // fiber interrupt, so a torn-down feed ends the loop cleanly with
+          // `ctx.signal.aborted` true — which is exactly what the two
+          // end-of-loop branches below already discriminate on.
+          const frames = subscribe(
+            client.surface.terminalAttach.get({ id: opts.id }),
+            ctx.signal,
           );
-          for await (const msg of stream) {
+          for await (const msg of frames) {
             if (opts.condition.kind === "idle") {
               // The snapshot is the replay of the current screen, not new output —
               // but it's the moment to start the quiet window (an already-idle
@@ -350,9 +391,9 @@ export async function awaitOutputCondition(
 
       const consumeExit = async (): Promise<void> => {
         try {
-          const stream = await client.surface.exit.get(
-            { id: opts.id },
-            { signal: ctx.signal },
+          const frames = subscribe(
+            client.surface.exit.get({ id: opts.id }),
+            ctx.signal,
           );
           // Deliberately NOT `firstFrameOrUndefined` (SR6 non-adoption): this settle
           // is a side effect that must fire the INSTANT the first exit frame arrives,
@@ -363,7 +404,7 @@ export async function awaitOutputCondition(
           // close and let a competing timer/feed event win the race first (and fold the
           // close latency into `elapsedMs`). The open-coded loop keeps settle-then-close
           // ordering, so it stays. (first-frame-guard:allow — ordering-sensitive.)
-          for await (const _msg of stream) {
+          for await (const _msg of frames) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }

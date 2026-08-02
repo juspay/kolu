@@ -64,7 +64,7 @@ const write = (id: string, data: string): Promise<unknown> =>
   conn.client.surface.terminal.write({ id, data });
 
 beforeAll(async () => {
-  const { servedRouter, client } = createInProcessPtyHost({
+  const { served, client } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     lifetime: { kind: "forever" },
@@ -76,7 +76,7 @@ beforeAll(async () => {
   );
   listener = await servePtyHostOverUnixSocket({
     socketPath,
-    router: servedRouter,
+    served,
     log: silentLog,
   });
   conn = await connectPtyHost(socketPath);
@@ -87,7 +87,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  conn.dispose();
+  await conn.dispose();
   await listener.close();
 });
 

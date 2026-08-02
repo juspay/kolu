@@ -96,7 +96,7 @@ export function resolveTerminalId(query: string, ids: string[]): ResolveResult {
  *  `columnify` (the borderless, space-aligned `docker ps` style). Empty
  *  inventory gets an honest one-liner, not a bare header. */
 export function formatList(
-  entries: PtyHostListEntry[],
+  entries: readonly PtyHostListEntry[],
   opts: { now: number; home?: string },
 ): string {
   if (entries.length === 0) return "no live terminals.";
@@ -129,7 +129,7 @@ export function formatList(
 
 /** Render `list --json` — the entries array verbatim (a top-level array, so
  *  `jq '.[]'` works), 2-space indented. */
-export function formatListJson(entries: PtyHostListEntry[]): string {
+export function formatListJson(entries: readonly PtyHostListEntry[]): string {
   return JSON.stringify(entries, null, 2);
 }
 

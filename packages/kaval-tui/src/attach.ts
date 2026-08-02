@@ -13,11 +13,12 @@
  * actual tty — see `attach.test.ts`.
  */
 import { StringDecoder } from "node:string_decoder";
-import { SURFACE_STDIO_TRANSPORT_CLOSED } from "@kolu/surface/client";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import type { PtyTuiClient } from "./connect.ts";
 import { createEscapeScanner } from "./escape.ts";
+import { subscribe } from "./stream.ts";
 import { delay } from "./wait.ts";
 
 /** The local terminal, abstracted: `main.ts` binds the real process streams;
@@ -55,21 +56,14 @@ export function helpText(escapeChar: string): string {
   );
 }
 
-function errorCode(err: unknown): string | undefined {
-  return typeof err === "object" && err !== null && "code" in err
-    ? String((err as { code: unknown }).code)
-    : undefined;
-}
-
-const isNotFound = (err: unknown): boolean => errorCode(err) === "NOT_FOUND";
-
 function describeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   // The link's dead-transport rejection (and the rawer shapes a mid-stream
   // socket death can surface) get the actionable copy; anything else prints
-  // as-is.
+  // as-is. The tagged `SurfaceStdioTransportClosed` replaced the old
+  // `code === SURFACE_STDIO_TRANSPORT_CLOSED` compare (PLAN D4).
   if (
-    errorCode(err) === SURFACE_STDIO_TRANSPORT_CLOSED ||
+    isDeadTransportError(err) ||
     /transport is closed|ECONNRESET|EPIPE|socket/i.test(message)
   ) {
     return `the daemon went away mid-attach (${message}) — re-run \`kaval-tui attach\` once it's back.`;
@@ -89,9 +83,12 @@ async function readExitCode(
 ): Promise<number | undefined> {
   // One-shot read of the yields-once `exit` stream via the shared first-frame helper
   // (`firstFrameOrUndefined`, not the throwing variant — the empty case is the
-  // caller's to classify), not a hand-advanced iterator.
-  return (await firstFrameOrUndefined(await client.surface.exit.get({ id })))
-    ?.exitCode;
+  // caller's to classify), not a hand-advanced iterator. `subscribe` is the
+  // package's one `Stream` → pull bridge; no signal, because this read is
+  // bounded by the stream (`exit` yields once and ends).
+  return (
+    await firstFrameOrUndefined(subscribe(client.surface.exit.get({ id })))
+  )?.exitCode;
 }
 
 export interface AttachOptions {
@@ -257,11 +254,15 @@ export async function runAttach(
         // name is honest about the cost: this is a real resize of a SHARED PTY
         // (last-attach-wins), so a concurrently-attached browser tile may show
         // wrap artifacts until its own next attach or resize.
-        const stream = await client.surface.terminalAttach.get(
-          { id, resizeTo: tty.size() },
-          { signal: abort.signal },
+        // A `Stream` is LAZY: the subscription is established by the first
+        // pull, not by holding the value — so the guard read below is also what
+        // registers this attach with the host. `abort.signal` is wired to the
+        // unsubscribe (there is no call-option signal any more, D10/#18), so a
+        // detach interrupts the fiber running the feed.
+        const iter = subscribe(
+          client.surface.terminalAttach.get({ id, resizeTo: tty.size() }),
+          abort.signal,
         );
-        const iter = stream[Symbol.asyncIterator]();
         // First-frame guard — same fail-loud stance as the web path
         // (terminalEndpoint/local.ts): a non-snapshot first frame is a
         // contract violation, not something to paint.
@@ -290,7 +291,7 @@ export async function runAttach(
           await tty.write("\x1b[H\x1b[2J");
           await tty.write(snapshot);
           attachedOnce = true;
-          for await (const msg of { [Symbol.asyncIterator]: () => iter }) {
+          for await (const msg of iter) {
             // A typed `overflow` frame says the host dropped us for lagging (a
             // slow consumer). It carries no data — break to the re-attach below
             // rather than writing `undefined`; the inventory pre-flight then
@@ -307,9 +308,20 @@ export async function runAttach(
         }
       } catch (err) {
         if (detachRequested) return drainWire();
-        // The PTY vanished between the inventory and the attach (or during a
-        // re-attach) — same gone discrimination as the pre-flight.
-        if (isNotFound(err)) return resolveGone();
+        // There is no `isNotFound(err)` arm any more, and that is not an
+        // omission. A `StreamSpec` has no error channel to declare on, so
+        // kaval raises `PtyNotFound` from a stream producer as an UNDECLARED
+        // failure — a defect — which crosses a wire opaquely and takes the
+        // multiplexed connection with it (kaval's W3 report §3). The old
+        // `code === "NOT_FOUND"` compare therefore has nothing left to read.
+        // Nothing regresses on the paths that matter: a PTY that never existed
+        // is caught by the inventory pre-flight above (`resolveGone` →
+        // `not-found`), and a PTY that EXITS ends its attach stream CLEANLY —
+        // no throw at all — so the loop falls to the pre-flight and reads the
+        // exit tombstone. What lands here is the narrow race where the PTY
+        // dies between the pre-flight and the subscribe, and it now reports an
+        // honest transport failure rather than a code the wire no longer
+        // carries.
         return {
           kind: "error",
           message: describeError(transportError ?? err),

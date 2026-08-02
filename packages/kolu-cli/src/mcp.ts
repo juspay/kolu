@@ -24,7 +24,7 @@
  *     framework-owns-the-exit rule for stdio agents.
  */
 
-import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { type KoluMcpConnection, serveKoluMcp } from "kolu-mcp";
 // The ONE version accessor — `kolu mcp`'s serverInfo can never diverge from
 // what `kolu --version` reports (same leaf import the parse uses).
@@ -39,7 +39,14 @@ import { connectKoluCliViaHost } from "./hostConnect.ts";
  *     server left serving a surface it can't represent;
  *   - anything else is the transport gap (padi down, restarting, socket
  *     moved) → rethrown fast with the typed `padi transport down:` prefix so
- *     the agent's tool call fails retryable — never queued. */
+ *     the agent's tool call fails retryable — never queued.
+ *
+ * The skew test is the supervisor's own BRAND check, not `instanceof`: a CLI
+ * face and the dial kit that raised the error can sit on different module
+ * instances of `@kolu/surface-daemon-supervisor` (a bundled binary, a re-exported
+ * copy), and an `instanceof` against one realm's class would silently misroute
+ * a real skew into the retryable arm — an agent retrying forever against a
+ * daemon that can never become compatible. */
 export function guardedMcpConnect(
   dial: () => Promise<KoluMcpConnection>,
 ): () => Promise<KoluMcpConnection> {
@@ -47,7 +54,7 @@ export function guardedMcpConnect(
     try {
       return await dial();
     } catch (err) {
-      if (err instanceof DaemonContractSkewError) {
+      if (isContractSkewError(err)) {
         process.stderr.write(`kolu mcp: ${err.message}\n`);
         process.exit(1);
       }

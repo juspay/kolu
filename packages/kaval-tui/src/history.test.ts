@@ -18,10 +18,12 @@ import {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "kaval";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
+import { subscribe } from "./stream.ts";
 
 const silentLog = {
   debug: () => {},
@@ -45,7 +47,7 @@ async function waitFor(fn: () => Promise<boolean>, ms = 10_000): Promise<void> {
 }
 
 beforeAll(async () => {
-  const { servedRouter, client } = createInProcessPtyHost({
+  const { served, client } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-hist-shell-")),
     lifetime: { kind: "forever" },
@@ -56,7 +58,7 @@ beforeAll(async () => {
   );
   listener = await servePtyHostOverUnixSocket({
     socketPath,
-    router: servedRouter,
+    served,
     log: silentLog,
   });
   void client;
@@ -65,7 +67,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await conn.client.surface.terminal.killAll({});
-  conn.dispose();
+  await conn.dispose();
   await listener.close();
 });
 
@@ -94,14 +96,17 @@ describeDaemon(
         ).text.includes(label(1199)),
       );
 
-      // The bounded attach snapshot does NOT carry the oldest lines...
-      const { snapshot } = await (async () => {
-        const s = conn.client.surface.terminalAttach.get({ id });
-        const it = (await s)[Symbol.asyncIterator]();
-        const first = await it.next();
-        return { snapshot: (first.value as { data: string }).data };
-      })();
-      expect(snapshot).not.toContain(label(0));
+      // The bounded attach snapshot does NOT carry the oldest lines. Read it
+      // through the shared first-frame primitive over the package's one
+      // `Stream` → pull bridge: `subscribe` establishes the subscription on
+      // that first pull, and the primitive closes it again.
+      const first = await firstFrameOrThrow(
+        subscribe(conn.client.surface.terminalAttach.get({ id })),
+        "attach ended without yielding a snapshot frame",
+      );
+      if (first.kind !== "snapshot")
+        throw new Error(`expected a snapshot first frame, got "${first.kind}"`);
+      expect(first.data).not.toContain(label(0));
 
       // `--lines N` path: one self-seeded page (before omitted) of the older lines
       // just above the screen — non-empty, and older than the newest content. The
@@ -123,7 +128,11 @@ describeDaemon(
         if (guard++ > 100) throw new Error("history paging did not terminate");
         const res = await conn.client.surface.terminal.getHistory({
           id,
-          before,
+          // Absent, never an explicit `undefined` — `before` is
+          // `Schema.optionalKey` and the wire rejects the latter (PLAN #17).
+          // Spelled the same way the shipped pager spells it, so this smoke
+          // test keeps proving the shipped call shape.
+          ...(before === undefined ? {} : { before }),
           max: 500,
         });
         if (res.kind !== "chunk")
