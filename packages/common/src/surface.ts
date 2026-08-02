@@ -36,6 +36,7 @@
 // `kolu-common/surface` importers are unchanged.
 import {
   HostDaemonInventorySchema,
+  type NewTerminalPolicy,
   type ToastOnlyPolicy,
 } from "@kolu/padi/surface";
 import {
@@ -73,6 +74,16 @@ export type { RunningKaval, RunningPadi } from "@kolu/padi/surface";
 // the kolu client (`interpretClientError` in `wire.ts`) reach it through their
 // usual `kolu-common/surface` door.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "@kolu/padi/surface";
+// The RESOLVED new-terminal theme policy — same seal reason as the error policy
+// above: it types a `padiSurface` cell, so it is DECLARED in `@kolu/padi`
+// (`newTerminalPolicy.ts`) and reaches `koluSurface`'s derivation below, and the
+// kolu client, through this door.
+export {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  type NewTerminalPolicy,
+  newTerminalPolicyEqual,
+  NewTerminalPolicySchema,
+} from "@kolu/padi/surface";
 export type {
   AgentPaintClass,
   AlertClass,
@@ -155,6 +166,13 @@ export {
 // ── User preferences (server-side, shared with client) ────────────────
 
 export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+
+/** Which way the viewer's OS is leaning — the raw `prefers-color-scheme` media
+ *  query answer, nothing folded in. An OBSERVATION, not a preference: the user
+ *  never sets it, the browser reports it, and it matters only when
+ *  `colorScheme === "system"` (see {@link resolveIsDark}). Kept RAW on the wire
+ *  so the resolution against `colorScheme` happens in exactly one place. */
+export const ViewerModeSchema = z.enum(["dark", "light"]);
 
 /** How a newly created terminal gets its theme. `inherit` copies the active
  *  terminal's theme (like new terminals inherit its size — set one theme once
@@ -245,6 +263,7 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
 export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
 export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
+export type ViewerMode = z.infer<typeof ViewerModeSchema>;
 
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.
@@ -263,6 +282,48 @@ export function shuffleMode(
     .with("light", () => "light" as const)
     .with("auto", () => (isDark ? ("dark" as const) : ("light" as const)))
     .with("colourful", () => "colourful" as const)
+    .exhaustive();
+}
+
+/** Is the app in dark mode — the `colorScheme` preference folded against the
+ *  viewer's raw OS reading. The ONE resolution: the client's `isDark` memo
+ *  (`settings/useColorScheme.ts`) and kolu-server's policy derivation below both
+ *  call it, so a browser and the daemon can never disagree about what "system"
+ *  currently means. */
+export function resolveIsDark(
+  colorScheme: ColorScheme,
+  prefersDark: boolean,
+): boolean {
+  return colorScheme === "dark" || (colorScheme === "system" && prefersDark);
+}
+
+/** The RESOLVED new-terminal theme policy kolu-server pushes into padi's
+ *  `newTerminalPolicy` cell — the ONE point where the three preferences and the
+ *  viewer's OS mode fold into a fact padi can act on without knowing any of them.
+ *  `"auto"` is spent here and never crosses the wire; `shuffleMode`'s
+ *  `undefined` (no family restriction) becomes the policy's explicit `"random"`,
+ *  because a wire union does not get to say "absent". */
+export function resolveNewTerminalPolicy(
+  prefs: Pick<
+    Preferences,
+    "newTerminalTheme" | "shuffleBehavior" | "colorScheme"
+  >,
+  viewerMode: ViewerMode,
+): NewTerminalPolicy {
+  return match(prefs.newTerminalTheme)
+    .with("inherit", () => ({ kind: "inherit" }) as const)
+    .with(
+      "shuffle",
+      () =>
+        ({
+          kind: "shuffle",
+          mode:
+            shuffleMode(
+              prefs.shuffleBehavior,
+              resolveIsDark(prefs.colorScheme, viewerMode === "dark"),
+            ) ?? "random",
+        }) as const,
+    )
     .exhaustive();
 }
 
@@ -788,6 +849,26 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         coalesceMs: 150,
         onError: { kind: "toast", label: "Preferences" },
       },
+    },
+
+    /** The viewer's raw OS light/dark reading (see {@link ViewerModeSchema}) —
+     *  published by the browser, remembered on disk by kolu-server, and consulted
+     *  ONLY when `colorScheme === "system"`. It rides beside `preferences`
+     *  because it is the other input to {@link resolveNewTerminalPolicy}, but it
+     *  is deliberately NOT a preference field: nobody chooses it, and a headless
+     *  face (MCP, CLI) has no reading of its own to offer — it uses the last one a
+     *  browser reported. Server-authority (a scalar cell cannot be
+     *  local-authority) and writable, so the browser publishes with a plain `set`.
+     *  `default: "dark"` matches `DEFAULT_PREFERENCES.colorScheme`, so a server
+     *  that has never seen a browser resolves exactly as a default install does. */
+    viewerMode: {
+      schema: ViewerModeSchema,
+      default: "dark" satisfies ViewerMode,
+      // The one wire dedup point: a browser re-publishing the same reading (every
+      // reconnect does) never re-notifies, and never re-fires the policy push.
+      equals: (a, b) => a === b,
+      verbs: ["get", "set"],
+      client: { onError: { kind: "toast", label: "Viewer mode" } },
     },
 
     /** Live process-memory readout (kolu-server + padi + kaval RSS) for the rail.

@@ -3,12 +3,9 @@
  *  Uses plain oRPC client calls. Server signals propagate list/metadata
  *  changes via the live subscriptions — no optimistic cache needed. */
 
-import type { InitialTerminalMetadata } from "@kolu/padi/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { TerminalId } from "kolu-common/surface";
-import { shuffleMode } from "kolu-common/surface";
 import { toast } from "solid-sonner";
-import { availableThemes, pickTheme, resolveThemeBgs } from "terminal-themes";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
@@ -16,10 +13,9 @@ import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
-import { useColorScheme } from "../settings/useColorScheme";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { activePadiRpc, preferences } from "../wire";
+import { activePadiRpc } from "../wire";
 import {
   createEvictionDedup,
   evictTerminal,
@@ -42,7 +38,6 @@ export const useTerminalCrud = createSharedRoot(() => {
   const rightPanel = useRightPanel();
   const pendingLayouts = usePendingLayouts();
   const { showTipOnce } = useTips();
-  const { isDark } = useColorScheme();
 
   // --- Handlers ---
 
@@ -127,24 +122,17 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Create a new terminal on the server and make it active.
-   *  Returns the new terminal ID (for session restore mapping).
-   *  `initial` carries client-owned metadata to seed atomically on the
-   *  server — used by session restore so the first `terminal.list`
-   *  yield already carries the saved theme / canvas layout / sub-panel
-   *  state, closing the race with the canvas cascade effect (#642). */
-  async function handleCreate(
-    cwd?: string,
-    // CHROME-only seed: the create RPC forwards theme / layout / panels / intent and
-    // nothing else. `InitialTerminalMetadata` also carries the server-derived restore
-    // facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that only host-side
-    // `session.restore` threads through `respawnActive` — a client create has no truth
-    // about them and this handler drops them. Omit them from the param so the type can't
-    // advertise an option that has no effect (F6).
-    initial?: Omit<
-      InitialTerminalMetadata,
-      "lastActivityAt" | "lastAgentCommand" | "restoreTarget"
-    >,
-  ): Promise<TerminalId> {
+   *  Returns the new terminal ID.
+   *
+   *  This handler seeds NOTHING: the create carries a `cwd` and nothing else.
+   *  The new-terminal THEME policy (inherit/shuffle) resolves in padi's
+   *  `lifecycle.create`, from the policy cell kolu-server pushes, so every face
+   *  — browser, MCP, CLI — obeys the same preference (#2045); and session
+   *  restore seeds its saved metadata HOST-side through `restoreSpawn`, never
+   *  through this handler. The old `initial` parameter is gone with its last
+   *  live leg: every caller passed a bare `cwd`, so the type can no longer
+   *  advertise options that have no effect (F6). */
+  async function handleCreate(cwd?: string): Promise<TerminalId> {
     // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
     // "New terminal", the Dock `+`, worktree ops, and session restore's
     // per-terminal creates all funnel here. Block while the daemon is warming
@@ -160,45 +148,17 @@ export const useTerminalCrud = createSharedRoot(() => {
       throw new Error("daemon warming: terminal creation deferred");
     if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // Pick the new terminal's theme by strategy. `inherit` copies the active
-    // tile's theme (like size inheritance below); `shuffle` auto-picks a tint
-    // distinct from every open terminal, restricted by shuffle behaviour
-    // (light/dark/auto/colourful). Either way an explicit `initial.themeName`
-    // (worktree / session restore) wins, and an unresolved theme (no active
-    // tile to inherit, or the active tile is on the default) stays `undefined`
-    // → the server default. Peers are snapshotted BEFORE creating so the new
-    // tile's momentary default theme isn't scored as a peer against itself.
-    const theme =
-      initial?.themeName ??
-      (preferences().newTerminalTheme === "shuffle"
-        ? pickTheme(availableThemes, {
-            spread: true,
-            peerBgs: resolveThemeBgs(
-              store.terminalIds(),
-              (id) => store.getMetadata(id)?.themeName,
-            ),
-            mode: shuffleMode(preferences().shuffleBehavior, isDark()),
-          })
-        : // "inherit": copy the active tile's theme (undefined → server default)
-          (() => {
-            const activeId = store.activeId();
-            return activeId !== null
-              ? store.getMetadata(activeId)?.themeName
-              : undefined;
-          })());
     // Inherit the active tile's size for the new terminal. Set BEFORE
     // the create RPC — the server push during the await triggers the
     // canvas placement effect, which consumes the signal. If we set
     // after the await, the effect has already run with no size to inherit.
     //
-    // Only the cascade-placed fresh-create path consumes the slot: a
-    // create carrying `initial.canvasLayout` (session restore, #642) is
-    // server-seeded, so the placement effect's `newIds` excludes it and a
-    // set would be never-consumed. So we touch the slot ONLY on the
-    // fresh-create path — but there we set it UNCONDITIONALLY (size, or
-    // `null` when there's no active tile to inherit from), so a fresh
-    // create always OWNS the slot value rather than leaving a stale size
-    // armed by an earlier create that no new tile ever consumed.
+    // Every create through here is the cascade-placed fresh-create path (a
+    // server-seeded restore create runs host-side, not here), so the slot is
+    // always the placement effect's to consume — and it is set
+    // UNCONDITIONALLY (size, or `null` when there's no active tile to inherit
+    // from), so a fresh create always OWNS the slot value rather than leaving
+    // a stale size armed by an earlier create that no new tile consumed.
     //
     // Prefer the active tile's *pending* layout over its echoed metadata:
     // a just-resized tile's visible size lives in `pendingLayouts.pending`
@@ -206,26 +166,17 @@ export const useTerminalCrud = createSharedRoot(() => {
     // the echo). Reading the echo alone would inherit the pre-resize size
     // when a create races the echo. `active()` bundles (id, meta) from one
     // glitch-free read.
-    if (!initial?.canvasLayout) {
-      const { id: activeId, meta } = store.active();
-      // `active()` bundles (id, meta): meta is null whenever id is null, so the
-      // no-active-tile branch is just `undefined` — there's no metadata to read.
-      const activeLayout = activeId
-        ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
-        : undefined;
-      pendingLayouts.setNextDefaultSize(
-        activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
-      );
-    }
+    const { id: activeId, meta } = store.active();
+    // `active()` bundles (id, meta): meta is null whenever id is null, so the
+    // no-active-tile branch is just `undefined` — there's no metadata to read.
+    const activeLayout = activeId
+      ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
+      : undefined;
+    pendingLayouts.setNextDefaultSize(
+      activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
+    );
     const info = await activePadiRpc.lifecycle
-      .create({
-        cwd,
-        themeName: theme,
-        canvasLayout: initial?.canvasLayout,
-        subPanel: initial?.subPanel,
-        rightPanel: initial?.rightPanel,
-        intent: initial?.intent,
-      })
+      .create({ cwd })
       .catch((err: Error) => {
         // Create failed → no server push, so the canvas effect won't consume
         // the pending size. Clear it here (not in a `finally`, which would

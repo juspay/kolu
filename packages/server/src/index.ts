@@ -78,6 +78,7 @@ import {
   ensurePadiBinding,
   handlePadiBootFailure,
 } from "./padi/padiBinding.ts";
+import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
 import { padiFailureOf, type PadiSession } from "./padi/padiSession.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
@@ -95,7 +96,7 @@ import {
   supervisorConflictError,
 } from "./padi/supervisorClaim.ts";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
-import { implementKoluSurface } from "./surface.ts";
+import { currentNewTerminalPolicy, implementKoluSurface } from "./surface.ts";
 import { resolveTlsOptions } from "./tls.ts";
 
 // The web face's boot contract (`KoluBootFlags`) lives in `bootFlags.ts` —
@@ -728,6 +729,20 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
    *  this supplies the pool membership it walks. */
   const viewerHost = makeViewerHostResolver({ hosts: () => pool.hosts() });
 
+  // The new-terminal THEME POLICY pusher (#2045). padi resolves every new terminal's
+  // theme now — for the browser, the CLI, and an MCP agent alike — but it knows nothing
+  // about preferences, so kolu-server derives the resolved policy off its own
+  // `preferences` + `viewerMode` cells and writes it into each bound padi's memory-only
+  // cell whenever that padi's link turns honest-`connected` (first bind AND every
+  // reconnect). Installed BEFORE `implementKoluSurface` because its `republish` is the
+  // surface's `onPolicyInputsChanged` nudge; it awaits nothing, so the boot invariant
+  // asserted just below still holds.
+  const newTerminalPolicyPusher = installNewTerminalPolicyPusher({
+    pool,
+    getPolicy: currentNewTerminalPolicy,
+    log,
+  });
+
   // Serve kolu-server's own surface. SR8.c: `implementKoluSurface` builds EVERY member from
   // these plain domain deps — index.ts imports no reactor primitive, and no member is
   // ctx-written (the reactor graph is each one's writer). The `onState` dep projects each
@@ -777,6 +792,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       create: forwards.create,
       cancel: forwards.cancel,
     },
+    // A policy input moved (a theme preference, or a browser reporting its OS mode):
+    // re-derive and re-push to every connected padi, so the next terminal any face
+    // opens follows the setting the user just changed.
+    onPolicyInputsChanged: () => newTerminalPolicyPusher.republish(),
   });
 
   // Splice the map's INNER surface object under the `padi` key beside kolu-server's own

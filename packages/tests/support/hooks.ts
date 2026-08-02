@@ -21,6 +21,7 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
+import { NewTerminalPolicySchema } from "@kolu/padi/surface";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
@@ -1067,6 +1068,119 @@ async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
   });
 }
 
+/** How long a scenario waits for the resolved new-terminal policy to land on padi,
+ *  how long one read of the cell may take, and how tightly the reads repeat. Both
+ *  legs are already live by the time this runs (`resetPadiScenarioState` waited for
+ *  padi), so what remains is one server→padi hop. */
+const POLICY_PUSH_TIMEOUT = 5_000;
+const POLICY_READ_TIMEOUT = 1_000;
+const POLICY_POLL_INTERVAL = 50;
+
+/** Decode ONE server-sent event frame (an `event:`/`data:` block) into the payload
+ *  the oRPC codec put in it. Anything but a `message` event is the stream reporting
+ *  a failure, not a value — surface it. */
+function decodeEventFrame(frame: string, url: string): unknown {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event: ")) event = line.slice("event: ".length);
+    else if (line.startsWith("data: ")) data.push(line.slice("data: ".length));
+  }
+  const body = data.join("\n");
+  if (event !== "message")
+    throw new Error(
+      `${url}: subscription answered a "${event}" event: ${body}`,
+    );
+  return (JSON.parse(body) as { json?: unknown }).json;
+}
+
+/** Read the FIRST frame of a re-served cell's `get` and close the subscription.
+ *
+ * A cell's `get` is a SUBSCRIPTION, not a one-shot read: oRPC answers it with an
+ * event iterator (SSE) whose first data frame is the current value and which then
+ * stays open for every later change. So this takes that frame and aborts — reading
+ * the body to completion (`res.json()`) would hang forever. A re-served cell
+ * withholds even the first frame until the authority's fold primes the mirror
+ * ("mirror never fabricates"), so a caller's read timeout doubles as the wait for
+ * padi to have spoken at all. */
+async function readCellFrame(url: string, body: object): Promise<unknown> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), POLICY_READ_TIMEOUT);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+      },
+      body: JSON.stringify(body),
+      signal: ctl.signal,
+    });
+    if (!res.ok) throw new HttpStatusError(res.status, url, await res.text());
+    if (!res.body) throw new Error(`${url}: subscription carried no body`);
+    const decoder = new TextDecoder();
+    let buffered = "";
+    for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
+      buffered += decoder.decode(chunk, { stream: true });
+      let end = buffered.indexOf("\n\n");
+      while (end !== -1) {
+        const frame = buffered.slice(0, end);
+        buffered = buffered.slice(end + 2);
+        // Keep-alive comments (`: ping`) carry no `data:` line — skip to the
+        // next frame rather than decoding a valueless one.
+        if (frame.includes("data: ")) return decodeEventFrame(frame, url);
+        end = buffered.indexOf("\n\n");
+      }
+    }
+    throw new Error(`${url}: subscription closed before its first frame`);
+  } finally {
+    clearTimeout(timer);
+    // Taking one frame is the whole point — abort so the subscription (and the
+    // socket behind it) doesn't outlive this read.
+    ctl.abort();
+  }
+}
+
+/** Block until padi's `newTerminalPolicy` cell reads the `inherit` policy the
+ *  preferences reset above implies.
+ *
+ * Theme resolution for a new terminal lives in padi now (#2045): kolu-server
+ * derives the policy from its preferences cell and PUSHES it across, so the
+ * preferences write and the value `lifecycle.create` reads are separated by a
+ * hop. A create that lands before that hop resolves against padi's baked default
+ * ({shuffle, dark}) and the theme scenarios flake onto a shuffled theme — so the
+ * scenario blocks here until the policy is observable on padi ITSELF, not merely
+ * accepted by the server. A read that never converges is a broken push, not a slow
+ * one: fail loudly with the last thing padi said. */
+async function waitForInheritPolicy(): Promise<void> {
+  const url = `${baseUrl}/rpc/surface/padi/newTerminalPolicy/get`;
+  const deadline = Date.now() + POLICY_PUSH_TIMEOUT;
+  let lastDiagnostic = "no attempt completed";
+  while (Date.now() < deadline) {
+    let payload: unknown;
+    try {
+      payload = await readCellFrame(url, { json: padiFold() });
+    } catch (err) {
+      // The upstream-link gap re-serves as 503, exactly as it does for the resets
+      // above — the one status worth re-reading within the cap. Any other status
+      // is a real route/contract failure and surfaces now with its body.
+      if (err instanceof HttpStatusError && err.status !== 503) throw err;
+      lastDiagnostic = err instanceof Error ? err.message : String(err);
+      await sleep(POLICY_POLL_INTERVAL);
+      continue;
+    }
+    // A frame the cell's own schema rejects is contract drift, not a race: let it
+    // throw rather than burn the budget on a shape that will never converge.
+    const policy = NewTerminalPolicySchema.parse(payload);
+    if (policy.kind === "inherit") return;
+    lastDiagnostic = `padi still reads ${JSON.stringify(policy)}`;
+    await sleep(POLICY_POLL_INTERVAL);
+  }
+  throw new Error(
+    `[worker:${workerId}] kolu-server never pushed the inherit new-terminal policy to padi within ${POLICY_PUSH_TIMEOUT}ms (last read: ${lastDiagnostic})`,
+  );
+}
+
 BeforeAll(async () => {
   // KOLU_X11CAP: bring up the Xvfb virtual display BEFORE launching the (headful)
   // browser, and point DISPLAY at it so Chrome and ffmpeg share the framebuffer.
@@ -1152,47 +1266,52 @@ Before(
     // the evidence webm, the x11 grab, and the transcoded assets all key off the
     // same value, so it's computed here and read at every site below.
     x11Stem = slug(scenario.pickle.name);
-    // Reset padi's terminals + cells as one retryable transaction. The local
-    // preferences store is independent, so it can reset alongside that sequence.
-    await Promise.all([
-      resetPadiScenarioState(SCENARIO_PADI_LIVE_TIMEOUT),
-      postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
-        json: {
-          // Reset all preferences to defaults (newTerminalTheme "inherit" so new
-          // terminals get the default theme — deterministic for tests)
-          seenTips: [],
-          // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
-          // tip banners popping in mid-shot. Normal e2e runs keep them on.
-          startupTips: !X11CAP,
-          newTerminalTheme: "inherit",
-          // The NEW-TERMINAL `collapsed` default — a top-level seed beside
-          // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
-          // follows the terminal, #959) — but every new terminal SEEDS its
-          // `collapsed` from this default, so pinning it `true` still gives the
-          // whole suite a deterministic collapsed starting point (every terminal a
-          // scenario spawns starts closed) for the many toggle-and-assert
-          // scenarios. The shipped runtime default is open
-          // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
-          // (X11CAP) want the right panel visible by default (it's the new app
-          // default, and the Code tab is part of what we show); normal tests keep
-          // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
-          // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
-          // there, asserted by right-panel.feature / code-tab.feature.
-          newTerminalCollapsed: !X11CAP,
-          shuffleBehavior: "auto",
-          scrollLock: true,
-          attentionAlerts: true,
-          colorScheme: "dark",
-          terminalRenderer: "auto",
-          // `rightPanel` preferences hold the panel width and the Code-tab tree
-          // split — live-written geometry only.
-          rightPanel: {
-            size: 0.25,
-            codeTabTreeSize: 0.35,
-          },
+    // Preferences FIRST, padi second — these two resets stopped being independent
+    // when new-terminal theme resolution moved into padi (#2045). kolu-server
+    // derives the theme policy from THESE preferences and pushes the resolved
+    // value into padi's memory-only `newTerminalPolicy` cell, so racing the two
+    // (the old `Promise.all`) left the push chasing a padi that a `killAll` was
+    // still reconnecting through.
+    await postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
+      json: {
+        // Reset all preferences to defaults (newTerminalTheme "inherit" so new
+        // terminals get the default theme — deterministic for tests)
+        seenTips: [],
+        // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
+        // tip banners popping in mid-shot. Normal e2e runs keep them on.
+        startupTips: !X11CAP,
+        newTerminalTheme: "inherit",
+        // The NEW-TERMINAL `collapsed` default — a top-level seed beside
+        // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
+        // follows the terminal, #959) — but every new terminal SEEDS its
+        // `collapsed` from this default, so pinning it `true` still gives the
+        // whole suite a deterministic collapsed starting point (every terminal a
+        // scenario spawns starts closed) for the many toggle-and-assert
+        // scenarios. The shipped runtime default is open
+        // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
+        // (X11CAP) want the right panel visible by default (it's the new app
+        // default, and the Code tab is part of what we show); normal tests keep
+        // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
+        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
+        // there, asserted by right-panel.feature / code-tab.feature.
+        newTerminalCollapsed: !X11CAP,
+        shuffleBehavior: "auto",
+        scrollLock: true,
+        attentionAlerts: true,
+        colorScheme: "dark",
+        terminalRenderer: "auto",
+        // `rightPanel` preferences hold the panel width and the Code-tab tree
+        // split — live-written geometry only.
+        rightPanel: {
+          size: 0.25,
+          codeTabTreeSize: 0.35,
         },
-      }),
-    ]);
+      },
+    });
+    // Reset padi's terminals + cells as one retryable transaction. It waits for
+    // padi to be live, which is what bounds the tight policy poll that follows.
+    await resetPadiScenarioState(SCENARIO_PADI_LIVE_TIMEOUT);
+    await waitForInheritPolicy();
 
     // @mobile tag → emulate a touch phone (flips `(pointer: coarse)` to true,
     // mounts the mobile drag handle). @compact → emulate a roomy touch device

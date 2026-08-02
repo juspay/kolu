@@ -89,7 +89,12 @@ function init() {
    *  `random` uses the whole catalogue) — the same pool a `shuffle` new
    *  terminal uses. Independent of the `newTerminalTheme` creation strategy:
    *  ⌘⇧J is an explicit action and always shuffles, even when new terminals
-   *  are set to `inherit`. */
+   *  are set to `inherit`.
+   *
+   *  Resolution stays LOCAL here on purpose: ⌘⇧J is a live viewer act on the
+   *  focused tile, so it draws from what this viewer sees. Create-time policy
+   *  moved to padi (`servePadi`'s `lifecycle.create`) so every face obeys it —
+   *  same preference, two sites, deliberately. */
   function handleShuffleTheme() {
     const id = store.activeId();
     if (id === null) return;

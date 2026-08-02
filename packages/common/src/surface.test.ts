@@ -1,18 +1,24 @@
 /**
  * `shuffleMode` (in `./surface.ts`) — the single source resolving the candidate
  * pool filter a theme shuffle applies (`light` / `dark` / `colourful` / unrestricted),
- * given the `shuffleBehavior` preference and the app's resolved dark mode. (The
- * terminal-vocabulary tests — `composeTerminalMetadata` and friends — moved to
- * `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise.)
+ * given the `shuffleBehavior` preference and the app's resolved dark mode — plus
+ * the two folds built on it: `resolveIsDark` (the one reading of "system") and
+ * `resolveNewTerminalPolicy` (the one derivation kolu-server pushes into padi).
+ * (The terminal-vocabulary tests — `composeTerminalMetadata` and friends — moved
+ * to `@kolu/padi`'s `vocab.test.ts` with the schemas they exercise.)
  */
 
-import { padiSurface } from "@kolu/padi/surface";
+import { DEFAULT_NEW_TERMINAL_POLICY, padiSurface } from "@kolu/padi/surface";
 import { describe, expect, it } from "vitest";
 import {
   DaemonInventorySchema,
+  DEFAULT_PREFERENCES,
   type KoluForward,
   KoluForwardSchema,
   PadiConvergenceSchema,
+  type Preferences,
+  resolveIsDark,
+  resolveNewTerminalPolicy,
   sameForwards,
   shuffleMode,
   surfaces,
@@ -52,6 +58,91 @@ describe("shuffleMode", () => {
   it("colourful is independent of app light/dark", () => {
     expect(shuffleMode("colourful", true)).toBe("colourful");
     expect(shuffleMode("colourful", false)).toBe("colourful");
+  });
+});
+
+describe("resolveIsDark — the one reading of what 'system' means", () => {
+  it("takes an explicit scheme at its word and ignores the viewer's OS", () => {
+    expect(resolveIsDark("dark", false)).toBe(true);
+    expect(resolveIsDark("light", true)).toBe(false);
+  });
+
+  it("defers to the viewer's OS only under `system`", () => {
+    expect(resolveIsDark("system", true)).toBe(true);
+    expect(resolveIsDark("system", false)).toBe(false);
+  });
+});
+
+describe("resolveNewTerminalPolicy — the one derivation pushed into padi", () => {
+  const prefs = (patch: Partial<Preferences>) => ({
+    ...DEFAULT_PREFERENCES,
+    ...patch,
+  });
+
+  it("matches padi's baked default on a default install", () => {
+    // padi resolves against `DEFAULT_NEW_TERMINAL_POLICY` in the window between
+    // its boot and the binder's first push. That window behaves like a default
+    // install only while these two agree — and padi cannot assert it (the seal
+    // keeps `DEFAULT_PREFERENCES` out of that package), so the pin lives here.
+    expect(resolveNewTerminalPolicy(DEFAULT_PREFERENCES, "dark")).toEqual(
+      DEFAULT_NEW_TERMINAL_POLICY,
+    );
+    // The default `colorScheme: "dark"` settles it, so the viewer's OS reading
+    // cannot move the boot window off padi's baked value either.
+    expect(resolveNewTerminalPolicy(DEFAULT_PREFERENCES, "light")).toEqual(
+      DEFAULT_NEW_TERMINAL_POLICY,
+    );
+  });
+
+  it("carries `inherit` through untouched — shuffle's inputs are irrelevant to it", () => {
+    expect(
+      resolveNewTerminalPolicy(
+        prefs({ newTerminalTheme: "inherit", shuffleBehavior: "colourful" }),
+        "light",
+      ),
+    ).toEqual({ kind: "inherit" });
+  });
+
+  it("spells `shuffleMode`'s unrestricted answer as the explicit `random` literal", () => {
+    // The wire union has no "absent" — `undefined` would fail the schema.
+    expect(
+      resolveNewTerminalPolicy(
+        prefs({ newTerminalTheme: "shuffle", shuffleBehavior: "random" }),
+        "dark",
+      ),
+    ).toEqual({ kind: "shuffle", mode: "random" });
+  });
+
+  it("passes a fixed family straight through", () => {
+    for (const behavior of ["dark", "light", "colourful"] as const) {
+      expect(
+        resolveNewTerminalPolicy(
+          prefs({ newTerminalTheme: "shuffle", shuffleBehavior: behavior }),
+          "light",
+        ),
+      ).toEqual({ kind: "shuffle", mode: behavior });
+    }
+  });
+
+  it("spends `auto` here — it never crosses the wire", () => {
+    const auto = (
+      colorScheme: Preferences["colorScheme"],
+      viewer: "dark" | "light",
+    ) =>
+      resolveNewTerminalPolicy(
+        prefs({
+          newTerminalTheme: "shuffle",
+          shuffleBehavior: "auto",
+          colorScheme,
+        }),
+        viewer,
+      );
+    // Under `system` the viewer's OS decides…
+    expect(auto("system", "dark")).toEqual({ kind: "shuffle", mode: "dark" });
+    expect(auto("system", "light")).toEqual({ kind: "shuffle", mode: "light" });
+    // …and an explicit scheme overrides it, in both directions.
+    expect(auto("dark", "light")).toEqual({ kind: "shuffle", mode: "dark" });
+    expect(auto("light", "dark")).toEqual({ kind: "shuffle", mode: "light" });
   });
 });
 

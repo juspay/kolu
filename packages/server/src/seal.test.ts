@@ -60,6 +60,12 @@ const WEB_SHELL_FILES = [
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,
   // runs no terminal domain), not a terminal-domain module.
   "padi/daemonInventory",
+  // The new-terminal THEME POLICY pusher — derives the resolved policy from the web
+  // shell's own `preferences` + `viewerMode` cells and writes it into every bound padi's
+  // `newTerminalPolicy` cell on connect (#2045). Web-shell orchestration: it drives the
+  // padi pool from the server shell and runs no terminal domain — the theme DECISION
+  // (inherit vs shuffle, against which peers) is padi's, in @kolu/padi.
+  "padi/newTerminalPolicy",
   // The W2.2 padi BINDER — the web shell's supervisor/client of the padi PROCESS
   // (spawn/adopt + dial + the reconnect-mirror session `reServeSurface` consumes).
   // Web-shell code (it runs no terminal domain — it re-serves padi's), so it lives

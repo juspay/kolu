@@ -133,7 +133,7 @@ the first column is what appears in your MCP host.
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal — a command, a working directory, a split of another terminal — and return its `id`. |
+| `lifecycle_create` | Open a new terminal — a command, a working directory, a split of another terminal — and return its `id`. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
 
@@ -173,6 +173,10 @@ rearranging your canvas. Anything not on the list is simply unreachable, and
 widening it is a reviewed change, never a runtime toggle. So handing an agent
 your kolu lets it do the work in your terminals without handing it the keys to
 the whole workspace.
+
+Your [theming preferences](/theming) sit on that line: an agent's terminals
+_obey_ the new-terminal theme policy, but the agent can't read or change it —
+only your browser sets it.
 
 <CardGrid>
   <LinkCard title="Agent Fleets" href="/agent-fleets" description="one coordinator agent driving many workers — the pattern kolu's own development runs on" />

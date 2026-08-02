@@ -929,6 +929,9 @@ importers:
       pino-roll:
         specifier: ^3.1.0
         version: 3.1.0
+      terminal-themes:
+        specifier: workspace:*
+        version: link:../terminal-themes
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0

@@ -10,10 +10,20 @@ import {
   migratePreferences_1_30_0,
   migratePreferences_1_32_0,
   migratePreferences_1_34_0,
+  store,
 } from "./state.ts";
 
 // KOLU_STATE_DIR is set by the `test:unit` script in package.json — state.ts
 // reads it at module load.
+
+describe("viewerMode (the 1.36.0 domain key)", () => {
+  it("reads `dark` on a store that has never seen a browser", () => {
+    // conf merges the `defaults` entry, so a fresh install (and every pre-1.36 file the
+    // ladder's rung seeds) resolves an "auto" shuffle exactly as `colorScheme: "dark"`
+    // — the equality `resolveNewTerminalPolicy(DEFAULT_PREFERENCES, …)` rests on.
+    expect(store.get("viewerMode")).toBe(DEFAULT_PREFERENCES.colorScheme);
+  });
+});
 
 describe("migratePreferences_1_30_0", () => {
   it("maps legacy shuffleTheme: true → { shuffle, auto } (the new default)", () => {
