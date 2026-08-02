@@ -17,6 +17,44 @@
  * Under `KOLU_UPGRADE_WINDOW_REQUIRE=1` (CI): the previous ref MUST be a version
  * tag and the previous kaval store path MUST differ from current #kaval — a
  * same-version collapse is a hard fail, not a green same-checkout recycle.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * WHAT THE WIRE EPOCH CHANGED HERE (PLAN D6, review #1/#19)
+ *
+ * This file is partly a HARNESS, and the harness itself had to move. Two of its
+ * mechanisms rested on an assumption the flag day retires: that the CURRENT
+ * client library can complete a handshake against a PREVIOUS-RELEASE daemon.
+ *
+ *   1. **Readiness probes are transport-neutral.** A previous-release daemon's
+ *      readiness is now read the only two ways that survive a protocol epoch: the
+ *      rendezvous ACCEPTS a bare `net.connect()`, and the pid GATE beside it names
+ *      a live holder. Nothing is spoken on the socket. (The old probe dialed a
+ *      `unixSocketLink` and called `system.heartbeat` — a handshake that can never
+ *      complete across the epoch, so the suite would have failed at the FIXTURE,
+ *      before any assertion ran.)
+ *
+ *   2. **`newReadsOld`'s "compatible contract ⇒ adopt" arm is permanently the
+ *      RECYCLE arm.** A previous-EPOCH kaval is undecodable to this build, which
+ *      is the supervisor's `unspeakable-protocol` observation; kaval's declared
+ *      policy for it is RECYCLE (padi's own is refuse, which is why padi is never
+ *      the thing being recycled here). So the assertion inverted: the survivor
+ *      MUST be replaced, and the replacement MUST be one this build can speak to.
+ *      "Either adopted or recycled" was a real observation while both were
+ *      possible; within this epoch only one is, and accepting both would let a
+ *      silent same-version collapse pass.
+ *
+ * The CLASSIFICATION KIND (`UnspeakableProtocolError`, raised at the first-frame
+ * decode rather than at the 30 s hello deadline) is pinned in
+ * `yesterdayKaval.test.ts`, against bytes this repo controls. Here we own neither
+ * the previous binary's bytes nor its framing, so this file pins the CONSEQUENCE:
+ * the current probe never yields an identity for it, and the boot replaces it.
+ *
+ * `oldReadsNew` keeps the arm that stayed meaningful — the current kaval's own
+ * dial — and drops the step that dialed a PREVIOUS-release padi with the CURRENT
+ * client (review #19's blocker, structurally unreachable now). What it proves in
+ * that direction is the rollback contract: an old build that meets a new-epoch
+ * daemon still binds its own gate, stays up, and leaves the pid gate pid-first
+ * readable naming a live holder.
  */
 
 import { execFile, spawn } from "node:child_process";
@@ -28,14 +66,11 @@ import {
   rmSync,
 } from "node:fs";
 import { createRequire } from "node:module";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
 import {
   DAEMON_BIND_PID_ENV,
   gatePid,
@@ -55,14 +90,15 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
-import { KAVAL_GATE_FILE } from "kaval";
+import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
+import { connectPadi } from "../dial.ts";
+import { connectKaval, probeKavalForConvergence } from "../ptyHost/connect.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
   writeStateRootManifest,
 } from "../stateRoot.ts";
-import type { PadiDaemonContract } from "../surface.ts";
 import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
 
 const execFileAsync = promisify(execFile);
@@ -78,8 +114,6 @@ const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "upgrade-window-rt-"));
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
-type PadiConn = UnixSocketConnection<PadiDaemonContract>;
-
 const reaper = createProcessReaper();
 const required = (): boolean => process.env.KOLU_UPGRADE_WINDOW_REQUIRE === "1";
 
@@ -94,6 +128,54 @@ afterAll(() => {
 afterEach(async () => {
   await reaper.dispose();
 });
+
+// ── Transport-neutral readiness (PLAN D6 / review #1, #19) ───────────────────
+
+/** Does the rendezvous ACCEPT a connection? A bare `net.connect()` — no framing,
+ *  no handshake, no client library — so it reads the same across a protocol
+ *  epoch. This is the ONLY thing a current build may ask of a previous-release
+ *  daemon's socket. */
+function socketAccepts(socketPath: string): Promise<void> {
+  return new Promise<void>((resolveConnect, rejectConnect) => {
+    const socket = connect(socketPath);
+    socket.once("connect", () => {
+      socket.destroy();
+      resolveConnect();
+    });
+    socket.once("error", (err) => {
+      socket.destroy();
+      rejectConnect(err);
+    });
+  });
+}
+
+/** The gate file the test already reads, as a readiness signal: a pid that names
+ *  a LIVE holder. Together with {@link socketAccepts} this is "the daemon is up"
+ *  stated entirely in facts a protocol break cannot invalidate. */
+function requireLiveGateHolder(gatePath: string, label: string): number {
+  const pid = gatePid(gatePath);
+  if (pid === undefined) throw new Error(`${label} gate has no pid`);
+  if (!isHolderLive(pid)) throw new Error(`${label} gate pid ${pid} is dead`);
+  return pid;
+}
+
+/** Wait for a daemon at `socketPath` to be up, WITHOUT speaking its protocol. */
+async function waitForNeutralReadiness(
+  socketPath: string,
+  gatePath: string,
+  label: string,
+  ms?: number,
+): Promise<number> {
+  await waitForSocket(
+    socketPath,
+    async (path) => {
+      await socketAccepts(path);
+      requireLiveGateHolder(gatePath, label);
+    },
+    ms,
+  );
+  return requireLiveGateHolder(gatePath, label);
+}
 
 /** Store path of a kaval bin (…/nix/store/HASH-kaval/bin/kaval → …/HASH-kaval). */
 function storePathOfBin(bin: string): string {
@@ -284,6 +366,34 @@ type ResolvedWindow = NonNullable<
   Awaited<ReturnType<typeof resolvePreviousWindow>>
 >;
 
+/** The env a padi daemon is spawned with in this suite. */
+function padiEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    XDG_RUNTIME_DIR: RUNTIME_ROOT,
+    KOLU_KAVAL_SPAWN: "detached",
+    [DAEMON_BIND_PID_ENV]: String(process.pid),
+  };
+  delete env.INVOCATION_ID;
+  delete env.KOLU_KAVAL_SOCKET;
+  delete env.KOLU_STATE_DIR;
+  return env;
+}
+
+/** Kill whatever still holds these gates (test hygiene, never an assertion). */
+function reapGateHolders(gatePaths: readonly string[]): void {
+  for (const gate of gatePaths) {
+    const pid = gatePid(gate);
+    if (pid !== undefined && isHolderLive(pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+}
+
 async function newReadsOld(window: ResolvedWindow): Promise<void> {
   assertDaemonSpawnAllowed("previous-release kaval + current padi");
 
@@ -308,47 +418,48 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     }),
   );
 
-  await waitForSocket(kavalSocket, async (path) => {
-    const { unixSocketLink: link } = await import(
-      "@kolu/surface/links/unix-socket"
-    );
-    const conn = await link({ socketPath: path });
-    try {
-      await (
-        conn.client as {
-          surface: {
-            system: { heartbeat: (i: object) => Promise<unknown> };
-          };
-        }
-      ).surface.system.heartbeat({});
-    } finally {
-      await conn.dispose();
-    }
-  });
-
-  const oldPid = gatePid(kavalGate);
-  expect(oldPid).toBeTypeOf("number");
-  if (oldPid === undefined) throw new Error("previous kaval gate has no pid");
-  expect(isHolderLive(oldPid)).toBe(true);
+  // Readiness WITHOUT speaking its protocol (D6): the socket accepts and the
+  // gate names a live holder. Nothing else is knowable across the epoch.
+  const oldPid = await waitForNeutralReadiness(
+    kavalSocket,
+    kavalGate,
+    "previous kaval",
+  );
   // Previous binary still writes one-field gates; the current reader must
   // yield the pid under the pid-first law (the #2011 rollback/forward window).
   const previousGateBody = readFileSync(kavalGate, "utf8").trim();
   expect(previousGateBody.includes("\t")).toBe(false);
   expect(previousGateBody).toBe(String(oldPid));
 
-  // 2) Boot CURRENT padi against the same state-root. Compatible contract →
-  //    adopt (PTYs would survive); we then force-recycle via recycleKaval.
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    XDG_RUNTIME_DIR: RUNTIME_ROOT,
-    KOLU_KAVAL_SPAWN: "detached",
-    [DAEMON_BIND_PID_ENV]: String(process.pid),
-  };
-  delete env.INVOCATION_ID;
-  delete env.KOLU_KAVAL_BIN;
-  delete env.KOLU_KAVAL_SOCKET;
-  delete env.KOLU_STATE_DIR;
+  // 2) The premise the recycle rests on, measured rather than assumed: this
+  //    build's convergence probe cannot obtain an identity from a previous-EPOCH
+  //    daemon. It must not resolve — neither an identity (which would mean the
+  //    epoch never broke and this whole suite is green-washing a same-version
+  //    window) nor `null` (honest absence, which is reserved for "no listener"
+  //    and would let a fresh daemon race a live one for the rendezvous).
+  const probed = await probeKavalForConvergence(kavalSocket).then(
+    (probe) => ({ kind: "resolved" as const, probe }),
+    (error: unknown) => ({ kind: "rejected" as const, error }),
+  );
+  if (probed.kind === "resolved") {
+    probed.probe?.dispose();
+  }
+  expect(
+    probed.kind,
+    "the current probe obtained an identity from a previous-release kaval — the wire epoch did not break, or the window collapsed to same-version",
+  ).toBe("rejected");
+  console.log(
+    `previousRelease.e2e: previous kaval is unspeakable to this build — ${
+      probed.kind === "rejected" && probed.error instanceof Error
+        ? probed.error.message
+        : String(probed)
+    }`,
+  );
 
+  // 3) Boot CURRENT padi against the same state-root. Its endpoint meets a peer
+  //    it cannot decode at a rendezvous whose gate it owns — the supervisor's
+  //    `unspeakable-protocol` observation — and kaval's declared policy for that
+  //    is RECYCLE. (padi's own policy is refuse; padi is never the recycled one.)
   reaper.track(
     spawn(
       process.execPath,
@@ -361,38 +472,52 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
         "--allow-nix-shell-with-env-whitelist",
         "default",
       ],
-      { stdio: "ignore", env },
+      { stdio: "ignore", env: padiEnv() },
     ),
   );
 
   await waitForSocket(
     padiSock,
     async (path) => {
-      const conn = await unixSocketLink<PadiDaemonContract>({
-        socketPath: path,
-      });
-      try {
-        await conn.client.surface.control.core.hello();
-      } finally {
-        await conn.dispose();
-      }
+      // padi here is the CURRENT build, so the current dial is the right probe:
+      // it is the production one, and it is what the calls below need anyway.
+      const conn = await connectPadi(path);
+      conn.dispose();
     },
     90_000,
   );
 
-  // After adopt, the gate still names the previous-release pid (compatible).
-  // (If the previous release were wire-incompatible, converge would have
-  // recycled already — still a valid mixed-version proof, just a different
-  // arm. We accept either: old pid still live OR already recycled.)
-  const pidAfterBoot = gatePid(kavalGate);
-  expect(pidAfterBoot).toBeTypeOf("number");
+  // 4) THE RECYCLE ARM (permanently, this epoch). The survivor is gone and its
+  //    replacement is one THIS build can speak to. "Adopted or recycled" was a
+  //    real either/or while both were reachable; only one is now, and accepting
+  //    both would let a same-version collapse pass as a mixed-version proof.
+  const recycledDeadline = Date.now() + 90_000;
+  let currentEpochPid: number | undefined;
+  while (Date.now() < recycledDeadline) {
+    const pid = gatePid(kavalGate);
+    if (pid !== undefined && pid !== oldPid && isHolderLive(pid)) {
+      currentEpochPid = pid;
+      break;
+    }
+    await sleep(200);
+  }
+  expect(
+    currentEpochPid,
+    `the previous-release kaval (pid ${oldPid}) was still holding the gate — an unspeakable survivor must be RECYCLED, not adopted`,
+  ).toBeTypeOf("number");
+  expect(isHolderLive(oldPid)).toBe(false);
 
-  const conn: PadiConn = await unixSocketLink<PadiDaemonContract>({
-    socketPath: padiSock,
-  });
+  // …and the replacement really is current-epoch: the same probe that could not
+  // read the survivor now reads an identity, at this build's contract version.
+  const freshProbe = await probeKavalForConvergence(kavalSocket);
+  expect(freshProbe).not.toBeNull();
+  expect(freshProbe?.identity.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
+  freshProbe?.dispose();
+
+  const conn = await connectPadi(padiSock);
   try {
-    // 3) Create a terminal so recycle has a session to capture.
-    const { id } = await conn.client.surface.padi.lifecycle.create({
+    // 5) Create a terminal so recycle has a session to capture.
+    const { id } = await conn.client.padi.surface.lifecycle.create({
       cwd: stateRoot,
     });
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
@@ -438,10 +563,10 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
       throw new Error("kaval gate has no pid before recycle");
     }
 
-    // 4) Restart kaval — the production recycle path.
-    await conn.client.surface.padi.lifecycle.recycleKaval(undefined);
+    // 6) Restart kaval — the production recycle path.
+    await conn.client.padi.surface.lifecycle.recycleKaval(undefined);
 
-    // 5) Daemon replaced: gate pid changed (or the old process is dead and
+    // 7) Daemon replaced: gate pid changed (or the old process is dead and
     //    a new live holder is present).
     const recycleDeadline = Date.now() + 60_000;
     let newPid: number | undefined;
@@ -459,7 +584,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     ).toBeTypeOf("number");
     expect(isHolderLive(pidBeforeRecycle)).toBe(false);
 
-    // 6) Session survived for restore — still on disk with the terminal.
+    // 8) Session survived for restore — still on disk with the terminal.
     const after = JSON.parse(readFileSync(confPath, "utf8")) as {
       session?: { terminals?: { id: string }[] };
     };
@@ -482,28 +607,40 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
       unknownSharedFileMessage(SHARED_ARTIFACTS, unknownAfter),
     ).toEqual([]);
   } finally {
-    await conn.dispose();
+    conn.dispose();
     // Reap kaval (current + any leftover) + padi.
-    for (const g of [kavalGate, padiGatePath(padiSock)]) {
-      const p = gatePid(g);
-      if (p !== undefined && isHolderLive(p)) {
-        try {
-          process.kill(p, "SIGKILL");
-        } catch {
-          // gone
-        }
-      }
-    }
+    reapGateHolders([kavalGate, padiGatePath(padiSock)]);
     rmSync(stateRoot, { recursive: true, force: true });
   }
 }
 
+/**
+ * The reverse direction — a PREVIOUS-release padi meeting a CURRENT kaval.
+ *
+ * Re-scoped by D6 to what remains meaningful. The old arm dialed the previous
+ * padi with the current client (`recycleKaval`, then read its replacement's
+ * gate); across the epoch that dial can never complete, and it was the FIXTURE,
+ * not the assertion (review #19). What is left is real and is the rollback
+ * story:
+ *
+ *   (a) the CURRENT kaval's own dial works at this rendezvous — the positive
+ *       control that makes (c) non-vacuous;
+ *   (b) a PREVIOUS-release padi meeting it does not die: it claims its gate and
+ *       stays up, degraded at worst. An old build must not crash when it finds a
+ *       daemon from the future;
+ *   (c) this build cannot dial that previous padi — the flag day, observed;
+ *   (d) whatever the previous padi decided to do about the kaval rendezvous, the
+ *       gate there stays PID-FIRST readable and names a LIVE holder (#2011). The
+ *       gate format is the one contract that must survive a rollback in both
+ *       directions, precisely because it is what the two epochs still share.
+ */
 async function oldReadsNew(window: ResolvedWindow): Promise<void> {
   assertDaemonSpawnAllowed("previous-release padi + current kaval");
   const stateRoot = mkdtempSync(join(tmpdir(), "upgrade-window-reverse-sr-"));
   const kavalSocket = padiKavalSocketPath(stateRoot);
   const kavalGate = join(dirname(kavalSocket), KAVAL_GATE_FILE);
   const padiSock = padiSocketPath(stateRoot);
+  const padiGate = padiGatePath(padiSock);
   writeStateRootManifest(dirname(kavalSocket), stateRoot);
 
   const currentKavalBin = join(window.currentStore, "bin", "kaval");
@@ -520,131 +657,86 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       },
     }),
   );
-  await waitForSocket(kavalSocket, async (path) => {
-    const conn = await unixSocketLink({ socketPath: path });
-    try {
-      await (
-        conn.client as {
-          surface: { system: { heartbeat: (i: object) => Promise<unknown> } };
-        }
-      ).surface.system.heartbeat({});
-    } finally {
-      await conn.dispose();
-    }
-  });
-  const currentKavalPid = gatePid(kavalGate);
-  expect(currentKavalPid).toBeTypeOf("number");
-  if (currentKavalPid === undefined) {
-    throw new Error("current kaval gate has no pid");
-  }
-
-  // Manual QA: previous supervisor Restart. Contract 6.0 deliberately rejects
-  // the previous padi's 5.3 expectation in this direction, so boot first
-  // recycles the current daemon to the previous wrapper-baked companion kaval.
-  // An env override does not re-point v2.0.0's spawn. We then drive the real
-  // recycleKaval path again; post-restart body asserts are the strongest
-  // available under that bake (pid-first rollback contract), not a false
-  // two-field claim.
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    XDG_RUNTIME_DIR: RUNTIME_ROOT,
-    KOLU_KAVAL_SPAWN: "detached",
-    [DAEMON_BIND_PID_ENV]: String(process.pid),
-  };
-  delete env.INVOCATION_ID;
-  delete env.KOLU_KAVAL_SOCKET;
-  delete env.KOLU_STATE_DIR;
-  reaper.track(
-    spawn(
-      window.padiBin,
-      [
-        "--state-root",
-        stateRoot,
-        "--allow-nix-shell-with-env-whitelist",
-        "default",
-      ],
-      { stdio: "ignore", env },
-    ),
+  const currentKavalPid = await waitForNeutralReadiness(
+    kavalSocket,
+    kavalGate,
+    "current kaval",
   );
 
   try {
-    await waitForSocket(
+    // (a) The positive control: this build's real dial completes against the
+    //     CURRENT kaval at this exact rendezvous, over this exact transport. Any
+    //     later "the dial did not complete" is therefore about the PEER, not
+    //     about the harness.
+    const kavalConn = await connectKaval(kavalSocket);
+    try {
+      expect(kavalConn.metadata.contractVersion).toBe(
+        PTY_HOST_CONTRACT_VERSION,
+      );
+      expect(kavalConn.metadata.pid).toBe(currentKavalPid);
+    } finally {
+      kavalConn.dispose();
+    }
+
+    // Boot the PREVIOUS-release padi against the same state-root.
+    reaper.track(
+      spawn(
+        window.padiBin,
+        [
+          "--state-root",
+          stateRoot,
+          "--allow-nix-shell-with-env-whitelist",
+          "default",
+        ],
+        { stdio: "ignore", env: padiEnv() },
+      ),
+    );
+
+    // (b) It comes up and holds its own gate. padi claims the gate BEFORE it
+    //     serves, so this is readable without speaking padi's protocol at all —
+    //     and it is the honest test of "an old build survives meeting a
+    //     new-epoch daemon", which is the thing a rollback depends on.
+    const previousPadiPid = await waitForNeutralReadiness(
       padiSock,
-      async (path) => {
-        const conn = await unixSocketLink<PadiDaemonContract>({
-          socketPath: path,
-        });
-        try {
-          await conn.client.surface.control.core.hello();
-        } finally {
-          await conn.dispose();
-        }
-      },
+      padiGate,
+      "previous padi",
       90_000,
     );
-    // The previous padi proved the 6.0/5.3 major skew and replaced the current
-    // daemon with its companion 5.3 kaval. Rollback never adopts a peer whose
-    // removed procedure its client can still call.
-    const previousKavalPid = gatePid(kavalGate);
-    expect(previousKavalPid).toBeTypeOf("number");
-    expect(previousKavalPid).not.toBe(currentKavalPid);
-    expect(isHolderLive(currentKavalPid)).toBe(false);
-    if (previousKavalPid === undefined) {
-      throw new Error("previous padi replacement kaval gate has no pid");
-    }
 
-    // A1-6: drive the PREVIOUS supervisor's Restart path (literal Manual QA
-    // "Restart kaval. Still works"). recycleKaval has been on padi's lifecycle
-    // surface since the previous release tag used here — if a future previous
-    // window drops it, this call fails loud and the comment documents why.
-    const prevPadi = await unixSocketLink<PadiDaemonContract>({
-      socketPath: padiSock,
-    });
-    try {
-      await prevPadi.client.surface.padi.lifecycle.recycleKaval(undefined);
+    // (c) …and this build cannot speak to it. Bounded, because a peer from
+    //     another epoch may answer with bytes we cannot parse OR not answer at
+    //     all; either way what is proven is that no usable connection appears.
+    //     The classification KIND is pinned against bytes we own, in
+    //     `yesterdayKaval.test.ts` — never against a previous binary's framing.
+    const dialed = await Promise.race([
+      connectPadi(padiSock).then(
+        (conn) => {
+          conn.dispose();
+          return "connected" as const;
+        },
+        () => "refused" as const,
+      ),
+      sleep(30_000).then(() => "no-answer" as const),
+    ]);
+    expect(
+      dialed,
+      "this build completed a padi handshake against a previous-release padi — the wire epoch did not break",
+    ).not.toBe("connected");
+    console.log(`previousRelease.e2e: old padi is ${dialed} to this build`);
 
-      const recycleDeadline = Date.now() + 60_000;
-      let newPid: number | undefined;
-      while (Date.now() < recycleDeadline) {
-        const p = gatePid(kavalGate);
-        if (p !== undefined && isHolderLive(p) && p !== previousKavalPid) {
-          newPid = p;
-          break;
-        }
-        await sleep(200);
-      }
-      // (a) restart completed — a live replacement holds the gate
-      expect(
-        newPid,
-        `previous padi recycleKaval did not replace kaval (still ${previousKavalPid})`,
-      ).toBeTypeOf("number");
-      if (newPid === undefined) {
-        throw new Error("unreachable: newPid typed after toBeTypeOf number");
-      }
-      // (b) SIGTERM went to the original observation (not a stranger)
-      expect(isHolderLive(previousKavalPid)).toBe(false);
-      // (c) post-restart gate is still pid-first-readable naming the live
-      // replacement. Previous-release kaval writes one-field (wrapper-baked
-      // binary — see env comment above); assert the rollback contract, not
-      // a two-field body previous kaval cannot write.
-      const body = readFileSync(kavalGate, "utf8").trim();
-      expect(Number.parseInt(body, 10)).toBe(newPid);
-      expect(gatePid(kavalGate)).toBe(newPid);
-      expect(isHolderLive(newPid)).toBe(true);
-    } finally {
-      await prevPadi.dispose();
-    }
+    // The previous padi is still standing after all of that.
+    expect(isHolderLive(previousPadiPid)).toBe(true);
+
+    // (d) The gate contract that must outlive the epoch, in the rollback
+    //     direction: whoever holds the kaval rendezvous now — the current kaval
+    //     the previous padi could not speak to, or a companion it spawned in its
+    //     place — the gate is pid-first readable and names a live process.
+    const holder = requireLiveGateHolder(kavalGate, "kaval after old padi");
+    const body = readFileSync(kavalGate, "utf8").trim();
+    expect(Number.parseInt(body, 10)).toBe(holder);
+    expect(gatePid(kavalGate)).toBe(holder);
   } finally {
-    for (const gate of [kavalGate, padiGatePath(padiSock)]) {
-      const pid = gatePid(gate);
-      if (pid !== undefined && isHolderLive(pid)) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // Already gone.
-        }
-      }
-    }
+    reapGateHolders([kavalGate, padiGate]);
     rmSync(stateRoot, { recursive: true, force: true });
   }
 }
@@ -668,5 +760,10 @@ describeDaemon("bidirectional previous-release daemon window", () => {
       newReadsOld,
       oldReadsNew,
     });
-  }, 300_000);
+    // Raised from 300 s with the epoch break: two of the waits above are now
+    // DEADLINES on a peer that may never answer (the unspeakable classification
+    // in `newReadsOld`, the cross-epoch dial in `oldReadsNew`), where before both
+    // legs completed handshakes in milliseconds. The individual bounds are what
+    // keep the suite honest; this ceiling only has to be larger than their sum.
+  }, 420_000);
 });
