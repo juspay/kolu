@@ -30,21 +30,24 @@ import {
 // The non-component lifecycle calls live in the framework-free `/lifecycle`
 // subpath; re-exported here so `<SurfaceAppProvider>` consumers reach them from
 // one import. Apps with no component in scope (root setup) import `/lifecycle`.
+// `retireSocket` is GONE — the link's terminal-close classifier retires a stale
+// wire itself (see `../lifecycle`'s note).
 export {
   registerOrRetireServiceWorker,
   registerServiceWorker,
   reloadForUpdate,
   retireServiceWorker,
-  retireSocket,
 } from "../lifecycle";
 
-import { gracedDown, onWake } from "@kolu/surface/solid";
+import type { UnaryProcedure } from "@kolu/surface/client";
+import type { WatchableWire } from "@kolu/surface/link";
+import { gracedDown, onWake, type SurfaceFace } from "@kolu/surface/solid";
 import {
   createHeartbeat,
   type HeartbeatConfig,
   normalizeHeartbeat,
 } from "../connect";
-import { reloadForUpdate, retireSocket } from "../lifecycle";
+import { reloadForUpdate } from "../lifecycle";
 
 // The turnkey single-surface connect seam (socket + client + default-on
 // heartbeat). It builds a Solid `surfaceClient`, so it lives in this `/solid`
@@ -68,14 +71,15 @@ export {
 // hand-built `surfaceClient + websocketLink` (an example, or kolu's combined
 // `wire.ts`) calls it directly. `SurfaceConnectionStatus` / `HeartbeatTuning` also
 // moved there; re-exported so existing `@kolu/surface-app/solid` importers keep one
-// import path.
+// import path. (`WatchableSocket` is deleted — the watchdog's seam is the
+// transport-neutral `WatchableWire` in `@kolu/surface/link`, re-exported below.)
+export type { WatchableWire, WireStatus } from "@kolu/surface/link";
 export {
   createLiveSignal,
   type CreateLiveSignalOptions,
   type HeartbeatTuning,
   type LiveSignalHandle,
   type SurfaceConnectionStatus,
-  type WatchableSocket,
 } from "@kolu/surface/solid";
 
 /** The live relationship to the server this client is bound to. */
@@ -91,12 +95,11 @@ export type ServerLifecycleEvent =
   | { kind: "disconnected" }
   | { kind: "reconnected"; processId: string }
   // A restart arrives two physically-distinct ways, and consumers must tell them
-  // apart without re-reading the socket: `transport: "open"` is a probe-driven
-  // restart (the socket is open against a fresh process); `transport: "closed"`
-  // is a stale-restart (the server rejected this tab at the handshake via
-  // `restartCloseCode`, so the socket is genuinely closed). The discriminator
-  // carries the close-code interpretation OUT of the receptacle so kolu never
-  // re-decodes `restartCloseCode` against the bare socket.
+  // apart without re-reading the transport: `transport: "open"` is a probe-driven
+  // restart (the wire is open against a fresh process); `transport: "closed"`
+  // is a stale-restart (the server rejected this tab at the handshake, so the
+  // link classified the close as TERMINAL and reported `WireStatus` `"retired"`
+  // — it will never re-dial). Nobody outside the link ever sees a close CODE.
   //
   // `processId` rides ONLY the open shape — that's the id of the live process
   // this open landed against. The closed shape has NO live id to report: the
@@ -111,26 +114,11 @@ export type ServerLifecycleEvent =
 /** What an identity probe reports: the server process id — a value that changes
  *  when the server restarts (so a reconnect to a *different* process is a restart,
  *  not a transient drop). Kept distinct from build identity (`commit`). Re-exported
- *  from `@kolu/surface-app/surface`, where it is derived (`z.infer`) from
- *  `ServerProbeSchema` — the single source of the probe's wire shape, so the type
- *  and the runtime validator can't desync. An app may send a superset (the
+ *  from `@kolu/surface-app/surface`, where it is derived (`typeof …Schema.Type`)
+ *  from `ServerProbeSchema` — the single source of the probe's wire shape, so the
+ *  type and the runtime validator can't desync. An app may send a superset (the
  *  provider is generic over the probe response — see `P`). */
 export type { ServerProbe };
-
-/** The transport surface-app observes — `WebSocket` / `PartySocket` both fit.
- *  `removeEventListener` is optional: when present, `createServerLifecycle`
- *  detaches its listeners on dispose (no leak across remounts). */
-export interface WsLike {
-  addEventListener(type: "open", listener: () => void): void;
-  addEventListener(
-    type: "close",
-    listener: (event?: { code?: number }) => void,
-  ): void;
-  removeEventListener?(
-    type: "open" | "close",
-    listener: (event?: { code?: number }) => void,
-  ): void;
-}
 
 /** Pure A→B table — exhaustive at the type level (Record requires every key). */
 const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
@@ -143,7 +131,7 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
 
 /** How long the transport may sit `down` before a consumer's full-screen
  *  "Disconnected" overlay should appear. A forced reconnect — the half-open
- *  watchdog recovering, partysocket riding out a Wi-Fi roam — closes and reopens
+ *  watchdog recovering, the link riding out a Wi-Fi roam — closes and reopens
  *  the socket in well under a second, and flashing a full-screen alarm for that
  *  blink is noise. The model's grace-windowed `presentingDown` (derived in the
  *  provider via `gracedDown` over `status`, the SAME window for every source shape)
@@ -153,29 +141,23 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
  *  heartbeat probe, the client, and the header dot, none of which want a delay. */
 export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
 
-/** Derive the server lifecycle from a transport + an identity probe — the generic
+/** Derive the server lifecycle from a wire + an identity probe — the generic
  *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
  *  `processId`: the first connect is `connected`; a later one is `reconnected`
- *  (same id) or `restarted` (changed). A `close` after the first connect is
- *  `disconnected` — unless it carries `restartCloseCode`, which is a definitive
- *  `restarted` (the server rejected a stale tab; no probe can run).
+ *  (same id) or `restarted` (changed). A `closed` after the first connect is
+ *  `disconnected`; the TERMINAL `retired` status is a definitive `restarted` (the
+ *  server rejected a stale tab, the link will never re-dial, no probe can run).
  *
- *  Listener cleanup: if called inside a reactive owner the open/close listeners
- *  are detached via `onCleanup` (when the transport exposes `removeEventListener`);
- *  the returned `dispose()` is the explicit handle for a module-level caller with
- *  no owner. */
+ *  Listener cleanup: if called inside a reactive owner the wire subscription is
+ *  detached via `onCleanup`; the returned `dispose()` is the explicit handle for
+ *  a module-level caller with no owner. */
 export function createServerLifecycle<
   P extends ServerProbe = ServerProbe,
 >(opts: {
-  // The lifecycle OWNS this socket — it observes open/close, retires it on a
-  // stale restart, AND (below) keeps it alive with a heartbeat — so its `ws` is
-  // `WsLike` PLUS the verbs `createHeartbeat` needs (`reconnect`/`readyState`/
-  // `OPEN`). Every real partysocket satisfies this.
-  ws: WsLike & {
-    reconnect(): void;
-    readyState: number;
-    readonly OPEN: number;
-  };
+  /** The wire the lifecycle observes — `createSurfaceSocket(...).link.wire`. It
+   *  reads the status stream (open/closed/retired) and, when it owns the
+   *  watchdog (below), calls `forceReconnect()` on a silently half-open wire. */
+  wire: WatchableWire;
   probe: () => Promise<P>;
   /** The liveness round-trip the half-open watchdog uses — independent of `probe`.
    *  `probe` answers "WHICH process is on the other end?" (identity, for lifecycle
@@ -183,12 +165,12 @@ export function createServerLifecycle<
    *  ALL?". Pass the framework-reserved verb (`() => probeSurfaceLive(client.rpc)`),
    *  exactly as `connectSurface` does, so every watchdog asks the one reserved
    *  question instead of an app-nominated verb. Omit it ONLY when no surface client
-   *  `.rpc` is on hand (the `<SurfaceAppProvider>` `{ ws, probe }` turnkey path),
+   *  `.rpc` is on hand (the `<SurfaceAppProvider>` `{ wire, probe }` turnkey path),
    *  where the watchdog falls back to `probe` — documented at the heartbeat site. */
   livenessProbe?: () => Promise<unknown>;
   /** Disable or tune the built-in liveness heartbeat (default ON). The watchdog
    *  probes `livenessProbe` (the reserved `system.live`) on an interval and forces
-   *  `ws.reconnect()` on a silently half-open socket. Pass `false` only if you wire
+   *  `wire.forceReconnect()` on a silently half-open wire. Pass `false` only if you wire
    *  your own `createHeartbeat`; pass an object to tune its `intervalMs` /
    *  `timeoutMs` / `onStale`. The same {@link HeartbeatConfig} knob `connectSurface`
    *  accepts (a `heartbeat.probe` override here wins over `livenessProbe`). */
@@ -197,12 +179,6 @@ export function createServerLifecycle<
    *  the UI stuck in its prior state with no diagnostic — pass this to log it.
    *  The next `open` still retries; this is observation, not a transition. */
   onProbeError?: (err: unknown) => void;
-  /** Close code that signals a definitive server restart rather than a transient
-   *  drop. When the transport closes with this exact code, the lifecycle goes
-   *  straight to `restarted` (not `disconnected`) — no probe needed, because the
-   *  socket closed before one could run. kolu passes its server's stale-process
-   *  handshake-rejection code (`STALE_PROCESS_CLOSE_CODE`) here. */
-  restartCloseCode?: number;
   /** Fires after each successful identity probe with the observed `processId`,
    *  AFTER the lifecycle has already classified and committed the transition
    *  (`knownProcessId` / `setLifecycle`). It only PUBLISHES the observation
@@ -213,18 +189,16 @@ export function createServerLifecycle<
    *  is `undefined` on a stale-close restart; the echo needs the last *snapshot*
    *  id, which this is. */
   onProcessId?: (processId: string) => void;
-  /** Fired synchronously when a stale-close restart is decoded (the
-   *  `restartCloseCode` path → `restarted` / `transport: "closed"`). The consumer
-   *  supplies the teardown for the socket it owns — typically `retireSocket(ws)`
-   *  — so the *action* lives at the call site while the *decision* (this is a
-   *  stale restart) stays the library's, decoded in exactly one place. Not fired
-   *  for a probe-driven restart (`transport: "open"`), whose socket is alive. */
-  onStaleRestart?: () => void;
+  // There is no `onStaleRestart` any more. It existed so a consumer could
+  // `retireSocket(ws)` at the one site that decoded the stale close — and both
+  // halves are gone: the LINK owns the close-code classifier now (it halts its
+  // retry schedule and fails every call with `SurfaceTransportRetired`), so a
+  // retired wire needs no consumer action and there is nothing left to hand out.
 }): {
   lifecycle: Accessor<ServerLifecycleEvent>;
   status: Accessor<ConnectionStatus>;
   serverProcessId: Accessor<string | undefined>;
-  /** Detach the transport listeners. Auto-wired to `onCleanup` under an owner;
+  /** Detach the wire subscription. Auto-wired to `onCleanup` under an owner;
    *  call it directly for a module-level (owner-less) lifecycle. */
   dispose: () => void;
 } {
@@ -281,50 +255,49 @@ export function createServerLifecycle<
         opts.onProbeError?.(err);
       });
   };
-  const onClose = (event?: { code?: number }) => {
-    // A dedicated restart close code (kolu's server rejecting a stale tab whose
-    // `pid` no longer matches the live process) is a definitive restart, not a
-    // transient drop. Go straight to `restarted` so the reload overlay takes
-    // over instead of a "reconnecting" spinner that would loop as the client
-    // keeps re-presenting the same stale id. The new id isn't observable (the
-    // socket closed before any probe) and the LAST known id is the dead process
-    // we were detached from — NOT the live server — so the closed shape carries
-    // no `processId` at all, and `serverProcessId()` returns `undefined` rather
-    // than a stale "current" id. Still gated on an established identity: a
-    // restart close before the first connect never had a relationship to lose.
-    if (
-      opts.restartCloseCode !== undefined &&
-      event?.code === opts.restartCloseCode &&
-      knownProcessId !== null
-    ) {
-      // Stale-restart: the socket closed before any probe could run, so it is
-      // genuinely CLOSED. The discriminator hands that fact to consumers so they
-      // don't re-inspect `event.code` themselves. No `processId`: the only id on
-      // hand is the dead process we were detached from, and surfacing it under
-      // the live-id field would have `serverProcessId()` report a contradictory
-      // "current" id.
-      setLifecycle({ kind: "restarted", transport: "closed" });
-      // Fire the consumer's teardown synchronously, here at the single site that
-      // decodes the stale-close — so the consumer provides the *action* (retire
-      // THIS socket) without re-reading `event.code` itself or racing a reactive
-      // effect. The library owns *when* (this decode), the consumer owns *what*.
-      opts.onStaleRestart?.();
-      return;
-    }
+  const onClose = () => {
     // Only report a drop once an identity has been established — a close before
     // the first successful probe never established a relationship to report lost.
     if (knownProcessId !== null) setLifecycle({ kind: "disconnected" });
   };
-  opts.ws.addEventListener("open", onOpen);
-  opts.ws.addEventListener("close", onClose);
-  // The lifecycle OWNS this socket, so it also owns its LIVENESS: a default-on
-  // heartbeat probes `livenessProbe` on an interval and forces `ws.reconnect()` on
-  // a SILENTLY half-open socket (laptop sleep / Wi-Fi roam / NAT idle-eviction —
-  // TCP dead with no FIN/RST, so neither `open` nor `close` fires and the
-  // lifecycle alone would never notice; every stream hangs). This folds in the
-  // watchdog that used to be a SECOND hand-wired `createHeartbeat({ ws, probe })`
+  const onRetired = () => {
+    // The link classified the close as TERMINAL (kolu's server rejecting a stale
+    // tab whose `pid` no longer matches the live process): it has stopped
+    // re-dialling for good, so this is a definitive restart, not a transient
+    // drop. Go straight to `restarted` so the reload overlay takes over instead
+    // of a "reconnecting" spinner that would wait for a reconnect that can never
+    // come. The new id isn't observable (the wire closed before any probe) and
+    // the LAST known id is the dead process we were detached from — NOT the live
+    // server — so the closed shape carries no `processId` at all, and
+    // `serverProcessId()` returns `undefined` rather than a stale "current" id.
+    // Still gated on an established identity: a retirement before the first
+    // connect never had a relationship to lose.
+    if (knownProcessId === null) return;
+    setLifecycle({ kind: "restarted", transport: "closed" });
+  };
+  // ONE subscription, on the wire's own status stream — the close CODE never
+  // leaves the link (review #5), so the lifecycle reads a classified status
+  // instead of re-decoding `event.code`. `connecting` is not a transition: it is
+  // either the cold start (already the initial state) or the re-dial that follows
+  // the `closed` we just reported.
+  const detachStatus = opts.wire.onStatus((status) => {
+    if (status === "open") onOpen();
+    else if (status === "closed") onClose();
+    else if (status === "retired") onRetired();
+  });
+  // A wire that opened before this subscription existed would otherwise never
+  // probe — the status stream only reports CHANGES. (Real today: the link's dial
+  // runs on its own fiber, so a caller awaiting `createSurfaceSocket` may well
+  // hold an already-open wire.)
+  if (opts.wire.status() === "open") onOpen();
+  // The lifecycle OWNS this wire's observation, so it also owns its LIVENESS: a
+  // default-on heartbeat probes `livenessProbe` on an interval and forces
+  // `wire.forceReconnect()` on a SILENTLY half-open socket (laptop sleep / Wi-Fi
+  // roam / NAT idle-eviction — TCP dead with no FIN/RST, so no status change ever
+  // fires and the lifecycle alone would never notice; every stream hangs). This
+  // folds in the watchdog that used to be a SECOND hand-wired `createHeartbeat`
   // beside every `createServerLifecycle` call (kolu's `rpc.ts`, the provider's
-  // turnkey branch) — so deriving a lifecycle can no longer leave the socket
+  // turnkey branch) — so deriving a lifecycle can no longer leave the wire
   // without one. A missed probe just warns and reconnects (a routine recovery).
   //
   // The watchdog's job (is the link answering AT ALL?) is independent of the
@@ -332,23 +305,22 @@ export function createServerLifecycle<
   // identity `probe`: it probes `livenessProbe` — the framework-reserved
   // `system.live` round-trip, like `connectSurface` and the ssh-leg HostSession.
   // It falls back to `opts.probe` ONLY when no `livenessProbe` was supplied — the
-  // `<SurfaceAppProvider>` `{ ws, probe }` turnkey path has the transport and the
+  // `<SurfaceAppProvider>` `{ wire, probe }` turnkey path has the transport and the
   // identity probe but no surface client `.rpc` to build `system.live` from, so
   // there the identity probe doubles as the liveness round-trip.
   const heartbeatOptions = normalizeHeartbeat(opts.heartbeat, {
-    ws: opts.ws,
+    wire: opts.wire,
     probe: opts.livenessProbe ?? opts.probe,
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
-  // When this lifecycle owns the watchdog (the turnkey `{ ws, probe }` path —
+  // When this lifecycle owns the watchdog (the turnkey `{ wire, probe }` path —
   // drishti's admin control plane), give it the browser's fast resume re-probe too:
-  // a wake event probes NOW instead of waiting up to a full interval for a socket a
+  // a wake event probes NOW instead of waiting up to a full interval for a wire a
   // suspension killed. No-op off-DOM and when the watchdog is disabled (kolu's
   // `heartbeat: false`, where the wire-side `createLiveSignal` already wired it).
   const detachWake = heartbeat ? onWake(heartbeat.wake) : undefined;
   const dispose = () => {
-    opts.ws.removeEventListener?.("open", onOpen);
-    opts.ws.removeEventListener?.("close", onClose);
+    detachStatus();
     detachWake?.();
     heartbeat?.dispose();
   };
@@ -367,18 +339,29 @@ export function createServerLifecycle<
 /** surface-app's own `identity.info` restart probe, as a typed call on a surface
  *  client's `.rpc`. A client whose surface registers surface-app under a key
  *  exposes the probe at the SCOPED wire path `surface.identity.info` (the key is
- *  consumed by the scope and does not reappear). `.rpc` is typed `unknown` (the
- *  dynamic combined link can't be expanded per-key — see `SurfaceClient.rpc`), so
- *  the structural cast lives HERE once, beside the surface that defines the probe,
- *  instead of being hand-pinned at every `createServerLifecycle({ probe })` site. */
+ *  consumed by the scope and does not reappear). `.rpc` is the STRUCTURAL
+ *  `SurfaceFace` (per-member precision lives in the bound faces — PLAN D2), so the
+ *  one narrowing lives HERE, beside the surface that defines the probe, instead of
+ *  being hand-pinned at every `createServerLifecycle({ probe })` site.
+ *
+ *  A face with no `identity.info` is a wrong-client mistake (drishti's per-host
+ *  client vs. its admin one), so it CRASHES rather than returning a rejected
+ *  promise that would read as a transient probe failure and leave the lifecycle
+ *  silently stuck in `connecting`. */
 export function surfaceAppProbe(client: {
-  rpc: unknown;
+  rpc: SurfaceFace;
 }): Promise<ServerProbe> {
-  return (
-    client.rpc as {
-      surface: { identity: { info: (input: object) => Promise<ServerProbe> } };
-    }
-  ).surface.identity.info({});
+  const info = client.rpc.surface.identity?.info as
+    | UnaryProcedure<Record<string, never>, ServerProbe>
+    | undefined;
+  if (typeof info !== "function") {
+    throw new Error(
+      "surfaceAppProbe: this client's surface carries no `identity.info` — it is " +
+        "not a surface-app surface (did you pass a per-entity client instead of " +
+        "the control plane?).",
+    );
+  }
+  return info({});
 }
 
 /** The environment facts that decide PWA install state — passed in so the
@@ -497,55 +480,46 @@ const SurfaceAppContext = createContext<SurfaceAppModel>();
  *      reads YOUR accessor and never attaches a second listener/probe pair.
  *      The right shape when other UI (a header dot, a restart gate) reads the
  *      same lifecycle — one source, no disagreement, no double probe.
- *    - `{ ws, probe }` — the provider derives the lifecycle itself (the turnkey
+ *    - `{ wire, probe }` — the provider derives the lifecycle itself (the turnkey
  *      shape for an app with no other lifecycle consumer); a failed identity
  *      probe is reported through the provider's `onError` prop. Because this
- *      source OWNS the socket, it handles the whole stale-tab handshake: pass
- *      `restartCloseCode` for the synchronous stale-restart fast path (a close
- *      with that code goes straight to `restarted`), `onProcessId` to echo the
- *      `pid` param from your URL thunk, and the provider retires the socket for
- *      you on a stale-restart. Its `ws` is therefore `WsLike & { close, send }`
- *      (the verbs `retireSocket` needs), not bare `WsLike`. A consumer with its
- *      own lifecycle uses `{ status }` instead and wires those itself.
+ *      source OWNS the wire's observation, it handles the whole stale-tab
+ *      handshake: the link's terminal-close classifier retires the wire and the
+ *      lifecycle reads the `retired` status as `restarted` (no close code to
+ *      pass, nothing to retire by hand), and `onProcessId` echoes the `pid`
+ *      param from your URL thunk. A consumer with its own lifecycle uses
+ *      `{ status }` instead and wires those itself.
  *    - neither — `status()` is permanently `"live"` (build-skew only). */
 export type ConnectionSource<P extends ServerProbe = ServerProbe> =
   | {
       status: Accessor<ConnectionStatus>;
-      ws?: undefined;
+      wire?: undefined;
       probe?: undefined;
     }
   | {
-      // The turnkey source OWNS the socket's whole lifecycle — observe (open/
-      // close → status), retire it on a stale-restart, AND keep it alive with a
-      // heartbeat — so its `ws` is `WsLike` PLUS the verbs `retireSocket` and
-      // `createHeartbeat` need. The observation-only `WsLike` stays minimal for
-      // the `{ status }` path; only here, where the provider acts on the socket,
-      // is the richer shape required (every real partysocket satisfies it).
-      ws: WsLike & {
-        close(): void;
-        send: unknown;
-        reconnect(): void;
-        readyState: number;
-        readonly OPEN: number;
-      };
+      // The turnkey source OWNS the wire's whole lifecycle — observe (status →
+      // connection status) AND keep it alive with a heartbeat. Both affordances
+      // live on the transport-neutral `WatchableWire` a wire link factory mints,
+      // so there is no socket shape to satisfy any more.
+      wire: WatchableWire;
       probe: () => Promise<P>;
-      restartCloseCode?: number;
       /** Opt the lifecycle's OWN half-open watchdog out (`heartbeat: false`) when
-       *  another layer over the SAME socket already owns it — e.g. the
-       *  `connectSurfaces` that built this socket's client bundle wires a
+       *  another layer over the SAME wire already owns it — e.g. the
+       *  `connectSurfaces` that built this wire's client bundle wires a
        *  watchdog-backed `LiveSignal` by construction. The lifecycle then only
-       *  observes open/close + the identity probe (it mints no brand, so disabling
-       *  its watchdog is watchdog-OWNERSHIP coordination, never a branded-but-blind
-       *  signal). Omit it (default) for a socket no other layer watches. */
+       *  observes the status stream + the identity probe (it mints no brand, so
+       *  disabling its watchdog is watchdog-OWNERSHIP coordination, never a
+       *  branded-but-blind signal). Omit it (default) for a wire no other layer
+       *  watches. */
       heartbeat?: HeartbeatConfig;
       /** Fired with each observed `processId` (forwards `createServerLifecycle`'s
-       *  `onProcessId`). A turnkey caller stashes it in the mutable its socket's
+       *  `onProcessId`). A turnkey caller stashes it in the mutable its wire's
        *  URL thunk echoes as the `pid` handshake param — without re-wrapping its
        *  own `probe` to carry the side-effect. */
       onProcessId?: (processId: string) => void;
       status?: undefined;
     }
-  | { ws?: undefined; probe?: undefined; status?: undefined };
+  | { wire?: undefined; probe?: undefined; status?: undefined };
 
 export type SurfaceAppProviderProps<
   T extends { commit: string } = { commit: string },
@@ -624,32 +598,18 @@ export function SurfaceAppProvider<
   let status: Accessor<ConnectionStatus>;
   if (props.status) {
     status = props.status;
-  } else if (props.ws && props.probe) {
-    const ws = props.ws;
+  } else if (props.wire && props.probe) {
     const lifecycle = createServerLifecycle({
-      ws,
+      wire: props.wire,
       probe: props.probe,
-      // Forward the turnkey caller's stale-restart fast path (a transport
-      // close with this exact code is a definitive `restarted`), so the
-      // `{ ws, probe }` shape reaches the same behavior as a manual
-      // `createServerLifecycle` — no need to drop to the `{ status }` mode
-      // just to set it.
-      restartCloseCode: props.restartCloseCode,
       // Forward the watchdog opt-out: when `connectSurfaces` already wired a
-      // watchdog over this same admin socket (the usual control-plane shape), the
-      // lifecycle takes `heartbeat: false` so the socket isn't double-watched — it
+      // watchdog over this same admin wire (the usual control-plane shape), the
+      // lifecycle takes `heartbeat: false` so the wire isn't double-watched — it
       // mints no brand, so this is ownership coordination, not a blind signal.
       heartbeat: props.heartbeat,
       // Forward the snapshot-id publisher so a turnkey caller can echo the `pid`
       // handshake param from its own URL thunk without re-wrapping `probe`.
       onProcessId: props.onProcessId,
-      // The turnkey source OWNS this socket, so it owns the teardown: on a
-      // stale-restart (the server rejected this tab) retire the socket so neither
-      // a reconnecting wrapper's offline buffer nor oRPC's pending peers grow
-      // behind the reload prompt. The `{ status }` source never reaches here —
-      // there the app owns the socket and passes its own `onStaleRestart` to the
-      // `createServerLifecycle` it derived (e.g. kolu's `rpc.ts`).
-      onStaleRestart: () => retireSocket(ws),
       // Route probe failures through the same `onError` the buildInfo
       // stream uses — a turnkey caller has no separate `createServerLifecycle`
       // to attach `onProbeError` to, so a broken probe would otherwise be
@@ -658,11 +618,13 @@ export function SurfaceAppProvider<
         props.onError?.(err instanceof Error ? err : new Error(String(err))),
     });
     status = lifecycle.status;
-    // The turnkey source owns the socket's LIVENESS too — but that watchdog now
+    // The turnkey source owns the wire's LIVENESS too — but that watchdog now
     // lives INSIDE `createServerLifecycle` (default-on, disposed with the
     // lifecycle), so there is no separate `createHeartbeat` to wire here. A
-    // consumer using this `{ ws, probe }` shape (e.g. drishti's admin control
-    // plane) gets the half-open watchdog for free.
+    // consumer using this `{ wire, probe }` shape (e.g. drishti's admin control
+    // plane) gets the half-open watchdog for free. Retirement needs no wiring
+    // either: the link retires ITSELF on the server's stale close, and the
+    // lifecycle reads that as `restarted` / `transport: "closed"`.
   } else {
     status = () => "live";
   }

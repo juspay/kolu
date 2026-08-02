@@ -1,45 +1,30 @@
 /**
- * `connectSurfaces` — the MULTI-surface seam (move 3): one socket → a
- * `surfaceClients` bundle + ONE default-on heartbeat probing the first sibling's
- * reserved `system.live`, with the one socket's liveness folded into the combined
- * `surfaceClientsHealth().live`. The hand-built admin path (a bare socket + status
- * + `surfaceClients` with NO heartbeat) is what this replaces, so half-open
+ * `connectSurfaces` — the MULTI-surface seam: one wire → a `surfaceClients`
+ * bundle + ONE default-on heartbeat probing the first sibling's reserved
+ * `system/live` tag, with the one wire's liveness folded into the combined
+ * `surfaceClientsHealth().live`. The hand-built admin path (a bare socket +
+ * status + `surfaceClients` with NO heartbeat) is what this replaces, so half-open
  * detection is no longer a function of which constructor a consumer called.
  *
- * Two properties are pinned: the combined `live` tracks the one socket (NOT a
- * constant `true`), and the heartbeat is wired to probe the FIRST sibling's scoped
- * rpc (the synth's flagged risk — the reserved `system.live` must be reachable
- * through the scoped link). The socket is faked at its two observable events (a
- * live partysocket flakes in node), and `createHeartbeat` is captured so the probe
- * thunk can be fired without waiting on its interval.
+ * Three properties are pinned: the combined `live` tracks the one wire (NOT a
+ * constant `true`), the heartbeat probes the FIRST sibling's reserved liveness TAG
+ * (the scoped tag must be the one `implementSurfaces` binds), and an empty surface
+ * map fails fast (no sibling ⇒ no probe target). The socket is faked through the
+ * link's own `connect` seam — no module mocking — and `createHeartbeat` is
+ * captured so the probe thunk can be fired without waiting on its interval.
  */
 
 import { defineSurface } from "@kolu/surface/define";
+import { Schema } from "effect";
 import { createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 const mocked = vi.hoisted(() => ({
-  // biome-ignore lint/suspicious/noExplicitAny: fake socket stands in for a PartySocket.
-  ws: undefined as any,
   heartbeatProbe: undefined as undefined | (() => Promise<unknown>),
-  probedClients: [] as unknown[],
 }));
 
-// Mock the socket seam (hand back the fake ws).
-vi.mock("../connect", async (importActual) => {
-  const actual = await importActual<typeof import("../connect")>();
-  return {
-    ...actual,
-    createSurfaceSocket: () => ({
-      ws: mocked.ws,
-      echo: { remember: () => {}, appendTo: (u: string) => u },
-    }),
-  };
-});
-
 // Mock the heartbeat PRIMITIVE (capture the probe thunk so the test can fire it
-// without waiting on the 15s interval). `connectSurfaces` now wires the watchdog
+// without waiting on the 15s interval). `connectSurfaces` wires the watchdog
 // through `createLiveSignal` (`@kolu/surface`), which uses THIS primitive — so the
 // capture lives here, not on surface-app's `../connect` wrapper.
 vi.mock("@kolu/surface/heartbeat", async (importActual) => {
@@ -48,118 +33,112 @@ vi.mock("@kolu/surface/heartbeat", async (importActual) => {
     ...actual,
     createHeartbeat: (opts: { probe: () => Promise<unknown> }) => {
       mocked.heartbeatProbe = opts.probe;
-      return { dispose: () => {} };
+      return { dispose: () => {}, wake: () => {} };
     },
   };
 });
 
-// Mock the reserved probe so firing the heartbeat records which client's rpc it
-// was handed, without sending a real RPC over the fake socket.
-vi.mock("@kolu/surface/liveness", async (importActual) => {
-  const actual = await importActual<typeof import("@kolu/surface/liveness")>();
-  return {
-    ...actual,
-    probeSurfaceLive: (client: unknown) => {
-      mocked.probedClients.push(client);
-      return Promise.resolve();
-    },
-  };
-});
-
+import { FakeWebSocket } from "../fakeSocket.testlib";
 import { connectSurfaces } from "./connectSurfaces";
 
 const surface = defineSurface({
   cells: {
     conn: {
-      schema: z.object({ s: z.string() }),
+      schema: Schema.Struct({ s: Schema.String }),
       default: { s: "x" },
       verbs: ["get"],
     },
   },
 });
 
-/** A socket reduced to listeners fired by hand — tolerant of arbitrary event
- *  types so it survives `websocketLink(ws)` construction (no RPC is ever sent). */
-function fakeWs() {
-  const listeners: Record<
-    string,
-    Array<(event?: { code?: number }) => void>
-  > = {};
+function dialRecorder() {
+  const dialled: FakeWebSocket[] = [];
   return {
-    ws: {
-      addEventListener: (
-        type: string,
-        fn: (event?: { code?: number }) => void,
-      ) => {
-        (listeners[type] ??= []).push(fn);
-      },
-      removeEventListener: (
-        type: string,
-        fn: (event?: { code?: number }) => void,
-      ) => {
-        listeners[type] = (listeners[type] ?? []).filter((l) => l !== fn);
-      },
-      send: () => {},
-      close: () => {},
-      readyState: 0,
-      OPEN: 1,
+    dialled,
+    connect: (url: string) => {
+      const ws = new FakeWebSocket(url);
+      dialled.push(ws);
+      return ws as unknown as WebSocket;
     },
-    fire: (type: string, code?: number) => {
-      const event = code === undefined ? undefined : { code };
-      for (const l of (listeners[type] ?? []).slice()) l(event);
+    nth: async (n: number): Promise<FakeWebSocket> => {
+      await expect
+        .poll(() => dialled.length, { timeout: 3_000 })
+        .toBeGreaterThanOrEqual(n);
+      const ws = dialled[n - 1];
+      if (ws === undefined) throw new Error(`no socket #${n}`);
+      return ws;
     },
   };
 }
 
-describe("connectSurfaces — one socket, multi-surface, heartbeat by construction", () => {
-  it("folds the ONE socket's liveness into the merged surfaceClientsHealth().live", () => {
-    const t = fakeWs();
-    mocked.ws = t.ws;
-    createRoot((dispose) => {
-      const conn = connectSurfaces({
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+describe("connectSurfaces — one wire, multi-surface, heartbeat by construction", () => {
+  it("folds the ONE wire's liveness into the merged surfaceClientsHealth().live", async () => {
+    const d = dialRecorder();
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
         surfaces: { a: surface, b: surface },
         url: "ws://test",
+        connect: d.connect,
       });
       // Pre-open: `connecting` → not live (NOT a constant `true` the hand-built
       // path would leave when `{ live }` was forgotten).
       expect(conn.health().live).toBe(false);
-      t.fire("open");
+      const first = await d.nth(1);
+      first.open();
+      await settle();
       expect(conn.health().live).toBe(true);
       // A drop / silent half-open → not live, for EVERY sibling (AND-reduce).
-      t.fire("close", 1006);
+      first.close(1006);
+      await settle();
       expect(conn.health().live).toBe(false);
-      t.fire("open");
+      (await d.nth(2)).open();
+      await settle();
       expect(conn.health().live).toBe(true);
-      conn.dispose();
+      await conn.dispose();
       dispose();
     });
   });
 
-  it("wires the default-on heartbeat to probe the FIRST sibling's reserved system.live", () => {
-    const t = fakeWs();
-    mocked.ws = t.ws;
-    mocked.probedClients = [];
+  it("wires the default-on heartbeat to probe the FIRST sibling's reserved system/live TAG", async () => {
+    const d = dialRecorder();
     mocked.heartbeatProbe = undefined;
-    createRoot((dispose) => {
-      const conn = connectSurfaces({
+    await createRoot(async (dispose) => {
+      const conn = await connectSurfaces({
         surfaces: { a: surface, b: surface },
         url: "ws://test",
+        connect: d.connect,
       });
-      // The heartbeat is default-ON: connectSurfaces handed `createHeartbeat` a
-      // probe thunk.
+      // The heartbeat is default-ON: `createLiveSignal` handed `createHeartbeat`
+      // a probe thunk.
       expect(typeof mocked.heartbeatProbe).toBe("function");
-      // Firing it reaches `probeSurfaceLive` once, on the FIRST sibling's scoped
-      // slice of the link `createLiveSignal` built — `{ surface: link.surface.a }`.
-      // (Identity vs `conn.clients.a.rpc` isn't asserted: both are fresh `{ surface }`
-      // wrappers around the same lazily-proxied link slice. The first-sibling choice
-      // is `connectSurfaces` passing `siblingKey: Object.keys(surfaces)[0]`.)
-      void mocked.heartbeatProbe?.();
-      expect(mocked.probedClients).toHaveLength(1);
-      expect(
-        (mocked.probedClients[0] as { surface?: unknown }).surface,
-      ).toBeDefined();
-      conn.dispose();
+      const ws = await d.nth(1);
+      ws.open();
+      await settle();
+      // Firing it puts ONE request on the wire, addressed to the first sibling's
+      // scoped reserved liveness member — `surface/a/system/live`, exactly the tag
+      // `implementSurfaces({ a, b })` binds. Nothing answers (the fake peer is
+      // silent), so we read the FRAME rather than the result.
+      // The real `createHeartbeat` always attaches handlers to the probe promise
+      // (it races it against a timer); this stand-in doesn't, and `dispose()`
+      // INTERRUPTS an in-flight probe — so swallow the interruption rejection
+      // here rather than leave it unhandled.
+      mocked.heartbeatProbe?.().catch(() => {});
+      await expect
+        .poll(() => ws.sent.length, { timeout: 3_000 })
+        .toBeGreaterThan(0);
+      const frames = ws.sent.map((f) => String(f)).join("");
+      expect(frames).toContain('"tag":"surface/a/system/live"');
+      expect(frames).not.toContain('"tag":"surface/b/system/live"');
+      await conn.dispose();
       dispose();
     });
+  });
+
+  it("fails fast on an empty surface map — no sibling, no probe target", async () => {
+    await expect(
+      connectSurfaces({ surfaces: {}, url: "ws://test" }),
+    ).rejects.toThrow(/no sibling/);
   });
 });

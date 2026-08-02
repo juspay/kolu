@@ -14,8 +14,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { implementSurfaces } from "@kolu/surface/server";
+import { Effect } from "effect";
 import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSurfaceSocket } from "./connect";
+import { socketPair } from "./fakeSocket.testlib";
 import {
   NOTIFICATION_SW_SOURCE,
   STALE_PROCESS_CLOSE_CODE,
@@ -30,6 +33,8 @@ import {
   type HeartbeatableSocket,
   installFreshStatic,
   installSurfaceApp,
+  type ServableSocket,
+  serveSurfaceSocket,
   startWsHeartbeat,
   surfaceAppServer,
 } from "./server";
@@ -272,8 +277,9 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     // cell-dep the core fires automatically (no app-visible connect).
     expect(typeof server.cells.buildInfo.connect).toBe("function");
     expect(server.cells.buildInfo.current()).toEqual({ commit: "abc1234" });
-    // The probe impl sits under the `identity` namespace.
-    expect(await server.procedures.identity.info()).toEqual({
+    // The probe impl sits under the `identity` namespace and answers with an
+    // EFFECT now (PLAN D10: a procedure impl is `({input, ctx}) => Effect`).
+    expect(await Effect.runPromise(server.procedures.identity.info())).toEqual({
       processId: "pid-1",
     });
     // …and the SAME id is exposed directly, so a stale-tab gate compares against
@@ -286,7 +292,7 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     expect(typeof server.processId).toBe("string");
     expect(server.processId.length).toBeGreaterThan(0);
     // Single-sourced: the exposed id IS the one identity.info reports.
-    expect(await server.procedures.identity.info()).toEqual({
+    expect(await Effect.runPromise(server.procedures.identity.info())).toEqual({
       processId: server.processId,
     });
   });
@@ -295,14 +301,14 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     const server = surfaceAppServer({ commit: "abc1234", processId: "pid-1" });
     // Spy on the cell entry's connect to prove the runtime fires it for us.
     const connect = vi.spyOn(server.cells.buildInfo, "connect");
-    const { router, ctx } = implementSurfaces(
+    const runtime = implementSurfaces(
       { surfaceApp: surfaceAppSurface },
       {},
       { surfaceApp: server },
     );
 
     // The per-key ctx exposes the buildInfo cell carrying the commit.
-    expect(ctx.surfaceApp?.cells.buildInfo?.get()).toEqual({
+    expect(runtime.ctx.surfaceApp?.cells.buildInfo?.get()).toEqual({
       commit: "abc1234",
     });
 
@@ -310,19 +316,25 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     await Promise.resolve();
     expect(connect).toHaveBeenCalledTimes(1);
 
-    // The probe routes at surface.surfaceApp.identity.info (the key namespaces
-    // the sibling; the probe is in the surface's own `identity` namespace).
-    // biome-ignore lint/suspicious/noExplicitAny: reaching the decorated procedure's runtime handler.
-    const proc = (router as any).surface.surfaceApp.identity.info;
-    const out = await proc["~orpc"].handler({ input: {}, context: {} });
-    expect(out).toEqual({ processId: "pid-1" });
+    // The probe is BOUND at the sibling-scoped wire tag (the key namespaces the
+    // sibling; the probe is in the surface's own `identity` namespace) — the
+    // route-set identity D1 asserts, read off the handler record rather than a
+    // router walk.
+    const handler = runtime.handlers["surface/surfaceApp/identity/info"];
+    expect(handler).toBeDefined();
+    expect(
+      await Effect.runPromise(
+        handler?.(undefined) as Effect.Effect<{ processId: string }>,
+      ),
+    ).toEqual({ processId: "pid-1" });
+    await runtime.close();
   });
 
-  it("serves two surfaces whose buildInfo channels don't collide", () => {
+  it("serves two surfaces whose buildInfo channels don't collide", async () => {
     // A second standalone surface-app sibling (e.g. drishti's admin vs. host)
     // — each gets a key-namespaced `buildInfo:changed` channel, so the two
     // can't collide on the wire. We assert both ctxs wire independently.
-    const { ctx } = implementSurfaces(
+    const { ctx, close } = implementSurfaces(
       { a: surfaceAppSurface, b: surfaceAppSurface },
       {},
       {
@@ -332,6 +344,7 @@ describe("surfaceAppServer — the implementSurfaces deps bundle", () => {
     );
     expect(ctx.a?.cells.buildInfo?.get()).toEqual({ commit: "aaa1111" });
     expect(ctx.b?.cells.buildInfo?.get()).toEqual({ commit: "bbb2222" });
+    await close();
   });
 });
 
@@ -591,5 +604,218 @@ describe("acceptSurfaceSocket — the gate→enrol→dispatch acceptance seam", 
     vi.advanceTimersByTime(5000);
     expect(t.ping).not.toHaveBeenCalled();
     expect(t.terminate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The RPC serving seam (PLAN D5 / review #6): `serveSurfaceSocket` is the
+ * DISPATCH step of `acceptSurfaceSocket`'s gate → enrol → dispatch order, so a
+ * consumer's `onAccepted` closure calls it and the ordering law is unchanged.
+ *
+ * These drive a REAL round trip: a real `implementSurfaces` runtime on one end, a
+ * real `websocketLink` (through `createSurfaceSocket`) on the other, real ndjson
+ * frames, over a paired in-memory socket. Nothing about the wire is stubbed — only
+ * the socket implementation, which is what lets this run with no `ws` dependency
+ * and no listening port.
+ */
+describe("serveSurfaceSocket — the RPC serving seam", () => {
+  /** A served surface-app runtime plus a client dialled into it over one paired
+   *  in-memory connection. */
+  async function connected(opts: { processId?: string } = {}) {
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      {
+        surfaceApp: surfaceAppServer({
+          commit: "abc1234",
+          processId: opts.processId ?? "pid-1",
+        }),
+      },
+    );
+    const pair = socketPair();
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: pair.server as unknown as ServableSocket,
+    });
+    const { link } = await createSurfaceSocket({
+      group: runtime.group,
+      url: "ws://test/rpc/ws",
+      connect: () => pair.client as unknown as WebSocket,
+    });
+    return {
+      runtime,
+      serving,
+      link,
+      pair,
+      teardown: async () => {
+        await link.dispose();
+        serving.close();
+        await serving.done;
+        await runtime.close();
+      },
+    };
+  }
+
+  it("answers a real RPC call over the wire it was handed", async () => {
+    const c = await connected({ processId: "pid-9" });
+    const out = await Effect.runPromise(
+      c.link.dispatch.unary("surface/surfaceApp/identity/info", {}),
+    );
+    expect(out).toEqual({ processId: "pid-9" });
+    await c.teardown();
+  });
+
+  it("answers a request that arrived BEFORE the RPC server attached its listener", async () => {
+    // `ws` starts emitting the moment the upgrade completes, while Effect's
+    // socket attaches its `message` listener inside an Effect run — so without
+    // the buffering view a client that sends in the same tick as the accept (every
+    // reconnecting client does: the link re-issues its subscriptions on open)
+    // would have that frame dropped and hang forever with no error anywhere.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c", processId: "pid-early" }) },
+    );
+    const pair = socketPair();
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: pair.server as unknown as ServableSocket,
+    });
+    // A hand-rolled request frame, delivered SYNCHRONOUSLY after `serveSurfaceSocket`
+    // returned — i.e. before any Effect fiber has run.
+    const replies: string[] = [];
+    pair.client.addEventListener("message", (event) => {
+      replies.push(String((event as Event & { data: unknown }).data));
+    });
+    pair.server.receive(
+      `${JSON.stringify({
+        _tag: "Request",
+        id: 1,
+        tag: "surface/surfaceApp/identity/info",
+        payload: {},
+        headers: [],
+      })}\n`,
+    );
+    await expect
+      .poll(() => replies.join(""), { timeout: 3_000 })
+      .toContain("pid-early");
+    serving.close();
+    await serving.done;
+    await runtime.close();
+  });
+
+  it("keeps the gate → enrol → dispatch order: a stale tab is never served", async () => {
+    // The seam is called from `onAccepted`, so a gate rejection means it never
+    // runs — the kolu#1231 protection, restated on the new dispatch.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c", processId: "live-1" }) },
+    );
+    const pair = socketPair();
+    const gateable = {
+      readyState: 1,
+      OPEN: 1,
+      ping: vi.fn(),
+      terminate: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const acceptor = acceptSurfaceSocket({
+      server: { clients: new Set<HeartbeatableSocket>() },
+      liveProcessId: "live-1",
+      intervalMs: 60_000,
+    });
+    let served = 0;
+    acceptor.accept(
+      gateable as unknown as GateableSocket & HeartbeatableSocket,
+      new URL("ws://host/rpc/ws?pid=dead-0"),
+      () => {
+        served += 1;
+        serveSurfaceSocket({
+          group: runtime.group,
+          handlers: runtime.handlers,
+          socket: pair.server as unknown as ServableSocket,
+        });
+      },
+    );
+    expect(served).toBe(0);
+    expect(gateable.close).toHaveBeenCalledWith(
+      STALE_PROCESS_CLOSE_CODE,
+      "stale server process",
+    );
+    acceptor.stop();
+    await runtime.close();
+  });
+
+  it("settles `done` when the peer hangs up (so a host can log the disconnect)", async () => {
+    const c = await connected();
+    // The client going away must end the serve — otherwise the connection's
+    // subscriptions would outlive it, which is exactly the server-side zombie the
+    // reaper exists to kill.
+    c.pair.client.close(1006, "peer vanished");
+    await expect(c.serving.done).resolves.toBeUndefined();
+    await c.link.dispose();
+    await c.runtime.close();
+  });
+
+  it("`close()` is idempotent and settles `done` once", async () => {
+    const c = await connected();
+    c.serving.close();
+    c.serving.close();
+    await expect(c.serving.done).resolves.toBeUndefined();
+    await c.link.dispose();
+    await c.runtime.close();
+  });
+
+  it("serves each socket its OWN RpcServer — one peer's teardown leaves the other answering", async () => {
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c", processId: "pid-2" }) },
+    );
+    const first = socketPair();
+    const second = socketPair();
+    const servingA = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: first.server as unknown as ServableSocket,
+    });
+    const servingB = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: second.server as unknown as ServableSocket,
+    });
+    const linkA = (
+      await createSurfaceSocket({
+        group: runtime.group,
+        url: "ws://test/rpc/ws",
+        connect: () => first.client as unknown as WebSocket,
+      })
+    ).link;
+    const linkB = (
+      await createSurfaceSocket({
+        group: runtime.group,
+        url: "ws://test/rpc/ws",
+        connect: () => second.client as unknown as WebSocket,
+      })
+    ).link;
+
+    servingA.close();
+    await servingA.done;
+    // B is untouched by A's teardown.
+    expect(
+      await Effect.runPromise(
+        linkB.dispatch.unary("surface/surfaceApp/identity/info", {}),
+      ),
+    ).toEqual({ processId: "pid-2" });
+
+    await linkA.dispose();
+    await linkB.dispose();
+    servingB.close();
+    await servingB.done;
+    await runtime.close();
   });
 });

@@ -16,6 +16,11 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
+import type { SurfaceHandlers } from "@kolu/surface/server";
+import { Effect, Exit, Layer, Scope } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { Socket, SocketServer } from "effect/unstable/socket";
 import type { Hono } from "hono";
 import {
   ASSET_MISS_CACHE_CONTROL,
@@ -348,8 +353,13 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
  *  process reads as a restart) — the restart axis's turnkey counterpart to
  *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
  *  tests). Pairs with the surface's `identity.info` procedure and with the
- *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
- *  sibling client consumes the `surfaceApp` key). */
+ *  provider's `probe={() => surfaceAppProbe(client)}` (the scoped sibling client
+ *  consumes the `surfaceApp` key).
+ *
+ *  The handler returns an `Effect` (PLAN D10 / S2 §5.4): a surface procedure impl
+ *  is `({ input, ctx }) => Effect<O, E>` now, so the probe answers with
+ *  `Effect.succeed`. It has no declared error channel — a `processId` read from a
+ *  closure cannot fail. */
 export function serverIdentity(opts: { processId?: string } = {}): {
   /** The id this process minted (or the injected override). This is the
    *  read-back seam for a consumer that lets `serverIdentity` MINT the id
@@ -359,10 +369,10 @@ export function serverIdentity(opts: { processId?: string } = {}): {
    *  mints its own id externally (like kolu) single-sources by INJECTING it via
    *  `opts.processId` and need not read this field back. */
   processId: string;
-  identity: { info: () => Promise<{ processId: string }> };
+  identity: { info: () => Effect.Effect<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { processId, identity: { info: async () => ({ processId }) } };
+  return { processId, identity: { info: () => Effect.succeed({ processId }) } };
 }
 
 /** The whole surface-app server side in one call — the `buildInfo` cell impl
@@ -389,7 +399,9 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
    *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
    *  and need not read this field back. */
   processId: string;
-  procedures: { identity: { info: () => Promise<{ processId: string }> } };
+  procedures: {
+    identity: { info: () => Effect.Effect<{ processId: string }> };
+  };
 } {
   const identity = serverIdentity({ processId: opts.processId });
   return {
@@ -509,7 +521,7 @@ export function heartbeatSweep(
  * of `createHeartbeat` (`@kolu/surface-app/connect`) and the liveness sibling of
  * `gateStaleSocket`.
  *
- * `ws` (and partysocket on the client) ship NO application-level ping/pong, so a
+ * `ws` (and the browser leg's own socket) ship NO application-level ping/pong, so a
  * SILENTLY half-open socket — the TCP died with no FIN/RST (a client's laptop
  * slept, Wi-Fi roamed, or a NAT/proxy evicted the idle connection) — never fires
  * `close` on the server either. The dead socket lingers in `clients` holding its
@@ -631,10 +643,253 @@ export function acceptSurfaceSocket(opts: {
         return;
       }
       // Enrol in the liveness reaper, THEN dispatch — sequenced so a socket can't
-      // be dispatched without first being gated and enrolled.
+      // be dispatched without first being gated and enrolled. The DISPATCH is
+      // `serveSurfaceSocket(...)` (below) in the app's closure: the seam keeps the
+      // order, the app keeps the routing (`?host=`, an `__admin__` sentinel) and
+      // the per-connection services.
       heartbeat.register(ws);
       onAccepted();
     },
     stop: heartbeat.stop,
   };
+}
+
+// ── The RPC serving seam (PLAN D5 / review #6) ─────────────────────────────
+
+/** An ACCEPTED server-side WebSocket the RPC serving seam drives — the structural
+ *  subset of the `ws` package's socket (and of the browser `WebSocket`) that
+ *  Effect's `Socket.fromWebSocket` touches. Structural, like `GateableSocket` and
+ *  `HeartbeatableSocket`, so surface-app needn't depend on `ws`. */
+export interface ServableSocket {
+  readonly readyState: number;
+  addEventListener(
+    type: string,
+    listener: (event: Event) => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: string, listener: (event: Event) => void): void;
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** The address a `SocketServer` must declare. Nothing in Effect's socket-server
+ *  protocol reads it (it only calls `run`), and neither `TcpAddress` nor
+ *  `UnixAddress` describes an already-upgraded websocket — so this is a
+ *  placeholder, spelled once here rather than invented per call site. */
+const WEBSOCKET_ADDRESS = {
+  _tag: "TcpAddress",
+  hostname: "websocket",
+  port: 0,
+} as const;
+
+/** A view of an accepted socket that BUFFERS inbound frames until the RPC server
+ *  attaches its own `message` listener, then replays them in order.
+ *
+ *  This exists because the two sides are not in the same tick. `ws` starts
+ *  emitting the moment the upgrade completes, while `Socket.fromWebSocket`
+ *  attaches its listener inside an Effect run — so a client that sends its first
+ *  request in the same tick as the upgrade (every reconnecting client does: the
+ *  link re-issues its subscriptions immediately on open) would have that frame
+ *  dropped on the floor, and the subscription would hang forever with no error
+ *  anywhere. The oRPC handler attached synchronously and so never had the window.
+ *  Subscribing HERE, synchronously inside `serveSurfaceSocket`, closes it. */
+function bufferedSocketView(socket: ServableSocket): {
+  view: ServableSocket;
+  detach: () => void;
+} {
+  const pending: Event[] = [];
+  let downstream: ((event: Event) => void) | undefined;
+  const onMessage = (event: Event): void => {
+    if (downstream === undefined) pending.push(event);
+    else downstream(event);
+  };
+  socket.addEventListener("message", onMessage);
+  const view: ServableSocket = {
+    get readyState() {
+      return socket.readyState;
+    },
+    addEventListener: (type, listener, options) => {
+      if (type !== "message") {
+        socket.addEventListener(type, listener, options);
+        return;
+      }
+      downstream = listener;
+      // Replay in arrival order, on the same turn the listener attaches, so the
+      // decoder sees the frames exactly as they came off the wire.
+      const replay = pending.splice(0, pending.length);
+      for (const event of replay) listener(event);
+    },
+    removeEventListener: (type, listener) => {
+      if (type === "message") {
+        if (downstream === listener) downstream = undefined;
+        return;
+      }
+      socket.removeEventListener(type, listener);
+    },
+    send: (data) => socket.send(data),
+    close: (code, reason) => socket.close(code, reason),
+  };
+  return {
+    view,
+    detach: () => {
+      socket.removeEventListener("message", onMessage);
+      downstream = undefined;
+      pending.length = 0;
+    },
+  };
+}
+
+/** A `SocketServer` whose whole population is ONE already-accepted websocket.
+ *
+ *  Effect's server-side socket protocol is written against `SocketServer` (it
+ *  wants to accept), while an app's WS server accepts for itself — it must, since
+ *  the stale-tab gate and the liveness reaper run in front of RPC dispatch
+ *  (kolu#1231, review #6). Rather than reimplement either half, the accepted
+ *  socket is handed to the protocol as a one-connection server: `run` serves it
+ *  and then parks, exactly as `SocketServer.run`'s `Effect<never, …>` contract
+ *  demands. This is the websocket twin of `@kolu/surface/unix-socket`'s
+ *  one-connection server, and it is why `RpcServer.layerHttp` /
+ *  `layerProtocolWebsocket` (which would own the upgrade, and so own the ordering)
+ *  are not used. */
+function oneConnectionSocketServer(
+  socket: ServableSocket,
+): Layer.Layer<SocketServer.SocketServer> {
+  return Layer.effect(SocketServer.SocketServer)(
+    Effect.map(
+      Socket.fromWebSocket(
+        Effect.acquireRelease(
+          // The socket is ALREADY open (the app accepted it), so
+          // `fromWebSocket`'s open-wait short-circuits.
+          // The cast is structural: `ServableSocket` is exactly the slice of
+          // `WebSocket` this consumes, kept structural so surface-app needn't
+          // depend on `ws` (whose server socket is not nominally a DOM
+          // `WebSocket` either).
+          Effect.succeed(socket as unknown as WebSocket),
+          (ws) =>
+            Effect.sync(() => {
+              // 0 CONNECTING / 1 OPEN — anything else is already closing.
+              if (ws.readyState <= 1) ws.close();
+            }),
+        ),
+      ),
+      (accepted) =>
+        SocketServer.SocketServer.of({
+          address: WEBSOCKET_ADDRESS,
+          // `run`'s declared shape is `Effect<never, SocketServerError, R>`:
+          // never returning, failing only the way an ACCEPTING server can. This
+          // one cannot fail that way at all (there is nothing left to accept), so
+          // the cast erases an error channel that is uninhabited here — the
+          // handler's own failures stay in the handler's fiber. Same constraint,
+          // same shape, as `@kolu/surface/unix-socket`'s one-connection server.
+          run: (handler) =>
+            Effect.flatMap(
+              handler(accepted),
+              () => Effect.never,
+            ) as unknown as Effect.Effect<
+              never,
+              SocketServer.SocketServerError,
+              never
+            >,
+        }),
+    ),
+  );
+}
+
+/** A socket being served: the teardown handle and the fault channel. */
+export interface SurfaceSocketServing {
+  /** Stop serving this socket and release everything the serve owns (the RPC
+   *  server's fibers, every in-flight subscription, the buffered-view listener)
+   *  and close the socket. Idempotent. */
+  close(): void;
+  /** Rejects if the serving stack itself failed; resolves when serving ended
+   *  cleanly (the peer closed, or `close()` was called). A serving site MUST
+   *  observe it — same contract as `SurfaceRuntime.done`: an ignored rejection is
+   *  an unhandled one, which is the loud channel a silently dead connection
+   *  deserves. */
+  done: Promise<void>;
+}
+
+/** Serve one ACCEPTED websocket with the surface's Effect RPC server — the
+ *  dispatch step of `acceptSurfaceSocket`'s gate → enrol → dispatch order.
+ *
+ *  Call it from the `onAccepted` closure, never before: the stale-tab gate must
+ *  close a tab bound to a previous instance BEFORE any RPC dispatch (kolu#1231),
+ *  and the reaper must hold every socket it will later sweep. Keeping the call at
+ *  the app's site is also what lets a multi-host server pick WHICH runtime serves
+ *  this socket (`?host=` routing) — the one thing a generic seam cannot decide.
+ *
+ *  Per-connection by design: each socket gets its own `RpcServer` over the SHARED
+ *  handlers (the same shape `@kolu/surface/unix-socket` serves each accepted
+ *  connection with), so one peer's teardown cannot touch another's — and so
+ *  per-connection SERVICES can be provided, which is how a per-viewer fact
+ *  (`viewerAddress`, the forwarded-for header) reaches a handler now that the
+ *  socket protocol carries no request headers. */
+export function serveSurfaceSocket<Svc = never>(opts: {
+  /** The served surface's flat `RpcGroup` — `runtime.group`. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
+  handlers: SurfaceHandlers;
+  /** The accepted socket (gated and enrolled — see above). */
+  socket: ServableSocket;
+  /** Services this ONE connection's handlers may require — the seam a
+   *  per-viewer fact rides (kolu's `viewerAddress` / `forwardedFor`, which the
+   *  connection's `req.socket.remoteAddress` and headers supply). A layer, not a
+   *  header map: Effect's socket-server protocol has no per-request header
+   *  channel, and a per-connection serving stack can simply provide the service. */
+  services?: Layer.Layer<Svc>;
+}): SurfaceSocketServing {
+  const buffered = bufferedSocketView(opts.socket);
+  const base = RpcServer.layer(opts.group).pipe(
+    // `handlers` is the erased, tag-keyed record S2 mints; `toLayer`'s typed
+    // handler map is derived from the group's precise Rpc union, which a runtime
+    // spec walk cannot produce (review #16). Same cast, same reason, as
+    // `@kolu/surface/unix-socket`'s serving layer.
+    Layer.provide(opts.group.toLayer(opts.handlers as never)),
+    Layer.provide(RpcServer.layerProtocolSocketServer),
+    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(oneConnectionSocketServer(buffered.view)),
+  );
+  const serving =
+    opts.services === undefined
+      ? base
+      : base.pipe(Layer.provide(opts.services));
+
+  let settle!: (err?: unknown) => void;
+  const done = new Promise<void>((resolvePromise, rejectPromise) => {
+    settle = (err) => {
+      if (err === undefined) resolvePromise();
+      else rejectPromise(err);
+    };
+  });
+
+  const scope = Scope.makeUnsafe();
+  let ended = false;
+  const teardown = (err?: unknown): void => {
+    if (ended) return;
+    ended = true;
+    buffered.detach();
+    // Releasing the scope interrupts the RPC server's fibers, which finalizes
+    // every in-flight subscription this connection opened — the server-side
+    // zombie the reaper's `terminate()` exists to prevent, closed from the other
+    // end. The socket's own release (the acquire above) closes it.
+    void Effect.runPromise(Scope.close(scope, Exit.void)).then(
+      () => settle(err),
+      // A teardown fault must not replace the reason we are tearing down.
+      (closeErr) => settle(err ?? closeErr),
+    );
+  };
+  // The peer hanging up ends the serve. Registered on the REAL socket (not the
+  // buffered view, whose `message` channel is the RPC server's) so it fires
+  // whether the close came from the client, the reaper's `terminate()`, or us.
+  opts.socket.addEventListener("close", () => teardown(), { once: true });
+  Effect.runPromise(Scope.provide(Layer.build(serving), scope)).then(
+    // The build resolves once the serving stack is up; the connection then lives
+    // in the scope until a close. Nothing to do here — `done` settles at
+    // teardown, which is what a caller wants to log.
+    () => {},
+    // A per-connection build failure kills THIS connection and reaches the
+    // caller through `done`; it never touches another peer or the listener.
+    (err) => teardown(err),
+  );
+  return { close: () => teardown(), done };
 }
