@@ -261,6 +261,11 @@ export function sshConnector<S extends SurfaceSpec>(
 
     return {
       client,
+      // The link's own dispatch, handed back so a consumer can build a SECOND
+      // sibling's face over the same wire without re-dialing (a two-sibling daemon
+      // — padi's versioned surface plus the frozen control core — is one link with
+      // two faces, and `client` is only the first).
+      dispatch: link.dispatch,
       closed,
       // The framework-reserved `system.live` round-trip — contract-agnostic, so no
       // consumer probe is needed. A rejection still counts as alive (the round-trip

@@ -239,7 +239,8 @@ function resolveSocketPath(flags: {
 
 /** Dial a LOCAL padi at an already-resolved socket path. `connectPadiTui` runs the
  *  control-core handshake + compatibility gate, so a skew or an unreachable socket
- *  fails loud here with an actionable hint rather than deep inside oRPC. */
+ *  fails loud here with an actionable hint rather than as a decode failure on the
+ *  first real call. */
 function connectLocal(socketPath: string): Promise<Connection> {
   return connectPadiTui(socketPath).catch((err) =>
     fail(
@@ -294,7 +295,7 @@ function resolveEndpoint(flags: {
  *  terminals, failing loudly on no-match or ambiguity — so `<id>` accepts the
  *  short id `status` prints (or any unique prefix) and a pasted full id
  *  round-trips. */
-function resolveOne(query: string, ids: TerminalId[]): TerminalId {
+function resolveOne(query: string, ids: readonly TerminalId[]): TerminalId {
   const result = resolveTerminalId(query, ids);
   if (result.kind === "found") return result.id;
   if (result.kind === "none") {

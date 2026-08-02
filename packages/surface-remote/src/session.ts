@@ -58,6 +58,7 @@ import {
   type ServedIdentity,
   type SurfaceIdentity,
 } from "@kolu/surface/identity";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
@@ -200,6 +201,14 @@ export interface Session<
    *  meaning, so `currentClient() !== null` is NEVER "the far end is live" — read
    *  {@link currentState} (`.phase === "connected"`) for honest liveness. */
   currentClient(): Promise<Client> | null;
+  /** The CURRENT connection's {@link Connection.dispatch}, or `undefined` when
+   *  there is no live connection or its connector supplied none. Synchronous, and
+   *  read at the instant of the call — a reconnect replaces it, so a consumer that
+   *  builds a second face off it must re-read rather than cache across a drop.
+   *
+   *  OPTIONAL on the role so a hand-built session (a test stand-in, a consumer's
+   *  own receptacle) stays assignable; `makeSession` always implements it. */
+  currentDispatch?(): SurfaceDispatch | undefined;
   /** The current published connection frame — the SYNCHRONOUS point-read twin of
    *  {@link onState}'s snapshot-then-delta. Returns exactly `stateCell.current()`,
    *  the same value `onState` publishes, so honest liveness is
@@ -283,6 +292,19 @@ export type ClosedInfo =
 export interface Connection<Client> {
   /** The live client for THIS attempt. */
   client: Client;
+  /** The link's tag-keyed dispatch behind {@link Connection.client}, when the
+   *  connector has one to give.
+   *
+   *  A connector builds ONE typed face from ONE surface, which is all most
+   *  consumers want — but a daemon that serves SIBLING surfaces (padi's versioned
+   *  surface beside the frozen control core) is one wire with two faces, and the
+   *  second face can only be built over the same dispatch. Handing it back is what
+   *  lets a consumer build it without re-dialing.
+   *
+   *  OPTIONAL because it is a property of the TRANSPORT, not of the role: an
+   *  in-process endpoint connector (padi's local arm) has a client with no wire
+   *  behind it at all, and must stay a valid `Connection`. */
+  dispatch?: SurfaceDispatch;
   /** Resolves when THIS attempt's link dies. The loop awaits it to reconnect. */
   closed: Promise<ClosedInfo>;
   /** Probe THIS connection's liveness — the watchdog's per-transport probe. A
@@ -1538,6 +1560,9 @@ export function makeSession<
     },
     currentClient() {
       return destroyed ? null : clientPromise;
+    },
+    currentDispatch() {
+      return destroyed ? undefined : (current?.dispatch ?? undefined);
     },
     currentState() {
       // The freshest cell truth — the same value `onState` publishes, read

@@ -35,8 +35,8 @@ export interface Connection {
  * padi-sibling-scoped client. `connectPadi` runs the control-core handshake AND
  * the typed COMPATIBILITY gate for us, so a padi too new for this build (or a
  * padi-tui too old) fails LOUD here — a `DaemonContractSkewError` the CLI turns
- * into an honest "upgrade" line — rather than deep inside oRPC with an opaque
- * schema error. This is the LOCAL socket dial only; the remote `--host` dial
+ * into an honest "upgrade" line — rather than as an opaque schema-decode failure
+ * on the first real call. This is the LOCAL socket dial only; the remote `--host` dial
  * lives in `hostConnect.ts` (`connectPadiTuiViaHost`), which reaches a padi on
  * another machine over ssh.
  */

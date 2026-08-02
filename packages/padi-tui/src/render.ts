@@ -54,7 +54,7 @@ export type ResolveResult =
  *  for more chars. */
 export function resolveTerminalId(
   query: string,
-  ids: TerminalId[],
+  ids: readonly TerminalId[],
 ): ResolveResult {
   // An empty query is a prefix of EVERY id, so with one live terminal it would
   // silently resolve to it — a wrong-terminal footgun when `$id` is accidentally

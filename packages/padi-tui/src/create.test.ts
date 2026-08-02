@@ -11,13 +11,23 @@ import type { PadiTuiClient } from "./connect.ts";
 import { runCreate } from "./create.ts";
 
 /** A stub `PadiTuiClient` exposing just the verbs `runCreate` touches. `sendInput`
- *  records the raw PTY `data` so a test can assert exactly what the shell receives. */
-function stubClient(): { client: PadiTuiClient; sent: string[] } {
+ *  records the raw PTY `data` so a test can assert exactly what the shell receives,
+ *  and `create` records its whole PAYLOAD so a test can assert which keys are
+ *  present — not merely their values. */
+function stubClient(): {
+  client: PadiTuiClient;
+  sent: string[];
+  created: Array<Record<string, unknown>>;
+} {
   const sent: string[] = [];
+  const created: Array<Record<string, unknown>> = [];
   const client = {
     surface: {
       lifecycle: {
-        create: vi.fn(async () => ({ id: "t-new" })),
+        create: vi.fn(async (input: Record<string, unknown>) => {
+          created.push(input);
+          return { id: "t-new" };
+        }),
         sendInput: vi.fn(async ({ data }: { id: string; data: string }) => {
           sent.push(data);
         }),
@@ -27,7 +37,7 @@ function stubClient(): { client: PadiTuiClient; sent: string[] } {
       },
     },
   } as unknown as PadiTuiClient;
-  return { client, sent };
+  return { client, sent, created };
 }
 
 /** The argv a shell re-parsing the launched line recovers — strip the trailing
@@ -72,5 +82,37 @@ describe("runCreate — the launched command round-trips the argv", () => {
     const result = await runCreate(client, { argv: [] });
     expect(sent).toHaveLength(0);
     expect(result.ran).toBeUndefined();
+  });
+});
+
+describe("runCreate — the create payload OMITS absent optional keys", () => {
+  // `PadiCreateInputSchema` spells `cwd`/`parentId` with `Schema.optionalKey`
+  // (PLAN #17, the law for every wire field zod used to `.optional()`), which —
+  // unlike zod — REFUSES an explicit `undefined` rather than round-tripping it
+  // through `null`. So a `{ cwd, parentId }` shorthand here would encode-fail on
+  // the wire for the commonest create of all. `Object.keys`, not
+  // `toEqual`/`toHaveBeenCalledWith`: those treat an `undefined`-valued key as
+  // absent, which is exactly the distinction under test.
+  it("omits cwd and parentId when neither was chosen", async () => {
+    const { client, created } = stubClient();
+    await runCreate(client, { argv: [] });
+    expect(created).toHaveLength(1);
+    expect(Object.keys(created[0] ?? {})).toEqual([]);
+  });
+
+  it("carries only the keys that were chosen", async () => {
+    const { client, created } = stubClient();
+    await runCreate(client, { argv: [], parentId: "t-parent" });
+    expect(Object.keys(created[0] ?? {})).toEqual(["parentId"]);
+  });
+
+  it("takes cwd from the materialized worktree, not the caller's", async () => {
+    const { client, created } = stubClient();
+    await runCreate(client, {
+      argv: [],
+      cwd: "/local",
+      worktree: { repoPath: "/repo", name: "feat" },
+    });
+    expect(created[0]).toEqual({ cwd: "/wt" });
   });
 });

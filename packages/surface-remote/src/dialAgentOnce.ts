@@ -27,6 +27,7 @@
 
 import type { Logger } from "@kolu/log";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { readBakedAgentSource } from "./agentDrv";
 import { makeSession } from "./session";
@@ -36,6 +37,18 @@ import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
  *  the ssh session down. NON-generic — see {@link AgentClient}. */
 export interface AgentDial {
   client: AgentClient;
+  /** The link's tag-keyed dispatch behind {@link AgentDial.client} — the seam a
+   *  consumer builds a SECOND sibling's face over. `client` is ONE face built from
+   *  ONE surface; a daemon that serves sibling surfaces (padi's versioned surface
+   *  beside the frozen control core) is one wire with two, and only the dispatch
+   *  reaches the other.
+   *
+   *  OPTIONAL, mirroring {@link Connection.dispatch}: it is a property of the
+   *  TRANSPORT, not of the dial. Every `sshConnector` dial supplies one, so a
+   *  consumer that genuinely needs the second face should treat `undefined` as the
+   *  loud error it is rather than degrading — this field exists so that consumer
+   *  can be written at all, not so it can guess. */
+  dispatch?: SurfaceDispatch;
   dispose: () => void;
 }
 
@@ -211,6 +224,11 @@ export async function dialAgentOnce<S extends SurfaceSpec>(
     session.markConnected();
     return {
       client,
+      // The live connection's dispatch, read at hand-back. `sshConnector` always
+      // supplies one; a session standing in for the connector (a test's fake) may
+      // not, which is why the field is optional rather than asserted here — see
+      // {@link AgentDial.dispatch}.
+      dispatch: session.currentDispatch?.(),
       dispose: () => {
         session.destroy();
       },
