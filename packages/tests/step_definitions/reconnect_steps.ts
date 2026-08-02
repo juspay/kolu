@@ -24,50 +24,95 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 type WireStatus = "connecting" | "open" | "closed" | "retired";
 type TestWire = {
   status: () => WireStatus;
+  onStatus: (cb: (s: WireStatus) => void) => () => void;
   forceReconnect: () => void;
 };
+/** The page-side globals this file installs: the wire hook `client/src/wire.ts`
+ *  publishes, plus the one-shot severance flag the drop step arms. */
+type WireWindow = Window & {
+  __koluWire?: TestWire;
+  __koluWireSevered?: boolean;
+};
 
-/** Poll until the header's data-ws-status attribute equals the expected value. */
-function waitForWsStatus(page: Page, expected: string): Promise<unknown> {
+/** Poll until the header's data-ws-status attribute equals the expected value.
+ *  On timeout, quote what the header ACTUALLY read and what the transport under it
+ *  reported — the two can disagree (the UI derives its dot from the lifecycle, not
+ *  from the socket), and "timed out" alone doesn't say which half broke. */
+async function waitForWsStatus(page: Page, expected: string): Promise<void> {
+  await page
+    .waitForFunction(
+      (want) =>
+        document
+          .querySelector("[data-ws-status]")
+          ?.getAttribute("data-ws-status") === want,
+      expected,
+      { timeout: POLL_TIMEOUT },
+    )
+    .catch(async () => {
+      const seen = await page.evaluate(() => ({
+        header:
+          document
+            .querySelector("[data-ws-status]")
+            ?.getAttribute("data-ws-status") ?? "(no [data-ws-status] element)",
+        wire: (window as WireWindow).__koluWire?.status() ?? "(no wire hook)",
+      }));
+      throw new Error(
+        `connection status never became "${expected}" — the header read "${seen.header}" while the wire read "${seen.wire}"`,
+      );
+    });
+}
+
+/** Wait for the wire to report `open` — the precondition for severing it, and the
+ *  proof of restoration afterwards. */
+function waitForWireOpen(page: Page): Promise<unknown> {
   return page.waitForFunction(
-    (want) =>
-      document
-        .querySelector("[data-ws-status]")
-        ?.getAttribute("data-ws-status") === want,
-    expected,
+    () => (window as WireWindow).__koluWire?.status() === "open",
+    undefined,
     { timeout: POLL_TIMEOUT },
   );
 }
 
 When("the WebSocket connection drops", async function (this: KoluWorld) {
-  const observed = await this.page.evaluate(() => {
-    const w = window as Window & { __koluWire?: TestWire };
+  // `forceReconnect()` is a no-op while a re-dial is already in flight (there is no
+  // socket to sever), so start from a wire that is provably `open`. Without this the
+  // step could "pass" by severing nothing during an unrelated blip.
+  await waitForWireOpen(this.page);
+  await this.page.evaluate(() => {
+    const w = window as WireWindow;
     if (!w.__koluWire) throw new Error("window.__koluWire hook is absent");
-    // forceReconnect severs the current socket synchronously (the link's
-    // half-open recovery action), then re-dials on its own schedule.
+    // Arm a status RECORDER *before* severing. `forceReconnect()` calls
+    // `ws.close(1000)`, and the browser delivers the resulting `close` event on a
+    // LATER task — so reading `status()` synchronously after the call always reads
+    // the stale "open", and polling for the non-open window from Node can race
+    // straight through it (the link re-dials ~500ms later). Subscribing to
+    // `onStatus` cannot miss the transition.
+    w.__koluWireSevered = false;
+    const off = w.__koluWire.onStatus((s) => {
+      if (s === "open") return;
+      w.__koluWireSevered = true;
+      off();
+    });
     w.__koluWire.forceReconnect();
-    return w.__koluWire.status();
   });
-  // Prove the drop was real: the wire must have left "open" at the moment of
-  // severance. (It may already be re-dialing — that's fine; "restored" and the
-  // feature's Then steps own the recovery half.)
-  if (observed === "open") {
-    throw new Error(
-      `forceReconnect() did not sever the wire — status stayed "${observed}"`,
-    );
-  }
+  // Prove the drop was REAL: the wire must actually have left "open". A
+  // `forceReconnect()` that severed nothing leaves the flag false and fails HERE,
+  // quoting the transport — never later as a mystery missing terminal frame.
+  await this.page
+    .waitForFunction(
+      () => (window as WireWindow).__koluWireSevered === true,
+      undefined,
+      { timeout: POLL_TIMEOUT },
+    )
+    .catch(() => {
+      throw new Error(
+        'forceReconnect() did not sever the wire — its status never left "open"',
+      );
+    });
 });
 
 When("the WebSocket connection is restored", async function (this: KoluWorld) {
   // The link re-dials on its own; restoration is proven, not performed.
-  await this.page.waitForFunction(
-    () => {
-      const w = window as Window & { __koluWire?: TestWire };
-      return w.__koluWire?.status() === "open";
-    },
-    undefined,
-    { timeout: POLL_TIMEOUT },
-  );
+  await waitForWireOpen(this.page);
 });
 
 Then(

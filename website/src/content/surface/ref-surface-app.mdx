@@ -77,6 +77,16 @@ right here, so a client and a wire that disagreed about which members exist is
 unspellable. `connectSurfaces` refuses an empty map: with no sibling there is no
 tag for the watchdog to probe.
 
+Tags that ride the same wire but are **not** sibling surfaces go in
+`connectSurfaces`' `extraGroups` — a keyed map's group (for
+`connectSurfaceMap(map, conn.transport)`) and a host's hand-written root
+procedures (reached through `conn.transport.dispatch`). The wire's `RpcGroup`
+carries every tag's payload/success schemas, and Effect RPC's flat client resolves
+a call by looking its tag up there, so a tag the group never minted cannot be
+dispatched at all. Each entry must be disjoint from the composed siblings and from
+every other entry: the merge counts the result and throws if a collision swallowed
+a tag.
+
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
 
 `connectSurface` returns `{ link, echo, client, status, dispose }`;

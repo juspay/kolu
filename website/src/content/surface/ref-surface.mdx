@@ -460,7 +460,7 @@ before it touches a handler.
 | Export | Role |
 | --- | --- |
 | `SurfaceDispatch` | the erased `{ unary, stream }` seam both stages compile against |
-| `WireStatus` | `connecting` · `open` · `closed` · `retired` — `retired` is terminal (the server closed a stale tab's socket with `4001`) |
+| `WireStatus` | `connecting` · `open` · `closed` · `retired` — published from the PROTOCOL's connect/disconnect, so `open` means "the protocol can send" (not merely "the socket fired `open`"); `retired` is terminal (the server closed a stale tab's socket with `4001`) |
 | `WatchableWire` | `{ status, onStatus, forceReconnect }` — what the half-open watchdog needs from a transport |
 | `WireTransport` | `{ dispatch, wire }`, minted together, so a watchdog provably probes the transport it reconnects |
 | `brandHalfOpenDispatch` · `isHalfOpenDispatch` | the wire brand and its guard |

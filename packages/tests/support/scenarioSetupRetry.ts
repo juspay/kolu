@@ -1,39 +1,4 @@
-export class HttpStatusError extends Error {
-  constructor(
-    readonly status: number,
-    url: string,
-    body: string,
-  ) {
-    super(`POST ${url} -> HTTP ${status}${body ? `: ${body}` : ""}`);
-  }
-}
-
-export class BoundedErrorBody {
-  readonly #chunks: Buffer[] = [];
-  #capturedBytes = 0;
-  #truncated = false;
-
-  constructor(readonly maxBytes: number) {}
-
-  push(chunk: Buffer): void {
-    const remaining = this.maxBytes - this.#capturedBytes;
-    if (remaining <= 0) {
-      this.#truncated = true;
-      return;
-    }
-    if (chunk.byteLength > remaining) this.#truncated = true;
-    const captured = Buffer.from(chunk.subarray(0, remaining));
-    this.#chunks.push(captured);
-    this.#capturedBytes += captured.byteLength;
-  }
-
-  text(): string {
-    const captured = Buffer.concat(this.#chunks).toString().trim();
-    return this.#truncated
-      ? `${captured}\n[response body truncated at ${this.maxBytes} bytes]`
-      : captured;
-  }
-}
+import { isPadiWarmingUp, RpcCallFailed } from "./rpcWire.ts";
 
 const TRANSIENT_SETUP_ERRORS = [
   "ECONNRESET",
@@ -70,8 +35,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Retry transport failures during scenario setup. HTTP responses are already
- * completed requests, so their bodies can never masquerade as transport errors. */
+/** Retry transport failures during scenario setup. An {@link RpcCallFailed} is an
+ * ANSWERED call (the wire carried the server's failure back), so its message can never
+ * masquerade as a transport error — it breaks out immediately, exactly as a completed
+ * HTTP response used to. */
 export async function retryTransient<T>(
   label: string,
   fn: () => Promise<T>,
@@ -82,12 +49,12 @@ export async function retryTransient<T>(
       return await fn();
     } catch (err) {
       last = err;
-      if (err instanceof HttpStatusError) break;
+      if (err instanceof RpcCallFailed) break;
       if (!isTransientSetupError(err) || attempt === 3) break;
       await sleep(100 * attempt);
     }
   }
-  if (last instanceof HttpStatusError) throw last;
+  if (last instanceof RpcCallFailed) throw last;
   const codes = errorCodes(last);
   const suffix = codes.length ? ` [${[...new Set(codes)].join(",")}]` : "";
   throw last instanceof Error
@@ -115,7 +82,7 @@ export async function retryPadiScenarioReset(
       await attempt(remaining);
       return;
     } catch (err) {
-      if (err instanceof HttpStatusError && err.status === 503) continue;
+      if (isPadiWarmingUp(err)) continue;
       throw err;
     }
   }

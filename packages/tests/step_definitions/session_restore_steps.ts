@@ -4,13 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { resumableTerminalIds } from "@kolu/padi/resumable";
+import { Schema } from "effect";
 import {
   LOCAL_LOCATION,
   SavedSessionSchema,
   type SavedTerminal,
 } from "@kolu/padi/surface";
 import { padiStateDir } from "../support/hooks.ts";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -72,18 +73,7 @@ async function postSavedSessionPayload(
   };
   if (activeTerminalId !== undefined)
     payload.activeTerminalId = activeTerminalId;
-  const resp = await world.page.request.fetch(
-    "/rpc/surface/padi/session/test__set",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: padiFold(payload) }),
-    },
-  );
-  assert.ok(
-    resp.ok(),
-    `surface/padi/session/test__set failed: ${resp.status()}`,
-  );
+  await padiCall("session/test__set", payload);
 }
 
 Given(
@@ -390,9 +380,13 @@ Then(
       const persisted = JSON.parse(fs.readFileSync(sessionFile, "utf8")) as {
         session?: unknown;
       };
-      const session = SavedSessionSchema.nullable().parse(
-        persisted.session ?? null,
-      );
+      const raw = persisted.session ?? null;
+      // Parsed with padi's OWN schema (`Schema.decodeUnknownSync` — the Effect
+      // successor of the zod `.nullable().parse()` this used to spell), so a blob
+      // that has drifted from the contract fails LOUDLY here rather than being
+      // counted as zero resumable agents.
+      const session =
+        raw === null ? null : Schema.decodeUnknownSync(SavedSessionSchema)(raw);
       const terminals = session?.terminals ?? [];
       return {
         count: resumableTerminalIds(terminals).length,

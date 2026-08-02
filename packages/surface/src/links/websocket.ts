@@ -126,7 +126,11 @@ export async function websocketLink(
           setStatus("connecting");
           const ws = connect(opts.url());
           currentSocket = ws;
-          ws.addEventListener("open", () => setStatus("open"), { once: true });
+          // The socket's own `close` is where the terminal-close CLASSIFIER runs —
+          // the close CODE is only on this event, and this listener is registered
+          // before Effect's, so `retired` is already decided by the time the
+          // protocol reports the disconnect. It does NOT publish the status: that
+          // is the protocol's job (see `connectionHooks` below).
           ws.addEventListener(
             "close",
             (event: Event) => {
@@ -135,16 +139,7 @@ export async function websocketLink(
                 retired = true;
                 retiredCode = code;
               }
-              // `retired` is TERMINAL and is raised INSTEAD of `closed`: the
-              // schedule below will not re-dial, so a watchdog that saw
-              // `closed` would sit waiting for a reconnect that can never come.
-              setStatus(retired ? "retired" : "closed");
             },
-            { once: true },
-          );
-          ws.addEventListener(
-            "error",
-            () => setStatus(retired ? "retired" : "closed"),
             { once: true },
           );
           return ws;
@@ -159,6 +154,37 @@ export async function websocketLink(
     ),
   );
 
+  // `WireStatus` is published from the PROTOCOL's connect/disconnect hooks, not
+  // from the raw socket's `open`/`close` events — and the difference is a real
+  // reconnect bug, not a nicety.
+  //
+  // Effect's socket protocol latches a `currentError` when a run ends and clears it
+  // in its own connect hook; until that clear, every `send` fails IMMEDIATELY with
+  // the previous close. The raw `open` listener fires BEFORE that clear (this
+  // module registers it inside `acquire`, ahead of the protocol's), so a consumer
+  // that acts on the `open` EDGE — surface-app's `createServerLifecycle`, which
+  // probes the server's identity there — issued its probe into a protocol that was
+  // still poisoned, got the stale `SocketCloseError`, and (correctly) declined to
+  // transition. Nothing else ever fires `open` again, so the app sat "disconnected"
+  // after every successful reconnect.
+  //
+  // Publishing from `onConnect` makes `open` MEAN "the protocol can send", which is
+  // what every edge consumer already assumed. `onDisconnect` runs on every run end
+  // (including a CLEAN 1000 close, which the protocol turns into a failure), so the
+  // closed/retired edge stays exactly as observable as before — and it reads the
+  // `retired` flag the socket's own `close` listener has already set.
+  const connectionHooks = Layer.succeed(RpcClient.ConnectionHooks)(
+    RpcClient.ConnectionHooks.of({
+      onConnect: Effect.sync(() => setStatus("open")),
+      // `retired` is TERMINAL and is raised INSTEAD of `closed`: the schedule below
+      // will not re-dial, so a watchdog that saw `closed` would sit waiting for a
+      // reconnect that can never come.
+      onDisconnect: Effect.sync(() =>
+        setStatus(retired ? "retired" : "closed"),
+      ),
+    }),
+  );
+
   const protocol = Layer.effect(RpcClient.Protocol)(
     RpcClient.makeProtocolSocket({
       // Suppresses the failure broadcast while a socket that never OPENED is
@@ -171,6 +197,7 @@ export async function websocketLink(
     Layer.provide([
       Layer.succeed(Socket.Socket)(socket),
       RpcSerialization.layerNdjson,
+      connectionHooks,
     ]),
   );
 

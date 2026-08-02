@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
@@ -14,22 +14,14 @@ const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
 const tileSelector = (sel: string, tileId: string) =>
   `${sel} [data-testid="canvas-tile"][data-terminal-id="${tileId}"]`;
 
-/** Set a tile's canvas layout (position + size) via the server RPC. */
-async function setCanvasLayout(
-  world: KoluWorld,
+/** Set a tile's canvas layout (position + size) via the server RPC — over the
+ *  harness's own wire, the same `/rpc/ws` transport the browser dials. A failed
+ *  call rejects (carrying what the server said), so a drifted member can never
+ *  pass silently. */
+const setCanvasLayout = (
   id: string,
   layout: { x: number; y: number; w: number; h: number },
-): Promise<void> {
-  const resp = await world.page.request.fetch(
-    "/rpc/surface/padi/chrome/setCanvasLayout",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: padiFold({ id, layout }) }),
-    },
-  );
-  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
-}
+): Promise<unknown> => padiCall("chrome/setCanvasLayout", { id, layout });
 
 When(
   "I resize created terminal {int} to width {int} and height {int}",
@@ -49,7 +41,7 @@ When(
       },
       { sel: tileSel },
     );
-    await setCanvasLayout(this, id, { x: current.x, y: current.y, w, h });
+    await setCanvasLayout(id, { x: current.x, y: current.y, w, h });
     // Wait for the tile to render at the new size.
     await this.page.waitForFunction(
       ({

@@ -38,6 +38,7 @@ import {
   surfaceClients,
   surfaceClientsHealth,
 } from "@kolu/surface/solid";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import type { Accessor } from "solid-js";
 import {
   createSurfaceSocket,
@@ -56,6 +57,27 @@ export interface ConnectSurfacesOptions<
    *  (`composeSurfaceContracts`), so the wire and the clients can never disagree
    *  about which members exist. */
   surfaces: E;
+  /** Groups MULTIPLEXED on the same wire that are not sibling `Surface`s — the tags a
+   *  consumer dials over `conn.transport` rather than through `clients.<key>`:
+   *
+   *   - a keyed `SurfaceMap`'s group, for the documented
+   *     `connectSurfaceMap(map, conn.transport)` composition (kolu's padi host map);
+   *   - a host's HAND-WRITTEN root procedures (kolu's `server/*`, `daemon/*`,
+   *     `hosts/*`), reached through `conn.transport.dispatch`.
+   *
+   *  They belong here because the wire's `RpcGroup` is what carries every tag's
+   *  payload/success SCHEMAS: Effect RPC's flat client looks a call's tag up in the
+   *  group it was built over, so a tag the group never minted cannot be dispatched at
+   *  all. Deriving the group from `surfaces` ALONE therefore made the two documented
+   *  multiplexing paths above unspellable — the wire connected, and every call over it
+   *  died. This option is what keeps "the wire serves exactly the tags this connection
+   *  can dial" true for a consumer that multiplexes.
+   *
+   *  Each group must be DISJOINT from the composed siblings and from every other extra
+   *  group: `RpcGroup.merge` is a last-writer-wins `Map.set` with no collision
+   *  detection, so a collision would silently drop one spelling of a shared tag. The
+   *  merge below COUNTS the result and throws if any tag was swallowed. */
+  extraGroups?: ReadonlyArray<RpcGroup.RpcGroup<Rpc.Any>>;
   /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`) —
    *  the same knob `connectSurface` accepts. There is deliberately NO disable
    *  option: this seam mints the watchdog-backed brand, and a disabled watchdog
@@ -121,7 +143,13 @@ export async function connectSurfaces<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces.
   const E extends Record<string, Surface<any>> = Record<string, Surface<any>>,
 >(opts: ConnectSurfacesOptions<E>): Promise<SurfacesConnection<E>> {
-  const { surfaces, heartbeat: hb, onClientError, ...socketOptions } = opts;
+  const {
+    surfaces,
+    extraGroups = [],
+    heartbeat: hb,
+    onClientError,
+    ...socketOptions
+  } = opts;
   // Fail fast on an empty surface map: the watchdog probes the reserved
   // `system/live` member on the FIRST sibling's TAG, so with no sibling there is
   // no probe target and the heartbeat would address a tag nothing serves. The key
@@ -139,9 +167,29 @@ export async function connectSurfaces<
   // `implementSurfaces`. Deriving it here (rather than taking it as an option)
   // is what makes "the wire serves exactly these surfaces" true by construction.
   const composed = composeSurfaceContracts(surfaces);
+  // ...plus anything else multiplexed on this wire (a keyed map's group, a host's
+  // root procedures). `RpcGroup.merge` has no collision detection, so disjointness is
+  // only real if it is COUNTED — the same proof kolu-server's `servedGroup` carries on
+  // the serving side. A swallowed tag would present as "the wire is up and this one
+  // call answers the wrong schema", which is far worse than a boot crash.
+  const expectedTags = extraGroups.reduce(
+    (n, g) => n + g.requests.size,
+    composed.group.requests.size,
+  );
+  const group = extraGroups.reduce(
+    (g, extra) => g.merge(extra),
+    composed.group as RpcGroup.RpcGroup<Rpc.Any>,
+  );
+  if (group.requests.size !== expectedTags) {
+    throw new Error(
+      `connectSurfaces: the dialled group carries ${group.requests.size} tag(s), expected ` +
+        `${expectedTags} — an \`extraGroups\` entry collides with a sibling surface's tags ` +
+        "(or with another extra group), and the merge silently dropped one of them.",
+    );
+  }
   const { link, echo } = await createSurfaceSocket({
     ...socketOptions,
-    group: composed.group,
+    group,
   });
   // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
   // minted: it wires the half-open watchdog (probing the reserved liveness member

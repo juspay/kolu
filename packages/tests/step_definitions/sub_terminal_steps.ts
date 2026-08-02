@@ -1,7 +1,7 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
 import { waitForBufferContains } from "../support/buffer.ts";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   COARSE_POINTER_QUERY,
@@ -144,18 +144,7 @@ When(
     const tabsBefore = await this.page
       .locator('[data-testid="sub-panel-tab-bar"] button:not([title])')
       .count();
-    const resp = await this.page.request.fetch(
-      "/rpc/surface/padi/lifecycle/create",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({ json: padiFold({ parentId }) }),
-      },
-    );
-    assert.ok(
-      resp.ok(),
-      `lifecycle/create --parent failed: ${resp.status()} ${await resp.text()}`,
-    );
+    await padiCall("lifecycle/create", { parentId });
     // Nested create must appear as another flat tab on the root tile's strip.
     await this.page.waitForFunction(
       (before) =>

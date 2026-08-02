@@ -38,6 +38,8 @@ import type { WatchableWire } from "@kolu/surface/link";
 import type { SurfaceFace } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { koluRootGroup } from "kolu-common/contract";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -167,6 +169,25 @@ export function interpretClientError(
 const conn = await connectSurfaces({
   surfaces,
   url: wsBaseUrl,
+  // The two tag namespaces kolu multiplexes on this ONE wire but does NOT reach
+  // through `clients.<key>`: the padi HOST MAP (dialled below via
+  // `connectSurfaceMap(padiHostMap, conn.transport)`) and kolu's hand-written ROOT
+  // procedures (reached via `rootProcedures(conn.transport.dispatch)`). Under Effect
+  // RPC the flat client resolves a call's payload/success SCHEMAS by looking its tag
+  // up in the group the wire was built over, so a tag absent from that group cannot
+  // be dispatched at all — the wire would connect and then fail every `surface/padi/*`
+  // and `hosts/*` call. This is the client twin of kolu-server's `servedGroup`
+  // (`server/src/surface.ts`), assembled from the same two sources.
+  //
+  // The one cast is kolu-server's, verbatim (`server/src/surface.ts`): `RpcGroup` is
+  // INVARIANT in its element union, so the hand-written, precisely-typed
+  // `koluRootGroup` is not assignable to the erased `RpcGroup<Rpc.Any>` every transport
+  // seam takes — even though every element IS an `Rpc.Any`. The two framework-assembled
+  // groups beside it are born erased and need none.
+  extraGroups: [
+    koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+    padiHostMap.group,
+  ],
   // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
   // route them through the ONE interpreter (design §A/m4).
   onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),

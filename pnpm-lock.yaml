@@ -2081,9 +2081,18 @@ importers:
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../surface-app
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
