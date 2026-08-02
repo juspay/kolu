@@ -7,7 +7,7 @@
  *   - `wal-watcher.ts`     — refcounted shared WAL subscription
  *   - `session-watcher.ts` — per-session lifecycle object built on `core` + WAL
  *   - `agent-adapter.ts`  — `AgentAdapter` instance the server consumes
- *   - `schemas.ts`         — zod schemas + types (browser-safe)
+ *   - `schemas.ts`         — Effect Schema definitions + types (browser-safe)
  *   - `config.ts`          — env-resolved DB/WAL paths
  *
  * Peers import from their leaves; `index.ts` is a pure barrel so nothing
