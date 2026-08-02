@@ -40,10 +40,17 @@ const ENTRY = resolve(SRC, "index.ts");
 // reason the surface edge is — a zero-dependency, Node-builtins-only, un-scoped
 // leaf that both consumers already ship, not an app package. Emphatically still
 // NO kolu-* app package.
+// W2 admits the `effect` edge: the frozen control-core dial taps the peer's
+// FIRST FRAME through `RpcSerialization.ndjson` — Effect's own parser, the very
+// implementation the RPC protocol layer runs — so the D6/#3 "unspeakable
+// protocol" classification asks the one framing authority rather than growing a
+// second one here. It is already a declared dependency of this package, and it
+// is the same kind of leaf the surface edge is: no app package, no kolu-* name.
 const ALLOWED_EXTERNAL = [
   "node:",
   "@kolu/surface",
   "@kolu/surface-daemon",
+  "effect",
   "osfacts-client",
   "ts-pattern",
 ];

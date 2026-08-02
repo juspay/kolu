@@ -115,7 +115,7 @@ mismatch is `uncorrelated`.
 | --- | --- |
 | `converge(endpoint)` | single fold over every observation → decide → budget-gated drain → private bind; genuine createEndpoint handle only; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b); give-up re-decides characterization without re-draining |
 | `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm; `budget` is `ConnectorDrainBudget` (recycle/nudge-human unspellable); `awaitExit` resolves only on process exit, not link loss (F3) |
-| `probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)` | endpoint probe for the frozen fragment; full `ConvergenceProbe`, `null` only for honest `ECONNREFUSED`/`ENOENT`, all other dial/hello failures—including a control-core version other than frozen `1.0`—throw |
+| `probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)` | endpoint probe for the frozen fragment; full `ConvergenceProbe`, `null` only for honest `ECONNREFUSED`/`ENOENT`, all other dial/hello failures—including a control-core version other than frozen `1.0`, and an undecodable first frame (`UnspeakableProtocolError`)—throw |
 | `probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })` | single probe-assembly authority for an already-dialed connector; drainable probes require both exit-oracle fields, while not-drainable probes omit them; SSH keeps its stronger process-exit oracle instead of treating link loss as exit |
 | `isNoListenerError(error)` | the one `ECONNREFUSED`/`ENOENT` classifier shared by generic and pre-fragment daemon probes |
 | `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg); sole decision authority under `converge` |
@@ -124,15 +124,43 @@ mismatch is `uncorrelated`.
 | `BindResult` · `BoundResidentCharacterization` | private-bind result; adopted residents carry four-valued characterization (`characterized \| absent \| failed \| uncorrelated`) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
 | `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `unconverged.running` is nullable (unknown); `link-failed` is session-owned |
-| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed` — evidence as data under `unconverged` |
+| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged` |
+| `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)` | the TRANSPORT fact: the peer's FIRST frame could not be decoded. Raised by `probeDaemonIdentity`'s dial at the decode itself — never by the hello deadline, a close, or a member error. Carries `socketPath` and a bounded, JSON-quoted `frame` excerpt. Uncorroborated it is an ordinary `probe-failed`. Brand-checked, realm-robust |
+| `UnspeakablePeerError` · `isUnspeakablePeerError(err)` | the CORROBORATED verdict — the same fact plus the two attestations the endpoint adds: the gate at this rendezvous is OURS and its `pid` passed the holder identity law. Only this becomes the `unspeakable-protocol` observation |
 | `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
 
 The generic probe deliberately throws when a live pre-fragment daemon answers
 the socket but has no `control.core.hello` route. A consumer with a named upgrade
-window may catch only that structured `NOT_FOUND` frame and project it as an
+window may catch only that structured route-missing failure and project it as an
 older-build observation. Kaval does this so its not-drainable policy reports the
 existing human nudge; it never turns the served-daemon fact into `null`, and no
-other probe error is caught.
+other probe error is caught. (The oRPC `NOT_FOUND` *frame* that carried this
+failure is gone with the protocol epoch; a consumer's narrowing re-derives on the
+Effect RPC failure it was replaced by.)
+
+### The third observation — `unspeakable-protocol`
+
+A daemon from a **previous protocol epoch** cannot be asked its version at all:
+version negotiation happens inside the protocol that was replaced, so its first
+frame is undecodable. Convergence therefore has a third narrowly-typed peer
+observation beside "identity" and "absent", and it is raised under exactly two
+attestations — **an explicit first-frame decode failure** from a peer whose
+**gate file is ours** and whose **pid we verified**. Nothing else earns it:
+an uncorroborated decode failure stays `probe-failed`, and a foreign
+socket-squatter keeps the untouched `SocketSquatterForeignError` path, so the
+observation can never put a SIGTERM near a process we have not proven is ours.
+
+Classification happens **at the decode**, not by waiting out the frozen hello's
+30 s deadline — which is also what keeps `awaitHelloGone` responsive inside a
+drain ceiling when the peer will never answer.
+
+The disposition is the **contract-skew policy**, because an undecodable wire is
+the limit case of a contract skew (the one whose version cannot be read):
+
+| policy | disposition |
+| --- | --- |
+| `recycle` (kaval) | SIGTERM the verified gate holder and spawn fresh — its children do not survive a wire break, as at any contract skew |
+| `refuse` · `drain-newer-else-refuse` (padi) | **refuse**: a drain verb on an unspeakable wire is unreachable, so the ordered policy degenerates to its other arm. The survivor is left standing + degraded, never killed, and the `unconverged` anomaly carries the `unspeakable-protocol` cause plus an operator-facing `detail` that says to stop that daemon out of band |
 
 <Aside type="note" title="Two policies in the wild">
   [kaval](/kaval) declares `recycle-on-skew`; [padi](/padi) declares `drain-newer-else-refuse` with

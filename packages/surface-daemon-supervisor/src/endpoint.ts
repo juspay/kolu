@@ -56,6 +56,11 @@ import type {
   ConvergencePolicy,
   DrainCapability,
 } from "./convergence/policy.ts";
+import {
+  isUnspeakablePeerError,
+  isUnspeakableProtocolError,
+  UnspeakablePeerError,
+} from "./convergence/unspeakable.ts";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
 import { registerEndpointPrivate } from "./endpoint.private.ts";
@@ -769,6 +774,76 @@ export function createEndpoint<
     }
   };
 
+  /**
+   * The convergence probe, plus the ONE corroboration PLAN D6/#3 demands before
+   * an undecodable wire may become a convergence verdict.
+   *
+   * The soul's probe raises {@link UnspeakableProtocolError} at an explicit
+   * first-frame decode failure — a TRANSPORT fact about whoever answered. That
+   * alone is not a licence to act: a stranger squatting our socket may send any
+   * bytes it likes, and this package never disposes of a process it has not
+   * proven is its own. So the fact is escalated to the corroborated
+   * {@link UnspeakablePeerError} only when BOTH attestations hold — the gate
+   * file at this rendezvous is ours, and the pid it names passes the same
+   * identity law {@link liveServingHolderProbe} applies before any SIGTERM.
+   *
+   * Anything less and the ORIGINAL error is rethrown, so the observation stays
+   * `probe-failed` and a foreign socket-squatter keeps the untouched
+   * {@link SocketSquatterForeignError} / refuse path. `probe-failed` is never
+   * widened; this only ever NARROWS a subset of it.
+   *
+   * The corroboration reads the gate through `liveServingHolderProbe`, not
+   * `liveServingHolder`: a probe is an OBSERVATION, and emitting `dead` from it
+   * would report a transition the convergence fold has not decided yet.
+   */
+  const probeCorroborated = async (): Promise<ConvergenceProbe<Cap> | null> => {
+    try {
+      return await spec.probe(primaryRv.socketPath);
+    } catch (err) {
+      if (!isUnspeakableProtocolError(err) || isUnspeakablePeerError(err)) {
+        throw err;
+      }
+      let holder: number | undefined;
+      try {
+        holder = await liveServingHolderProbe(primaryRv);
+      } catch (gateErr) {
+        // An unreadable gate or an indeterminate socket probe is not a NO — it
+        // is "we could not ask". Either way we have not proven the peer is ours,
+        // so the transport fact is reported as the probe failure it is. Logged
+        // rather than swallowed: the gate read's own error would otherwise
+        // vanish behind the decode failure.
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: primaryRv.socketPath,
+            err: String(gateErr),
+          },
+          "a peer spoke an undecodable first frame, but its gate could not be read — reporting a probe failure, never a convergence verdict",
+        );
+        throw err;
+      }
+      if (holder === undefined) {
+        spec.log.warn(
+          {
+            hostId: spec.hostId,
+            socketPath: primaryRv.socketPath,
+            gatePath: primaryRv.gatePath,
+            frame: err.frame,
+          },
+          "a peer spoke an undecodable first frame at our rendezvous, but no gate of ours names a verified holder — refusing to treat a stranger as our daemon",
+        );
+        throw err;
+      }
+      throw new UnspeakablePeerError({
+        socketPath: primaryRv.socketPath,
+        gatePath: primaryRv.gatePath,
+        pid: holder,
+        frame: err.frame,
+        cause: err,
+      });
+    }
+  };
+
   // SIGTERM a proven-live gate holder and wait for it to actually exit. Reports
   // `dead` and throws if it does not exit within the recycle ceiling —
   // respawning over a still-live holder would just yield to it (single
@@ -832,6 +907,12 @@ export function createEndpoint<
    * probe instance key with `instanceKeyFromStartedAt(heldConn.startedAt)`;
    * mismatch (or connection replaced mid-probe) ⇒ uncorrelated. Never overwrites
    * the probe's instance key with the connection key.
+   *
+   * An undecodable first frame is deliberately NOT escalated here: this path
+   * runs only AFTER the soul's `connect` handshaked successfully at this very
+   * rendezvous, so a peer that suddenly cannot be decoded is a fresh anomaly
+   * about a connection we already hold — `failed` (⇒ probe-failed) is the honest
+   * reading, and the conservative one.
    */
   const characterizeHeld = async (
     socketPath: string,
@@ -1672,7 +1753,7 @@ export function createEndpoint<
 
     // ── ConvergingEndpoint face — `converge(endpoint)` reads these ──────────
     policy: spec.policy,
-    probe: () => spec.probe(primaryRv.socketPath),
+    probe: probeCorroborated,
     // Drainable policies always mint a budget above; not-drainable leave null.
     // The Cap generic makes `budget` non-null when Cap is "drainable".
     budget: budget as Cap extends "drainable"

@@ -49,6 +49,16 @@ function unconvergedDetail(
       return `bound a resident whose identity the probe could not re-characterize (running was ${runningLabel(running)}; expected ${buildLabel(expected.build)})`;
     case "probe-failed":
       return `convergence probe failed: ${cause.message}`;
+    case "unspeakable-protocol":
+      // Not reachable from a give-up today (a budget governs DRAINS, and an
+      // unspeakable peer is refused or recycled before any drain is proposed) —
+      // but this renderer is total over the cause union, and a cause that can be
+      // constructed must be renderable. `converge` writes the operator-facing
+      // sentence itself; this is the short form.
+      return (
+        `the daemon holding ${cause.socketPath} (pid ${cause.pid}) speaks a protocol epoch this ` +
+        `supervisor cannot decode — its drain verb is unreachable`
+      );
     default: {
       const _e: never = cause;
       throw new Error(`unreachable UnconvergedCause: ${JSON.stringify(_e)}`);

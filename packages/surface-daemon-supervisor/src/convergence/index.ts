@@ -71,3 +71,11 @@ export {
   type PreInstanceKey,
   instanceKeyTag,
 } from "./instanceKey.ts";
+// The D6/#3 protocol-epoch vocabulary: the transport fact a dial path raises,
+// and the corroborated verdict only the endpoint (which owns the gate) mints.
+export {
+  isUnspeakablePeerError,
+  isUnspeakableProtocolError,
+  UnspeakablePeerError,
+  UnspeakableProtocolError,
+} from "./unspeakable.ts";

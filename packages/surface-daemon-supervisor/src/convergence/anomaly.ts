@@ -37,7 +37,24 @@ export type UnconvergedCause =
   /** Bound a resident the probe could not characterize (F1b / F2). */
   | { readonly kind: "identity-unverifiable" }
   /** Probe threw (not no-listener) — loud typed failure (F2). */
-  | { readonly kind: "probe-failed"; readonly message: string };
+  | { readonly kind: "probe-failed"; readonly message: string }
+  /**
+   * The daemon at our rendezvous speaks a protocol epoch this supervisor cannot
+   * decode (PLAN D6 / #3) — an explicit first-frame decode failure from a peer
+   * whose gate file is ours and whose pid we verified. NOT a version skew: a
+   * version is something you read off a wire you can speak.
+   *
+   * This cause rides a `refused` outcome only, and only for a policy that does
+   * not recycle: a drain verb on an unspeakable wire is unreachable, so
+   * `drain-newer-else-refuse` degenerates to refuse (see `converge.ts`).
+   */
+  | {
+      readonly kind: "unspeakable-protocol";
+      readonly socketPath: string;
+      readonly gatePath: string;
+      /** The verified holder pid — the daemon left standing. */
+      readonly pid: number;
+    };
 
 export type ConvergenceAnomaly =
   | {
