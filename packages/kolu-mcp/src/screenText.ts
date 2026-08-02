@@ -10,22 +10,42 @@
  * rendered text; `tail: N` returns the last N lines. The slice happens here,
  * beside the padi hop (local socket or the ssh pipe) — the expensive wire is
  * MCP-host↔agent, and that carries only the tail.
+ *
+ * The arg schema is an Effect Schema. Its per-field blurbs are not decoration:
+ * they are what teaches a coding agent that `tail` counts LINES. Two authoring
+ * laws make them land where a host renders them, both pinned by
+ * `argSchemas.test.ts`:
+ *
+ *   - **ANNOTATE FIRST, CHECK SECOND.** `SchemaAST.annotate` attaches to the
+ *     schema's LAST CHECK when it has one, and the converter emits a check's
+ *     annotations inside an `allOf` branch — where no MCP host looks for a
+ *     property description. `Schema.Int` is itself `Schema.Number.check(isInt())`,
+ *     so even a bare `Schema.Int.annotate({description})` loses the blurb. The
+ *     spelling that keeps it on the property node is to annotate the CHECK-FREE
+ *     base and add every check after.
+ *   - the numeric must still advertise as an INTEGER, never as bare
+ *     `Schema.Number` (whose encoded form also admits the STRINGS
+ *     `"NaN"`/`"Infinity"` — D8/#14 divergence 2). `.check(Schema.isInt())`
+ *     supplies exactly that, and it composes with the law above.
+ *
+ * The annotation also has to sit INSIDE `optionalKey` — on the encoded-side
+ * node, before any wrapper — which is `jsonschema.ts`'s own stated law.
  */
 
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { BespokeTool } from "@kolu/surface-mcp";
-import { z } from "zod";
+import { Schema } from "effect";
 
-export const ScreenTextArgsSchema = z.object({
+export const ScreenTextArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
-  tail: z
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .describe("Return only the last N lines (omit for the whole scrollback)."),
+  tail: Schema.optionalKey(
+    Schema.Number.annotate({
+      description:
+        "Return only the last N lines (omit for the whole scrollback).",
+    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+  ),
 });
-export type ScreenTextArgs = z.infer<typeof ScreenTextArgsSchema>;
+export type ScreenTextArgs = typeof ScreenTextArgsSchema.Type;
 
 /** Slice the last `tail` NON-BLANK-TAIL lines of `text` — pure, unit-tested.
  *  The rendered buffer ends in a run of blank rows (the viewport below the
@@ -45,9 +65,11 @@ export const screenTextTool: BespokeTool = {
   mutates: false,
   description:
     "A terminal's rendered screen + scrollback as plain text — the snapshot face. Pass tail: N to read only the last N lines (the cheap settle-check read).",
-  handler: async (args, client, signal) => {
+  // No `signal`: a surface procedure ref carries no cancellation handle any
+  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's).
+  handler: async (args, client) => {
     const { id, tail } = args as ScreenTextArgs;
-    const text: string = await client.surface.screen.text({ id }, { signal });
+    const text: string = await client.surface.screen.text({ id });
     return tail === undefined ? text : tailLines(text, tail);
   },
 };

@@ -36,19 +36,33 @@ import {
 import type { BespokeTool } from "@kolu/surface-mcp";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { z } from "zod";
+import { Schema } from "effect";
 
 // ── Shared arg pieces ─────────────────────────────────────────────────────
 
-const TimeoutMsSchema = z
-  .number()
-  .int()
-  .positive()
-  .max(MAX_TIMER_MS)
-  .optional()
-  .describe(
-    'Give up after this many milliseconds (result: "timeout"). Omit to wait indefinitely (the MCP host\'s own request timeout still applies).',
+/** A milliseconds field: a positive integer inside the shared `setTimeout`
+ *  ceiling, carrying the blurb an MCP host renders.
+ *
+ *  ANNOTATE FIRST, CHECK SECOND — `SchemaAST.annotate` attaches to a schema's
+ *  LAST CHECK when it has one, and a check's annotations are emitted inside an
+ *  `allOf` branch where no host reads a property description (`Schema.Int` is
+ *  itself `Schema.Number.check(isInt())`, so it is already "checked"). Adding
+ *  `isInt` as a check instead keeps the blurb on the node AND still advertises
+ *  the field as an integer rather than as bare `Schema.Number`, whose encoded
+ *  form admits the strings `"NaN"`/`"Infinity"` (D8/#14 divergence 2). Pinned
+ *  in `argSchemas.test.ts`. */
+const MillisecondsSchema = (description: string) =>
+  Schema.Number.annotate({ description }).check(
+    Schema.isInt(),
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(MAX_TIMER_MS),
   );
+
+const TimeoutMsSchema = Schema.optionalKey(
+  MillisecondsSchema(
+    'Give up after this many milliseconds (result: "timeout"). Omit to wait indefinitely (the MCP host\'s own request timeout still applies).',
+  ),
+);
 
 /** Serialize a wait outcome to the tool's JSON frame via the shared
  *  {@link waitOutcomeJson} (which owns the four terminal arms and the union
@@ -66,19 +80,14 @@ export function waitJson<Met extends WaitMet>(
 
 // ── wait_outputSettled ────────────────────────────────────────────────────
 
-export const WaitOutputSettledArgsSchema = z.object({
+export const WaitOutputSettledArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
-  idleMs: z
-    .number()
-    .int()
-    .positive()
-    .max(MAX_TIMER_MS)
-    .describe(
-      'Resolve once no output has arrived for this many milliseconds — the agent-agnostic "turn ended / awaiting input" signal (e.g. 800).',
-    ),
+  idleMs: MillisecondsSchema(
+    'Resolve once no output has arrived for this many milliseconds — the agent-agnostic "turn ended / awaiting input" signal (e.g. 800).',
+  ),
   timeoutMs: TimeoutMsSchema,
 });
-export type WaitOutputSettledArgs = z.infer<typeof WaitOutputSettledArgsSchema>;
+export type WaitOutputSettledArgs = typeof WaitOutputSettledArgsSchema.Type;
 
 export const waitOutputSettledTool: BespokeTool = {
   input: WaitOutputSettledArgsSchema,
@@ -99,17 +108,18 @@ export const waitOutputSettledTool: BespokeTool = {
 
 // ── wait_agentState ───────────────────────────────────────────────────────
 
-export const WaitAgentStateArgsSchema = z.object({
+export const WaitAgentStateArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
-  until: z
-    .array(z.enum(WAIT_STATES))
-    .nonempty()
-    .describe(
-      "Resolve once the terminal's detected agent enters ANY of these buckets: working (thinking/tool_use), awaiting (needs the human), waiting (idle prompt).",
-    ),
+  // Annotate first, check second — see `MillisecondsSchema` above.
+  until: Schema.Array(Schema.Literals(WAIT_STATES))
+    .annotate({
+      description:
+        "Resolve once the terminal's detected agent enters ANY of these buckets: working (thinking/tool_use), awaiting (needs the human), waiting (idle prompt).",
+    })
+    .check(Schema.isNonEmpty()),
   timeoutMs: TimeoutMsSchema,
 });
-export type WaitAgentStateArgs = z.infer<typeof WaitAgentStateArgsSchema>;
+export type WaitAgentStateArgs = typeof WaitAgentStateArgsSchema.Type;
 
 export const waitAgentStateTool: BespokeTool = {
   input: WaitAgentStateArgsSchema,
