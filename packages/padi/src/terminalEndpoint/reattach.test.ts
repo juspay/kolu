@@ -23,6 +23,7 @@
 
 import type { PtyHostListEntry } from "kaval";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { unreachableDispatch } from "../ptyHost/dispatch.testlib.ts";
 
 // The boot reconcile reads the surviving daemon's live PTYs off `ptyHostClient`.
 // There is no kaval in the unit env, so stub the ONE call the empty-daemon path
@@ -209,7 +210,11 @@ function connectDaemon(startedAt: number): void {
     state: "connected",
     identity: undefined,
     startedAt,
-    metadata: { contractVersion: "test", pid: 4242 },
+    metadata: {
+      contractVersion: "test",
+      pid: 4242,
+      dispatch: unreachableDispatch,
+    },
   });
 }
 

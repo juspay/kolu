@@ -20,6 +20,7 @@ import type { Socket } from "node:net";
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   type ControlCoreProbeClient,
   type ConvergenceProbe,
@@ -55,6 +56,15 @@ export type KavalConnection = DaemonConnection<
 
 export type KavalConnectionMetadata = {
   contractVersion: string;
+  /** The tag-keyed dispatch of THIS connection's link — the transport seam the
+   * stable `ptyHostClient` face forwards onto. It rides the metadata channel
+   * (padi's own, process-internal) rather than the supervisor's generic
+   * `identity`/`client` slots because it is a fact about padi's wire, not
+   * something the spine models: the spine's `client` is already the per-dial
+   * typed face, and padi additionally needs the raw seam under it so ONE face
+   * built at import time can address whatever connection is current. Never
+   * projected onto `DaemonStatus` or any wire shape. */
+  dispatch: SurfaceDispatch;
   /** The connected daemon's own pid from the already-validated
    * `system.version` handshake. Kept internal to padi's endpoint metadata so
    * process-local consumers can identify this exact connection generation;
@@ -182,9 +192,11 @@ async function readKavalHandshake(faces: KavalFaces): Promise<KavalHandshake> {
 /** Open ONE link over the whole kaval daemon group and build both faces over its
  *  single dispatch. `dispose()` is ASYNC and is the ONLY thing that frees the
  *  link's protocol fibers — destroying the socket alone leaks one per dial. */
-async function openKavalFaces(
-  socket: Socket,
-): Promise<{ faces: KavalFaces; dispose: () => Promise<void> }> {
+async function openKavalFaces(socket: Socket): Promise<{
+  faces: KavalFaces;
+  dispatch: SurfaceDispatch;
+  dispose: () => Promise<void>;
+}> {
   const link = await stdioLink({
     group: kavalDaemonGroup,
     read: socket,
@@ -199,6 +211,7 @@ async function openKavalFaces(
       pty: ptyHostClientOver(link.dispatch),
       control: { surface: { control: { core: control } } },
     },
+    dispatch: link.dispatch,
     dispose: () => link.dispose(),
   };
 }
@@ -216,7 +229,7 @@ export async function connectKaval(
   socketPath: string,
 ): Promise<KavalConnection> {
   const socket = await dialSocket(socketPath);
-  const { faces, dispose } = await openKavalFaces(socket);
+  const { faces, dispatch, dispose } = await openKavalFaces(socket);
 
   let handshake: KavalHandshake;
   try {
@@ -240,6 +253,7 @@ export async function connectKaval(
       contractVersion: hello.surfaceVersion,
       lifetime: version.lifetime,
       pid: version.pid,
+      dispatch,
     },
     // `DaemonConnection.dispose` is a SYNCHRONOUS seam (the supervisor tears
     // down from paths that cannot await), so the link release is FIRED here

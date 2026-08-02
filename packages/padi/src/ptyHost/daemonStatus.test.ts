@@ -18,6 +18,7 @@ import {
 } from "../padiSurfaceCtx.ts";
 import type { DaemonStatus } from "../vocab.ts";
 import type { KavalConnectionMetadata } from "./connect.ts";
+import { unreachableDispatch } from "./dispatch.testlib.ts";
 import { publishDaemonStatus, readDaemonStatus } from "./daemonStatus.ts";
 
 type Connected = EndpointStatus<
@@ -30,7 +31,12 @@ function connected(lifetime?: KavalConnectionMetadata["lifetime"]): Connected {
     state: "connected",
     identity: undefined,
     startedAt: 1_000,
-    metadata: { contractVersion: "5.0", lifetime, pid: 4242 },
+    metadata: {
+      contractVersion: "5.0",
+      lifetime,
+      pid: 4242,
+      dispatch: unreachableDispatch,
+    },
   };
 }
 

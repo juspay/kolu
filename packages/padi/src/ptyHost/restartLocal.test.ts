@@ -69,6 +69,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scriptedDispatch } from "./dispatch.testlib.ts";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 
@@ -192,35 +193,38 @@ async function realEndpoint(recycleMs: number) {
     // Leave the gate empty: free→spawn path only (no SIGTERM of a holder).
   };
 
-  const makeClient = () => ({
-    surface: {
-      terminal: {
-        killAll: async () => {
-          // The PTYs die with the daemon → a genuine dirty arms the autosave.
-          terminalsDirtyChannel.publish({});
-          // …and the daemon goes with them: its listener stops accepting, so
-          // the recycle's `ensure` finds a genuinely free rendezvous and spawns
-          // (the window this whole fixture exists to open). A real recycle gets
-          // this from reaping the gate holder; this fake writes no gate, so it
-          // closes the socket itself rather than relying on the recovery to
-          // mistake an in-process serve for a free socket.
-          for (const s of epServers.splice(0)) {
-            try {
-              s.close();
-            } catch {
-              // already closed
-            }
-          }
-          try {
-            rmSync(socketPath, { force: true });
-          } catch {
-            // absent
-          }
-          return { killed: 2 };
-        },
-      },
-    },
-  });
+  // The drain reaches this fake through `ptyHostClient`, which is ONE face over
+  // the current connection's DISPATCH — so the fake answers by member tag rather
+  // than by handing back a nested object. `killAll` is the only member the
+  // restart path calls; anything else is an unscripted call and dies loudly.
+  const makeDispatch = () =>
+    scriptedDispatch((tag) =>
+      tag.endsWith("terminal/killAll") ? killAll : undefined,
+    );
+
+  const killAll = async () => {
+    // The PTYs die with the daemon → a genuine dirty arms the autosave.
+    terminalsDirtyChannel.publish({});
+    // …and the daemon goes with them: its listener stops accepting, so
+    // the recycle's `ensure` finds a genuinely free rendezvous and spawns
+    // (the window this whole fixture exists to open). A real recycle gets
+    // this from reaping the gate holder; this fake writes no gate, so it
+    // closes the socket itself rather than relying on the recovery to
+    // mistake an in-process serve for a free socket.
+    for (const s of epServers.splice(0)) {
+      try {
+        s.close();
+      } catch {
+        // already closed
+      }
+    }
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {
+      // absent
+    }
+    return { killed: 2 };
+  };
 
   const ep = createEndpoint({
     hostId: "local-kaval-test",
@@ -244,10 +248,17 @@ async function realEndpoint(recycleMs: number) {
       },
     },
     connect: async () => ({
-      client: makeClient(),
+      // The spine's per-dial typed face is unused by the restart path (every
+      // call the drain makes goes through `ptyHostClient`, i.e. the metadata
+      // dispatch below), so the fake connection carries an empty one.
+      client: {},
       identity: { staleKey: "", navigableCommit: "" },
       startedAt: Date.now(),
-      metadata: { contractVersion: "test", pid: 4242 },
+      metadata: {
+        contractVersion: "test",
+        pid: 4242,
+        dispatch: makeDispatch(),
+      },
       dispose: () => {},
       onClose: () => {},
     }),
