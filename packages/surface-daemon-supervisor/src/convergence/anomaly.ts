@@ -40,7 +40,11 @@ export type UnconvergedCause =
   | { readonly kind: "probe-failed"; readonly message: string }
   /**
    * The daemon at our rendezvous speaks a protocol epoch this supervisor cannot
-   * decode (PLAN D6 / #3) — an explicit first-frame decode failure from a peer
+   * decode (PLAN D6 / #3), raised at one of the TWO bounded triggers
+   * `UnspeakableEvidence` enumerates — an explicit first-frame decode failure,
+   * or a peer that accepted the connection and then stayed mute past the dial's
+   * silence deadline (what the previous release's oRPC `ServerPeer` does while
+   * it waits for a client hello it will never recognise) — and only from a peer
    * whose gate file is ours and whose pid we verified. NOT a version skew: a
    * version is something you read off a wire you can speak.
    *

@@ -153,7 +153,7 @@ async function currentAgent(
   id: TerminalId,
 ): Promise<PadiActiveAgent | null> {
   const rec = await firstFrameOrUndefined<PadiTerminal>(
-    Stream.toAsyncIterable(padi.surface.terminals.get({ key: id })),
+    padi.surface.terminals.get({ key: id }),
   );
   if (!rec || rec.state !== "active") return null;
   return rec.agent;

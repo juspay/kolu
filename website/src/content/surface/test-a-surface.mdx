@@ -38,7 +38,8 @@ A cell or stream read opens with a snapshot and then sends deltas, as an Effect
 one-shot read — it interrupts the subscription as soon as that frame lands. Wrap
 it in a helper that **throws on an empty stream**, so a broken read fails the test
 instead of asserting on `undefined`. (`firstFrameOrThrow` in
-`@kolu/surface/first-frame` is the same policy for an async-iterable source.)
+`@kolu/surface/first-frame` is that helper, already written: it takes the member
+`Stream` and rejects with your message on an empty one.)
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="snapshot" />
 

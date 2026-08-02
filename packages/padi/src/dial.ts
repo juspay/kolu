@@ -42,7 +42,6 @@ import {
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import { type AgentDial, dialAgentOnce } from "@kolu/surface-remote";
-import { Stream } from "effect";
 import { composeSpawnEnv } from "kolu-pty";
 import {
   PADI_SURFACE_VERSION,
@@ -325,7 +324,7 @@ export function dialPadiViaHost(host: string): Promise<AgentDial> {
       // this note.
       const face = client as unknown as PadiSurfaceClient;
       const identity = await firstFrameOrThrow(
-        Stream.toAsyncIterable(face.surface.identity.get(undefined)),
+        face.surface.identity.get(undefined),
         "padi handshake failed — the identity cell yielded no frame",
       );
       assertPadiSurfaceCompatible(identity.surfaceVersion);

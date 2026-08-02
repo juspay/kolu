@@ -83,12 +83,11 @@ async function readExitCode(
 ): Promise<number | undefined> {
   // One-shot read of the yields-once `exit` stream via the shared first-frame helper
   // (`firstFrameOrUndefined`, not the throwing variant — the empty case is the
-  // caller's to classify), not a hand-advanced iterator. `subscribe` is the
-  // package's one `Stream` → pull bridge; no signal, because this read is
-  // bounded by the stream (`exit` yields once and ends).
-  return (
-    await firstFrameOrUndefined(subscribe(client.surface.exit.get({ id })))
-  )?.exitCode;
+  // caller's to classify), not a hand-advanced iterator. The helper takes the
+  // member `Stream` itself, so this read needs neither the package's pull bridge
+  // nor a signal — `exit` yields once and ends, which bounds it.
+  return (await firstFrameOrUndefined(client.surface.exit.get({ id })))
+    ?.exitCode;
 }
 
 export interface AttachOptions {

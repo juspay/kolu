@@ -23,7 +23,6 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
-import { subscribe } from "./stream.ts";
 
 const silentLog = {
   debug: () => {},
@@ -97,11 +96,11 @@ describeDaemon(
       );
 
       // The bounded attach snapshot does NOT carry the oldest lines. Read it
-      // through the shared first-frame primitive over the package's one
-      // `Stream` → pull bridge: `subscribe` establishes the subscription on
-      // that first pull, and the primitive closes it again.
+      // through the shared first-frame primitive, which takes the member
+      // `Stream` itself: `Stream.runHead` establishes the subscription, takes
+      // the snapshot, and interrupts the rest.
       const first = await firstFrameOrThrow(
-        subscribe(conn.client.surface.terminalAttach.get({ id })),
+        conn.client.surface.terminalAttach.get({ id }),
         "attach ended without yielding a snapshot frame",
       );
       if (first.kind !== "snapshot")

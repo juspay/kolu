@@ -15,7 +15,6 @@ import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { Stream } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
 
 /** The current terminal key set — the FIRST frame of the `keys` snapshot-then-delta
@@ -31,17 +30,18 @@ import type { PadiTuiClient } from "./connect.ts";
  *
  *  `keys` now hands back a LAZY `Stream` synchronously — nothing is subscribed
  *  until it is consumed, and there is no `signal` left to pass (D10/#18:
- *  cancellation is fiber interruption). `firstFrameOrThrow` RETURNS out of its
- *  `for await`, which calls the async iterator's `return()`, which interrupts the
- *  subscription — so this one-shot read tears its own subscription down and needs
- *  no cancellation token. The `Stream` is built inside this async body, so a member
- *  ref that throws SYNCHRONOUSLY (a wrong-surface client) still arrives as a
- *  rejection, never as a throw past the caller's `await`. */
+ *  cancellation is fiber interruption). `firstFrameOrThrow` takes that `Stream`
+ *  directly and reads it with `Stream.runHead`, which interrupts the rest of the
+ *  stream once the snapshot is in hand — so this one-shot read tears its own
+ *  subscription down and needs no cancellation token. The `Stream` is built inside
+ *  this async body, so a member ref that throws SYNCHRONOUSLY (a wrong-surface
+ *  client) still arrives as a rejection, never as a throw past the caller's
+ *  `await`. */
 export async function readTerminalKeys(
   client: PadiTuiClient,
 ): Promise<readonly TerminalId[]> {
   return firstFrameOrThrow(
-    Stream.toAsyncIterable(client.surface.terminals.keys(undefined)),
+    client.surface.terminals.keys(undefined),
     "padi terminals keys yielded no snapshot frame — link or protocol failure.",
   );
 }

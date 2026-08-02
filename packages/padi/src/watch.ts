@@ -40,20 +40,22 @@ import { padiSurface, type PadiTerminal } from "./surface.ts";
  *  to pass it (D10/#18) — cancellation is fiber interruption, and
  *  `toAsyncIterable`'s `return()` is what performs it. The waits in this module
  *  are driven by a non-Effect scaffold (`runWait`) that speaks AbortSignal, so
- *  the translation happens HERE, once, rather than at each of the three
- *  subscription sites. Without it an abandoned wait would leave its subscription
- *  running for the life of the connection.*/
+ *  the translation happens HERE, once, rather than at each of the two PUMP
+ *  sites. Without it an abandoned wait would leave its subscription running for
+ *  the life of the connection. (The one-shot membership read is not one of them:
+ *  it hands its signal to `firstFrameOrThrow`, which owns the same translation
+ *  for a first-frame read.) */
 function iterateUntilAborted<T>(
   stream: Stream.Stream<T, unknown>,
   signal: AbortSignal,
-): AsyncIterable<T> & { close: () => void } {
+): AsyncIterable<T> {
   const iter = Stream.toAsyncIterable(stream)[Symbol.asyncIterator]();
   const close = (): void => {
     void iter.return?.();
   };
   if (signal.aborted) close();
   else signal.addEventListener("abort", close, { once: true });
-  return { [Symbol.asyncIterator]: () => iter, close };
+  return { [Symbol.asyncIterator]: () => iter };
 }
 
 /** The LIVE agent of a composed record, or `null` — only the `active` arm
@@ -378,15 +380,15 @@ export async function awaitOutputSettled(
           // timeout/cancel settle (WaitCtx's threading contract, and the exact
           // unbounded-tail hazard the scaffold's recorded follow-up names). An
           // abort rejects the read into the catch below, where the settle is a
-          // first-writer no-op.
-          const keysFeed = iterateUntilAborted(
+          // first-writer no-op. `firstFrameOrThrow` takes the signal directly —
+          // it is the reader's own `Effect.runPromise` edge, so the abort becomes
+          // fiber interruption and the subscription goes with it, which is what
+          // the hand-built feed-and-close pair around this call used to do.
+          const keys = await firstFrameOrThrow(
             client.surface.terminals.keys(undefined),
+            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
             ctx.signal,
           );
-          const keys = await firstFrameOrThrow(
-            keysFeed,
-            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
-          ).finally(() => keysFeed.close());
           if (!keys.includes(opts.id as (typeof keys)[number])) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;

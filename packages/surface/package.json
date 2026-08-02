@@ -11,7 +11,6 @@
     ".": "./src/index.ts",
     "./channel-names": "./src/channelNames.ts",
     "./clock-now": "./src/clockNow.ts",
-    "./collection-face": "./src/collectionFace.ts",
     "./client": "./src/client.ts",
     "./define": "./src/define.ts",
     "./errors": "./src/errors.ts",

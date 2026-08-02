@@ -296,7 +296,6 @@ wrapper is the graph's only exit by construction.
 | `everyMsOr(ms, subscribe)`  | `(number, (tick) => () => void) → (tick: () => void) => SourceCleanup` | the interval+edge cadence fuse: `everyMs`'s interval PLUS an edge `subscribe(tick)` (any change source — a reconnect/state feed, a config-changed hook), for a poll whose value can move faster than its coarse interval. Re-reads on the tick AND the instant `subscribe` fires; both the interval and the subscription tear down on cleanup — the one home for the fuse, previously re-spelled as app-local twins |
 | `source({ read, install, label })` | `PollSourceOptions<T> → PollSource<T>` | the poll source. `label` names it in a loop-guard error — diagnostics only (there is no field that can silence the guard), and REQUIRED, because "name your poll sources" as a convention is a rule held by memory: the next fused cell is added by someone who has not read it, and the guard then fires anonymously on exactly the source nobody expected to loop. **The guard**: each read runs inside an `AsyncLocalStorage` context keyed to its source, so a change edge firing UNDER that context was caused by the read it is about to re-trigger; three consecutive self-caused ticks crash naming the source. A read that ANNOUNCES on the edge that triggers it is an unbounded cycle the reactor executes forever — it froze a production kolu (HTTP dead, `SIGTERM` ignored). Timer, I/O and other cells microtask bursts carry a different context and can never count, however fast or value-equal |
 | `assertCellConverges({ build, kick?, settleMs? })` | `→ Promise<{reads, loop}>` | the authoring-time twin, from `@kolu/surface/assert-cell-converges`: drive a poll source, `kick` the act that would start a cycle, and assert it settles. Generalized from the incident regression, because the defect lived in the JOIN between a read and the edge it was fused with — a place neither module own unit tests can see |
-| `CollectionFace<K,V>` · `collectionFace(c)` | `@kolu/surface/collection-face` | a collection's client face, loosely typed — what a consumer that needs only `keys`/`get` may depend on without materializing the per-spec union a second time. The narrowing is CHECKED here (the verbs are methods, so a precise collection assigns by bivariance) instead of asserted with `as unknown as` at each consumer, where a rename of `keys` would survive the cast |
 | `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })` | `@kolu/surface/viewer-identity` | which machine a viewer is actually at, for an app behind a reverse proxy — the trust gate WHOLE, so the order it rests on is enforced here rather than by each consumer re-reading prose: a header on an untrusted connection is ignored entirely, and on a trusted one the LAST forwarded entry wins. Takes the header in either shape a node request carries (string or repeated-header array). Beside it: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`. Pure and total — DNS and interface enumeration stay with the consumer |
 | `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
 | `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
@@ -597,6 +596,31 @@ App-declared procedure errors are **not** in this union — they are declared pe
 procedure on `ProcedureSpec.error` and travel on that procedure's own error
 channel. And a defect is still a defect: an undeclared throw stays an
 `Effect.die` and is not modelled here.
+
+### One-shot snapshot reads (`@kolu/surface/first-frame`)
+
+Every member verb hands back a lazy `Stream`, and a one-shot read is "take the
+opening snapshot frame, then stop". These readers take that `Stream` DIRECTLY
+and consume it with `Stream.runHead`, whose interruption of the rest **is** the
+unsubscribe — so no consumer writes a `toAsyncIterable` bridge, and no consumer
+re-derives the held-open-`get` hazard below.
+
+| Export | Signature | Purpose |
+| --- | --- | --- |
+| `firstFrameOrUndefined(stream, signal?)` | `(Stream<T>, AbortSignal?) → Promise<T \| undefined>` | the snapshot frame, or `undefined` when the stream ends empty (a benign "no value yet") |
+| `firstFrameOrThrow(stream, onEmptyMessage, signal?)` | `(Stream<T>, string, AbortSignal?) → Promise<T>` | the snapshot frame; REJECTS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined` |
+| `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | the BOUNDED one-shot read of a collection ITEM. A `get` for a not-yet-member key is held open and yields nothing forever (#1681), so this races the item's first frame against BOTH a live `keys`-absence watch and a hard deadline — always both, never one |
+| `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | a typed sum, so "present with an `undefined` value" and "absent" can never collapse into one nullable hole — and so a caller can log the UNCERTAIN `deadline` case distinctly from a known absence |
+
+The two plain readers resolve a **Promise**: their consumers are the plain-async
+leaves (a TUI read, a dial handshake), and this is their sanctioned
+`Effect.runPromise` edge, held once here rather than per CLI. Pass `signal` when
+a non-Effect scaffold owns the cancellation — it becomes fiber interruption, so a
+caller that gave up never waits out a wedged-but-retrying link.
+`firstFrameOfCollectionItem` returns an **Effect** instead, because its consumers
+compose it inside a larger program (a concurrent fold over a host's terminals, an
+MCP `resources/read` running under the request's abort signal) where a Promise
+edge mid-program would detach the read from the interruption that bounds it.
 
 ### The bounded-wait scaffold (`@kolu/surface/wait`)
 

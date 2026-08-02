@@ -29,6 +29,7 @@
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { isDeadTransportError } from "@kolu/surface/errors";
+import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -775,45 +776,20 @@ function readFirstFrameSnapshot(
  *  {@link readCollectionItemSnapshot}. */
 const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
 
-/** The outcome of one arm of the bounded collection-item race.
- *
- *  Every arm SUCCEEDS with one of these — including the failure arm. That is
- *  deliberate: `Effect.raceAll` ignores an early FAILURE and keeps waiting for a
- *  success, so a genuinely broken item read expressed as a failure would lose the
- *  race to the 5s deadline and be reported as a benign "not present". Carrying
- *  the failure as a value and re-raising it after the race keeps a dropped link
- *  loud (caught-error-must-not-collapse-to-empty). */
-type ItemRead =
-  | { readonly kind: "present"; readonly value: unknown }
-  | { readonly kind: "absent" }
-  | { readonly kind: "deadline" }
-  | { readonly kind: "failed"; readonly error: unknown };
-
 /** One-shot read of a collection-item URI, BOUNDED against `collectionHandlers.get`'s
- *  held-open-on-absent semantic (#1681). The item `get` yields nothing until the key
+ *  held-open-on-absent semantic (#1681): the item `get` yields nothing until the key
  *  is a member, so taking its first frame ALONE hangs forever on a not-yet-present
- *  key. This races it against BOTH absence bounds — always both, never one or the
- *  other, because they answer different questions and neither subsumes the other:
+ *  key.
  *
- *   - **membership** (when the collection has a `keys` verb): a LIVE `keys`
- *     subscription that reports absence — a `keys` frame that OMITS the key (absent
- *     at the snapshot, OR removed at any later instant, which also closes the
- *     DELETE-RACE a one-time check-then-`get` would leave open) resolves `absent`.
- *     Precise and immediate, and the only bound that can say something true about
- *     the ITEM.
- *   - **the deadline** (always): the backstop, and the only thing standing between
- *     a quiet producer and an unbounded read. Wiring these as EITHER/OR left a gap
- *     exactly between them — a key that STAYS a member while its item stream says
- *     nothing matched no bound at all.
- *
- *  `Effect.raceAll` interrupts the losing arms, so whichever bound answers first
- *  tears the others' subscriptions down through their own finalizers.
- *
- *  NOTE for the reconcile pass: this is the Effect-native successor of
- *  `@kolu/surface/first-frame`'s `firstFrameOfCollectionItem`, which is
- *  AsyncIterable/AbortSignal-shaped and therefore unusable against a `Stream`-shaped
- *  face. It lives here only because W2 forbids editing `@kolu/surface`; it belongs
- *  back in the framework, beside the held-open `get` footgun it guards. */
+ *  The bounded race itself — the item's first frame against BOTH a live
+ *  `keys`-absence watch AND a deadline, neither subsuming the other — is the
+ *  FRAMEWORK's, `@kolu/surface/first-frame`'s `firstFrameOfCollectionItem`, which
+ *  lives beside the held-open `get` footgun it guards. This function is the MCP
+ *  vocabulary over it: which streams to hand it, and how each outcome reads as a
+ *  `Snapshot` or a `ReadMiss`. It stays an EFFECT all the way down so the whole
+ *  read runs inside the request's fiber — `resources/read` runs it under the MCP
+ *  request's abort signal, and a Promise edge in the middle would detach the
+ *  subscriptions from that interruption. */
 function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
@@ -836,86 +812,36 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   const keySchema = keySchemaByCollection.get(item.key);
   const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
 
-  const itemArm = Effect.catch(
-    Effect.map(
-      Stream.runHead(call.open()),
-      (head): ItemRead =>
-        Option.isSome(head)
-          ? { kind: "present", value: head.value }
-          : {
-              kind: "failed",
-              error: new Error(
-                `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
-                  "collection item opens with a current-value snapshot, so an empty open means " +
-                  "the bridge link dropped, not that the value is null.",
-              ),
-            },
-    ),
-    (error): Effect.Effect<ItemRead> =>
-      Effect.succeed({ kind: "failed", error }),
-  );
-
-  // Membership is decided by `Array.includes` (SameValueZero) between the DECODED
-  // key and the raw keys in each frame — sound for the primitive key types
-  // (string/number/boolean) a `keys` stream carries, because `key` was decoded to
-  // that same raw type. A `keys` stream that ends without ever reporting absence
-  // only happens on teardown, so it resolves `absent` too rather than leaving the
-  // read unbounded.
-  const membershipArm =
-    keysProc === undefined
-      ? []
-      : [
-          Effect.catch(
-            Effect.as(
-              Stream.runHead(
-                Stream.filter(
-                  asStream(keysProc(undefined), uri, "collection"),
-                  (frame) => !(Array.isArray(frame) && frame.includes(key)),
-                ),
-              ),
-              { kind: "absent" } as ItemRead,
-            ),
-            (error): Effect.Effect<ItemRead> =>
-              Effect.succeed({ kind: "failed", error }),
-          ),
-        ];
-
-  const deadlineArm = Effect.as(Effect.sleep(KEYSLESS_ITEM_READ_DEADLINE_MS), {
-    kind: "deadline",
-  } as ItemRead);
-
   return Effect.flatMap(
-    Effect.raceAll<Effect.Effect<ItemRead>>([
-      itemArm,
-      ...membershipArm,
-      deadlineArm,
-    ]),
-    (outcome): Effect.Effect<Snapshot | ReadMiss, unknown> => {
-      switch (outcome.kind) {
-        case "present":
-          return Effect.succeed({
-            value: outcome.value,
-            mimeType: call.mimeType,
-          });
-        case "failed":
-          return Effect.fail(outcome.error);
-        case "deadline":
-          // The read ran out of time. Either the collection has no membership
-          // signal to resolve against, or it has one that kept saying "still a
-          // member" while the item stream said nothing — the race arms BOTH
-          // bounds, so a deadline no longer implies keys-lessness and this must
-          // not claim it does. Either way the not-present is UNCERTAIN (the item
-          // may exist but never opened a snapshot in time), so surface it loudly
-          // rather than degrade silently.
-          return Effect.sync(() => {
-            console.error(
-              `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
-            );
-            return { miss: "not-present" };
-          });
-        case "absent":
-          return Effect.succeed({ miss: "not-present" });
-      }
+    firstFrameOfCollectionItem(
+      call.open(),
+      keysProc === undefined
+        ? null
+        : asStream(keysProc(undefined), uri, "collection"),
+      key,
+      `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
+        "collection item opens with a current-value snapshot, so an empty open means " +
+        "the bridge link dropped, not that the value is null.",
+      KEYSLESS_ITEM_READ_DEADLINE_MS,
+    ),
+    (frame): Effect.Effect<Snapshot | ReadMiss, unknown> => {
+      if (frame.present)
+        return Effect.succeed({ value: frame.value, mimeType: call.mimeType });
+      if (frame.reason === "absent")
+        return Effect.succeed({ miss: "not-present" });
+      // The read ran out of time. Either the collection has no membership
+      // signal to resolve against, or it has one that kept saying "still a
+      // member" while the item stream said nothing — the race arms BOTH
+      // bounds, so a deadline no longer implies keys-lessness and this must
+      // not claim it does. Either way the not-present is UNCERTAIN (the item
+      // may exist but never opened a snapshot in time), so surface it loudly
+      // rather than degrade silently.
+      return Effect.sync(() => {
+        console.error(
+          `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+        );
+        return { miss: "not-present" };
+      });
     },
   );
 }
