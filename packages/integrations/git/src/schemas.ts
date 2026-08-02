@@ -1,52 +1,62 @@
-/** Git-domain Zod schemas — single source of truth for git types.
+/** Git-domain Effect schemas — single source of truth for git types.
  *  Consumed by kolu-common (re-exported) and kolu-git functions. */
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 // --- Git context ---
 
-export const GitInfoSchema = z.object({
-  repoRoot: z.string(),
-  repoName: z.string(),
-  worktreePath: z.string(),
-  branch: z.string(),
-  isWorktree: z.boolean(),
-  mainRepoRoot: z.string(),
+export const GitInfoSchema = Schema.Struct({
+  repoRoot: Schema.String,
+  repoName: Schema.String,
+  worktreePath: Schema.String,
+  branch: Schema.String,
+  isWorktree: Schema.Boolean,
+  mainRepoRoot: Schema.String,
   /** The `origin` remote URL with credentials stripped, or null when the
    *  repo has no `origin`. Best-effort (a remote-less repo is normal). Carried
    *  so a forge dispatcher downstream can pick the PR adapter from the host;
-   *  `.nullable()` not `.optional()` so every producer states it explicitly. */
-  remoteUrl: z.string().nullable(),
+   *  `NullOr` not `optionalKey` so every producer states it explicitly. */
+  remoteUrl: Schema.NullOr(Schema.String),
 });
 
 // --- Git worktree operations ---
 
-/** Worktree branch name. Catches the common ref-name violations so the
- *  toast says what's actually wrong instead of git's opaque "fatal: not
- *  a valid branch name". Obscure cases (`@{`, `.lock` suffix, leading
- *  slash) still fall through to git's own check. Exported so the client
- *  can run the same predicate live in the worktree-naming palette leaf
- *  — single source of truth for the rule. */
-export const WorktreeNameSchema = z
-  .string()
-  .min(1)
-  .refine((s) => !/[\s~^:?*[\\]/.test(s) && !s.includes(".."), {
-    message:
-      "branch name cannot contain whitespace, '..', or any of: ~ ^ : ? * [ \\",
-  });
+/** The worktree-name rule as a bare predicate. Catches the common ref-name
+ *  violations so the toast says what's actually wrong instead of git's opaque
+ *  "fatal: not a valid branch name". Obscure cases (`@{`, `.lock` suffix,
+ *  leading slash) still fall through to git's own check. Exported so the client
+ *  can run the same predicate live in the worktree-naming palette leaf — single
+ *  source of truth for the rule, shared by `WorktreeNameSchema`'s check. */
+export function isValidWorktreeName(name: string): boolean {
+  return !/[\s~^:?*[\\]/.test(name) && !name.includes("..");
+}
 
-export const WorktreeCreateInputSchema = z.object({
-  repoPath: z.string(),
+/** The user-visible message for a name that fails `isValidWorktreeName`.
+ *  Rendered verbatim in the worktree-naming palette leaf, so it is exported
+ *  alongside the predicate rather than only reachable through a decode error. */
+export const WORKTREE_NAME_MESSAGE =
+  "branch name cannot contain whitespace, '..', or any of: ~ ^ : ? * [ \\";
+
+/** Worktree branch name: non-empty and free of the characters git rejects. */
+export const WorktreeNameSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.makeFilter((s: string) =>
+    isValidWorktreeName(s) ? undefined : WORKTREE_NAME_MESSAGE,
+  ),
+);
+
+export const WorktreeCreateInputSchema = Schema.Struct({
+  repoPath: Schema.String,
   name: WorktreeNameSchema,
 });
 
-export const WorktreeCreateOutputSchema = z.object({
-  path: z.string(),
-  branch: z.string(),
+export const WorktreeCreateOutputSchema = Schema.Struct({
+  path: Schema.String,
+  branch: Schema.String,
 });
 
-export const WorktreeRemoveInputSchema = z.object({
-  worktreePath: z.string(),
+export const WorktreeRemoveInputSchema = Schema.Struct({
+  worktreePath: Schema.String,
 });
 
 // --- Local diff review ---
@@ -54,7 +64,7 @@ export const WorktreeRemoveInputSchema = z.object({
 /** Single-letter git porcelain status code, narrowed to what `git.status`
  *  actually surfaces to the Code Diff tab. Excludes " " (unmodified) and
  *  "!" (ignored) — neither is included in the changed-files list. */
-export const GitChangeStatusSchema = z.enum([
+export const GitChangeStatusSchema = Schema.Literals([
   "M", // modified
   "A", // added
   "D", // deleted
@@ -64,34 +74,40 @@ export const GitChangeStatusSchema = z.enum([
   "T", // type changed (e.g. file → symlink)
   "?", // untracked
 ]);
-export type GitChangeStatus = z.infer<typeof GitChangeStatusSchema>;
+export type GitChangeStatus = typeof GitChangeStatusSchema.Type;
 
-export const GitChangedFileSchema = z.object({
+export const GitChangedFileSchema = Schema.Struct({
   /** Path relative to repo root. */
-  path: z.string(),
+  path: Schema.String,
   status: GitChangeStatusSchema,
   /** Original path before rename/copy. Only present for R/C statuses. */
-  oldPath: z.string().optional(),
+  oldPath: Schema.optionalKey(Schema.String),
 });
-export type GitChangedFile = z.infer<typeof GitChangedFileSchema>;
+export type GitChangedFile = typeof GitChangedFileSchema.Type;
 
 /** Which base the Code Diff tab is diffing against.
  *  - `local`: working tree vs `HEAD` — "what hasn't been committed yet".
  *  - `branch`: working tree vs `merge-base(HEAD, origin/<defaultBranch>)` —
  *    "what this branch will ship". Same computation as a PR "Files changed"
  *    tab; done locally, forge-agnostic. */
-export const GitDiffModeSchema = z.enum(["local", "branch"]);
-export type GitDiffMode = z.infer<typeof GitDiffModeSchema>;
+export const GitDiffModeSchema = Schema.Literals(["local", "branch"]);
+export type GitDiffMode = typeof GitDiffModeSchema.Type;
 
 /** Resolved base ref for branch mode — echoed back so the UI can label
  *  the panel ("Changes vs origin/master") without re-resolving. */
-export const GitBaseRefSchema = z.object({
+export const GitBaseRefSchema = Schema.Struct({
   /** Human-readable ref name, e.g. `origin/master`. */
-  ref: z.string(),
+  ref: Schema.String,
   /** Actual merge-base commit SHA (what `git diff` was run against). */
-  sha: z.string(),
+  sha: Schema.String,
 });
-export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
+export type GitBaseRef = typeof GitBaseRefSchema.Type;
+
+/** A count of files — a non-negative integer. */
+const NonNegativeInt = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+);
 
 /** Branch-tracking state — the `git status -b` header: the current branch, its
  *  upstream (null when none is configured), and how far HEAD is ahead/behind
@@ -103,13 +119,13 @@ export type GitBaseRef = z.infer<typeof GitBaseRefSchema>;
  *  independently nullable; a detached HEAD can never carry an upstream
  *  (tracking config lives on a named branch, which a detached HEAD doesn't
  *  have), and `ahead`/`behind` are 0 whenever there is no upstream to track. */
-export const GitBranchStatusSchema = z.object({
-  name: z.string(),
-  upstream: z.string().nullable(),
-  ahead: z.number().int().nonnegative(),
-  behind: z.number().int().nonnegative(),
+export const GitBranchStatusSchema = Schema.Struct({
+  name: Schema.String,
+  upstream: Schema.NullOr(Schema.String),
+  ahead: NonNegativeInt,
+  behind: NonNegativeInt,
 });
-export type GitBranchStatus = z.infer<typeof GitBranchStatusSchema>;
+export type GitBranchStatus = typeof GitBranchStatusSchema.Type;
 
 /** The three `git status` working-tree buckets, as counts. Deliberately NOT a
  *  derivation of `files[]`: that list collapses each file to ONE code
@@ -119,18 +135,18 @@ export type GitBranchStatus = z.infer<typeof GitBranchStatusSchema>;
  *  reconstruct — which is exactly why they participate in `gitStatusOutputEqual`
  *  (so a `git add` re-yields the watcher stream). `local` mode only; `null` in
  *  `branch` mode. */
-export const GitWorkingTreeSummarySchema = z.object({
+export const GitWorkingTreeSummarySchema = Schema.Struct({
   /** Files with a staged (index-vs-HEAD) change. */
-  staged: z.number().int().nonnegative(),
+  staged: NonNegativeInt,
   /** Files with an unstaged (working-tree-vs-index) change. */
-  modified: z.number().int().nonnegative(),
+  modified: NonNegativeInt,
   /** Untracked, non-ignored files. */
-  untracked: z.number().int().nonnegative(),
+  untracked: NonNegativeInt,
 });
-export type GitWorkingTreeSummary = z.infer<typeof GitWorkingTreeSummarySchema>;
+export type GitWorkingTreeSummary = typeof GitWorkingTreeSummarySchema.Type;
 
-export const GitStatusInputSchema = z.object({
-  repoPath: z.string(),
+export const GitStatusInputSchema = Schema.Struct({
+  repoPath: Schema.String,
   mode: GitDiffModeSchema,
 });
 
@@ -151,20 +167,20 @@ export const GitStatusInputSchema = z.object({
  *    remote-less repo with no `origin`, #1244 — branch mode degrades to an empty
  *    diff there rather than erroring). The HEAD-vs-upstream tracking and the
  *    working-tree counts don't apply here, so they're absent, not nulled. */
-export const GitStatusOutputSchema = z.discriminatedUnion("mode", [
-  z.object({
-    mode: z.literal("local"),
-    files: z.array(GitChangedFileSchema),
+export const GitStatusOutputSchema = Schema.Union([
+  Schema.Struct({
+    mode: Schema.Literal("local"),
+    files: Schema.Array(GitChangedFileSchema),
     branch: GitBranchStatusSchema,
     workingTree: GitWorkingTreeSummarySchema,
   }),
-  z.object({
-    mode: z.literal("branch"),
-    files: z.array(GitChangedFileSchema),
-    base: GitBaseRefSchema.nullable(),
+  Schema.Struct({
+    mode: Schema.Literal("branch"),
+    files: Schema.Array(GitChangedFileSchema),
+    base: Schema.NullOr(GitBaseRefSchema),
   }),
 ]);
-export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
+export type GitStatusOutput = typeof GitStatusOutputSchema.Type;
 
 /** The `local`-mode arm of `GitStatusOutput` — the working-tree-vs-HEAD result,
  *  with the branch-tracking header and the working-tree section counts both
@@ -173,14 +189,14 @@ export type GitStatusOutput = z.infer<typeof GitStatusOutputSchema>;
  *  without a per-read null guard). */
 export type LocalGitStatus = Extract<GitStatusOutput, { mode: "local" }>;
 
-export const GitDiffInputSchema = z.object({
-  repoPath: z.string(),
+export const GitDiffInputSchema = Schema.Struct({
+  repoPath: Schema.String,
   /** Path relative to the repo root. */
-  filePath: z.string(),
+  filePath: Schema.String,
   mode: GitDiffModeSchema,
   /** Original path before rename/copy — passed from the file list so
    *  getDiff can read old content at the correct path. */
-  oldPath: z.string().optional(),
+  oldPath: Schema.optionalKey(Schema.String),
 });
 
 /** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s
@@ -196,33 +212,33 @@ export const GitDiffInputSchema = z.object({
  *  Classification flags (`binary`, …) gate the client to a placeholder
  *  instead of the renderer. Detection lives in `parseRawDiffFlags`
  *  (`review.ts`) — not in the client. */
-export const GitDiffOutputSchema = z.object({
-  oldFileName: z.string().nullable(),
-  newFileName: z.string().nullable(),
+export const GitDiffOutputSchema = Schema.Struct({
+  oldFileName: Schema.NullOr(Schema.String),
+  newFileName: Schema.NullOr(Schema.String),
   /** Raw unified-diff strings: each entry carries its own `--- / +++ / @@`
    *  header block (i.e. passthrough of `git diff` output), not a bare hunk
    *  body. Currently always zero or one element — a single per-file patch. */
-  hunks: z.array(z.string()),
+  hunks: Schema.Array(Schema.String),
   /** True when git classified the file as binary (NUL bytes in the first
    *  8KB). Binary files yield no `@@` hunks — git emits a single
    *  `Binary files a/x and b/x differ` line — so the client renders a
    *  "Binary file — not displayable" placeholder instead of an empty pane. */
-  binary: z.boolean(),
+  binary: Schema.Boolean,
 });
-export type GitDiffOutput = z.infer<typeof GitDiffOutputSchema>;
+export type GitDiffOutput = typeof GitDiffOutputSchema.Type;
 
 // --- File tree browsing ---
 
-export const FsListAllInputSchema = z.object({
+export const FsListAllInputSchema = Schema.Struct({
   /** Absolute path to the repo root. */
-  repoPath: z.string(),
+  repoPath: Schema.String,
 });
 
-export const FsListAllOutputSchema = z.object({
+export const FsListAllOutputSchema = Schema.Struct({
   /** Flat list of all repo-relative file paths (tracked + untracked, respecting .gitignore). */
-  paths: z.array(z.string()),
+  paths: Schema.Array(Schema.String),
 });
-export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
+export type FsListAllOutput = typeof FsListAllOutputSchema.Type;
 
 /** The gitignored listing is its OWN procedure rather than a flag on
  *  `fs.listAll`, so the two are independently queryable. That separation is
@@ -232,17 +248,17 @@ export type FsListAllOutput = z.infer<typeof FsListAllOutputSchema>;
  *  toggle flips. Folding it into `fs.listAll` as an `includeIgnored` flag put
  *  the toggle in that query's value key, which blanked the whole list and
  *  remounted the tree collapsed on every flip. */
-export const FsListIgnoredInputSchema = z.object({
+export const FsListIgnoredInputSchema = Schema.Struct({
   /** Absolute path to the repo root. */
-  repoPath: z.string(),
+  repoPath: Schema.String,
 });
 
-export const FsListIgnoredOutputSchema = z.object({
+export const FsListIgnoredOutputSchema = Schema.Struct({
   /** Gitignored entries, COLLAPSED: a fully-ignored directory is ONE entry
    *  carrying a trailing slash (`node_modules/`), never its contents. */
-  paths: z.array(z.string()),
+  paths: Schema.Array(Schema.String),
 });
-export type FsListIgnoredOutput = z.infer<typeof FsListIgnoredOutputSchema>;
+export type FsListIgnoredOutput = typeof FsListIgnoredOutputSchema.Type;
 
 /** The on-demand counterpart to `listIgnored`'s collapse. A collapsed directory
  *  is the one place the flat listings deliberately stop, so the tree has no
@@ -251,31 +267,31 @@ export type FsListIgnoredOutput = z.infer<typeof FsListIgnoredOutputSchema>;
  *  DIRECTORY and fired by a click, so folding it into either whole-repo listing
  *  would put a per-expansion input in that query's value key and blank the
  *  tree on every click. */
-export const FsListDirectoryInputSchema = z.object({
+export const FsListDirectoryInputSchema = Schema.Struct({
   /** Absolute path to the repo root. */
-  repoPath: z.string(),
+  repoPath: Schema.String,
   /** Directory to read, relative to the repo root. Pierre's folder key carries
    *  a trailing slash; both spellings resolve to the same listing. */
-  dirPath: z.string(),
+  dirPath: Schema.String,
 });
 
-export const FsListDirectoryOutputSchema = z.object({
+export const FsListDirectoryOutputSchema = Schema.Struct({
   /** ONE level of repo-relative entries, subdirectories carrying git's trailing
    *  slash so they render collapsed and expandable in their own turn. */
-  paths: z.array(z.string()),
+  paths: Schema.Array(Schema.String),
 });
-export type FsListDirectoryOutput = z.infer<typeof FsListDirectoryOutputSchema>;
+export type FsListDirectoryOutput = typeof FsListDirectoryOutputSchema.Type;
 
-export const FsReadFileInputSchema = z.object({
+export const FsReadFileInputSchema = Schema.Struct({
   /** Terminal that owns the URL handle for `kind: "binary"` outputs.
    *  Text reads ignore this — the field is on the input because the URL
    *  shape (`/api/terminals/<host>/<id>/file/...`) is constructed server-side
    *  from this id, so the client doesn't have to know the route layout. */
-  terminalId: z.string().uuid(),
+  terminalId: Schema.String.check(Schema.isUUID()),
   /** Absolute path to the repo root. */
-  repoPath: z.string(),
+  repoPath: Schema.String,
   /** Path relative to repo root. */
-  filePath: z.string(),
+  filePath: Schema.String,
 });
 
 /** Discriminated by `kind`. Text files yield their content; binary-
@@ -283,25 +299,25 @@ export const FsReadFileInputSchema = z.object({
  *  `<iframe>` (documents) or `<img>` (raster images) at. The variant-picker
  *  (`isBinaryPreviewable`) lives in the node-free `kolu-common/preview`
  *  classifier; the URL builder lives server-side in `iframePreviewRoute.ts`. */
-export const FsReadFileOutputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("text"),
-    content: z.string(),
+export const FsReadFileOutputSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("text"),
+    content: Schema.String,
     /** True if the file exceeded the size limit and was truncated. */
-    truncated: z.boolean(),
+    truncated: Schema.Boolean,
   }),
-  z.object({
-    kind: z.literal("binary"),
+  Schema.Struct({
+    kind: Schema.Literal("binary"),
     /** Server-constructed URL for the iframe `src`. Includes a
      *  `?v=<tag>` query so the stream re-yield on a real content change
      *  produces a new URL and the iframe reloads via the same subscription path
      *  — while an identical-content rewrite leaves the URL (and the preview)
      *  stable. */
-    url: z.string(),
+    url: Schema.String,
   }),
 ]);
-export type FsReadFileOutput = z.infer<typeof FsReadFileOutputSchema>;
+export type FsReadFileOutput = typeof FsReadFileOutputSchema.Type;
 
 // --- Derived types ---
 
-export type GitInfo = z.infer<typeof GitInfoSchema>;
+export type GitInfo = typeof GitInfoSchema.Type;
