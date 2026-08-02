@@ -137,17 +137,17 @@ describe("readPreview caps an unranged/open-ended read (no unbounded inline buff
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("throws PAYLOAD_TOO_LARGE for an open-ended range over the cap (via Content-Length)", async () => {
+  it("refuses an open-ended range over the cap with PreviewTooLarge (via Content-Length)", async () => {
     await expect(
       readPreview({
         repoPath: tmpRoot,
         filePath: "big.bin",
         range: "bytes=0-",
       }),
-    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+    ).rejects.toMatchObject({ _tag: "PreviewTooLarge" });
   });
 
-  it("throws PAYLOAD_TOO_LARGE for a HUGE bounded range that resolves to ~the whole file", async () => {
+  it("refuses a HUGE bounded range that resolves to ~the whole file with PreviewTooLarge", async () => {
     // `bytes=0-99999999999` is shape-bounded (both ends present) but serve-dir
     // clamps its end to the file size, so it resolves to the whole 64 MiB+1 file.
     // The old shape-only `isBoundedRange` let exactly this ride the UNCAPPED
@@ -159,7 +159,7 @@ describe("readPreview caps an unranged/open-ended read (no unbounded inline buff
         filePath: "big.bin",
         range: "bytes=0-99999999999",
       }),
-    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+    ).rejects.toMatchObject({ _tag: "PreviewTooLarge" });
   });
 
   it("leaves a BOUNDED range over the same big file unchanged (206, just those bytes)", async () => {

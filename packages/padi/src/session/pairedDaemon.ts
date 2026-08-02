@@ -24,8 +24,8 @@
  * would have nothing to compare against).
  */
 
+import { Schema } from "effect";
 import type { PtyHostListEntry } from "kaval";
-import { z } from "zod";
 import { requirePadiLastPairedDaemonStore } from "./confStores.ts";
 import type { SavedSession } from "../vocab.ts";
 
@@ -34,11 +34,11 @@ import type { SavedSession } from "../vocab.ts";
  *  against, to tell "our survivor whose terminals all exited" (clear) from "a
  *  replaced empty daemon" (preserve) — the one case the terminal-id match below
  *  cannot decide by itself. */
-export const PairedDaemonSchema = z.object({
+export const PairedDaemonSchema = Schema.Struct({
   /** kaval's `Date.now()` boot stamp (ms epoch) — the per-process discriminant. */
-  startedAt: z.number(),
+  startedAt: Schema.Number,
 });
-export type PairedDaemon = z.infer<typeof PairedDaemonSchema>;
+export type PairedDaemon = typeof PairedDaemonSchema.Type;
 
 /** The last-paired daemon, or null if none recorded (a first boot, or a boot that
  *  never converged onto a survivor). Reads through padi's injected conf store.

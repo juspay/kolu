@@ -13,6 +13,7 @@
  * `@kolu/padi/surface`.
  */
 
+import type { WireSchema } from "@kolu/surface/define";
 import type { DaemonLifetimeInfo } from "@kolu/surface-daemon";
 import {
   ENDPOINT_STATES,
@@ -31,7 +32,7 @@ import {
 } from "@kolu/terminal-vocab/schema";
 import { exactRestoreTarget } from "anyagent/cli";
 import { type PrInfo, prValue } from "anyforge/schemas";
-import { z } from "zod";
+import { Effect, Result, Schema, Struct } from "effect";
 import {
   CanvasLayoutSchema,
   RightPanelPerTerminalStateSchema,
@@ -59,15 +60,18 @@ import {
  * not a value {@link encodeHostLocation}/{@link decodeHostLocation} can
  * round-trip (the codec's wire form for it, `"remote:"`, collides with no
  * hostId at all and `decodeHostLocation` already throws on it) — mirrors
- * kolu-common/hostKey's `HostKeySchema.target: z.string().min(1)` fix for the
+ * kolu-common/hostKey's `HostKeySchema.target` min-length-1 fix for the
  * same shape of bug.
  */
-export const HostLocationSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local") }),
-  z.object({ kind: z.literal("remote"), hostId: z.string().min(1) }),
+export const HostLocationSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("remote"),
+    hostId: Schema.String.check(Schema.isMinLength(1)),
+  }),
 ]);
 
-export type HostLocation = z.infer<typeof HostLocationSchema>;
+export type HostLocation = typeof HostLocationSchema.Type;
 
 /** The in-process endpoint's location — the singleton `{ kind: "local" }`.
  *  `location` is never mutated after spawn (a terminal does not migrate
@@ -150,15 +154,13 @@ export function decodeHostLocation(s: string): HostLocation {
  *  value, carrying the agent IDENTITY on its `exact` arm), not this projection — a
  *  full `TerminalSnapshot`'s live agent can't survive a server restart as anything but its
  *  identity, and that identity is the kolu-owned resume target, not a snapshot field.
- *  `SavedTerminalSchema.parse` reduces a full
+ *  Decoding through `SavedTerminalSchema` reduces a full
  *  `TerminalSnapshot` to this at the disk-persist seam (it drops agent + foreground
  *  structurally). */
-export const PersistedSnapshotSchema = TerminalSnapshotSchema.pick({
-  cwd: true,
-  git: true,
-  pr: true,
-});
-export type PersistedSnapshot = z.infer<typeof PersistedSnapshotSchema>;
+export const PersistedSnapshotSchema = TerminalSnapshotSchema.mapFields(
+  Struct.pick(["cwd", "git", "pr"]),
+);
+export type PersistedSnapshot = typeof PersistedSnapshotSchema.Type;
 
 /**
  * Client-persisted fields — written by client RPCs (via
@@ -166,28 +168,28 @@ export type PersistedSnapshot = z.infer<typeof PersistedSnapshotSchema>;
  * skip the publish like sub-panel state) and round-tripped through disk.
  * The "client-writes + persisted" intersection, declared structurally.
  */
-export const ClientPersistedTerminalFieldsSchema = z.object({
-  themeName: z.string().min(1).optional(),
+export const ClientPersistedTerminalFieldsSchema = Schema.Struct({
+  themeName: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
   /** If set, this terminal is a sub-terminal of the given parent. */
-  parentId: z.string().optional(),
+  parentId: Schema.optionalKey(Schema.String),
   /** Canvas tile position/size — client-reported, used for session restore. */
-  canvasLayout: CanvasLayoutSchema.optional(),
+  canvasLayout: Schema.optionalKey(CanvasLayoutSchema),
   /** Sub-panel collapsed/size state — client-reported, used for session restore. */
-  subPanel: SubPanelStateSchema.optional(),
+  subPanel: Schema.optionalKey(SubPanelStateSchema),
   /** Right-panel per-terminal state — client-reported. Holds the fields
    *  that are *about* the terminal's task: whether the panel is showing
    *  (`collapsed`), the active tab, the code sub-mode, and the per-mode file
    *  selection — so the panel follows the terminal (#959). Only the panel
    *  width + Code-tab tree split stay on `preferences.rightPanel` (viewer
    *  density taste, not per-terminal task state). */
-  rightPanel: RightPanelPerTerminalStateSchema.optional(),
+  rightPanel: Schema.optionalKey(RightPanelPerTerminalStateSchema),
   /** User-set freeform annotation — multiline markdown. The first line
    *  doubles as a glanceable tag (rendered as a chip next to the repo
    *  name and painted onto the dock rail swatch); the full body shows
    *  in the canvas-tile top-border pill, the dock-awaiting card, the
    *  workspace switcher card, and the intent editor. Empty / undefined
    *  collapses every render site to its no-intent shape. */
-  intent: z.string().min(1).optional(),
+  intent: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
 });
 
 /**
@@ -212,15 +214,17 @@ export const TerminalClientMetadataSchema = ClientPersistedTerminalFieldsSchema;
 // (full agent / foreground) must first narrow `state === "active"`. `state` never
 // crosses the awareness wire (kaval never sees a sleeping arm).
 
-const ActiveDiscriminantSchema = z.object({ state: z.literal("active") });
-const SleepingDiscriminantSchema = z.object({
-  state: z.literal("sleeping"),
+const ActiveDiscriminantSchema = Schema.Struct({
+  state: Schema.Literal("active"),
+});
+const SleepingDiscriminantSchema = Schema.Struct({
+  state: Schema.Literal("sleeping"),
   /** Epoch-millis the terminal was put to sleep. The sleeping arm's analogue
    *  of the live overlay — the one scalar an active terminal doesn't carry. The
    *  frozen-`pr` field that used to live here is GONE: `pr` is restore-relevant
    *  now, so it rides the persisted observation and survives on the dormant tile
    *  from there (no special case). */
-  sleptAt: z.number(),
+  sleptAt: Schema.Number,
 });
 
 // ── The AUTHORED family — what rides `entry.meta` after the cutover ───────
@@ -242,49 +246,56 @@ const SleepingDiscriminantSchema = z.object({
  *  fold's `updateMemory`). Memory is FLAT here, so the on-disk JSON path is
  *  unchanged and `composeTerminalMetadata` spreads it straight onto the joined
  *  record. */
-const KoluAuthoredServerFieldsSchema = z
-  .object({
-    /** Where this terminal's endpoint lives — `{ kind: "local" }` for an in-process
-     *  PTY, `{ kind: "remote", hostId }` for a dialed host. Non-optional and explicit
-     *  by construction: a terminal's host is the value of this field, never the
-     *  *absence* of a host id, so any code that constructs a terminal's metadata must
-     *  name its host (a dropped location is a compile error, not a silent local
-     *  respawn against the wrong machine). Set once at spawn, never mutated. */
-    location: HostLocationSchema,
-    /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
-     *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
-     *  EXACT conversation that was live by id (#1495), `none` wakes to a bare shell
-     *  (#1492), `legacyMostRecent` resumes most-recent for migrated pre-1.29 records.
-     *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
-     *  rides the AUTHORED record (not the observation) because a server restart keeps
-     *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
-     *  `none` (a fresh terminal with no agent), never as "resume something" — the
-     *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
-     *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
-    restoreTarget: RestoreTargetSchema.optional(),
-  })
-  .merge(AgentMemorySchema);
+//
+// Every `.merge(X)` in this file is now a FIELD SPREAD — `Schema.Struct({
+// ...A.fields, ...B.fields })` (the `recon/effect4.md` §5 cheat-sheet's
+// translation). Spread order is declaration order, which is what the encoded
+// JSON's key order follows, so the on-disk bytes are unchanged.
+const KoluAuthoredServerFieldsSchema = Schema.Struct({
+  /** Where this terminal's endpoint lives — `{ kind: "local" }` for an in-process
+   *  PTY, `{ kind: "remote", hostId }` for a dialed host. Non-optional and explicit
+   *  by construction: a terminal's host is the value of this field, never the
+   *  *absence* of a host id, so any code that constructs a terminal's metadata must
+   *  name its host (a dropped location is a compile error, not a silent local
+   *  respawn against the wrong machine). Set once at spawn, never mutated. */
+  location: HostLocationSchema,
+  /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
+   *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
+   *  EXACT conversation that was live by id (#1495), `none` wakes to a bare shell
+   *  (#1492), `legacyMostRecent` resumes most-recent for migrated pre-1.29 records.
+   *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
+   *  rides the AUTHORED record (not the observation) because a server restart keeps
+   *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
+   *  `none` (a fresh terminal with no agent), never as "resume something" — the
+   *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
+   *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
+  restoreTarget: Schema.optionalKey(RestoreTargetSchema),
+  ...AgentMemorySchema.fields,
+});
 
 /** The authored record MINUS the active|sleeping discriminant — `location` +
  *  memory + `restoreTarget` + client/UI chrome. Exported so `padiSurface`'s
  *  `parked` arm (the padi plan of record, PR #1649) can be built from the same
  *  authored base the `active`/`sleeping` arms share, rather than a parallel copy. */
-export const KoluAuthoredFieldsSchema = KoluAuthoredServerFieldsSchema.merge(
-  ClientPersistedTerminalFieldsSchema,
-);
+export const KoluAuthoredFieldsSchema = Schema.Struct({
+  ...KoluAuthoredServerFieldsSchema.fields,
+  ...ClientPersistedTerminalFieldsSchema.fields,
+});
 
 /** The authored ACTIVE arm — `location` + memory + client fields + `state:
  *  "active"`. No snapshot field. */
-export const AuthoredActiveSchema = KoluAuthoredFieldsSchema.merge(
-  ActiveDiscriminantSchema,
-);
+export const AuthoredActiveSchema = Schema.Struct({
+  ...KoluAuthoredFieldsSchema.fields,
+  ...ActiveDiscriminantSchema.fields,
+});
 
 /** The authored SLEEPING arm — `location` + memory + client fields + `sleptAt`.
  *  No snapshot field, and no frozen `pr`: `pr` is restore-relevant now and rides
  *  the persisted observation, so the dormant tile reads it from there. */
-export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
-  SleepingDiscriminantSchema,
-);
+export const AuthoredSleepingSchema = Schema.Struct({
+  ...KoluAuthoredFieldsSchema.fields,
+  ...SleepingDiscriminantSchema.fields,
+});
 
 /** The `parked` discriminant — a reboot-killed ACTIVE record padi's boot
  *  reconcile parks (its PTY died with the host; the record survives so the
@@ -292,10 +303,10 @@ export const AuthoredSleepingSchema = KoluAuthoredFieldsSchema.merge(
  *  at boot and NEVER persisted, and restores by re-spawning a FRESH active PTY,
  *  whereas sleeping is a deliberate dormant state that resumes its agent on wake.
  *  `parkedAt` is the ms-epoch padi parked the record. */
-export const ParkedDiscriminantSchema = z.object({
-  state: z.literal("parked"),
+export const ParkedDiscriminantSchema = Schema.Struct({
+  state: Schema.Literal("parked"),
   /** Epoch-millis padi parked this record at boot reconcile. */
-  parkedAt: z.number(),
+  parkedAt: Schema.Number,
 });
 
 /** The authored PARKED arm — `location` + memory + client fields + the `parked`
@@ -305,41 +316,64 @@ export const ParkedDiscriminantSchema = z.object({
  *  disk persist consume — parked is never persisted): parked rides the registry
  *  as its own arm and is composed into the served `parked` value by an explicit
  *  branch, never by the two-arm compose. */
-export const AuthoredParkedSchema = KoluAuthoredFieldsSchema.merge(
-  ParkedDiscriminantSchema,
-);
-export type AuthoredParkedTerminal = z.infer<typeof AuthoredParkedSchema>;
+export const AuthoredParkedSchema = Schema.Struct({
+  ...KoluAuthoredFieldsSchema.fields,
+  ...ParkedDiscriminantSchema.fields,
+});
+export type AuthoredParkedTerminal = Authored<typeof AuthoredParkedSchema.Type>;
 
 /** The authored terminal as a sum — `entry.meta`'s static type. Discriminated on
  *  `state`, naming no snapshot field. */
-export const AuthoredTerminalSchema = z.discriminatedUnion("state", [
+export const AuthoredTerminalSchema = Schema.Union([
   AuthoredActiveSchema,
   AuthoredSleepingSchema,
 ]);
 
-export type AuthoredActiveTerminal = z.infer<typeof AuthoredActiveSchema>;
-export type AuthoredSleepingTerminal = z.infer<typeof AuthoredSleepingSchema>;
-export type AuthoredTerminal = z.infer<typeof AuthoredTerminalSchema>;
+/** The in-memory, top-level-MUTABLE view of a decoded record.
+ *
+ *  Effect's decoded `Struct.Type` is `readonly` on every field (zod's was not),
+ *  and that is right for a WIRE/DISK value — a frame a consumer renders must not
+ *  be edited under it. padi's REGISTRY is a different thing wearing the same
+ *  shape: `entry.meta` is the authored record padi itself AUTHORS, and its
+ *  chrome setters assign fields in place (one writer, by construction — the
+ *  registry is the authority).
+ *
+ *  So the two roles get two names over one schema, rather than a schema-wide
+ *  weakening that would hand every client a mutable frame. Homomorphic, so it
+ *  distributes over the authored UNION and each arm keeps its discriminant;
+ *  SHALLOW, because every write site assigns a whole field (`meta.rightPanel =
+ *  state`), never reaches into one. */
+type Authored<T> = { -readonly [K in keyof T]: T[K] };
+
+export type AuthoredActiveTerminal = Authored<typeof AuthoredActiveSchema.Type>;
+export type AuthoredSleepingTerminal = Authored<
+  typeof AuthoredSleepingSchema.Type
+>;
+export type AuthoredTerminal = Authored<typeof AuthoredTerminalSchema.Type>;
 
 /** An active terminal — the FULL live `TerminalSnapshot` joined with the authored
  *  active arm. The only live arm; narrowing `state === "active"` yields the full
  *  agent detail + foreground. */
-export const ActiveTerminalSchema =
-  TerminalSnapshotSchema.merge(AuthoredActiveSchema);
+export const ActiveTerminalSchema = Schema.Struct({
+  ...TerminalSnapshotSchema.fields,
+  ...AuthoredActiveSchema.fields,
+});
 
 /** A sleeping terminal — the restore-relevant `PersistedSnapshot` (agent
  *  identity, no foreground) joined with the authored sleeping arm. Its PTY/agent
  *  are released, so it carries only what survives the release. */
-export const SleepingTerminalSchema = PersistedSnapshotSchema.merge(
-  AuthoredSleepingSchema,
-);
+export const SleepingTerminalSchema = Schema.Struct({
+  ...PersistedSnapshotSchema.fields,
+  ...AuthoredSleepingSchema.fields,
+});
 
 /** The on-disk persisted core, both arms share — the `PersistedSnapshot` +
  *  the authored fields. The saved active arm adds `state: "active"`; the saved
  *  sleeping arm adds `sleptAt`. Both add `id`. */
-const SavedPersistedCoreSchema = PersistedSnapshotSchema.merge(
-  KoluAuthoredFieldsSchema,
-);
+const SavedPersistedCoreSchema = Schema.Struct({
+  ...PersistedSnapshotSchema.fields,
+  ...KoluAuthoredFieldsSchema.fields,
+});
 
 /**
  * The terminal as a sum — `Terminal = active | sleeping`, discriminated on
@@ -349,7 +383,7 @@ const SavedPersistedCoreSchema = PersistedSnapshotSchema.merge(
  * Presence reads the union; liveness narrows to the `active` arm. Code that only
  * needs one half should import the sub-schema so the dependency is explicit.
  */
-export const TerminalMetadataSchema = z.discriminatedUnion("state", [
+export const TerminalMetadataSchema = Schema.Union([
   ActiveTerminalSchema,
   SleepingTerminalSchema,
 ]);
@@ -362,12 +396,12 @@ export const TerminalMetadataSchema = z.discriminatedUnion("state", [
  *  from padi's own observation. Those three restore-only facts live in a SEPARATE
  *  shape below that only the restore path can spell (the type is the fence, not a
  *  convention). */
-export const CreateTerminalInputSchema = z.object({
-  themeName: z.string().min(1).optional(),
-  canvasLayout: CanvasLayoutSchema.optional(),
-  subPanel: SubPanelStateSchema.optional(),
-  rightPanel: RightPanelPerTerminalStateSchema.optional(),
-  intent: z.string().min(1).optional(),
+export const CreateTerminalInputSchema = Schema.Struct({
+  themeName: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
+  canvasLayout: Schema.optionalKey(CanvasLayoutSchema),
+  subPanel: Schema.optionalKey(SubPanelStateSchema),
+  rightPanel: Schema.optionalKey(RightPanelPerTerminalStateSchema),
+  intent: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1))),
 });
 
 /** The three server-derived authored facts a fresh create has NO business setting —
@@ -383,60 +417,61 @@ export const CreateTerminalInputSchema = z.object({
  *  writing `none` over a resuming agent's id before the fold re-derives it — so a
  *  SECOND unclean death right after restore, or a resume that never lands, still finds
  *  the target on disk. */
-export const RestoreOnlyMetadataSchema = z.object({
-  lastActivityAt: z.number().optional(),
-  lastAgentCommand: z.string().optional(),
-  restoreTarget: RestoreTargetSchema.optional(),
+export const RestoreOnlyMetadataSchema = Schema.Struct({
+  lastActivityAt: Schema.optionalKey(Schema.Number),
+  lastAgentCommand: Schema.optionalKey(Schema.String),
+  restoreTarget: Schema.optionalKey(RestoreTargetSchema),
 });
 
 /** The FULL seed shape spawnPty accepts — the base chrome plus the restore-only facts.
  *  It is only ever CONSTRUCTED by the two constructors in terminals.ts (`createTerminal`
  *  passes just the base; `restoreSpawn` merges in `restoreOnly`), never spelled by an
  *  ordinary caller and never accepted at the wire. */
-export const InitialTerminalMetadataSchema = CreateTerminalInputSchema.merge(
-  RestoreOnlyMetadataSchema,
-);
+export const InitialTerminalMetadataSchema = Schema.Struct({
+  ...CreateTerminalInputSchema.fields,
+  ...RestoreOnlyMetadataSchema.fields,
+});
 
 // ── Terminal cell value + raw-procedure shared schemas ────────────────
 
 /** Wire shape for a terminal's identity — the `id`+`pid` padiSurface's
  *  `lifecycle.create` / `kill` / `wake` return. Identity only; a terminal's
  *  metadata rides padi's `terminals` collection. */
-export const TerminalInfoSchema = z.object({
+export const TerminalInfoSchema = Schema.Struct({
   id: TerminalIdSchema,
-  pid: z.number(),
+  pid: Schema.Number,
 });
 
 /** The `terminalExit` event payload — the exit code. The event itself now rides
  *  `padiSurface` (its input key is padi's own `PadiTerminalIdInputSchema`); this
  *  output schema is shared so padi and any consumer agree on the wire shape. */
-export const TerminalOnExitOutputSchema = z.number();
+export const TerminalOnExitOutputSchema = Schema.Number;
 
 // ── Activity feed sub-schemas ─────────────────────────────────────────
 
-export const RecentRepoSchema = z.object({
-  repoRoot: z.string(),
-  repoName: z.string(),
-  lastSeen: z.number(),
+export const RecentRepoSchema = Schema.Struct({
+  repoRoot: Schema.String,
+  repoName: Schema.String,
+  lastSeen: Schema.Number,
 });
 
 /** A normalized agent CLI invocation (e.g. "claude --model sonnet").
  *  Populated from OSC 633;E command marks emitted by kolu's preexec hook
  *  whenever the user runs a known agent binary in any terminal. */
-export const RecentAgentSchema = z.object({
+export const RecentAgentSchema = Schema.Struct({
   /** Normalized command line — first token is the agent binary,
    *  followed by its stable flags. Prompt/message flags and trailing
    *  positional arguments are stripped so ephemeral prompt text does
    *  not pollute the MRU. */
-  command: z.string(),
-  lastSeen: z.number(),
+  command: Schema.String,
+  lastSeen: Schema.Number,
 });
 
 /** Server-derived activity feed: recent repos cd'd into and recent agent
  *  CLIs spotted via OSC 633;E. Server is sole writer; client is read-only. */
-export const ActivityFeedSchema = z.object({
-  recentRepos: z.array(RecentRepoSchema),
-  recentAgents: z.array(RecentAgentSchema),
+export const ActivityFeedSchema = Schema.Struct({
+  recentRepos: Schema.Array(RecentRepoSchema),
+  recentAgents: Schema.Array(RecentAgentSchema),
 });
 
 // ── Session persistence ───────────────────────────────────────────────
@@ -457,9 +492,9 @@ export const ActivityFeedSchema = z.object({
  * in `Map` insertion order (stable per ES2015) and restore replays that
  * order verbatim.
  */
-const SavedTerminalIdSchema = z.object({
+const SavedTerminalIdSchema = Schema.Struct({
   /** Stable ID within this session (original terminal UUID at save time). */
-  id: z.string(),
+  id: Schema.String,
 });
 
 /** The active arm of the on-disk record (persisted-observation base + authored +
@@ -467,70 +502,84 @@ const SavedTerminalIdSchema = z.object({
  *  IDENTITY only (no lie-when-dead detail) and foreground is absent: the
  *  restore-relevant projection, not the full live `TerminalSnapshot`. Exported so the
  *  adoption round-trip test can assert it carries every persisted key. */
-export const SavedActiveTerminalSchema = SavedPersistedCoreSchema.merge(
-  ActiveDiscriminantSchema,
-).merge(SavedTerminalIdSchema);
+export const SavedActiveTerminalSchema = Schema.Struct({
+  ...SavedPersistedCoreSchema.fields,
+  ...ActiveDiscriminantSchema.fields,
+  ...SavedTerminalIdSchema.fields,
+});
 
 /** The sleeping arm of the on-disk record (persisted-observation base + authored +
  *  `sleptAt` + id) — the shape a slept terminal persists. Named symmetrically with
  *  `SavedActiveTerminalSchema` so the saved sum reads as two equally-named arms. */
-export const SavedSleepingTerminalSchema = SavedPersistedCoreSchema.merge(
-  SleepingDiscriminantSchema,
-).merge(SavedTerminalIdSchema);
+export const SavedSleepingTerminalSchema = Schema.Struct({
+  ...SavedPersistedCoreSchema.fields,
+  ...SleepingDiscriminantSchema.fields,
+  ...SavedTerminalIdSchema.fields,
+});
 
-export const SavedTerminalSchema = z.discriminatedUnion("state", [
+export const SavedTerminalSchema = Schema.Union([
   SavedActiveTerminalSchema,
   SavedSleepingTerminalSchema,
 ]);
 
-export const SavedSessionSchema = z.object({
-  terminals: z.array(SavedTerminalSchema),
+export const SavedSessionSchema = Schema.Struct({
+  terminals: Schema.Array(SavedTerminalSchema),
   /** Which terminal was active at save time. ONE absence spelling —
    *  `.nullable()` with a `null` default, not the redundant
    *  `.nullable().optional()` double-absence a prior type audit flagged: every
    *  writer here already states `null` explicitly (never omits the key) and
    *  every reader already normalizes with `?? null`, so a MISSING key and an
    *  explicit `null` were always the same domain fact wearing two spellings.
-   *  `.default(null)` keeps `.parse()` total over a legacy blob that omits the
-   *  key (pre-dates this field) — the OUTPUT type is a required `string | null`,
-   *  never `undefined`. */
-  activeTerminalId: z.string().nullable().default(null),
-  savedAt: z.number(),
+   *  The decoding default keeps decoding TOTAL over a legacy blob that omits
+   *  the key (pre-dates this field) — the decoded type is a required `string |
+   *  null`, never `undefined`. KEY-level (`withDecodingDefaultKey`, PLAN #17):
+   *  a MISSING key backfills to `null`, an explicit `undefined` is REJECTED (a
+   *  disk field is absent or present, never `undefined`), and encoding always
+   *  emits the key — byte-identical to what zod's `.default(null)` produced.
+   *  In-process callers that build a session object must therefore STRIP
+   *  `undefined` keys rather than spell them. */
+  activeTerminalId: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
+  savedAt: Schema.Number,
   /**
    * Host-stamped: ids of terminals that will resume an agent on restore.
    * Wire-only enrichment — never trusted from disk; the session cell recomputes
    * and stamps this on every serve. Optional so conf blobs and e2e fixtures
    * parse without it; the live host always stamps before the client reads.
    */
-  resumableIds: z.array(z.string()).optional(),
+  resumableIds: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
-export type TerminalClientMetadata = z.infer<
-  typeof TerminalClientMetadataSchema
+/** The client WRITE FENCE — the shape `updateClientMetadata`'s mutator sees.
+ *  MUTABLE for the same reason the authored arms are (see {@link Authored}):
+ *  this type exists to be assigned INTO, on padi's own registry record, by the
+ *  one writer. Every other reading of these fields goes through the authored /
+ *  saved / served types, which stay `readonly`. */
+export type TerminalClientMetadata = Authored<
+  typeof TerminalClientMetadataSchema.Type
 >;
 /** The base create input — what every ordinary caller and the wire spell. */
-export type CreateTerminalInput = z.infer<typeof CreateTerminalInputSchema>;
+export type CreateTerminalInput = typeof CreateTerminalInputSchema.Type;
 /** The three restore-only facts — only `restoreSpawn` (from the saved blob) spells them. */
-export type RestoreOnlyMetadata = z.infer<typeof RestoreOnlyMetadataSchema>;
-export type InitialTerminalMetadata = z.infer<
-  typeof InitialTerminalMetadataSchema
->;
+export type RestoreOnlyMetadata = typeof RestoreOnlyMetadataSchema.Type;
+export type InitialTerminalMetadata = typeof InitialTerminalMetadataSchema.Type;
 /** The active arm of the `Terminal` sum — what `createMetadata` builds and the
  *  only arm Phase 1 constructs. Narrowing `state === "active"` yields this. */
-export type ActiveTerminal = z.infer<typeof ActiveTerminalSchema>;
+export type ActiveTerminal = typeof ActiveTerminalSchema.Type;
 /** The sleeping arm of the `Terminal` sum — persisted-observation base + memory +
  *  `sleptAt`. */
-export type SleepingTerminal = z.infer<typeof SleepingTerminalSchema>;
-export type RecentRepo = z.infer<typeof RecentRepoSchema>;
-export type RecentAgent = z.infer<typeof RecentAgentSchema>;
-export type SavedTerminal = z.infer<typeof SavedTerminalSchema>;
+export type SleepingTerminal = typeof SleepingTerminalSchema.Type;
+export type RecentRepo = typeof RecentRepoSchema.Type;
+export type RecentAgent = typeof RecentAgentSchema.Type;
+export type SavedTerminal = typeof SavedTerminalSchema.Type;
 /** The active arm of `SavedTerminal` — what restore/adoption produce and the
  *  only on-disk arm Phase 1 writes. The whole-record adoption path is typed to
  *  this (a sleeping record has no live PTY to adopt). */
-export type SavedActiveTerminal = z.infer<typeof SavedActiveTerminalSchema>;
+export type SavedActiveTerminal = typeof SavedActiveTerminalSchema.Type;
 /** The sleeping arm of `SavedTerminal` — persisted base + `sleptAt` + id. What a
  *  slept terminal persists and what the boot seed / restore card read back. */
-export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
+export type SavedSleepingTerminal = typeof SavedSleepingTerminalSchema.Type;
 
 // ── kaval identity (the pty-host build identity) ───────────────────────
 //
@@ -550,9 +599,9 @@ export type SavedSleepingTerminal = z.infer<typeof SavedSleepingTerminalSchema>;
 // COMMIT comparison (the client's `≠ srv`). Keyed on the closure-hash staleKey,
 // never the per-deploy commit, so a server-/client-only deploy never nudges
 // (#1034); off-nix the id is "" on both sides, so the read-site guard stays silent.
-export const PtyHostIdentitySchema = z.object({
-  staleKey: z.string(),
-  navigableCommit: z.string(),
+export const PtyHostIdentitySchema = Schema.Struct({
+  staleKey: Schema.String,
+  navigableCommit: Schema.String,
 });
 
 /** padi's browser-safe copy of `@kolu/surface-daemon`'s `DaemonLifetimeInfo` (the
@@ -561,16 +610,24 @@ export const PtyHostIdentitySchema = z.object({
  *  padi's browser-safe vocab does not depend on kaval's package. `satisfies`-pinned
  *  to the spine type so the two can't drift. Reused by `DaemonStatusSchema` (kaval's
  *  lifetime) and, via surface.ts, by `PadiIdentitySchema` (padi's own). */
-export const DaemonLifetimeInfoSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("forever") }),
-  z.object({ kind: z.literal("idleTimeout"), ms: z.number() }),
-  z.object({ kind: z.literal("boundToPid"), pid: z.number() }),
-]) satisfies z.ZodType<DaemonLifetimeInfo>;
+export const DaemonLifetimeInfoSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("forever") }),
+  Schema.Struct({ kind: Schema.Literal("idleTimeout"), ms: Schema.Number }),
+  Schema.Struct({ kind: Schema.Literal("boundToPid"), pid: Schema.Number }),
+]) satisfies WireSchema<DaemonLifetimeInfo>;
 
 // `connected` and `incompatible` are the two PAYLOAD-BEARING arms — each gets
 // its own object schema below, so the shared payload-less enum arm excludes
 // both (leaving either in this enum would make its payload structurally
-// unspellable: the shared arm pins every payload field `z.never()`).
+// unspellable: the shared arm pins every payload field an ANTI-FIELD).
+//
+// The anti-field spelling is `Schema.optionalKey(Schema.Never)` — the Effect
+// twin of zod's `z.never().optional()`. VERIFIED against
+// effect@4.0.0-beta.102, not assumed (review #11 asked for exactly this): a
+// MISSING key decodes fine, and a PRESENT value — including an explicit
+// `undefined` — is REJECTED, which is what makes the field unspellable on the
+// arms that must not carry it. `daemonStatus.antiFields.test.ts` pins both
+// directions per arm so the guard cannot rot into a no-op.
 const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
   (state): state is Exclude<EndpointState, "connected" | "incompatible"> =>
     state !== "connected" && state !== "incompatible",
@@ -586,13 +643,13 @@ const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
  *  their incompatible arms against the inferred {@link KavalSkewVersions}.
  *  Adding a field to the skew report is an edit HERE, not N hand-kept
  *  re-spellings across the layers. */
-export const KavalSkewVersionsSchema = z.object({
+export const KavalSkewVersionsSchema = Schema.Struct({
   /** The contract version the daemon actually speaks. */
-  daemonVersion: z.string(),
+  daemonVersion: Schema.String,
   /** The contract version this kolu's build requires. */
-  requiredVersion: z.string(),
+  requiredVersion: Schema.String,
 });
-export type KavalSkewVersions = z.infer<typeof KavalSkewVersionsSchema>;
+export type KavalSkewVersions = typeof KavalSkewVersionsSchema.Type;
 
 /** The live state of one host's pty-host daemon (kaval), as the supervisor's
  *  endpoint reports it — the honest-state surface that makes "the daemon is
@@ -600,23 +657,23 @@ export type KavalSkewVersions = z.infer<typeof KavalSkewVersionsSchema>;
  *  fix). The `connected` arm carries boot time and wire contract version;
  *  non-connected states cannot spell those fields. `identity` remains optional
  *  until kaval's `system.version` wire contract makes it mandatory. */
-export const DaemonStatusSchema = z.discriminatedUnion("state", [
-  z.object({
-    state: z.literal("connected"),
-    identity: PtyHostIdentitySchema.optional(),
+export const DaemonStatusSchema = Schema.Union([
+  Schema.Struct({
+    state: Schema.Literal("connected"),
+    identity: Schema.optionalKey(PtyHostIdentitySchema),
     /** The pty-host wire contract this daemon reported at handshake. Kaval's
      *  build identity is `identity.navigableCommit`; this is the protocol version
      *  kolu-server must agree on before talking to it. */
-    contractVersion: z.string(),
+    contractVersion: Schema.String,
     /** Daemon boot time (ms epoch) — the rail's KAVAL uptime is derived from it. */
-    startedAt: z.number(),
+    startedAt: Schema.Number,
     /** B3.3: how many terminals this boot ADOPTED from a surviving daemon — set
      *  only on the `connected` status of an adopt-boot (a fresh / recycled boot
      *  omits it). Drives the client's one-shot "N reattached" confirmation.
      *  kolu's soul, not the spine: the supervisor's `EndpointStatus` never
      *  carries adoption results; the server folds them onto this kolu-owned
      *  status after reconciling. */
-    adopted: z.number().optional(),
+    adopted: Schema.optionalKey(Schema.Number),
     /** B3.3: the ms-epoch the server stamped when it surfaced THIS adoption — a
      *  per-adoption identity the client dedupes the one-shot toast against. Set
      *  with `adopted` (omitted on cold boots). The `adopted`/`adoptedAt` pair is
@@ -624,21 +681,21 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
      *  identity a reconnect after a page reload re-fired the toast though nothing
      *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
      *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
-    adoptedAt: z.number().optional(),
+    adoptedAt: Schema.optionalKey(Schema.Number),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
      *  can't construct — it doesn't know the server's `XDG_RUNTIME_DIR`); set
      *  once at boot, constant for the daemon's life. Optional + additive. */
-    socketPath: z.string().optional(),
+    socketPath: Schema.optionalKey(Schema.String),
     /** kaval's lifetime policy (`forever` in production; `boundToPid` under a
      *  test/smoke run), mirrored from `system.version` via the connection
      *  metadata — surfaced for the Kaval dialog's lifetime row. Optional: a
      *  survivor predating the field reports none, and the reader falls back
      *  to "—". Set once at boot, constant for the daemon's life. */
-    lifetime: DaemonLifetimeInfoSchema.optional(),
-    daemonVersion: z.never().optional(),
-    requiredVersion: z.never().optional(),
+    lifetime: Schema.optionalKey(DaemonLifetimeInfoSchema),
+    daemonVersion: Schema.optionalKey(Schema.Never),
+    requiredVersion: Schema.optionalKey(Schema.Never),
   }),
   // The PROVEN-skew arm (SK4, padiSurface 4.1's one emitted delta): a daemon
   // the supervisor has proven incompatible — a respawn from the realised
@@ -646,41 +703,41 @@ export const DaemonStatusSchema = z.discriminatedUnion("state", [
   // Carries BOTH contract versions as REQUIRED typed fields, read off the
   // `DaemonContractSkewError`'s own fields at the emit site — the client's
   // skew card renders them structurally; nothing ever re-parses the prose.
-  z.object({
-    state: z.literal("incompatible"),
+  Schema.Struct({
+    state: Schema.Literal("incompatible"),
     // BOTH contract versions, spread from the ONE skew-payload spelling
     // ({@link KavalSkewVersionsSchema}) shared with `recycleKaval`'s declared
-    // error data.
-    ...KavalSkewVersionsSchema.shape,
-    identity: z.never().optional(),
-    contractVersion: z.never().optional(),
-    startedAt: z.never().optional(),
-    adopted: z.never().optional(),
-    adoptedAt: z.never().optional(),
-    lifetime: z.never().optional(),
-    socketPath: z.string().optional(),
+    // error data. `.shape` → `.fields` — the same read-off-the-schema promise.
+    ...KavalSkewVersionsSchema.fields,
+    identity: Schema.optionalKey(Schema.Never),
+    contractVersion: Schema.optionalKey(Schema.Never),
+    startedAt: Schema.optionalKey(Schema.Never),
+    adopted: Schema.optionalKey(Schema.Never),
+    adoptedAt: Schema.optionalKey(Schema.Never),
+    lifetime: Schema.optionalKey(Schema.Never),
+    socketPath: Schema.optionalKey(Schema.String),
   }),
-  z.object({
-    // The state set is the spine's volatility — derive the enum from the
+  Schema.Struct({
+    // The state set is the spine's volatility — derive the literal set from the
     // supervisor's `ENDPOINT_STATES` so a new endpoint state is a compile-time
     // obligation here, not a silently-dropped wire member. The `identity` arm
     // below stays kolu's (it is the soul).
-    state: z.enum(NON_CONNECTED_ENDPOINT_STATES),
-    identity: z.never().optional(),
-    contractVersion: z.never().optional(),
-    startedAt: z.never().optional(),
-    adopted: z.never().optional(),
-    adoptedAt: z.never().optional(),
-    lifetime: z.never().optional(),
-    daemonVersion: z.never().optional(),
-    requiredVersion: z.never().optional(),
+    state: Schema.Literals(NON_CONNECTED_ENDPOINT_STATES),
+    identity: Schema.optionalKey(Schema.Never),
+    contractVersion: Schema.optionalKey(Schema.Never),
+    startedAt: Schema.optionalKey(Schema.Never),
+    adopted: Schema.optionalKey(Schema.Never),
+    adoptedAt: Schema.optionalKey(Schema.Never),
+    lifetime: Schema.optionalKey(Schema.Never),
+    daemonVersion: Schema.optionalKey(Schema.Never),
+    requiredVersion: Schema.optionalKey(Schema.Never),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). */
-    socketPath: z.string().optional(),
+    socketPath: Schema.optionalKey(Schema.String),
   }),
 ]);
-export type DaemonStatus = z.infer<typeof DaemonStatusSchema>;
+export type DaemonStatus = typeof DaemonStatusSchema.Type;
 export type DaemonState = DaemonStatus["state"];
 
 // ── Process-memory readout (padi + its kaval) ─────────────────────────────
@@ -699,11 +756,11 @@ export { type ProcessRss, ProcessRssSchema };
  *  `absent` means no connected kaval, one that exited during the read, or a
  *  superseded generation; an unreadable requested RSS is the explicit `error`
  *  arm. */
-export const PadiProcessMemorySchema = z.object({
+export const PadiProcessMemorySchema = Schema.Struct({
   padi: ProcessRssSchema,
   kaval: ProcessRssSchema,
 });
-export type PadiProcessMemory = z.infer<typeof PadiProcessMemorySchema>;
+export type PadiProcessMemory = typeof PadiProcessMemorySchema.Type;
 
 /** The value a fresh `processMemory` subscriber sees before padi's first sample —
  *  both processes' RSS unknown (the honest `absent`, never a fake zero). */
@@ -714,14 +771,14 @@ export const DEFAULT_PADI_PROCESS_MEMORY: PadiProcessMemory = {
 
 /** Server-derived activity feed — derived off its schema directly now that the
  *  cell rides `padiSurface` (no longer a `koluSurface` cell). */
-export type ActivityFeed = z.infer<typeof ActivityFeedSchema>;
+export type ActivityFeed = typeof ActivityFeedSchema.Type;
 /** The unified terminal record — NOT a served collection value (the wire
  *  carries the `authored` + `awareness` halves separately). This is the shape
  *  `composeTerminalMetadata` reconstructs at the client read and at disk
  *  persist, and the type the ~20 `getMetadata` consumers see. */
-export type TerminalMetadata = z.infer<typeof TerminalMetadataSchema>;
-export type TerminalInfo = z.infer<typeof TerminalInfoSchema>;
-export type SavedSession = z.infer<typeof SavedSessionSchema>;
+export type TerminalMetadata = typeof TerminalMetadataSchema.Type;
+export type TerminalInfo = typeof TerminalInfoSchema.Type;
+export type SavedSession = typeof SavedSessionSchema.Type;
 
 /** Narrow a terminal (or a possibly-absent one) to its active arm, or
  *  `undefined` when it is sleeping/absent. The single seam presence surfaces use
@@ -792,17 +849,28 @@ export function createAuthoredActive(
  *  `ActiveTerminal` structurally, with no parse on the per-render hot path.
  *
  *  The sleeping path takes ONLY the restore-relevant projection — `foreground` is
- *  dropped and the agent reduced to its identity via `PersistedSnapshotSchema.
- *  parse`. `pr` rides that projection (restore-relevant now), so the dormant tile
- *  surfaces its last-known PR from there — no frozen-`pr` special case. */
+ *  dropped and the agent reduced to its identity by DECODING through
+ *  `PersistedSnapshotSchema` (which names only `cwd · git · pr`, so the rest is
+ *  dropped structurally). `pr` rides that projection (restore-relevant now), so
+ *  the dormant tile surfaces its last-known PR from there — no frozen-`pr`
+ *  special case.
+ *
+ *  Both decodes are `Schema.decodeUnknownSync` — the fail-fast `.parse`
+ *  semantic they replace: a value that is not a terminal record here is a
+ *  caller bug, never a branchable condition. */
+const decodePersistedSnapshot = Schema.decodeUnknownSync(
+  PersistedSnapshotSchema,
+);
+const decodeSleepingTerminal = Schema.decodeUnknownSync(SleepingTerminalSchema);
+
 export function composeTerminalMetadata(
   authored: AuthoredTerminal,
   observation: TerminalSnapshot,
 ): TerminalMetadata {
   return authored.state === "active"
     ? { ...observation, ...authored }
-    : SleepingTerminalSchema.parse({
-        ...PersistedSnapshotSchema.parse(observation),
+    : decodeSleepingTerminal({
+        ...decodePersistedSnapshot(observation),
         ...authored,
       });
 }
@@ -899,6 +967,11 @@ export function backfillTerminalState(
  *       · no `lastAgentCommand` → no `restoreTarget` (absent ≡ `none`, a bare shell).
  *  `agentSession` is dropped either way. Idempotent and presence-keyed: a record
  *  that already has `pr` and a `restoreTarget` passes through untouched. */
+/** zod's `AgentKindSchema.safeParse`, in Effect terms — a `Result`, so a corrupt
+ *  on-disk `agentSession.kind` is a BRANCH here (fall to `legacyMostRecent`),
+ *  never a throw that would drop the whole terminal at the read boundary. */
+const decodeAgentKindResult = Schema.decodeUnknownResult(AgentKindSchema);
+
 export function backfillSnapshotCutover(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -921,15 +994,21 @@ export function backfillSnapshotCutover(
         agentSession && typeof agentSession === "object"
           ? (agentSession as Record<string, unknown>)
           : null;
-      const kind = ref ? AgentKindSchema.safeParse(ref.kind) : null;
+      const kind = ref ? decodeAgentKindResult(ref.kind) : null;
       // Route through `exactRestoreTarget` so the SAME command/agent-kind consistency
       // gate the live fold enforces also applies here: a migrated record whose old
       // `agentSession.kind` disagrees with the remembered `lastAgentCommand`'s agent
       // kind (corrupt / hand-edited / cross-agent) falls to `legacyMostRecent` rather
       // than building a mismatched `exact` that would silently resume the wrong agent.
       const exact =
-        ref && kind?.success && typeof ref.id === "string"
-          ? exactRestoreTarget(command, { kind: kind.data, sessionId: ref.id })
+        ref &&
+        kind !== null &&
+        Result.isSuccess(kind) &&
+        typeof ref.id === "string"
+          ? exactRestoreTarget(command, {
+              kind: kind.success,
+              sessionId: ref.id,
+            })
           : null;
       next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };
     }

@@ -27,8 +27,8 @@
 
 import type { RealpathGuard, ServeResult } from "@kolu/serve-dir";
 import { getHeaderCI, serveFile } from "@kolu/serve-dir";
-import { ORPCError } from "@orpc/server";
 import { assertRealpathUnder } from "kolu-git";
+import { PreviewTooLarge } from "./errors.ts";
 
 /** The filesystem-authority guard padi injects into `@kolu/serve-dir` for a
  *  given root: resolve symlinks and reject anything whose real path escapes the
@@ -78,15 +78,12 @@ export function previewFile(input: {
  *  pulled with a bounded byte range. */
 const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
 
-/** The typed fault a caller sees when an unranged/open-ended preview would exceed
- *  {@link MAX_INLINE_PREVIEW_BYTES} — fail-fast, NEVER a silent truncation. Names
- *  the fix: request a bounded byte range. */
-function previewTooLarge(): ORPCError<"PAYLOAD_TOO_LARGE", undefined> {
-  return new ORPCError("PAYLOAD_TOO_LARGE", {
-    message:
-      `Preview body exceeds the ${MAX_INLINE_PREVIEW_BYTES}-byte inline cap for ` +
-      "an unranged read; request a bounded byte range (e.g. `bytes=0-…`) instead.",
-  });
+/** The DECLARED fault a caller sees when an unranged/open-ended preview would
+ *  exceed {@link MAX_INLINE_PREVIEW_BYTES} — fail-fast, NEVER a silent
+ *  truncation. The cap rides as typed data, so the message names the fix AND a
+ *  client can compute a range from it rather than read a number out of prose. */
+function previewTooLarge(): PreviewTooLarge {
+  return new PreviewTooLarge({ limitBytes: MAX_INLINE_PREVIEW_BYTES });
 }
 
 /** Read `Content-Length` case-insensitively (serve-dir sets it on a 206, but

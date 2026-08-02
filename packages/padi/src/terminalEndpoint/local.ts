@@ -441,7 +441,7 @@ function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
  *  a fourth persisted field to `PersistedSnapshotSchema` and the fence covers it
  *  with no second edit here. */
 const PERSISTED_SNAPSHOT_KEYS = Object.keys(
-  PersistedSnapshotSchema.shape,
+  PersistedSnapshotSchema.fields,
 ) as (keyof TerminalSnapshot)[];
 
 /** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?

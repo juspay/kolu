@@ -13,6 +13,7 @@
  */
 
 import type { AgentInfo, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   type AuthoredActiveTerminal,
@@ -23,6 +24,12 @@ import {
   HostLocationSchema,
   LOCAL_LOCATION,
 } from "./vocab.ts";
+
+/** zod's `.safeParse(x).success`, in Effect terms. */
+const accepts = (
+  schema: Parameters<typeof Schema.decodeUnknownResult>[0],
+  value: unknown,
+): boolean => Result.isSuccess(Schema.decodeUnknownResult(schema)(value));
 
 const claude = (sessionId: string): AgentInfo => ({
   kind: "claude-code",
@@ -151,19 +158,19 @@ describe("encodeHostLocation / decodeHostLocation — the daemon-status key code
   });
 
   it("HostLocationSchema rejects an empty remote hostId — the shape the codec can't round-trip", () => {
-    expect(HostLocationSchema.safeParse({ kind: "local" }).success).toBe(true);
+    expect(accepts(HostLocationSchema, { kind: "local" })).toBe(true);
     expect(
-      HostLocationSchema.safeParse({ kind: "remote", hostId: "zest" }).success,
+      accepts(HostLocationSchema, { kind: "remote", hostId: "zest" }),
     ).toBe(true);
-    expect(
-      HostLocationSchema.safeParse({ kind: "remote", hostId: "" }).success,
-    ).toBe(false);
+    expect(accepts(HostLocationSchema, { kind: "remote", hostId: "" })).toBe(
+      false,
+    );
     // PIN: an empty hostId is exactly what `encodeHostLocation` would turn into
     // the bare "remote:" prefix, which `decodeHostLocation` already throws on —
     // the schema now refuses to mint the value in the first place. (`hostId:
-    // string` is unrefined at the TYPE level — Zod's `.min(1)` is a runtime-only
-    // check — so this literal still typechecks as a `HostLocation`; the schema
-    // is the one guard that actually rejects it.)
+    // string` is unrefined at the TYPE level — a min-length CHECK is a runtime
+    // gate — so this literal still typechecks as a `HostLocation`; the schema is
+    // the one guard that actually rejects it.)
     const emptyRemote = { kind: "remote" as const, hostId: "" };
     expect(encodeHostLocation(emptyRemote)).toBe("remote:");
     expect(() => decodeHostLocation(encodeHostLocation(emptyRemote))).toThrow();

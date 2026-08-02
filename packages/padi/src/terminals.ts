@@ -16,7 +16,8 @@
  */
 
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
-import { ORPCError } from "@orpc/server";
+import { Schema } from "effect";
+import { TerminalParentCycle } from "./errors.ts";
 import { notifyDirty } from "./publisher.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import { getTerminal, terminalEntries } from "./terminal-registry.ts";
@@ -48,6 +49,12 @@ import {
 } from "./vocab.ts";
 
 // biome-ignore-end assist/source/organizeImports: cycle-sensitive load order
+
+/** Re-validate a save-time record against the on-disk shape — the fail-fast
+ *  `.parse` semantic, unchanged: a record that is not a `SavedTerminal` here is
+ *  a padi bug (the join produced something the disk shape refuses), never a
+ *  branchable condition. */
+const decodeSavedTerminal = Schema.decodeUnknownSync(SavedTerminalSchema);
 
 // A single local endpoint today, resolved through the one `HostLocation` seam.
 // R9.2 selects the endpoint per call site (a remote-dialed kaval, or a
@@ -101,7 +108,7 @@ export function snapshotSession(): SessionSnapshot {
       // (agent detail + foreground) structurally, so a future live field can never
       // silently ride to disk.
       ([id, entry]): SavedTerminal =>
-        SavedTerminalSchema.parse({
+        decodeSavedTerminal({
           ...composeTerminalMetadata(
             // The filter above leaves only active | sleeping arms, which
             // `composeTerminalMetadata` accepts; narrow away the parked arm the
@@ -196,9 +203,7 @@ export function requireAcyclicParent(
   parentId: TerminalId,
 ): void {
   if (childId === parentId) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: `Terminal ${childId} cannot be its own parent`,
-    });
+    throw new TerminalParentCycle({ childId, parentId, reason: "self" });
   }
   // Walk from the proposed parent toward roots; hitting the child would close
   // a cycle. An existing cycle already on the parent side is also refused —
@@ -207,13 +212,17 @@ export function requireAcyclicParent(
   const seen = new Set<string>();
   while (cur !== undefined) {
     if (cur === childId) {
-      throw new ORPCError("BAD_REQUEST", {
-        message: `Parent ${parentId} would cycle through ${childId}`,
+      throw new TerminalParentCycle({
+        childId,
+        parentId,
+        reason: "wouldCycle",
       });
     }
     if (seen.has(cur)) {
-      throw new ORPCError("BAD_REQUEST", {
-        message: `Parent ${parentId} sits in a cycle`,
+      throw new TerminalParentCycle({
+        childId,
+        parentId,
+        reason: "parentInCycle",
       });
     }
     seen.add(cur);

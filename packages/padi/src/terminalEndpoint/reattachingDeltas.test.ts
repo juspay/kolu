@@ -1,4 +1,4 @@
-import { ORPCError } from "@orpc/server";
+import { PtyNotFound } from "kaval";
 import type { PtyHostDataMsg } from "kaval";
 import { describe, expect, it } from "vitest";
 import type { TerminalAttachFrame } from "../endpoint.ts";
@@ -93,23 +93,38 @@ describe("reattachingDeltas", () => {
     expect(topLines(out)).toEqual([0, undefined, 10, undefined]);
   });
 
-  it("ends cleanly when the PTY has vanished by the time we re-attach (NOT_FOUND)", async () => {
+  it("ends cleanly when the PTY has vanished by the time we re-attach (PtyNotFound)", async () => {
     // A drop whose re-attach finds the PTY gone is a real end, not an error to
     // surface — the loop returns instead of throwing.
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
-      Promise.reject(new ORPCError("NOT_FOUND", { message: "no PTY" }));
+      Promise.reject(new PtyNotFound({ id: "gone" }));
     expect(data(await collect(reattachingDeltas(open, initial)))).toEqual([
       "x",
     ]);
   });
 
-  it("propagates a non-NOT_FOUND re-attach failure", async () => {
+  it("propagates any OTHER re-attach failure", async () => {
     const initial = framesIter([overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new Error("transport exploded"));
     await expect(collect(reattachingDeltas(open, initial))).rejects.toThrow(
       "transport exploded",
     );
+  });
+
+  it("recognises a REHYDRATED PtyNotFound — the tag, not the constructor", async () => {
+    // On the two per-terminal STREAM members `PtyNotFound` is UNDECLARED (a
+    // `StreamSpec` has no error channel), so it can reach this loop as a bare
+    // tagged value rather than a class instance — from another module realm, or
+    // decoded off a wire. Matching the constructor would silently stop
+    // recognising it there, turning "the PTY is gone, end cleanly" into a
+    // failure propagated into a live attach stream.
+    const initial = framesIter([delta("x"), overflow]);
+    const open = (): Promise<OpenedAttach> =>
+      Promise.reject({ _tag: "PtyNotFound", id: "gone" });
+    expect(data(await collect(reattachingDeltas(open, initial)))).toEqual([
+      "x",
+    ]);
   });
 });

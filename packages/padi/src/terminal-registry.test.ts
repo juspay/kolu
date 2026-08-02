@@ -17,7 +17,7 @@
  */
 
 import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import { ORPCError } from "@orpc/server";
+import { TerminalNotFound } from "./errors.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActiveTerminalProcess,
@@ -90,11 +90,12 @@ afterEach(() => {
 });
 
 describe("requireMutableTerminal — parked records are immutable", () => {
-  it("REJECTS a mutation targeting a PARKED record (typed NOT_FOUND)", () => {
+  it("REJECTS a mutation targeting a PARKED record (the declared TerminalNotFound)", () => {
     seedParked();
     const err = caught(() => requireMutableTerminal(ID));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(err).toBeInstanceOf(TerminalNotFound);
+    expect((err as TerminalNotFound)._tag).toBe("TerminalNotFound");
+    expect((err as TerminalNotFound).id).toBe(ID);
     // ...yet the read/query guard STILL accepts it — the restore card reads it.
     expect(requireTerminal(ID).meta.state).toBe("parked");
   });
@@ -109,9 +110,10 @@ describe("requireMutableTerminal — parked records are immutable", () => {
     expect(requireMutableTerminal(ID).meta.state).toBe("sleeping");
   });
 
-  it("REJECTS an absent id (typed NOT_FOUND)", () => {
+  it("REJECTS an absent id (the declared TerminalNotFound)", () => {
     const err = caught(() => requireMutableTerminal(ID));
-    expect(err).toBeInstanceOf(ORPCError);
-    expect((err as ORPCError<string, unknown>).code).toBe("NOT_FOUND");
+    expect(err).toBeInstanceOf(TerminalNotFound);
+    expect((err as TerminalNotFound)._tag).toBe("TerminalNotFound");
+    expect((err as TerminalNotFound).id).toBe(ID);
   });
 });
