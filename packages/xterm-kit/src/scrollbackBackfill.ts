@@ -25,7 +25,6 @@
  *  and the contract-pin tests turn a shape change into red CI, never
  *  user-visible corruption. */
 
-import { ORPCError } from "@orpc/client";
 import { Terminal as XTerm } from "@xterm/xterm";
 
 /* ------------------------------------------------------------------ */
@@ -456,13 +455,39 @@ export function createBackfillController(
       max: number,
       epoch: number | undefined,
     ) => Promise<HistoryChunk>;
-    /** Surface a fetch failure that is NOT an expected teardown (a killed PTY's
-     *  typed `NOT_FOUND`). Called for transport / auth / schema / server faults
-     *  so backfill can't silently leave a hole — the caller toasts it; a later
-     *  scroll retries. REQUIRED: the controller exposes no other error accessor,
-     *  so an omitted handler would silently recreate the swallow this exists to
-     *  prevent (fail-loud). A caller that genuinely wants to ignore faults passes
-     *  an explicit no-op `() => {}` — a visible decision, not a missing one. */
+    /** Recognise the ONE fetch failure that is expected TEARDOWN rather than a
+     *  fault: the terminal this backfill reads from is GONE (killed PTY, exited
+     *  process), so the host rejects the history read with the tagged error its
+     *  own surface DECLARES on that procedure — padi's `TerminalNotFound` over
+     *  the browser wire, kaval's `PtyNotFound` over a direct link. `true`
+     *  swallows it silently (a later scroll retries); everything else goes to
+     *  {@link onError}.
+     *
+     *  The CALLER owns this predicate because the caller owns the vocabulary.
+     *  This kit deliberately depends on no `@kolu/*` package, and since the
+     *  surface's D4 rewrite the discriminant is an app-declared error class's
+     *  `_tag`, not a framework-generic code (the `ORPCError("NOT_FOUND")` this
+     *  replaced). Re-spelling that tag as a string literal here would be a second
+     *  source of truth with nothing to pin it: a rename in padi would silently
+     *  stop matching and turn every ordinary teardown into a toast. Passing the
+     *  predicate keeps the check next to the class it narrows — `err instanceof
+     *  TerminalNotFound` in-process, or a `_tag` compare read OFF that class for
+     *  a value that crossed a wire.
+     *
+     *  REQUIRED, like {@link onError}: a default would either swallow faults or
+     *  toast every teardown, and both are the silent-degradation this pair of
+     *  options exists to prevent. It is asked ONLY about a `fetch` rejection —
+     *  the deliberate scoping — never about a `prepend` fault, which stays
+     *  fail-loud. */
+    isTerminalGone: (err: unknown) => boolean;
+    /** Surface a fetch failure that is NOT the expected teardown
+     *  {@link isTerminalGone} names. Called for transport / auth / schema /
+     *  server faults so backfill can't silently leave a hole — the caller toasts
+     *  it; a later scroll retries. REQUIRED: the controller exposes no other
+     *  error accessor, so an omitted handler would silently recreate the swallow
+     *  this exists to prevent (fail-loud). A caller that genuinely wants to
+     *  ignore faults passes an explicit no-op `() => {}` — a visible decision,
+     *  not a missing one. */
     onError: (err: unknown) => void;
     /** Test seam: inject a small trigger so a controller test fires the near-top
      *  fetch without a giant buffer (defaults to 2× the visible rows). */
@@ -590,14 +615,15 @@ export function createBackfillController(
         try {
           res = await opts.fetch(before, HISTORY_CHUNK_ROWS, seedEpoch);
         } catch (err) {
-          // A killed terminal / exited PTY makes the padi handler reject with a
-          // typed NOT_FOUND — expected teardown, swallowed; a later scroll
-          // retries. Every OTHER fault (transport, auth, schema, server) is
+          // A killed terminal / exited PTY makes the host reject this read with
+          // the tagged error it declares on the history procedure — expected
+          // teardown, swallowed; a later scroll retries. The caller recognises
+          // it (`isTerminalGone`) because the error class is the caller's, not
+          // this kit's. Every OTHER fault (transport, auth, schema, server) is
           // surfaced via `onError` rather than vanishing, so backfill can't
           // silently leave a hole. This catch is scoped to the FETCH only — a
           // `prepend` fault (overflow / broken internals) stays FAIL-LOUD below.
-          if (!(err instanceof ORPCError && err.code === "NOT_FOUND"))
-            opts.onError(err);
+          if (!opts.isTerminalGone(err)) opts.onError(err);
           return;
         }
         if (!stillValid()) return;
