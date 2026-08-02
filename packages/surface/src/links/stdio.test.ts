@@ -16,6 +16,7 @@ import { Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import { SurfaceStdioTransportClosed } from "../errors";
+import { isHalfOpenDispatch } from "../link";
 import { createLoopbackPair } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { implementSurface } from "../server";
@@ -99,6 +100,12 @@ describe("stdio link over loopback", () => {
         link.dispatch.unary("surface/math/add", { a: 2, b: 3 }),
       ),
     ).resolves.toBe(5);
+    await done();
+  });
+
+  it("brands its dispatch half-openable — the face must refuse it without a watchdog (#1564)", async () => {
+    const { link, done } = await wired();
+    expect(isHalfOpenDispatch(link.dispatch)).toBe(true);
     await done();
   });
 

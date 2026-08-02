@@ -20,7 +20,7 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import { SurfaceTransportRetired } from "../errors";
-import type { WireStatus } from "../link";
+import { isHalfOpenDispatch, type WireStatus } from "../link";
 import { websocketLink } from "./websocket";
 
 const surface = defineSurface({
@@ -201,6 +201,13 @@ describe("websocketLink — the URL thunk (#6c)", () => {
 });
 
 describe("websocketLink — the WatchableWire (#4)", () => {
+  it("brands its dispatch half-openable — the face must refuse it without a watchdog (#1564)", async () => {
+    const h = harness();
+    const link = await h.link;
+    expect(isHalfOpenDispatch(link.dispatch)).toBe(true);
+    await link.dispose();
+  });
+
   it("reports connecting → open → retired, and notifies subscribers", async () => {
     const h = harness();
     const link = await h.link;
