@@ -100,8 +100,9 @@ export type SurfaceReadFace<S extends SurfaceSpec> = {
     // same two sides — encoded in, decoded out. A projection forwards a procedure
     // by CALLING it, so erasing either side here would silently un-type the one
     // place a projection's `deps` reads a remote result.
-    [V in keyof NonNullable<S["procedures"]>[NS] &
-      string]: NonNullable<S["procedures"]>[NS][V] extends {
+    [V in keyof NonNullable<S["procedures"]>[NS] & string]: NonNullable<
+      S["procedures"]
+    >[NS][V] extends {
       input: infer In extends WireSchemaAny;
       output: infer Out extends WireSchemaAny;
     }

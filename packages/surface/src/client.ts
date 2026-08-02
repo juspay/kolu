@@ -353,12 +353,22 @@ export function buildSurfaceFace<S extends SurfaceSpec>(
 
   for (const [key, raw] of Object.entries(spec.streams ?? {})) {
     const s = raw as { inputSchema: WireSchemaAny };
-    member(key).get = streamRef(dispatch, tagOf(key, "get"), s.inputSchema, true);
+    member(key).get = streamRef(
+      dispatch,
+      tagOf(key, "get"),
+      s.inputSchema,
+      true,
+    );
   }
 
   for (const [key, raw] of Object.entries(spec.events ?? {})) {
     const e = raw as { inputSchema: WireSchemaAny };
-    member(key).get = streamRef(dispatch, tagOf(key, "get"), e.inputSchema, true);
+    member(key).get = streamRef(
+      dispatch,
+      tagOf(key, "get"),
+      e.inputSchema,
+      true,
+    );
   }
 
   for (const [nsName, verbs] of Object.entries(spec.procedures ?? {})) {

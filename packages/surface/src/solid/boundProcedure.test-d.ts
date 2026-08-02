@@ -92,9 +92,9 @@ type BoundErrorOf<F extends (...args: any) => any> =
 
 // ── Per-arm assertions: BoundProcedure agrees with the Rpc walk ──────────
 
-expectTypeOf<Awaited<ReturnType<BoundProcedure<Procs["both"]>>>>().toEqualTypeOf<
-  Rpc.Success<WireRpc<"both">>
->();
+expectTypeOf<
+  Awaited<ReturnType<BoundProcedure<Procs["both"]>>>
+>().toEqualTypeOf<Rpc.Success<WireRpc<"both">>>();
 expectTypeOf<BoundHasInput<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
   WireHasInput<WireRpc<"both">>
 >();
@@ -164,10 +164,7 @@ expectTypeOf<{ pid: 1 }>().toMatchTypeOf<DefaultedInput>();
 // would fail — and this one records what it would have drifted TO, so the
 // difference is stated, not merely relied upon.
 type DefaultedMakeIn = Rpc.PayloadConstructor<
-  Rpc.ExtractTag<
-    SurfaceRpcsFor<typeof divergent.spec>,
-    "surface/ns/defaulted"
-  >
+  Rpc.ExtractTag<SurfaceRpcsFor<typeof divergent.spec>, "surface/ns/defaulted">
 >;
 expectTypeOf<{ pid: 1 }>().not.toMatchTypeOf<DefaultedMakeIn>();
 
@@ -219,9 +216,9 @@ expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["both"]>>>().toEqualTypeOf<
 expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["inputOnly"]>>>().toEqualTypeOf<
   Rpc.Error<EWireRpc<"inputOnly">>
 >();
-expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["outputOnly"]>>>().toEqualTypeOf<
-  Rpc.Error<EWireRpc<"outputOnly">>
->();
+expectTypeOf<
+  BoundErrorOf<BoundProcedure<EProcs["outputOnly"]>>
+>().toEqualTypeOf<Rpc.Error<EWireRpc<"outputOnly">>>();
 expectTypeOf<BoundErrorOf<BoundProcedure<EProcs["neither"]>>>().toEqualTypeOf<
   Rpc.Error<EWireRpc<"neither">>
 >();
@@ -238,4 +235,6 @@ expectTypeOf<
 expectTypeOf<BoundErrorOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<
   Rpc.Error<WireRpc<"both">>
 >();
-expectTypeOf<BoundErrorOf<BoundProcedure<Procs["both"]>>>().toEqualTypeOf<never>();
+expectTypeOf<
+  BoundErrorOf<BoundProcedure<Procs["both"]>>
+>().toEqualTypeOf<never>();

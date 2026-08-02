@@ -62,7 +62,6 @@ import type {
 import { collectionHasDeltas } from "./define";
 import type { SurfaceClientLike } from "./project";
 
-
 // ── ClientSurfaceMismatchError ──────────────────────────────────────────
 
 /** One name for one invariant: a primitive/procedure the caller wired has no
@@ -240,10 +239,7 @@ type EntryClient = {
   /** A delta-declaring collection's SINGLE batched snapshot-then-delta stream —
    *  present iff the collection opts into the `deltas` verb. Takes no input
    *  (`undefined`); the whole collection is one stream. */
-  deltas?: StreamingProcedure<
-    undefined,
-    CollectionDeltasMsg<unknown, unknown>
-  >;
+  deltas?: StreamingProcedure<undefined, CollectionDeltasMsg<unknown, unknown>>;
 };
 
 /** Resolve the client namespace entry for a primitive a sink opted into, or
@@ -579,7 +575,6 @@ function seedCarryOver<K>(initialKeys?: () => Iterable<K>): Set<K> {
   }
 }
 
-
 /** Run one mirror subscription to settlement, applying the file's THREE outcome
  *  rules in one place:
  *
@@ -867,10 +862,7 @@ function mirrorCollection<K, V>(opts: {
         // Whichever finishes first decides the collection: the keys stream ending
         // (or failing), or a per-key sink breaking. `raceFirst` interrupts the
         // loser, and the enclosing scope then closes every still-open pump.
-        return yield* Effect.raceFirst(
-          keysLoop,
-          Deferred.await(sinkFailed),
-        );
+        return yield* Effect.raceFirst(keysLoop, Deferred.await(sinkFailed));
       }),
     ),
     opts.signal,
