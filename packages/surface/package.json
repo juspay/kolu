@@ -23,6 +23,7 @@
     "./loopback": "./src/loopback.ts",
     "./mirror": "./src/mirrorRemoteSurface.ts",
     "./poll-on-change": "./src/pollOnChange.ts",
+    "./run-stream": "./src/runStream.ts",
     "./project": "./src/project.ts",
     "./assert-cell-converges": "./src/assertCellConverges.ts",
     "./reactor": "./src/reactor.ts",

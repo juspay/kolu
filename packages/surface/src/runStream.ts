@@ -1,5 +1,11 @@
 /**
- * The ONE Effect→callback edge (PLAN D10, review #25).
+ * The ONE Effect→callback edge (PLAN D10, review #25) — `@kolu/surface/run-stream`.
+ *
+ * Reachable on its OWN subpath, not only through `@kolu/surface/solid`, because
+ * it has nothing to do with Solid: `pollOnChange` is deliberately Solid-free and
+ * runs its pulse through this same edge, and so do consumers outside this repo
+ * (odu bridges a member stream into a non-Effect dashboard). Re-exported from
+ * `./solid` as well, so the Solid consumers that already import it are unchanged.
  *
  * SolidJS's reactive graph is push-based and non-Effect by decision: components,
  * the reactor and xterm stay outside Effect and call Effect-backed clients at the
