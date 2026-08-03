@@ -15,18 +15,46 @@
  * caller can classify or surface it honestly.
  */
 import { createConnection, type Socket } from "node:net";
+import { Effect } from "effect";
+import { runFace } from "./promiseFace.ts";
+
+/** The dial as an effect. Succeeds with the CONNECTED socket (left open; the
+ *  caller owns it), fails with the raw socket error. The loser listener is
+ *  removed so a post-settle `error` cannot fire a stray failure — and a dial
+ *  INTERRUPTED before either listener fires destroys the half-open socket,
+ *  because nobody will ever be handed it to close. (That last part is what the
+ *  Promise version could not express: a caller who stopped waiting simply
+ *  abandoned the socket.) */
+export function dialSocketEffect(
+  socketPath: string,
+): Effect.Effect<Socket, Error> {
+  return Effect.callback<Socket, Error>((resume) => {
+    const socket = createConnection(socketPath);
+    let settled = false;
+    const onConnect = (): void => {
+      settled = true;
+      socket.removeListener("error", onError);
+      resume(Effect.succeed(socket));
+    };
+    const onError = (err: Error): void => {
+      settled = true;
+      socket.removeListener("connect", onConnect);
+      resume(Effect.fail(err));
+    };
+    socket.once("connect", onConnect);
+    socket.once("error", onError);
+    return Effect.sync(() => {
+      if (settled) return;
+      socket.removeListener("connect", onConnect);
+      socket.removeListener("error", onError);
+      socket.destroy();
+    });
+  });
+}
 
 /** Open a connection to the unix socket at `socketPath`, resolving the live
  *  socket on `connect` and rejecting with the raw socket error otherwise. The
- *  loser listener is removed so a post-resolve `error` cannot fire a stray
- *  rejection. The resolved socket is left open; the caller owns it. */
+ *  resolved socket is left open; the caller owns it. */
 export function dialSocket(socketPath: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const socket = createConnection(socketPath);
-    socket.once("connect", () => {
-      socket.removeListener("error", reject);
-      resolve(socket);
-    });
-    socket.once("error", reject);
-  });
+  return runFace(dialSocketEffect(socketPath));
 }

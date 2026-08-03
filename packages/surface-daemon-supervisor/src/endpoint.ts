@@ -40,6 +40,7 @@ import {
   type SocketServeState,
   socketServeState,
 } from "@kolu/surface-daemon";
+import { Effect, Schedule } from "effect";
 import type {
   BindResult,
   BoundResidentCharacterization,
@@ -63,8 +64,9 @@ import {
   unspeakableClause,
   UnspeakablePeerError,
 } from "./convergence/unspeakable.ts";
-import { dialSocket } from "./dialSocket.ts";
+import { dialSocketEffect } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
+import { runFace } from "./promiseFace.ts";
 import {
   registerEndpointPrivate,
   type TakeoverResult,
@@ -516,31 +518,29 @@ export interface Endpoint<
 }
 
 /** Poll until a connection to `socketPath` is accepted, or the ceiling passes.
- *  Resolves `true` if the socket came up, `false` on timeout. Each probe dials
- *  a bare socket through `dialSocket` (the one place that owns the connect/error
- *  race) and immediately closes it — the endpoint's real (handshaken) connection
- *  is made once by `spec.connect()` after this resolves. */
-function waitForSocket(
+ *  Succeeds `true` if the socket came up, `false` on timeout. Each probe dials
+ *  a bare socket through `dialSocketEffect` (the one place that owns the
+ *  connect/error race) inside its own scope, so the probe socket is closed
+ *  whether the dial succeeded, failed, or was interrupted by the ceiling — the
+ *  endpoint's real (handshaken) connection is made once by `spec.connect()`
+ *  after this resolves. The ceiling is ONE deadline over the whole poll rather
+ *  than arithmetic re-checked per attempt. */
+function waitForSocketEffect(
   socketPath: string,
   ceilingMs: number,
   pollMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + ceilingMs;
-  return new Promise<boolean>((resolve) => {
-    const attempt = (): void => {
-      dialSocket(socketPath).then(
-        (sock) => {
-          sock.destroy();
-          resolve(true);
-        },
-        () => {
-          if (Date.now() >= deadline) resolve(false);
-          else setTimeout(attempt, pollMs);
-        },
-      );
-    };
-    attempt();
-  });
+): Effect.Effect<boolean, Error> {
+  return Effect.acquireRelease(dialSocketEffect(socketPath), (sock) =>
+    Effect.sync(() => sock.destroy()),
+  ).pipe(
+    Effect.as(true as boolean),
+    Effect.scoped,
+    Effect.retry(Schedule.spaced(pollMs)),
+    Effect.timeoutOrElse({
+      duration: ceilingMs,
+      orElse: () => Effect.succeed(false),
+    }),
+  );
 }
 
 /** Is this holder the supervising process itself? The ONE definition of "our own
@@ -1355,10 +1355,8 @@ export function createEndpoint<
       throw err;
     }
 
-    const up = await waitForSocket(
-      spec.home.socketPath,
-      socketReadyMs,
-      socketPollMs,
+    const up = await runFace(
+      waitForSocketEffect(spec.home.socketPath, socketReadyMs, socketPollMs),
     );
     if (!up) {
       emit({ state: "dead" });

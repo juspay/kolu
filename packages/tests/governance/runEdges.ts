@@ -74,6 +74,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",
   },
   {
+    path: "packages/surface-daemon-supervisor/src/promiseFace.ts",
+    sites: 1,
+    why: "the supervisor's ONE Promise rind — its interior is Effect, but padi/kolu-server/drishti still call the exported verbs as Promises, so every one of them runs through this single function until the face flips with its consumers",
+  },
+  {
     path: "packages/surface-map/src/server.ts",
     sites: 1,
     why: "`decodeCanonicalWireKeyUnsafe` — the documented sync-decode edge: a pure suspend over an already-gated key, inside a handler's snapshot read",
