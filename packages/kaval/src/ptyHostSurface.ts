@@ -427,7 +427,25 @@ const ActivityEdgeSchema = Schema.Struct({ id: PtyIdSchema });
  *  synchronous getter, so the pty-host pushes it as a tap. */
 const ForegroundMsgSchema = Schema.Struct({
   process: Schema.String,
-  foregroundPid: Schema.optionalKey(Schema.Int),
+  /** `Schema.optional`, NOT `optionalKey` — the one field on this wire that keeps
+   *  zod's `.optional()` tolerance, and deliberately (#17 audit).
+   *
+   *  "No foreground pid" is a VALUE here, not an absent fact: `readForegroundPid`
+   *  collapses `tcgetpgrp`'s transient `0` (the window before the child finishes
+   *  `setsid`) to `undefined`, and the in-process type says so — `ForegroundSample`
+   *  declares `foregroundPid: number | undefined` as a REQUIRED key. Both producers
+   *  therefore write the key present-with-`undefined`: the channel publish in
+   *  `ptyHost.ts` and the warm-up snapshot in `inProcessPtyHost.ts` — and the tap
+   *  then FORWARDS whole samples verbatim (`for await (const sample of sub) yield
+   *  sample`), which no conditional spread can discipline. Under `optionalKey` the
+   *  RPC server's chunk encode rejected that frame and killed the whole foreground
+   *  tap — the stream padi's agent detection runs on — invisibly, because the
+   *  in-process link performs no encode and `exactOptionalPropertyTypes` is not set.
+   *
+   *  `optional` is `optionalKey` + `UndefinedOr`, so the emitted BYTES are
+   *  unchanged (the key is omitted, never nulled) and a non-integer pid is still
+   *  rejected. Pinned by a byte fixture in `ptyHostSurface.test.ts`. */
+  foregroundPid: Schema.optional(Schema.Int),
 });
 
 /** The running pty-host's self-declared build identity, surfaced on

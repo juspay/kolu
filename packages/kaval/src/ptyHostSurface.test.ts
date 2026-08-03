@@ -233,6 +233,38 @@ describe("wire byte fixtures — inventory, list entry, getHistory, extent", () 
   });
 });
 
+describe("wire byte fixtures — the foreground tap's absent pid (#17 audit)", () => {
+  // The one field on this wire spelled `Schema.optional` rather than
+  // `optionalKey`. `readForegroundPid` collapses `tcgetpgrp`'s transient `0` to
+  // `undefined`, `ForegroundSample` declares that as a REQUIRED `number |
+  // undefined` key, and the tap forwards whole samples verbatim — so the frame
+  // that reaches this encode genuinely carries the key present-with-`undefined`.
+  // Under `optionalKey` the RPC chunk encode rejected it and took the whole
+  // foreground tap down (invisible in-process, where nothing encodes).
+  const foreground = spec.streams.foreground.outputSchema;
+
+  it("ACCEPTS a present-but-undefined pid and OMITS it — the zod-era bytes, exactly", () => {
+    expect(
+      encodeJson(foreground, { process: "bash", foregroundPid: undefined }),
+    ).toBe('{"process":"bash"}');
+  });
+
+  it("an ABSENT key emits the same bytes — `optional` never nulls", () => {
+    expect(encodeJson(foreground, { process: "bash" })).toBe(
+      '{"process":"bash"}',
+    );
+  });
+
+  it("a real pid still rides, and a non-integer is still rejected", () => {
+    expect(
+      encodeJson(foreground, { process: "claude", foregroundPid: 4242 }),
+    ).toBe('{"process":"claude","foregroundPid":4242}');
+    expect(() =>
+      encodeJson(foreground, { process: "claude", foregroundPid: "4242" }),
+    ).toThrow();
+  });
+});
+
 describe("the declared error vocabulary (PLAN D4)", () => {
   it("PtyNotFound survives encode → JSON → decode with its tag, data and message intact", () => {
     const schema = spec.procedures.terminal.getScreenState.error as AnySchema;
