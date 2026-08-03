@@ -12,6 +12,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { isHolderLive } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import {
   REAP_KILL_CEILING_MS,
@@ -56,11 +57,13 @@ async function sleeper(trapTerm: boolean): Promise<number> {
 describeDaemon("reapHolder", () => {
   it("stops a well-behaved process at the FIRST deadline (SIGTERM)", async () => {
     const pid = await sleeper(false);
-    const out = await reapHolder(pid, {
-      termCeilingMs: 5_000,
-      killCeilingMs: 2_000,
-      intervalMs: 10,
-    });
+    const out = await Effect.runPromise(
+      reapHolder(pid, {
+        termCeilingMs: 5_000,
+        killCeilingMs: 2_000,
+        intervalMs: 10,
+      }),
+    );
     expect(out).toMatchObject({ kind: "reaped", endedBy: "SIGTERM" });
     expect(isHolderLive(pid)).toBe(false);
   }, 20_000);
@@ -69,11 +72,13 @@ describeDaemon("reapHolder", () => {
     // The whole reason the takeover can promise the rendezvous will be free: a
     // daemon that swallows SIGTERM used to hold it forever behind a throw.
     const pid = await sleeper(true);
-    const out = await reapHolder(pid, {
-      termCeilingMs: 300,
-      killCeilingMs: 2_000,
-      intervalMs: 10,
-    });
+    const out = await Effect.runPromise(
+      reapHolder(pid, {
+        termCeilingMs: 300,
+        killCeilingMs: 2_000,
+        intervalMs: 10,
+      }),
+    );
     expect(out).toMatchObject({ kind: "reaped", endedBy: "SIGKILL" });
     if (out.kind !== "reaped") throw new Error("unreachable");
     // Evidence as DATA — the takeover's observation line reads these two fields
@@ -82,16 +87,18 @@ describeDaemon("reapHolder", () => {
     expect(isHolderLive(pid)).toBe(false);
   }, 20_000);
 
-  it("resolves immediately for a pid that is already gone", async () => {
+  it("succeeds immediately for a pid that is already gone", async () => {
     const pid = await sleeper(false);
     process.kill(pid, "SIGKILL");
     // Wait for the OS to actually reap it before asking.
     while (isHolderLive(pid)) await new Promise((r) => setTimeout(r, 10));
-    const out = await reapHolder(pid, {
-      termCeilingMs: 5_000,
-      killCeilingMs: 2_000,
-      intervalMs: 10,
-    });
+    const out = await Effect.runPromise(
+      reapHolder(pid, {
+        termCeilingMs: 5_000,
+        killCeilingMs: 2_000,
+        intervalMs: 10,
+      }),
+    );
     expect(out).toMatchObject({ kind: "reaped", endedBy: "SIGTERM" });
   }, 20_000);
 

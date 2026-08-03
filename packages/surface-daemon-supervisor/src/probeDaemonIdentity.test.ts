@@ -6,7 +6,7 @@ import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface, implementSurfaces } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isUnspeakableProtocolError } from "./convergence/unspeakable.ts";
 import {
@@ -88,7 +88,9 @@ async function serveGarbage(
 describe("probeDaemonIdentity", () => {
   it("returns null only when no listener exists", async () => {
     const probe = probeDaemonIdentity({ capability: "not-drainable" });
-    await expect(probe(socketPath("probe-absent-"))).resolves.toBeNull();
+    await expect(
+      Effect.runPromise(probe(socketPath("probe-absent-"))),
+    ).resolves.toBeNull();
   });
 
   it("throws when a listener cannot answer the frozen hello", async () => {
@@ -102,29 +104,33 @@ describe("probeDaemonIdentity", () => {
     });
     listeners.push(listener);
     const probe = probeDaemonIdentity({ capability: "not-drainable" });
-    await expect(probe(path)).rejects.toThrow();
+    await expect(Effect.runPromise(probe(path))).rejects.toThrow();
   });
 
   it("returns the full drainable probe and confirms exit by hello-gone polling", async () => {
     const path = socketPath("probe-drain-");
     await serveControl(path);
-    const probe = await probeDaemonIdentity({
-      capability: "drainable",
-      drainCeilingMs: 1000,
-    })(path);
+    const probe = await Effect.runPromise(
+      probeDaemonIdentity({ capability: "drainable", drainCeilingMs: 1000 })(
+        path,
+      ),
+    );
     expect(probe).not.toBeNull();
     expect(probe?.identity).toEqual({
       contractVersion: "2.4",
       build: { kind: "known", id: "build-9" },
     });
     expect(probe?.instanceKey).toEqual({ kind: "instance", key: 99 });
-    const exit = probe?.awaitExit(new AbortController().signal);
-    await probe?.fireDrain();
+    if (probe === null) throw new Error("expected probe");
+    // Arm the oracle FIRST (the fiber runs until it suspends on the dial), then
+    // ask the daemon to leave — the same ordering the framework enforces.
+    const exit = Effect.runPromise(probe.awaitExit);
+    await Effect.runPromise(probe.fireDrain);
     await expect(exit).resolves.toBeUndefined();
-    probe?.dispose();
+    probe.dispose();
   });
 
-  it("cancels an in-flight hello poll when the drain ceiling aborts", async () => {
+  it("cancels an in-flight hello poll when the wait is interrupted", async () => {
     const path = socketPath("probe-abort-poll-");
     let helloCalls = 0;
     const runtime = implementSurfaces(
@@ -159,17 +165,26 @@ describe("probeDaemonIdentity", () => {
       handlers: runtime.handlers,
     });
     listeners.push(listener);
-    const probe = await probeDaemonIdentity({
-      capability: "drainable",
-      drainCeilingMs: 1000,
-    })(path);
+    const probe = await Effect.runPromise(
+      probeDaemonIdentity({ capability: "drainable", drainCeilingMs: 1000 })(
+        path,
+      ),
+    );
     if (probe === null) throw new Error("expected probe");
 
-    const abort = new AbortController();
-    const exit = probe.awaitExit(abort.signal);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    abort.abort();
-    await expect(exit).resolves.toBeUndefined();
+    // The oracle parks inside a `hello` this daemon will never answer. What the
+    // ceiling used to say with an `AbortSignal` it now says by INTERRUPTING —
+    // and the wait has to actually end, releasing the connection it opened,
+    // rather than sitting on a poll nobody is reading. A leak hangs this test.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(probe.awaitExit, {
+          startImmediately: true,
+        });
+        yield* Effect.sleep(20);
+        yield* Fiber.interrupt(fiber);
+      }),
+    );
     probe.dispose();
   });
 
@@ -179,7 +194,7 @@ describe("probeDaemonIdentity", () => {
     const path = socketPath("probe-unspeakable-");
     await serveGarbage(path, "not ndjson at all\n");
     const probe = probeDaemonIdentity({ capability: "not-drainable" });
-    const err = await probe(path).then(
+    const err = await Effect.runPromise(probe(path)).then(
       (value) => {
         throw new Error(`expected a rejection, got ${JSON.stringify(value)}`);
       },
@@ -206,7 +221,7 @@ describe("probeDaemonIdentity", () => {
     // The frozen hello's own deadline is 30_000ms. If the classification rode
     // that deadline instead of the first-frame decode, the 2s bound would win.
     const outcome = await Promise.race([
-      probe(path).then(
+      Effect.runPromise(probe(path)).then(
         () => "resolved" as const,
         (e: unknown) =>
           isUnspeakableProtocolError(e)
@@ -248,8 +263,8 @@ describe("probeDaemonIdentity", () => {
     });
 
     const started = Date.now();
-    const err = await probeDaemonIdentity({ capability: "not-drainable" })(
-      path,
+    const err = await Effect.runPromise(
+      probeDaemonIdentity({ capability: "not-drainable" })(path),
     ).then(
       (value) => {
         throw new Error(`expected a rejection, got ${JSON.stringify(value)}`);
@@ -316,8 +331,8 @@ describe("probeDaemonIdentity", () => {
     });
     listeners.push(listener);
 
-    const probe = await probeDaemonIdentity({ capability: "not-drainable" })(
-      path,
+    const probe = await Effect.runPromise(
+      probeDaemonIdentity({ capability: "not-drainable" })(path),
     );
     expect(probe?.identity).toEqual({
       contractVersion: "2.4",
@@ -340,7 +355,7 @@ describe("probeDaemonIdentity", () => {
       endAfterWrite: true,
     });
     const probe = probeDaemonIdentity({ capability: "not-drainable" });
-    const outcome = await probe(path).then(
+    const outcome = await Effect.runPromise(probe(path)).then(
       () => "resolved" as const,
       (e: unknown) =>
         isUnspeakableProtocolError(e)
@@ -359,22 +374,25 @@ describe("probeDaemonIdentityFrom", () => {
     ["empty commit", { buildId: "remote-build", commit: "" }],
   ])("reader rejects a frozen hello with %s", async (_label, identity) => {
     await expect(
-      readControlCoreHello({
-        surface: {
-          control: {
-            core: {
-              hello: async () => ({
-                stateRoot: "/state/remote",
-                surfaceVersion: "3.1",
-                controlCoreVersion: "1.0",
-                startedAt: 123,
-                ...identity,
-              }),
-              drain: async () => {},
+      Effect.runPromise(
+        readControlCoreHello({
+          surface: {
+            control: {
+              core: {
+                hello: () =>
+                  Effect.succeed({
+                    stateRoot: "/state/remote",
+                    surfaceVersion: "3.1",
+                    controlCoreVersion: "1.0",
+                    startedAt: 123,
+                    ...identity,
+                  }),
+                drain: () => Effect.void,
+              },
             },
           },
-        },
-      }),
+        }),
+      ),
     ).rejects.toThrow(
       "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
     );
@@ -383,20 +401,22 @@ describe("probeDaemonIdentityFrom", () => {
   it("bounds a frozen hello that never answers", async () => {
     vi.useFakeTimers();
     try {
-      const pending = probeDaemonIdentityFrom({
-        client: {
-          surface: {
-            control: {
-              core: {
-                hello: () => new Promise(() => {}),
-                drain: async () => {},
+      const pending = Effect.runPromise(
+        probeDaemonIdentityFrom({
+          client: {
+            surface: {
+              control: {
+                core: {
+                  hello: () => Effect.never,
+                  drain: () => Effect.void,
+                },
               },
             },
           },
-        },
-        dispose: () => {},
-        capability: "not-drainable",
-      });
+          dispose: () => {},
+          capability: "not-drainable",
+        }),
+      );
       const rejection = expect(pending).rejects.toThrow(
         "control-core hello timed out after 30000ms",
       );
@@ -410,114 +430,49 @@ describe("probeDaemonIdentityFrom", () => {
   it("rejects an invalid drain ceiling before touching the wire", async () => {
     let helloCalls = 0;
     await expect(
-      probeDaemonIdentityFrom({
-        client: {
-          surface: {
-            control: {
-              core: {
-                hello: async () => {
-                  helloCalls += 1;
-                  throw new Error("must not be called");
+      Effect.runPromise(
+        probeDaemonIdentityFrom({
+          client: {
+            surface: {
+              control: {
+                core: {
+                  hello: () =>
+                    Effect.sync(() => {
+                      helloCalls += 1;
+                      throw new Error("must not be called");
+                    }),
+                  drain: () => Effect.void,
                 },
-                drain: async () => {},
               },
             },
           },
-        },
-        dispose: () => {},
-        capability: "drainable",
-        drainCeilingMs: 0,
-        awaitExit: async () => {},
-      }),
+          dispose: () => {},
+          capability: "drainable",
+          drainCeilingMs: 0,
+          awaitExit: Effect.void,
+        }),
+      ),
     ).rejects.toThrow("drainCeilingMs must be a positive number");
     expect(helloCalls).toBe(0);
   });
 
   it("accepts the honest off-nix pair emitted by a current fragment", async () => {
-    const probe = await probeDaemonIdentityFrom({
-      client: {
-        surface: {
-          control: {
-            core: {
-              hello: async () => ({
-                stateRoot: "/state/remote",
-                surfaceVersion: "3.1",
-                controlCoreVersion: "1.0",
-                startedAt: 123,
-                buildId: "",
-                commit: "",
-              }),
-              drain: async () => {},
-            },
-          },
-        },
-      },
-      dispose: () => {},
-      capability: "not-drainable",
-    });
-
-    expect(probe.identity.build).toEqual({ kind: "off-nix" });
-  });
-
-  it("is the single full-probe assembler for an already-dialed client", async () => {
-    let drained = 0;
-    let disposed = 0;
-    const awaitExit = async (_signal: AbortSignal): Promise<void> => {};
-    const probe = await probeDaemonIdentityFrom({
-      client: {
-        surface: {
-          control: {
-            core: {
-              hello: async () => ({
-                stateRoot: "/state/remote",
-                surfaceVersion: "3.1",
-                controlCoreVersion: "1.0",
-                startedAt: 123,
-                commit: "def5678",
-                buildId: "remote-build",
-              }),
-              drain: async () => {
-                drained += 1;
-              },
-            },
-          },
-        },
-      },
-      dispose: () => {
-        disposed += 1;
-      },
-      capability: "drainable",
-      drainCeilingMs: 6000,
-      awaitExit,
-    });
-
-    expect(probe.identity).toEqual({
-      contractVersion: "3.1",
-      build: { kind: "known", id: "remote-build" },
-    });
-    expect(probe.instanceKey).toEqual({ kind: "instance", key: 123 });
-    expect(probe.awaitExit).toBe(awaitExit);
-    await probe.fireDrain();
-    probe.dispose();
-    expect({ drained, disposed }).toEqual({ drained: 1, disposed: 1 });
-  });
-
-  it("rejects a contradictory frozen-core version", async () => {
-    await expect(
+    const probe = await Effect.runPromise(
       probeDaemonIdentityFrom({
         client: {
           surface: {
             control: {
               core: {
-                hello: async () => ({
-                  stateRoot: "/state/remote",
-                  surfaceVersion: "3.1",
-                  controlCoreVersion: "2.0",
-                  startedAt: 123,
-                  commit: "def5678",
-                  buildId: "remote-build",
-                }),
-                drain: async () => {},
+                hello: () =>
+                  Effect.succeed({
+                    stateRoot: "/state/remote",
+                    surfaceVersion: "3.1",
+                    controlCoreVersion: "1.0",
+                    startedAt: 123,
+                    buildId: "",
+                    commit: "",
+                  }),
+                drain: () => Effect.void,
               },
             },
           },
@@ -525,6 +480,84 @@ describe("probeDaemonIdentityFrom", () => {
         dispose: () => {},
         capability: "not-drainable",
       }),
+    );
+
+    expect(probe.identity.build).toEqual({ kind: "off-nix" });
+  });
+
+  it("is the single full-probe assembler for an already-dialed client", async () => {
+    let drained = 0;
+    let disposed = 0;
+    const awaitExit = Effect.void;
+    const probe = await Effect.runPromise(
+      probeDaemonIdentityFrom({
+        client: {
+          surface: {
+            control: {
+              core: {
+                hello: () =>
+                  Effect.succeed({
+                    stateRoot: "/state/remote",
+                    surfaceVersion: "3.1",
+                    controlCoreVersion: "1.0",
+                    startedAt: 123,
+                    commit: "def5678",
+                    buildId: "remote-build",
+                  }),
+                drain: () =>
+                  Effect.sync(() => {
+                    drained += 1;
+                  }),
+              },
+            },
+          },
+        },
+        dispose: () => {
+          disposed += 1;
+        },
+        capability: "drainable",
+        drainCeilingMs: 6000,
+        awaitExit,
+      }),
+    );
+
+    expect(probe.identity).toEqual({
+      contractVersion: "3.1",
+      build: { kind: "known", id: "remote-build" },
+    });
+    expect(probe.instanceKey).toEqual({ kind: "instance", key: 123 });
+    expect(probe.awaitExit).toBe(awaitExit);
+    await Effect.runPromise(probe.fireDrain);
+    probe.dispose();
+    expect({ drained, disposed }).toEqual({ drained: 1, disposed: 1 });
+  });
+
+  it("rejects a contradictory frozen-core version", async () => {
+    await expect(
+      Effect.runPromise(
+        probeDaemonIdentityFrom({
+          client: {
+            surface: {
+              control: {
+                core: {
+                  hello: () =>
+                    Effect.succeed({
+                      stateRoot: "/state/remote",
+                      surfaceVersion: "3.1",
+                      controlCoreVersion: "2.0",
+                      startedAt: 123,
+                      commit: "def5678",
+                      buildId: "remote-build",
+                    }),
+                  drain: () => Effect.void,
+                },
+              },
+            },
+          },
+          dispose: () => {},
+          capability: "not-drainable",
+        }),
+      ),
     ).rejects.toThrow("unsupported control-core version 2.0; expected 1.0");
   });
 });

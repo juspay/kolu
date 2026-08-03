@@ -18,7 +18,6 @@
  */
 import { isHolderLive } from "@kolu/surface-daemon";
 import { Effect, Schedule } from "effect";
-import { runFace } from "./promiseFace.ts";
 
 export interface WaitForPidGoneOptions {
   /** Give up after this long and resolve `false`. Default 120_000ms. */
@@ -28,13 +27,17 @@ export interface WaitForPidGoneOptions {
 }
 
 /**
- * The wait as an effect: poll `isHolderLive` on the fiber clock until it says
- * gone, bounded by one timeout. The ceiling is a DEADLINE over the whole wait
- * rather than arithmetic re-checked at each tick, so there is no `deadline`
- * variable to drift and no self-rescheduling timer to leak — an interrupted
- * fiber (the caller gave up, a race lost) cancels the sleep with it.
+ * Succeeds `true` once `pid` is gone (`kill(pid, 0)` → `ESRCH`), or `false` if
+ * it is still alive at the timeout. A pid that is already gone succeeds `true`
+ * on the first probe without waiting.
+ *
+ * Polls `isHolderLive` on the fiber clock, bounded by one timeout. The ceiling
+ * is a DEADLINE over the whole wait rather than arithmetic re-checked at each
+ * tick, so there is no `deadline` variable to drift and no self-rescheduling
+ * timer to leak — an interrupted fiber (the caller gave up, a race lost)
+ * cancels the sleep with it.
  */
-export function waitForPidGoneEffect(
+export function waitForPidGone(
   pid: number,
   opts: WaitForPidGoneOptions = {},
 ): Effect.Effect<boolean> {
@@ -48,14 +51,4 @@ export function waitForPidGoneEffect(
       orElse: () => Effect.succeed(false),
     }),
   );
-}
-
-/** Resolve `true` once `pid` is gone (`kill(pid, 0)` → `ESRCH`), or `false` if
- *  it is still alive at the timeout. A pid that is already gone resolves `true`
- *  on the first probe without waiting. */
-export function waitForPidGone(
-  pid: number,
-  opts: WaitForPidGoneOptions = {},
-): Promise<boolean> {
-  return runFace(waitForPidGoneEffect(pid, opts));
 }

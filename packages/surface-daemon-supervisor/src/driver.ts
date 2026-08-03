@@ -37,7 +37,6 @@ import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { Effect } from "effect";
-import { runFace } from "./promiseFace.ts";
 
 export interface DaemonSpawnConfig {
   /** Absolute path to the daemon executable. Absolute because a systemd
@@ -92,16 +91,20 @@ export interface DaemonSpawnConfig {
   stderrLog?: string;
 }
 
-/** Spawn the daemon process so it outlives this one. Resolves once the child
+/** Spawn the daemon process so it outlives this one. Succeeds once the child
  *  has actually spawned (its `spawn` event) — NOT once the daemon is serving
  *  (the endpoint waits for the socket separately); a surface daemon daemonizes
- *  itself. **Rejects** if the launch fails — ENOENT (bad `binPath`), EACCES, or
+ *  itself. **Fails** if the launch fails — ENOENT (bad `binPath`), EACCES, or
  *  a `systemd-run` that couldn't fork. Node emits that failure ASYNCHRONOUSLY on
  *  the child's `error` event; without a listener it would become an uncaught
  *  exception and take the supervising process down, so the driver owns that
- *  listener and surfaces the failure as a rejection the endpoint maps to `dead`. */
+ *  listener and surfaces the failure on the error channel the endpoint maps to
+ *  `dead`.
+ *
+ *  A VALUE, not a method: the effect is a lazy description, so re-running it is
+ *  what "spawn again" means and there is nothing for a call to do first. */
 export interface DaemonDriver {
-  spawn(): Promise<void>;
+  readonly spawn: Effect.Effect<void, Error>;
 }
 
 /** The slice of a spawned child the driver needs: `unref` (so the child outlives
@@ -189,119 +192,117 @@ export function survivableSpawnDriver(
     });
   };
 
-  const spawnEffect = (): Effect.Effect<void, Error> =>
-    Effect.suspend(() => {
-      const underSystemd =
-        !cfg.fromSource &&
-        env.INVOCATION_ID !== undefined &&
-        env.INVOCATION_ID !== "";
+  // `Effect.suspend` so every run re-reads the launch-mode gate and re-derives
+  // the argv, exactly as a fresh call did — the driver is spawned again on every
+  // recycle, not once.
+  const spawn: Effect.Effect<void, Error> = Effect.suspend(() => {
+    const underSystemd =
+      !cfg.fromSource &&
+      env.INVOCATION_ID !== undefined &&
+      env.INVOCATION_ID !== "";
 
-      if (underSystemd) {
-        // ATTACHED to journald: the transient unit's parent (systemd) holds the daemon's
-        // stderr, so NO crash-catcher file here — `journalctl --user -u <unit>` reads it
-        // (P0: the crash-catcher file is wired only when DETACHING, where nobody holds it).
-        // The daemon's own pino stream still lands in its rolled file via its entrypoint.
-        // systemd-run --user --collect --unit <prefix>-<uniq> --setenv K=V ... <bin> <args>
-        const setenv = Object.entries(cfg.env).flatMap(([k, v]) => [
-          "--setenv",
-          `${k}=${v}`,
-        ]);
-        const args = [
-          "--user",
-          "--collect",
-          "--unit",
-          `${cfg.unitPrefix}-${unitSuffix()}`,
-          ...setenv,
-          cfg.binPath,
-          ...cfg.args,
-        ];
-        return settle(
-          spawnProcess("systemd-run", args, {
-            detached: true,
-            stdio: "ignore",
-          }),
-        );
-      }
-      // DETACHED + unref: survives the parent on macOS/launchd and on a cgroup-less host, and
-      // nobody holds the child's stderr — so wire the crash-catcher file (P0), truncate-on-boot
-      // (keep ONE `.old` generation) so it stays bounded. The child env is `cfg.env`
-      // alone (see below) — only an `inheritParentEnv` (from-source) launch layers ours.
-      //
-      // The crash-catcher fd is ACQUIRED and RELEASED as a resource, so the
-      // parent's copy is dropped whether the fork succeeded, failed, or never
-      // happened at all. The straight-line version closed it only on the line
-      // after a `spawnProcess` that returned — a launch that threw (EACCES on the
-      // binary, a fork that could not) leaked the descriptor for the life of the
-      // supervisor, once per failed spawn attempt.
-      const openStderr = Effect.sync((): "ignore" | number => {
-        if (!cfg.stderrLog) return "ignore";
-        // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime
-        // home (kaval's `kaval-<digest>/`), and kaval REFUSES to serve on a non-private dir
-        // (#1313 owner-only). Creating it 0755 (the umask-022 default of a bare `mkdir`) makes
-        // kaval refuse → padi's ensureLocalEndpoint times out → the whole remote bind flaps.
-        mkdirSync(dirname(cfg.stderrLog), { recursive: true, mode: 0o700 });
-        // Rotate the prior capture WITHOUT a check-then-use race: attempt the rename and
-        // swallow only ENOENT (no prior boot), never existsSync-then-rename (a TOCTOU).
-        try {
-          renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        }
-        // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never the
-        // world-readable 0644 a bare openSync would create under umask 022.
-        return openSync(cfg.stderrLog, "a", 0o600);
-      });
-      const forkDetached = (
-        stderrFd: "ignore" | number,
-      ): Effect.Effect<void, Error> =>
-        Effect.suspend(() =>
-          settle(
-            spawnProcess(cfg.binPath, cfg.args, {
-              detached: true,
-              stdio:
-                typeof stderrFd === "number"
-                  ? ["ignore", "ignore", stderrFd]
-                  : "ignore",
-              // ENV PARITY with the systemd branch, and the #1872 invariant. systemd-run
-              // (above) runs the daemon under systemd's own manager env with `--setenv`
-              // OVERLAYING cfg.env on top (--setenv WINS over any PAM/manager value it
-              // shadows). This detached branch must reach the SAME child env — so it is
-              // `cfg.env` alone, NOT `{ ...parentEnv, ...cfg.env }`. Layering the
-              // supervisor's full parent env underneath is exactly the ambient-leak the
-              // structural fix closes: the supervisor's own env can carry an orchestrator's
-              // identity vars (CLAUDE_CODE_CHILD_SESSION, #1872) or other ambient markers,
-              // and they would ride into the daemon and every PTY it spawns. cfg.env is
-              // caller-composed COMPLETE (its base is the shared spawn-env allowlist — see
-              // padi's `daemonEnv`), so the child needs nothing layered under it.
-              //   The ONE exception is `inheritParentEnv` — set ONLY by an actual
-              // from-SOURCE launch (`just dev` from a nix-shell), where the daemon genuinely
-              // needs the developer's ambient shell env (nix store paths, dev vars) to run
-              // from source. This is DELIBERATELY NOT `fromSource`: `fromSource` also fires
-              // for a BUILT daemon forced onto this branch via `KOLU_*_SPAWN=detached` (a
-              // bare/pu box), and a built daemon has no reason to inherit the parent env —
-              // gating inheritance on `fromSource` would re-open the #1872 leak on exactly
-              // that path (the built binary carries its own wrapper env, so it needs none of
-              // ours). Two decisions, two flags: `fromSource` skips systemd-run;
-              // `inheritParentEnv` (a strict subset) layers the parent env.
-              env:
-                typeof cfg.fromSource === "object" &&
-                cfg.fromSource.inheritParentEnv
-                  ? { ...(env as Record<string, string>), ...cfg.env }
-                  : cfg.env,
-            }),
-          ),
-        );
-      // The child inherited the fd; drop the parent's copy so we don't leak it.
-      return Effect.acquireUseRelease(openStderr, forkDetached, (stderrFd) =>
-        Effect.sync(() => {
-          if (typeof stderrFd === "number") closeSync(stderrFd);
+    if (underSystemd) {
+      // ATTACHED to journald: the transient unit's parent (systemd) holds the daemon's
+      // stderr, so NO crash-catcher file here — `journalctl --user -u <unit>` reads it
+      // (P0: the crash-catcher file is wired only when DETACHING, where nobody holds it).
+      // The daemon's own pino stream still lands in its rolled file via its entrypoint.
+      // systemd-run --user --collect --unit <prefix>-<uniq> --setenv K=V ... <bin> <args>
+      const setenv = Object.entries(cfg.env).flatMap(([k, v]) => [
+        "--setenv",
+        `${k}=${v}`,
+      ]);
+      const args = [
+        "--user",
+        "--collect",
+        "--unit",
+        `${cfg.unitPrefix}-${unitSuffix()}`,
+        ...setenv,
+        cfg.binPath,
+        ...cfg.args,
+      ];
+      return settle(
+        spawnProcess("systemd-run", args, {
+          detached: true,
+          stdio: "ignore",
         }),
       );
+    }
+    // DETACHED + unref: survives the parent on macOS/launchd and on a cgroup-less host, and
+    // nobody holds the child's stderr — so wire the crash-catcher file (P0), truncate-on-boot
+    // (keep ONE `.old` generation) so it stays bounded. The child env is `cfg.env`
+    // alone (see below) — only an `inheritParentEnv` (from-source) launch layers ours.
+    //
+    // The crash-catcher fd is ACQUIRED and RELEASED as a resource, so the
+    // parent's copy is dropped whether the fork succeeded, failed, or never
+    // happened at all. The straight-line version closed it only on the line
+    // after a `spawnProcess` that returned — a launch that threw (EACCES on the
+    // binary, a fork that could not) leaked the descriptor for the life of the
+    // supervisor, once per failed spawn attempt.
+    const openStderr = Effect.sync((): "ignore" | number => {
+      if (!cfg.stderrLog) return "ignore";
+      // `mode: 0o700` is LOAD-BEARING: the crash-catcher dir can be the daemon's OWN runtime
+      // home (kaval's `kaval-<digest>/`), and kaval REFUSES to serve on a non-private dir
+      // (#1313 owner-only). Creating it 0755 (the umask-022 default of a bare `mkdir`) makes
+      // kaval refuse → padi's ensureLocalEndpoint times out → the whole remote bind flaps.
+      mkdirSync(dirname(cfg.stderrLog), { recursive: true, mode: 0o700 });
+      // Rotate the prior capture WITHOUT a check-then-use race: attempt the rename and
+      // swallow only ENOENT (no prior boot), never existsSync-then-rename (a TOCTOU).
+      try {
+        renameSync(cfg.stderrLog, `${cfg.stderrLog}.old`);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
+      // Mode 0o600: the crash-catcher can hold sensitive stderr — owner-only, never the
+      // world-readable 0644 a bare openSync would create under umask 022.
+      return openSync(cfg.stderrLog, "a", 0o600);
     });
+    const forkDetached = (
+      stderrFd: "ignore" | number,
+    ): Effect.Effect<void, Error> =>
+      Effect.suspend(() =>
+        settle(
+          spawnProcess(cfg.binPath, cfg.args, {
+            detached: true,
+            stdio:
+              typeof stderrFd === "number"
+                ? ["ignore", "ignore", stderrFd]
+                : "ignore",
+            // ENV PARITY with the systemd branch, and the #1872 invariant. systemd-run
+            // (above) runs the daemon under systemd's own manager env with `--setenv`
+            // OVERLAYING cfg.env on top (--setenv WINS over any PAM/manager value it
+            // shadows). This detached branch must reach the SAME child env — so it is
+            // `cfg.env` alone, NOT `{ ...parentEnv, ...cfg.env }`. Layering the
+            // supervisor's full parent env underneath is exactly the ambient-leak the
+            // structural fix closes: the supervisor's own env can carry an orchestrator's
+            // identity vars (CLAUDE_CODE_CHILD_SESSION, #1872) or other ambient markers,
+            // and they would ride into the daemon and every PTY it spawns. cfg.env is
+            // caller-composed COMPLETE (its base is the shared spawn-env allowlist — see
+            // padi's `daemonEnv`), so the child needs nothing layered under it.
+            //   The ONE exception is `inheritParentEnv` — set ONLY by an actual
+            // from-SOURCE launch (`just dev` from a nix-shell), where the daemon genuinely
+            // needs the developer's ambient shell env (nix store paths, dev vars) to run
+            // from source. This is DELIBERATELY NOT `fromSource`: `fromSource` also fires
+            // for a BUILT daemon forced onto this branch via `KOLU_*_SPAWN=detached` (a
+            // bare/pu box), and a built daemon has no reason to inherit the parent env —
+            // gating inheritance on `fromSource` would re-open the #1872 leak on exactly
+            // that path (the built binary carries its own wrapper env, so it needs none of
+            // ours). Two decisions, two flags: `fromSource` skips systemd-run;
+            // `inheritParentEnv` (a strict subset) layers the parent env.
+            env:
+              typeof cfg.fromSource === "object" &&
+              cfg.fromSource.inheritParentEnv
+                ? { ...(env as Record<string, string>), ...cfg.env }
+                : cfg.env,
+          }),
+        ),
+      );
+    // The child inherited the fd; drop the parent's copy so we don't leak it.
+    return Effect.acquireUseRelease(openStderr, forkDetached, (stderrFd) =>
+      Effect.sync(() => {
+        if (typeof stderrFd === "number") closeSync(stderrFd);
+      }),
+    );
+  });
 
-  return {
-    spawn(): Promise<void> {
-      return runFace(spawnEffect());
-    },
-  };
+  return { spawn };
 }

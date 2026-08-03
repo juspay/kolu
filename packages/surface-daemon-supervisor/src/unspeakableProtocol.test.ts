@@ -50,6 +50,7 @@ import {
   type Logger,
 } from "@kolu/surface-daemon";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   converge,
@@ -64,6 +65,7 @@ import {
   UnspeakablePeerError,
   UnspeakableProtocolError,
 } from "./convergence/unspeakable.ts";
+import { fromAsync } from "./createEndpoint.testlib.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 import type { EndpointStatus } from "./endpoint.ts";
 import { probeDaemonIdentity } from "./probeDaemonIdentity.ts";
@@ -136,8 +138,8 @@ async function listenSilently(socketPath: string): Promise<Server> {
 
 /** The probe every test here injects: it dials nothing and raises exactly what
  *  the real dial path raises at an explicit first-frame decode failure. */
-const unspeakableProbe = (socketPath: string): Promise<never> =>
-  Promise.reject(
+const unspeakableProbe = (socketPath: string): Effect.Effect<never, Error> =>
+  Effect.fail(
     new UnspeakableProtocolError({
       socketPath,
       evidence: {
@@ -169,13 +171,14 @@ describe("unspeakable-protocol — corroboration", () => {
       policy: padiPolicy,
       probe: unspeakableProbe,
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error("spawn must not run on an uncorroborated peer");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("connect must not run on an uncorroborated peer");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run on an uncorroborated peer");
+        }),
       log: silent,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -183,7 +186,7 @@ describe("unspeakable-protocol — corroboration", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     const anomaly = outcomeAnomaly(out);
     expect(anomaly?.kind).toBe("unconverged");
@@ -230,21 +233,22 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
       policy: padiPolicy,
       probe: unspeakableProbe,
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned += 1;
           // The stopped daemon's socket goes with it; the "fresh daemon" binds a
           // new one at the same rendezvous.
           survivorServer.close();
           await listenSilently(survivor.socketPath);
-        },
+        }),
       },
-      connect: async () => ({
-        client: "fresh",
-        identity: { v: "2.0" },
-        startedAt: 7,
-        dispose: () => {},
-        onClose: () => {},
-      }),
+      connect: () =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { v: "2.0" },
+          startedAt: 7,
+          dispose: () => {},
+          onClose: () => {},
+        })),
       log: silent,
       onStatus: (_h, s) => statuses.push(s),
       socketReadyMs: 2_000,
@@ -253,7 +257,7 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
       adoptConnectRetryMs: 1,
     });
 
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     // The same outcome kaval's arm reports, because it is the same act: the
     // holder was replaced, not adopted.
     expect(out.kind).toBe("recycled");
@@ -288,7 +292,7 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
       // it straight through, so what is under test is purely the re-attestation
       // the takeover performs immediately before the kill.
       probe: (path) =>
-        Promise.reject(
+        Effect.fail(
           new UnspeakablePeerError({
             socketPath: path,
             gatePath,
@@ -297,13 +301,14 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
           }),
         ),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error("nothing may be spawned over an unclassified holder");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("nothing may be dialed over an unclassified holder");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("nothing may be dialed over an unclassified holder");
+        }),
       log: silent,
       onStatus: () => {},
       socketPollMs: 5,
@@ -311,7 +316,7 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
       adoptConnectRetryMs: 1,
     });
 
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     const anomaly = outcomeAnomaly(out);
@@ -368,34 +373,36 @@ describeDaemon(
           socketPath: survivor.socketPath,
         },
         policy: padiPolicy,
-        probe: async () => {
-          probes += 1;
-          // Slow — but it ANSWERS, which is the whole difference.
-          await new Promise((r) => setTimeout(r, 250));
-          return {
-            capability: "drainable" as const,
-            identity: padiPolicy.baked,
-            instanceKey: instanceKeyFromStartedAt(7),
-            fireDrain: async () => {},
-            awaitExit: async () => {},
-            drainCeilingMs: 1_000,
-            dispose: () => {},
-          };
-        },
+        probe: () =>
+          fromAsync(async () => {
+            probes += 1;
+            // Slow — but it ANSWERS, which is the whole difference.
+            await new Promise((r) => setTimeout(r, 250));
+            return {
+              capability: "drainable" as const,
+              identity: padiPolicy.baked,
+              instanceKey: instanceKeyFromStartedAt(7),
+              fireDrain: Effect.void,
+              awaitExit: Effect.void,
+              drainCeilingMs: 1_000,
+              dispose: () => {},
+            };
+          }),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             throw new Error(
               "a slow but speakable survivor must not be replaced",
             );
-          },
+          }),
         },
-        connect: async () => ({
-          client: "adopted",
-          identity: { v: "2.0" },
-          startedAt: 7,
-          dispose: () => {},
-          onClose: () => {},
-        }),
+        connect: () =>
+          fromAsync(async () => ({
+            client: "adopted",
+            identity: { v: "2.0" },
+            startedAt: 7,
+            dispose: () => {},
+            onClose: () => {},
+          })),
         log: silent,
         onStatus: () => {},
         socketPollMs: 5,
@@ -403,7 +410,7 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const out = await converge(endpoint);
+      const out = await Effect.runPromise(converge(endpoint));
       expect(out.kind).toBe("adopted");
       expect(outcomeAdopted(out)).toBe(true);
       expect(probes).toBeGreaterThan(0);
@@ -446,21 +453,22 @@ describeDaemon("unspeakable-protocol — the recycle disposition (kaval)", () =>
       policy: kavalPolicy,
       probe: unspeakableProbe,
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned += 1;
           // The reaped daemon's socket goes with it; the "fresh daemon" binds a
           // new one at the same rendezvous.
           survivorServer.close();
           await listenSilently(survivor.socketPath);
-        },
+        }),
       },
-      connect: async () => ({
-        client: "fresh",
-        identity: { v: "2.0" },
-        startedAt: 7,
-        dispose: () => {},
-        onClose: () => {},
-      }),
+      connect: () =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { v: "2.0" },
+          startedAt: 7,
+          dispose: () => {},
+          onClose: () => {},
+        })),
       log: silent,
       onStatus: (_h, s) => statuses.push(s),
       socketReadyMs: 2_000,
@@ -469,7 +477,7 @@ describeDaemon("unspeakable-protocol — the recycle disposition (kaval)", () =>
       adoptConnectRetryMs: 1,
     });
 
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("recycled");
     expect(spawned).toBe(1);
     expect(statuses.at(-1)?.state).toBe("connected");
@@ -524,19 +532,20 @@ describeDaemon(
         policy: kavalPolicy,
         probe: realProbe,
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             spawned += 1;
             survivorServer.close();
             await listenSilently(survivor.socketPath);
-          },
+          }),
         },
-        connect: async () => ({
-          client: "fresh",
-          identity: { v: "2.0" },
-          startedAt: 7,
-          dispose: () => {},
-          onClose: () => {},
-        }),
+        connect: () =>
+          fromAsync(async () => ({
+            client: "fresh",
+            identity: { v: "2.0" },
+            startedAt: 7,
+            dispose: () => {},
+            onClose: () => {},
+          })),
         log: silent,
         onStatus: () => {},
         socketReadyMs: 2_000,
@@ -545,7 +554,7 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const out = await converge(endpoint);
+      const out = await Effect.runPromise(converge(endpoint));
       expect(out.kind).toBe("recycled");
       expect(spawned).toBe(1);
       // Mutate-to-prove: the survivor that would have kept the rendezvous is gone.
@@ -569,13 +578,14 @@ describeDaemon(
         policy: kavalPolicy,
         probe: realProbe,
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             throw new Error("spawn must not run on an uncorroborated peer");
-          },
+          }),
         },
-        connect: async () => {
-          throw new Error("connect must not run on an uncorroborated peer");
-        },
+        connect: () =>
+          fromAsync(async () => {
+            throw new Error("connect must not run on an uncorroborated peer");
+          }),
         log: silent,
         onStatus: () => {},
         socketPollMs: 5,
@@ -583,7 +593,7 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const out = await converge(endpoint);
+      const out = await Effect.runPromise(converge(endpoint));
       expect(out.kind).toBe("refused");
       const anomaly = outcomeAnomaly(out);
       if (anomaly?.kind !== "unconverged") {

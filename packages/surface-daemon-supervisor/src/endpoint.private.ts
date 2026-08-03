@@ -6,6 +6,7 @@
  * same-package tests may resolve via relative import of this file.
  */
 
+import type { Effect } from "effect";
 import type { BindResult } from "./convergence/bindResult.ts";
 import type { UnspeakablePeerError } from "./convergence/unspeakable.ts";
 
@@ -35,14 +36,19 @@ export type TakeoverResult =
       readonly observed: number | undefined;
     };
 
-/** Private boot methods — only reachable via this module's WeakMap. */
+/** Private boot binds — only reachable via this module's WeakMap.
+ *
+ *  The three boot policies are Effect VALUES rather than thunks: each is a lazy
+ *  description with no arguments, so a thunk would only be a second way to spell
+ *  the laziness the effect already has. `takeOver` stays a function because it
+ *  takes the corroborated peer. */
 export type EndpointPrivateBinds = {
-  ensure(): Promise<void>;
-  adoptOrEnsure(): Promise<BindResult>;
-  adoptOrSpawnOrRefuse(): Promise<BindResult>;
+  ensure: Effect.Effect<void, Error>;
+  adoptOrEnsure: Effect.Effect<BindResult, Error>;
+  adoptOrSpawnOrRefuse: Effect.Effect<BindResult, Error>;
   /** The corroborated-unspeakable disposition (PLAN D6 / Wave A) — see
    *  {@link TakeoverResult} and `createEndpoint`'s `takeOver`. */
-  takeOver(peer: UnspeakablePeerError): Promise<TakeoverResult>;
+  takeOver(peer: UnspeakablePeerError): Effect.Effect<TakeoverResult, Error>;
   /**
    * Drop the held connection (W4.2): when converge returns a non-adopt
    * verdict after a bind that held a resident, release so outcome and

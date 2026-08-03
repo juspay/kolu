@@ -19,8 +19,7 @@ import {
   frameExcerpt,
   UnspeakableProtocolError,
 } from "./convergence/unspeakable.ts";
-import { dialSocketEffect } from "./dialSocket.ts";
-import { runFace } from "./promiseFace.ts";
+import { dialSocket } from "./dialSocket.ts";
 
 const controlCoreContract = composeSurfaceContracts({
   control: controlCoreSurface,
@@ -54,13 +53,16 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  */
 export const UNSPEAKABLE_SILENCE_MS = 8_000;
 
-/** The already-dialed client shape the assembly authority needs. */
+/** The already-dialed client shape the assembly authority needs — the frozen
+ *  control-core fragment's two verbs, EFFECT-native because that is what a
+ *  `@kolu/surface` member face hands back. A connector arm passes the same
+ *  nesting off its own app client. */
 export interface ControlCoreProbeClient {
   readonly surface: {
     readonly control: {
       readonly core: {
-        hello(): Promise<ControlCoreHello>;
-        drain(): Promise<void>;
+        hello(): Effect.Effect<ControlCoreHello, unknown>;
+        drain(): Effect.Effect<void, unknown>;
       };
     };
   };
@@ -72,14 +74,19 @@ type ProbeCommon = {
   dispose: () => void;
 };
 
-/** Client-form probe inputs, fenced by whether the daemon can drain. */
+/** Client-form probe inputs, fenced by whether the daemon can drain.
+ *
+ *  `awaitExit` is an EFFECT, not a signal-taking promise. Its one job — stop
+ *  polling once the framework's ceiling wins — is what fiber interruption does
+ *  natively, so the `AbortSignal` that used to carry that instruction is gone
+ *  along with every plug's obligation to observe it. */
 export type ProbeDaemonIdentityFromOptions<Cap extends DrainCapability> =
   ProbeCommon &
     (Cap extends "drainable"
       ? {
           capability: "drainable";
           drainCeilingMs: number;
-          awaitExit: (signal: AbortSignal) => Promise<void>;
+          awaitExit: Effect.Effect<void>;
         }
       : { capability: "not-drainable" });
 
@@ -97,13 +104,11 @@ function assertDrainCeiling(ms: number): void {
  * Transport ownership stays with the caller: this function neither catches nor
  * rewrites protocol errors (including a declared member failure) and never
  * disposes the connection. */
-export function readControlCoreHelloEffect(
+export function readControlCoreHello(
   client: ControlCoreProbeClient,
 ): Effect.Effect<ControlCoreHello, Error> {
-  return Effect.tryPromise({
-    try: () => client.surface.control.core.hello(),
-    catch: (err) => err as Error,
-  }).pipe(
+  return Effect.suspend(() => client.surface.control.core.hello()).pipe(
+    Effect.mapError((err) => err as Error),
     Effect.timeoutOrElse({
       duration: CONTROL_CORE_HELLO_TIMEOUT_MS,
       orElse: () =>
@@ -140,28 +145,39 @@ export function readControlCoreHelloEffect(
   );
 }
 
-/** The Promise face of {@link readControlCoreHelloEffect} — see `promiseFace.ts`. */
-export function readControlCoreHello(
-  client: ControlCoreProbeClient,
-): Promise<ControlCoreHello> {
-  return runFace(readControlCoreHelloEffect(client));
-}
-
 /**
  * The single probe-assembly authority. Connector arms hand it their already-
  * dialed client and stronger process-exit oracle; the socket factory below
  * delegates here after it acquires the transport.
  */
-export function probeDaemonIdentityFromEffect(
-  opts:
-    | ProbeDaemonIdentityFromOptions<"drainable">
-    | ProbeDaemonIdentityFromOptions<"not-drainable">,
+export function probeDaemonIdentityFrom(
+  opts: ProbeDaemonIdentityFromOptions<"drainable">,
+): Effect.Effect<DrainableProbe, Error>;
+export function probeDaemonIdentityFrom(
+  opts: ProbeDaemonIdentityFromOptions<"not-drainable">,
+): Effect.Effect<PlainProbe, Error>;
+export function probeDaemonIdentityFrom(
+  opts: AnyProbeFromOptions,
+): Effect.Effect<DrainableProbe | PlainProbe, Error> {
+  return assembleProbe(opts);
+}
+
+type AnyProbeFromOptions =
+  | ProbeDaemonIdentityFromOptions<"drainable">
+  | ProbeDaemonIdentityFromOptions<"not-drainable">;
+
+/** The un-overloaded body. The exported name carries the capability overloads so
+ *  a caller that KNOWS its arm gets the narrow probe type back; the socket
+ *  factory below hands in a union it computed, which no overload set can
+ *  resolve, so it composes this instead. */
+function assembleProbe(
+  opts: AnyProbeFromOptions,
 ): Effect.Effect<DrainableProbe | PlainProbe, Error> {
   return Effect.suspend(() => {
     if (opts.capability === "drainable") {
       assertDrainCeiling(opts.drainCeilingMs);
     }
-    return readControlCoreHelloEffect(opts.client).pipe(
+    return readControlCoreHello(opts.client).pipe(
       Effect.map((hello) => {
         const base = {
           identity: {
@@ -180,7 +196,11 @@ export function probeDaemonIdentityFromEffect(
           .with({ capability: "drainable" }, (drainable) => ({
             ...base,
             capability: "drainable" as const,
-            fireDrain: () => drainable.client.surface.control.core.drain(),
+            // Suspended, so the drain verb is a description the framework fires
+            // when it is ready to — never work started at assembly time.
+            fireDrain: Effect.suspend(() =>
+              drainable.client.surface.control.core.drain(),
+            ),
             awaitExit: drainable.awaitExit,
             drainCeilingMs: drainable.drainCeilingMs,
           }))
@@ -188,21 +208,6 @@ export function probeDaemonIdentityFromEffect(
       }),
     );
   });
-}
-
-export function probeDaemonIdentityFrom(
-  opts: ProbeDaemonIdentityFromOptions<"drainable">,
-): Promise<DrainableProbe>;
-export function probeDaemonIdentityFrom(
-  opts: ProbeDaemonIdentityFromOptions<"not-drainable">,
-): Promise<PlainProbe>;
-/** The Promise face of {@link probeDaemonIdentityFromEffect} — see `promiseFace.ts`. */
-export function probeDaemonIdentityFrom(
-  opts:
-    | ProbeDaemonIdentityFromOptions<"drainable">
-    | ProbeDaemonIdentityFromOptions<"not-drainable">,
-): Promise<DrainableProbe | PlainProbe> {
-  return runFace(probeDaemonIdentityFromEffect(opts));
 }
 
 /** True only for an honest absent listener. */
@@ -275,7 +280,7 @@ function openControlCore(
   socketPath: string,
 ): Effect.Effect<ControlCoreConnection, Error> {
   return Effect.gen(function* () {
-    const socket = yield* dialSocketEffect(socketPath);
+    const socket = yield* dialSocket(socketPath);
 
     const parser = RpcSerialization.ndjson.makeUnsafe();
     let framingSettled = false;
@@ -408,10 +413,7 @@ function helloGonePass(socketPath: string): Effect.Effect<ExitPass> {
   return openControlCore(socketPath).pipe(
     Effect.flatMap((connection) =>
       raceUnspeakable(
-        Effect.tryPromise({
-          try: () => connection.client.surface.control.core.hello(),
-          catch: (err) => err as Error,
-        }),
+        connection.client.surface.control.core.hello(),
         connection,
       ).pipe(
         // A listener that cannot complete hello — including one whose framing we
@@ -431,7 +433,12 @@ function helloGonePass(socketPath: string): Effect.Effect<ExitPass> {
   );
 }
 
-function awaitHelloGoneEffect(socketPath: string): Effect.Effect<void> {
+/** The exit oracle: poll until a fresh dial finds no listener. It never fails,
+ *  and it has no stop condition of its own — the framework's ceiling stops it by
+ *  INTERRUPTING it, which cancels the sleep and releases the open connection
+ *  through the `ensuring` above. That is what the `AbortSignal` the plug used to
+ *  take was for, and it is why there is no longer one to take. */
+function awaitHelloGone(socketPath: string): Effect.Effect<void> {
   return helloGonePass(socketPath).pipe(
     Effect.tap((pass) =>
       pass === "gone" ? Effect.void : Effect.sleep(POLL_MS),
@@ -439,33 +446,6 @@ function awaitHelloGoneEffect(socketPath: string): Effect.Effect<void> {
     Effect.repeat({ until: (pass: ExitPass) => pass === "gone" }),
     Effect.asVoid,
   );
-}
-
-/** The plug's contract is a Promise that MUST NOT reject and stops on its
- *  caller's {@link AbortSignal}. So the abort is raced as a SUCCESS rather than
- *  handed to the runtime as an interrupt (which would reject) — and losing the
- *  race interrupts the loop, releasing the open connection through the
- *  `ensuring` above. */
-function awaitHelloGone(
-  socketPath: string,
-  signal: AbortSignal,
-): Promise<void> {
-  return runFace(
-    Effect.raceFirst(awaitHelloGoneEffect(socketPath), untilAborted(signal)),
-  );
-}
-
-/** Completes when `signal` aborts (at once, if it already has). */
-function untilAborted(signal: AbortSignal): Effect.Effect<void> {
-  return Effect.callback<void>((resume) => {
-    if (signal.aborted) {
-      resume(Effect.void);
-      return;
-    }
-    const onAbort = (): void => resume(Effect.void);
-    signal.addEventListener("abort", onAbort, { once: true });
-    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
-  });
 }
 
 type DrainableFactoryOptions = {
@@ -476,56 +456,54 @@ type PlainFactoryOptions = { capability: "not-drainable" };
 
 export function probeDaemonIdentity(
   opts: DrainableFactoryOptions,
-): (socketPath: string) => Promise<DrainableProbe | null>;
+): (socketPath: string) => Effect.Effect<DrainableProbe | null, Error>;
 export function probeDaemonIdentity(
   opts: PlainFactoryOptions,
-): (socketPath: string) => Promise<PlainProbe | null>;
+): (socketPath: string) => Effect.Effect<PlainProbe | null, Error>;
 /**
- * Curried endpoint probe. Returns `null` only for ECONNREFUSED/ENOENT; any
- * other dial or frozen-handshake failure throws — including the typed
+ * Curried endpoint probe. Succeeds `null` only for ECONNREFUSED/ENOENT; any
+ * other dial or frozen-handshake failure fails — including the typed
  * {@link UnspeakableProtocolError} raised by an undecodable first frame or by
  * {@link UNSPEAKABLE_SILENCE_MS} of silence, which the endpoint (and only the
  * endpoint, which owns the gate) may corroborate into a convergence observation.
  */
 export function probeDaemonIdentity(
   opts: DrainableFactoryOptions | PlainFactoryOptions,
-): (socketPath: string) => Promise<DrainableProbe | PlainProbe | null> {
+): (
+  socketPath: string,
+) => Effect.Effect<DrainableProbe | PlainProbe | null, Error> {
   if (opts.capability === "drainable") {
     assertDrainCeiling(opts.drainCeilingMs);
   }
   return (socketPath) =>
-    runFace(
-      openControlCore(socketPath).pipe(
-        Effect.flatMap((connection) =>
-          raceUnspeakable(
-            probeDaemonIdentityFromEffect(
-              opts.capability === "drainable"
-                ? {
-                    ...opts,
-                    client: connection.client,
-                    dispose: connection.dispose,
-                    awaitExit: (signal) => awaitHelloGone(socketPath, signal),
-                  }
-                : {
-                    ...opts,
-                    client: connection.client,
-                    dispose: connection.dispose,
-                  },
-            ),
-            connection,
-          ).pipe(
-            // The probe OWNS the transport until it hands it to the caller: a
-            // failed assembly (or a classification that won the race) disposes
-            // it here; a successful one passes `dispose` out on the probe.
-            Effect.onError(() => Effect.sync(() => connection.dispose())),
+    openControlCore(socketPath).pipe(
+      Effect.flatMap((connection) =>
+        raceUnspeakable(
+          assembleProbe(
+            opts.capability === "drainable"
+              ? {
+                  ...opts,
+                  client: connection.client,
+                  dispose: connection.dispose,
+                  awaitExit: awaitHelloGone(socketPath),
+                }
+              : {
+                  ...opts,
+                  client: connection.client,
+                  dispose: connection.dispose,
+                },
           ),
+          connection,
+        ).pipe(
+          // The probe OWNS the transport until it hands it to the caller: a
+          // failed assembly (or a classification that won the race) disposes
+          // it here; a successful one passes `dispose` out on the probe.
+          Effect.onError(() => Effect.sync(() => connection.dispose())),
         ),
-        // The ONE outcome that is not a failure: nothing is serving here.
-        Effect.catch((err) =>
-          isNoListenerError(err)
-            ? Effect.succeed(null)
-            : Effect.fail<Error>(err),
-        ),
+      ),
+      // The ONE outcome that is not a failure: nothing is serving here.
+      Effect.catch((err) =>
+        isNoListenerError(err) ? Effect.succeed(null) : Effect.fail<Error>(err),
       ),
     );
 }

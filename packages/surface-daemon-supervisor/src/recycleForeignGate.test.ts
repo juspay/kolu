@@ -23,6 +23,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
@@ -46,6 +47,7 @@ import {
   testReadProcessIdentity,
   testSelfIdentity,
   testStartUnixUs,
+  fromAsync,
 } from "./createEndpoint.testlib.ts";
 import {
   createEndpointForKoluTest as createEndpoint,
@@ -153,9 +155,9 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           // The recycle must have killed the survivor before we spawn.
           expect(isHolderLive(survivorPid)).toBe(false);
           spawned = true;
@@ -177,21 +179,22 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
           // Write a fresh current-shape gate naming THIS test process (the
           // real kaval would claim it via acquirePidGate).
           writeFileSync(d.gatePath, `${process.pid}\n`);
-        },
+        }),
       },
-      connect: async (_socketPath) => ({
-        client: "fresh",
-        identity: { staleKey: "fresh" },
-        startedAt: Date.now(),
-        dispose() {},
-        onClose() {},
-      }),
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { staleKey: "fresh" },
+          startedAt: Date.now(),
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await recycle(endpoint, destructiveRecycleSteps());
+    await Effect.runPromise(recycle(endpoint, destructiveRecycleSteps()));
     await survivorExited;
     expect(spawned).toBe(true);
     expect(isHolderLive(survivorPid)).toBe(false);
@@ -239,9 +242,9 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           expect(isHolderLive(survivorPid)).toBe(false);
           spawned = true;
           const fresh = fakeListen(d.socketPath);
@@ -251,21 +254,22 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
             d.gatePath,
             `${process.pid}\t${testStartUnixUs(process.pid)}\n`,
           );
-        },
+        }),
       },
-      connect: async () => ({
-        client: "fresh",
-        identity: { staleKey: "fresh" },
-        startedAt: Date.now(),
-        dispose() {},
-        onClose() {},
-      }),
+      connect: () =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { staleKey: "fresh" },
+          startedAt: Date.now(),
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    await recycle(endpoint, destructiveRecycleSteps());
+    await Effect.runPromise(recycle(endpoint, destructiveRecycleSteps()));
     await survivorExited;
     expect(spawned).toBe(true);
     expect(isHolderLive(survivorPid)).toBe(false);
@@ -325,28 +329,29 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned = true;
           const fresh = fakeListen(d.socketPath);
           servers.push(fresh.server);
           await fresh.listen();
-        },
+        }),
       },
-      connect: async (_socketPath) => ({
-        client: "fresh",
-        identity: { staleKey: "fresh" },
-        startedAt: Date.now(),
-        dispose() {},
-        onClose() {},
-      }),
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { staleKey: "fresh" },
+          startedAt: Date.now(),
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    await recycle(endpoint, destructiveRecycleSteps());
+    await Effect.runPromise(recycle(endpoint, destructiveRecycleSteps()));
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
@@ -439,7 +444,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       readProcessIdentity: async (pid) => {
         const id = testReadProcessIdentity(pid);
         if (pid === survivorPid) {
@@ -453,7 +458,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         return id;
       },
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           expect(isHolderLive(survivorPid)).toBe(false);
           spawned = true;
           const fresh = fakeListen(d.socketPath);
@@ -463,22 +468,23 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
             d.gatePath,
             `${process.pid}\t${testStartUnixUs(process.pid)}\n`,
           );
-        },
+        }),
       },
-      connect: async () => ({
-        client: "fresh",
-        identity: { staleKey: "fresh" },
-        startedAt: Date.now(),
-        dispose() {},
-        onClose() {},
-      }),
+      connect: () =>
+        fromAsync(async () => ({
+          client: "fresh",
+          identity: { staleKey: "fresh" },
+          startedAt: Date.now(),
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
     try {
-      await recycle(endpoint, destructiveRecycleSteps());
+      await Effect.runPromise(recycle(endpoint, destructiveRecycleSteps()));
       await survivorExited;
       expect(spawned).toBe(true);
       expect(isHolderLive(survivorPid)).toBe(false);
@@ -521,26 +527,27 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       readProcessIdentity: async () => {
         throw boom;
       },
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error("spawn must not run when identity rejects");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("connect must not run when identity rejects");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run when identity rejects");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await expect(recycle(endpoint, destructiveRecycleSteps())).rejects.toThrow(
-      boom,
-    );
+    await expect(
+      Effect.runPromise(recycle(endpoint, destructiveRecycleSteps())),
+    ).rejects.toThrow(boom);
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 
@@ -593,16 +600,17 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned = true;
           throw new Error("spawn-reached-after-indeterminate");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("connect must not run");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -610,7 +618,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
 
     try {
       await expect(
-        recycle(endpoint, destructiveRecycleSteps()),
+        Effect.runPromise(recycle(endpoint, destructiveRecycleSteps())),
       ).rejects.toSatisfy(
         (err: unknown) =>
           isSocketProbeIndeterminateError(err) && err.gatePid === survivorPid,
@@ -655,16 +663,17 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned = true;
           throw new Error("spawn must not run on unreadable gate");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("connect must not run on unreadable gate");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run on unreadable gate");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -672,7 +681,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
 
     try {
       await expect(
-        recycle(endpoint, destructiveRecycleSteps()),
+        Effect.runPromise(recycle(endpoint, destructiveRecycleSteps())),
       ).rejects.toThrow(/unreadable/);
       expect(spawned).toBe(false);
       expect(isHolderLive(survivorPid)).toBe(true);
@@ -716,22 +725,23 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error("spawn must not run on lstat reject");
-        },
+        }),
       },
-      connect: async () => {
-        throw new Error("connect must not run on lstat reject");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("connect must not run on lstat reject");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
     await expect(
-      recycle(endpoint, destructiveRecycleSteps()),
+      Effect.runPromise(recycle(endpoint, destructiveRecycleSteps())),
     ).rejects.toMatchObject({ code: "ENOTDIR" });
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });

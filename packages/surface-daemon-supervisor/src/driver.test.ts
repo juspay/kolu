@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { type DaemonSpawnConfig, survivableSpawnDriver } from "./driver.ts";
 
@@ -67,7 +68,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       spawnProcess,
       unitSuffix: () => "UNIQ",
     });
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
 
     const c = only(calls);
     expect(c.command).toBe("systemd-run");
@@ -94,8 +95,8 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       spawnProcess,
       unitSuffix: () => `s${(n += 1)}`,
     });
-    await driver.spawn();
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
+    await Effect.runPromise(driver.spawn);
     const units = calls.map((c) => c.args[c.args.indexOf("--unit") + 1]);
     expect(units).toEqual(["kaval-s1", "kaval-s2"]);
   });
@@ -108,7 +109,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { ...cfg, stderrLog: logFile },
       { env: { INVOCATION_ID: "x" }, spawnProcess, unitSuffix: () => "U" },
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     // Attached spawns keep parent-owned stderr (journald), so no file arg + no `.old` rotation.
     const c = only(calls);
     expect(c.command).toBe("systemd-run");
@@ -125,7 +126,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { ...cfg, stderrLog: logFile },
       { env: { PATH: "/usr/bin" }, spawnProcess },
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     const stdio = only(calls).options.stdio as unknown[];
     expect(stdio[0]).toBe("ignore");
     expect(stdio[1]).toBe("ignore");
@@ -148,7 +149,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { ...cfg, stderrLog: logFile },
       { env: { PATH: "/usr/bin" }, spawnProcess },
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     // umask never masks owner bits, so 0700 stays 0700; a bare mkdir's 0755 would FAIL this.
     expect(statSync(crashDir).mode & 0o777).toBe(0o700);
   });
@@ -161,7 +162,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       env: { PATH: "/usr/bin", FOO: "bar" }, // no INVOCATION_ID
       spawnProcess,
     });
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
 
     const c = only(calls);
     expect(c.command).toBe("/nix/store/abc/bin/kaval");
@@ -183,7 +184,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { ...cfg, fromSource: { inheritParentEnv: false } },
       { env: { INVOCATION_ID: "deadbeef" }, spawnProcess },
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     expect(only(calls).command).toBe("/nix/store/abc/bin/kaval");
   });
 
@@ -196,7 +197,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       { ...cfg, fromSource: { inheritParentEnv: true } },
       { env: { PATH: "/dev/shell/bin", FOO: "bar" }, spawnProcess }, // no INVOCATION_ID → detached
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     expect(only(calls).options.env).toEqual({
       PATH: "/dev/shell/bin",
       FOO: "bar",
@@ -217,7 +218,7 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
         spawnProcess,
       },
     );
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     expect(only(calls).options.env).toEqual({
       XDG_RUNTIME_DIR: "/run/user/1000",
     });
@@ -232,16 +233,16 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       env: { INVOCATION_ID: "" },
       spawnProcess,
     });
-    await driver.spawn();
+    await Effect.runPromise(driver.spawn);
     expect(only(calls).command).toBe("/nix/store/abc/bin/kaval");
   });
 
   it("rejects (rather than throwing an uncaught exception) when the real fork fails", async () => {
     // No `spawnProcess` seam → the real `node:child_process` spawn. A
     // nonexistent binary emits `error` (ENOENT) ASYNCHRONOUSLY on the child;
-    // the driver must turn that into a rejection (which the endpoint maps to
-    // `dead`), not let it escape as the uncaught exception that would take the
-    // supervising process down (#F4).
+    // the driver must turn that into a FAILURE on the error channel (which the
+    // endpoint maps to `dead`), not let it escape as the uncaught exception that
+    // would take the supervising process down (#F4).
     const driver = survivableSpawnDriver({
       binPath: "/nonexistent/definitely/not/a/real/kaval-binary",
       args: [],
@@ -249,6 +250,8 @@ describe("survivableSpawnDriver — the INVOCATION_ID gate", () => {
       unitPrefix: "kaval",
       fromSource: { inheritParentEnv: false }, // force detached, skip systemd-run
     });
-    await expect(driver.spawn()).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(Effect.runPromise(driver.spawn)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

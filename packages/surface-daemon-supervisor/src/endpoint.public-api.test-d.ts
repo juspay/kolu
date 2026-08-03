@@ -2,6 +2,7 @@
  * Type-level pin: the boot-method trio is NOT on the public Endpoint type.
  * A comment is not a lock — absence from the type is.
  */
+import { Effect } from "effect";
 import { createEndpoint } from "./endpoint.ts";
 import type { Endpoint } from "./endpoint.ts";
 import { daemonBuild } from "@kolu/surface-daemon";
@@ -23,15 +24,16 @@ const endpoint: Endpoint<string, { id: string }> = createEndpoint({
     onContractSkew: { kind: "recycle" },
     onBuildMismatch: { kind: "nudge-human" },
   },
-  probe: async () => null,
-  driver: { spawn: async () => {} },
-  connect: async () => ({
-    client: "c",
-    identity: { id: "i" },
-    startedAt: 0,
-    dispose: () => {},
-    onClose: () => {},
-  }),
+  probe: () => Effect.succeed(null),
+  driver: { spawn: Effect.void },
+  connect: () =>
+    Effect.succeed({
+      client: "c",
+      identity: { id: "i" },
+      startedAt: 0,
+      dispose: () => {},
+      onClose: () => {},
+    }),
   log: { debug() {}, info() {}, warn() {}, error() {} },
   onStatus: () => {},
 });

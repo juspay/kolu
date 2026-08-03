@@ -31,8 +31,7 @@
  * takeover's observation line carries both.
  */
 import { Effect } from "effect";
-import { runFace } from "./promiseFace.ts";
-import { waitForPidGoneEffect } from "./waitForPidGone.ts";
+import { waitForPidGone } from "./waitForPidGone.ts";
 
 /** How long the daemon's own graceful shutdown gets after SIGTERM. */
 export const REAP_TERM_CEILING_MS = 120_000;
@@ -76,7 +75,7 @@ function signalIgnoringRace(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
  *  The two waits are ONE fiber, so a caller that gives up (a lost race, an
  *  interrupted converge) cancels the outstanding poll with it rather than
  *  leaving a timer running against a pid nobody is waiting on any more. */
-export function reapHolderEffect(
+export function reapHolder(
   pid: number,
   opts: ReapHolderOptions = {},
 ): Effect.Effect<ReapOutcome> {
@@ -86,7 +85,7 @@ export function reapHolderEffect(
 
     yield* Effect.sync(() => signalIgnoringRace(pid, "SIGTERM"));
     if (
-      yield* waitForPidGoneEffect(pid, {
+      yield* waitForPidGone(pid, {
         timeoutMs: opts.termCeilingMs ?? REAP_TERM_CEILING_MS,
         intervalMs: opts.intervalMs,
       })
@@ -96,7 +95,7 @@ export function reapHolderEffect(
 
     yield* Effect.sync(() => signalIgnoringRace(pid, "SIGKILL"));
     if (
-      yield* waitForPidGoneEffect(pid, {
+      yield* waitForPidGone(pid, {
         timeoutMs: opts.killCeilingMs ?? REAP_KILL_CEILING_MS,
         intervalMs: opts.intervalMs,
       })
@@ -106,12 +105,4 @@ export function reapHolderEffect(
 
     return { kind: "survived", waitedMs: waited() };
   });
-}
-
-/** The Promise face of {@link reapHolderEffect} — see `promiseFace.ts`. */
-export function reapHolder(
-  pid: number,
-  opts: ReapHolderOptions = {},
-): Promise<ReapOutcome> {
-  return runFace(reapHolderEffect(pid, opts));
 }
