@@ -53,7 +53,7 @@ export {
 // The persisted survivor pairing's type. The pairing is READ + RECORDED entirely
 // inside padi's boot reconcile (its conf store is set by padi's own `daemonMain`).
 export type { PairedDaemon } from "./session/pairedDaemon.ts";
-// The range-capable serve-dir read kolu-server's re-backed Hono preview route
+// The range-capable serve-dir read kolu-server's re-backed preview route
 // calls — the STREAMING form (`previewFile`, bounded heap), the same read
 // `preview.read` serves through its base64 wire-wrapper (`readPreview`).
 export { previewFile } from "./preview.ts";

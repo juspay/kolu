@@ -96,7 +96,8 @@ export function contentTypeForPath(filePath: string): string {
  *  both become `…/secret`) BEFORE `resolvePathUnder`'s per-segment `..` check
  *  ever sees them — so a consumer slicing via `URL` reopens the very
  *  directory-traversal hole the lexical guard exists to close. Decoding helpers
- *  (`decodeURI`/`decodeURIComponent`, Hono's `c.req.path`/`c.req.param("*")`)
+ *  (`decodeURI`/`decodeURIComponent`, or a router that pre-decodes its params —
+ *  `HttpRouter.params["*"]` is `decodeURIComponent`d by the matcher)
  *  are equally unsafe: `resolvePathUnder` decodes exactly once internally, so a
  *  pre-decode double-decodes `%`-bearing filenames and erases `%2f` segment
  *  boundaries.

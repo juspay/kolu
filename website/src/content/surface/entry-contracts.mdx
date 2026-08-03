@@ -66,7 +66,7 @@ forever. The sum is the fix that makes both unrepresentable.
   required `failure` schema — not a baked-in list. The generic package cannot know a
   domain's failure taxonomy, so it carries the discriminant, plus exactly one thing of
   its own; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map, where
-  `PadiEntryFailure` is a validated `z.discriminatedUnion` over a structural `cause`
+  `PadiEntryFailure` is a validated `Schema.Union` of `Schema.Struct`s over a structural `cause`
   (each arm carrying its human `reason`, the `contract-skew-refused` arm additionally a
   typed `running`/`expected` version pair). The `failed` arm carries a schema-valid
   domain value, not a loose object. Domain vocabulary stays in the domain — the

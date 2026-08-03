@@ -37,15 +37,17 @@ const endpoint = createEndpoint({
   onStatus,
 });
 
-// The only boot verb — policy is fixed on the endpoint.
-await converge(endpoint);
+// The only boot verb — policy is fixed on the endpoint. Every verb below is an
+// Effect: `yield*` it inside an `Effect.gen`, and run that ONCE at your process
+// edge. `await`ing one compiles and dispatches nothing.
+yield* converge(endpoint);
 
 // The only replace verb — all steps required (no silent snapshot skip).
-await recycle(endpoint, { capture, drain, reattach });
+yield* recycle(endpoint, { capture, drain, reattach });
 
 // An ssh connector already owns the combined client and process oracle.
 // This form never returns null: the transport has already been dialed.
-const probe = await probeDaemonIdentityFrom({
+const probe = yield* probeDaemonIdentityFrom({
   client: combinedClient,
   dispose: teardown,
   capability: "drainable",

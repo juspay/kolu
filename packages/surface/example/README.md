@@ -19,7 +19,7 @@ From this directory:
 just dev
 ```
 
-The recipe enters the Nix devshell (skipping re-entry if you're already inside one), installs deps if needed, and starts the server (port 7700) plus the Vite dev server (port 5174) in parallel. Open <http://localhost:5174> — Vite proxies `/rpc/ws` (the surface WebSocket) to the Hono server.
+The recipe enters the Nix devshell (skipping re-entry if you're already inside one), installs deps if needed, and starts the server (port 7700) plus the Vite dev server (port 5174) in parallel. Open <http://localhost:5174> — Vite proxies `/rpc/ws` (the surface WebSocket) to the server.
 
 The example is self-contained: in-memory note store, no persistence between restarts. Stop and restart to reset the dataset.
 
@@ -63,7 +63,7 @@ packages/surface/example/
     ├── server/
     │   ├── store.ts         # in-memory state + typed channels
     │   ├── serve.ts         # implementSurface(surface, deps) — one declarative call
-    │   └── main.ts          # Hono (static) + ws bind on port 7700
+    │   └── main.ts          # HttpRouter (static) + ws bind on port 7700
     └── client/
         ├── index.html
         ├── main.tsx         # Solid render
@@ -72,4 +72,4 @@ packages/surface/example/
         └── styles.css       # Tailwind import + dark variant
 ```
 
-The example deliberately doesn't use Conf, doesn't ship a Nix flake of its own, and doesn't import any kolu-internal package. Everything it needs is in `@kolu/surface/{*}` plus the standard Effect + Hono + Vite stack.
+The example deliberately doesn't use Conf, doesn't ship a Nix flake of its own, and doesn't import any kolu-internal package. Everything it needs is in `@kolu/surface/{*}` plus the standard Effect + Vite stack.

@@ -1,6 +1,6 @@
 /** Tests for padi's `readPreview` — the ONE range-capable byte read behind both
- *  `padiSurface.procedures.preview.read` and kolu-server's re-backed Hono
- *  preview route. This is where the `..`/`%2f`/symlink 403 coverage lives now
+ *  `padiSurface.procedures.preview.read` and kolu-server's re-backed preview
+ *  route. This is where the `..`/`%2f`/symlink 403 coverage lives now
  *  that the guard moved out of kolu-server (`iframePreviewRoute.ts`): a repo-
  *  local symlink escaping the root is rejected 403 before any byte is read, and
  *  a lexical `..`/`%2f` traversal is rejected 400 by serve-dir's per-segment

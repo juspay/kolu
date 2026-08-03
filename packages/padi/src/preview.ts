@@ -4,10 +4,10 @@
  * injects into `@kolu/serve-dir`'s `serveFile`.
  *
  * ONE serve-dir read (`previewFile`), two forms, two callers:
- *   - `previewFile` (STREAMING `ServeResult`) — kolu-server's Hono preview route
- *     (`server/src/index.ts`) re-backs its `/api/terminals/:host/:id/file/*` mount onto
- *     it (forwarding the browser's `Range`) instead of a direct `createDirServer`,
- *     streaming disk→socket with bounded heap exactly as before;
+ *   - `previewFile` (STREAMING `ServeResult`) — kolu-server's preview route
+ *     (`server/src/iframePreviewRoute.ts`) backs its `/api/terminals/:host/:id/file/*`
+ *     route onto it (forwarding the browser's `Range`), streaming disk→socket with
+ *     bounded heap;
  *   - `readPreview` (BASE64 wire-form, = `previewFile` + buffer) —
  *     `padiSurface.procedures.preview.read` (`servePadi.ts`), the procedure a
  *     REMOTE consumer (W2) calls, where the body must serialize over the wire.
@@ -42,16 +42,17 @@ export function previewRealpathGuard(root: string): RealpathGuard {
 
 /** The range-capable, serve-dir-shaped byte read behind the preview — the
  *  STREAMING form. Forwards an optional raw HTTP `Range` header to `serveFile`
- *  (206/416/200 all behave as the retired direct `createDirServer` bypass did)
+ *  (206/416/200 all behave as the retired direct serve-dir bypass did)
  *  and injects the realpath guard (the `..`/`%2f`/symlink 403 stage the lexical
  *  guard inside `@kolu/serve-dir` can't cover). Returns serve-dir's `ServeResult`
  *  VERBATIM — a `ReadableStream` body on 2xx (bytes flow disk→socket with
  *  bounded heap; a multi-GB video never lands whole in memory, and the browser
  *  can abort early), a string on errors.
  *
- *  This is the in-process path kolu-server's Hono preview route uses (it returns
- *  `new Response(r.body, r)` directly, byte-identical AND memory-identical to the
- *  old serve-dir route). {@link readPreview} wraps it for the WIRE (base64). */
+ *  This is the in-process path kolu-server's preview route uses (it hands the
+ *  streamed body straight to the HTTP response, byte-identical AND
+ *  memory-identical to the old serve-dir route). {@link readPreview} wraps it for
+ *  the WIRE (base64). */
 export function previewFile(input: {
   repoPath: string;
   filePath: string;

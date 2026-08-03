@@ -839,7 +839,7 @@ export function buildPadiSurfaceDeps(deps: {
       },
 
       // Range-capable, serve-dir-shaped byte read — the SAME `readPreview`
-      // kolu-server's re-backed Hono preview route calls (one impl, two
+      // kolu-server's re-backed preview route calls (one impl, two
       // callers), so the surface procedure and the HTTP bypass are
       // byte-identical. The streaming body is buffered whole to base64 so it
       // rides the procedure wire; the `..`/`%2f`/symlink 403 guard is
