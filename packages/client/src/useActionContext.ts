@@ -80,7 +80,11 @@ export function useActionContext(): ActionContext {
     handleShuffleTheme,
     handleScreenshotTerminal: () => {
       const id = store.activeId();
-      if (id !== null) void screenshotTerminal(id, store.getMetadata(id));
+      if (id !== null)
+        runAction(
+          "screenshot terminal",
+          screenshotTerminal(id, store.getMetadata(id)),
+        );
     },
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,

@@ -3,6 +3,7 @@
  *  The choice happens before generation so the lightweight chat log does not
  *  carry full tool payloads hidden inside the file. */
 
+import { runAction } from "./runAction";
 import Dialog from "@corvu/dialog";
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
 import type { Component } from "solid-js";
@@ -20,7 +21,7 @@ const ExportSessionDialog: Component = () => {
 
   const exportMode = (modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]]) => {
     exportSessionDialog.close();
-    void crud.exportSessionHtml(modes);
+    runAction("export session", crud.exportSessionHtml(modes));
   };
 
   return (

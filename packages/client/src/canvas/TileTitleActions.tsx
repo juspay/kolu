@@ -8,6 +8,7 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
+import { runAction } from "../runAction";
 import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -158,7 +159,9 @@ const TileTitleActions: Component<{
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) =>
-            onTile(e, () => void screenshotTerminal(props.id, meta()))
+            onTile(e, () =>
+              runAction("screenshot terminal", screenshotTerminal(props.id, meta())),
+            )
           }
           title={ACTIONS.screenshotTerminal.label}
           data-testid="screenshot-button"
