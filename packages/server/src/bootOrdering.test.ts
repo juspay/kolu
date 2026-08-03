@@ -1,9 +1,9 @@
 /**
- * W4 fail-open pin: the HTTP server's `serve()` must never sit DOWNSTREAM of the
+ * W4 fail-open pin: the HTTP server's listen must never sit DOWNSTREAM of the
  * LOCAL padi arm's connect.
  *
  * Before this fix, `index.ts` did `await pool.getSession(LOCAL_HOST)?.pin()` before
- * assembling the router / calling `serve()` — a slow or wedged local padi (the
+ * assembling the router / listening — a slow or wedged local padi (the
  * #1713-class socket-path mismatch this same change fixes, or any other spawn
  * stall) held the WHOLE HTTP server back for its ~30s connect timeout. The REMOTE
  * arm was already fail-open (never boot-awaited); this pins that the LOCAL arm now
@@ -17,9 +17,9 @@
  * sequence — the module's former top-level script, function-ized at kolu-cli PR1
  * when the bin moved to `packages/kolu-cli`): the local-arm pin statement must
  * (a) exist, (b) NOT be an `await` (so it can't block), and (c) be reached, in
- * source order, before the `serve(...)` call that starts accepting connections —
- * the boot body is a flat await-bearing sequence with no function indirection
- * between these two points, so source order IS execution order here.
+ * source order, before the `server.listen(...)` call that starts accepting
+ * connections — the boot body is a flat await-bearing sequence with no function
+ * indirection between these two points, so source order IS execution order here.
  */
 
 import { readFileSync } from "node:fs";
@@ -108,28 +108,20 @@ function isAwaitStatement(stmt: AstNode): boolean {
   return isAstNode(expr) && expr.type === "AwaitExpression";
 }
 
-/** Is this the `const server = serve(...)` declaration that starts accepting
- *  HTTP connections? Matched by the declared name (`server`) + the initializer
- *  textually calling `serve(` — robust to `serve`'s exact argument shape. */
+/** Is this the `server.listen(...)` call that starts accepting HTTP connections?
+ *  kolu-server OWNS its node `http(s).Server` now (the hono `serve()` helper is
+ *  gone, and with it the one call that both created and bound the socket), so the
+ *  landmark is the BIND: constructing the server and attaching its `request`
+ *  handler accept nothing until `listen` runs. Text-matched on the receiver +
+ *  method so the argument shape (host/port object, callback) stays free. */
 function isServeListenStatement(stmt: AstNode): boolean {
-  if (
-    stmt.type !== "VariableDeclaration" ||
-    !Array.isArray(stmt.declarations)
-  ) {
-    return false;
-  }
-  return stmt.declarations.some((decl) => {
-    if (!isAstNode(decl) || !isIdentifierNamed(decl.id, "server")) return false;
-    const init = decl.init;
-    return (
-      isAstNode(init) &&
-      init.type === "CallExpression" &&
-      isIdentifierNamed(init.callee, "serve")
-    );
-  });
+  return (
+    stmt.type === "ExpressionStatement" &&
+    nodeText(stmt).includes("server.listen(")
+  );
 }
 
-describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks serve()", () => {
+describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks the listen", () => {
   const statements = parseBootStatements();
   const pinIndex = statements.findIndex(isLocalPinStatement);
   const serveIndex = statements.findIndex(isServeListenStatement);
@@ -143,7 +135,7 @@ describe("index.ts boot ordering — the LOCAL padi arm's pin never blocks serve
     expect(isAwaitStatement(statements[pinIndex] as AstNode)).toBe(false);
   });
 
-  it("the LOCAL arm's pin is kicked off BEFORE `serve()` starts listening — the pin is reached, but never blocks reaching serve()", () => {
+  it("the LOCAL arm's pin is kicked off BEFORE `server.listen()` starts accepting — the pin is reached, but never blocks reaching the listen", () => {
     expect(pinIndex).toBeLessThan(serveIndex);
   });
 });

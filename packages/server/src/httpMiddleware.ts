@@ -33,11 +33,32 @@
 import type { Logger } from "@kolu/log";
 import { Cause, Effect } from "effect";
 import {
-  type HttpMiddleware,
   HttpServerError,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
+
+/** The middleware shape, spelled PRECISELY rather than as Effect's own
+ *  `HttpMiddleware` interface.
+ *
+ *  `HttpMiddleware` answers `Effect<HttpServerResponse, any, any>` — it erases
+ *  the wrapped app's error and service channels. That erasure is not free at the
+ *  composition root: `NodeHttpServer.makeHandler` derives its own requirement
+ *  from the MIDDLEWARE's result, so an `any` there surfaces as an `any`
+ *  requirement on the whole handler, which the boot then cannot discharge (an
+ *  `any` requirement is not `never`, so it fails to run). Stating the
+ *  transformation exactly keeps it honest: these middlewares change neither the
+ *  error type nor the response type, and add exactly ONE requirement —
+ *  `HttpServerRequest`, which the node handler provides per request. */
+export interface KoluHttpMiddleware {
+  <E, R>(
+    httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+  ): Effect.Effect<
+    HttpServerResponse.HttpServerResponse,
+    E,
+    R | HttpServerRequest.HttpServerRequest
+  >;
+}
 
 /** A cause the ROUTER already has an answer for: `RouteNotFound` → 404,
  *  `RequestParseError` → 400, and friends all carry their own response through
@@ -53,7 +74,7 @@ const routerAnswered = (cause: Cause.Cause<unknown>): boolean =>
 
 /** Log every uncaught route fault through pino, then answer a 500. */
 export const routeErrorLogging =
-  (log: Pick<Logger, "error">): HttpMiddleware.HttpMiddleware =>
+  (log: Pick<Logger, "error">): KoluHttpMiddleware =>
   (httpApp) =>
     Effect.catchCause(httpApp, (cause) => {
       // An interrupt is a client that hung up (or our own shutdown), not a
@@ -88,7 +109,7 @@ export const routeErrorLogging =
  *  500 response before this one observes it — which is why the two compose in
  *  that order. Stated because it is a choice, not an oversight. */
 export const requestLogging =
-  (log: Pick<Logger, "debug">): HttpMiddleware.HttpMiddleware =>
+  (log: Pick<Logger, "debug">): KoluHttpMiddleware =>
   (httpApp) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
@@ -106,7 +127,7 @@ export const requestLogging =
  *  rather than dropping its response line. */
 export const koluHttpMiddleware = (
   log: Pick<Logger, "debug" | "error">,
-): HttpMiddleware.HttpMiddleware => {
+): KoluHttpMiddleware => {
   const withErrors = routeErrorLogging(log);
   const withRequests = requestLogging(log);
   return (httpApp) => withRequests(withErrors(httpApp));

@@ -56,7 +56,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/server/src/index.ts",
     sites: 2,
-    why: "two hono-handler edges: the reactor's poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect (locked decision 1); and the local iframe-preview read, run with the request's own AbortSignal so an abandoned seek interrupts the file read — both retire with the hono→effect/unstable/http rewrite",
+    why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect; and building the composed HTTP layer into the node `request` callback kolu-server owns (owning the listener is what keeps the ws `upgrade` seam the only one) — a callback node hands no Effect context to",
   },
   {
     path: "packages/server/src/portForward/hostPorts.ts",

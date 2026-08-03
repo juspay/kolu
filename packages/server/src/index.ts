@@ -1,15 +1,18 @@
-import type { IncomingMessage } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { serve } from "@hono/node-server";
-import { mountArtifactSdk } from "@kolu/artifact-sdk/server";
+import { NodeHttpServer } from "@effect/platform-node";
+import {
+  artifactSdkBundleLayer,
+  type SdkScriptPath,
+  withArtifactSdk,
+} from "@kolu/artifact-sdk/server";
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 // The web shell reaches the terminal domain ONLY through @kolu/padi's published
-// entry points (the package-boundary seal). Post-cutover it keeps just the
-// streaming preview read (`previewFile`, for the iframe binary route) and its own
+// entry points (the package-boundary seal). Post-cutover it keeps the streaming
+// preview read (`previewFile`, used by `iframePreviewRoute.ts`) and its own
 // publisher size (a diagnostic); it no longer runs the terminal domain.
 import {
   discoverPadiDaemons,
-  previewFile,
   probeKavalStatus,
   publisherSize,
   resolvePadiStateRoot,
@@ -19,14 +22,13 @@ import {
   type PadiProcessMemory,
   padiSurface,
 } from "@kolu/padi/surface";
-import type { ServeResult } from "@kolu/serve-dir";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClientRef } from "@kolu/surface/project";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
-  installFreshStatic,
-  installPwaManifest,
+  freshStaticLayer,
+  pwaManifestLayer,
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
 import {
@@ -36,16 +38,11 @@ import {
   serveHostMap,
 } from "@kolu/surface-remote";
 import { sessionConnection } from "@kolu/surface-remote/connection";
-import { Effect, Layer, Option, Stream } from "effect";
-import { Hono } from "hono";
-import { pinoLogger } from "hono-pino";
+import { Effect, Layer, Option, Scope, Stream } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
-import {
-  decodeHostKey,
-  decodeHostKeyValue,
-  encodeHostKey,
-} from "kolu-common/hostKey";
+import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 
 import { createKoluForwards } from "./portForward/forwards.ts";
 import {
@@ -53,10 +50,6 @@ import {
   type TerminalsFace,
 } from "./portForward/hostPorts.ts";
 import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
-import {
-  TERMINAL_FILE_ROUTE_BASE,
-  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
-} from "kolu-common/preview";
 import {
   type HostKey,
   LOCAL_HOST,
@@ -66,12 +59,12 @@ import {
 import { type WebSocket, WebSocketServer } from "ws";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
+import { healthRouteLayer } from "./healthRoute.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
+import { koluHttpMiddleware } from "./httpMiddleware.ts";
 import {
-  assembleRemotePreview,
-  previewTailFromRawUrl,
-  rawTargetFromContext,
-  remotePreviewReader,
+  PREVIEW_ROUTE_PATTERN,
+  previewRouteHandler,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
@@ -89,7 +82,6 @@ import {
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
-import { installRouteErrorLogging } from "./routeErrors.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
   claimLocalSupervisor,
@@ -131,11 +123,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   const PWA_BACKGROUND_COLOR = "#0c0c0e";
 
   // CSWSH defense: extra browser origins (beyond same-origin) allowed to reach
-  // the unauthenticated RPC surface — on BOTH transports, the `/rpc/ws` upgrade
-  // and the `/rpc/*` HTTP handler. Empty by default — loopback + same-origin is
-  // the common case; set `KOLU_ALLOWED_ORIGINS` (comma-separated) for a
-  // reverse-proxy / `tailscale serve` front-end whose browser origin differs
-  // from the `Host` it forwards. See `gateWsOrigin` / `gateHttpRpcOrigin` below.
+  // the unauthenticated RPC surface at the `/rpc/ws` upgrade — the ONE transport
+  // (the oRPC-era `/rpc/*` HTTP arm is gone, and with it `gateHttpRpcOrigin`).
+  // Empty by default — loopback + same-origin is the common case; set
+  // `KOLU_ALLOWED_ORIGINS` (comma-separated) for a reverse-proxy /
+  // `tailscale serve` front-end whose browser origin differs from the `Host` it
+  // forwards. See `gateWsOrigin` in the upgrade handler below.
   const allowedOrigins = parseAllowedOrigins(process.env.KOLU_ALLOWED_ORIGINS);
 
   // `--verbose` drops the server's logger to debug. padi runs in its OWN process
@@ -149,29 +142,6 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   if (flags.verbose) {
     log.level = "debug";
   }
-
-  const app = new Hono();
-
-  // Catch-all error logger: an uncaught route/middleware fault (e.g. the artifact-sdk
-  // HTML decorator draining a remote-preview stream that faults mid-chunk, past the
-  // preview route's own 503 `try`) is LOGGED, not answered as Hono's default,
-  // unlogged 500. See `routeErrors.ts`.
-  installRouteErrorLogging(app, log);
-
-  // --- HTTP request logging (debug level to avoid noise in normal operation) ---
-  app.use(
-    pinoLogger({
-      pino: log,
-      http: {
-        onReqMessage: false,
-        onReqBindings: (c) => ({
-          req: { method: c.req.method, url: c.req.path },
-        }),
-        onResBindings: (c) => ({ res: { status: c.res.status } }),
-        onResLevel: () => "debug",
-      },
-    }),
-  );
 
   // The local-supervisor gate's release (set once the gate is claimed at boot,
   // below). Released on a clean shutdown so a same-lineage restart re-claims
@@ -872,215 +842,113 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // it. The ws-upgrade gate (`gateWsOrigin`, below) is untouched and still
   // load-bearing. Same call the surface examples made in W2.
 
-  // --- Health endpoint ---
-  app.get("/api/health", (c) => c.text("kolu"));
+  // --- The HTTP app: ONE composed router layer --------------------------------
+  //
+  // Every route kolu-server serves is an `HttpRouter` layer, merged here and
+  // turned into a node request handler at the listen site below. Registration
+  // ORDER carries no meaning any more: the router ranks by SPECIFICITY, so the
+  // literal `/api/health`, the parameterised preview pattern and static's `/*`
+  // catch-all each win where they should whatever order they were merged in.
+  // (Under hono the preview route had to be registered before the static
+  // catch-all or `serveStatic`'s `/*` shadowed it; that ordering constraint died
+  // with hono.)
 
-  // --- Artifact-SDK (comments-on-files) mount ---
-  // Self-contained — registers the SDK bundle route and a middleware that
-  // splices the SDK <script> into text/html responses on the iframe-preview
-  // route. The byte-streaming `iframePreviewRoute` below stays untouched.
-  const PREVIEW_ROUTE_PATTERN = `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
-  mountArtifactSdk(app, {
-    sdkScriptPath: "/api/artifact-sdk.js",
-    htmlRoutePrefix: PREVIEW_ROUTE_PATTERN,
-  });
+  /** Where the in-iframe artifact-sdk bundle is served AND the `src` the HTML
+   *  decorator injects — one constant, so the route and the tag cannot drift. */
+  const SDK_SCRIPT_PATH: SdkScriptPath = "/api/artifact-sdk.js";
 
-  // --- Iframe preview file route ---
-  // Serves repo files referenced by `FsReadFileOutput.kind === "binary"`.
-  // URL contract (base + builder + parser) all lives in `iframePreviewRoute.ts`.
-  // Registered before the static-serve catch-all so production builds don't
-  // shadow this route with `serveStatic`'s `/*` matcher.
-  app.get(PREVIEW_ROUTE_PATTERN, async (c) => {
-    const terminalId = c.req.param("terminalId");
-    // The preview reads a per-HOST terminal's bytes, so the tab's active host rides
-    // in the URL (`buildTerminalFileUrl`, as `encodeHostKey`'s canonical string) and we
-    // resolve against THAT host's padi — not the local default. Without this, switching
-    // to a remote host would ask the LOCAL padi about a remote terminal id (a 404, or
-    // the wrong bytes on an id collision). Decode + re-validate the key through the
-    // SAME codec + schema the map is keyed by (rejects a malformed segment → 400), then
-    // find its warm session; a key that isn't a current pool member (an unseeded or
-    // departed host) is a loud 404, never a silent fall-through to the default host.
-    const rawHostParam = c.req.param("host");
-    let host: HostKey;
-    try {
-      host = decodeHostKeyValue(decodeHostKey(rawHostParam));
-    } catch {
-      return c.text("invalid host key", 400);
-    }
-    const session = pool.getSession(encodeHostKey(host));
-    if (!session) return c.text(`unknown host "${encodeHostKey(host)}"`, 404);
-    // Slice the tail off the RAW request target — NOT `c.req.path` (`decodeURI`d),
-    // `c.req.param("*")` (`decodeURIComponent`d), OR `c.req.raw.url`. The first two
-    // decode the tail before `@kolu/serve-dir` decodes again (double-decode). The
-    // last is built by @hono/node-server as `new URL(...).href`, which has ALREADY
-    // run WHATWG path normalization — collapsing `foo/../secret` and `foo/%2e%2e/`
-    // to `secret` BEFORE the handler sees it, defeating serve-dir's `..` guard. The
-    // Node `IncomingMessage.url` (`c.env.incoming.url`) is the raw, un-normalized
-    // request target (origin-form `/path?query`); that's what serve-dir must see.
-    // `previewTailFromRawUrl` documents the rest (correctness for `%`-bearing
-    // names + `%2f` traversal defense) and is unit-tested in
-    // `iframePreviewRoute.test.ts`. `rawTargetFromContext` owns the raw-target
-    // selection (`incoming.url`) as one shipped adapter the integration test
-    // drives too, so the two halves of this guard can't drift. When `incoming` is
-    // absent it returns `undefined` — a fail-CLOSED 500 here, NOT a silent fallback
-    // to the WHATWG-normalized `c.req.raw.url` that would defeat the `..` guard.
-    const rawTarget = rawTargetFromContext(c);
-    if (rawTarget === undefined)
-      return c.text("raw request target unavailable", 500);
-    const rawTail = previewTailFromRawUrl(rawTarget, rawHostParam, terminalId);
-
-    // Which directory this terminal serves (its git repo root) — RE-SOURCED from
-    // padi's registry over the SELECTED host's session, since padi (not kolu-server)
-    // owns the terminal registry now. padi resolves terminal id → repoRoot; how
-    // kolu-server then reads the bytes forks on the host (local disk vs. the remote
-    // host), see below. Either way the file is never forced whole through the base64
-    // procedure.
-    const clientPromise = session.currentClient();
-    // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
-    // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
-    // 503 here, never a hang. Both the client AWAIT and the repoRoot resolve stay INSIDE
-    // the try so a client-promise rejection (a fresh spawn that fails its handshake) maps
-    // to the same 503 link-fault, not an uncaught 500.
-    if (!clientPromise) return c.text("padi is not connected", 503);
-    let client: Awaited<typeof clientPromise>;
-    let repoRoot: string | null;
-    try {
-      client = await clientPromise;
-      ({ repoRoot } = await client.surface.preview.repoRootForTerminal({
-        terminalId,
-      }));
-    } catch (err) {
-      // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
-      // unknown/unmapped terminal — it never THROWS for the no-repo case (that is
-      // the `if (!repoRoot)` 404 below). So a thrown error here is an OPERATIONAL
-      // failure of the bound link (the client promise rejected, padi went down
-      // mid-read, a protocol error, an unexpected handler fault), NOT "no repo".
-      // Surface it as a 503 so the real fault is visible instead of masqueraded as an
-      // ordinary missing-file 404.
-      log.error(
-        { err, terminalId },
-        "padi repoRoot resolve failed (link fault)",
-      );
-      return c.text("padi link fault resolving terminal repo", 503);
-    }
-    if (!repoRoot) return c.text("terminal has no repo", 404);
-    // Bind to a const so the non-null narrowing survives into the remote closure.
-    const repoPath = repoRoot;
-
-    const range = c.req.header("range");
-    // `If-Range` guards a `<video>` seek against the file changing mid-session: both
-    // arms honor the `Range` only while this validator still matches the file's
-    // current ETag (RFC 9110 §13.1.3), else serve the full 200.
-    const ifRange = c.req.header("if-range");
-    // The byte read forks on the SELECTED host — but the file tail + repoRoot (and
-    // their `..`/`%2f` defenses above) are identical for both arms, so a remote path
-    // never reaches a local read, and vice versa.
-    //   - REMOTE host: the file lives on the ssh HOST, so dial that host's padi
-    //     `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
-    //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
-    //     re-enforces its realpath/403 guard host-side inside the read.
-    //   - LOCAL default (`host.kind === "local"`): read THIS machine's disk directly via
-    //     the shared streaming `previewFile` (the same underlying serve-dir read padi
-    //     serves) — no hop, no base64 round trip, byte-identical to before.
-    // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
-    // (mounted above) rewrites text/html downstream in either case.
-    let r: ServeResult;
-    if (host.kind !== "local") {
-      // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run
-      // synchronously inside this await; a link fault there maps to the SAME logged
-      // 503 as the repoRoot resolve above. The streaming body's per-chunk dials run
-      // LATER, when the Response is consumed, so a fault there can't reach THIS catch —
-      // but it is NOT swallowed: for a binary preview the stream goes straight to the
-      // socket and the fault resets the connection (loud at the transport); for a
-      // `text/html` preview the artifact-sdk decorator buffers the body via
-      // `res.text()`, so the fault throws in that middleware and is caught by the
-      // app-wide `installRouteErrorLogging` handler (a LOGGED 500). Either way loud,
-      // never a silent short body.
-      try {
-        r = await assembleRemotePreview(
-          // The reader is built by `remotePreviewReader` rather than spelled
-          // inline — it owns the one `optionalKey` discipline this dial needs
-          // (#17), pinned beside the type it satisfies.
-          remotePreviewReader(
-            (input) => client.surface.preview.read(input),
-            repoPath,
-            rawTail,
-          ),
-          range,
-          ifRange,
-        );
-      } catch (err) {
-        log.error({ err, terminalId }, "padi preview read failed (link fault)");
-        return c.text("padi link fault serving preview", 503);
-      }
-    } else {
-      // The local arm's ONE run edge: this hono handler is Promise-shaped by
-      // contract, and `previewFile` is the Effect that reads the bytes. It runs
-      // with the request's own signal so a browser abandoning a video seek
-      // interrupts the read (and closes the descriptor) instead of streaming
-      // into a socket nobody is holding. Retires with the route when the
-      // hono→effect/unstable/http rewrite lands.
-      r = await Effect.runPromise(
-        previewFile({ repoPath, filePath: rawTail, range, ifRange }),
-        { signal: c.req.raw.signal },
-      );
-    }
-    return new Response(r.body as BodyInit, {
-      status: r.status,
-      headers: r.headers,
-    });
-  });
-
-  // --- Dynamic PWA manifest (includes hostname) ---
-  // surface-app owns assembly + the install-friendly defaults (start_url,
-  // display); kolu supplies the per-host branding. Served unconditionally — in
-  // dev the Vite proxy forwards `/manifest.webmanifest` here, so it must exist
-  // without a built client.
+  // surface-app owns manifest assembly + the install-friendly defaults
+  // (start_url, display); kolu supplies the per-host branding.
   const pwaIdentity = pwaIdentityForHostname(serverHostname);
-  installPwaManifest(app, {
-    name: pwaIdentity.name,
-    // `...extra` passthrough in installPwaManifest carries these through to the
-    // served manifest — they upgrade Chromium's native install card (and the
-    // pwa-install preview) from a bare icon to a richer app entry.
-    description:
-      "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
-    // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
-    // the ALREADY-OPEN installed window and hands the URL to the app's
-    // `launchQueue`, instead of spawning a second window. Rides the `...extra`
-    // passthrough (a plain manifest key — no surface-app change). See the
-    // deep-links Atlas note + `useDeepLinks`.
-    launch_handler: { client_mode: "focus-existing" },
-    themeColor: pwaIdentity.themeColor,
-    backgroundColor: PWA_BACKGROUND_COLOR,
-    icons: [
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
-      // Maskable variant (logo inside the safe zone on the brand background) so
-      // installed icons fill the OS mask instead of being letterboxed.
-      {
-        src: "/icon-512-maskable.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-    ],
-    // No `screenshots`: they only prettify the install card (install works without
-    // them), and committed product shots go stale as the UI moves. Not worth the
-    // maintenance — the icon + description carry the install entry.
-  });
 
-  // --- Static files (production) ---
-  // surface-app's freshness contract on the wire: no-store shell, immutable
-  // hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
-  // worker, and the SPA fallback. `serviceWorker: "notify"` serves the fetch-less
-  // notification worker (kolu fires agent-finished alerts via
-  // `ServiceWorkerRegistration.showNotification()`, the only notification path
-  // that works in an installed PWA). Pairs with `registerServiceWorker()` in the
-  // client's `index.tsx`.
+  // The client bundle, when there is one. In DEV there is not (`just dev` runs
+  // Vite, which proxies `/api`, `/manifest.webmanifest` and `/rpc` here), so the
+  // static layer is simply absent and an unmatched path 404s through the
+  // router's own `RouteNotFound` — which is exactly what `ci::dev-smoke` proves.
   const clientDist = process.env.KOLU_CLIENT_DIST;
-  if (clientDist) {
-    installFreshStatic(app, { root: clientDist, serviceWorker: "notify" });
-  }
+
+  const appLayer = Layer.mergeAll(
+    // `/api/health` — the liveness probe four independent consumers freeze; see
+    // `healthRoute.ts` for the list. Deliberately dependency-free, so it answers
+    // the moment the handler is attached.
+    healthRouteLayer,
+
+    // The artifact-sdk (comments-on-files) bundle bytes: esbuild'd at first
+    // request, cached, hash-keyed via `?v=<hash>` so the immutable cache-control
+    // is honest.
+    artifactSdkBundleLayer({ sdkScriptPath: SDK_SCRIPT_PATH }),
+
+    // The iframe preview byte route — repo files referenced by
+    // `FsReadFileOutput.kind === "binary"`. The URL contract (base + builder +
+    // parser), the `..`/`%2f` guards and every refusal status live in
+    // `iframePreviewRoute.ts`; the composition root supplies only the host pool
+    // and the logger.
+    //
+    // DECORATED with `withArtifactSdk`, and that decoration is REQUIRED: it
+    // splices the SDK `<script>` into a `text/html` preview so comments-on-files
+    // works inside the iframe. It is applied HERE rather than inside the route
+    // because it is kolu's product decision, not the byte route's — artifact-sdk
+    // exports a handler combinator now, since a router that scopes middleware
+    // per LAYER (never per path prefix) has no successor to hono's prefix glob.
+    // Drop it and everything still compiles and every unit test still passes,
+    // while the in-iframe SDK silently never loads; `code-tab.feature:1538,1561`
+    // and `file-ref-link.feature:209-219` are the only things that would catch
+    // it.
+    HttpRouter.add(
+      "GET",
+      PREVIEW_ROUTE_PATTERN,
+      withArtifactSdk(SDK_SCRIPT_PATH)(previewRouteHandler({ pool, log })),
+    ),
+
+    // --- Dynamic PWA manifest (includes hostname) ---
+    // Served UNCONDITIONALLY — in dev the Vite proxy forwards
+    // `/manifest.webmanifest` here, so it must exist with no built client. That
+    // is why kolu composes the two granular surface-app layers by hand instead
+    // of taking `surfaceAppLayer`, which pairs the manifest with the dist.
+    pwaManifestLayer({
+      name: pwaIdentity.name,
+      // `...extra` passthrough in pwaManifestLayer carries these through to the
+      // served manifest — they upgrade Chromium's native install card (and the
+      // pwa-install preview) from a bare icon to a richer app entry.
+      description:
+        "Real terminals on an infinite canvas — run any coding agent, pin it as an app, reach it from anywhere.",
+      // Deep-link PWA capture: an in-scope https link (`#/t/…`, `#/h/…`, …) focuses
+      // the ALREADY-OPEN installed window and hands the URL to the app's
+      // `launchQueue`, instead of spawning a second window. Rides the `...extra`
+      // passthrough (a plain manifest key — no surface-app change). See the
+      // deep-links Atlas note + `useDeepLinks`.
+      launch_handler: { client_mode: "focus-existing" },
+      themeColor: pwaIdentity.themeColor,
+      backgroundColor: PWA_BACKGROUND_COLOR,
+      icons: [
+        { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        // Maskable variant (logo inside the safe zone on the brand background) so
+        // installed icons fill the OS mask instead of being letterboxed.
+        {
+          src: "/icon-512-maskable.png",
+          sizes: "512x512",
+          type: "image/png",
+          purpose: "maskable",
+        },
+      ],
+      // No `screenshots`: they only prettify the install card (install works without
+      // them), and committed product shots go stale as the UI moves. Not worth the
+      // maintenance — the icon + description carry the install entry.
+    }),
+
+    // --- Static files (production) ---
+    // surface-app's freshness contract on the wire: no-store shell, immutable
+    // hashed `/assets/*`, 404 on an asset miss (never the HTML shell), the `/sw.js`
+    // worker, and the SPA fallback. `serviceWorker: "notify"` serves the fetch-less
+    // notification worker (kolu fires agent-finished alerts via
+    // `ServiceWorkerRegistration.showNotification()`, the only notification path
+    // that works in an installed PWA). Pairs with `registerServiceWorker()` in the
+    // client's `index.tsx`.
+    clientDist
+      ? freshStaticLayer({ root: clientDist, serviceWorker: "notify" })
+      : Layer.empty,
+  );
 
   // (SR8.c: `padiLink` + `processStartedAt` are now PUSH-source derived cells scanning the
   // bound padi's `onState` inside `surface.ts` — the reactor graph is their one writer, so
@@ -1092,47 +960,88 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   const { host, port } = flags;
 
   // --- Start server ---
-  const server = serve(
-    {
-      fetch: app.fetch,
-      hostname: host,
-      port,
-      ...(tlsOptions && {
-        createServer: createHttpsServer,
-        serverOptions: tlsOptions,
-      }),
-    },
-    (info) => {
-      const protocol = tlsOptions ? "https" : "http";
-      log.info(
-        {
-          version: serverVersion,
-          pid: process.pid,
-          node: process.version,
-          rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
-          address: `${protocol}://${info.address}:${info.port}`,
-        },
-        "kolu listening",
-      );
-      // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
-      // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
-      // (live-terminal count, active claude sessions) dropped at the cutover: they
-      // read padi's in-process registry, which lives in the padi PROCESS now, and
-      // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
-      startHeapDiagnostics({
-        log,
-        snapshotPrefix: "baseline",
-        // "diag" preserves the server's long-standing log events
-        // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
-        // depend on — kept decoupled from the snapshot file basename above.
-        logPrefix: "diag",
-        extraColumns: () => ({
-          publisherSize: publisherSize(),
-          pendingSummaryFetches: getPendingSummaryFetches(),
-        }),
-      });
-    },
+  // kolu-server OWNS the node `http(s).Server` and hands its `request` event an
+  // Effect handler, instead of letting `HttpServer.serve` own the listener. That
+  // ownership is what leaves the `upgrade` event to the ws seam below: node fans
+  // an event out to EVERY listener, so a framework-installed upgrade listener
+  // would ALSO run the http app for a socket we have already upgraded and write
+  // a 404 into it. The ws seam must stay the ONLY `upgrade` listener here.
+  const server = tlsOptions
+    ? createHttpsServer(tlsOptions)
+    : createHttpServer();
+
+  // The handler's scope is the PROCESS's: this server serves until the process
+  // ends, and the fatal boundary above (never a scope close) is what ends it.
+  // `makeHandler` forks each request as a fiber IN this scope, so no in-flight
+  // request is orphaned by a narrower lifetime.
+  const httpScope = Scope.makeUnsafe();
+  server.on(
+    "request",
+    // The http stack's ONE run edge (governance: `packages/tests/governance/
+    // runEdges.ts`). `bootKoluWeb` is an orderly async function (locked decision
+    // 1) and node's `request` event takes a plain callback, so turning the
+    // composed layer into that callback is a genuine process edge.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+        return yield* NodeHttpServer.makeHandler(httpEffect, {
+          scope: httpScope,
+          // pino stays the sink. `koluHttpMiddleware` is the successor to BOTH
+          // hono pieces this replaced: `app.onError` (log every uncaught route
+          // fault, then answer 500) and `hono-pino` (one debug line per request
+          // and response). Scoped to the HTTP surface deliberately — see
+          // `httpMiddleware.ts` for why not a process-wide `ErrorReporter`.
+          middleware: koluHttpMiddleware(log),
+        });
+      }).pipe(
+        Scope.provide(httpScope),
+        // The platform services the static layer asks for: file system, path,
+        // the file-response platform, ETags.
+        Effect.provide(NodeHttpServer.layerHttpServices),
+      ),
+    ),
   );
+
+  server.listen({ host, port }, () => {
+    const protocol = tlsOptions ? "https" : "http";
+    const bound = server.address();
+    // The `listening` callback fires with the socket bound, and kolu only ever
+    // binds TCP — a `null` or a string (unix socket) here means the boot's own
+    // assumption broke, so say so rather than log a lie about where the server
+    // is reachable.
+    if (bound === null || typeof bound === "string") {
+      throw new Error(
+        `kolu listening on a non-TCP address (${JSON.stringify(bound)}) — expected a bound host/port`,
+      );
+    }
+    log.info(
+      {
+        version: serverVersion,
+        pid: process.pid,
+        node: process.version,
+        rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
+        address: `${protocol}://${bound.address}:${bound.port}`,
+      },
+      "kolu listening",
+    );
+    // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
+    // heap curve with kolu-server's OWN subsystem counts. The padi-domain columns
+    // (live-terminal count, active claude sessions) dropped at the cutover: they
+    // read padi's in-process registry, which lives in the padi PROCESS now, and
+    // padi keeps its OWN heap diag. This log tracks kolu-server's memory.
+    startHeapDiagnostics({
+      log,
+      snapshotPrefix: "baseline",
+      // "diag" preserves the server's long-standing log events
+      // (diag_enabled / diag / diag_baseline_snapshot_*) that grep/alerting
+      // depend on — kept decoupled from the snapshot file basename above.
+      logPrefix: "diag",
+      extraColumns: () => ({
+        publisherSize: publisherSize(),
+        pendingSummaryFetches: getPendingSummaryFetches(),
+      }),
+    });
+  });
 
   // --- The WebSocket RPC mount (the ONE transport) ---
   const wss = new WebSocketServer({ noServer: true });
