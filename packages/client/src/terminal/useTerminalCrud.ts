@@ -1,9 +1,18 @@
 /** Terminal CRUD — create, kill, close-all, theme, copy text.
  *
- *  Uses plain oRPC client calls. Server signals propagate list/metadata
- *  changes via the live subscriptions — no optimistic cache needed. */
+ *  Every handler is an `Effect`, not a running call: the module DESCRIBES what a
+ *  create or a kill is, and the UI edge (`runAction`) is what makes it happen.
+ *  That is what lets `handleKillWithSubs` sequence N kills, `useWorktreeOps`
+ *  branch on a discard's typed failure, and `useSessionRestore` abort its loop on
+ *  a warming daemon — all as composition, with no `await` for an interruption to
+ *  fail to reach through.
+ *
+ *  Server signals propagate list/metadata changes via the live subscriptions —
+ *  no optimistic cache needed. */
 
 import type { TranscriptHtmlMode } from "@kolu/padi/transcript";
+import { toError } from "@kolu/surface/run-stream";
+import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
@@ -12,10 +21,11 @@ import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
+import { runAction, type UiAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { activePadiRpc } from "../wire";
+import { activePadiEffect } from "../wire";
 import {
   createEvictionDedup,
   evictTerminal,
@@ -24,6 +34,31 @@ import {
 import { useSubPanel } from "./useSubPanel";
 import { useTerminalSearch } from "./useTerminalSearch";
 import { useTerminalStore } from "./useTerminalStore";
+
+/** The create was REFUSED before it reached the wire, or the wire refused it.
+ *
+ *  A typed failure rather than the old bare `throw new Error("daemon warming…")`:
+ *  session restore's per-terminal loop depends on a refusal ABORTING the whole
+ *  restore rather than half-creating, and `useWorktreeOps` depends on not
+ *  proceeding to seed a worktree terminal that does not exist. Both now branch on
+ *  the CHANNEL instead of on a message string.
+ *
+ *  `reason: "warming"` carries no toast (the daemon-warming banner already says
+ *  it, and a restore loop would stack one per terminal); `reason: "failed"` is
+ *  toasted at the call that produced it, before this value is raised. */
+export class TerminalCreateRefused extends Data.TaggedError(
+  "TerminalCreateRefused",
+)<{ readonly reason: "warming" | "failed" }> {}
+
+/** The sleeping record was NOT discarded — the server refused, and the failure is
+ *  already toasted. Raised so the worktree-removal close path (F10) can refuse to
+ *  delete a worktree whose terminal still points at it; the standalone
+ *  close-confirm caller ignores it (`Effect.ignore`) because the toast is all it
+ *  needed. Replaces the old `Promise<boolean>` — a boolean the compiler could not
+ *  make anyone check. */
+export class TerminalDiscardFailed extends Data.TaggedError(
+  "TerminalDiscardFailed",
+)<Record<string, never>> {}
 
 /** Terminal CRUD — singleton via `createSharedRoot`. Reads `useTerminalStore`
  *  internally (no `deps` argument), so consumers that already touch the store
@@ -41,24 +76,41 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   // --- Handlers ---
 
-  /** Set a terminal's theme name on the server. */
-  function setThemeName(id: TerminalId, name: string) {
-    void activePadiRpc.chrome
-      .setTheme({ id, themeName: name })
-      .catch((err: Error) =>
-        toast.error(`Failed to set theme: ${err.message}`),
+  /** Toast `${prefix}: ${message}` for whatever failed, and RECOVER — the shape
+   *  every "fire it, tell the user if it broke" handler below ends in. Named once
+   *  so the wording rule (`.claude/rules/toast-conventions.md`: always surface
+   *  `err.message`) is one function rather than fifteen copies. */
+  const toastFailure =
+    (prefix: string) =>
+    <A, E>(self: Effect.Effect<A, E>): Effect.Effect<A | void, never> =>
+      Effect.catch(self, (err) =>
+        Effect.sync(() => {
+          toast.error(`${prefix}: ${toError(err).message}`);
+        }),
       );
+
+  /** Set a terminal's theme name on the server. */
+  function setThemeName(id: TerminalId, name: string): UiAction {
+    return activePadiEffect.chrome
+      .setTheme({ id, themeName: name })
+      .pipe(toastFailure("Failed to set theme"));
   }
 
   // The ONE cleanup body's side-effecting seams (see useActiveReconcile).
   // Wired once here; the imperative close path and the list-driven reconcile
   // both drive `evictTerminal` through these ports, so they can't diverge.
-  const setParent = (subId: TerminalId, parentId: TerminalId | null) =>
-    void activePadiRpc.chrome
-      .setParent({ id: subId, parentId })
-      .catch((err: Error) =>
-        toast.error(`Failed to set parent: ${err.message}`),
-      );
+  //
+  // The eviction ports are SYNCHRONOUS by contract (`evictTerminal` is a pure
+  // reordering of local state that happens to re-home sub-terminals server-side),
+  // so this one runs its effect at the seam rather than pushing the Effect shape
+  // through a port type whose every other member is `void`.
+  const setParent = (subId: TerminalId, parentId: TerminalId | null): void =>
+    runAction(
+      "re-home split",
+      activePadiEffect.chrome
+        .setParent({ id: subId, parentId })
+        .pipe(toastFailure("Failed to set parent")),
+    );
 
   const evictionPorts: TerminalEvictionPorts = {
     activeId: store.activeId,
@@ -132,117 +184,140 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  through this handler. The old `initial` parameter is gone with its last
    *  live leg: every caller passed a bare `cwd`, so the type can no longer
    *  advertise options that have no effect (F6). */
-  async function handleCreate(cwd?: string): Promise<TerminalId> {
-    // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
-    // "New terminal", the Dock `+`, worktree ops, and session restore's
-    // per-terminal creates all funnel here. Block while the daemon is warming
-    // (boot `connecting` or a supervised `restarting`): the App.tsx canvas
-    // gate only hides the EmptyState/Dock affordances, but the shortcut and
-    // palette stay live over the neutral warming surface, so without this
-    // guard a `Cmd+T` or palette create races the recycle — spawning a
-    // terminal into the daemon the restart is about to kill (or against a
-    // momentarily-stale `current` connection). Creation must wait for
-    // `connected` (F3). `throw` (not a silent return) so the restore loop
-    // aborts cleanly rather than half-creating.
-    if (refuseIfWarming())
-      throw new Error("daemon warming: terminal creation deferred");
-    if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
+  function handleCreate(
+    cwd?: string,
+  ): Effect.Effect<TerminalId, TerminalCreateRefused> {
+    return Effect.gen(function* () {
+      // The one create chokepoint — keyboard (`Cmd+T`/`Cmd+Enter`), palette
+      // "New terminal", the Dock `+`, worktree ops, and session restore's
+      // per-terminal creates all funnel here. Block while the daemon is warming
+      // (boot `connecting` or a supervised `restarting`): the App.tsx canvas
+      // gate only hides the EmptyState/Dock affordances, but the shortcut and
+      // palette stay live over the neutral warming surface, so without this
+      // guard a `Cmd+T` or palette create races the recycle — spawning a
+      // terminal into the daemon the restart is about to kill (or against a
+      // momentarily-stale `current` connection). Creation must wait for
+      // `connected` (F3). A typed FAILURE (not a silent return) so the restore
+      // loop aborts cleanly rather than half-creating.
+      if (refuseIfWarming())
+        return yield* new TerminalCreateRefused({ reason: "warming" });
+      if (store.activeMeta()?.git) showTipOnce(CONTEXTUAL_TIPS.worktree);
 
-    // Inherit the active tile's size for the new terminal. Set BEFORE
-    // the create RPC — the server push during the await triggers the
-    // canvas placement effect, which consumes the signal. If we set
-    // after the await, the effect has already run with no size to inherit.
-    //
-    // Every create through here is the cascade-placed fresh-create path (a
-    // server-seeded restore create runs host-side, not here), so the slot is
-    // always the placement effect's to consume — and it is set
-    // UNCONDITIONALLY (size, or `null` when there's no active tile to inherit
-    // from), so a fresh create always OWNS the slot value rather than leaving
-    // a stale size armed by an earlier create that no new tile consumed.
-    //
-    // Prefer the active tile's *pending* layout over its echoed metadata:
-    // a just-resized tile's visible size lives in `pendingLayouts.pending`
-    // until the server metadata echo catches up (`getLayout` reads only
-    // the echo). Reading the echo alone would inherit the pre-resize size
-    // when a create races the echo. `active()` bundles (id, meta) from one
-    // glitch-free read.
-    const { id: activeId, meta } = store.active();
-    // `active()` bundles (id, meta): meta is null whenever id is null, so the
-    // no-active-tile branch is just `undefined` — there's no metadata to read.
-    const activeLayout = activeId
-      ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
-      : undefined;
-    pendingLayouts.setNextDefaultSize(
-      activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
-    );
-    const info = await activePadiRpc.lifecycle
-      // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
-      // so an ABSENT key is accepted and a present-but-`undefined` one is
-      // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
-      .create({ ...(cwd !== undefined && { cwd }) })
-      .catch((err: Error) => {
-        // Create failed → no server push, so the canvas effect won't consume
-        // the pending size. Clear it here (not in a `finally`, which would
-        // race the deferred effect on the success path) so a stale size can't
-        // leak into a later create that has no active tile to overwrite it.
-        pendingLayouts.setNextDefaultSize(null);
-        toast.error(`Failed to create terminal: ${err.message}`);
-        throw err;
-      });
-    // `setActiveSilently`: the canvas's cascade-placement effect bumps
-    // the centering signal once the new tile's pending layout is set —
-    // calling `activate` here would race the layout and read undefined.
-    store.setActiveSilently(info.id);
-    showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
-    return info.id;
+      // Inherit the active tile's size for the new terminal. Set BEFORE
+      // the create RPC — the server push during the call triggers the
+      // canvas placement effect, which consumes the signal. If we set
+      // after, the effect has already run with no size to inherit.
+      //
+      // Every create through here is the cascade-placed fresh-create path (a
+      // server-seeded restore create runs host-side, not here), so the slot is
+      // always the placement effect's to consume — and it is set
+      // UNCONDITIONALLY (size, or `null` when there's no active tile to inherit
+      // from), so a fresh create always OWNS the slot value rather than leaving
+      // a stale size armed by an earlier create that no new tile consumed.
+      //
+      // Prefer the active tile's *pending* layout over its echoed metadata:
+      // a just-resized tile's visible size lives in `pendingLayouts.pending`
+      // until the server metadata echo catches up (`getLayout` reads only
+      // the echo). Reading the echo alone would inherit the pre-resize size
+      // when a create races the echo. `active()` bundles (id, meta) from one
+      // glitch-free read.
+      const { id: activeId, meta } = store.active();
+      // `active()` bundles (id, meta): meta is null whenever id is null, so the
+      // no-active-tile branch is just `undefined` — there's no metadata to read.
+      const activeLayout = activeId
+        ? pendingLayouts.resolveLayout(activeId, meta?.canvasLayout)
+        : undefined;
+      pendingLayouts.setNextDefaultSize(
+        activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
+      );
+      const info = yield* activePadiEffect.lifecycle
+        // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
+        // so an ABSENT key is accepted and a present-but-`undefined` one is
+        // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
+        .create({ ...(cwd !== undefined && { cwd }) })
+        .pipe(
+          // `tapError`, deliberately NOT a finalizer: a finalizer runs on the
+          // success path too, where it would race the deferred Solid effect that
+          // consumes the pending size. A failed create produces no server push,
+          // so the canvas effect will never consume the size — clear it here so a
+          // stale one can't leak into a later create with no active tile to
+          // overwrite it.
+          Effect.tapError((err) =>
+            Effect.sync(() => {
+              pendingLayouts.setNextDefaultSize(null);
+              toast.error(`Failed to create terminal: ${toError(err).message}`);
+            }),
+          ),
+          Effect.mapError(() => new TerminalCreateRefused({ reason: "failed" })),
+        );
+      // `setActiveSilently`: the canvas's cascade-placement effect bumps
+      // the centering signal once the new tile's pending layout is set —
+      // calling `activate` here would race the layout and read undefined.
+      store.setActiveSilently(info.id);
+      showTipOnce(CONTEXTUAL_TIPS.themeSwitch);
+      return info.id;
+    });
   }
 
-  async function handleCreateSubTerminal(parentId: TerminalId, cwd?: string) {
-    // Split creation reaches `lifecycle.create` directly (not via
-    // `handleCreate`), so it needs the same warming guard — the split
-    // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
-    if (refuseIfWarming()) return;
-    const info = await activePadiRpc.lifecycle
-      // `parentId` is always present here; `cwd` is spread for the #17 reason
-      // above (a split with no inherited cwd is the ordinary case).
-      .create({ parentId, ...(cwd !== undefined && { cwd }) })
-      .catch((err: Error) => {
-        toast.error(`Failed to create terminal: ${err.message}`);
-        throw err;
-      });
-    subPanel.focusSubTab(parentId, info.id);
+  function handleCreateSubTerminal(
+    parentId: TerminalId,
+    cwd?: string,
+  ): Effect.Effect<void, TerminalCreateRefused> {
+    return Effect.gen(function* () {
+      // Split creation reaches `lifecycle.create` directly (not via
+      // `handleCreate`), so it needs the same warming guard — the split
+      // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
+      if (refuseIfWarming()) return;
+      const info = yield* activePadiEffect.lifecycle
+        // `parentId` is always present here; `cwd` is spread for the #17 reason
+        // above (a split with no inherited cwd is the ordinary case).
+        .create({ parentId, ...(cwd !== undefined && { cwd }) })
+        .pipe(
+          Effect.tapError((err) =>
+            Effect.sync(() => {
+              toast.error(`Failed to create terminal: ${toError(err).message}`);
+            }),
+          ),
+          Effect.mapError(() => new TerminalCreateRefused({ reason: "failed" })),
+        );
+      subPanel.focusSubTab(parentId, info.id);
+    });
   }
 
   /** Toggle a terminal's split: create the first sub-terminal if none exist
    *  (seeded with the parent's cwd), otherwise flip the sub-panel's
    *  visibility. Moved out of App.tsx — it complected store + crud + sub-panel,
    *  all of which crud already orchestrates. */
-  function toggleSubPanel(parentId: TerminalId) {
+  function toggleSubPanel(parentId: TerminalId): UiAction {
     // Flat pane set — a nested descendant already counts as "has splits".
     if (store.getSplitPaneIds(parentId).length === 0) {
-      void handleCreateSubTerminal(
+      return handleCreateSubTerminal(
         parentId,
         store.activeMeta()?.cwd ?? undefined,
-      );
-    } else {
-      subPanel.togglePanel(parentId);
+        // The refusal is already surfaced (a warming banner, or the create's own
+        // toast); nothing here is waiting on the split.
+      ).pipe(Effect.ignore);
     }
+    return Effect.sync(() => subPanel.togglePanel(parentId));
   }
 
-  async function handleKill(id: TerminalId) {
-    try {
-      await activePadiRpc.lifecycle.kill({ id });
-    } catch {
-      // Terminal may already be gone
-    }
-    removeAndAutoSwitch(id);
+  function handleKill(id: TerminalId): UiAction {
+    return activePadiEffect.lifecycle.kill({ id }).pipe(
+      // The terminal may already be gone — an ordinary outcome for a close, not
+      // a failure to report.
+      Effect.ignore,
+      Effect.andThen(() => Effect.sync(() => removeAndAutoSwitch(id))),
+    );
   }
 
   /** Kill a terminal and all its flat descendants (instead of promoting them). */
-  async function handleKillWithSubs(id: TerminalId) {
-    const subs = store.getSplitPaneIds(id);
-    for (const subId of subs) await handleKill(subId);
-    await handleKill(id);
+  function handleKillWithSubs(id: TerminalId): UiAction {
+    return Effect.gen(function* () {
+      // Sequential, not concurrent: the descendants' evictions re-home the
+      // survivors, and doing that out of order reorders the canvas.
+      for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
+      yield* handleKill(id);
+    });
   }
 
   /** Request sleep — the shared entry the ☾ tile button and the palette both
@@ -250,20 +325,24 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  splits, confirms via an action toast before closing them (a sleeping record
    *  is a single terminal — splits must not vanish silently, the §2
    *  non-negotiable). No splits → sleep straight away. */
-  function requestSleep(id: TerminalId) {
-    showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
-    const subs = store.getSplitPaneIds(id).length;
-    if (subs > 0) {
-      toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
-        duration: Number.POSITIVE_INFINITY,
-        action: {
-          label: "Sleep & close splits",
-          onClick: () => void handleSleep(id),
-        },
-      });
-      return;
-    }
-    void handleSleep(id);
+  function requestSleep(id: TerminalId): UiAction {
+    return Effect.suspend(() => {
+      showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
+      const subs = store.getSplitPaneIds(id).length;
+      if (subs > 0) {
+        toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: "Sleep & close splits",
+            // The toast's button is its OWN edge — this program is long over by
+            // the time the user clicks it, so the confirm forks a fresh one.
+            onClick: () => runAction("sleep terminal", handleSleep(id)),
+          },
+        });
+        return Effect.void;
+      }
+      return handleSleep(id);
+    });
   }
 
   /** Sleep a terminal: close its splits first (a sleeping record is a single
@@ -271,25 +350,22 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  dormant arm on the server. The tile STAYS (now dormant) — no
    *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
    *  Wake call-to-action. Reached through `requestSleep` (which confirms splits). */
-  async function handleSleep(id: TerminalId) {
-    const subs = store.getSplitPaneIds(id);
-    for (const subId of subs) await handleKill(subId);
-    try {
-      await activePadiRpc.lifecycle.sleep({ id });
-    } catch (err) {
-      toast.error(`Failed to sleep terminal: ${(err as Error).message}`);
-    }
+  function handleSleep(id: TerminalId): UiAction {
+    return Effect.gen(function* () {
+      for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
+      yield* activePadiEffect.lifecycle
+        .sleep({ id })
+        .pipe(toastFailure("Failed to sleep terminal"));
+    });
   }
 
   /** Wake a sleeping terminal: the server re-spawns its PTY on the same id and
    *  resumes its agent (session-restore-of-one). The metadata subscription flips
    *  it back to active and the tile re-renders live — so the client just asks. */
-  async function handleWake(id: TerminalId) {
-    try {
-      await activePadiRpc.lifecycle.wake({ id });
-    } catch (err) {
-      toast.error(`Failed to wake terminal: ${(err as Error).message}`);
-    }
+  function handleWake(id: TerminalId): UiAction {
+    return activePadiEffect.lifecycle
+      .wake({ id })
+      .pipe(toastFailure("Failed to wake terminal"));
   }
 
   /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
@@ -303,83 +379,105 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  on an already-gone id (it returns without throwing), so the common
    *  already-removed case resolves cleanly and the tile evicts as before.
    *
-   *  Returns `true` on success, `false` on a surfaced failure — the
+   *  FAILS with {@link TerminalDiscardFailed} on a surfaced failure — the
    *  worktree-removal close path (F10) must NOT delete the worktree when the
    *  sleeping record wasn't actually discarded, or the still-present terminal
-   *  would point at a removed cwd. The standalone close-confirm caller ignores
-   *  the result (it only needs the toast). */
-  async function handleDiscard(id: TerminalId): Promise<boolean> {
-    try {
-      await activePadiRpc.lifecycle.discardSleeping({ id });
-    } catch (err) {
-      toast.error(`Failed to discard terminal: ${(err as Error).message}`);
-      return false;
-    }
-    removeAndAutoSwitch(id);
-    return true;
+   *  would point at a removed cwd, and an error channel is a fact the compiler
+   *  tracks where the old `Promise<boolean>` was one a caller could forget to
+   *  read. The standalone close-confirm caller `Effect.ignore`s it (the toast is
+   *  all it needed). */
+  function handleDiscard(
+    id: TerminalId,
+  ): Effect.Effect<void, TerminalDiscardFailed> {
+    return activePadiEffect.lifecycle.discardSleeping({ id }).pipe(
+      Effect.tapError((err) =>
+        Effect.sync(() => {
+          toast.error(`Failed to discard terminal: ${toError(err).message}`);
+        }),
+      ),
+      Effect.mapError(() => new TerminalDiscardFailed({})),
+      Effect.tap(() => Effect.sync(() => removeAndAutoSwitch(id))),
+    );
   }
 
-  async function handleCopyTerminalText() {
-    const id = store.focusedId();
-    if (id === null) return;
-    let text: string;
-    try {
-      text = await activePadiRpc.screen.text({ id });
-    } catch (err) {
-      console.error("Failed to read terminal text:", err);
-      toast.error(`Failed to read terminal text: ${(err as Error).message}`);
-      return;
-    }
-    try {
-      await writeTextToClipboard(text);
-      toast.success("Copied terminal text to clipboard");
-    } catch (err) {
-      console.error("Failed to copy terminal text:", err);
-      toast.error(`Failed to copy terminal text: ${(err as Error).message}`);
-    }
+  function handleCopyTerminalText(): UiAction {
+    return Effect.gen(function* () {
+      const id = store.focusedId();
+      if (id === null) return;
+      const text = yield* activePadiEffect.screen.text({ id }).pipe(
+        Effect.catch((err) =>
+          Effect.sync((): string | undefined => {
+            console.error("Failed to read terminal text:", err);
+            toast.error(`Failed to read terminal text: ${toError(err).message}`);
+            return undefined;
+          }),
+        ),
+      );
+      // The read failed and said so — there is nothing to put on the clipboard.
+      if (text === undefined) return;
+      yield* writeTextToClipboard(text).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => toast.success("Copied terminal text to clipboard")),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.error("Failed to copy terminal text:", err);
+            toast.error(`Failed to copy terminal text: ${toError(err).message}`);
+          }),
+        ),
+      );
+    });
   }
 
   /** Copy the focused terminal's id to the clipboard — the value
    *  `kaval-tui attach <id>` takes to grab this exact PTY from a shell. Each
    *  split is its own PTY with its own id, so this copies the focused pane's,
    *  matching `handleCopyTerminalText`'s `focusedId()`. */
-  async function handleCopyTerminalId() {
-    const id = store.focusedId();
-    if (id === null) return;
-    try {
-      await writeTextToClipboard(id);
-      toast.success("Copied terminal ID to clipboard");
-    } catch (err) {
-      console.error("Failed to copy terminal ID:", err);
-      toast.error(`Failed to copy terminal ID: ${(err as Error).message}`);
-    }
+  function handleCopyTerminalId(): UiAction {
+    return Effect.suspend(() => {
+      const id = store.focusedId();
+      if (id === null) return Effect.void;
+      return writeTextToClipboard(id).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => toast.success("Copied terminal ID to clipboard")),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.error("Failed to copy terminal ID:", err);
+            toast.error(`Failed to copy terminal ID: ${toError(err).message}`);
+          }),
+        ),
+      );
+    });
   }
 
   /** Write a command line into the active terminal WITHOUT pressing Enter.
    *  Used by the "Recent agents" palette entry to prefill a previously
    *  seen agent CLI — the user reviews/edits and hits Enter themselves.
    *  No-op if no terminal is active. */
-  function handleRunInActiveTerminal(command: string) {
-    const id = store.focusedId();
-    if (id === null) return;
-    void activePadiRpc.lifecycle
-      .sendInput({ id, data: command })
-      .catch((err: Error) =>
-        toast.error(`Failed to prefill command: ${err.message}`),
-      );
+  function handleRunInActiveTerminal(command: string): UiAction {
+    return Effect.suspend(() => {
+      const id = store.focusedId();
+      if (id === null) return Effect.void;
+      return activePadiEffect.lifecycle
+        .sendInput({ id, data: command })
+        .pipe(toastFailure("Failed to prefill command"));
+    });
   }
 
-  async function handleCloseAll() {
-    try {
-      await activePadiRpc.lifecycle.killAll();
-      store.reset();
-      // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so clear
-      // the find-bar map wholesale here too — otherwise stale keys outlive the
-      // terminals they pointed at.
-      terminalSearch.reset();
-    } catch (err) {
-      toast.error(`Failed to close all terminals: ${(err as Error).message}`);
-    }
+  function handleCloseAll(): UiAction {
+    return activePadiEffect.lifecycle.killAll().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          store.reset();
+          // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so
+          // clear the find-bar map wholesale here too — otherwise stale keys
+          // outlive the terminals they pointed at.
+          terminalSearch.reset();
+        }),
+      ),
+      toastFailure("Failed to close all terminals"),
+    );
   }
 
   /** Export the active terminal's scrollback as a PDF. Resolves the active id
@@ -392,12 +490,14 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   /** Export the active terminal's session as a standalone HTML page. */
-  async function exportSessionHtml(
+  function exportSessionHtml(
     modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
-  ) {
-    const id = store.activeId();
-    if (id === null) return;
-    await exportSessionAsHtml(id, modes);
+  ): UiAction {
+    return Effect.suspend(() => {
+      const id = store.activeId();
+      if (id === null) return Effect.void;
+      return exportSessionAsHtml(id, modes);
+    });
   }
 
   return {

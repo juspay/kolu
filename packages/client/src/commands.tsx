@@ -41,6 +41,7 @@ import { useFleetTerminalIndex } from "./palette/fleetTerminals";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
+import { runAction } from "./runAction";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { useTileStore } from "./tile/useTileStore";
 import { themePaletteGroup } from "./themePalette";
@@ -298,7 +299,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       validate: (value) =>
         forwardInputError(value, deps.hostKeys(), deps.activeHost()),
       onSubmit: (value) =>
-        forwardFromPalette(value, deps.hostKeys(), deps.activeHost()),
+        runAction(
+          "forward a port",
+          forwardFromPalette(value, deps.hostKeys(), deps.activeHost()),
+        ),
       children: (): (PaletteLabel | PaletteHint)[] => [
         {
           kind: "hint" as const,
@@ -324,7 +328,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 section: "active-terminal" as const,
                 onSelect: () => {
                   const id = deps.activeId();
-                  if (id) void crud.handleWake(id);
+                  if (id) runAction("wake terminal", crud.handleWake(id));
                 },
               }
             : {
@@ -333,7 +337,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 section: "active-terminal" as const,
                 onSelect: () => {
                   const id = deps.activeId();
-                  if (id) crud.requestSleep(id);
+                  if (id) runAction("sleep terminal", crud.requestSleep(id));
                 },
               },
           // Live-only actions (split / copy / screenshot / export / recent-agent

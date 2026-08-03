@@ -38,6 +38,7 @@ import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
+import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostIdentityLabel } from "./HostIdentityLabel";
@@ -153,7 +154,8 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   // `onMount` fires exactly once) — shared timing with the desktop popover.
   onMount(() => focusOnMount(inputEl));
 
-  const submit = (): void => addHost(draft(), props.onClose);
+  const submit = (): void =>
+    runAction("add host", addHost(draft(), props.onClose));
 
   return (
     <div

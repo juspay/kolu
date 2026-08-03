@@ -33,9 +33,9 @@
  * `preferences` below); they are no longer defined in this module.
  */
 
-import type { UnaryProcedure } from "@kolu/surface/client";
+import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
-import type { SurfaceFace } from "@kolu/surface/solid";
+import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -57,6 +57,7 @@ import {
   type ConnectionInfo,
   type HostKey,
   LOCAL_HOST,
+  type padiEntrySurface,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import {
@@ -305,8 +306,8 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
  *  nested `surface.<key>` shape to walk any more (D1/D2). */
 export const client = rootProcedures(conn.transport.dispatch);
 
-/** Read one unary verb off a surface's structural member FACE, failing LOUDLY if
- *  the surface does not carry it.
+/** Read one unary verb off a surface's structural member FACE — its EFFECT
+ *  nesting — failing LOUDLY if the surface does not carry it.
  *
  *  `SurfaceFace` is deliberately un-typed per member (D2: precision lives in the
  *  bound `.cells`/`.procedures` faces, and a second precise mapped type over the
@@ -319,14 +320,14 @@ function unaryMember<I, O>(
   face: SurfaceFace,
   member: string,
   verb: string,
-): UnaryProcedure<I, O> {
-  const ref = face.surface[member]?.[verb];
+): UnaryEffect<I, O, never> {
+  const ref = face.effect[member]?.[verb];
   if (typeof ref !== "function") {
     throw new Error(
       `wire: this surface carries no \`${member}.${verb}\` member — the face was built from the wrong surface.`,
     );
   }
-  return ref as UnaryProcedure<I, O>;
+  return ref as UnaryEffect<I, O, never>;
 }
 
 /** Publish the browser's raw OS light/dark reading into kolu's server-wide
@@ -336,7 +337,7 @@ function unaryMember<I, O>(
  *  ever writes the reading (the server owns the `colorScheme` leg of the
  *  resolution), so a standing subscription on a cell nothing here reads would be
  *  pure wire cost. */
-export const setViewerMode: UnaryProcedure<ViewerMode, void> = unaryMember(
+export const setViewerMode: UnaryEffect<ViewerMode, void, never> = unaryMember(
   app.rpc,
   "viewerMode",
   "set",
@@ -483,6 +484,9 @@ const hostScoped = createRoot(() => {
     requestActivateOnJoin: setPendingJoin,
     hostKeys,
     procedures: active.procedures,
+    // The RAW member face — carried out of the owner ONLY so `activePadiEffect`
+    // below can narrow its `effect` nesting. Nothing else reads it.
+    rpc: active.rpc,
     streams: active.streams,
   };
 });
@@ -541,6 +545,32 @@ export const encActiveHost: Accessor<string> = createRoot(() =>
  *  `padiMap.entry(activeHost()).procedures`. */
 export const activePadiRpc = hostScoped.procedures;
 
+/** The ACTIVE host's declared procedures, EFFECT-NATIVE —
+ *  `activePadiEffect.<ns>.<verb>(input)` returns a lazy `Effect` carrying the
+ *  member's declared error union plus the framework's `SurfaceCallFailure`,
+ *  instead of a `Promise` whose failure is a phantom.
+ *
+ *  This is the face every client action module composes with, and the reason the
+ *  business logic in `terminal/`, `host/`, `kaval/`, `forwards/` and
+ *  `right-panel/` can be described rather than executed: a `Promise` can only be
+ *  awaited, and an `await` is exactly what fiber interruption cannot reach
+ *  through. `activePadiRpc` stays for the few leaves still shaped by a
+ *  Promise-taking library (Solid's `createResource`).
+ *
+ *  **Why it is narrowed rather than delegated.** `@kolu/surface-map`'s `Entry`
+ *  exposes `procedures` (typed from the entry spec) and `rpc` (the structural
+ *  member face). The Effect nesting the framework mints lives on the LATTER —
+ *  `rpc.effect[member][verb]` — and `useEntry`'s path-walking proxy reads the
+ *  current key per call at any depth, so `hostScoped.rpc.effect.lifecycle.create`
+ *  routes to the active host exactly as `activePadiRpc.lifecycle.create` does.
+ *  The one cast re-attaches the precision, from `SurfaceClient<S>["effect"]` —
+ *  the framework's OWN narrow mapped type over the entry spec, the same one
+ *  `Entry.procedures` is typed by — so the two faces cannot come to describe
+ *  different members, and a wrong verb is still a compile error. */
+export const activePadiEffect = hostScoped.rpc.effect as SurfaceClient<
+  typeof padiEntrySurface.spec
+>["effect"];
+
 /** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
  *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The
  *  home for the DELIBERATELY UN-ENROLLED stream reaches (`.streams.<key>.unenrolled`
@@ -576,7 +606,15 @@ export const preferences = (): Preferences =>
 
 /** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }` for
  *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
- *  see the cell's `coalesceMs`. */
+ *  see the cell's `coalesceMs`.
+ *
+ *  STAYS Promise-shaped, deliberately. The Effect face the framework mints
+ *  (`client.effect.<ns>.<verb>`) covers DECLARED PROCEDURES; a cell's `patch` is a
+ *  framework primitive whose only face is `ProcedureResult` (a Promise), and it
+ *  is not a program anyone composes — nothing races it, nothing supersedes it,
+ *  and its coalescing is the cell's own. Wrapping it in `Effect.tryPromise` here
+ *  would buy an extra run edge and no interruption, so the verdict is recorded
+ *  rather than the churn taken. */
 export function updatePreferences(
   patch: PreferencesPatch,
   opts?: { coalesce?: boolean },

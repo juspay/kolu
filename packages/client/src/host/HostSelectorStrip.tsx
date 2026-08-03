@@ -81,6 +81,7 @@ import {
   hostHue,
   hostLabel,
 } from "./hostChipTone";
+import { runAction } from "../runAction";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
@@ -366,7 +367,7 @@ const HostSwitcherRow: Component<{
           data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
           aria-label={`Remove host ${hostLabel(host)}`}
           title={`Remove ${hostLabel(host)}`}
-          onClick={() => removeHost(host)}
+          onClick={() => runAction("remove host", removeHost(host))}
         >
           ✕
         </button>
@@ -558,10 +559,13 @@ const AddHostAffordance: Component = () => {
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
   const submit = (): void =>
-    addHost(draft(), () => {
-      setDraft("");
-      setOpen(false);
-    });
+    runAction(
+      "add host",
+      addHost(draft(), () => {
+        setDraft("");
+        setOpen(false);
+      }),
+    );
   return (
     <>
       <button

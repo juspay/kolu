@@ -48,6 +48,7 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
+import { runAction } from "../runAction";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
 import { reconnectHost } from "./reconnectHost";
@@ -327,7 +328,9 @@ export const HostDiagnosticsPopover: Component<{
               type="button"
               data-testid="host-diagnostics-reconnect"
               class="mt-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-1 text-left text-[11px] text-fg transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-              onClick={() => reconnectHost(props.host)}
+              onClick={() =>
+                runAction("reconnect host", reconnectHost(props.host))
+              }
             >
               <span class="text-fg-3">retry now</span>
               <span aria-hidden="true">↻</span>
@@ -393,7 +396,7 @@ export const HostDiagnosticsPopover: Component<{
                   data-testid="host-diagnostics-remove-confirm"
                   class="rounded-md bg-danger/15 px-2 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
                   onClick={() => {
-                    removeHost(props.host);
+                    runAction("remove host", removeHost(props.host));
                     props.onDismiss();
                   }}
                 >

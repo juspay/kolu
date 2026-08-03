@@ -39,9 +39,9 @@ export interface RunEdge {
 /** The sanctioned run edges. Sorted by path; keep it that way. */
 export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
-    path: "packages/client/src/rpc/rootProcedures.ts",
-    sites: 1,
-    why: "the root-procedure face's Promise edge — a SolidJS leaf awaits it, and it rejects with the squashed tagged error so `_tag` narrowing stays honest",
+    path: "packages/client/src/runAction.ts",
+    sites: 2,
+    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for Solid's own `createResource`, whose fetcher contract is a Promise",
   },
   {
     path: "packages/kolu-cli/src/main.ts",

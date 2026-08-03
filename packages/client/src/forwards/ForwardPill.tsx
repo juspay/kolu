@@ -16,9 +16,12 @@
  * what a door is CALLED and what a click on it copies are one fact.
  */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { KoluForward } from "kolu-common/surface";
 import { type Component, createSignal, onCleanup, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { runAction } from "../runAction";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { FORWARD_PILL, originTooltip, originWord } from "./forwardTone";
 import { portAuthority, portUrl } from "./portUrl";
@@ -74,13 +77,23 @@ export const ForwardCopyButton: Component<{ forward: KoluForward }> = (
         // `.writeText` off it throws synchronously — before any handler is
         // attached — and the copy fails with no toast at all. The helper owns
         // that case, falling through to the execCommand path that survives it.
-        writeTextToClipboard(forwardUrl(props.forward))
-          .then(() => {
-            setCopied(true);
-            clearTimeout(flash);
-            flash = setTimeout(() => setCopied(false), 1200);
-          })
-          .catch((err: Error) => toast.error(`Could not copy: ${err.message}`));
+        runAction(
+          "copy forward URL",
+          writeTextToClipboard(forwardUrl(props.forward)).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                setCopied(true);
+                clearTimeout(flash);
+                flash = setTimeout(() => setCopied(false), 1200);
+              }),
+            ),
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                toast.error(`Could not copy: ${toError(err).message}`);
+              }),
+            ),
+          ),
+        );
       }}
     >
       {copied() ? "✓" : "⧉"}
@@ -102,8 +115,15 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
       // No optimistic removal: the server's cell IS the list, and a row that
       // vanished before its door actually shut would be the exact lie the whole
       // design avoids. The row goes when the server says it is gone.
-      cancelForward(props.forward.key).catch((err: Error) =>
-        toast.error(`Could not cancel the forward: ${err.message}`),
+      runAction(
+        "cancel forward",
+        cancelForward(props.forward.key).pipe(
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(`Could not cancel the forward: ${toError(err).message}`);
+            }),
+          ),
+        ),
       );
     }}
   >

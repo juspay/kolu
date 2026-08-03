@@ -17,6 +17,8 @@
  *  printed-URL card and "copy door URL" use.
  */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
@@ -25,6 +27,7 @@ import type { PortAction } from "../forwards/portAction";
 import type { PortRow as PortRowData } from "../forwards/portRows";
 import { ensureDoor, urlForPort } from "../forwards/openPort";
 import { ServingTerminalLink } from "../forwards/ServingTerminalLink";
+import { runAction, type UiAction } from "../runAction";
 import { OpenIcon } from "../ui/Icons";
 
 export const PortRow: Component<{
@@ -65,11 +68,14 @@ export const PortRow: Component<{
    *  this flow are mutually exclusive. Severing `opener` on the blank tab (while
    *  it is still same-origin `about:blank`, the one moment this is possible)
    *  reaches the same posture the anchor path gets from `rel="noopener"`. */
-  const openThroughForward = async (): Promise<void> => {
-    if (opening()) return;
-    setOpening(true);
-    const tab = window.open("", "_blank");
-    try {
+  const openThroughForward = (): UiAction =>
+    Effect.suspend(() => {
+      if (opening()) return Effect.void;
+      setOpening(true);
+      // Claimed on the CALLING stack — `runAction` forks synchronously up to the
+      // first suspension, and `Effect.suspend`'s body runs there, so the popup
+      // blocker still sees this `window.open` as descending from the click.
+      const tab = window.open("", "_blank");
       if (tab !== null) {
         try {
           tab.opener = null;
@@ -77,37 +83,45 @@ export const PortRow: Component<{
           // Electron can throw; ignore.
         }
       }
-      const localPort = await ensureDoor({
+      return ensureDoor({
         host: props.host,
         port: props.row.port,
         origin: "auto",
-      });
-      const decided = urlForPort({
-        action: { kind: "forward" },
-        remotePort: props.row.port,
-        doorPort: localPort,
-        pageHost: window.location.hostname,
-      });
-      if (decided.kind !== "ready") {
-        tab?.close();
-        return;
-      }
-      if (tab === null) {
-        toast.info(`Forward open on port ${localPort}`, {
-          description: "Your browser blocked the new tab.",
-        });
-        return;
-      }
-      tab.location.replace(decided.url);
-    } catch (err) {
-      tab?.close();
-      toast.error(
-        `Could not forward port ${props.row.port}: ${(err as Error).message}`,
+      }).pipe(
+        Effect.tap((localPort) =>
+          Effect.sync(() => {
+            const decided = urlForPort({
+              action: { kind: "forward" },
+              remotePort: props.row.port,
+              doorPort: localPort,
+              pageHost: window.location.hostname,
+            });
+            if (decided.kind !== "ready") {
+              tab?.close();
+              return;
+            }
+            if (tab === null) {
+              toast.info(`Forward open on port ${localPort}`, {
+                description: "Your browser blocked the new tab.",
+              });
+              return;
+            }
+            tab.location.replace(decided.url);
+          }),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            tab?.close();
+            toast.error(
+              `Could not forward port ${props.row.port}: ${toError(err).message}`,
+            );
+          }),
+        ),
+        // The `finally` of the old shape, and now total: a finalizer runs on
+        // interruption too, so a row unmounted mid-open does not stay "opening".
+        Effect.ensuring(Effect.sync(() => setOpening(false))),
       );
-    } finally {
-      setOpening(false);
-    }
-  };
+    });
 
   return (
     <div
@@ -186,7 +200,7 @@ export const PortRow: Component<{
                 data-port={props.row.port}
                 disabled={opening()}
                 title={props.forwardReason}
-                onClick={() => void openThroughForward()}
+                onClick={() => runAction("open through forward", openThroughForward())}
               >
                 <OpenIcon class="h-3 w-3" />
                 {opening() ? "opening…" : "forward & open"}

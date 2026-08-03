@@ -11,10 +11,13 @@
  *  on the server because the transcript only exists there. */
 
 import { MODE_LABEL, type TranscriptHtmlMode } from "@kolu/padi/transcript";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
-import { activePadiRpc } from "./wire";
+import type { UiAction } from "./runAction";
+import { activePadiEffect } from "./wire";
 
 /** Own the object-URL lifecycle once: mint a blob URL for the document, hand
  *  it to a delivery strategy, and revoke after a generous delay so the new tab
@@ -38,32 +41,46 @@ function downloadExport(html: string, filename: string): void {
   withBlobUrl(html, (url) => triggerDownload(url, filename));
 }
 
-export async function exportSessionAsHtml(
+export function exportSessionAsHtml(
   id: TerminalId,
   modes: [TranscriptHtmlMode, ...TranscriptHtmlMode[]],
-): Promise<void> {
-  const [first, ...rest] = modes;
-  const multiple = rest.length > 0;
-  const loadingId = toast.loading(
-    multiple ? "Exporting session files…" : "Exporting session…",
-  );
-  try {
-    if (multiple) {
-      const exports = await Promise.all(
-        modes.map((mode) => activePadiRpc.transcript.exportHtml({ id, mode })),
-      );
-      for (const { html, filename } of exports) downloadExport(html, filename);
-      toast.success("Session files exported", { id: loadingId });
-    } else {
-      const { html, filename } = await activePadiRpc.transcript.exportHtml({
+): UiAction {
+  return Effect.gen(function* () {
+    const [first, ...rest] = modes;
+    const multiple = rest.length > 0;
+    const loadingId = toast.loading(
+      multiple ? "Exporting session files…" : "Exporting session…",
+    );
+    yield* Effect.gen(function* () {
+      if (multiple) {
+        // `Effect.all` over the modes, unbounded like the `Promise.all` it
+        // replaces — the difference is that a failure now INTERRUPTS the
+        // siblings instead of leaving them running into a rejected promise
+        // nobody reads.
+        const exports = yield* Effect.all(
+          modes.map((mode) =>
+            activePadiEffect.transcript.exportHtml({ id, mode }),
+          ),
+          { concurrency: "unbounded" },
+        );
+        for (const { html, filename } of exports) downloadExport(html, filename);
+        toast.success("Session files exported", { id: loadingId });
+        return;
+      }
+      const { html, filename } = yield* activePadiEffect.transcript.exportHtml({
         id,
         mode: first,
       });
       openExport(html, filename);
       toast.success(`${MODE_LABEL[first]} exported`, { id: loadingId });
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    toast.error(`Failed to export session: ${message}`, { id: loadingId });
-  }
+    }).pipe(
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(`Failed to export session: ${toError(err).message}`, {
+            id: loadingId,
+          });
+        }),
+      ),
+    );
+  });
 }

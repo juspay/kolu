@@ -30,6 +30,7 @@ import {
   type LogLine,
 } from "../ui/logTailChrome";
 import { activeHost, setActiveHost } from "../wire";
+import { runAction } from "../runAction";
 import { reconnectHost } from "./reconnectHost";
 
 /** One action button in the card's vertical stack. `tone: "primary"` is the warning-accented
@@ -82,7 +83,7 @@ export function reconnectAction(opts: {
     tone: "primary",
     // Atomic verb lives in reconnectHost — this adapter only binds "active host"
     // + the card's label/testid.
-    onClick: () => reconnectHost(activeHost()),
+    onClick: () => runAction("reconnect host", reconnectHost(activeHost())),
   };
 }
 

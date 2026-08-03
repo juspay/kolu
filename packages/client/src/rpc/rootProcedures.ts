@@ -13,18 +13,26 @@
  * instead, from the contract's own schemas.
  *
  * This is the SAME shape `@kolu/surface`'s `buildSurfaceFace` mints for a
- * surface, one layer smaller: a tag-addressed unary ref per member, `Promise` at
- * the leaf (PLAN locked decision 1 — Solid leaves stay plain async), typed by
- * hand because a dynamically-assembled `RpcGroup` carries no trustworthy type
- * information (D2/#16).
+ * surface, one layer smaller: a tag-addressed unary ref per member, an `Effect`
+ * at the leaf, typed by hand because a dynamically-assembled `RpcGroup` carries
+ * no trustworthy type information (D2/#16).
+ *
+ * EFFECT-NATIVE, like the surface face's `client.effect.<ns>.<verb>` twin. It
+ * used to hand back a `Promise` — the framework's one run edge, restated here
+ * for the root tags — and every consumer therefore `await`ed a call it could not
+ * bound, race or supersede. Now the ref IS the description: `useServerIdentity`
+ * folds `server.info` into a boot program, `addHost` composes `hosts.add` with
+ * the join-activation it must sequence after, and this module runs nothing at
+ * all. The one run edge it held is gone from the allowlist.
  *
  * Wrong tags are unspellable: every tag is typed as a member of the contract's
  * own {@link ROOT_RPC_TAGS} tuple, so a typo — or a tag kolu-common stopped
  * declaring — is a compile error here rather than a 404 at the first call.
  */
 
+import type { SurfaceCallFailure } from "@kolu/surface/client";
 import type { SurfaceDispatch } from "@kolu/surface/link";
-import { Effect } from "effect";
+import type { Effect } from "effect";
 import type {
   HostRef,
   ROOT_RPC_TAGS,
@@ -35,32 +43,34 @@ import type {
 /** One of the root wire tags `kolu-common/contract` declares. */
 type RootRpcTag = (typeof ROOT_RPC_TAGS)[number];
 
+/** A root call's effect. No root `Rpc` declares an error schema
+ *  (`kolu-common/contract` — every one is `Rpc.make(tag, { payload?, success? })`),
+ *  so the whole error channel is the framework's own {@link SurfaceCallFailure}:
+ *  a transport death or a surface-vocabulary rejection, and nothing else. */
+export type RootEffect<O> = Effect.Effect<O, SurfaceCallFailure>;
+
 /** kolu's root (non-surface) procedures, nested for reading. */
 export interface RootProcedures {
   readonly server: {
     /** Per-host branding the shell needs synchronously at boot. */
-    readonly info: () => Promise<ServerInfo>;
+    readonly info: () => RootEffect<ServerInfo>;
   };
   readonly daemon: {
     /** Restart the local kaval daemon, preserving the session (B3.2). */
-    readonly restart: () => Promise<void>;
+    readonly restart: () => RootEffect<void>;
   };
   readonly hosts: {
     /** WHICH of kolu's hosts the calling browser is sitting at, or `null`. */
-    readonly viewer: () => Promise<ViewerHost>;
-    readonly add: (input: HostRef) => Promise<void>;
-    readonly remove: (input: HostRef) => Promise<void>;
-    readonly reconnect: (input: HostRef) => Promise<void>;
-    readonly renewDaemon: (input: HostRef) => Promise<void>;
+    readonly viewer: () => RootEffect<ViewerHost>;
+    readonly add: (input: HostRef) => RootEffect<void>;
+    readonly remove: (input: HostRef) => RootEffect<void>;
+    readonly reconnect: (input: HostRef) => RootEffect<void>;
+    readonly renewDaemon: (input: HostRef) => RootEffect<void>;
   };
 }
 
-/** A unary ref at one root tag.
- *
- *  `Effect.runPromise` here is the same Promise edge `buildSurfaceFace`'s
- *  `unaryRef` is — it rejects with the SQUASHED failure, so a declared tagged
- *  error arrives with its `_tag` and data intact and `safe`/`isDefinedError`
- *  narrowing stays honest.
+/** A unary ref at one root tag — lazy, so nothing dispatches until the caller
+ *  runs it.
  *
  *  The payload crosses the {@link SurfaceDispatch} seam on its DECODED side (D2),
  *  which for every root member is the same shape the caller already holds (a
@@ -73,14 +83,14 @@ export interface RootProcedures {
 function unary<I, O>(
   dispatch: SurfaceDispatch,
   tag: RootRpcTag,
-): (input: I) => Promise<O> {
-  return (input) => Effect.runPromise(dispatch.unary(tag, input)) as Promise<O>;
+): (input: I) => RootEffect<O> {
+  return (input) => dispatch.unary(tag, input) as RootEffect<O>;
 }
 
 /** Build the root procedure face over the combined wire dispatch
  *  (`conn.transport.dispatch`). */
 export function rootProcedures(dispatch: SurfaceDispatch): RootProcedures {
-  const voidPayload = <O>(tag: RootRpcTag): (() => Promise<O>) => {
+  const voidPayload = <O>(tag: RootRpcTag): (() => RootEffect<O>) => {
     // `Rpc.make(tag)` with no `payload` declares `Schema.Void`, so the payload
     // this member carries is `undefined` — spelled once here rather than at each
     // of the three no-argument call sites.

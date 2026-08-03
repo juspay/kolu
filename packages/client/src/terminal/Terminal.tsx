@@ -31,6 +31,7 @@ import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
+import { toError } from "@kolu/surface/run-stream";
 import {
   isTerminalQueryResponse,
   wrapBracketedPaste,
@@ -40,6 +41,7 @@ import {
   createBackfillController,
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
+import { Effect } from "effect";
 import {
   sameGrid,
   type TerminalGrid,
@@ -60,6 +62,7 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
+import { runAction } from "../runAction";
 import { isTouch } from "../useMobile";
 import { activePadiRpc, activePadiStreams, preferences } from "../wire";
 import {
@@ -360,12 +363,26 @@ const Terminal: Component<{
         e.preventDefault();
         const selection = term.getSelection();
         if (selection)
-          writeTextToClipboard(selection)
-            .then(() => toast.success("Copied selection to clipboard"))
-            .catch((err: Error) => {
-              console.error("Failed to copy selection:", err);
-              toast.error(`Failed to copy selection: ${err.message}`);
-            });
+          // Forked SYNCHRONOUSLY inside the keystroke's gesture window — the
+          // execCommand leg of `writeTextToClipboard` needs an active user
+          // activation, and `runAction` runs on this stack until the effect
+          // first suspends.
+          runAction(
+            "copy selection",
+            writeTextToClipboard(selection).pipe(
+              Effect.tap(() =>
+                Effect.sync(() =>
+                  toast.success("Copied selection to clipboard"),
+                ),
+              ),
+              Effect.catch((err) =>
+                Effect.sync(() => {
+                  console.error("Failed to copy selection:", err);
+                  toast.error(`Failed to copy selection: ${toError(err).message}`);
+                }),
+              ),
+            ),
+          );
         return false;
       }
 
