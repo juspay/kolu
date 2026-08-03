@@ -47,8 +47,9 @@
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { Effect, type Scope, Stream } from "effect";
+import { Effect, Layer, type Scope, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
 import {
   collectionDeltasChannel,
   collectionKeyChannel,
@@ -186,6 +187,49 @@ function assertHandlersMatchGroup(
     `${label}: the bound handler set does not match the surface's wire tags — ` +
       `${missing.length} unbound tag(s) [${missing.join(", ")}], ` +
       `${extra.length} handler(s) at unknown tag(s) [${extra.join(", ")}].`,
+  );
+}
+
+/**
+ * The `RpcServer` half of EVERY surface serve site — the group's bound
+ * handlers, wired with the ONE defect policy a multiplexed surface requires.
+ * The caller supplies only the protocol + serialization + transport layers
+ * below it (a socket server, a stdio pair), so the policy cannot differ
+ * between the unix-socket, websocket and stdio legs.
+ *
+ * ## Why `disableFatalDefects: true` — a member's fault is not the wire's
+ *
+ * Effect RPC's DEFAULT is that an unhandled DEFECT in any one handler is
+ * *fatal to the whole client*: it answers with a connection-level `Defect`
+ * message instead of that request's own `Exit`, which fails every OTHER
+ * in-flight request on the same connection and tears the transport down. On a
+ * surface that multiplexes a dozen cells, collections and streams over one
+ * socket, that turns one member's bad minute into a total blackout.
+ *
+ * kolu lived that: killing the `kaval` daemon made padi's per-terminal
+ * `terminalAttach` producer die (`streamFromAbortableSource` is `Stream.orDie`
+ * at the producer edge, so a dead PTY tap arrives as a defect), which took
+ * down kolu-server's ENTIRE padi link — every mirrored cell and collection
+ * failed at once, the re-serve's mirror ended, and the browser's
+ * `daemonStatus` froze at the last `connected` frame it had. The daemon was
+ * down and the UI could not say so, because the channel that would have told
+ * it had been collateral damage of the same death (W6/D3).
+ *
+ * With this on, the defect is delivered as THAT request's exit — the one
+ * subscriber that asked sees it, loudly, and every sibling subscription keeps
+ * flowing. Nothing is swallowed: the server still reports the cause through
+ * Effect's logger exactly as before, and the failing member still fails.
+ */
+export function surfaceRpcServerLayer(
+  group: RpcGroup.RpcGroup<Rpc.Any>,
+  handlers: SurfaceHandlers,
+): Layer.Layer<never, never, RpcServer.Protocol> {
+  return RpcServer.layer(group, { disableFatalDefects: true }).pipe(
+    // `handlers` is the erased, tag-keyed record `implementSurface` mints;
+    // `toLayer`'s typed handler map is derived from the group's precise Rpc
+    // union, which a runtime spec walk cannot produce (review #16). ONE cast,
+    // at the one site every serve path now goes through.
+    Layer.provide(group.toLayer(handlers as never)),
   );
 }
 

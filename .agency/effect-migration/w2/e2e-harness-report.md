@@ -126,7 +126,7 @@ where the terminal-close CLASSIFIER reads the close code — but no longer publi
 clean 1000 close still reaches `onDisconnect` (the protocol turns a clean end into a
 failure), so the closed/retired edge is as observable as before.
 
-### D3 — NOT FIXED: the degraded-kaval canvas never appears (out of scope)
+### D3 — the degraded-kaval canvas never appears (**RESOLVED**, see §7)
 
 Killing the kaval daemon mid-session no longer paints `DegradedCanvas`. Reproduces
 independently of the harness work in `features/kaval-daemon.feature`
@@ -206,4 +206,104 @@ timeout" kind:
   wire, **it has D1 too**.
 - **The odu-impact verdict** for `connectSurfaces` / `websocketLink` still needs its grep
   at odu's pinned kolu SHA.
-- **D3** — the degraded-kaval surface.
+- ~~**D3** — the degraded-kaval surface.~~ Resolved — see §7.
+
+---
+
+## 7. D3 resolved — a member's defect was fatal to the whole connection
+
+**The suspect was wrong, and usefully so.** The report above pinned
+`daemonChannelLive()` as the leg to look at. It isn't: `downState()` reads
+`undefined` because the value it floors on never *moves*. padi publishes
+`degraded` correctly, and kolu-server never hears it.
+
+### What actually happens when kaval dies
+
+1. kaval is SIGKILLed. padi's supervisor endpoint sees the socket close and
+   publishes `{state:"degraded"}` onto its own `daemonStatus` collection — proven
+   by dialing **padi's own socket directly**, which yields `degraded` at once.
+2. In the SAME breath, padi's per-terminal `terminalAttach` producer dies. Its
+   source is `streamFromAbortableSource(…)`, which is `Stream.orDie` at the
+   producer edge — so a dead PTY tap arrives at the handler as a **DEFECT**, not
+   a failure.
+3. Effect RPC's `RpcServer` default (`disableFatalDefects: false`) answers an
+   unhandled handler defect with a **connection-level `Defect` message**, not
+   that request's own `Exit`. Every other in-flight request on the connection
+   fails with it, and the transport closes.
+4. So kolu-server's ENTIRE padi link collapses at once. The server log (at
+   `LOG_LEVEL=debug`) shows the whole mirror falling over in one millisecond —
+   `version`, `identity`, `urgency`, `newTerminalPolicy`, `hostInventory`,
+   `processMemory`, `activityFeed`, `session` cells and the `terminals` /
+   `daemonStatus` collections, every one with the same
+   `SurfaceStdioTransportClosed` — followed by
+   `pump: mirror ended for client #1 — awaiting next client`.
+5. That wait never ends: the padi SESSION is still `connected`, so no fresh
+   client is ever produced and the mirror never restarts. `reServeSurface`'s
+   stores freeze at their last folded values. The browser's
+   `daemonStatus.byKey("local")` therefore still reads `connected` — a
+   `downState()` of `undefined`, the empty-canvas lie in a new costume.
+
+The dead channel was **collateral damage of the very death it was supposed to
+report**. That is why the symptom looks like a liveness-floor bug and isn't one:
+with no terminal open there is no `terminalAttach` to die, and the degraded
+frame reaches the wire exactly as designed (verified with a Node-side
+subscription to `surface/padi/daemonStatus/get` across a kill). Add one live
+terminal and the frame never arrives. The e2e's screenshot shows the browser
+half of the same blast radius — a full-screen "Disconnected from server", because
+kolu-server's browser socket takes the identical hit when it relays the failing
+attach.
+
+### The fix
+
+`@kolu/surface`'s `surfaceRpcServerLayer(group, handlers)` — the `RpcServer` half
+every serve site is now built from, serving with **`disableFatalDefects: true`**.
+A handler defect is delivered as THAT request's exit: the one subscriber that
+asked sees it, loudly, and every sibling subscription keeps flowing. Nothing is
+swallowed — the server still reports the cause through Effect's logger, and the
+failing member still fails.
+
+Three serve sites went through it, so the policy is spelled once (and the
+`toLayer(handlers as never)` cast collapses from three copies to one):
+`unix-socket.ts` (padi↔kolu-server, padi↔kaval), `peer-server.ts` (the stdio
+daemon front door), and `surface-app/server.ts` (the browser websocket).
+
+`streamFromAbortableSource`'s `Stream.orDie` is left alone deliberately: it is
+what makes a producer error a defect in the first place, but a defect is a
+legitimate thing for a handler to have, and the blast radius — not the
+classification — is the defect. Widening its error channel would change a public
+signature to fix a symptom.
+
+**The seam test** is `packages/surface/src/defectIsolation.test.ts`: over a REAL
+`net.Server`/`net.Socket` pair, a stream handler dies with an undeclared defect
+while a sibling cell subscription is open; the cell must still receive the next
+published frame. Falsified against the fix removed — it then reads `["boot"]`
+instead of `["boot", "still here"]`, the connection-level Defect having already
+killed it.
+
+### Gates
+
+| gate | result |
+| --- | --- |
+| `just test-quick features/kaval-daemon.feature` | **4 scenarios passed, 41 steps** (was 2 of 4) |
+| `just test-quick features/session-restore.feature` | **9 scenarios passed, 83 steps** (was 8 of 9) |
+| `just test-quick features/reconnect.feature` | **1 scenario passed, 8 steps** |
+| typecheck (surface, surface-app, surface-remote, padi, server) | exit 0 |
+| `test:unit` (surface 547, surface-app 166, surface-remote 287, padi 500, server 318) | all pass |
+
+Also verified in a live browser against a from-source server: create a terminal,
+`kill -9` the kaval gate holder → `[data-testid="degraded-canvas"]` paints, the
+ws stays `open`, and Restart kaval recovers.
+
+### Follow-ups this opens
+
+- **The drishti pair-PR gate applies.** `surfaceRpcServerLayer` is a new
+  `@kolu/surface/server` export (Reference page updated). It is purely additive
+  and drishti's own serve path (`frontDaemonOverStdio` → `serveOverStdio`)
+  inherits the fix without a source change, so the pair PR should be a re-pin
+  plus a green CI run rather than an edit.
+- **The odu-impact verdict** for the new export still needs its grep at odu's
+  pinned kolu SHA. Expected `none` (additive export, no signature moved).
+- **A mirror that ends while its session stays connected is unrecoverable.**
+  `pumpRemoteSurface` parks on `cursor.next()` forever in that case. The fix
+  removes the only way we know to reach it, but the hole is structural — a
+  candidate for a later W-item.

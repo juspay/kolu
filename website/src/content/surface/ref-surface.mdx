@@ -503,6 +503,31 @@ Matching serve-side entry points, all taking the same `{ group, handlers }` pair
 (`@kolu/surface/unix-socket`), and `serveSurfaceSocket`
 (`@kolu/surface-app/server`) for browsers.
 
+### `surfaceRpcServerLayer` — a member's defect is not the wire's
+
+```ts
+surfaceRpcServerLayer(group, handlers)
+  : Layer<never, never, RpcServer.Protocol>
+```
+
+The `RpcServer` half every one of those serve sites is built from
+(`@kolu/surface/server`): the group's bound handlers plus the one defect policy
+a multiplexed surface requires. A caller supplies only the protocol,
+serialization and transport layers below it, so the policy cannot differ
+between the unix-socket, websocket and stdio legs.
+
+It serves with **`disableFatalDefects: true`**. Effect RPC's default answers an
+unhandled handler defect with a *connection-level* `Defect` message, which fails
+every other in-flight request on that connection and closes the transport — so
+on a surface that multiplexes a dozen members over one socket, one member's bad
+minute is a total blackout. With this on, the defect is delivered as **that
+request's own exit**: the subscriber that asked sees it, loudly, and every
+sibling subscription keeps flowing. Nothing is swallowed — the server still
+reports the cause through Effect's logger, and the failing member still fails.
+
+Reach for it only when hand-building a serve path; the three entry points above
+already go through it.
+
 `serveOverUnixSocket`'s listener `close()` runs the whole ordered teardown:
 it stops accepting, **disconnects every established peer**, and removes the
 socket file. Each severed connection then settles its own serve in the

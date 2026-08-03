@@ -71,7 +71,7 @@ import { Effect, Exit, Layer, Scope, Stdio, Stream } from "effect";
 import { type PlatformError, systemError } from "effect/PlatformError";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
-import type { SurfaceHandlers } from "./server";
+import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin` for
  *  `read` and `process.stdout` for `write`. */
@@ -311,8 +311,7 @@ export function serveOverStdio(
   transport.write.on("close", () => finish({ reason: "end" }));
 
   const scope = Scope.makeUnsafe();
-  const layer = RpcServer.layer(opts.group).pipe(
-    Layer.provide(opts.group.toLayer(opts.handlers as never)),
+  const layer = surfaceRpcServerLayer(opts.group, opts.handlers).pipe(
     Layer.provide(RpcServer.layerProtocolStdio),
     Layer.provide(RpcSerialization.layerNdjson),
     Layer.provide(stdioLayer(transport, firstBytes)),

@@ -26,7 +26,7 @@ import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
-import type { SurfaceHandlers } from "./server";
+import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
 // There is no `log` seam any more: the per-connection runtime events it
 // carried (a client socket error, a peer dying mid-frame) are handled inside
@@ -272,8 +272,7 @@ function servingLayer(
   socket: Socket,
   socketPath: string,
 ): Layer.Layer<never, unknown> {
-  return RpcServer.layer(group).pipe(
-    Layer.provide(group.toLayer(handlers as never)),
+  return surfaceRpcServerLayer(group, handlers).pipe(
     Layer.provide(RpcServer.layerProtocolSocketServer),
     Layer.provide(RpcSerialization.layerNdjson),
     Layer.provide(oneConnectionSocketServer(socket, socketPath)),

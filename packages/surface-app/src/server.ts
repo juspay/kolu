@@ -16,7 +16,10 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { SurfaceHandlers } from "@kolu/surface/server";
+import {
+  type SurfaceHandlers,
+  surfaceRpcServerLayer,
+} from "@kolu/surface/server";
 import { Effect, Exit, Layer, Scope } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -839,12 +842,7 @@ export function serveSurfaceSocket<Svc = never>(opts: {
   services?: Layer.Layer<Svc>;
 }): SurfaceSocketServing {
   const buffered = bufferedSocketView(opts.socket);
-  const base = RpcServer.layer(opts.group).pipe(
-    // `handlers` is the erased, tag-keyed record S2 mints; `toLayer`'s typed
-    // handler map is derived from the group's precise Rpc union, which a runtime
-    // spec walk cannot produce (review #16). Same cast, same reason, as
-    // `@kolu/surface/unix-socket`'s serving layer.
-    Layer.provide(opts.group.toLayer(opts.handlers as never)),
+  const base = surfaceRpcServerLayer(opts.group, opts.handlers).pipe(
     Layer.provide(RpcServer.layerProtocolSocketServer),
     Layer.provide(RpcSerialization.layerNdjson),
     Layer.provide(oneConnectionSocketServer(buffered.view)),
