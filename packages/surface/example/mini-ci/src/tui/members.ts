@@ -18,7 +18,7 @@
  * "a stopped subscription reports nothing" rule.
  */
 
-import type { StreamingProcedure, UnaryProcedure } from "@kolu/surface/client";
+import type { StreamingProcedure, UnaryEffect } from "@kolu/surface/client";
 import { Cause, Effect, Exit, Stream } from "effect";
 import type {
   NodeLogFrame,
@@ -54,10 +54,11 @@ export function nodeLogStream(
 export function rerunNode(
   client: RunnerClient,
   id: string,
-): Promise<{ ok: boolean }> {
-  const rerun = client.surface.node?.rerun as UnaryProcedure<
+): Effect.Effect<{ ok: boolean }, unknown> {
+  const rerun = client.surface.node?.rerun as UnaryEffect<
     { id: string },
-    { ok: boolean }
+    { ok: boolean },
+    never
   >;
   return rerun({ id });
 }

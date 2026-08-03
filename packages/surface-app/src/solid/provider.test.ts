@@ -8,6 +8,7 @@
  * The focus is `updateReady` — the skew-OR-restart predicate the model owns so
  * consumers read it instead of re-deriving `status() === "restarted" || stale()`.
  */
+import { Effect } from "effect";
 
 import {
   type Accessor,
@@ -58,6 +59,12 @@ function mountModel(opts: {
   return captured;
 }
 
+/** Let a probe EFFECT settle through the lifecycle's run edge — see the twin in
+ *  `lifecycle.test.ts`. A microtask turn no longer covers it: the probe runs on a
+ *  fiber, so the settle lands a scheduler tick later than a bare `Promise` did. */
+const flushProbe = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("SurfaceAppProvider — updateReady", () => {
   it("flips on a `restarted` status (deploy caught live), even when not stale", () => {
     createRoot((dispose) => {
@@ -88,7 +95,7 @@ describe("SurfaceAppProvider — updateReady", () => {
         controlPlane: fakeControlPlane("0784979"),
         clientCommit: "0784979",
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
         get children() {
           captured = useSurfaceApp();
           return null;
@@ -96,7 +103,7 @@ describe("SurfaceAppProvider — updateReady", () => {
       });
 
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(captured.status()).toBe("live");
 
       // The link classified the server's stale close as TERMINAL and retired the
@@ -119,7 +126,7 @@ describe("SurfaceAppProvider — updateReady", () => {
         controlPlane: fakeControlPlane("0784979"),
         clientCommit: "0784979",
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
         onProcessId: (id: string) => seen.push(id),
         get children() {
           useSurfaceApp();
@@ -127,7 +134,7 @@ describe("SurfaceAppProvider — updateReady", () => {
         },
       });
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       // The provider derives the lifecycle internally, but still publishes the
       // observed id outward so the turnkey caller can echo the `pid` param.
       expect(seen).toEqual(["p1"]);
@@ -143,11 +150,11 @@ describe("SurfaceAppProvider — updateReady", () => {
         // The open probe resolves (lifecycle goes live); the NEXT probe — the
         // heartbeat's — hangs, modelling a silently half-open wire.
         let calls = 0;
-        const probe = () => {
+        const probe = (): Effect.Effect<{ processId: string }> => {
           calls += 1;
           return calls === 1
-            ? Promise.resolve({ processId: "p1" })
-            : new Promise<{ processId: string }>(() => {});
+            ? Effect.succeed({ processId: "p1" })
+            : (Effect.never as Effect.Effect<{ processId: string }>);
         };
         createComponent(SurfaceAppProvider, {
           controlPlane: fakeControlPlane("0784979"),

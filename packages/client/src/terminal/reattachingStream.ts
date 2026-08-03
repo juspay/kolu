@@ -47,9 +47,8 @@ export function consumeReattachingStream<T>(
   onReattach: () => void,
   label: string,
 ): Effect.Effect<void, unknown> {
-  return Stream.runForEach(
-    Stream.suspend(streamFn),
-    (item) => Effect.sync(() => onItem(item)),
+  return Stream.runForEach(Stream.suspend(streamFn), (item) =>
+    Effect.sync(() => onItem(item)),
   ).pipe(
     Effect.tapError((err) =>
       Effect.sync(() => {
@@ -57,7 +56,10 @@ export function consumeReattachingStream<T>(
         // Inside the retry, so it fires once per abnormal end and never after a
         // graceful one — the same "fired ⇒ a re-subscribe follows" rule the
         // framework fence holds for `onRetry`.
-        console.warn(`${label}: re-attaching after a mid-chain stream end`, err);
+        console.warn(
+          `${label}: re-attaching after a mid-chain stream end`,
+          err,
+        );
         onReattach();
       }),
     ),

@@ -24,7 +24,7 @@ import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import type { UiAction } from "../runAction";
-import { activePadiEffect, client } from "../wire";
+import { activePadiRpc, client } from "../wire";
 import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
@@ -67,19 +67,21 @@ export function restartDaemon(): UiAction {
     if (restarting()) return Effect.void;
     setRestarting(true);
     const id = toast.loading("Restarting kaval…");
-    // The DECLARED error union now rides the effect's error channel (SK6/D4),
-    // so `catchTag` is the discriminant `safe().declared` used to be — and a
-    // sharper one: the tag is matched by the compiler against the procedure's
-    // own union, so a rename in `@kolu/padi/surface` is a compile error here
-    // rather than a toast printing `undefined`. What `catchTag` does NOT catch
+    // The DECLARED error union rides the effect's error channel (SK6/D4), so
+    // `catchTag` IS the discriminant — and the compiler matches the tag against
+    // the procedure's own union, so a rename in `@kolu/padi/surface` is a compile
+    // error here rather than a toast printing `undefined`. What `catchTag` does NOT catch
     // is the framework's `SurfaceCallFailure` half, which is exactly right: a
     // transport drop is not the skew, and the residual arm below says so.
-    return activePadiEffect.lifecycle.recycleKaval().pipe(
+    return activePadiRpc.lifecycle.recycleKaval().pipe(
       Effect.tap(() =>
         Effect.sync(() => {
-          toast.success("kaval restarted — your session is offered for restore", {
-            id,
-          });
+          toast.success(
+            "kaval restarted — your session is offered for restore",
+            {
+              id,
+            },
+          );
         }),
       ),
       Effect.catchTag("KavalContractSkew", (skew) =>
@@ -99,7 +101,9 @@ export function restartDaemon(): UiAction {
       // rejection — normalised before its message is read.
       Effect.catch((err) =>
         Effect.sync(() => {
-          toast.error(`Couldn’t restart kaval: ${toError(err).message}`, { id });
+          toast.error(`Couldn’t restart kaval: ${toError(err).message}`, {
+            id,
+          });
         }),
       ),
       Effect.ensuring(Effect.sync(() => setRestarting(false))),

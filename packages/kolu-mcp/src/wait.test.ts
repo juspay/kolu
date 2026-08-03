@@ -260,10 +260,12 @@ describe("waitOutputSettledTool — the JSON frame", () => {
   it("returns the uniform result frame (id + result + met detail)", async () => {
     const s = streams();
     s.attach.push(snapshot);
-    const result = (await waitOutputSettledTool.handler(
-      { id: ID, idleMs: 25 },
-      fakeClient(s),
-      undefined,
+    const result = (await Effect.runPromise(
+      waitOutputSettledTool.handler(
+        { id: ID, idleMs: 25 },
+        fakeClient(s),
+        undefined,
+      ),
     )) as Record<string, unknown>;
     expect(result).toMatchObject({
       id: ID,

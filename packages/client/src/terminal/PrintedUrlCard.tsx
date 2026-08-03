@@ -500,9 +500,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                 type="button"
                 class="text-fg-3 hover:text-fg"
                 data-testid="printed-url-copy-raw"
-                onClick={() =>
-                  runAction("copy URL", copyUrl(props.target.uri))
-                }
+                onClick={() => runAction("copy URL", copyUrl(props.target.uri))}
               >
                 ⧉ copy
               </button>

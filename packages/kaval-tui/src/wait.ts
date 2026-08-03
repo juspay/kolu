@@ -295,12 +295,8 @@ export function awaitOutputCondition(
       const classifyLostFeed: Effect.Effect<WaitOutcome, unknown> =
         Effect.flatMap(
           Effect.catch(
-            Effect.map(
-              Effect.tryPromise({
-                try: () => client.surface.terminal.list({}),
-                catch: (err) => err,
-              }),
-              (listed) => listed.entries.some((e) => e.id === id),
+            Effect.map(client.surface.terminal.list({}), (listed) =>
+              listed.entries.some((e) => e.id === id),
             ),
             (err) => {
               // A dead transport poisons a shared connection, so it PROPAGATES

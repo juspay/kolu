@@ -26,8 +26,9 @@ import {
   encodeKey,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { BespokeTool } from "@kolu/surface-mcp";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const SendInputArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -90,20 +91,24 @@ export const sendInputTool: BespokeTool = {
   description:
     "Write input to a terminal — text (typed; multiline auto-bracketed-pasted) OR one named key / chord (Enter, Escape, Tab, arrows, C-c, M-b, …), never both in one call. The submit protocol: send the text, wait_outputSettled, then send Enter as its own call.",
   // No `signal`: a surface procedure ref carries no cancellation handle any
-  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's).
-  handler: async (args, client) => {
+  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's), and
+  // the handler's effect is already run under the request's signal by
+  // `surface-mcp`'s ONE CallTool edge.
+  handler: (args, client) => {
     const { id, ...rest } = args as SendInputArgs;
     const data = resolveSendInputData(rest);
-    await client.surface.lifecycle.sendInput({ id, data });
-    // A named acknowledgement (sendInput's procedure output is void) so the
-    // driving agent sees what landed rather than an empty null. The byte count
-    // is the actual UTF-8 wire length (`data.length` counts UTF-16 code units,
-    // which lies for non-ASCII input).
-    return {
-      sent:
-        rest.key !== undefined
-          ? { key: rest.key }
-          : { textBytes: Buffer.byteLength(data, "utf8") },
-    };
+    return Effect.as(
+      (client as PadiSurfaceClient).surface.lifecycle.sendInput({ id, data }),
+      // A named acknowledgement (sendInput's procedure output is void) so the
+      // driving agent sees what landed rather than an empty null. The byte count
+      // is the actual UTF-8 wire length (`data.length` counts UTF-16 code units,
+      // which lies for non-ASCII input).
+      {
+        sent:
+          rest.key !== undefined
+            ? { key: rest.key }
+            : { textBytes: Buffer.byteLength(data, "utf8") },
+      },
+    );
   },
 };

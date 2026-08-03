@@ -292,7 +292,7 @@ describe("SR11 spec-sourced local authority + failed flush", () => {
 
       // A coalesced write applies locally at once (the returned promise resolves on the
       // LOCAL apply, not the server ack) but defers the server flush by `coalesceMs`.
-      await cell.patch({ size: 2 }, { coalesce: true });
+      await Effect.runPromise(cell.patch({ size: 2 }, { coalesce: true }));
       expect(cell.value()).toEqual({ size: 2 });
       expect(onClientError).not.toHaveBeenCalled();
 

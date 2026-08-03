@@ -13,7 +13,9 @@ export function removeHost(host: HostKey): UiAction {
   return client.hosts.remove({ host }).pipe(
     Effect.catch((err) =>
       Effect.sync(() => {
-        toast.error(`Couldn't remove ${hostLabel(host)}: ${toError(err).message}`);
+        toast.error(
+          `Couldn't remove ${hostLabel(host)}: ${toError(err).message}`,
+        );
       }),
     ),
   );

@@ -12,10 +12,19 @@
  * pin (a poisoned `send` the retry fence had to recognise) is gone with oRPC.
  */
 
+import { Effect } from "effect";
 import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeWire } from "../fakeSocket.testlib";
 import { createServerLifecycle } from "./index";
+
+/** Let a probe EFFECT settle through the lifecycle's run edge.
+ *
+ *  A microtask turn is no longer enough: the probe is an `Effect`, so
+ *  `createServerLifecycle` runs it on a fiber and the settle lands a scheduler
+ *  tick later than a bare `Promise.resolve()` did. A macrotask covers both. */
+const flushProbe = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("createServerLifecycle — default-on liveness heartbeat", () => {
   beforeEach(() => vi.useFakeTimers());
@@ -27,7 +36,7 @@ describe("createServerLifecycle — default-on liveness heartbeat", () => {
       // A probe that never settles ⇒ the wire is silently half-open.
       createServerLifecycle({
         wire: w.wire,
-        probe: () => new Promise<{ processId: string }>(() => {}),
+        probe: () => Effect.never as Effect.Effect<{ processId: string }>,
       });
       // One interval (default 15s) arms the probe; one timeout (default 10s)
       // with no answer declares it half-open and forces a reconnect.
@@ -44,7 +53,7 @@ describe("createServerLifecycle — default-on liveness heartbeat", () => {
     createRoot((dispose) => {
       createServerLifecycle({
         wire: w.wire,
-        probe: () => new Promise<{ processId: string }>(() => {}),
+        probe: () => Effect.never as Effect.Effect<{ processId: string }>,
         heartbeat: false,
       });
       vi.advanceTimersByTime(60_000);
@@ -58,7 +67,7 @@ describe("createServerLifecycle — default-on liveness heartbeat", () => {
     createRoot((dispose) => {
       createServerLifecycle({
         wire: w.wire,
-        probe: () => new Promise<{ processId: string }>(() => {}),
+        probe: () => Effect.never as Effect.Effect<{ processId: string }>,
       });
       vi.advanceTimersByTime(15_000); // arm a probe
       dispose(); // tears down the lifecycle AND its heartbeat
@@ -75,12 +84,12 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle, status } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: id }),
+        probe: () => Effect.succeed({ processId: id }),
       });
       expect(lifecycle().kind).toBe("connecting");
 
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle().kind).toBe("connected");
       expect(status()).toBe("live");
 
@@ -89,13 +98,13 @@ describe("createServerLifecycle", () => {
       expect(status()).toBe("down");
 
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle().kind).toBe("reconnected"); // same id
 
       id = "p2";
       w.set("closed");
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       // Probe-driven restart: the wire is open against the fresh process.
       expect(lifecycle()).toEqual({
         kind: "restarted",
@@ -117,10 +126,10 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
         heartbeat: false,
       });
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
       dispose();
     });
@@ -131,11 +140,11 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle, status, serverProcessId } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
       });
 
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle().kind).toBe("connected");
 
       // An ordinary close is a transient drop.
@@ -165,7 +174,7 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
       });
       // No open/probe yet → no relationship to lose; stay put.
       w.set("retired");
@@ -183,15 +192,14 @@ describe("createServerLifecycle", () => {
         wire: w.wire,
         probe: () =>
           fail
-            ? Promise.reject(new Error("probe down"))
-            : Promise.resolve({ processId: "p1" }),
+            ? Effect.fail(new Error("probe down"))
+            : Effect.succeed({ processId: "p1" }),
         onProbeError: (err) => errors.push(err),
       });
 
       // First open, probe fails: no identity established, stay put.
       w.set("open");
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle().kind).toBe("connecting");
       expect(errors).toHaveLength(1);
 
@@ -202,7 +210,7 @@ describe("createServerLifecycle", () => {
       // Next open, probe succeeds: this is the INITIAL connect, not a reconnect.
       fail = false;
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(lifecycle().kind).toBe("connected");
 
       dispose();
@@ -215,12 +223,11 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.reject(new Error("boom")),
+        probe: () => Effect.fail(new Error("boom")),
         onProbeError: (err) => errors.push(err),
       });
       w.set("open");
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushProbe();
       // Probe failed: stay in the prior state, surface the error.
       expect(lifecycle().kind).toBe("connecting");
       expect(errors).toHaveLength(1);
@@ -234,7 +241,7 @@ describe("createServerLifecycle", () => {
     createRoot((dispose) => {
       const lc = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
       });
       expect(w.watchers()).toBe(1);
       lc.dispose();
@@ -250,18 +257,18 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: id }),
+        probe: () => Effect.succeed({ processId: id }),
         onProcessId: (pid) => seen.push(pid),
       });
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       // A restart: the hook still fires with the NEW id — and keeps firing the
       // last observed id even though `serverProcessId()` would diverge on a
       // retirement (that's why the echo reads this, not the accessor).
       id = "p2";
       w.set("closed");
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       expect(seen).toEqual(["p1", "p2"]);
       dispose();
     });
@@ -273,7 +280,7 @@ describe("createServerLifecycle", () => {
     await createRoot(async (dispose) => {
       const { lifecycle } = createServerLifecycle({
         wire: w.wire,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        probe: () => Effect.succeed({ processId: "p1" }),
         // An observer that throws must not convert a successful probe into a
         // probe failure: the transition is already committed before it runs, and
         // the throw is reported via onProbeError instead of unwinding it.
@@ -283,7 +290,7 @@ describe("createServerLifecycle", () => {
         onProbeError: (err) => errors.push(err),
       });
       w.set("open");
-      await Promise.resolve();
+      await flushProbe();
       // Lifecycle still reached `connected`; the throw surfaced separately.
       expect(lifecycle()).toEqual({ kind: "connected", processId: "p1" });
       expect(errors).toHaveLength(1);

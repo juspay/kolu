@@ -429,22 +429,24 @@ const surfacesLayer = (params: {
 /** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
  *  PTYs against the saved session, and start the live inventory reconciler. Requires
  *  the served surfaces — the reconcile publishes onto the wired ctx. */
-async function bootLocalEndpoint(params: {
+function bootLocalEndpoint(params: {
   kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
   legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
-}): Promise<{ booted: true }> {
-  await ensureLocalEndpoint({
-    home: params.kavalHome,
-    // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
-    // binder hinted its port home and this padi has no digest kaval yet) rather than
-    // leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
-    legacyHome: params.legacyKavalHome,
-    onStatus: publishDaemonStatus,
-    onAdopted: adoptSurvivingSession,
-    onNotAdopted: parkSavedSession,
-    onBootSettled: startInventoryReconciler,
-  });
-  return { booted: true };
+}): Effect.Effect<{ booted: true }> {
+  return Effect.as(
+    ensureLocalEndpoint({
+      home: params.kavalHome,
+      // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
+      // binder hinted its port home and this padi has no digest kaval yet) rather than
+      // leaking it. Standalone padi (no binder) passes nothing → no legacy adopt.
+      legacyHome: params.legacyKavalHome,
+      onStatus: publishDaemonStatus,
+      onAdopted: adoptSurvivingSession,
+      onNotAdopted: parkSavedSession,
+      onBootSettled: startInventoryReconciler,
+    }),
+    { booted: true } as const,
+  );
 }
 
 /** The endpoint layer — REQUIRES {@link PadiSurfaces}: the boot reconcile
@@ -455,7 +457,9 @@ const endpointLayer = (params: {
 }): Layer.Layer<PadiEndpoint, never, PadiSurfaces> =>
   Layer.effect(
     PadiEndpoint,
-    PadiSurfaces.use(() => Effect.promise(() => bootLocalEndpoint(params))),
+    // No `Effect.promise` bridge any more — the boot IS an effect, so the layer
+    // yields it directly and an interrupted boot interrupts the converge under it.
+    PadiSurfaces.use(() => bootLocalEndpoint(params)),
   );
 
 /** The padi daemon as ONE `Effect`: own its state-root, adopt-or-spawn its kaval,

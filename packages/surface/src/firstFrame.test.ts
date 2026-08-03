@@ -4,9 +4,7 @@ import {
   type CollectionItemFrame,
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
-  firstFrameOrThrowEffect,
   firstFrameOrUndefined,
-  firstFrameOrUndefinedEffect,
 } from "./firstFrame";
 
 /** A stream that yields `items` then HOLDS OPEN (never ends) — models a
@@ -163,50 +161,27 @@ describe("firstFrameOfCollectionItem", () => {
   });
 });
 
-describe("firstFrameOrThrow / firstFrameOrUndefined take a Stream", () => {
-  it("reads the snapshot frame and interrupts the rest", async () => {
-    expect(await firstFrameOrThrow(holdOpen([1, 2, 3]), "empty")).toBe(1);
-    expect(await firstFrameOrUndefined(holdOpen([1, 2, 3]))).toBe(1);
-  });
-
-  it("splits on the empty-stream POLICY — the only axis that varies", async () => {
-    expect(await firstFrameOrUndefined(Stream.empty)).toBeUndefined();
-    await expect(
-      firstFrameOrThrow(Stream.empty, "boom: no snapshot"),
-    ).rejects.toThrow("boom: no snapshot");
-  });
-
-  it("an aborted signal rejects the read rather than waiting out a wedged link", async () => {
-    const ac = new AbortController();
-    const pending = firstFrameOrThrow(Stream.never, "boom", ac.signal);
-    ac.abort();
-    await expect(pending).rejects.toThrow();
-  });
-});
-
-describe("the EFFECT one-shot readers", () => {
-  it("read the same snapshot frame, without a Promise edge", async () => {
+describe("the one-shot readers", () => {
+  it("read the snapshot frame and interrupt the rest", async () => {
     expect(
-      await Effect.runPromise(
-        firstFrameOrThrowEffect(holdOpen([1, 2, 3]), "e"),
-      ),
+      await Effect.runPromise(firstFrameOrThrow(holdOpen([1, 2, 3]), "empty")),
     ).toBe(1);
     expect(
-      await Effect.runPromise(firstFrameOrUndefinedEffect(holdOpen([1, 2, 3]))),
+      await Effect.runPromise(firstFrameOrUndefined(holdOpen([1, 2, 3]))),
     ).toBe(1);
   });
 
-  it("split on the SAME empty-stream policy — and the strict one FAILS, it does not throw", async () => {
+  it("split on the empty-stream POLICY — the only axis that varies — and the strict one FAILS, it does not throw", async () => {
     expect(
-      await Effect.runPromise(firstFrameOrUndefinedEffect(Stream.empty)),
+      await Effect.runPromise(firstFrameOrUndefined(Stream.empty)),
     ).toBeUndefined();
 
-    // The distinction the Promise pair cannot express: an empty stream is a
+    // The distinction a rejected Promise could not express: an empty stream is a
     // recoverable FAILURE in the error channel, not a thrown defect — so a caller
     // may `Effect.catch` it (a benign "no value yet" at ITS layer) without
     // catching genuine bugs alongside it.
     const exit = await Effect.runPromiseExit(
-      firstFrameOrThrowEffect(Stream.empty, "boom: no snapshot"),
+      firstFrameOrThrow(Stream.empty, "boom: no snapshot"),
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
@@ -217,22 +192,25 @@ describe("the EFFECT one-shot readers", () => {
   });
 
   it("are bounded by INTERRUPTION — no signal to thread, and none to forget", async () => {
-    // The plain reader's `signal` seam, expressed as what it always translated
-    // into. A read that would wait out a wedged link forever is torn down by the
-    // combinator that bounds it, and `Stream.runHead`'s own interruption of the
-    // rest is the unsubscribe.
+    // What the deleted `signal` seam always translated into. A read that would
+    // wait out a wedged link forever is torn down by the combinator that bounds
+    // it, and `Stream.runHead`'s own interruption of the rest is the unsubscribe.
     const exit = await Effect.runPromiseExit(
-      Effect.timeout(firstFrameOrThrowEffect(Stream.never, "boom"), 20),
+      Effect.timeout(firstFrameOrThrow(Stream.never, "boom"), 20),
     );
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("are what the Promise pair RUNS — same value, same failure message", async () => {
-    expect(await firstFrameOrUndefined(holdOpen([7]))).toBe(
-      await Effect.runPromise(firstFrameOrUndefinedEffect(holdOpen([7]))),
-    );
-    await expect(
-      firstFrameOrThrow(Stream.empty, "one message"),
-    ).rejects.toThrow("one message");
+  it("build a DESCRIPTION — an unrun read subscribes to nothing", async () => {
+    let subscribed = false;
+    const watched = Stream.suspend(() => {
+      subscribed = true;
+      return Stream.make(1);
+    });
+    const unrun = firstFrameOrThrow(watched, "boom");
+    await Effect.runPromise(Effect.sleep(5));
+    expect(subscribed).toBe(false);
+    expect(await Effect.runPromise(unrun)).toBe(1);
+    expect(subscribed).toBe(true);
   });
 });

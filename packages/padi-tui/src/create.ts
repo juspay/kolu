@@ -12,23 +12,6 @@ import { shellJoin } from "@kolu/shell-quote";
 import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
 
-/** A padi PROCEDURE call, as an effect.
- *
- *  `PadiSurfaceClient` names only the Promise-shaped `surface` nesting — the
- *  Effect-native `effect[member][verb]` twin the framework now mints is not on
- *  padi's exported client type, so a padi consumer cannot reach it yet. Until
- *  padi's dial kit widens that type, this is the boundary where a Promise-shaped
- *  unary call joins the surrounding program, and it is one function so the
- *  boundary is countable rather than scattered.
- *
- *  What this DOES buy, honestly stated: the call joins the fiber tree, so a
- *  Ctrl+C stops the CLI WAITING on it. What it does not buy: stopping the call
- *  itself — Effect RPC's unary path carries no cancellation token, so an
- *  abandoned procedure runs to completion on the daemon, unobserved. The same
- *  bound the old hand-rolled abort races gave, minus the hand-rolling. */
-const call = <A>(run: () => Promise<A>): Effect.Effect<A, unknown> =>
-  Effect.tryPromise({ try: run, catch: (err) => err });
-
 /** What `create` did — the new terminal's id, the worktree it materialized (if
  *  `--worktree`), and the agent command it launched (if `-- <argv>`). */
 export interface CreateResult {
@@ -61,22 +44,18 @@ export function runCreate(
     let cwd = opts.cwd;
     let worktree: CreateResult["worktree"];
     if (opts.worktree !== undefined) {
-      const wt = yield* call(() =>
-        client.surface.git.worktreeCreate({
-          repoPath: (opts.worktree as { repoPath: string }).repoPath,
-          name: (opts.worktree as { name: string }).name,
-        }),
-      );
+      const wt = yield* client.surface.git.worktreeCreate({
+        repoPath: (opts.worktree as { repoPath: string }).repoPath,
+        name: (opts.worktree as { name: string }).name,
+      });
       cwd = wt.path;
       worktree = { path: wt.path, branch: wt.branch };
     }
 
-    const { id } = yield* call(() =>
-      client.surface.lifecycle.create({
-        ...(cwd !== undefined ? { cwd } : {}),
-        ...(opts.parentId !== undefined ? { parentId: opts.parentId } : {}),
-      }),
-    );
+    const { id } = yield* client.surface.lifecycle.create({
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(opts.parentId !== undefined ? { parentId: opts.parentId } : {}),
+    });
 
     let ran: string | undefined;
     if (opts.argv.length > 0) {
@@ -91,12 +70,10 @@ export function runCreate(
       // rc init completes (the same latent slow-rc race the canvas flow accepts;
       // promote to a shell-ready-gated create parameter only if it bites, a contract
       // change deliberately out of scope here).
-      yield* call(() =>
-        client.surface.lifecycle.sendInput({
-          id,
-          data: `${ran as string}\r`,
-        }),
-      );
+      yield* client.surface.lifecycle.sendInput({
+        id,
+        data: `${ran as string}\r`,
+      });
     }
 
     return { id, worktree, ran };

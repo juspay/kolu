@@ -140,7 +140,7 @@ export type PreviewReadResult = typeof PadiPreviewReadOutputSchema.Type;
  *  fake driving fixed bytes. */
 export type PreviewRangeReader = (
   range: string | undefined,
-) => Promise<PreviewReadResult>;
+) => Effect.Effect<PreviewReadResult, unknown>;
 
 /** Bind a padi `preview.read` procedure to ONE terminal's `{repoPath, filePath}`,
  *  producing the {@link PreviewRangeReader} the assembler dials.
@@ -160,7 +160,7 @@ export function remotePreviewReader(
     repoPath: string;
     filePath: string;
     range?: string;
-  }) => Promise<PreviewReadResult>,
+  }) => Effect.Effect<PreviewReadResult, unknown>,
   repoPath: string,
   filePath: string,
 ): PreviewRangeReader {
@@ -267,49 +267,54 @@ function streamByteRange(
   etag: string,
   chunkBytes: number,
 ): ReadableStream {
-  let pos = lo;
-  return new ReadableStream({
-    async pull(controller) {
-      if (pos > hi) {
-        controller.close();
-        return;
-      }
-      const end = Math.min(pos + chunkBytes - 1, hi);
-      const chunk = await read(`bytes=${pos}-${end}`);
-      if (chunk.status !== 206)
-        throw new Error(
-          `remote preview chunk bytes=${pos}-${end}: expected 206, got ${chunk.status} — refusing a truncated body`,
-        );
-      const cr = parseContentRange(chunk.headers);
-      if (cr.total !== total)
-        throw new Error(
-          `remote preview: file size changed mid-stream (${total} → ${cr.total}) — refusing an inconsistent body`,
-        );
-      if (cr.start !== pos || cr.end !== end)
-        throw new Error(
-          `remote preview chunk bytes=${pos}-${end}: server answered the wrong slice (bytes ${cr.start}-${cr.end}) — refusing a mismatched body`,
-        );
-      const chunkETag = getHeaderCI(chunk.headers, "etag");
-      if (chunkETag !== etag)
-        throw new Error(
-          `remote preview: file changed mid-stream (validator ${etag} → ${chunkETag ?? "<none>"}) — refusing an inconsistent body`,
-        );
-      const buf = Buffer.from(chunk.bodyBase64, "base64");
-      const want = end - pos + 1;
-      if (buf.byteLength !== want)
-        throw new Error(
-          `remote preview chunk bytes=${pos}-${end}: expected ${want} bytes, got ${buf.byteLength} — refusing a truncated body`,
-        );
-      // `buf` is a fresh, dedicated allocation from this pull's base64 decode
-      // (a production `REMOTE_PREVIEW_CHUNK_BYTES` chunk is far past Node's 4 KiB
-      // pool threshold, and even a small pooled decode is never handed back over a
-      // still-live view) — so enqueue it directly. A defensive `new Uint8Array(buf)`
-      // copy would add a full-chunk memcpy per pull on the hot path (a multi-GB
-      // video is hundreds of 8 MiB chunks) for no safety gain.
-      controller.enqueue(buf);
-      pos = end + 1;
-    },
-  });
+  // One PULL per chunk, expressed as a `Stream` of the chunk WINDOWS and mapped
+  // through the dial — then handed to the platform as a `ReadableStream` by Effect's
+  // own destructor. That is what keeps the loop composable without a run edge: the
+  // Web Streams `pull` callback is Promise-shaped and foreign, and
+  // `Stream.toReadableStream` is the framework's own crossing of it. A failure below
+  // ERRORS the resulting stream, which aborts the HTTP response — the same fail-loud
+  // contract the thrown version had.
+  const windows: Array<readonly [number, number]> = [];
+  for (let pos = lo; pos <= hi; pos += chunkBytes) {
+    windows.push([pos, Math.min(pos + chunkBytes - 1, hi)] as const);
+  }
+  return Stream.toReadableStream(
+    Stream.mapEffect(Stream.fromArray(windows), ([pos, end]) =>
+      Effect.map(read(`bytes=${pos}-${end}`), (chunk) => {
+        if (chunk.status !== 206)
+          throw new Error(
+            `remote preview chunk bytes=${pos}-${end}: expected 206, got ${chunk.status} — refusing a truncated body`,
+          );
+        const cr = parseContentRange(chunk.headers);
+        if (cr.total !== total)
+          throw new Error(
+            `remote preview: file size changed mid-stream (${total} → ${cr.total}) — refusing an inconsistent body`,
+          );
+        if (cr.start !== pos || cr.end !== end)
+          throw new Error(
+            `remote preview chunk bytes=${pos}-${end}: server answered the wrong slice (bytes ${cr.start}-${cr.end}) — refusing a mismatched body`,
+          );
+        const chunkETag = getHeaderCI(chunk.headers, "etag");
+        if (chunkETag !== etag)
+          throw new Error(
+            `remote preview: file changed mid-stream (validator ${etag} → ${chunkETag ?? "<none>"}) — refusing an inconsistent body`,
+          );
+        const buf = Buffer.from(chunk.bodyBase64, "base64");
+        const want = end - pos + 1;
+        if (buf.byteLength !== want)
+          throw new Error(
+            `remote preview chunk bytes=${pos}-${end}: expected ${want} bytes, got ${buf.byteLength} — refusing a truncated body`,
+          );
+        // `buf` is a fresh, dedicated allocation from this pull's base64 decode
+        // (a production `REMOTE_PREVIEW_CHUNK_BYTES` chunk is far past Node's 4 KiB
+        // pool threshold, and even a small pooled decode is never handed back over a
+        // still-live view) — so emit it directly. A defensive `new Uint8Array(buf)`
+        // copy would add a full-chunk memcpy per pull on the hot path (a multi-GB
+        // video is hundreds of 8 MiB chunks) for no safety gain.
+        return buf;
+      }),
+    ),
+  ) as ReadableStream;
 }
 
 /** Serve a remotely-bound file's bytes as a streaming {@link ServeResult}, shaped
@@ -324,7 +329,7 @@ function streamByteRange(
  *  verbatim. The `..`/`%2f`/symlink defenses still run TWICE — the raw-tail slice in
  *  the route (this module's `previewTailFromRawUrl`) before the dial, and padi's own
  *  realpath guard host-side inside the read. */
-export async function assembleRemotePreview(
+export function assembleRemotePreview(
   read: PreviewRangeReader,
   browserRange: string | undefined,
   // Raw HTTP `If-Range` header (RFC 9110 §13.1.3): the browser's `Range` is honored
@@ -338,110 +343,115 @@ export async function assembleRemotePreview(
   // default matches it, and unit tests pass a tiny value to exercise chunk-boundary
   // behavior on small fixtures instead of multi-megabyte ones.
   chunkBytes: number = REMOTE_PREVIEW_CHUNK_BYTES,
-): Promise<ServeResult> {
-  // 1. METADATA PROBE — 1 byte learns total size + mime + validator + existence, no
-  //    body pull.
-  const probe = await read(PREVIEW_PROBE_RANGE);
+): Effect.Effect<ServeResult, unknown> {
+  return Effect.gen(function* () {
+    // 1. METADATA PROBE — 1 byte learns total size + mime + validator + existence, no
+    //    body pull.
+    const probe = yield* read(PREVIEW_PROBE_RANGE);
 
-  // A ranged read can only answer 206 (non-empty), 416 (empty file), or a real
-  // serve-dir error (400/403/404/500 — propagate verbatim). Anything else (a 200
-  // or 3xx a ranged read must NEVER produce) is a broken upstream: fail LOUD rather
-  // than mangle its possibly-binary body through `errorResult` and serve it under a
-  // success status.
-  if (probe.status !== 206 && probe.status !== 416) {
-    if (isServeDirErrorStatus(probe.status)) return errorResult(probe);
-    throw new Error(
-      `remote preview: probe ${PREVIEW_PROBE_RANGE} returned unexpected status ${probe.status} — refusing to serve`,
-    );
-  }
-
-  if (probe.status === 416) {
-    // 416 on a `bytes=0-0` read ⇒ a ZERO-length file (byte 0 is unsatisfiable only
-    // when size is 0). Match serve-dir exactly: a ranged browser request 416s (its
-    // `Content-Range: bytes *​/0` is identical to the probe's, size-independent), an
-    // unranged one 200s empty.
-    const rangeSent = parseByteRange(browserRange, 0) === "invalid";
-    // Fast path: a range with no `If-Range` on an empty file is unsatisfiable → 416,
-    // no second dial needed.
-    if (rangeSent && ifRange === undefined) return errorResult(probe);
-    // Full 200 empty — dial UNRANGED for the file's real Content-Type (and, for the
-    // If-Range case below, its ETag), which only an unranged read exposes for an
-    // empty file (every ranged read 416s). The body is 0 bytes, so no cap concern.
-    const empty = await read(undefined);
-    if (empty.status !== 200) {
-      if (isServeDirErrorStatus(empty.status)) return errorResult(empty);
+    // A ranged read can only answer 206 (non-empty), 416 (empty file), or a real
+    // serve-dir error (400/403/404/500 — propagate verbatim). Anything else (a 200
+    // or 3xx a ranged read must NEVER produce) is a broken upstream: fail LOUD rather
+    // than mangle its possibly-binary body through `errorResult` and serve it under a
+    // success status.
+    if (probe.status !== 206 && probe.status !== 416) {
+      if (isServeDirErrorStatus(probe.status)) return errorResult(probe);
       throw new Error(
-        `remote preview: unranged empty-file re-read returned unexpected status ${empty.status} — refusing to serve`,
+        `remote preview: probe ${PREVIEW_PROBE_RANGE} returned unexpected status ${probe.status} — refusing to serve`,
       );
     }
-    // The probe said EMPTY; if the re-read now carries bytes, the file GREW between
-    // the two dials. Refuse rather than silently serving a 0-byte body for a file
-    // that is no longer empty — the empty-file analogue of the mid-stream guards.
-    if (Buffer.from(empty.bodyBase64, "base64").byteLength !== 0)
-      throw new Error(
-        "remote preview: file became non-empty between the empty-file probe and its re-read — refusing an inconsistent body",
-      );
-    // A range WITH an If-Range on an empty file: honor it (→ 416, unsatisfiable) only
-    // while the validator still matches; a stale one means the file changed → serve
-    // the full (empty) 200, matching serve-dir's own If-Range handling on the local
-    // arm. (`ifRange` is defined here — the `rangeSent && ifRange === undefined` fast
-    // path returned above.)
-    if (rangeSent) {
-      const emptyEtag = getHeaderCI(empty.headers, "etag");
-      if (emptyEtag !== undefined && ifRange?.trim() === emptyEtag)
-        return errorResult(probe);
+
+    if (probe.status === 416) {
+      // 416 on a `bytes=0-0` read ⇒ a ZERO-length file (byte 0 is unsatisfiable only
+      // when size is 0). Match serve-dir exactly: a ranged browser request 416s (its
+      // `Content-Range: bytes *​/0` is identical to the probe's, size-independent), an
+      // unranged one 200s empty.
+      const rangeSent = parseByteRange(browserRange, 0) === "invalid";
+      // Fast path: a range with no `If-Range` on an empty file is unsatisfiable → 416,
+      // no second dial needed.
+      if (rangeSent && ifRange === undefined) return errorResult(probe);
+      // Full 200 empty — dial UNRANGED for the file's real Content-Type (and, for the
+      // If-Range case below, its ETag), which only an unranged read exposes for an
+      // empty file (every ranged read 416s). The body is 0 bytes, so no cap concern.
+      const empty = yield* read(undefined);
+      if (empty.status !== 200) {
+        if (isServeDirErrorStatus(empty.status)) return errorResult(empty);
+        throw new Error(
+          `remote preview: unranged empty-file re-read returned unexpected status ${empty.status} — refusing to serve`,
+        );
+      }
+      // The probe said EMPTY; if the re-read now carries bytes, the file GREW between
+      // the two dials. Refuse rather than silently serving a 0-byte body for a file
+      // that is no longer empty — the empty-file analogue of the mid-stream guards.
+      if (Buffer.from(empty.bodyBase64, "base64").byteLength !== 0)
+        throw new Error(
+          "remote preview: file became non-empty between the empty-file probe and its re-read — refusing an inconsistent body",
+        );
+      // A range WITH an If-Range on an empty file: honor it (→ 416, unsatisfiable) only
+      // while the validator still matches; a stale one means the file changed → serve
+      // the full (empty) 200, matching serve-dir's own If-Range handling on the local
+      // arm. (`ifRange` is defined here — the `rangeSent && ifRange === undefined` fast
+      // path returned above.)
+      if (rangeSent) {
+        const emptyEtag = getHeaderCI(empty.headers, "etag");
+        if (emptyEtag !== undefined && ifRange?.trim() === emptyEtag)
+          return errorResult(probe);
+      }
+      return { status: 200, headers: empty.headers, body: emptyStream() };
     }
-    return { status: 200, headers: empty.headers, body: emptyStream() };
-  }
 
-  // 2. probe is 206 ⇒ a non-empty file. Learn its total, its strong validator, and
-  //    serve-dir's base headers, then resolve the browser's effective range with
-  //    serve-dir's OWN parser.
-  const { total } = parseContentRange(probe.headers);
-  // The validator pins the file SNAPSHOT across the whole multi-chunk read (see
-  // `streamByteRange`). serve-dir sets it on every streamed 200/206, so its absence
-  // on a 206 is a serve-dir contract break — fail LOUD, never chunk without it.
-  const etag = getHeaderCI(probe.headers, "etag");
-  if (etag === undefined)
-    throw new Error(
-      "remote preview: a 206 probe carried no ETag validator — cannot guarantee a consistent multi-chunk read",
-    );
-  const baseHeaders = baseHeadersFrom(probe.headers);
-  // If-Range (RFC 9110 §13.1.3): honor the browser's Range only while its validator
-  // still matches this file's current strong ETag; a stale one collapses to the full
-  // 200 (never a 206 slice the client would stitch onto changed bytes). Mirrors
-  // serve-dir's own If-Range handling on the local arm, so both stay in step.
-  const honorRange = ifRange === undefined || ifRange.trim() === etag;
-  const resolved = parseByteRange(honorRange ? browserRange : undefined, total);
-
-  if (resolved === "invalid") {
-    // Re-dial with the browser's exact range so serve-dir emits its verbatim 416
-    // (rather than reconstructing its header shape here). A 416 body is tiny. A
-    // status OTHER than 416 here is a broken upstream (the range was unsatisfiable
-    // against the probe's total) — fail LOUD.
-    const redial = await read(browserRange);
-    if (redial.status !== 416)
+    // 2. probe is 206 ⇒ a non-empty file. Learn its total, its strong validator, and
+    //    serve-dir's base headers, then resolve the browser's effective range with
+    //    serve-dir's OWN parser.
+    const { total } = parseContentRange(probe.headers);
+    // The validator pins the file SNAPSHOT across the whole multi-chunk read (see
+    // `streamByteRange`). serve-dir sets it on every streamed 200/206, so its absence
+    // on a 206 is a serve-dir contract break — fail LOUD, never chunk without it.
+    const etag = getHeaderCI(probe.headers, "etag");
+    if (etag === undefined)
       throw new Error(
-        `remote preview: expected 416 re-dialing unsatisfiable range "${browserRange}", got ${redial.status}`,
+        "remote preview: a 206 probe carried no ETag validator — cannot guarantee a consistent multi-chunk read",
       );
-    return errorResult(redial);
-  }
+    const baseHeaders = baseHeadersFrom(probe.headers);
+    // If-Range (RFC 9110 §13.1.3): honor the browser's Range only while its validator
+    // still matches this file's current strong ETag; a stale one collapses to the full
+    // 200 (never a 206 slice the client would stitch onto changed bytes). Mirrors
+    // serve-dir's own If-Range handling on the local arm, so both stay in step.
+    const honorRange = ifRange === undefined || ifRange.trim() === etag;
+    const resolved = parseByteRange(
+      honorRange ? browserRange : undefined,
+      total,
+    );
 
-  const [lo, hi] =
-    resolved === null ? [0, total - 1] : [resolved.start, resolved.end];
-  // Shape status + range headers through serve-dir's OWN `rangeResponseHead` — the
-  // same response contract the local `serveFile` runs through — so the remote arm
-  // differs from the local one ONLY in where the body comes from (a chunked wire
-  // reader here, a local file stream there), never in status/header shape. A full
-  // 200 carries NO Content-Length (serve-dir omits it; the runtime derives it from
-  // the streamed bytes); a 206 adds the range pair.
-  const { status, headers } = rangeResponseHead(resolved, total, baseHeaders);
+    if (resolved === "invalid") {
+      // Re-dial with the browser's exact range so serve-dir emits its verbatim 416
+      // (rather than reconstructing its header shape here). A 416 body is tiny. A
+      // status OTHER than 416 here is a broken upstream (the range was unsatisfiable
+      // against the probe's total) — fail LOUD.
+      const redial = yield* read(browserRange);
+      if (redial.status !== 416)
+        throw new Error(
+          `remote preview: expected 416 re-dialing unsatisfiable range "${browserRange}", got ${redial.status}`,
+        );
+      return errorResult(redial);
+    }
 
-  return {
-    status,
-    headers,
-    body: streamByteRange(read, lo, hi, total, etag, chunkBytes),
-  };
+    const [lo, hi] =
+      resolved === null ? [0, total - 1] : [resolved.start, resolved.end];
+    // Shape status + range headers through serve-dir's OWN `rangeResponseHead` — the
+    // same response contract the local `serveFile` runs through — so the remote arm
+    // differs from the local one ONLY in where the body comes from (a chunked wire
+    // reader here, a local file stream there), never in status/header shape. A full
+    // 200 carries NO Content-Length (serve-dir omits it; the runtime derives it from
+    // the streamed bytes); a 206 adds the range pair.
+    const { status, headers } = rangeResponseHead(resolved, total, baseHeaders);
+
+    return {
+      status,
+      headers,
+      body: streamByteRange(read, lo, hi, total, etag, chunkBytes),
+    };
+  });
 }
 
 // ── The ROUTE ────────────────────────────────────────────────────────────────
@@ -468,12 +478,12 @@ export interface PreviewPadiClient {
     readonly preview: {
       readonly repoRootForTerminal: (input: {
         terminalId: string;
-      }) => Promise<{ repoRoot: string | null }>;
+      }) => Effect.Effect<{ repoRoot: string | null }, unknown>;
       readonly read: (input: {
         repoPath: string;
         filePath: string;
         range?: string;
-      }) => Promise<PreviewReadResult>;
+      }) => Effect.Effect<PreviewReadResult, unknown>;
     };
   };
 }
@@ -591,15 +601,18 @@ export const previewRouteHandler = (options: {
     // a client-promise rejection (a fresh spawn that fails its handshake) maps to the
     // same 503 link-fault, not an uncaught 500.
     const resolved = yield* Effect.result(
-      Effect.tryPromise({
-        try: async () => {
-          const client = await clientPromise;
-          const { repoRoot } = await client.surface.preview.repoRootForTerminal(
-            { terminalId },
-          );
-          return { client, repoRoot };
-        },
-        catch: (err) => err,
+      Effect.gen(function* () {
+        // The client promise is `@kolu/surface-remote`'s (the session layer this
+        // campaign records as its residual), so it is LIFTED; the member call itself
+        // is an Effect and composes.
+        const client = yield* Effect.tryPromise({
+          try: () => clientPromise,
+          catch: (err) => err,
+        });
+        const { repoRoot } = yield* client.surface.preview.repoRootForTerminal({
+          terminalId,
+        });
+        return { client, repoRoot };
       }),
     );
     if (Result.isFailure(resolved)) {
@@ -649,22 +662,18 @@ export const previewRouteHandler = (options: {
       // there and is caught by `routeErrorLogging` (a LOGGED 500). Either way loud,
       // never a silent short body.
       const remote = yield* Effect.result(
-        Effect.tryPromise({
-          try: () =>
-            assembleRemotePreview(
-              // The reader is built by `remotePreviewReader` rather than spelled
-              // inline — it owns the one `optionalKey` discipline this dial needs
-              // (#17), pinned beside the type it satisfies.
-              remotePreviewReader(
-                (input) => client.surface.preview.read(input),
-                repoPath,
-                rawTail,
-              ),
-              range,
-              ifRange,
-            ),
-          catch: (err) => err,
-        }),
+        assembleRemotePreview(
+          // The reader is built by `remotePreviewReader` rather than spelled
+          // inline — it owns the one `optionalKey` discipline this dial needs
+          // (#17), pinned beside the type it satisfies.
+          remotePreviewReader(
+            (input) => client.surface.preview.read(input),
+            repoPath,
+            rawTail,
+          ),
+          range,
+          ifRange,
+        ),
       );
       if (Result.isFailure(remote)) {
         log.error(

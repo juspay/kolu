@@ -64,9 +64,9 @@ export interface KoluCliConnection {
 /** The running padi could not be NAMED: none discovered, or several with no
  *  `$PADI_SOCKET` to pick one. A usage fact about this host, never a transient
  *  — a retry cannot change it, so it is its own tag. */
-export class PadiNotAddressable extends Data.TaggedError(
-  "PadiNotAddressable",
-)<{ readonly message: string }> {}
+export class PadiNotAddressable extends Data.TaggedError("PadiNotAddressable")<{
+  readonly message: string;
+}> {}
 
 /** The padi we named speaks a `padiSurface` this build cannot talk to.
  *
@@ -157,10 +157,10 @@ export const connectKoluCliLocal: Effect.Effect<
   }
   const socket = resolved.socket;
   return Effect.map(
-    Effect.tryPromise({
-      try: () => connectPadi(socket),
-      catch: classifyDialFailure,
-    }),
+    // `connectPadi` is an Effect; the classification stays at the RAISE site so
+    // everything past the dial matches a `_tag` rather than an `instanceof`
+    // across two module instances of the supervisor package.
+    Effect.mapError(connectPadi(socket), classifyDialFailure),
     (conn) => ({
       client: scopePadiSurface(conn.client),
       dispose: conn.dispose,

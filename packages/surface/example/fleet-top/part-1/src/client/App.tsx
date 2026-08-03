@@ -8,6 +8,7 @@
  *   - `app.procedures.process.kill(...)` → the one mutation
  */
 
+import { Effect } from "effect";
 import { createMemo, For, Show } from "solid-js";
 import type { Pid } from "../common/surface";
 import { app } from "./wire";
@@ -29,8 +30,15 @@ export default function App() {
     ),
   );
 
-  const kill = async (pid: Pid): Promise<void> => {
-    await app.procedures.process.kill({ pid, signal: "TERM" });
+  // A declared procedure is an EFFECT — a description until something runs it.
+  // A DOM handler is the edge where that happens.
+  const kill = (pid: Pid): void => {
+    Effect.runFork(
+      Effect.catchCause(
+        app.procedures.process.kill({ pid, signal: "TERM" }),
+        (cause) => Effect.sync(() => console.error("kill failed", cause)),
+      ),
+    );
   };
   // #endregion
 

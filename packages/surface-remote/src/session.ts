@@ -43,6 +43,7 @@
  */
 
 import type { Logger } from "@kolu/log";
+import { Effect } from "effect";
 import {
   ClockNowUnavailableError,
   measureSurfaceClockOffset,
@@ -64,6 +65,38 @@ import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
 import type { LogEntry } from "./connection";
 import { MAX_PROGRESS_LINES } from "./progressTail";
+
+/**
+ * THE session's probe edge — the ONE place a framework-reserved probe becomes a
+ * Promise.
+ *
+ * The three reserved round-trips this module fires (`system.identity`,
+ * `system.clockNow`, `system.live`) are Effects, because a member call is one.
+ * Everything that consumes them here is not: the session's dial/reconnect
+ * machinery is Promise- and timer-shaped BY CONTRACT — `Connector` hands back a
+ * `Promise<Connection>`, `Connection.isAlive()` is a `() => Promise<void>` the
+ * heartbeat races against a timer, and the clock probe is a deadline armed with
+ * `setTimeout`. That layer is this campaign's recorded residual and is
+ * deliberately not converted here, so this is the one seam where the two meet,
+ * named once instead of three times.
+ *
+ * `signal`, when given, is the probe's own `AbortController`: `Effect.runPromise`
+ * turns an abort into fiber INTERRUPTION, which tears the in-flight request down
+ * rather than merely stopping us waiting for it. That is strictly stronger than
+ * the `signal` these probes used to take as a parameter — an interrupt is not
+ * refusable, and a plug that ignored a threaded signal could leave a request
+ * stacked behind the retry.
+ *
+ * Package-internal (it is NOT in `./index`'s export list): `dialAgentOnce` reaches
+ * it for the same reserved probe, so the package has one such edge rather than one
+ * per file.
+ */
+export function runProbe<A>(
+  effect: Effect.Effect<A, unknown>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return Effect.runPromise(effect, signal ? { signal } : undefined);
+}
 
 const MAX_CONSECUTIVE_FAILURES = 5;
 
@@ -1349,7 +1382,7 @@ export function makeSession<
     // probe reads `system.live`). A rejection (an older server, a link blip) leaves
     // the last-known identity in place — an honest degrade, never a fabricated one.
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
-    probeSurfaceIdentity(client)
+    runProbe(probeSurfaceIdentity(client))
       .then((id) => {
         // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
         // now-dead link landing after a reconnect) — writing it would clobber the live
@@ -1434,7 +1467,10 @@ export function makeSession<
         ac.abort(err);
         reject(err);
       });
-      measureSurfaceClockOffset(client, ac.signal).then(resolve, reject);
+      runProbe(measureSurfaceClockOffset(client), ac.signal).then(
+        resolve,
+        reject,
+      );
     })
       .then((clockOffset) => {
         settleClockProbe();
@@ -1669,5 +1705,5 @@ export function makeSession<
  *  `system.live` round-trip. A connector that yields a raw surface client uses this;
  *  a transport with its own liveness (an endpoint) supplies its own. */
 export function surfaceLiveProbe(client: unknown): () => Promise<void> {
-  return () => probeSurfaceLive(client).then(() => undefined);
+  return () => runProbe(probeSurfaceLive(client)).then(() => undefined);
 }

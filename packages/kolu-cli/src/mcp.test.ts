@@ -51,7 +51,9 @@ describe("classifyDialFailure", () => {
   });
 
   it("anything else becomes PadiDialFailed, carrying its message and cause", () => {
-    const err = new Error("connect ECONNREFUSED /run/user/1000/padi-x/padi.sock");
+    const err = new Error(
+      "connect ECONNREFUSED /run/user/1000/padi-x/padi.sock",
+    );
     const classified = classifyDialFailure(err);
     expect(classified._tag).toBe("PadiDialFailed");
     expect(classified.message).toContain("ECONNREFUSED");
@@ -84,7 +86,9 @@ describe("guardedMcpDial", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain("padi contract skew");
+    expect(String(stderrSpy.mock.calls[0]?.[0])).toContain(
+      "padi contract skew",
+    );
   });
 
   it("a transport failure fails TYPED and retryable — never queued", () => {

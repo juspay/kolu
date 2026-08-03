@@ -26,7 +26,7 @@ The face is deliberately **structural**: each leaf types as `unknown`, because
 per-member precision lives in the spec-derived hooks a Solid consumer gets, and a
 second precise mapped type over the same spec is the union-budget blow-up the
 framework avoids. So a test names the shape of each member it uses **once** — as a
-`UnaryProcedure<I, O>` or a `StreamingProcedure<I, O>` — after which every call
+`UnaryEffect<I, O, E>` or a `StreamingProcedure<I, O>` — after which every call
 site is fully typed.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="client" />
@@ -36,17 +36,18 @@ site is fully typed.
 A cell or stream read opens with a snapshot and then sends deltas, as an Effect
 `Stream`. So the current value *is* the first frame, and `Stream.runHead` is the
 one-shot read — it interrupts the subscription as soon as that frame lands. Wrap
-it in a helper that **throws on an empty stream**, so a broken read fails the test
+it in a helper that **fails on an empty stream**, so a broken read fails the test
 instead of asserting on `undefined`. (`firstFrameOrThrow` in
 `@kolu/surface/first-frame` is that helper, already written: it takes the member
-`Stream` and rejects with your message on an empty one.)
+`Stream` and gives you an `Effect` that fails with your message on an empty one.)
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="snapshot" />
 
 ## Drive a procedure and assert the effect
 
-Procedures are plain awaited calls — the framework's one `Promise` edge. Call
-one, then read the affected cell or collection back and assert the new snapshot.
+A procedure call is an `Effect`, so a test runs it the same way it runs any other
+— a test *is* a process edge. Call one, then read the affected cell or collection
+back and assert the new snapshot.
 
 <Snippet src="packages/surface/example/snippets/test-a-surface.ts" region="procedure" />
 

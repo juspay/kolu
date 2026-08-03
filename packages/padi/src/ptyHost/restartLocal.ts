@@ -42,47 +42,64 @@ import { log } from "../log.ts";
 import { setSavedSessionFromSnapshot } from "../session/session.ts";
 import { parkSavedSession } from "../terminalEndpoint/reattach.ts";
 import { killAllTerminals, snapshotSession } from "../terminals.ts";
+import { Effect } from "effect";
 import { restartLocalEndpoint } from "./index.ts";
 
-/** Restart the local kaval daemon, preserving the session. Resolves once the
- *  fresh daemon is connected (or rejects if the recycle failed — the endpoint
+/** Restart the local kaval daemon, preserving the session. Succeeds once the
+ *  fresh daemon is connected (or fails if the recycle failed — the endpoint
  *  has already reported `dead`, and the captured session is safe on disk for the
  *  user to retry or restore). Concurrent calls coalesce onto one restart. */
-export function restartLocalDaemon(): Promise<void> {
-  // This restart's own freeze lease, captured at `capture` and released in the
-  // `finally` — releasing THIS token only, never a concurrent restore's lease.
-  let freeze: AutosaveFreeze | undefined;
-  return restartLocalEndpoint({
-    // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
-    capture: async () => {
-      log.info({}, "session-trace restart: capture");
-      // Freeze the autosave for the WHOLE critical section before anything can arm
-      // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
-      // autosave would fire in the recycle GAP with an empty registry and no parked
-      // entries yet, nulling the session we're about to capture, before park runs.
-      freeze = freezeAutosave("restart critical section (capture→drain→park)");
-      setSavedSessionFromSnapshot(snapshotSession());
-    },
-    // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
-    drain: async () => {
-      log.info({}, "session-trace restart: drain (killAll)");
-      await killAllTerminals();
-    },
-    // B3.2: nothing survives a daemon kill — park the captured session so the
-    // restore card shows and `session.restore` re-spawns it (W1.R6). Same
-    // no-survivor parking the cold boot runs. (B3.3 adopts survivors here.)
-    reattach: async () => {
-      log.info({}, "session-trace restart: reattach (park)");
-      parkSavedSession();
-    },
-  }).finally(() => {
-    // Park has seeded the parked entries (`hasParkedTerminals()` guards the autosave
-    // from here), OR the restart FAILED before park — either way lift THIS restart's
-    // freeze lease (undefined if it failed before `capture` ran) and cancel any
-    // drain-armed timer, so a failed restart can't null the captured session after the
-    // freeze lifts. Releasing only our own token leaves a concurrent restore's lease
-    // intact.
-    if (freeze !== undefined) unfreezeAutosave(freeze);
-    cancelPendingAutosave();
+export function restartLocalDaemon(): Effect.Effect<void, unknown> {
+  return Effect.suspend(() => {
+    // This restart's own freeze lease, captured at `capture` and released in the
+    // `ensuring` — releasing THIS token only, never a concurrent restore's lease.
+    // A closure `let` rather than a `Ref`: it is written and read by ONE restart's
+    // own steps, in order, and never leaves this expression.
+    let freeze: AutosaveFreeze | undefined;
+    return restartLocalEndpoint({
+      // Snapshot + persist BEFORE the kill — the session must outlive the daemon.
+      capture: Effect.sync(() => {
+        log.info({}, "session-trace restart: capture");
+        // Freeze the autosave for the WHOLE critical section before anything can arm
+        // it: the drain below kills the PTYs → they fire `terminals:dirty` → the 500ms
+        // autosave would fire in the recycle GAP with an empty registry and no parked
+        // entries yet, nulling the session we're about to capture, before park runs.
+        freeze = freezeAutosave(
+          "restart critical section (capture→drain→park)",
+        );
+        setSavedSessionFromSnapshot(snapshotSession());
+      }),
+      // Tear down kolu's terminal layer; the recycle takes the PTYs themselves.
+      drain: () =>
+        Effect.gen(function* () {
+          log.info({}, "session-trace restart: drain (killAll)");
+          // `killAllTerminals` is padi’s own terminal-layer verb, Promise-shaped
+          // by the endpoint handle it drives; it absorbs its own kill failure and
+          // never rejects, so it is LIFTED rather than run.
+          yield* Effect.promise(killAllTerminals);
+        }),
+      // B3.2: nothing survives a daemon kill — park the captured session so the
+      // restore card shows and `session.restore` re-spawns it (W1.R6). Same
+      // no-survivor parking the cold boot runs. (B3.3 adopts survivors here.)
+      reattach: () =>
+        Effect.sync(() => {
+          log.info({}, "session-trace restart: reattach (park)");
+          parkSavedSession();
+        }),
+    }).pipe(
+      // Park has seeded the parked entries (`hasParkedTerminals()` guards the autosave
+      // from here), OR the restart FAILED before park — either way lift THIS restart's
+      // freeze lease (undefined if it failed before `capture` ran) and cancel any
+      // drain-armed timer, so a failed restart can't null the captured session after the
+      // freeze lifts. Releasing only our own token leaves a concurrent restore's lease
+      // intact. `ensuring` rather than a `finally`, so an INTERRUPTED restart lifts the
+      // lease too — a `finally` around an `await` never got that.
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (freeze !== undefined) unfreezeAutosave(freeze);
+          cancelPendingAutosave();
+        }),
+      ),
+    );
   });
 }

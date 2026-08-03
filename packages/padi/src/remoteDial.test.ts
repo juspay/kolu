@@ -1,4 +1,4 @@
-import { Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PADI_SURFACE_VERSION } from "./surface.ts";
 
@@ -62,10 +62,12 @@ describe("dialPadiViaHost", () => {
     if (probe === undefined) throw new Error("padi dial omitted its gate");
 
     await expect(
-      probe(fakeCombinedClient(PADI_SURFACE_VERSION) as never),
+      Effect.runPromise(
+        probe(fakeCombinedClient(PADI_SURFACE_VERSION) as never),
+      ),
     ).resolves.toBeUndefined();
-    await expect(probe(fakeCombinedClient("999.0") as never)).rejects.toThrow(
-      /contract skew/,
-    );
+    await expect(
+      Effect.runPromise(probe(fakeCombinedClient("999.0") as never)),
+    ).rejects.toThrow(/contract skew/);
   });
 });

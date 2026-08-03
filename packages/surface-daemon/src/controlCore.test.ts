@@ -11,7 +11,7 @@
  */
 
 import { Effect, Schema } from "effect";
-import { buildSurfaceFace, type UnaryProcedure } from "@kolu/surface/client";
+import { buildSurfaceFace, type UnaryEffect } from "@kolu/surface/client";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface } from "@kolu/surface/server";
 import { describe, expect, it, vi } from "vitest";
@@ -44,10 +44,10 @@ describe("controlCoreFragment", () => {
     // their declared shapes — the point of the test is the SERVED behaviour, and
     // the fragment's types are pinned by `controlCoreFragment`'s own `satisfies`.
     const core = face.surface.core as Record<string, unknown>;
-    const hello = core.hello as UnaryProcedure<void, ControlCoreHello>;
-    const drain = core.drain as UnaryProcedure<void, void>;
+    const hello = core.hello as UnaryEffect<void, ControlCoreHello, never>;
+    const drain = core.drain as UnaryEffect<void, void, never>;
 
-    await expect(hello()).resolves.toEqual({
+    await expect(Effect.runPromise(hello())).resolves.toEqual({
       stateRoot: "/state/pulse",
       surfaceVersion: "3.2",
       controlCoreVersion: CONTROL_CORE_VERSION,
@@ -55,7 +55,7 @@ describe("controlCoreFragment", () => {
       commit: "deadbee",
       buildId: "build-7",
     });
-    await drain();
+    await Effect.runPromise(drain());
     expect(onDrain).toHaveBeenCalledOnce();
     await runtime.close();
   });

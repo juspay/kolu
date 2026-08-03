@@ -76,11 +76,11 @@ vi.mock("./wire", async () => {
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
     // `createViewState`'s `writeFocus` reports the active tile through the
-    // per-host Effect face `padiEffectOf(host)`.
-    padiEffectOf: () => ({
+    // per-host procedure face `padiRpcOf(host)`.
+    padiRpcOf: () => ({
       chrome: { setActive: rpcSpy.setActive },
     }),
-    activePadiEffect: {
+    activePadiRpc: {
       session: {
         restore: vi.fn(() => Effect.void),
         forfeit: vi.fn(() => Effect.void),

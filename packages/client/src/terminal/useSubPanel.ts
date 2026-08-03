@@ -9,7 +9,7 @@ import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
 import { runAction } from "../runAction";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
   collapsed: boolean;
@@ -53,7 +53,7 @@ function reportToServer(parentId: TerminalId) {
   // write that already happened, with nothing to compose into.
   runAction(
     "save sub-panel state",
-    activePadiEffect.chrome
+    activePadiRpc.chrome
       .setSubPanel({
         id: parentId,
         collapsed: s.collapsed,

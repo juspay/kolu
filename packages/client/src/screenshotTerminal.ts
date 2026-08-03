@@ -239,10 +239,13 @@ export function screenshotTerminal(
       buffer: {
         active: {
           viewportY: number;
-          getLine: (
-            y: number,
-          ) =>
-            | { getCell: (x: number, dst?: BufferCell) => BufferCell | undefined }
+          getLine: (y: number) =>
+            | {
+                getCell: (
+                  x: number,
+                  dst?: BufferCell,
+                ) => BufferCell | undefined;
+              }
             | undefined;
           getNullCell: () => BufferCell;
         };

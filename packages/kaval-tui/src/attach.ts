@@ -34,7 +34,7 @@
  */
 import { StringDecoder } from "node:string_decoder";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { firstFrameOrUndefinedEffect } from "@kolu/surface/first-frame";
+import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
 import { createTerminalResponseStripper } from "@kolu/terminal-protocol";
 import { Data, Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import type { PtyTuiClient } from "./connect.ts";
@@ -107,7 +107,7 @@ function readExitCode(
   // the attach's own fiber tree, so a Ctrl+C on the way out interrupts it
   // instead of leaving the CLI waiting on a wedged link.
   return Effect.map(
-    firstFrameOrUndefinedEffect(client.surface.exit.get({ id })),
+    firstFrameOrUndefined(client.surface.exit.get({ id })),
     (frame) => (frame as { exitCode?: number } | undefined)?.exitCode,
   );
 }
@@ -201,17 +201,13 @@ export function runAttach(
               continue;
             }
             yield* Effect.catch(
-              Effect.tryPromise({
-                try: () =>
-                  op.kind === "write"
-                    ? client.surface.terminal.write({ id, data: op.data })
-                    : client.surface.terminal.resize({
-                        id,
-                        cols: op.cols,
-                        rows: op.rows,
-                      }),
-                catch: (err) => err,
-              }),
+              op.kind === "write"
+                ? client.surface.terminal.write({ id, data: op.data })
+                : client.surface.terminal.resize({
+                    id,
+                    cols: op.cols,
+                    rows: op.rows,
+                  }),
               (err) =>
                 Effect.sync(() => {
                   transportError ??= err;
@@ -321,7 +317,9 @@ export function runAttach(
       );
 
       /** Consume ONE attach subscription to its end. */
-      const consumeAttach = (pid: number): Effect.Effect<AttemptEnd, unknown> => {
+      const consumeAttach = (
+        pid: number,
+      ): Effect.Effect<AttemptEnd, unknown> => {
         let sawSnapshot = false;
         return Effect.matchEffect(
           // The grid rides ON the attach: `resizeTo` makes the host resize the
@@ -351,7 +349,8 @@ export function runAttach(
                   // passthrough owns zero pixels while attached). It survives only
                   // until the clear below on most paints; the durable trailers are
                   // the detach/exit lines main.ts prints after restore.
-                  const lines = snapshot === "" ? 0 : snapshot.split("\n").length;
+                  const lines =
+                    snapshot === "" ? 0 : snapshot.split("\n").length;
                   yield* tty.write(
                     `↻ snapshot restored — ${lines} line${lines === 1 ? "" : "s"} · PTY pid ${pid}${attachedOnce ? " unchanged" : ""}\r\n`,
                   );
@@ -434,10 +433,7 @@ export function runAttach(
           // server abort, and the silent slow-consumer drop; whether the PTY is
           // still listed is what tells them apart).
           const listed = yield* Effect.catch(
-            Effect.tryPromise({
-              try: () => client.surface.terminal.list({}),
-              catch: (err) => err,
-            }),
+            client.surface.terminal.list({}),
             (err) =>
               Effect.succeed({
                 failure: describeError(err),
@@ -467,7 +463,8 @@ export function runAttach(
             // A detach can land between attempts (the previous stream already
             // ended, or none has started) — honour it before dialing a fresh
             // attach the earlier detach could not have reached.
-            if (yield* Deferred.isDone(detachRequested)) return yield* drainWire;
+            if (yield* Deferred.isDone(detachRequested))
+              return yield* drainWire;
 
             const end = yield* Effect.raceAllFirst<
               Effect.Effect<AttemptEnd | "detached" | "wire-failed", unknown>
@@ -486,7 +483,8 @@ export function runAttach(
             }
             // A detach that landed while the attempt was finishing still wins:
             // the user asked to leave, and the bytes they sent first must land.
-            if (yield* Deferred.isDone(detachRequested)) return yield* drainWire;
+            if (yield* Deferred.isDone(detachRequested))
+              return yield* drainWire;
             if (end.kind === "outcome") return end.outcome;
             // Clean stream end — loop back. The pause keeps a pathological
             // immediate-drop server from spinning us hot.

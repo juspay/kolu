@@ -53,9 +53,11 @@ describe("the exit-code matrix", () => {
 
 describe("what the run edge prints", () => {
   it("an arm prints its own exact line, verbatim", () => {
-    expect(reportOf(new WaitInterrupted({ stderr: "— interrupted; ab left waiting\n" }))).toBe(
-      "— interrupted; ab left waiting\n",
-    );
+    expect(
+      reportOf(
+        new WaitInterrupted({ stderr: "— interrupted; ab left waiting\n" }),
+      ),
+    ).toBe("— interrupted; ab left waiting\n");
     // Note the ABSENCE of a `padi-tui:` prefix above — the interrupted trailer
     // is a status line, not a diagnostic, and prefixing it would change bytes a
     // user reads.

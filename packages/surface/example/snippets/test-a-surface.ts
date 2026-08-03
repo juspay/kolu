@@ -8,7 +8,7 @@
 import {
   buildSurfaceFace,
   type StreamingProcedure,
-  type UnaryProcedure,
+  type UnaryEffect,
 } from "@kolu/surface/client";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
@@ -88,7 +88,7 @@ const keys = client.surface.processes?.keys as StreamingProcedure<
   undefined,
   readonly Pid[]
 >;
-const kill = client.surface.proc?.kill as UnaryProcedure<KillArgs, Killed>;
+const kill = client.surface.proc?.kill as UnaryEffect<KillArgs, Killed, never>;
 const nodeLog = client.surface.nodeLog?.get as StreamingProcedure<
   NodeIdArg,
   LogFrame

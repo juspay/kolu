@@ -160,7 +160,10 @@ const TileTitleActions: Component<{
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) =>
             onTile(e, () =>
-              runAction("screenshot terminal", screenshotTerminal(props.id, meta())),
+              runAction(
+                "screenshot terminal",
+                screenshotTerminal(props.id, meta()),
+              ),
             )
           }
           title={ACTIONS.screenshotTerminal.label}

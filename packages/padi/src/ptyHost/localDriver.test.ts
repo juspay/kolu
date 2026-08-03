@@ -8,6 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { DAEMON_BIND_PID_ENV } from "@kolu/surface-daemon";
 import { SPAWN_ENV_ALLOWLIST } from "kolu-pty";
 import {
@@ -51,7 +52,9 @@ describe("localKavalDriver — the A8 runtime spawn leash at the real funnel (F5
     // "a bare vitest never forks a real kaval". VITEST is already set in every worker.
     delete process.env.KOLU_DAEMON_TESTS;
     const driver = localKavalDriver("/run/user/1000/kaval-x/pty-host.sock");
-    expect(() => driver.spawn()).toThrow(/KOLU_DAEMON_TESTS/);
+    // `spawn` is a lazy Effect, so the leash fires when it RUNS, not when the
+    // driver is built — running it is what asserts the refusal.
+    expect(() => Effect.runSync(driver.spawn)).toThrow(/KOLU_DAEMON_TESTS/);
   });
 });
 

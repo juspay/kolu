@@ -50,8 +50,7 @@ describe("SurfaceRuntime supervision — done / close", () => {
       cells: {
         c: {
           store,
-          connect: () =>
-            Effect.fail(new Error("connector boom")),
+          connect: () => Effect.fail(new Error("connector boom")),
         },
       },
     });
@@ -211,7 +210,9 @@ describe("SurfaceRuntime supervision — done / close", () => {
         a: {
           store: inMemoryStore(0),
           connect: () =>
-            Effect.uninterruptible(Effect.promise(() => new Promise<void>(() => {}))),
+            Effect.uninterruptible(
+              Effect.promise(() => new Promise<void>(() => {})),
+            ),
         },
         // `b` settles immediately and registers a finalizer.
         b: {
@@ -337,8 +338,7 @@ describe("SurfaceRuntime supervision — done / close", () => {
       cells: {
         c: {
           store: inMemoryStore(0),
-          connect: () =>
-            Effect.fail(new Error("connector boom")),
+          connect: () => Effect.fail(new Error("connector boom")),
         },
       },
     });

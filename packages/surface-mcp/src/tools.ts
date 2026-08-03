@@ -12,15 +12,24 @@
  * Both wrap their return as a `ToolResult` (`content:[{type:"text",...}]`)
  * and surface a thrown error as `isError`.
  *
- * **On cancellation (D10).** Effect RPC carries no `signal`, so a surface
- * member call is cancelled by interrupting the fiber running it — which is what
- * `resources/read` does with the MCP request's `extra.signal`. A BESPOKE
- * handler is a consumer-supplied Promise-shaped function, not a surface member,
- * so it keeps its `AbortSignal` parameter: that is the consumer's own
- * cancellation vocabulary, and the MCP request signal is handed to it verbatim.
+ * **On cancellation (D10).** Effect RPC carries no `signal`, so a surface member
+ * call is cancelled by interrupting the fiber running it — and EVERY request this
+ * package serves now runs under the MCP request's own `extra.signal` (see
+ * `server.ts`'s `runRequest`). A bespoke handler returns an `Effect` like
+ * everything else, so it inherits that interruption for free: a cancelled
+ * `tools/call` tears down whatever the handler opened, through its own
+ * finalizers, with nothing to thread.
+ *
+ * The `signal` parameter SURVIVES that, and only for one reason: a handler that
+ * calls into a scaffold whose cancellation vocabulary is still `AbortSignal`
+ * needs one to hand over, and cannot conjure it from its own interruption
+ * without building an `AbortController` bridge per call. `kolu-mcp`'s `wait_*`
+ * tools are the live example — they drive padi's `runWait`, which takes a
+ * signal. A handler that only composes surface members should ignore the
+ * parameter and let interruption do the work.
  */
 
-import type { Schema } from "effect";
+import type { Effect, Schema } from "effect";
 
 /** A bespoke tool's input schema: any context-free Effect Schema whose DECODED
  *  type is the handler's `args`. The same bound `@kolu/surface`'s `WireSchema<T>`
@@ -29,8 +38,9 @@ import type { Schema } from "effect";
 export type ToolInputSchema<I> = Schema.Codec<I, unknown, never, never>;
 
 /** A hand-authored MCP tool. `input` (optional) validates and shapes the
- *  args; `handler` runs against the live surface `client`, with the call's
- *  `AbortSignal` for cancellation; `description` is the tool's `tools/list` blurb.
+ *  args; `handler` DESCRIBES the work against the live surface `client` and the
+ *  adapter runs it at the one request edge; `description` is the tool's
+ *  `tools/list` blurb.
  *
  *  `mutates` flags the tool for host authz (`readOnlyHint`/`destructiveHint`).
  *  It is OPTIONAL but defaults CONSERVATIVELY: an absent `mutates` is treated as
@@ -48,8 +58,11 @@ export interface BespokeTool<I = unknown, O = unknown> {
     // The surface client is consumer-typed; the adapter holds it opaquely.
     // biome-ignore lint/suspicious/noExplicitAny: client shape is the consumer's, opaque here.
     client: any,
+    /** The MCP request's own signal, for a handler that must hand one to a
+     *  scaffold speaking `AbortSignal`. Ignore it otherwise — see the module
+     *  doc: the handler's effect is already run under this signal. */
     signal: AbortSignal | undefined,
-  ) => Promise<O> | O;
+  ) => Effect.Effect<O, unknown>;
 }
 
 /** The MCP `CallTool` result shape we emit. */

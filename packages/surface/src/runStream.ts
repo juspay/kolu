@@ -1,5 +1,5 @@
 /**
- * The ONE Effect→callback edge (PLAN D10, review #25) — `@kolu/surface/run-stream`.
+ * The Effect→callback edges (PLAN D10, review #25) — `@kolu/surface/run-stream`.
  *
  * Reachable on its OWN subpath, not only through `@kolu/surface/solid`, because
  * it has nothing to do with Solid: `pollOnChange` is deliberately Solid-free and
@@ -10,10 +10,11 @@
  * SolidJS's reactive graph is push-based and non-Effect by decision: components,
  * the reactor and xterm stay outside Effect and call Effect-backed clients at the
  * leaves. Somewhere a `Stream` therefore has to be RUN so its frames become signal
- * writes — and that somewhere is here, in one function, rather than once per
- * subscription primitive.
+ * writes — and somewhere a write launched by a TIMER (a coalesced cell flush) has
+ * to be run with nobody left to await it. Both are here, in this one module,
+ * rather than once per subscription primitive.
  *
- * Concentrating it buys three things a scattered `Effect.runFork` would not:
+ * Concentrating them buys three things a scattered `Effect.runFork` would not:
  *
  *   - **One teardown contract.** The fiber is interrupted by the returned stopper;
  *     interruption propagates into the stream's finalizers, which is what actually
@@ -24,7 +25,7 @@
  *     failure racing the stop. Every consumer inherits it instead of re-deriving
  *     an `aborted` check.
  *   - **One place for the run-edge allowlist to point at.** `Effect.runFork` in
- *     this package's UI tier appears exactly here.
+ *     this package's UI tier appears exactly in this file.
  */
 
 import { Cause, Effect, Exit, Stream } from "effect";
@@ -86,4 +87,36 @@ export function runStreamScoped<T>(
     stopped = true;
     fiber.interruptUnsafe();
   };
+}
+
+/** Launch `effect` with NOBODY waiting for it, reporting a failure to `onFailure`.
+ *
+ *  The write half of this module's edge, and it exists for exactly one shape: a
+ *  mutation launched by a TIMER rather than by a caller. `useCell`'s coalesced
+ *  patch flush is the case — the consumer's `patch(p, { coalesce: true })` returned
+ *  the moment the local store was written, and the server round-trip fires a debounce
+ *  window later, so there is no fiber left to compose it into and no caller left to
+ *  hand a failure back to.
+ *
+ *  DETACHED ON PURPOSE. The flush must outlive the owner that queued it: a
+ *  component unmounting between the last keystroke and the flush must still land
+ *  the write (that is what the coalescing window is FOR). Forking it into the
+ *  owner's scope would interrupt it and silently drop a user's edit — so it is
+ *  deliberately not scoped, and the only thing that ever observes it is
+ *  `onFailure`.
+ *
+ *  A DEFECT is reported through the same callback rather than escaping as an
+ *  unhandled rejection: the flush's failure is the cell's `onError`, and a write
+ *  that died is not a write that succeeded (caught-error-must-not-collapse-to-empty). */
+export function runDetached(
+  effect: Effect.Effect<void, unknown>,
+  onFailure: (error: Error) => void,
+): void {
+  Effect.runFork(effect).addObserver((exit) => {
+    if (Exit.isSuccess(exit)) return;
+    // An interruption here would mean the runtime itself is going down; there is
+    // no stopper on this fiber, so nothing else can produce one.
+    if (Cause.hasInterruptsOnly(exit.cause)) return;
+    onFailure(toError(Cause.squash(exit.cause)));
+  });
 }

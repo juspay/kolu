@@ -28,6 +28,15 @@ import type { AgentClient, SshProv } from "./sshConnector";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** Run a UNARY member call. A member call is an `Effect`, and a `vitest`
+ *  assertion is a promise-shaped process edge, so this is where the two meet —
+ *  once, so each `expect(...).rejects` below reads as it always did. The
+ *  rejection is the SQUASHED failure, i.e. the error instance the surface
+ *  failed with, which is what the `toBeInstanceOf` / `_tag` assertions read. */
+function call<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
+  return Effect.runPromise(effect);
+}
+
 /** Take the first `n` frames of a member stream — the Effect-native successor of
  *  the old `for await … break` helper. */
 function take<T>(stream: Stream.Stream<T, unknown>, n: number): Promise<T[]> {
@@ -180,20 +189,27 @@ function makeUpstream(
   const label = track(controllable<string>());
   label.push(labelValue); // snapshot; the cell stream stays open
 
+  // The agent FACE is Effect-native (a unary member row is an `Effect`), while the
+  // per-test hooks below (`setCounterWriter` / `setEchoCaller`) stay async so a test
+  // can `throw` in them. `tryPromise` is the join: a thrown error lands on the
+  // FAILURE channel, which is where a real face puts a declared error, so the
+  // re-serve’s classification sees exactly what it would in production.
   const client = {
     surface: {
       counter: {
         get: () => counter.stream,
         // A forwarded write: record it, then ECHO it back on the cell stream so
         // the mirror folds the agent's authoritative value into the local mirror.
-        set: (v: number) => writeCounter(v),
+        set: (v: number) =>
+          Effect.tryPromise({ try: () => writeCounter(v), catch: (e) => e }),
       },
       label: {
         get: () => label.stream,
-        set: async (v: string) => {
-          cellWrites.label.push(v);
-          label.push(v);
-        },
+        set: (v: string) =>
+          Effect.sync(() => {
+            cellWrites.label.push(v);
+            label.push(v);
+          }),
       },
       items: {
         keys: () => {
@@ -222,7 +238,8 @@ function makeUpstream(
         },
       },
       ctl: {
-        echo: ({ msg }: { msg: string }) => callEcho(msg),
+        echo: ({ msg }: { msg: string }) =>
+          Effect.tryPromise({ try: () => callEcho(msg), catch: (e) => e }),
       },
     },
   } as unknown as AgentClient;
@@ -323,11 +340,11 @@ function downstreamFace(handlers: { handlers: Record<string, unknown> }) {
     surface: {
       counter: {
         get: () => Stream.Stream<number, unknown>;
-        set: (v: number) => Promise<unknown>;
+        set: (v: number) => Effect.Effect<unknown, unknown>;
       };
       label: {
         get: () => Stream.Stream<string, unknown>;
-        set: (v: string) => Promise<unknown>;
+        set: (v: string) => Effect.Effect<unknown, unknown>;
       };
       items: {
         keys: (i: unknown) => Stream.Stream<readonly string[], unknown>;
@@ -335,7 +352,9 @@ function downstreamFace(handlers: { handlers: Record<string, unknown> }) {
       };
       attach: { get: (i: { id: string }) => Stream.Stream<string, unknown> };
       pulses: { get: (i: { repo: string }) => Stream.Stream<number, unknown> };
-      ctl: { echo: (i: { msg: string }) => Promise<{ msg: string }> };
+      ctl: {
+        echo: (i: { msg: string }) => Effect.Effect<{ msg: string }, unknown>;
+      };
     };
   };
 }
@@ -393,7 +412,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
       { n: 1 },
     ]);
     // Procedure — forwarded to the live upstream and back.
-    expect(await downstream.surface.ctl.echo({ msg: "hi" })).toEqual({
+    expect(await call(downstream.surface.ctl.echo({ msg: "hi" }))).toEqual({
       msg: "echo:hi",
     });
     expect(upstream.echoes).toEqual(["hi"]);
@@ -416,7 +435,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // oRPC-era `ORPCError("SERVICE_UNAVAILABLE")`, whose code was sanitized away
     // on the wire anyway.
     await expect(
-      downstream.surface.ctl.echo({ msg: "between-spawns" }),
+      call(downstream.surface.ctl.echo({ msg: "between-spawns" })),
     ).rejects.toThrow(/no live upstream link/);
 
     await teardown(session, done);
@@ -502,7 +521,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
     // Steady state still dedups: a further EQUAL agent write does NOT republish
     // (only the rebind epoch's first fold forces; later folds keep the gate).
-    await downstream.surface.label.set("same");
+    await call(downstream.surface.label.set("same"));
     await delay(20);
     expect(sub.frames).toEqual(["same", "same"]);
 
@@ -682,7 +701,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // …and a WRITE crosses to the agent (it is NOT applied to the local mirror
     // directly). The agent records it and echoes it, so the fold updates the
     // mirror to the agent's authoritative value.
-    await downstream.surface.counter.set(9);
+    await call(downstream.surface.counter.set(9));
     await delay(10);
     expect(upstream.cellWrites.counter).toEqual([9]); // crossed to the agent
     // The mirror now reads the echoed value (folded from the agent, not a phantom
@@ -700,7 +719,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // fail loudly (like the procedure forward), not swallow into a local no-op.
     upstream.kill();
     await delay(15);
-    await expect(downstream.surface.counter.set(3)).rejects.toThrow(
+    await expect(call(downstream.surface.counter.set(3))).rejects.toThrow(
       /no live upstream link/,
     );
     expect(upstream.cellWrites.counter).toEqual([]); // nothing crossed
@@ -717,12 +736,12 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // that edge must not call the stale client.
     session.setDisconnected();
 
-    await expect(downstream.surface.counter.set(3)).rejects.toThrow(
+    await expect(call(downstream.surface.counter.set(3))).rejects.toThrow(
       /no live upstream link/,
     );
-    await expect(downstream.surface.ctl.echo({ msg: "stale" })).rejects.toThrow(
-      /no live upstream link/,
-    );
+    await expect(
+      call(downstream.surface.ctl.echo({ msg: "stale" })),
+    ).rejects.toThrow(/no live upstream link/);
     expect(upstream.cellWrites.counter).toEqual([]);
     expect(upstream.echoes).toEqual([]);
 
@@ -736,7 +755,9 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
       cell.session.setDisconnected();
       throw new Error("transport closed during cell write");
     });
-    await expect(cell.downstream.surface.counter.set(3)).rejects.toMatchObject({
+    await expect(
+      call(cell.downstream.surface.counter.set(3)),
+    ).rejects.toMatchObject({
       name: "UpstreamUnavailableError",
       cause: expect.objectContaining({
         message: "transport closed during cell write",
@@ -751,7 +772,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
       throw new Error("transport closed during procedure call");
     });
     await expect(
-      procedure.downstream.surface.ctl.echo({ msg: "drop" }),
+      call(procedure.downstream.surface.ctl.echo({ msg: "drop" })),
     ).rejects.toMatchObject({
       name: "UpstreamUnavailableError",
       cause: expect.objectContaining({
@@ -770,7 +791,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     cell.upstream.setCounterWriter(async () => {
       throw new Error("cell value rejected");
     });
-    await expect(cell.downstream.surface.counter.set(3)).rejects.toThrow(
+    await expect(call(cell.downstream.surface.counter.set(3))).rejects.toThrow(
       /cell value rejected/,
     );
     await teardown(cell.session, cell.done, cell.upstream);
@@ -783,12 +804,12 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     procedure.upstream.setEchoCaller(async () => {
       throw new EchoRejected({ detail: "procedure input rejected" });
     });
-    const failure = await procedure.downstream.surface.ctl
-      .echo({ msg: "bad" })
-      .then(
-        () => null,
-        (e: unknown) => e,
-      );
+    const failure = await call(
+      procedure.downstream.surface.ctl.echo({ msg: "bad" }),
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
     expect(failure).toBeInstanceOf(EchoRejected);
     expect((failure as EchoRejected)._tag).toBe("EchoRejected");
     expect((failure as EchoRejected).detail).toBe("procedure input rejected");
@@ -800,7 +821,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     await delay(15);
 
     // First write establishes the mirror at "x" (the agent echoes it back).
-    await downstream.surface.label.set("x");
+    await call(downstream.surface.label.set("x"));
     await delay(10);
     expect(await take(downstream.surface.label.get(), 1)).toEqual(["x"]);
 
@@ -808,7 +829,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // framework's LOCAL apply would dedup-skip it. But the forward BYPASSES
     // `equals` — the agent is the authority — so the write must STILL cross even
     // though it equals the stale mirror.
-    await downstream.surface.label.set("x");
+    await call(downstream.surface.label.set("x"));
     await delay(10);
     expect(upstream.cellWrites.label).toEqual(["x", "x"]); // both crossed
 

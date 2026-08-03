@@ -339,7 +339,7 @@ describe("keyed subscription cache — dedup + lifetime", () => {
       const a = app.cells.prefs.use({ authority: "local", initial: { n: 0 } });
       const b = app.cells.prefs.use({ authority: "local", initial: { n: 0 } });
       await settle();
-      await a.set({ n: 42 });
+      await Effect.runPromise(a.set({ n: 42 }));
       // Shared store: the write through `a` is visible through `b` (this is what
       // replaces the module-const `createSharedRoot` singleton).
       expect(b.value()).toEqual({ n: 42 });

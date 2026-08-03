@@ -39,7 +39,8 @@ export {
   retireServiceWorker,
 } from "../lifecycle";
 
-import type { UnaryProcedure } from "@kolu/surface/client";
+import { Effect } from "effect";
+import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
 import { gracedDown, onWake, type SurfaceFace } from "@kolu/surface/solid";
 import {
@@ -141,6 +142,31 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
  *  heartbeat probe, the client, and the header dot, none of which want a delay. */
 export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
 
+/**
+ * THE lifecycle's probe edge — the ONE place `@kolu/surface-app` runs an effect.
+ *
+ * A surface member call is an `Effect`, so both probes this module drives — the
+ * IDENTITY round-trip that classifies the lifecycle, and the LIVENESS round-trip
+ * the half-open watchdog fires — arrive as descriptions. Neither consumer of them
+ * is Effect-shaped, and deliberately: the lifecycle hangs off `wire.onStatus`, a
+ * plain callback, and `createHeartbeat` is the framework-free primitive that
+ * races a probe against a timer (the same contract `@kolu/surface`'s own
+ * `liveSignal` declares).
+ *
+ * It lives HERE rather than at each consumer because there are three of them —
+ * kolu's `rpc.ts`, drishti's provider, and this package's example — and a probe
+ * that crossed at the call site would be three edges describing one fact. It
+ * cannot be delegated to `liveSignal`'s existing edge either: that one runs
+ * `system.live` off the branded dispatch it guards and has NO caller-supplied
+ * probe target on purpose (#1564 — a consumer once handed back a target that
+ * resolved off a literal and branded a dead link), while this runs
+ * `identity.info` and READS its `processId` as the classification input. Same
+ * shape, different question, and one of them is a hardening we would be undoing.
+ */
+function runProbe<A>(effect: Effect.Effect<A, unknown>): Promise<A> {
+  return Effect.runPromise(effect);
+}
+
 /** Derive the server lifecycle from a wire + an identity probe — the generic
  *  form of kolu's `rpc.ts`. On each `open` the probe reads the server's
  *  `processId`: the first connect is `connected`; a later one is `reconnected`
@@ -158,16 +184,20 @@ export function createServerLifecycle<
    *  reads the status stream (open/closed/retired) and, when it owns the
    *  watchdog (below), calls `forceReconnect()` on a silently half-open wire. */
   wire: WatchableWire;
-  probe: () => Promise<P>;
+  /** The identity round-trip. An `Effect`, because a surface member call is one
+   *  — {@link surfaceAppProbe} builds it and this lifecycle runs it, at
+   *  {@link runProbe}. */
+  probe: () => Effect.Effect<P, unknown>;
   /** The liveness round-trip the half-open watchdog uses — independent of `probe`.
    *  `probe` answers "WHICH process is on the other end?" (identity, for lifecycle
    *  classification); the watchdog answers the separate "is this link answering AT
-   *  ALL?". Pass the framework-reserved verb (`() => probeSurfaceLive(client.rpc)`),
-   *  exactly as `connectSurface` does, so every watchdog asks the one reserved
-   *  question instead of an app-nominated verb. Omit it ONLY when no surface client
-   *  `.rpc` is on hand (the `<SurfaceAppProvider>` `{ wire, probe }` turnkey path),
-   *  where the watchdog falls back to `probe` — documented at the heartbeat site. */
-  livenessProbe?: () => Promise<unknown>;
+   *  ALL?". Pass the framework-reserved verb — `probeSurfaceLive(client.rpc)` is
+   *  the effect that asks it — exactly as `connectSurface` does, so every watchdog
+   *  asks the one reserved question instead of an app-nominated verb. Omit it ONLY
+   *  when no surface client `.rpc` is on hand (the `<SurfaceAppProvider>`
+   *  `{ wire, probe }` turnkey path), where the watchdog falls back to `probe` —
+   *  documented at the heartbeat site. */
+  livenessProbe?: () => Effect.Effect<unknown, unknown>;
   /** Disable or tune the built-in liveness heartbeat (default ON). The watchdog
    *  probes `livenessProbe` (the reserved `system.live`) on an interval and forces
    *  `wire.forceReconnect()` on a silently half-open wire. Pass `false` only if you wire
@@ -212,8 +242,7 @@ export function createServerLifecycle<
   // probe resolves, so its nullness IS that flag.
   let knownProcessId: string | null = null;
   const onOpen = () => {
-    opts
-      .probe()
+    runProbe(opts.probe())
       .then(({ processId }) => {
         // Classify and transition FIRST, independent of the observer. The
         // `onProcessId` publish is fired afterwards in a guarded block: an
@@ -308,9 +337,13 @@ export function createServerLifecycle<
   // `<SurfaceAppProvider>` `{ wire, probe }` turnkey path has the transport and the
   // identity probe but no surface client `.rpc` to build `system.live` from, so
   // there the identity probe doubles as the liveness round-trip.
+  const liveness = opts.livenessProbe ?? opts.probe;
   const heartbeatOptions = normalizeHeartbeat(opts.heartbeat, {
     wire: opts.wire,
-    probe: opts.livenessProbe ?? opts.probe,
+    // `createHeartbeat` is framework-free and Promise-shaped by contract (it races
+    // the probe against a timer), so the effect crosses at the same one edge the
+    // identity probe does.
+    probe: () => runProbe(liveness()),
   });
   const heartbeat = heartbeatOptions && createHeartbeat(heartbeatOptions);
   // When this lifecycle owns the watchdog (the turnkey `{ wire, probe }` path —
@@ -345,14 +378,25 @@ export function createServerLifecycle<
  *  being hand-pinned at every `createServerLifecycle({ probe })` site.
  *
  *  A face with no `identity.info` is a wrong-client mistake (drishti's per-host
- *  client vs. its admin one), so it CRASHES rather than returning a rejected
- *  promise that would read as a transient probe failure and leave the lifecycle
- *  silently stuck in `connecting`. */
+ *  client vs. its admin one), so it CRASHES rather than answering with a failed
+ *  effect that would read as a transient probe failure and leave the lifecycle
+ *  silently stuck in `connecting`. The check is EAGER — outside the returned
+ *  effect — deliberately: `createServerLifecycle` and `createHeartbeat` both
+ *  distinguish a probe that threw SYNCHRONOUSLY (miswired: no round-trip was
+ *  made) from one that failed asynchronously (the link answered with an error),
+ *  and burying this inside an `Effect.suspend` would collapse the two.
+ *
+ *  It returns an **`Effect`**, because a unary member call is one: nothing
+ *  dispatches until the caller runs it. `createServerLifecycle`'s `probe` /
+ *  `livenessProbe` seams stay Promise-shaped (they are the framework-free
+ *  watchdog contract — a probe raced against a timer, shared with non-Effect
+ *  consumers), so a consumer wiring this in runs it at whatever Promise edge it
+ *  already owns rather than this module opening a new one. */
 export function surfaceAppProbe(client: {
   rpc: SurfaceFace;
-}): Promise<ServerProbe> {
+}): Effect.Effect<ServerProbe, unknown> {
   const info = client.rpc.surface.identity?.info as
-    | UnaryProcedure<Record<string, never>, ServerProbe>
+    | UnaryEffect<Record<string, never>, ServerProbe, never>
     | undefined;
   if (typeof info !== "function") {
     throw new Error(
@@ -502,7 +546,7 @@ export type ConnectionSource<P extends ServerProbe = ServerProbe> =
       // live on the transport-neutral `WatchableWire` a wire link factory mints,
       // so there is no socket shape to satisfy any more.
       wire: WatchableWire;
-      probe: () => Promise<P>;
+      probe: () => Effect.Effect<P, unknown>;
       /** Opt the lifecycle's OWN half-open watchdog out (`heartbeat: false`) when
        *  another layer over the SAME wire already owns it — e.g. the
        *  `connectSurfaces` that built this wire's client bundle wires a

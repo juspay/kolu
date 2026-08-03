@@ -30,7 +30,9 @@ export function createImportSessionAction(deps: {
    *  the file is malformed — malformed already surfaced its own toast). */
   pick: () => Effect.Effect<SavedSession | null>;
   /** Hand the picked blob to the host restore writer (the import RPC). */
-  runImport: (args: { session: SavedSession }) => Effect.Effect<unknown, unknown>;
+  runImport: (args: {
+    session: SavedSession;
+  }) => Effect.Effect<unknown, unknown>;
 }): () => UiAction {
   let inFlight = false;
   return () =>

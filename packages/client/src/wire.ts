@@ -67,6 +67,7 @@ import {
   createRoot,
   createSignal,
 } from "solid-js";
+import { Effect } from "effect";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
@@ -74,6 +75,7 @@ import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
 import { rootProcedures } from "./rpc/rootProcedures.ts";
+import { runAction } from "./runAction.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -306,8 +308,8 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
  *  nested `surface.<key>` shape to walk any more (D1/D2). */
 export const client = rootProcedures(conn.transport.dispatch);
 
-/** Read one unary verb off a surface's structural member FACE — its EFFECT
- *  nesting — failing LOUDLY if the surface does not carry it.
+/** Read one unary verb off a surface's structural member FACE, failing LOUDLY if
+ *  the surface does not carry it.
  *
  *  `SurfaceFace` is deliberately un-typed per member (D2: precision lives in the
  *  bound `.cells`/`.procedures` faces, and a second precise mapped type over the
@@ -321,7 +323,7 @@ function unaryMember<I, O>(
   member: string,
   verb: string,
 ): UnaryEffect<I, O, never> {
-  const ref = face.effect[member]?.[verb];
+  const ref = face.surface[member]?.[verb];
   if (typeof ref !== "function") {
     throw new Error(
       `wire: this surface carries no \`${member}.${verb}\` member — the face was built from the wrong surface.`,
@@ -365,13 +367,13 @@ export const setViewerMode: UnaryEffect<ViewerMode, void, never> = unaryMember(
 //   - `connection` — the ACTIVE host's link-health cell (W6), via `useEntry(activeHost)`,
 //     deliberately kept ACTIVE-HOST ONLY, not retained: a background host's connect
 //     narration is not something to hold warm;
-//   - the host-membership reconcile + `rpc` (`active.rpc` off `useEntry(activeHost)`, a
-//     point client that re-keys freely).
+//   - the host-membership reconcile + `procedures` / `streams` (off `useEntry(activeHost)`,
+//     point faces that re-key freely).
 //
-// `connection` and `rpc` (both off `useEntry(activeHost)`) are deliberately ACTIVE-HOST-ONLY
-// — cheap to re-open, and the keyed lens re-keys on switch (to narrate the newly-active host)
-// AND on a same-key re-add (a new `membershipId`). A single `createRoot` at module init is their app-lifetime
-// owner — never disposed.
+// `connection`, `procedures` and `streams` (all off `useEntry(activeHost)`) are deliberately
+// ACTIVE-HOST-ONLY — cheap to re-open, and the keyed lens re-keys on switch (to narrate the
+// newly-active host) AND on a same-key re-add (a new `membershipId`). A single `createRoot` at
+// module init is their app-lifetime owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
   // The membership authority — shared by the host-membership reconcile (further down) and
@@ -484,9 +486,6 @@ const hostScoped = createRoot(() => {
     requestActivateOnJoin: setPendingJoin,
     hostKeys,
     procedures: active.procedures,
-    // The RAW member face — carried out of the owner ONLY so `activePadiEffect`
-    // below can narrow its `effect` nesting. Nothing else reads it.
-    rpc: active.rpc,
     streams: active.streams,
   };
 });
@@ -542,47 +541,33 @@ export const encActiveHost: Accessor<string> = createRoot(() =>
  *  call, so this single client always routes to whichever host is active). Every
  *  lifecycle / chrome / screen / fs / git / session procedure call site should read
  *  `activePadiRpc.<ns>.<verb>(...)` instead of re-deriving the host by hand via
- *  `padiMap.entry(activeHost()).procedures`. */
+ *  `padiMap.entry(activeHost()).procedures`.
+ *
+ *  `activePadiRpc.<ns>.<verb>(input)` hands back a lazy `Effect` carrying the
+ *  member's declared error union plus the framework's `SurfaceCallFailure`. That
+ *  is what lets the business logic in `terminal/`, `host/`, `kaval/`, `forwards/`
+ *  and `right-panel/` be DESCRIBED rather than executed — a call can be caught by
+ *  `_tag`, raced, bounded, superseded, and torn down by the interruption of the
+ *  owner that launched it. Nothing runs until a UI edge runs it, and in this
+ *  package that edge is `runAction` (`./runAction`), never a bare run here. */
 export const activePadiRpc = hostScoped.procedures;
 
-/** The ACTIVE host's declared procedures, EFFECT-NATIVE —
- *  `activePadiEffect.<ns>.<verb>(input)` returns a lazy `Effect` carrying the
- *  member's declared error union plus the framework's `SurfaceCallFailure`,
- *  instead of a `Promise` whose failure is a phantom.
- *
- *  This is the face every client action module composes with, and the reason the
- *  business logic in `terminal/`, `host/`, `kaval/`, `forwards/` and
- *  `right-panel/` can be described rather than executed: a `Promise` can only be
- *  awaited, and an `await` is exactly what fiber interruption cannot reach
- *  through. `activePadiRpc` stays for the few leaves still shaped by a
- *  Promise-taking library (Solid's `createResource`).
- *
- *  **Why it is narrowed rather than delegated.** `@kolu/surface-map`'s `Entry`
- *  exposes `procedures` (typed from the entry spec) and `rpc` (the structural
- *  member face). The Effect nesting the framework mints lives on the LATTER —
- *  `rpc.effect[member][verb]` — and `useEntry`'s path-walking proxy reads the
- *  current key per call at any depth, so `hostScoped.rpc.effect.lifecycle.create`
- *  routes to the active host exactly as `activePadiRpc.lifecycle.create` does.
- *  The one cast re-attaches the precision, from `SurfaceClient<S>["effect"]` —
- *  the framework's OWN narrow mapped type over the entry spec, the same one
- *  `Entry.procedures` is typed by — so the two faces cannot come to describe
- *  different members, and a wrong verb is still a compile error. */
-export const activePadiEffect = hostScoped.rpc.effect as PadiEffectFace;
-
-/** The same Effect-native procedure face for a SPECIFIC host — the twin of
- *  {@link activePadiEffect} for the callers that already hold a `HostKey` and
- *  must not route to whichever host happens to be active (the per-host scope's
+/** The same procedure face for a SPECIFIC host — the twin of
+ *  {@link activePadiRpc} for the callers that already hold a `HostKey` and must
+ *  not route to whichever host happens to be active (the per-host scope's
  *  active-tile report, which belongs to the host that owns the scope).
  *
  *  `padiMap.entry(k)` is the pure, owner-free point lens, so this is safe to call
- *  outside a reactive owner — exactly as `padiMap.entry(host).procedures` was. */
-export function padiEffectOf(host: HostKey): PadiEffectFace {
-  return padiMap.entry(host).rpc.effect as PadiEffectFace;
+ *  outside a reactive owner — exactly as `padiMap.entry(host).procedures` is. */
+export function padiRpcOf(host: HostKey): PadiRpcFace {
+  return padiMap.entry(host).procedures;
 }
 
-/** The declared padi procedures, Effect-native — see {@link activePadiEffect}
- *  for why this is a narrowing of the structural face rather than a delegate. */
-type PadiEffectFace = SurfaceClient<typeof padiEntrySurface.spec>["effect"];
+/** The declared padi procedures, as the framework's own narrow mapped type over
+ *  the entry spec — the same one `Entry.procedures` is typed by, so a wrong verb
+ *  is a compile error and the two faces cannot come to describe different
+ *  members. Named only so {@link padiRpcOf}'s return reads as one thing. */
+type PadiRpcFace = SurfaceClient<typeof padiEntrySurface.spec>["procedures"];
 
 /** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
  *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The
@@ -621,20 +606,25 @@ export const preferences = (): Preferences =>
  *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
  *  see the cell's `coalesceMs`.
  *
- *  STAYS Promise-shaped, deliberately. The Effect face the framework mints
- *  (`client.effect.<ns>.<verb>`) covers DECLARED PROCEDURES; a cell's `patch` is a
- *  framework primitive whose only face is `ProcedureResult` (a Promise), and it
- *  is not a program anyone composes — nothing races it, nothing supersedes it,
- *  and its coalescing is the cell's own. Wrapping it in `Effect.tryPromise` here
- *  would buy an extra run edge and no interruption, so the verdict is recorded
- *  rather than the churn taken. */
+ *  Fire-and-forget, deliberately. A DECLARED procedure is now an `Effect` a
+ *  caller composes (`activePadiRpc.<ns>.<verb>`), but a cell's `patch` is a
+ *  framework PRIMITIVE rather than a declared member, and it is not a program
+ *  anyone composes: nothing races it, nothing supersedes it, and its coalescing
+ *  is the cell's own. So this stays a write plus a toast on failure — the report
+ *  IS the whole error policy, and there is nothing here for interruption to
+ *  reach. */
 export function updatePreferences(
   patch: PreferencesPatch,
   opts?: { coalesce?: boolean },
 ): void {
-  void hostScoped.preferences
-    .patch(patch, opts)
-    .catch((err: Error) =>
-      toast.error(`Failed to save preferences: ${err.message}`),
-    );
+  runAction(
+    "save preferences",
+    Effect.catch(hostScoped.preferences.patch(patch, opts), (err) =>
+      Effect.sync(() =>
+        toast.error(
+          `Failed to save preferences: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      ),
+    ),
+  );
 }

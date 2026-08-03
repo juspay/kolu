@@ -172,8 +172,15 @@ export interface ReServedSurface<S extends SurfaceSpec> {
 /** The runtime shape of a forwarding stub — loosely typed here; the precise
  *  per-verb type lives at the `ProcedureForwarders<S>` boundary the pump sets.
  *  No `{ signal }` bag: a unary call carries no cancellation token under Effect
- *  (D10/#18), so the stub cannot invent one the face does not have. */
-type ProcedureFn = (input?: unknown) => Promise<unknown>;
+ *  (D10/#18), so the stub cannot invent one the face does not have — a caller
+ *  bounds the forward by bounding the `Effect` it gets back.
+ *
+ *  One shape for both paths, and that is the point: a CELL verb read off the
+ *  live upstream face and a PROCEDURE stub minted by `mirrorRemoteSurface` are
+ *  now the same kind of thing, because the mirror's stub returns exactly what
+ *  the face returns. A handler owes its caller an `Effect`, and a forwarder IS
+ *  one — so the graft is literal and there is nothing to lift at this boundary. */
+type ProcedureFn = (input?: unknown) => Effect.Effect<unknown, unknown>;
 
 /** Reach one member namespace on the surface FACE structurally —
  *  `client.surface.<member>`. The live client is the erased `SurfaceFace` (D2: the
@@ -305,37 +312,40 @@ export function reServeSurface<S extends SurfaceSpec>(
   // is thus left to guard only the FOLD's publish (`ctx.cells.<key>.set`), not the
   // forward. A forward with no live upstream link throws loud (fail-fast), same
   // stance as `forwardProcedure`.
-  const forwardCellWrite = async (
+  const forwardCellWrite = (
     key: string,
     verb: "set" | "patch" | "test__set",
     input: unknown,
-  ): Promise<unknown> => {
-    requireConnected(`cell "${key}.${verb}"`);
-    const client = liveClient.current;
-    if (client === null) {
-      throw new UpstreamUnavailableError(
-        `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
-      );
-    }
-    const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
-      client,
-      key,
-    );
-    const fn = cellNs?.[verb];
-    if (typeof fn !== "function") {
-      throw new Error(
-        `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
-      );
-    }
-    try {
-      return await fn(input);
-    } catch (err) {
-      if (session.currentState().phase !== "connected") {
-        throw upstreamUnavailable(`cell "${key}.${verb}"`, err);
+  ): Effect.Effect<unknown, unknown> =>
+    Effect.suspend(() => {
+      requireConnected(`cell "${key}.${verb}"`);
+      const client = liveClient.current;
+      if (client === null) {
+        throw new UpstreamUnavailableError(
+          `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
+        );
       }
-      throw err;
-    }
-  };
+      const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
+        client,
+        key,
+      );
+      const fn = cellNs?.[verb];
+      if (typeof fn !== "function") {
+        throw new Error(
+          `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
+        );
+      }
+      // The upstream write IS an effect — composed, not run. The classification
+      // below is unchanged: a failure that arrives while the session is no longer
+      // connected is reported as upstream-unavailable, anything else propagates.
+      return fn(input).pipe(
+        Effect.catch((err) =>
+          session.currentState().phase !== "connected"
+            ? Effect.fail(upstreamUnavailable(`cell "${key}.${verb}"`, err))
+            : Effect.fail(err),
+        ),
+      );
+    });
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
     // A mirror never fabricates a value. The store still SEEDS the declared
@@ -437,13 +447,11 @@ export function reServeSurface<S extends SurfaceSpec>(
           `reServeSurface: ${label} invoked with no live upstream link`,
         );
       }
-      return Effect.tryPromise({
-        try: () => fn(input),
-        // The face rejects with the SQUASHED failure — the declared tagged-error
-        // INSTANCE itself — so this `catch` receives exactly what the agent failed
-        // with, not a wrapper.
-        catch: (err) => err,
-      }).pipe(
+      // Nothing to lift: the mirror's stub is the upstream member call itself,
+      // so this handler's effect IS the forward. Its failure channel carries the
+      // SQUASHED failure — the declared tagged-error INSTANCE — so this `catch`
+      // receives exactly what the agent failed with, not a wrapper.
+      return fn(input).pipe(
         Effect.catch((err) =>
           session.currentState().phase !== "connected"
             ? Effect.die(upstreamUnavailable(label, err))

@@ -42,6 +42,7 @@ import {
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import { type AgentDial, dialAgentOnce } from "@kolu/surface-remote";
+import { Effect } from "effect";
 import { composeSpawnEnv } from "kolu-pty";
 import {
   PADI_SURFACE_VERSION,
@@ -215,7 +216,9 @@ export type PadiConnection = DaemonConnection<
  *  (`probeDaemonIdentity`, which reads identity for padi's `ConvergencePolicy`
  *  to drain or leave be). */
 export type PadiDial = {
-  socket: Awaited<ReturnType<typeof dialSocket>>;
+  /** `Effect.Effect.Success`, not `Awaited` — `Awaited<Effect<A>>` is `Effect<A>`,
+   *  so the old spelling would keep compiling and silently mean the effect. */
+  socket: Effect.Success<ReturnType<typeof dialSocket>>;
   client: PadiDaemonClient;
   hello: PadiHello;
   /** Release the link's protocol fibers. ASYNC and idempotent — it is the ONLY
@@ -300,7 +303,7 @@ export function dialPadiViaHost(host: string): Promise<AgentDial> {
     localEnv: composeSpawnEnv(process.env),
     ...PADI_REMOTE_DIAL,
     fatalPrefix: "padi --stdio:",
-    probe: async (client) => {
+    probe: (client) => {
       // The compatibility gate, over the padi face this dial hands back.
       //
       // The LOCAL dial gates on the frozen control-core `hello`; this one gates
@@ -323,11 +326,15 @@ export function dialPadiViaHost(host: string): Promise<AgentDial> {
       // `padiClientOver(dial.dispatch).control.surface.core.hello()` and delete
       // this note.
       const face = client as unknown as PadiSurfaceClient;
-      const identity = await firstFrameOrThrow(
-        face.surface.identity.get(undefined),
-        "padi handshake failed — the identity cell yielded no frame",
+      return Effect.map(
+        firstFrameOrThrow(
+          face.surface.identity.get(undefined),
+          "padi handshake failed — the identity cell yielded no frame",
+        ),
+        (identity) => {
+          assertPadiSurfaceCompatible(identity.surfaceVersion);
+        },
       );
-      assertPadiSurfaceCompatible(identity.surfaceVersion);
     },
   });
 }
@@ -340,29 +347,41 @@ export function dialPadiViaHost(host: string): Promise<AgentDial> {
  *  `dialSocket` + `stdioLink` (NOT `unixSocketLink`, which hides the socket's
  *  `close` event the endpoint's `onClose` needs). Rejects with a plain Error if
  *  the socket is unreachable or `hello` is unreadable — a non-skew failure. */
-export async function dialPadiHello(socketPath: string): Promise<PadiDial> {
-  const socket = await dialSocket(socketPath);
-  // ONE link over the WHOLE daemon group, then both sibling faces over its one
-  // dispatch — the flat-tag successor of the combined-contract client.
-  const link = await stdioLink({
-    group: padiDaemonGroup,
-    read: socket,
-    write: socket,
-  });
-  const client = padiClientOver(link.dispatch);
-  const dispose = async (): Promise<void> => {
-    await link.dispose();
-    socket.destroy();
-  };
-  try {
-    const hello = await client.control.surface.core.hello();
-    return { socket, client, hello, dispose };
-  } catch (err) {
-    await dispose();
-    throw new Error(
-      `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+export function dialPadiHello(
+  socketPath: string,
+): Effect.Effect<PadiDial, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocket(socketPath);
+    // ONE link over the WHOLE daemon group, then both sibling faces over its one
+    // dispatch — the flat-tag successor of the combined-contract client.
+    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED.
+    const link = yield* Effect.promise(() =>
+      stdioLink({
+        group: padiDaemonGroup,
+        read: socket,
+        write: socket,
+      }),
     );
-  }
+    const client = padiClientOver(link.dispatch);
+    const dispose = async (): Promise<void> => {
+      await link.dispose();
+      socket.destroy();
+    };
+    // `onError`, not `catch`: an INTERRUPTED dial releases the link too — a
+    // `catch` sees only typed failures and would leak the protocol fibers on the
+    // abandonment path.
+    const hello = yield* Effect.onError(
+      Effect.catch(client.control.surface.core.hello(), (err) =>
+        Effect.fail(
+          new Error(
+            `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+          ),
+        ),
+      ),
+      () => Effect.promise(dispose),
+    );
+    return { socket, client, hello, dispose };
+  });
 }
 
 /**
@@ -384,54 +403,59 @@ export async function dialPadiHello(socketPath: string): Promise<PadiDial> {
  *     endpoint calls `connectPadi` a newer binder's skewed survivor is already
  *     drained + gone and this connect is against the fresh newer closure.)
  */
-export async function connectPadi(socketPath: string): Promise<PadiConnection> {
-  const { socket, client, hello, dispose } = await dialPadiHello(socketPath);
+export function connectPadi(
+  socketPath: string,
+): Effect.Effect<PadiConnection, Error> {
+  return Effect.gen(function* () {
+    const { socket, client, hello, dispose } = yield* dialPadiHello(socketPath);
 
-  try {
     // The dial kit's one compatibility judgement (shared with `padi-tui --host`'s
     // ssh probe). This connect OWNS the link, so tear it down before surfacing a
-    // skew — the remote probe's teardown is `dialAgentOnce`'s, so it just rethrows.
-    assertPadiSurfaceCompatible(hello.surfaceVersion);
-  } catch (err) {
-    await dispose();
-    throw err;
-  }
+    // skew — the remote probe's teardown is `dialAgentOnce`'s, so it just re-fails.
+    yield* Effect.onError(
+      Effect.suspend(() => {
+        assertPadiSurfaceCompatible(hello.surfaceVersion);
+        return Effect.void;
+      }),
+      () => Effect.promise(dispose),
+    );
 
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
+    let closed = false;
+    socket.once("close", () => {
+      closed = true;
+    });
+    return {
+      client,
+      identity: {
+        stateRoot: hello.stateRoot,
+        surfaceVersion: hello.surfaceVersion,
+        // The RUNNING padi's navigable git commit off the hello (optional — a survivor
+        // padi predating the field omits it → honest "—" downstream).
+        commit: hello.commit,
+      },
+      // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
+      // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
+      // reconnect reports true uptime instead of resetting the age to `Date.now()`.
+      startedAt: hello.startedAt,
+      metadata: {
+        surfaceVersion: hello.surfaceVersion,
+        controlCoreVersion: hello.controlCoreVersion,
+      },
+      // `DaemonConnection.dispose` is a synchronous seam (the supervisor calls it
+      // from teardown paths that cannot await), so the link release is FIRED here
+      // rather than awaited. It is idempotent and its only failure mode is a link
+      // already gone — but it must never replace the reason a caller is tearing
+      // down, so a rejection is swallowed at this one edge, deliberately and
+      // visibly, instead of becoming an unhandled rejection.
+      dispose: () => {
+        void dispose().catch(() => {
+          /* best-effort — a link already disposed is fine */
+        });
+      },
+      onClose: (cb) => {
+        if (closed) queueMicrotask(cb);
+        else socket.once("close", cb);
+      },
+    };
   });
-  return {
-    client,
-    identity: {
-      stateRoot: hello.stateRoot,
-      surfaceVersion: hello.surfaceVersion,
-      // The RUNNING padi's navigable git commit off the hello (optional — a survivor
-      // padi predating the field omits it → honest "—" downstream).
-      commit: hello.commit,
-    },
-    // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
-    // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
-    // reconnect reports true uptime instead of resetting the age to `Date.now()`.
-    startedAt: hello.startedAt,
-    metadata: {
-      surfaceVersion: hello.surfaceVersion,
-      controlCoreVersion: hello.controlCoreVersion,
-    },
-    // `DaemonConnection.dispose` is a synchronous seam (the supervisor calls it
-    // from teardown paths that cannot await), so the link release is FIRED here
-    // rather than awaited. It is idempotent and its only failure mode is a link
-    // already gone — but it must never replace the reason a caller is tearing
-    // down, so a rejection is swallowed at this one edge, deliberately and
-    // visibly, instead of becoming an unhandled rejection.
-    dispose: () => {
-      void dispose().catch(() => {
-        /* best-effort — a link already disposed is fine */
-      });
-    },
-    onClose: (cb) => {
-      if (closed) queueMicrotask(cb);
-      else socket.once("close", cb);
-    },
-  };
 }

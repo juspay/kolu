@@ -32,7 +32,7 @@ import {
   openStream,
   subscribeFrames,
 } from "./streamFrame.testlib.ts";
-import type { Stream } from "effect";
+import { Effect, type Stream } from "effect";
 
 /** Every contract entry the corpus exercises. Asserted against the live surface
  *  by `coverage.test.ts` — keep it in lockstep with the `it`s below AND with
@@ -204,8 +204,10 @@ export function runContractCorpus(opts: {
      *  so clean per-test state is enforced here rather than left to individual
      *  assertion tails. */
     const killAllAndWait = async (): Promise<number> => {
-      const { killed } = await client().surface.terminal.killAll({});
-      const after = await client().surface.terminal.list({});
+      const { killed } = await Effect.runPromise(
+        client().surface.terminal.killAll({}),
+      );
+      const after = await Effect.runPromise(client().surface.terminal.list({}));
       expect(after.entries).toEqual([]);
       return killed;
     };
@@ -226,7 +228,7 @@ export function runContractCorpus(opts: {
     });
 
     it("system.version: a self-compatible handshake with a build identity", async () => {
-      const v = await client().surface.system.version({});
+      const v = await Effect.runPromise(client().surface.system.version({}));
       expect(v.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
       expect(typeof v.pid).toBe("number");
       expect(typeof v.startedAt).toBe("number");
@@ -249,12 +251,14 @@ export function runContractCorpus(opts: {
     });
 
     it("system.heartbeat: returns a timestamp", async () => {
-      const { ts } = await client().surface.system.heartbeat({});
+      const { ts } = await Effect.runPromise(
+        client().surface.system.heartbeat({}),
+      );
       expect(typeof ts).toBe("number");
     });
 
     it("system.info: host facts a client composes spawn policy against", async () => {
-      const info = await client().surface.system.info({});
+      const info = await Effect.runPromise(client().surface.system.info({}));
       expect(info.shell.length).toBeGreaterThan(0);
       expect(typeof info.home).toBe("string");
       expect(info.platform).toBe(process.platform);
@@ -262,7 +266,9 @@ export function runContractCorpus(opts: {
     });
 
     it("terminal.list: empty before any spawn (a fresh host)", async () => {
-      const { entries } = await client().surface.terminal.list({});
+      const { entries } = await Effect.runPromise(
+        client().surface.terminal.list({}),
+      );
       expect(Array.isArray(entries)).toBe(true);
     });
 
@@ -300,9 +306,11 @@ export function runContractCorpus(opts: {
       // to keep the shared connection pristine.
       await withIsolated(async (c) => {
         await expect(
-          c.surface.terminal.getScreenState({
-            id: "00000000-0000-0000-0000-000000000000",
-          }),
+          Effect.runPromise(
+            c.surface.terminal.getScreenState({
+              id: "00000000-0000-0000-0000-000000000000",
+            }),
+          ),
         ).rejects.toMatchObject({ _tag: "PtyNotFound" });
       });
     });
@@ -311,14 +319,16 @@ export function runContractCorpus(opts: {
       timeout: 20000,
     }, async () => {
       const dir = opts.makeCwd();
-      const { id, pid, cwd } = await client().surface.terminal.spawn(
-        spawnInput(dir),
+      const { id, pid, cwd } = await Effect.runPromise(
+        client().surface.terminal.spawn(spawnInput(dir)),
       );
       expect(pid).toBeGreaterThan(0);
       expect(cwd).toBe(dir);
 
       // list shows it with the resolved id + pid.
-      const { entries } = await client().surface.terminal.list({});
+      const { entries } = await Effect.runPromise(
+        client().surface.terminal.list({}),
+      );
       expect(entries.some((e) => e.id === id && e.pid === pid)).toBe(true);
 
       // attach is snapshot-then-deltas: the first frame is the snapshot.
@@ -327,46 +337,58 @@ export function runContractCorpus(opts: {
       expect(first.kind).toBe("snapshot");
 
       // write a marker, then read it back through the rendered buffer.
-      await client().surface.terminal.write({
-        id,
-        data: "printf 'CORPUS-MARK-%s\\n' 7\n",
-      });
+      await Effect.runPromise(
+        client().surface.terminal.write({
+          id,
+          data: "printf 'CORPUS-MARK-%s\\n' 7\n",
+        }),
+      );
       let text = "";
       for (let i = 0; i < 60; i++) {
-        ({ text } = await client().surface.terminal.getScreenText({ id }));
+        ({ text } = await Effect.runPromise(
+          client().surface.terminal.getScreenText({ id }),
+        ));
         if (text.includes("CORPUS-MARK-7")) break;
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(text).toContain("CORPUS-MARK-7");
 
       // getScreenState returns the serialized screen (a non-empty string here).
-      const { data } = await client().surface.terminal.getScreenState({ id });
+      const { data } = await Effect.runPromise(
+        client().surface.terminal.getScreenState({ id }),
+      );
       expect(typeof data).toBe("string");
 
       // getHistory: this shallow terminal's whole history fits the bounded
       // attach snapshot, so a fetch above its top is an empty, exhausted no-op —
       // enough to exercise the verb end to end over the wire.
-      const history = await client().surface.terminal.getHistory({
-        id,
-        before: 0,
-        max: 100,
-      });
+      const history = await Effect.runPromise(
+        client().surface.terminal.getHistory({
+          id,
+          before: 0,
+          max: 100,
+        }),
+      );
       if (history.kind !== "chunk") throw new Error("expected a chunk reply");
       expect(history.exhausted).toBe(true);
       expect(history.chunk).toBe("");
 
       // resize is accepted.
-      const resized = await client().surface.terminal.resize({
-        id,
-        cols: 100,
-        rows: 40,
-      });
+      const resized = await Effect.runPromise(
+        client().surface.terminal.resize({
+          id,
+          cols: 100,
+          rows: 40,
+        }),
+      );
       expect(resized.ok).toBe(true);
 
       // exit tap yields once on kill.
       const exitStream = client().surface.exit.get({ id });
       const exitP = firstYield(exitStream, 8000);
-      const killed = await client().surface.terminal.kill({ id });
+      const killed = await Effect.runPromise(
+        client().surface.terminal.kill({ id }),
+      );
       expect(killed.ok).toBe(true);
       const exit = await exitP;
       expect(typeof exit.exitCode).toBe("number");
@@ -378,25 +400,29 @@ export function runContractCorpus(opts: {
       // Drive the OSC sequences DIRECTLY over `write` rather than via shell rc
       // hooks — a bare corpus shell has none (those are kolu's client-side
       // policy), so this exercises the host's own VT parsing of the taps.
-      const { id } = await client().surface.terminal.spawn(
-        spawnInput(opts.makeCwd()),
+      const { id } = await Effect.runPromise(
+        client().surface.terminal.spawn(spawnInput(opts.makeCwd())),
       );
 
       const cwdStream = client().surface.cwd.get({ id });
       const cwdP = firstYield(cwdStream);
-      await client().surface.terminal.write({
-        id,
-        data: "printf '\\033]7;file://host/tmp/corpus-cwd\\033\\\\'\n",
-      });
+      await Effect.runPromise(
+        client().surface.terminal.write({
+          id,
+          data: "printf '\\033]7;file://host/tmp/corpus-cwd\\033\\\\'\n",
+        }),
+      );
       expect((await cwdP).cwd).toContain("/tmp/corpus-cwd");
 
       const cmdStream = client().surface.commandRun.get({ id });
       const cmdP = firstYield(cmdStream);
       // OSC 633 ; E ; <command-line> ST — the preexec mark kolu's hook emits.
-      await client().surface.terminal.write({
-        id,
-        data: "printf '\\033]633;E;corpus-command\\033\\\\'\n",
-      });
+      await Effect.runPromise(
+        client().surface.terminal.write({
+          id,
+          data: "printf '\\033]633;E;corpus-command\\033\\\\'\n",
+        }),
+      );
       const live = await cmdP;
       expect(live.command).toContain("corpus-command");
       // A live mark is flagged `replayed: false` so consumers fire their
@@ -413,14 +439,14 @@ export function runContractCorpus(opts: {
       expect(replay.command).toContain("corpus-command");
       expect(replay.replayed).toBe(true);
 
-      await client().surface.terminal.kill({ id });
+      await Effect.runPromise(client().surface.terminal.kill({ id }));
     });
 
     it("streams: title (OSC 2) and foreground reach the title tap + list", {
       timeout: 20000,
     }, async () => {
-      const { id } = await client().surface.terminal.spawn(
-        spawnInput(opts.makeCwd()),
+      const { id } = await Effect.runPromise(
+        client().surface.terminal.spawn(spawnInput(opts.makeCwd())),
       );
 
       // foreground tap yields a snapshot first (the host pushes current state).
@@ -433,22 +459,28 @@ export function runContractCorpus(opts: {
       // foreground wouldn't process the stdin write until it returned).
       const titleStream = client().surface.title.get({ id });
       const titleP = firstYield(titleStream);
-      await client().surface.terminal.write({
-        id,
-        data: "printf '\\033]2;corpus-title\\033\\\\'\n",
-      });
+      await Effect.runPromise(
+        client().surface.terminal.write({
+          id,
+          data: "printf '\\033]2;corpus-title\\033\\\\'\n",
+        }),
+      );
       expect((await titleP).title).toContain("corpus-title");
 
       // For the LIST projection, drive a title under a long-lived foreground
       // command so it isn't clobbered by the prompt redraw before we read it —
       // and so `foregroundProcess` reflects a known running process.
-      await client().surface.terminal.write({
-        id,
-        data: "printf '\\033]2;corpus-title-2\\033\\\\'; sleep 5\n",
-      });
+      await Effect.runPromise(
+        client().surface.terminal.write({
+          id,
+          data: "printf '\\033]2;corpus-title-2\\033\\\\'; sleep 5\n",
+        }),
+      );
       let entry: { title?: string; foregroundProcess?: string } | undefined;
       for (let i = 0; i < 80; i++) {
-        const { entries } = await client().surface.terminal.list({});
+        const { entries } = await Effect.runPromise(
+          client().surface.terminal.list({}),
+        );
         entry = entries.find((e) => e.id === id);
         if (entry?.title === "corpus-title-2") break;
         await new Promise((r) => setTimeout(r, 50));
@@ -456,7 +488,7 @@ export function runContractCorpus(opts: {
       expect(entry?.title).toBe("corpus-title-2");
       expect(typeof entry?.foregroundProcess).toBe("string");
 
-      await client().surface.terminal.kill({ id });
+      await Effect.runPromise(client().surface.terminal.kill({ id }));
     });
 
     it("inventory: a snapshot first, then created/exited as PTYs come and go", {
@@ -476,8 +508,8 @@ export function runContractCorpus(opts: {
 
           // A fresh spawn arrives as a `created` for its id (intervening deltas
           // from the shared host are skipped by `until`).
-          const { id } = await c.surface.terminal.spawn(
-            spawnInput(opts.makeCwd()),
+          const { id } = await Effect.runPromise(
+            c.surface.terminal.spawn(spawnInput(opts.makeCwd())),
           );
           const created = await frames.until(
             (e) => e.kind === "created" && e.entry.id === id,
@@ -485,7 +517,7 @@ export function runContractCorpus(opts: {
           expect(created).toMatchObject({ kind: "created", entry: { id } });
 
           // …and its kill arrives as an `exited` for the same id.
-          await c.surface.terminal.kill({ id });
+          await Effect.runPromise(c.surface.terminal.kill({ id }));
           const exited = await frames.until(
             (e) => e.kind === "exited" && e.id === id,
           );
@@ -510,18 +542,20 @@ export function runContractCorpus(opts: {
       await withIsolated(async (c) => {
         const frames = subscribeFrames(c.surface.activity.get({}));
         try {
-          const { id } = await c.surface.terminal.spawn(
-            spawnInput(opts.makeCwd()),
+          const { id } = await Effect.runPromise(
+            c.surface.terminal.spawn(spawnInput(opts.makeCwd())),
           );
           // Drive real output — the shell echoes + runs, producing bytes.
-          await c.surface.terminal.write({
-            id,
-            data: "echo corpus-activity\n",
-          });
+          await Effect.runPromise(
+            c.surface.terminal.write({
+              id,
+              data: "echo corpus-activity\n",
+            }),
+          );
           // An edge for THIS PTY arrives (other terminals' edges are skipped).
           const edge = await frames.until((e) => e.id === id);
           expect(edge).toEqual({ id });
-          await c.surface.terminal.kill({ id });
+          await Effect.runPromise(c.surface.terminal.kill({ id }));
         } finally {
           frames.close();
         }
@@ -530,38 +564,50 @@ export function runContractCorpus(opts: {
 
     it("a live id stays reserved through kill teardown, then can respawn", async () => {
       const id = "11111111-1111-4111-8111-111111111111";
-      const first = await client().surface.terminal.spawn({
-        ...spawnInput(opts.makeCwd()),
-        id,
-      });
-
-      // This is the same state an overlapping kill/spawn observes until the
-      // old child's onExit teardown: the id must not be overwritten.
-      await expect(
+      const first = await Effect.runPromise(
         client().surface.terminal.spawn({
           ...spawnInput(opts.makeCwd()),
           id,
         }),
+      );
+
+      // This is the same state an overlapping kill/spawn observes until the
+      // old child's onExit teardown: the id must not be overwritten.
+      await expect(
+        Effect.runPromise(
+          client().surface.terminal.spawn({
+            ...spawnInput(opts.makeCwd()),
+            id,
+          }),
+        ),
       ).rejects.toThrow();
 
-      await client().surface.terminal.kill({ id });
-      expect((await client().surface.terminal.list({})).entries).toEqual([]);
+      await Effect.runPromise(client().surface.terminal.kill({ id }));
+      expect(
+        (await Effect.runPromise(client().surface.terminal.list({}))).entries,
+      ).toEqual([]);
 
-      const second = await client().surface.terminal.spawn({
-        ...spawnInput(opts.makeCwd()),
-        id,
-      });
+      const second = await Effect.runPromise(
+        client().surface.terminal.spawn({
+          ...spawnInput(opts.makeCwd()),
+          id,
+        }),
+      );
       expect(second.pid).not.toBe(first.pid);
-      expect((await client().surface.terminal.list({})).entries).toEqual([
-        expect.objectContaining({ id, pid: second.pid }),
-      ]);
+      expect(
+        (await Effect.runPromise(client().surface.terminal.list({}))).entries,
+      ).toEqual([expect.objectContaining({ id, pid: second.pid })]);
     });
 
     it("terminal.killAll reaps every live PTY", {
       timeout: 20000,
     }, async () => {
-      await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
-      await client().surface.terminal.spawn(spawnInput(opts.makeCwd()));
+      await Effect.runPromise(
+        client().surface.terminal.spawn(spawnInput(opts.makeCwd())),
+      );
+      await Effect.runPromise(
+        client().surface.terminal.spawn(spawnInput(opts.makeCwd())),
+      );
       // The shared cleanup authority resolves only after killAll's production
       // boundary has observed every onExit and removed every inventory row.
       const killed = await killAllAndWait();

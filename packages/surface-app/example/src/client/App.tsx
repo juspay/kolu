@@ -153,7 +153,8 @@ export default function App() {
       // wire tag `surface/surfaceApp/identity/info`. The key is consumed by the
       // scope and does NOT reappear in the member path. `.rpc` is the STRUCTURAL
       // member face (per-member types live in the bound hooks), so the caller
-      // pins the probe call shape here.
+      // pins the probe call shape here. It hands back an `Effect` — the provider
+      // runs it at its own edge, so an app never opens one.
       probe={() => surfaceAppProbe(clients.surfaceApp)}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise

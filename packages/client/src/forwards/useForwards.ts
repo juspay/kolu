@@ -59,12 +59,12 @@ export function createForward(input: {
   port: number;
   origin: ForwardOrigin;
 }) {
-  return app.effect.forwards.create(input);
+  return app.procedures.forwards.create(input);
 }
 
 /** Take one down. FAILS on a key the server does not hold. */
 export function cancelForward(key: string) {
-  return app.effect.forwards.cancel({ key });
+  return app.procedures.forwards.cancel({ key });
 }
 
 /** WHICH of kolu's hosts this browser is sitting at, or `null`.

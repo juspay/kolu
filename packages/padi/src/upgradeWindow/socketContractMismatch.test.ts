@@ -85,7 +85,7 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
     );
     await serveSkewed(socketPath, "1.0");
 
-    const rejection = await connectKaval(socketPath).then(
+    const rejection = await Effect.runPromise(connectKaval(socketPath)).then(
       () => {
         throw new Error("connectKaval resolved against a 1.0 peer");
       },

@@ -85,7 +85,12 @@ describe("consumeReattachingStream", () => {
       .fn<() => Stream.Stream<string, unknown>>()
       .mockReturnValue(Stream.concat(streamThat(["a"]), Stream.never));
 
-    const fiber = start(streamFn, (item) => items.push(item), onReattach, "test");
+    const fiber = start(
+      streamFn,
+      (item) => items.push(item),
+      onReattach,
+      "test",
+    );
 
     for (let i = 0; i < 5; i++) await flush();
     expect(items).toEqual(["a"]);

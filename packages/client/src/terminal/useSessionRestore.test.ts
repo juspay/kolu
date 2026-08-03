@@ -53,7 +53,7 @@ vi.mock("../wire", async () => {
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition,
     // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
     groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
-    activePadiEffect: {
+    activePadiRpc: {
       session: {
         restore: rpc.restore,
         import: rpc.import,
@@ -284,7 +284,10 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             await new Promise((r) => setTimeout(r, 0));
 
             await Effect.runPromise(
-                session.handleRestoreSession({ resumeAgents: true, optOutIds: [] }),
+              session.handleRestoreSession({
+                resumeAgents: true,
+                optOutIds: [],
+              }),
             );
 
             // ONE server call — the whole restore. Intent, not a client id list.
@@ -341,7 +344,10 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             await new Promise((r) => setTimeout(r, 0));
 
             await Effect.runPromise(
-                session.handleRestoreSession({ resumeAgents: true, optOutIds: ["1"] }),
+              session.handleRestoreSession({
+                resumeAgents: true,
+                optOutIds: ["1"],
+              }),
             );
 
             expect(toastSpy.success).toHaveBeenCalledWith(

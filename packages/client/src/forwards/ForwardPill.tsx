@@ -120,7 +120,9 @@ export const ForwardCancelButton: Component<{ forward: KoluForward }> = (
         cancelForward(props.forward.key).pipe(
           Effect.catch((err) =>
             Effect.sync(() => {
-              toast.error(`Could not cancel the forward: ${toError(err).message}`);
+              toast.error(
+                `Could not cancel the forward: ${toError(err).message}`,
+              );
             }),
           ),
         ),

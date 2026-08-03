@@ -57,20 +57,22 @@ const runWait = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
  *  with no list round-trip. */
 async function spawnCat(): Promise<string> {
   const id = newPtyId();
-  await conn.client.surface.terminal.spawn(
-    buildCreateInput({
-      id,
-      cwd: tmpdir(),
-      env: process.env,
-      command: ["cat"],
-      kavalSocket: "/tmp/kaval-test/pty-host.sock",
-    }),
+  await Effect.runPromise(
+    conn.client.surface.terminal.spawn(
+      buildCreateInput({
+        id,
+        cwd: tmpdir(),
+        env: process.env,
+        command: ["cat"],
+        kavalSocket: "/tmp/kaval-test/pty-host.sock",
+      }),
+    ),
   );
   return id;
 }
 
 const write = (id: string, data: string): Promise<unknown> =>
-  conn.client.surface.terminal.write({ id, data });
+  Effect.runPromise(conn.client.surface.terminal.write({ id, data }));
 
 beforeAll(async () => {
   const { served, client } = createInProcessPtyHost({
@@ -78,7 +80,7 @@ beforeAll(async () => {
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     lifetime: { kind: "forever" },
   });
-  killAll = () => client.surface.terminal.killAll({});
+  killAll = () => Effect.runPromise(client.surface.terminal.killAll({}));
   const socketPath = join(
     mkdtempSync(join(tmpdir(), "kolu-pty-sock-")),
     "pty-host.sock",
@@ -202,11 +204,13 @@ describeDaemon(
   () => {
     it("resolves `idle` after the window once a terminal goes quiet", async () => {
       const id = await spawnCat(); // cat is silent with no input
-      const outcome = await runWait(awaitOutputCondition(conn.client, {
-        id,
-        condition: { kind: "idle", ms: 300 },
-        timeoutMs: 5000,
-      }));
+      const outcome = await runWait(
+        awaitOutputCondition(conn.client, {
+          id,
+          condition: { kind: "idle", ms: 300 },
+          timeoutMs: 5000,
+        }),
+      );
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met") {
         expect(outcome.fired).toBe("idle");
@@ -217,11 +221,13 @@ describeDaemon(
 
     it("resolves `idle` after output STOPS (emits, then pauses > window)", async () => {
       const id = await spawnCat();
-      const p = runWait(awaitOutputCondition(conn.client, {
-        id,
-        condition: { kind: "idle", ms: 400 },
-        timeoutMs: 8000,
-      }));
+      const p = runWait(
+        awaitOutputCondition(conn.client, {
+          id,
+          condition: { kind: "idle", ms: 400 },
+          timeoutMs: 8000,
+        }),
+      );
       // Emit three bursts ~120ms apart (each resets the window), then stay quiet.
       await sleep(100); // let the subscription + snapshot settle first
       for (let i = 0; i < 3; i++) {
@@ -251,11 +257,13 @@ describeDaemon(
       })();
       try {
         const t0 = Date.now();
-        const outcome = await runWait(awaitOutputCondition(conn.client, {
-          id,
-          condition: { kind: "idle", ms: 500 },
-          timeoutMs: 1500,
-        }));
+        const outcome = await runWait(
+          awaitOutputCondition(conn.client, {
+            id,
+            condition: { kind: "idle", ms: 500 },
+            timeoutMs: 1500,
+          }),
+        );
         expect(outcome.kind).toBe("timeout");
         expect(Date.now() - t0).toBeGreaterThanOrEqual(1400); // ran to the cap
       } finally {
@@ -270,11 +278,13 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
   it("resolves `match` when new output matches the regex", async () => {
     const id = await spawnCat();
     let resolved = false;
-    const p = runWait(awaitOutputCondition(conn.client, {
-      id,
-      condition: { kind: "match", regex: /KAVAL-WAIT-MARK/ },
-      timeoutMs: 5000,
-    }));
+    const p = runWait(
+      awaitOutputCondition(conn.client, {
+        id,
+        condition: { kind: "match", regex: /KAVAL-WAIT-MARK/ },
+        timeoutMs: 5000,
+      }),
+    );
     void p.finally(() => {
       resolved = true;
     });
@@ -302,15 +312,17 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
 
   it("resolves `gone` when the terminal exits before the condition", async () => {
     const id = await spawnCat();
-    const p = runWait(awaitOutputCondition(conn.client, {
-      id,
-      // A long idle window the kill must short-circuit before it could fire.
-      condition: { kind: "idle", ms: 5000 },
-      timeoutMs: 10000,
-    }));
+    const p = runWait(
+      awaitOutputCondition(conn.client, {
+        id,
+        // A long idle window the kill must short-circuit before it could fire.
+        condition: { kind: "idle", ms: 5000 },
+        timeoutMs: 10000,
+      }),
+    );
     await sleep(100);
     const t0 = Date.now();
-    await conn.client.surface.terminal.kill({ id });
+    await Effect.runPromise(conn.client.surface.terminal.kill({ id }));
     const outcome = await p;
     expect(outcome.kind).toBe("gone");
     expect(Date.now() - t0).toBeLessThan(3000); // not the 5s window / 10s timeout

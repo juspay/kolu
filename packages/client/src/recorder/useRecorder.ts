@@ -231,7 +231,10 @@ function startRecording(): UiAction {
           window.showSaveFilePicker({
             suggestedName: `kolu-${timestamp()}.webm`,
             types: [
-              { description: "WebM video", accept: { "video/webm": [".webm"] } },
+              {
+                description: "WebM video",
+                accept: { "video/webm": [".webm"] },
+              },
             ],
           }),
         catch: (e) => e,

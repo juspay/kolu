@@ -73,62 +73,79 @@ interface TopIdentity {
 
 /** A snapshot-then-deltas member opens with its snapshot, so `runHead` IS the
  *  one-shot read — and it interrupts the subscription as soon as it lands. */
-async function snapshot<T>(
+function snapshot<T>(
   stream: Stream.Stream<T, unknown>,
   what: string,
-): Promise<T> {
-  const head = await Effect.runPromise(Stream.runHead(stream));
-  if (Option.isNone(head)) {
-    throw new Error(`${what}: stream closed before its snapshot frame`);
-  }
-  return head.value;
+): Effect.Effect<T, Error> {
+  return Stream.runHead(stream).pipe(
+    // The endpoint's `connect` declares `Error`, so an upstream failure of any
+    // shape is normalised here rather than widening the contract.
+    Effect.mapError((cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+    ),
+    Effect.flatMap((head) =>
+      Option.isNone(head)
+        ? Effect.fail(
+            new Error(`${what}: stream closed before its snapshot frame`),
+          )
+        : Effect.succeed(head.value),
+    ),
+  );
 }
 
 // `connect` is the supervisor's soul: dial the socket, prove the link answers by
-// reading a first frame, and stamp the identity the endpoint reports.
-async function connectTop(
+// reading a first frame, and stamp the identity the endpoint reports. It is an
+// EFFECT: the endpoint composes it into its own fibers, so a boot the supervisor
+// gives up on tears the half-made connection down instead of abandoning it.
+function connectTop(
   socketPath: string,
-): Promise<DaemonConnection<TopClient, TopIdentity>> {
-  const socket = await dialSocket(socketPath);
-  // A connected unix socket IS a Duplex, and the framing is the same ndjson
-  // `serveOverUnixSocket` serves — so the stdio link carries it verbatim.
-  const link = await stdioLink({
-    group: daemonSurfaces.group,
-    read: socket,
-    write: socket,
+): Effect.Effect<DaemonConnection<TopClient, TopIdentity>, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocket(socketPath);
+    // A connected unix socket IS a Duplex, and the framing is the same ndjson
+    // `serveOverUnixSocket` serves — so the stdio link carries it verbatim.
+    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED
+    // here rather than run.
+    const link = yield* Effect.promise(() =>
+      stdioLink({
+        group: daemonSurfaces.group,
+        read: socket,
+        write: socket,
+      }),
+    );
+    // The `app` SIBLING's own face: the sibling `Surface` value already carries
+    // the `surface/app/` tag prefix, so the face never learns it is scoped.
+    const client = buildSurfaceFace(daemonSurfaces.siblings.app, link.dispatch);
+    const load = yield* snapshot(
+      (client.surface.load?.get as StreamingProcedure<undefined, Load>)(
+        undefined,
+      ),
+      "app.load",
+    );
+    const closeCbs: Array<() => void> = [];
+    let closed = false;
+    socket.once("close", () => {
+      closed = true;
+      for (const cb of closeCbs) cb();
+    });
+    return {
+      client,
+      identity: { loadOne: load.one },
+      startedAt: Date.now(),
+      // Release the LINK's scope first (it holds the protocol's fibers), then
+      // drop the socket — dropping the socket alone would leak them.
+      dispose: () => {
+        void link.dispose().finally(() => socket.destroy());
+      },
+      onClose: (cb) => (closed ? cb() : closeCbs.push(cb)),
+    };
   });
-  // The `app` SIBLING's own face: the sibling `Surface` value already carries
-  // the `surface/app/` tag prefix, so the face never learns it is scoped.
-  const client = buildSurfaceFace(daemonSurfaces.siblings.app, link.dispatch);
-  const load = await snapshot(
-    (client.surface.load?.get as StreamingProcedure<undefined, Load>)(
-      undefined,
-    ),
-    "app.load",
-  );
-  const closeCbs: Array<() => void> = [];
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-    for (const cb of closeCbs) cb();
-  });
-  return {
-    client,
-    identity: { loadOne: load.one },
-    startedAt: Date.now(),
-    // Release the LINK's scope first (it holds the protocol's fibers), then
-    // drop the socket — dropping the socket alone would leak them.
-    dispose: () => {
-      void link.dispose().finally(() => socket.destroy());
-    },
-    onClose: (cb) => (closed ? cb() : closeCbs.push(cb)),
-  };
 }
 
-export async function bootSupervisor(
+export function bootSupervisor(
   readProcessIdentity: import("@kolu/surface-daemon").ReadProcessIdentity,
   readSocketHolders: import("@kolu/surface-daemon-supervisor").ReadSocketHolders,
-): Promise<void> {
+): Effect.Effect<void, unknown> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {
     capability: "not-drainable",
@@ -163,17 +180,19 @@ export async function bootSupervisor(
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
   });
 
-  // #region converge
-  // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
-  const outcome = await converge(endpoint);
-  // #endregion converge
-  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
+  return Effect.gen(function* () {
+    // #region converge
+    // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
+    const outcome = yield* converge(endpoint);
+    // #endregion converge
+    process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 
-  // The live recycle: deliberate replace under a connected client.
-  await recycle(endpoint, {
-    capture: async () => undefined,
-    drain: async () => {},
-    reattach: async () => {},
+    // The live recycle: deliberate replace under a connected client.
+    yield* recycle(endpoint, {
+      capture: Effect.succeed(undefined),
+      drain: () => Effect.void,
+      reattach: () => Effect.void,
+    });
   });
   // #endregion endpoint
 }

@@ -167,19 +167,22 @@ export interface SurfaceSink<S extends SurfaceSpec> {
  *  `serve ∘ mirror ≈ identity` the epic rests on) — including the ENCODED input /
  *  DECODED output split the face itself uses (D2/#13).
  *
- *  There is no per-call `{ signal }` any more: a unary call carries no cancellation
- *  token under Effect (D10/#18), and the stub is a passthrough, so it cannot invent
- *  one the face does not have. */
+ *  There is no per-call `{ signal }`: a unary call carries no cancellation token
+ *  under Effect (D10/#18), and the stub is a passthrough, so it cannot invent one
+ *  the face does not have — a caller bounds the forward by bounding the `Effect`
+ *  it gets back. That the stub returns exactly what the face returns is also what
+ *  makes the re-serve graft literal: a handler wants an `Effect`, and a forwarder
+ *  IS one. */
 type ProcedureForwarder<P extends ProcedureSpec<unknown, unknown>> = P extends {
   input: infer In extends WireSchemaAny;
   output: infer Out extends WireSchemaAny;
 }
-  ? (input: In["Encoded"]) => Promise<Out["Type"]>
+  ? (input: In["Encoded"]) => Effect.Effect<Out["Type"], unknown>
   : P extends { input: infer In extends WireSchemaAny }
-    ? (input: In["Encoded"]) => Promise<void>
+    ? (input: In["Encoded"]) => Effect.Effect<void, unknown>
     : P extends { output: infer Out extends WireSchemaAny }
-      ? (input?: undefined) => Promise<Out["Type"]>
-      : (input?: undefined) => Promise<void>;
+      ? (input?: undefined) => Effect.Effect<Out["Type"], unknown>
+      : (input?: undefined) => Effect.Effect<void, unknown>;
 
 /** The consume-side dual of a producer's procedures: one forwarding stub per
  *  `<ns>.<verb>` the source surface wires. A procedure has no standing cost (a
@@ -263,15 +266,16 @@ function requireEntry(
 
 /** The runtime shape of a forwarding stub — loosely typed; the precise per-verb
  *  type is materialized once at the public `ProcedureForwarders<S>` boundary. */
-type ProcedureFn = (input?: unknown) => Promise<unknown>;
+type ProcedureFn = (input?: unknown) => Effect.Effect<unknown, unknown>;
 
 /** Build one forwarding stub per `<ns>.<verb>` procedure the spec declares. A stub
  *  is a thin relay to `client.surface.<ns>.<verb>(input)` — request/response, no
  *  subscription, no teardown — so this runs synchronously and the stubs are usable
- *  immediately. Validation is at CALL time, not build time: a stub for a procedure
- *  the client doesn't expose REJECTS with a loud client/surface mismatch (never a
- *  silent undefined — the no-fallback rule), so a deliberately narrowed client that
- *  omits procedures this consumer never calls is tolerated until one is invoked. */
+ *  immediately. Validation is at RUN time, not build time and not call time: a stub
+ *  for a procedure the client doesn't expose FAILS with a loud client/surface
+ *  mismatch (never a silent undefined — the no-fallback rule), so a deliberately
+ *  narrowed client that omits procedures this consumer never calls is tolerated
+ *  until one is actually run. */
 function buildProcedureForwarders(
   client: SurfaceClientLike,
   spec: SurfaceSpec,
@@ -289,15 +293,18 @@ function buildProcedureForwarders(
     const nsClient = surfaceNs[nsKey];
     const verbs: Record<string, ProcedureFn> = {};
     for (const verb of Object.keys(procs)) {
-      verbs[verb] = async (input) => {
-        const fn = nsClient?.[verb];
-        if (typeof fn !== "function") {
-          throw new ClientSurfaceMismatchError(
-            `a forwarding stub was built for procedure "${nsKey}.${verb}" but the client has no such entry`,
-          );
-        }
-        return fn(input);
-      };
+      verbs[verb] = (input) =>
+        Effect.suspend(() => {
+          const fn = nsClient?.[verb];
+          if (typeof fn !== "function") {
+            return Effect.fail(
+              new ClientSurfaceMismatchError(
+                `a forwarding stub was built for procedure "${nsKey}.${verb}" but the client has no such entry`,
+              ),
+            );
+          }
+          return fn(input);
+        });
     }
     out[nsKey] = verbs;
   }

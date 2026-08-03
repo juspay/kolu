@@ -69,7 +69,7 @@ import {
   type UiAction,
 } from "../runAction";
 import { isTouch } from "../useMobile";
-import { activePadiEffect, activePadiStreams, preferences } from "../wire";
+import { activePadiRpc, activePadiStreams, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -234,7 +234,7 @@ const Terminal: Component<{
     // longer needs suppressing here: kaval excludes resize repaints from its
     // meaningful-output edge at the source, so the live dot (mirrored off padi's
     // `activity` set) never lights on a reveal/resize in the first place.
-    return activePadiEffect.lifecycle
+    return activePadiRpc.lifecycle
       .resize({ id: props.terminalId, cols, rows })
       .pipe(
         Effect.catch((err) =>
@@ -397,7 +397,9 @@ const Terminal: Component<{
               Effect.catch((err) =>
                 Effect.sync(() => {
                   console.error("Failed to copy selection:", err);
-                  toast.error(`Failed to copy selection: ${toError(err).message}`);
+                  toast.error(
+                    `Failed to copy selection: ${toError(err).message}`,
+                  );
                 }),
               ),
             ),
@@ -450,7 +452,7 @@ const Terminal: Component<{
       // the `_tag` narrowing in `isTerminalGone` below stays honest.
       fetch: (before, max, epoch) =>
         runActionPromise(
-          activePadiEffect.screen.history({
+          activePadiRpc.screen.history({
             id: props.terminalId,
             before,
             max,
@@ -811,10 +813,10 @@ const Terminal: Component<{
         terminalId: props.terminalId,
         name,
         base64,
-        scratchWrite: (args) => activePadiEffect.scratch.write(args),
+        scratchWrite: (args) => activePadiRpc.scratch.write(args),
         isActive: () =>
           activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
-        sendInput: (args) => activePadiEffect.lifecycle.sendInput(args),
+        sendInput: (args) => activePadiRpc.lifecycle.sendInput(args),
         wrapPath: wrapBracketedPaste,
       });
     }
@@ -827,7 +829,9 @@ const Terminal: Component<{
       failed: (message: string) => string,
     ): UiAction {
       return Effect.tryPromise(() => file.arrayBuffer()).pipe(
-        Effect.flatMap((buf) => writeScratchAndPaste(name, bufferToBase64(buf))),
+        Effect.flatMap((buf) =>
+          writeScratchAndPaste(name, bufferToBase64(buf)),
+        ),
         Effect.catch((err) =>
           Effect.sync(() => {
             toast.error(failed(errMsg(err)));
@@ -1049,7 +1053,7 @@ const Terminal: Component<{
           if (isTerminalQueryResponse(data)) return;
           runAction(
             "send input",
-            activePadiEffect.lifecycle
+            activePadiRpc.lifecycle
               .sendInput({
                 id: props.terminalId,
                 data: applyStickyModifiers(data),

@@ -164,6 +164,34 @@ function handle<A, E>(
   );
 }
 
+/** {@link handle}'s twin for a body that is ALREADY an `Effect` — same declared-vs-
+ *  defect rule, no Promise in the middle. A handler whose work composes (padi's
+ *  own supervisory verbs, now that the endpoint kit is Effect-native) routes here
+ *  instead of being flattened into a promise and re-lifted. */
+function handleEffect<A, E>(
+  body: Effect.Effect<A, unknown>,
+): Effect.Effect<A, E> {
+  return Effect.catch(body, (err) =>
+    isPadiDeclaredError(err)
+      ? Effect.fail(err as E)
+      : (Effect.die(err) as Effect.Effect<A, E>),
+  );
+}
+
+/**
+ * THE reactor-poll Promise edge for padi's poll cells — one function, named, so
+ * the crossing is countable.
+ *
+ * The reactor's poll dep is `read: () => Promise<T>` BY DESIGN: a poll source
+ * owns its own cadence and seed and is deliberately not Effect code (locked
+ * decision 1). padi's samplers are Effects now — they compose the supervisor's
+ * Effect-native control-core reads — so this is where the two meet. Once, here,
+ * rather than once per cell.
+ */
+function pollRead<A>(program: Effect.Effect<A, unknown>): () => Promise<A> {
+  return () => Effect.runPromise(program);
+}
+
 /** One subscriber's `terminalAttach` frames: open the terminal's endpoint attach,
  *  emit the mandatory snapshot-first frame (carrying the backfill seed `topLine`
  *  and the reflow generation `reflowEpoch`), then relay its deltas — including the
@@ -306,7 +334,7 @@ export function buildPadiSurfaceDeps(deps: {
       hostInventory: derived.cell(
         source({
           label: "hostInventory",
-          read: () => samplePadiHostInventory(stateRoot),
+          read: pollRead(samplePadiHostInventory(stateRoot)),
           install: everyMsOr(
             HOST_INVENTORY_SAMPLE_INTERVAL_MS,
             onDaemonStatusChange,
@@ -595,43 +623,45 @@ export function buildPadiSurfaceDeps(deps: {
         // the separate `control.drain` upgrade path). Resolves once the fresh kaval
         // is connected; a failure rejects with the captured session safe on disk.
         recycleKaval: () =>
-          handle(async () => {
-            log.info({}, "recycle kaval (Restart kaval)");
-            try {
-              await restartLocalDaemon();
-            } catch (err) {
-              const skew = isContractSkewError(err);
-              // A failed restart otherwise surfaces ONLY as a client toast — padi's
-              // journal would show the "recycle kaval" start line and then an
-              // unexplained silence. Surface it: the endpoint has already reported
-              // its terminal state and the captured session is safe on disk (the
-              // user can retry or restore), but the failure must be legible in the
-              // journal — naming the ACTUAL state (skew → `incompatible`).
-              log.error(
-                { err },
-                skew
-                  ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
-                  : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
-              );
-              // A contract skew is the ONE failure this handler can translate — it
-              // is the knowing endpoint (the same precedent as `unwrapGit`'s
-              // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
-              // error means must retype it, not leave it to flatten downstream): a
-              // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
-              // and the user would read an opaque toast (the field failure,
-              // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
-              // error constructor (SK6) — versions as typed data, `defined: true`
-              // on the wire — one recycle attempt was the diagnosis; padi is not
-              // the actor that can fix a skew (only the binder's reprovision is).
-              if (isContractSkewError(err)) {
-                throw new KavalContractSkew({
-                  daemonVersion: err.daemonVersion,
-                  requiredVersion: err.requiredVersion,
-                });
-              }
-              throw err;
-            }
-          }),
+          handleEffect(
+            Effect.gen(function* () {
+              log.info({}, "recycle kaval (Restart kaval)");
+              yield* Effect.catch(restartLocalDaemon(), (err) => {
+                const skew = isContractSkewError(err);
+                // A failed restart otherwise surfaces ONLY as a client toast — padi's
+                // journal would show the "recycle kaval" start line and then an
+                // unexplained silence. Surface it: the endpoint has already reported
+                // its terminal state and the captured session is safe on disk (the
+                // user can retry or restore), but the failure must be legible in the
+                // journal — naming the ACTUAL state (skew → `incompatible`).
+                log.error(
+                  { err },
+                  skew
+                    ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
+                    : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
+                );
+                // A contract skew is the ONE failure this handler can translate — it
+                // is the knowing endpoint (the same precedent as `unwrapGit`'s
+                // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an
+                // error means must retype it, not leave it to flatten downstream): a
+                // plain rethrow would be flattened to INTERNAL_SERVER_ERROR by oRPC
+                // and the user would read an opaque toast (the field failure,
+                // bug-remote-kaval-contract-skew defect A). Refuse via the DECLARED
+                // error constructor (SK6) — versions as typed data, `defined: true`
+                // on the wire — one recycle attempt was the diagnosis; padi is not
+                // the actor that can fix a skew (only the binder's reprovision is).
+                if (isContractSkewError(err)) {
+                  return Effect.fail(
+                    new KavalContractSkew({
+                      daemonVersion: err.daemonVersion,
+                      requiredVersion: err.requiredVersion,
+                    }),
+                  );
+                }
+                return Effect.fail(err);
+              });
+            }),
+          ),
       },
 
       chrome: {

@@ -212,7 +212,7 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   process.stdin.on("data", (key: string) => {
     if (key === "q" || key === "\x03" || key === "\x04") return quit(0);
     if (key === "r" && attachedId !== undefined) {
-      void rerunNode(client, attachedId);
+      Effect.runFork(Effect.ignore(rerunNode(client, attachedId)));
       return;
     }
     if (state === undefined) return;

@@ -27,6 +27,7 @@ import {
   drainAndAwaitExit,
   drainRejectionSuffix,
 } from "@kolu/surface-daemon-supervisor";
+import { Effect } from "effect";
 
 // Re-export the framework drain skeleton so the remote arm's existing import path
 // (`./padiConvergence`) keeps working; the implementation lives in the supervisor.
@@ -90,22 +91,44 @@ export type DrainableConn = {
 
 export { drainRejectionSuffix };
 
+/** The endpoint arm's exit ORACLE: the daemon's socket closing.
+ *
+ *  `onClose` is a synchronous, fire-at-most-once subscription the endpoint's own
+ *  connection owns, so this is a plain `Effect.callback` with no finalizer to
+ *  register — there is no unsubscribe to perform and nothing to leak. It never
+ *  fails, which is the F3 contract (`Effect<void>`): a link blip is not an exit,
+ *  and the ceiling — not this oracle — is what decides that the drain did not
+ *  take. When the ceiling wins, the framework INTERRUPTS this effect; the
+ *  AbortSignal it used to be handed existed only to say that, and interruption
+ *  says it unconditionally. */
+function awaitSocketClose(conn: DrainableConn): Effect.Effect<void> {
+  return Effect.callback<void>((resume) => {
+    conn.onClose(() => resume(Effect.void));
+  });
+}
+
 /**
  * DRAIN a padi over the FROZEN control core, then confirm it actually exited by
  * the SOCKET CLOSING within the teardown window — the endpoint/local arm's use of
- * the framework {@link drainAndAwaitExit}. THROWS when the drain does not take.
+ * the framework {@link drainAndAwaitExit}. FAILS when the drain does not take.
  */
-export async function drainViaControlCore(conn: DrainableConn): Promise<void> {
-  const { took, drainRejection } = await drainAndAwaitExit(
-    () => conn.client.control.surface.core.drain(),
-    // The endpoint's exit signal is the SOCKET CLOSE.
-    () => new Promise<void>((resolve) => conn.onClose(resolve)),
-    { ceilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS },
+export function drainViaControlCore(
+  conn: DrainableConn,
+): Effect.Effect<void, Error> {
+  return Effect.flatMap(
+    drainAndAwaitExit(
+      conn.client.control.surface.core.drain(),
+      awaitSocketClose(conn),
+      { ceilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS },
+    ),
+    ({ took, drainRejection }) =>
+      took
+        ? Effect.void
+        : Effect.fail(
+            new Error(
+              `padi drain did not complete — its socket did not close within ${PADI_DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
+                drainRejectionSuffix(drainRejection),
+            ),
+          ),
   );
-  if (!took) {
-    throw new Error(
-      `padi drain did not complete — its socket did not close within ${PADI_DRAIN_TEARDOWN_CEILING_MS}ms (padi did not exit)` +
-        drainRejectionSuffix(drainRejection),
-    );
-  }
 }

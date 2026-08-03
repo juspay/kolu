@@ -25,7 +25,7 @@ import { runAction, type UiAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "../ui/clipboard";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 import {
   createEvictionDedup,
   evictTerminal,
@@ -91,7 +91,7 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Set a terminal's theme name on the server. */
   function setThemeName(id: TerminalId, name: string): UiAction {
-    return activePadiEffect.chrome
+    return activePadiRpc.chrome
       .setTheme({ id, themeName: name })
       .pipe(toastFailure("Failed to set theme"));
   }
@@ -107,7 +107,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   const setParent = (subId: TerminalId, parentId: TerminalId | null): void => {
     runAction(
       "re-home split",
-      activePadiEffect.chrome
+      activePadiRpc.chrome
         .setParent({ id: subId, parentId })
         .pipe(toastFailure("Failed to set parent")),
     );
@@ -231,7 +231,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       pendingLayouts.setNextDefaultSize(
         activeLayout ? { w: activeLayout.w, h: activeLayout.h } : null,
       );
-      const info = yield* activePadiEffect.lifecycle
+      const info = yield* activePadiRpc.lifecycle
         // SPREAD, never `{ cwd }` (#17): `cwd` is `Schema.optionalKey` on the wire,
         // so an ABSENT key is accepted and a present-but-`undefined` one is
         // REJECTED — and "no cwd" is the ordinary case (a bare Cmd+T).
@@ -249,7 +249,9 @@ export const useTerminalCrud = createSharedRoot(() => {
               toast.error(`Failed to create terminal: ${toError(err).message}`);
             }),
           ),
-          Effect.mapError(() => new TerminalCreateRefused({ reason: "failed" })),
+          Effect.mapError(
+            () => new TerminalCreateRefused({ reason: "failed" }),
+          ),
         );
       // `setActiveSilently`: the canvas's cascade-placement effect bumps
       // the centering signal once the new tile's pending layout is set —
@@ -269,7 +271,7 @@ export const useTerminalCrud = createSharedRoot(() => {
       // `handleCreate`), so it needs the same warming guard — the split
       // shortcut (Ctrl+`+Shift) and TileTitleActions stay live while warming.
       if (refuseIfWarming()) return;
-      const info = yield* activePadiEffect.lifecycle
+      const info = yield* activePadiRpc.lifecycle
         // `parentId` is always present here; `cwd` is spread for the #17 reason
         // above (a split with no inherited cwd is the ordinary case).
         .create({ parentId, ...(cwd !== undefined && { cwd }) })
@@ -279,7 +281,9 @@ export const useTerminalCrud = createSharedRoot(() => {
               toast.error(`Failed to create terminal: ${toError(err).message}`);
             }),
           ),
-          Effect.mapError(() => new TerminalCreateRefused({ reason: "failed" })),
+          Effect.mapError(
+            () => new TerminalCreateRefused({ reason: "failed" }),
+          ),
         );
       subPanel.focusSubTab(parentId, info.id);
     });
@@ -303,7 +307,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   }
 
   function handleKill(id: TerminalId): UiAction {
-    return activePadiEffect.lifecycle.kill({ id }).pipe(
+    return activePadiRpc.lifecycle.kill({ id }).pipe(
       // The terminal may already be gone — an ordinary outcome for a close, not
       // a failure to report.
       Effect.ignore,
@@ -354,7 +358,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   function handleSleep(id: TerminalId): UiAction {
     return Effect.gen(function* () {
       for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
-      yield* activePadiEffect.lifecycle
+      yield* activePadiRpc.lifecycle
         .sleep({ id })
         .pipe(toastFailure("Failed to sleep terminal"));
     });
@@ -364,7 +368,7 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  resumes its agent (session-restore-of-one). The metadata subscription flips
    *  it back to active and the tile re-renders live — so the client just asks. */
   function handleWake(id: TerminalId): UiAction {
-    return activePadiEffect.lifecycle
+    return activePadiRpc.lifecycle
       .wake({ id })
       .pipe(toastFailure("Failed to wake terminal"));
   }
@@ -390,7 +394,7 @@ export const useTerminalCrud = createSharedRoot(() => {
   function handleDiscard(
     id: TerminalId,
   ): Effect.Effect<void, TerminalDiscardFailed> {
-    return activePadiEffect.lifecycle.discardSleeping({ id }).pipe(
+    return activePadiRpc.lifecycle.discardSleeping({ id }).pipe(
       Effect.tapError((err) =>
         Effect.sync(() => {
           toast.error(`Failed to discard terminal: ${toError(err).message}`);
@@ -405,11 +409,13 @@ export const useTerminalCrud = createSharedRoot(() => {
     return Effect.gen(function* () {
       const id = store.focusedId();
       if (id === null) return;
-      const text = yield* activePadiEffect.screen.text({ id }).pipe(
+      const text = yield* activePadiRpc.screen.text({ id }).pipe(
         Effect.catch((err) =>
           Effect.sync((): string | undefined => {
             console.error("Failed to read terminal text:", err);
-            toast.error(`Failed to read terminal text: ${toError(err).message}`);
+            toast.error(
+              `Failed to read terminal text: ${toError(err).message}`,
+            );
             return undefined;
           }),
         ),
@@ -423,7 +429,9 @@ export const useTerminalCrud = createSharedRoot(() => {
         Effect.catch((err) =>
           Effect.sync(() => {
             console.error("Failed to copy terminal text:", err);
-            toast.error(`Failed to copy terminal text: ${toError(err).message}`);
+            toast.error(
+              `Failed to copy terminal text: ${toError(err).message}`,
+            );
           }),
         ),
       );
@@ -460,14 +468,14 @@ export const useTerminalCrud = createSharedRoot(() => {
     return Effect.suspend(() => {
       const id = store.focusedId();
       if (id === null) return Effect.void;
-      return activePadiEffect.lifecycle
+      return activePadiRpc.lifecycle
         .sendInput({ id, data: command })
         .pipe(toastFailure("Failed to prefill command"));
     });
   }
 
   function handleCloseAll(): UiAction {
-    return activePadiEffect.lifecycle.killAll().pipe(
+    return activePadiRpc.lifecycle.killAll().pipe(
       Effect.tap(() =>
         Effect.sync(() => {
           store.reset();

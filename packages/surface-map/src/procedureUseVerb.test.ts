@@ -91,9 +91,9 @@ describe("procedure verb named `use` routes as an imperative call, not a reactiv
     await settle();
     await createRoot(async (dispose) => {
       const client = connectSurfaceMap(map, mapDispatch);
-      const result = await client
-        .entry(A)
-        .procedures.license.use({ seat: "s1" });
+      const result = await Effect.runPromise(
+        client.entry(A).procedures.license.use({ seat: "s1" }),
+      );
       expect(result).toEqual({ granted: true, seat: "s1" });
       dispose();
     });
@@ -108,13 +108,13 @@ describe("procedure verb named `use` routes as an imperative call, not a reactiv
       const view = client.useEntry(() => A);
       // Before the fix this hit the `verb === "use"` reactive-hook branch and
       // returned a `reactiveDelegate` proxy wrapping a keyed root — NOT the
-      // procedure's Promise. Assert the call returns a genuine Promise (the value
-      // still resolves either way, because the delegate forwards `.then`, so the
-      // return TYPE is what distinguishes the imperative call from the intercepted
-      // reactive-hook wrap).
+      // procedure's call. Assert the call returns a genuine EFFECT: the value
+      // still arrives either way (the delegate forwards), so the return TYPE is
+      // what distinguishes the imperative call from the intercepted
+      // reactive-hook wrap.
       const pending = view.procedures.license.use({ seat: "s2" });
-      expect(pending).toBeInstanceOf(Promise);
-      const result = await pending;
+      expect(Effect.isEffect(pending)).toBe(true);
+      const result = await Effect.runPromise(pending);
       expect(result).toEqual({ granted: true, seat: "s2" });
       dispose();
     });

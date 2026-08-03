@@ -59,7 +59,9 @@ import { runActionPromise } from "../runAction";
  *  step that MUST stay inside the gesture window. `Effect.try` and not
  *  `Effect.sync`: `execCommand` returning `false` is the browser saying no, an
  *  ordinary outcome this file's contract reports on the error channel. */
-const execCommandWrite = (text: string): Effect.Effect<void, Cause.UnknownError> =>
+const execCommandWrite = (
+  text: string,
+): Effect.Effect<void, Cause.UnknownError> =>
   Effect.try(() => {
     const textarea = document.createElement("textarea");
     textarea.value = text;
@@ -112,7 +114,6 @@ export function writeTextToClipboard(
     ),
   );
 }
-
 
 /** xterm `IClipboardProvider` that uses `writeTextToClipboard` for writes
  *  (survives non-secure contexts) and returns empty on reads when

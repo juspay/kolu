@@ -20,7 +20,7 @@ vi.mock("../hostScope/hostScopes", () => ({
 }));
 
 vi.mock("../wire", () => ({
-  activePadiEffect: { chrome: { setSubPanel: h.setSubPanel } },
+  activePadiRpc: { chrome: { setSubPanel: h.setSubPanel } },
 }));
 
 vi.mock("solid-sonner", () => ({

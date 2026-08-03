@@ -26,11 +26,12 @@
  */
 
 import type { Logger } from "@kolu/log";
+import type { Effect } from "effect";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import { readBakedAgentSource } from "./agentDrv";
-import { makeSession } from "./session";
+import { makeSession, runProbe } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
 /** A live one-shot agent connection: the surface FACE plus a `dispose` that tears
@@ -92,7 +93,7 @@ export interface DialAgentOnceOptions<S extends SurfaceSpec> {
    *  gates the padiSurface contract version, which is a contract check,
    *  not merely "is the link alive". The result is discarded; a rejection fails
    *  the dial (and destroys the session). */
-  probe?: (client: AgentClient) => Promise<unknown>;
+  probe?: (client: AgentClient) => Effect.Effect<unknown, unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `SshConnectorOptions.extraArgs` / `buildAgentCommand` — what the args mean is
@@ -219,8 +220,18 @@ export async function dialAgentOnce<S extends SurfaceSpec>(
     // the session's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
     // assertion (padi-tui's contract-version gate) overrides it.
-    const probe = opts.probe ?? probeSurfaceLive;
-    await probe(client);
+    // The override and the default are BOTH Effects, and the union is annotated
+    // rather than inferred. That is load-bearing: an inferred
+    // "Promise | Effect" union would make the `await` legal on both arms, and
+    // awaiting a non-thenable Effect resolves to the Effect itself — the link
+    // would never be probed and the dial would report success against a dead
+    // agent. One shape means there is no such arm to get wrong.
+    //
+    // It crosses at `runProbe` — the session's own probe edge — so the package
+    // has ONE place where a reserved probe becomes a Promise, not one per file.
+    const probe: (c: AgentClient) => Effect.Effect<unknown, unknown> =
+      opts.probe ?? probeSurfaceLive;
+    await runProbe(probe(client));
     session.markConnected();
     return {
       client,

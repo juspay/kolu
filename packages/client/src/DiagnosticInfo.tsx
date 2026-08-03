@@ -232,7 +232,9 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
       Effect.catch((err) =>
         Effect.sync(() => {
           console.error("Failed to copy diagnostic info:", err);
-          toast.error(`Failed to copy diagnostic info: ${toError(err).message}`);
+          toast.error(
+            `Failed to copy diagnostic info: ${toError(err).message}`,
+          );
         }),
       ),
     );

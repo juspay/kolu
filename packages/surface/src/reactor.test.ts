@@ -484,8 +484,9 @@ describe("derived.cell", () => {
     // crash lands on the connector's EXIT, not on the builder's stack: the
     // connector is an effect, so a defect it raises is the runtime's owned fault
     // reaching `done` — never a throw out of a function that returns a value.
-    await expect(openConnector(dc.connect({ set: () => {} })).settled).rejects
-      .toThrow(/after dispose/);
+    await expect(
+      openConnector(dc.connect({ set: () => {} })).settled,
+    ).rejects.toThrow(/after dispose/);
   });
 
   it("fail-fast: connect() twice throws (a derived cell wires exactly one subscription)", async () => {

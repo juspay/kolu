@@ -17,8 +17,8 @@
  * at the leaf, typed by hand because a dynamically-assembled `RpcGroup` carries
  * no trustworthy type information (D2/#16).
  *
- * EFFECT-NATIVE, like the surface face's `client.effect.<ns>.<verb>` twin. It
- * used to hand back a `Promise` — the framework's one run edge, restated here
+ * EFFECT-NATIVE, exactly like the surface face's `client.procedures.<ns>.<verb>`.
+ * It used to hand back a `Promise` — the framework's one run edge, restated here
  * for the root tags — and every consumer therefore `await`ed a call it could not
  * bound, race or supersede. Now the ref IS the description: `useServerIdentity`
  * folds `server.info` into a boot program, `addHost` composes `hosts.add` with
@@ -78,7 +78,7 @@ export interface RootProcedures {
  *  nothing is decoded at this edge. `dispatch.unary` is typed `unknown → unknown`
  *  because the seam is deliberately erased (#16): the ONE cast below is where
  *  this file's hand-written types meet it, exactly as `buildSurfaceClient` casts
- *  its assembled record to `BoundProceduresFor<S>`.
+ *  its assembled record to `EffectProceduresFor<S>`.
  */
 function unary<I, O>(
   dispatch: SurfaceDispatch,

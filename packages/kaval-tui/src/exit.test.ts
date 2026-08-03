@@ -65,7 +65,9 @@ describe("attach mirrors the child's exit code", () => {
   it("carries a representable code through verbatim", () => {
     for (const code of [1, 7, 42, 255]) {
       expect(attachExitCode(code)).toBe(code);
-      expect(exitCodeOf(new AttachChildExited({ stderr: "", code }))).toBe(code);
+      expect(exitCodeOf(new AttachChildExited({ stderr: "", code }))).toBe(
+        code,
+      );
     }
   });
 
@@ -87,7 +89,9 @@ describe("attach mirrors the child's exit code", () => {
 describe("what the run edge prints", () => {
   it("an arm prints its own exact line, verbatim", () => {
     expect(
-      reportOf(new WaitInterrupted({ stderr: "— interrupted; ab left running\n" })),
+      reportOf(
+        new WaitInterrupted({ stderr: "— interrupted; ab left running\n" }),
+      ),
     ).toBe("— interrupted; ab left running\n");
     // Note the ABSENCE of a `kaval-tui:` prefix above — the interrupted trailer
     // is a status line, not a diagnostic, and prefixing it would change bytes a

@@ -173,19 +173,6 @@ export function fenceStream<A>(
  * at the edge, exactly where zod's `.parse`-at-input used to run. */
 export type StreamingProcedure<I, O> = (input: I) => Stream.Stream<O, unknown>;
 
-/** A CLIENT-side UNARY member ref: the ENCODED input in, a `Promise` of the
- *  DECODED result out. Unary calls stay Promise-shaped at the face because the
- *  Solid leaves that consume them are plain async (PLAN locked decision 1) — this
- *  IS the sanctioned `Effect.runPromise` boundary, not a convenience hatch.
- *
- *  **Superseded, and DERIVED.** Every Promise row is now built by running its own
- *  {@link UnaryEffect} twin (`face.effect[member][verb]`), so the two can never
- *  disagree about a tag, a decode or an error. The Promise rows stay while the
- *  plain-async leaves do; when the last one crosses, this type, `promiseRef` and
- *  the `face.surface` nesting are deleted together and `face.effect` is renamed
- *  onto `face.surface`. */
-export type UnaryProcedure<I, O> = (input: I) => Promise<O>;
-
 /** The failures a unary member call can produce that NO spec declared — the
  *  framework's own half of the error channel.
  *
@@ -204,9 +191,9 @@ export type UnaryProcedure<I, O> = (input: I) => Promise<O>;
  *  (D4) and must not be spellable on the error channel. */
 export type SurfaceCallFailure = RpcClientError | SurfaceError;
 
-/** A CLIENT-side UNARY member ref, EFFECT-native: the ENCODED input in, a lazy
- *  `Effect` of the DECODED result out. The Effect-4 shape of {@link UnaryProcedure},
- *  and the PRIMITIVE one — the Promise row is `Effect.runPromise` over this.
+/** A CLIENT-side UNARY member ref: the ENCODED input in, a lazy `Effect` of the
+ *  DECODED result out. The unary counterpart of {@link StreamingProcedure}, and
+ *  the ONLY shape a unary member has.
  *
  *  `E` is the member's DECLARED error union alone; the framework's own
  *  {@link SurfaceCallFailure} half is unioned in HERE rather than restated by every
@@ -215,8 +202,9 @@ export type SurfaceCallFailure = RpcClientError | SurfaceError;
  *  Nothing runs until the effect does, so a caller composes the call into its own
  *  program: `Effect.catchTag` on a declared `_tag`, `Effect.timeout`, a race, a
  *  scoped fiber whose interruption tears the call down. That composability is the
- *  whole point — the Promise row can only be awaited, and awaiting is the one thing
- *  interruption cannot reach through.
+ *  whole point, and it is why the Promise-shaped row this replaced is gone rather
+ *  than kept beside it — a `Promise` can only be awaited, and an `await` is the one
+ *  thing interruption cannot reach through.
  *
  *  Like {@link StreamingProcedure}, the argument is decoded EAGERLY at the call
  *  site (a bad input throws exactly where `.parse` used to) and only the DISPATCH
@@ -274,16 +262,11 @@ export function unenrolledStreamCall<I, O>(
 // member. So the face re-nests the flat tags ONCE, here, over the erased
 // {@link SurfaceDispatch}: `face.surface[member][verb]`.
 //
-// **Two nestings, one walk (the Effect gate).** The same walk also mints
-// `face.effect[member][verb]`, where a unary verb returns an `Effect` rather than
-// a `Promise`. That is what lets a consumer COMPOSE a member call — catch a
-// declared `_tag`, race it, bound it, let interruption tear it down — instead of
-// awaiting a value the runtime can no longer reach. The two nestings are not
-// parallel implementations: a streaming verb is the SAME reference in both (a
-// `Stream` is already Effect-native), and a unary Promise row is
-// `Effect.runPromise` over its own Effect twin. So the Promise face is a strictly
-// derived, deletable layer — when the last plain-async leaf crosses, `surface`
-// goes and `effect` takes its name.
+// **Every leaf is Effect-native.** A streaming verb hands back a lazy `Stream`; a
+// unary verb hands back a lazy `Effect`. Neither runs until its consumer runs it,
+// which is what lets a consumer COMPOSE a member call — catch a declared `_tag`,
+// race it, bound it, let interruption tear it down — instead of awaiting a value
+// the runtime can no longer reach.
 //
 // **Which side of the schema each position speaks (D2/#13).** The rule is not
 // "everything is encoded" — it is:
@@ -315,23 +298,10 @@ export function unenrolledStreamCall<I, O>(
  *  This layer's job is addressing, not typing — and a second precise mapped type
  *  over the same spec is exactly the union-budget blowup D2 exists to avoid. */
 export interface SurfaceFace {
-  /** The PROMISE-shaped nesting: unary verbs return a `Promise`, streaming verbs
-   *  a lazy `Stream`. What every consumer written before the Effect face reads. */
+  /** The member nesting: a unary verb is a {@link UnaryEffect}, a streaming verb a
+   *  {@link StreamingProcedure}. Both are lazy descriptions — nothing is
+   *  dispatched until the consumer runs the value it was handed. */
   readonly surface: Record<string, Record<string, unknown>>;
-  /** The EFFECT-NATIVE nesting — the SAME members at the same names, with every
-   *  unary verb returning an `Effect` instead of a `Promise`.
-   *
-   *  A complete mirror, not a partial one: a streaming verb is already
-   *  Effect-native (it returns a `Stream`), so `effect[member][verb]` holds the
-   *  IDENTICAL function reference `surface[member][verb]` does. Only the unary
-   *  rows differ, and each Promise row is literally `Effect.runPromise` over its
-   *  twin here — so "same tag, same decode, same error" is a fact of the
-   *  construction rather than a claim two walks have to keep agreeing on.
-   *
-   *  This is the nesting that survives: when the last plain-async leaf crosses,
-   *  `surface` is deleted and this one takes its name, with no consumer of THIS
-   *  nesting changing shape. */
-  readonly effect: Record<string, Record<string, unknown>>;
 }
 
 /** Decode an ENCODED argument at the face edge, or pass a DECODED one through.
@@ -344,11 +314,11 @@ function decoderFor(
   return Schema.decodeUnknownSync(schema);
 }
 
-/** A UNARY member ref, EFFECT-native — the PRIMITIVE row. Decodes the argument
- *  eagerly (a bad input throws at the call site, exactly as `.parse` did) and
- *  defers only the dispatch, so the returned effect is a pure description a
- *  caller may retry, race, time out or interrupt. */
-function unaryEffectRef(
+/** A UNARY member ref. Decodes the argument eagerly (a bad input throws at the
+ *  call site, exactly as `.parse` did) and defers only the dispatch, so the
+ *  returned effect is a pure description a caller may retry, race, time out or
+ *  interrupt. */
+function unaryRef(
   dispatch: SurfaceDispatch,
   tag: string,
   payload: WireSchemaAny | undefined,
@@ -359,22 +329,6 @@ function unaryEffectRef(
     const arg = decode ? decode(input) : input;
     return dispatch.unary(tag, arg);
   };
-}
-
-/** Derive the PROMISE row from its Effect twin. The `Effect.runPromise` here is
- *  the framework's ONE Promise edge for calls (PLAN locked decision 1: Solid
- *  leaves stay plain async). It rejects with the SQUASHED failure — i.e. the
- *  declared tagged-error INSTANCE itself, `_tag` and data intact — which is what
- *  makes `_tag` narrowing at a `catch`/`safe` site honest.
- *
- *  DERIVED, not parallel: the run edge sits on top of the Effect row rather than
- *  beside it, so a Promise row cannot drift from its twin in tag, decode or error
- *  — and when the last plain-async leaf crosses, deleting this function and the
- *  `face.surface` nesting removes the edge with nothing left behind. */
-function promiseRef(
-  effectRef: (input?: unknown) => Effect.Effect<unknown, unknown>,
-): (input?: unknown) => Promise<unknown> {
-  return (input) => Effect.runPromise(effectRef(input));
 }
 
 /** A STREAMING member ref. The argument is decoded EAGERLY (a bad input throws at
@@ -411,49 +365,43 @@ export function buildSurfaceFace<S extends SurfaceSpec>(
   // are arbitrary strings, so a member named `toString` must not resolve to an
   // inherited function nobody bound.
   const ns: Record<string, Record<string, unknown>> = Object.create(null);
-  const nsEffect: Record<string, Record<string, unknown>> = Object.create(null);
-  const member = (
-    into: Record<string, Record<string, unknown>>,
-    name: string,
-  ): Record<string, unknown> => {
-    const existing = into[name];
+  const member = (name: string): Record<string, unknown> => {
+    const existing = ns[name];
     if (existing !== undefined) return existing;
     const fresh: Record<string, unknown> = Object.create(null);
-    into[name] = fresh;
+    ns[name] = fresh;
     return fresh;
   };
   const tagOf = (name: string, verb: string) => surfaceTag(prefix, name, verb);
 
-  /** Mint one UNARY verb into BOTH nestings — the Effect row, and the Promise
-   *  row derived from it. One call site per verb, so the two nestings cannot
-   *  come to hold different tags or decode policies. */
+  /** Mint one UNARY verb — a lazy `Effect` at the member's wire tag. */
   const mintUnary = (
     name: string,
     verb: string,
     payload: WireSchemaAny | undefined,
     decodeInput: boolean,
   ): void => {
-    const asEffect = unaryEffectRef(
+    member(name)[verb] = unaryRef(
       dispatch,
       tagOf(name, verb),
       payload,
       decodeInput,
     );
-    member(nsEffect, name)[verb] = asEffect;
-    member(ns, name)[verb] = promiseRef(asEffect);
   };
 
-  /** Mint one STREAMING verb. A stream is already Effect-native, so the SAME
-   *  reference lands in both nestings — there is no second shape to build. */
+  /** Mint one STREAMING verb — a lazy `Stream` at the member's wire tag. */
   const mintStream = (
     name: string,
     verb: string,
     payload: WireSchemaAny | undefined,
     decodeInput: boolean,
   ): void => {
-    const ref = streamRef(dispatch, tagOf(name, verb), payload, decodeInput);
-    member(ns, name)[verb] = ref;
-    member(nsEffect, name)[verb] = ref;
+    member(name)[verb] = streamRef(
+      dispatch,
+      tagOf(name, verb),
+      payload,
+      decodeInput,
+    );
   };
 
   for (const [key, raw] of Object.entries(spec.cells ?? {})) {
@@ -502,5 +450,5 @@ export function buildSurfaceFace<S extends SurfaceSpec>(
   mintUnary(IDENTITY_NAMESPACE, IDENTITY_VERB, undefined, false);
   mintUnary(CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB, undefined, false);
 
-  return { surface: ns, effect: nsEffect };
+  return { surface: ns };
 }

@@ -173,12 +173,16 @@ function projectB(a: SourceA) {
       },
       procedures: {
         counter: {
-          // `Effect.promise` is the sanctioned edge back from the face's
-          // Promise-shaped unary refs — an A rejection is UNDECLARED here, so it
-          // crosses as a defect rather than collapsing to a value.
+          // A projection FORWARDS a member call, and the face hands one back as an
+          // `Effect` — so B's handler composes A's directly, with no edge to cross
+          // and nothing to await. `orDie` because B declares no error for this
+          // member: an A failure is UNDECLARED here, so it crosses as a defect
+          // rather than collapsing to a value. (The old `Effect.promise` shape said
+          // the same thing by turning a rejection into one; this says it outright.)
           bumpAndView: () =>
-            Effect.promise(
-              async () => ((await client.surface.counter.bump()) as number) + 1,
+            Effect.map(
+              Effect.orDie(client.surface.counter.bump()),
+              (n) => n + 1,
             ),
         },
       },
@@ -247,7 +251,7 @@ describe("surfaceClientRef — an in-process client of a sibling surface", () =>
     expect(await take(aClient.surface.count.get(undefined), 1)).toEqual([0]);
 
     // procedure round-trip
-    expect(await aClient.surface.counter.bump()).toBe(1);
+    expect(await Effect.runPromise(aClient.surface.counter.bump())).toBe(1);
     expect(await take(aClient.surface.count.get(undefined), 1)).toEqual([1]);
   });
 });
@@ -303,7 +307,9 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     const { aClient, bClient } = setup();
 
     // A starts at 0; bump → A.count 1; B's view = 1 + 1 = 2.
-    expect(await bClient.surface.counter.bumpAndView()).toBe(2);
+    expect(await Effect.runPromise(bClient.surface.counter.bumpAndView())).toBe(
+      2,
+    );
     // A's cell actually moved.
     expect(await take(aClient.surface.count.get(undefined), 1)).toEqual([1]);
   });
@@ -318,7 +324,7 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     // Let the upstream A `pinged` subscription attach, then fire it via bump.
     await new Promise((r) => setTimeout(r, 20));
     a.ctx.cells.count.set(2); // so bump → 3 → pinged 3 → relayed 30
-    await aClient.surface.counter.bump();
+    await Effect.runPromise(aClient.surface.counter.bump());
 
     await vi.waitFor(() => expect(sub.frames).toEqual([30])); // A.pinged 3 * 10
     await sub.stop();

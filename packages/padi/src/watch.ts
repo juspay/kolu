@@ -19,7 +19,6 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { isDeadTransportError } from "@kolu/surface/errors";
-import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { Stream } from "effect";
 import {
   isValidTimerMs,
@@ -42,9 +41,9 @@ import { padiSurface, type PadiTerminal } from "./surface.ts";
  *  are driven by a non-Effect scaffold (`runWait`) that speaks AbortSignal, so
  *  the translation happens HERE, once, rather than at each of the two PUMP
  *  sites. Without it an abandoned wait would leave its subscription running for
- *  the life of the connection. (The one-shot membership read is not one of them:
- *  it hands its signal to `firstFrameOrThrow`, which owns the same translation
- *  for a first-frame read.) */
+ *  the life of the connection. The one-shot membership read rides it too, now
+ *  that the framework's first-frame readers are Effects with no signal to take
+ *  and no fiber here to compose into. */
 function iterateUntilAborted<T>(
   stream: Stream.Stream<T, unknown>,
   signal: AbortSignal,
@@ -373,22 +372,33 @@ export async function awaitOutputSettled(
       const settleOnLostFeed = async (): Promise<void> => {
         disarmIdle();
         try {
-          // Thread ctx.signal: this membership read rides the SAME retry-mounted
-          // client as the attach feed (STREAM_RETRY, retry Infinity), so without
-          // the signal a wedged-but-alive link would retry the snapshot forever
+          // Bind the read to ctx.signal: this membership read rides the SAME
+          // retry-mounted client as the attach feed (STREAM_RETRY, retry
+          // Infinity), so without it a wedged-but-alive link would retry forever
           // and the read would never return — hanging runWait past a later
           // timeout/cancel settle (WaitCtx's threading contract, and the exact
           // unbounded-tail hazard the scaffold's recorded follow-up names). An
           // abort rejects the read into the catch below, where the settle is a
-          // first-writer no-op. `firstFrameOrThrow` takes the signal directly —
-          // it is the reader's own `Effect.runPromise` edge, so the abort becomes
-          // fiber interruption and the subscription goes with it, which is what
-          // the hand-built feed-and-close pair around this call used to do.
-          const keys = await firstFrameOrThrow(
+          // first-writer no-op.
+          //
+          // The one-shot read rides this module's OWN abort→interruption bridge
+          // (`iterateUntilAborted`) rather than `firstFrameOrThrow`: that reader is
+          // an `Effect` now and takes no signal, and `runWait` — the non-Effect
+          // scaffold this whole wait is driven by — has no fiber to compose it
+          // into. Same contract, same message: a first frame or a loud failure.
+          let keys: readonly string[] | undefined;
+          for await (const frame of iterateUntilAborted(
             client.surface.terminals.keys(undefined),
-            "padi terminals keys yielded no snapshot frame — link or protocol failure.",
             ctx.signal,
-          );
+          )) {
+            keys = frame;
+            break;
+          }
+          if (keys === undefined) {
+            throw new Error(
+              "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+            );
+          }
           if (!keys.includes(opts.id as (typeof keys)[number])) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;

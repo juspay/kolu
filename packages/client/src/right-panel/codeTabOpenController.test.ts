@@ -30,7 +30,10 @@ const tick = () => Promise.resolve();
  *  error channel the controller reads. */
 function asEffect<R>(
   fn: (request: OpenInCodeTabRequest, includeIgnored: boolean) => Promise<R>,
-): (request: OpenInCodeTabRequest, includeIgnored: boolean) => Effect.Effect<R, unknown> {
+): (
+  request: OpenInCodeTabRequest,
+  includeIgnored: boolean,
+) => Effect.Effect<R, unknown> {
   return (request, includeIgnored) =>
     Effect.tryPromise({
       try: () => fn(request, includeIgnored),
@@ -100,7 +103,9 @@ describe("createCodeTabOpenController", () => {
     );
     retained.dispose();
 
-    const fresh = createHarness({ readFresh: asEffect(async () => ["new.ts"]) });
+    const fresh = createHarness({
+      readFresh: asEffect(async () => ["new.ts"]),
+    });
     await tick();
     await tick();
     expect(fresh.onResolved).toHaveBeenCalledWith(fresh.req, "new.ts", "fresh");

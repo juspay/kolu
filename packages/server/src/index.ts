@@ -1,4 +1,7 @@
-import { createServer as createHttpServer, type IncomingMessage } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+} from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { NodeHttpServer } from "@effect/platform-node";
 import {
@@ -38,7 +41,7 @@ import {
   serveHostMap,
 } from "@kolu/surface-remote";
 import { sessionConnection } from "@kolu/surface-remote/connection";
-import { Effect, Layer, Option, Scope, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
@@ -523,7 +526,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // (never `null`), so a real anomaly stays distinct from `absent`. kaval runs inside the
   // padi process now, so padi (not kolu-server) is the source of that pair; the
   // `processMemory` poll cell folds it in below.
-  async function readPadiMemoryOnce(): Promise<PadiProcessMemory | null> {
+  function readPadiMemoryOnce(): Effect.Effect<PadiProcessMemory | null> {
     // LIVENESS GATE — read padi's HONEST published phase, not `currentClient()`. The
     // reactor defers this poll read a microtask; `padiSession.currentState()` returns the
     // freshest connection frame (the same value `onState` publishes), so the deferred read
@@ -545,19 +548,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // The whole gate — the phase-tightening AND the `isDestroyed()` fold (the frame can't
     // carry destroyed-ness; see `padiMemoryReadable`'s module doc) — is the named leaf now, so
     // the mirror read below can't run against a destroyed re-serve.
-    if (!padiMemoryReadable(padiSession)) return null;
-    try {
+    if (!padiMemoryReadable(padiSession)) return Effect.succeed(null);
+    return Effect.gen(function* () {
       // `reServedPadiClient` is an in-process `directDispatch` face over the mirror's
       // handlers, so this reads the folded store with no socket/ssh hop and the same
       // cell verb. A cell `get` is a lazy `Stream` now (D10/#18): `Stream.runHead`
       // takes the snapshot frame and INTERRUPTS the rest, which is the Effect
       // successor of the old `AbortController` + `firstFrameOrUndefined` pair —
       // fiber interruption IS the unsubscribe, so nothing is left running.
-      // `Effect.runPromise` here is a genuine boundary edge: the reactor's poll dep is
-      // `() => Promise<T>` and the reactor is deliberately non-Effect (locked
-      // decision 1).
-      const frame = await Effect.runPromise(
-        Stream.runHead(reServedPadiClient.surface.processMemory.get(undefined)),
+      const frame = yield* Stream.runHead(
+        reServedPadiClient.surface.processMemory.get(undefined),
       );
       // The client was live but the cell yielded no frame — an operational anomaly,
       // not "no process to measure". Report `error`, not `absent`, and log at `error`
@@ -568,16 +568,22 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         return PADI_MEMORY_READ_ERROR;
       }
       return frame.value;
-    } catch (err) {
-      // padi was BELIEVED up (a live client) yet the mirror read threw — surface the
+    }).pipe(
+      // padi was BELIEVED up (a live client) yet the mirror read failed — surface the
       // honest `error` state, distinct from `absent`, rather than collapsing a caught
       // error to the empty "no process" reading. padi's liveness still rides the
       // re-serve's own `connection` cell; this only affects the memory rail's three-way
       // readout. A caught read failure is a real error, not `warn`
-      // (errors-must-log-at-error).
-      log.error({ err }, "padi memory read failed through the mirror");
-      return PADI_MEMORY_READ_ERROR;
-    }
+      // (errors-must-log-at-error). `catchCause` rather than `catch`, so a DEFECT in the
+      // mirror read degrades this one cell too instead of faulting the poll.
+      Effect.catchCause((cause) => {
+        log.error(
+          { err: Cause.squash(cause) },
+          "padi memory read failed through the mirror",
+        );
+        return Effect.succeed(PADI_MEMORY_READ_ERROR);
+      }),
+    );
   }
 
   // Map the base `session.identity()` sum onto the daemon-inventory readouts the dialog
@@ -617,7 +623,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // own-machine scan under a remote binding, the bound padi's identity + convergence). Its
   // readouts ride `padiSession`, so it's built here and passed as a domain dep;
   // `implementKoluSurface` wraps it TOTAL (one home for the guard, beside the cell build).
-  const readDaemonInventory = () =>
+  const readDaemonInventoryEffect = () =>
     enumerateDaemonInventoryOnce({
       discoverKavals: discoverKavalDaemons,
       discoverPadis: discoverPadiDaemons,
@@ -630,6 +636,33 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // already covers this machine, so no duplicate `localScan`.
       boundHost: null,
     });
+
+  /**
+   * THE reactor-poll Promise edge, named once (governance:
+   * `packages/tests/governance/runEdges.ts`).
+   *
+   * A poll cell's dep is `read: () => Promise<T>` and the reactor is deliberately
+   * non-Effect (locked decision 1; B4a H1) — its `connectPoll` is public and has a
+   * consumer outside any wire member, so converting the read would put an
+   * `Effect.runPromise` inside `reactor.ts` instead of here. kolu-server's two poll
+   * READS are Effect-native (a mirror stream read; an enumeration that dials every
+   * local kaval), so this is where they meet that seam — one function, so the
+   * boundary is countable rather than one crossing per cell.
+   *
+   * It takes a THUNK, not an effect: `readPadiMemoryOnce` reads the liveness gate
+   * SYNCHRONOUSLY before it builds anything, so a single effect value captured at
+   * wiring time would freeze that gate at boot. One `Effect` per read, exactly as one
+   * `Promise` per read before it.
+   *
+   * Totality is the CALLER's, and both callers have it: the memory read folds every
+   * failure to its honest `error` reading, and the inventory read is wrapped TOTAL by
+   * `implementKoluSurface` beside the cell it feeds. A poll seed needs that — a T+0
+   * seed rejection faults the runtime's `done` → `process.exit(1)`.
+   */
+  const pollRead =
+    <A>(program: () => Effect.Effect<A, unknown>): (() => Promise<A>) =>
+    () =>
+      Effect.runPromise(program());
 
   // ── Port forwards (PRT2) ────────────────────────────────────────────────
   //
@@ -737,8 +770,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     );
   }
   const koluServed = implementKoluSurface({
-    readPadiMemory: readPadiMemoryOnce,
-    readDaemonInventory,
+    readPadiMemory: pollRead(readPadiMemoryOnce),
+    readDaemonInventory: pollRead(readDaemonInventoryEffect),
     onState: (cb) =>
       padiSession.onState((s) =>
         cb({
@@ -805,14 +838,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // alike (D1): the local session is a pool member exactly like a remote one.
     // An unknown host is a loud throw, never a silent no-op.
     viewerHost,
-    renewHostDaemon: async (host) => {
-      const s = pool.getSession(encodeHostKey(host));
-      if (s === undefined)
-        throw new Error(
-          `cannot renew daemon on unknown host "${encodeHostKey(host)}"`,
-        );
-      await s.renew();
-    },
+    renewHostDaemon: (host) =>
+      Effect.suspend(() => {
+        const s = pool.getSession(encodeHostKey(host));
+        if (s === undefined)
+          throw new Error(
+            `cannot renew daemon on unknown host "${encodeHostKey(host)}"`,
+          );
+        return s.renew();
+      }),
   });
 
   // --- The served surface: one group, one handler record ---------------------

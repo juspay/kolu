@@ -36,6 +36,7 @@
  */
 
 import { mkdtempSync } from "node:fs";
+import { Effect } from "effect";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -101,7 +102,9 @@ describeDaemon("yesterday kaval at our rendezvous", () => {
         server?.listen(yesterday.socketPath, () => resolve());
       });
 
-      const raised = await probeKavalForConvergence(yesterday.socketPath).then(
+      const raised = await Effect.runPromise(
+        probeKavalForConvergence(yesterday.socketPath),
+      ).then(
         (probe) => {
           throw new Error(
             `probe resolved ${probe === null ? "null" : "an identity"} against an undecodable peer`,
@@ -148,7 +151,9 @@ describeDaemon("yesterday kaval at our rendezvous", () => {
       padiYesterdayDaemonOptions({ withSocket: true }),
     );
     try {
-      const raised = await probeKavalForConvergence(yesterday.socketPath).then(
+      const raised = await Effect.runPromise(
+        probeKavalForConvergence(yesterday.socketPath),
+      ).then(
         (probe) => {
           probe?.dispose();
           throw new Error(
@@ -197,7 +202,9 @@ describeDaemon("yesterday kaval at our rendezvous", () => {
       log: silentLog,
     });
     try {
-      const probe = await probeKavalForConvergence(yesterday.socketPath);
+      const probe = await Effect.runPromise(
+        probeKavalForConvergence(yesterday.socketPath),
+      );
       expect(probe).not.toBeNull();
       if (probe === null) throw new Error("a speakable peer probed to null");
       // Identity comes from the frozen hello only. This test process bakes no

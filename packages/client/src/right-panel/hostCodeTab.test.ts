@@ -81,7 +81,7 @@ vi.mock("../wire", async () => {
   // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
   // the recorded side effects below run when the query is RUN — which is what
   // the call-count assertions are really about.
-  const activePadiEffect = {
+  const activePadiRpc = {
     git: {
       getStatus: (i: { repoPath: string; mode: string }) =>
         Effect.sync(() => {
@@ -118,7 +118,7 @@ vi.mock("../wire", async () => {
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
-    activePadiEffect,
+    activePadiRpc,
     activePadiStreams,
   };
 });

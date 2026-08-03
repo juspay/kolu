@@ -31,7 +31,7 @@ import {
 import { runAction } from "./runAction";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
-import { activePadiEffect } from "./wire";
+import { activePadiRpc } from "./wire";
 
 interface Key {
   label: string;
@@ -105,7 +105,7 @@ const MobileKeyBar: Component = () => {
     tick();
     runAction(
       "send key",
-      activePadiEffect.lifecycle
+      activePadiRpc.lifecycle
         .sendInput({ id, data: applyStickyModifiers(data) })
         // A keystroke's delivery has no UI to report to and never had one:
         // the terminal itself is the feedback. `Effect.ignore` says so where

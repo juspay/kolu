@@ -26,14 +26,17 @@ import { ptyHostSurface } from "./ptyHostSurface.ts";
  *  It is the framework's own spec-derived member face (`SurfaceClientOf`), not a
  *  hand-written mirror: `client.surface.<member>.<verb>` is typed straight off
  *  `ptyHostSurface.spec`, so a schema edit is a compile error at every call site
- *  rather than a runtime surprise. Two shape changes every consumer sees, both
- *  from the Effect port:
+ *  rather than a runtime surprise. Every member is Effect-native:
  *
- *    - a PROCEDURE still returns `Promise<Out>`, but its INPUT is the ENCODED
- *      side of the schema (D2/#13) — the face decodes at its edge, exactly where
- *      zod's `.parse`-at-input used to run;
- *    - a STREAM member returns a lazy `Stream<Out>` SYNCHRONOUSLY (was
- *      `Promise<AsyncIterable<Out>>` plus an `AbortSignal` call option).
+ *    - a PROCEDURE returns a lazy `Effect<Out, E>` carrying the member's DECLARED
+ *      error union (plus the framework's own `SurfaceCallFailure`) in a channel
+ *      the compiler tracks, and takes the ENCODED side of its input schema
+ *      (D2/#13) — the face decodes at its edge, exactly where zod's
+ *      `.parse`-at-input used to run. Nothing is dispatched until the effect is
+ *      run, so a caller composes the call into its own program: a `catchTag` on a
+ *      declared tag, a timeout, a race, a scoped fiber whose interruption tears
+ *      the wait down;
+ *    - a STREAM member returns a lazy `Stream<Out>` SYNCHRONOUSLY.
  *      Cancellation is fiber interruption (D10/#18): there is no signal to thread
  *      and none to forget. A non-Effect consumer spells the unsubscribe as
  *      `iterator.return()` over `Stream.toAsyncIterable`.

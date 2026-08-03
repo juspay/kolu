@@ -22,6 +22,7 @@
  * Every padi + its detached kaval is reaped (SIGKILL via the gate files).
  */
 
+import { Effect } from "effect";
 import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import {
   closeSync,
@@ -277,7 +278,9 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   let id: string | undefined;
   for (let i = 0; i < 200 && id === undefined; i++) {
     try {
-      ({ id } = await padi.lifecycle.create({ cwd: makeStateRoot() }));
+      ({ id } = (await Effect.runPromise(
+        padi.lifecycle.create({ cwd: makeStateRoot() }),
+      )) as { id: string });
     } catch {
       await sleep(100);
     }
@@ -329,10 +332,12 @@ async function roundTripTerminal(padi: any, mark: string): Promise<void> {
   expect(firstFrame.kind).toBe("snapshot");
   expect(typeof firstFrame.data).toBe("string");
 
-  await padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` });
+  await Effect.runPromise(
+    padi.lifecycle.sendInput({ id, data: `echo ${mark}\r` }),
+  );
   let screen = "";
   for (let i = 0; i < 160 && !screen.includes(mark); i++) {
-    screen = await padi.screen.state({ id });
+    screen = await Effect.runPromise(padi.screen.state({ id }));
     if (!screen.includes(mark)) await sleep(50);
   }
   expect(screen).toContain(mark);
@@ -413,17 +418,21 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     let id: string | undefined;
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
-        ({ id } = await first.padi.lifecycle.create({ cwd: makeStateRoot() }));
+        ({ id } = (await Effect.runPromise(
+          first.padi.lifecycle.create({ cwd: makeStateRoot() }),
+        )) as { id: string });
       } catch {
         await sleep(100);
       }
     }
     if (id === undefined)
       throw new Error("re-served lifecycle.create never bound");
-    await first.padi.lifecycle.sendInput({ id, data: "echo WARMMARK\r" });
+    await Effect.runPromise(
+      first.padi.lifecycle.sendInput({ id, data: "echo WARMMARK\r" }),
+    );
     let screen = "";
     for (let i = 0; i < 160 && !screen.includes("WARMMARK"); i++) {
-      screen = await first.padi.screen.state({ id });
+      screen = await Effect.runPromise(first.padi.screen.state({ id }));
       if (!screen.includes("WARMMARK")) await sleep(50);
     }
     expect(screen).toContain("WARMMARK");
@@ -460,7 +469,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     let warm = "";
     for (let i = 0; i < 200 && !warm.includes("WARMMARK"); i++) {
       try {
-        warm = await second.padi.screen.state({ id });
+        warm = await Effect.runPromise(second.padi.screen.state({ id }));
       } catch {
         // pump not yet bound to the re-adopted padi — retry across the bind gap.
       }
@@ -477,7 +486,9 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     let id: string | undefined;
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
-        ({ id } = await padi.lifecycle.create({ cwd: makeStateRoot() }));
+        ({ id } = (await Effect.runPromise(
+          padi.lifecycle.create({ cwd: makeStateRoot() }),
+        )) as { id: string });
       } catch {
         await sleep(100);
       }
@@ -536,7 +547,9 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       let id: string | undefined;
       for (let i = 0; i < 200 && id === undefined; i++) {
         try {
-          ({ id } = await padi.lifecycle.create({ cwd: makeStateRoot() }));
+          ({ id } = (await Effect.runPromise(
+            padi.lifecycle.create({ cwd: makeStateRoot() }),
+          )) as { id: string });
         } catch {
           await sleep(100);
         }
@@ -600,7 +613,9 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
     let id: string | undefined;
     for (let i = 0; i < 200 && id === undefined; i++) {
       try {
-        ({ id } = await first.padi.lifecycle.create({ cwd: makeStateRoot() }));
+        ({ id } = (await Effect.runPromise(
+          first.padi.lifecycle.create({ cwd: makeStateRoot() }),
+        )) as { id: string });
       } catch {
         await sleep(100);
       }
@@ -666,7 +681,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       capability: "drainable",
       drainCeilingMs: PADI_DRAIN_TEARDOWN_CEILING_MS,
     });
-    const preProbe = await probe(socketPath);
+    const preProbe = await Effect.runPromise(probe(socketPath));
     expect(preProbe).not.toBeNull();
     expect(preProbe?.identity.contractVersion).toBe(PADI_SURFACE_VERSION);
     preProbe?.dispose();
@@ -707,7 +722,7 @@ describeDaemon("kolu-server padi binder — cutover acceptance", () => {
       log: silentLog,
       onStatus: () => {},
     });
-    await converge(ep);
+    await Effect.runPromise(converge(ep));
 
     // padi gate pid CHANGED — the old padi drained (persist + exit), a fresh (this
     // binder's own) padi spawned in its place.
@@ -755,7 +770,7 @@ describe("localPadiDriver — the A8 runtime spawn leash at the real funnel (F5)
       false,
       undefined,
     );
-    expect(() => driver.spawn()).toThrow(/KOLU_DAEMON_TESTS/);
+    expect(() => Effect.runSync(driver.spawn)).toThrow(/KOLU_DAEMON_TESTS/);
   });
 });
 
@@ -846,32 +861,31 @@ describe("local arm adopted-stale via convergence() (UW1 done-when / F9)", () =>
         { stateRoot, reconnectDelayMs: 10_000 },
         {
           policy,
-          probe: async () => {
-            probeCalls += 1;
-            return {
-              capability: "drainable" as const,
-              identity: {
-                contractVersion: PADI_SURFACE_VERSION,
-                build: daemonBuild(staleBuild),
-              },
-              instanceKey: { kind: "instance" as const, key: 99 },
-              fireDrain: async () => {
-                drainCalls += 1;
-              },
-              awaitExit: async (signal: AbortSignal) => {
-                await new Promise<void>((resolve) => {
-                  signal.addEventListener("abort", () => resolve(), {
-                    once: true,
-                  });
-                });
-              },
-              drainCeilingMs: 30,
-              dispose: () => {},
-            };
-          },
-          driver: { spawn: async () => {} },
-          connect: async () =>
-            ({
+          probe: () =>
+            Effect.sync(() => {
+              probeCalls += 1;
+              return {
+                capability: "drainable" as const,
+                identity: {
+                  contractVersion: PADI_SURFACE_VERSION,
+                  build: daemonBuild(staleBuild),
+                },
+                instanceKey: { kind: "instance" as const, key: 99 },
+                fireDrain: Effect.sync(() => {
+                  drainCalls += 1;
+                }),
+                // Never succeeds: the exit oracle must not report an exit that did
+                // not happen, so the drain ceiling is what ends the wait — and the
+                // framework INTERRUPTS this effect when it wins (the AbortSignal
+                // this fixture used to observe is gone with it).
+                awaitExit: Effect.never,
+                drainCeilingMs: 30,
+                dispose: () => {},
+              };
+            }),
+          driver: { spawn: Effect.void },
+          connect: () =>
+            Effect.succeed({
               // biome-ignore lint/suspicious/noExplicitAny: fake PadiDaemonClient for seam
               client: fakeClient as any,
               identity: {
@@ -956,7 +970,9 @@ describe("ensurePadiBinding — the LOCAL arm's members before any connect (pure
   it("renew() (the restart/drain verb) throws LOUDLY when no padi is bound — never a phantom success", async () => {
     const s = build();
     // Never pinned → the endpoint holds no connection → the drain has nothing to reach.
-    await expect(s.renew()).rejects.toThrow(/not bound|down|cannot drain/i);
+    await expect(Effect.runPromise(s.renew())).rejects.toThrow(
+      /not bound|down|cannot drain/i,
+    );
     s.destroy();
   });
 
@@ -1489,9 +1505,11 @@ describeDaemon(
         // Create a terminal through the RESIDENT — the fact the WAITER can read it
         // back below is the proof the waiter reached the SAME live registry, not a
         // fresh empty one.
-        const { id } = await residentClient.surface.lifecycle.create({
-          cwd: makeStateRoot(),
-        });
+        const { id } = (await Effect.runPromise(
+          residentClient.surface.lifecycle.create({
+            cwd: makeStateRoot(),
+          }),
+        )) as { id: string };
         expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
         // The WAITER: a FRESH binding for the SAME state root, but its OWN env
@@ -1513,7 +1531,9 @@ describeDaemon(
         // ADOPTED the resident: the waiter reads the SAME terminal the resident
         // created — a fresh (unadopted) spawn would have an EMPTY registry and this
         // would throw ("terminal not found"), not resolve.
-        const screen = await waiterClient.surface.screen.state({ id });
+        const screen = await Effect.runPromise(
+          waiterClient.surface.screen.state({ id }),
+        );
         expect(typeof screen).toBe("string");
 
         // NEVER spawned a redundant second padi at the waiter's own (empty) drawer.

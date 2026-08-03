@@ -22,19 +22,28 @@ function stubClient(): {
 } {
   const sent: string[] = [];
   const created: Array<Record<string, unknown>> = [];
+  // A member call is an EFFECT now, so each stub returns a lazy description
+  // rather than a promise — `Effect.sync` so the recording still happens when
+  // (and only when) `runCreate` runs the call.
   const client = {
     surface: {
       lifecycle: {
-        create: vi.fn(async (input: Record<string, unknown>) => {
-          created.push(input);
-          return { id: "t-new" };
-        }),
-        sendInput: vi.fn(async ({ data }: { id: string; data: string }) => {
-          sent.push(data);
-        }),
+        create: vi.fn((input: Record<string, unknown>) =>
+          Effect.sync(() => {
+            created.push(input);
+            return { id: "t-new" };
+          }),
+        ),
+        sendInput: vi.fn(({ data }: { id: string; data: string }) =>
+          Effect.sync(() => {
+            sent.push(data);
+          }),
+        ),
       },
       git: {
-        worktreeCreate: vi.fn(async () => ({ path: "/wt", branch: "feat" })),
+        worktreeCreate: vi.fn(() =>
+          Effect.succeed({ path: "/wt", branch: "feat" }),
+        ),
       },
     },
   } as unknown as PadiTuiClient;

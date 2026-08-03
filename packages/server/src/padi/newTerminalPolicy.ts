@@ -26,6 +26,7 @@
  * build surviving a skew fence) must leave the web shell running.
  */
 
+import { Effect } from "effect";
 import type { Logger } from "@kolu/log";
 import { reactiveFamily, source } from "@kolu/surface/reactor";
 import {
@@ -38,7 +39,9 @@ import {
  *  module makes is spelled out, and a test can stand in a two-line fake. */
 export interface NewTerminalPolicyClient {
   surface: {
-    newTerminalPolicy: { set(policy: NewTerminalPolicy): Promise<unknown> };
+    newTerminalPolicy: {
+      set(policy: NewTerminalPolicy): Effect.Effect<unknown, unknown>;
+    };
   };
 }
 
@@ -167,14 +170,24 @@ export function installNewTerminalPolicyPusher<
         // …and only record when the link this push rode is still the live one.
         if (connected.get(host) === epoch)
           lastPushed.set(host, { epoch, policy });
-        try {
-          await c.surface.newTerminalPolicy.set(policy);
-        } catch (err) {
-          // The far end never took it, so it is not what this host holds — forget it
-          // rather than suppressing every later push of the same value.
-          lastPushed.delete(host);
-          throw err;
-        }
+        // THE pusher's edge, and an allowlisted one. A cell `set` is an Effect,
+        // and every caller above this line is a SYNCHRONOUS framework callback
+        // that hands down no Effect, Scope or Promise slot — `reactiveFamily`'s
+        // change edge and `CellHandlerDeps.onWrite?: (next: T) => void`. Making
+        // `pushTo` an Effect would only move the un-run description into a
+        // `() => void` that discards it, so the crossing is real and it is here.
+        //
+        // The structural fix is to make `onWrite` (and `reactiveFamily`'s attach
+        // seam) Effect-shaped in `@kolu/surface`; that is deliberately out of
+        // this wave, and recorded as the residual it is.
+        await Effect.runPromise(c.surface.newTerminalPolicy.set(policy)).catch(
+          (err: unknown) => {
+            // The far end never took it, so it is not what this host holds — forget it
+            // rather than suppressing every later push of the same value.
+            lastPushed.delete(host);
+            throw err;
+          },
+        );
       })
       .catch((err: unknown) =>
         log.error({ err, host }, "new-terminal policy push to padi failed"),

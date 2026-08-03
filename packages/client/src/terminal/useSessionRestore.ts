@@ -15,7 +15,7 @@ import {
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../hostScope/activeWire";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 import { containingTileOf, descendantsByRoot } from "./terminalTree";
@@ -225,24 +225,24 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (isRestoring()) return Effect.void;
       const session = savedSession();
       if (!session) return Effect.void;
-    // Keep the restore card mounted until the server restore actually completes.
-    // Synchronously clearing `savedSession` before the async RPC returns detaches
-    // the click target mid-event — Playwright sees "element detached from the DOM"
-    // retries, and a human sees an empty-state flicker between click and canvas
-    // reveal. The visible card during the restore window is gated by
-    // `isRestoring()`; on success we clear `savedSession` before the toast, on
-    // failure we leave it set so the user can retry.
+      // Keep the restore card mounted until the server restore actually completes.
+      // Synchronously clearing `savedSession` before the async RPC returns detaches
+      // the click target mid-event — Playwright sees "element detached from the DOM"
+      // retries, and a human sees an empty-state flicker between click and canvas
+      // reveal. The visible card during the restore window is gated by
+      // `isRestoring()`; on success we clear `savedSession` before the toast, on
+      // failure we leave it set so the user can retry.
       setIsRestoring(true);
       // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
-    // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
-    // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
-    // page reload) is PRECISELY a re-seed event: it re-spawns every terminal under
-    // FRESH ids whose client sub-panel state has never been seeded. Without this
-    // reset the hydration effect below short-circuits on the stale latch and never
-    // runs `hydrateFromTerminals` for the restored terminals, so a restored
-    // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
-    // it here lets the effect re-seed once the restored terminals arrive; it
-    // re-latches true after seeding, so a later reconnect is still a no-op.
+      // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
+      // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
+      // page reload) is PRECISELY a re-seed event: it re-spawns every terminal under
+      // FRESH ids whose client sub-panel state has never been seeded. Without this
+      // reset the hydration effect below short-circuits on the stale latch and never
+      // runs `hydrateFromTerminals` for the restored terminals, so a restored
+      // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
+      // it here lets the effect re-seed once the restored terminals arrive; it
+      // re-latches true after seeding, so a later reconnect is still a no-op.
       const latch = activeScope()?.restore;
       // Re-arm: this runs from the restore card (already past the decision), so drop
       // back to `decided` via the NAMED transition — the next hydration effect
@@ -280,7 +280,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       const resumeAgents = options.resumeAgents ?? true;
       const optOutIds = options.optOutIds ? [...options.optOutIds] : [];
       const hostResumable = session.resumableIds;
-      return activePadiEffect.session
+      return activePadiRpc.session
         .restore({
           resumeAgents,
           // SPREAD, never `optOutIds: … : undefined` (#17): the field is
@@ -336,7 +336,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (!session) return Effect.void;
       // Optimistic dismissal: the card is gone the moment the user commits.
       setSavedSession(null);
-      return activePadiEffect.session.forfeit({}).pipe(
+      return activePadiRpc.session.forfeit({}).pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
             // Surface the failure and restore the card so the user can retry —

@@ -18,6 +18,7 @@ import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { afterEach, describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import {
   kavalControlSurface,
   kavalDaemonGroup,
@@ -146,12 +147,12 @@ describe("kaval daemon surface", () => {
     const pty = ptyHostClientOver(dispatch);
     const control = buildSurfaceFace(kavalControlSurface, dispatch).surface
       .core as {
-      hello(): Promise<Record<string, unknown>>;
-      drain(): Promise<void>;
+      hello(): Effect.Effect<Record<string, unknown>, unknown>;
+      drain(): Effect.Effect<void, unknown>;
     };
 
     // Existing consumers keep the exact historic path and shape.
-    const version = await pty.surface.system.version({});
+    const version = await Effect.runPromise(pty.surface.system.version({}));
     expect(Object.keys(version).sort()).toEqual([
       "contractVersion",
       "identity",
@@ -165,7 +166,7 @@ describe("kaval daemon surface", () => {
       navigableCommit: "abc1234",
     });
 
-    const hello = await control.hello();
+    const hello = await Effect.runPromise(control.hello());
     expect(hello).toEqual({
       stateRoot: "/run/user/1000/kaval-test",
       surfaceVersion: PTY_HOST_CONTRACT_VERSION,
@@ -180,17 +181,23 @@ describe("kaval daemon surface", () => {
     // declares no error schema — so the refusal is an undeclared DEFECT rather
     // than a member error a supervisor could narrow on and "handle" (PLAN D4).
     // What a caller can rely on is that it REJECTS and says why.
-    await expect(control.drain()).rejects.toThrow(/not drainable/);
+    await expect(Effect.runPromise(control.drain())).rejects.toThrow(
+      /not drainable/,
+    );
     // Effect: neither a silent success nor a daemon-killing implementation can
     // pass — the same daemon still answers both identity channels afterward.
-    await expect(control.hello()).resolves.toEqual(hello);
-    await expect(pty.surface.system.heartbeat({})).resolves.toEqual({
+    await expect(Effect.runPromise(control.hello())).resolves.toEqual(hello);
+    await expect(
+      Effect.runPromise(pty.surface.system.heartbeat({})),
+    ).resolves.toEqual({
       ts: expect.any(Number),
     });
 
     // The pty-host face is a valid, complete view of the composed daemon: its
     // members answer at the same tags they would standing alone.
-    await expect(pty.surface.terminal.list({})).resolves.toEqual({
+    await expect(
+      Effect.runPromise(pty.surface.terminal.list({})),
+    ).resolves.toEqual({
       entries: [],
     });
   });

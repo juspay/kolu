@@ -69,6 +69,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
   },
   {
+    path: "packages/padi/src/servePadi.ts",
+    sites: 1,
+    why: "padi's ONE reactor-poll edge, named once for both poll cells: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect), and the host-inventory and memory samplers behind it are Effect-native, so this is where they meet — kolu-server carries the twin row for the same reason",
+  },
+  {
     path: "packages/padi/src/terminalEndpoint/local.ts",
     sites: 1,
     why: "the tap layer's one edge — the surrounding lifecycle (`TerminalLifecycle.abort`, the reconciler) is AbortController-shaped, and this is where a signal becomes fiber interruption",
@@ -77,6 +82,21 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/server/src/index.ts",
     sites: 2,
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect; and building the composed HTTP layer into the node `request` callback kolu-server owns (owning the listener is what keeps the ws `upgrade` seam the only one) — a callback node hands no Effect context to",
+  },
+  {
+    path: "packages/server/src/padi/newTerminalPolicy.ts",
+    sites: 1,
+    why: "the policy pusher's edge: a cell `set` is an Effect, but every caller above it is a SYNCHRONOUS framework callback that hands down no Effect, Scope or Promise slot (`reactiveFamily`'s change edge; `CellHandlerDeps.onWrite: (next: T) => void`), so making the pusher an Effect would only move an un-run description into a `() => void` that discards it — and a discarded description is a policy push that silently stops firing",
+  },
+  {
+    path: "packages/server/src/padi/padiBinding.ts",
+    sites: 1,
+    why: "the local padi `Connector` plug — `@kolu/surface-remote`'s reconnect loop asks for `(ctx) => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so this is where kolu-server's Effect-native `converge(ep)` joins a Promise-shaped seam it does not own (that session machinery is the campaign's recorded residual)",
+  },
+  {
+    path: "packages/server/src/padi/remotePadiBinding.ts",
+    sites: 1,
+    why: "the remote padi `Admit` plug — the same surface-remote seam, ssh arm: `makeSession` asks for `(client) => Promise<AdmitVerdict>`, and `convergeAdmit` is an Effect",
   },
   {
     path: "packages/server/src/portForward/hostPorts.ts",
@@ -94,9 +114,9 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",
   },
   {
-    path: "packages/surface-daemon-supervisor/src/promiseFace.ts",
+    path: "packages/surface-app/src/solid/index.ts",
     sites: 1,
-    why: "the supervisor's ONE Promise rind — its interior is Effect, but padi/kolu-server/drishti still call the exported verbs as Promises, so every one of them runs through this single function until the face flips with its consumers",
+    why: "the server-lifecycle probe edge: `identity.info` is an Effect, but the lifecycle hangs off `wire.onStatus` (a plain callback) and `createHeartbeat` races a probe against a timer, so the crossing is real — held here once rather than at each of the three consumers, and deliberately NOT folded into `liveSignal`'s edge, which takes no caller-supplied probe target on purpose (#1564)",
   },
   {
     path: "packages/surface-map/src/server.ts",
@@ -114,14 +134,9 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`resources/read` — the MCP request edge, with the request's own AbortSignal handed to the run so a cancelled read interrupts every subscription it opened",
   },
   {
-    path: "packages/surface/src/client.ts",
+    path: "packages/surface-remote/src/session.ts",
     sites: 1,
-    why: "the framework's ONE Promise edge for a unary member call — SolidJS leaves stay plain async (locked decision 1)",
-  },
-  {
-    path: "packages/surface/src/firstFrame.ts",
-    sites: 1,
-    why: "the one-shot snapshot readers' Promise edge, held here once instead of once per plain-async CLI consumer",
+    why: "THE session's probe edge — the three framework-reserved round-trips are Effects, and the dial/reconnect machinery that consumes them is Promise- and timer-shaped BY CONTRACT (the campaign's recorded residual), so the two meet here once instead of three times; the abort it takes becomes fiber interruption, which is strictly stronger than the signal these probes used to be handed",
   },
   {
     path: "packages/surface/src/links/stdio.ts",
@@ -150,8 +165,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/surface/src/runStream.ts",
-    sites: 1,
-    why: "THE Solid bridge — the one place a member stream becomes a fiber with a synchronous stopper, which every `createSubscription` rides",
+    sites: 2,
+    why: "THE Solid bridge, and the package's ONE UI-tier fork: a member stream becoming a fiber with a synchronous stopper (which every `createSubscription` rides), plus `runDetached` for a cell write whose only launcher is a coalescing TIMER — there is no caller left to compose it into, and it is deliberately NOT scoped to the queuing owner, because a component unmounting inside the debounce window must still land the write",
   },
   {
     path: "packages/surface/src/server.ts",

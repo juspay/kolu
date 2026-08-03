@@ -89,7 +89,7 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { activeHost, activePadiEffect, hostKeys, setActiveHost } from "./wire";
+import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -225,7 +225,7 @@ const App: Component = () => {
   // guard persists across invocations.
   const runImportSession = createImportSessionAction({
     pick: importSession,
-    runImport: ({ session }) => activePadiEffect.session.import({ session }),
+    runImport: ({ session }) => activePadiRpc.session.import({ session }),
   });
 
   const commands = createCommands({
@@ -420,7 +420,10 @@ const App: Component = () => {
           const target = closeConfirmTarget();
           setCloseConfirmTarget(null);
           if (target)
-            runAction("close terminal and remove worktree", worktree.handleKillWorktree(target.id));
+            runAction(
+              "close terminal and remove worktree",
+              worktree.handleKillWorktree(target.id),
+            );
         }}
       />
       {/* Desktop chrome — docked top bar carrying identity and global
@@ -558,7 +561,10 @@ const App: Component = () => {
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
                 onRestore={(opts) =>
-                  runAction("restore session", session.handleRestoreSession(opts))
+                  runAction(
+                    "restore session",
+                    session.handleRestoreSession(opts),
+                  )
                 }
                 onForfeit={() =>
                   runAction("start fresh", session.handleForfeitSession())

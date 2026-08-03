@@ -200,7 +200,9 @@ export const PortRow: Component<{
                 data-port={props.row.port}
                 disabled={opening()}
                 title={props.forwardReason}
-                onClick={() => runAction("open through forward", openThroughForward())}
+                onClick={() =>
+                  runAction("open through forward", openThroughForward())
+                }
               >
                 <OpenIcon class="h-3 w-3" />
                 {opening() ? "opening…" : "forward & open"}

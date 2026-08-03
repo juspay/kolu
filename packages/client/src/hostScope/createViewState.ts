@@ -50,7 +50,7 @@ import {
   type TerminalPlacement,
 } from "../terminal/focusedTerminal";
 import { useVisitRecency } from "../terminal/visitRecency";
-import { padiEffectOf } from "../wire";
+import { padiRpcOf } from "../wire";
 
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
 // mark. (The former `"badge-only"` state drove the active-host OS badge; W5
@@ -147,7 +147,7 @@ export function createViewState(
     // activation, and a background bookkeeping report is not a user-facing action.
     runAction(
       "report active terminal",
-      padiEffectOf(host)
+      padiRpcOf(host)
         .chrome.setActive({ id: tileId })
         .pipe(
           Effect.catch((err) =>

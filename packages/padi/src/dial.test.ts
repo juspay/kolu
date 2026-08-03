@@ -18,6 +18,7 @@
  * and every test reaps the padi AND the detached kaval it spawned.
  */
 
+import { Effect } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import type { TerminalAttachFrame } from "./endpoint.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -170,7 +171,7 @@ async function waitForPadi(socketPath: string, ms = 15000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const conn = await connect(socketPath);
-      await conn.client.control.surface.core.hello();
+      await Effect.runPromise(conn.client.control.surface.core.hello());
       await conn.dispose();
       return;
     } catch {
@@ -333,7 +334,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    const hello = await conn.client.control.surface.core.hello();
+    const hello = await Effect.runPromise(
+      conn.client.control.surface.core.hello(),
+    );
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
@@ -341,7 +344,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
 
-    const clock = await conn.client.control.surface.core.clockNow();
+    const clock = await Effect.runPromise(
+      conn.client.control.surface.core.clockNow(),
+    );
     expect(clock.epochMs).toBeGreaterThan(0);
 
     await conn.dispose();
@@ -353,9 +358,11 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    const { id } = await conn.client.padi.surface.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
+    const { id } = await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.create({
+        cwd: makeStateRoot(),
+      }),
+    );
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
     // terminalAttach is the per-subscriber byte stream — its first frame is the
@@ -377,13 +384,17 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     // Drive the PTY through the lifecycle procedure and read it back off the
     // screen procedure — a full round-trip through padi's OWN kaval.
-    await conn.client.padi.surface.lifecycle.sendInput({
-      id,
-      data: "echo DIALMARK\r",
-    });
+    await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.sendInput({
+        id,
+        data: "echo DIALMARK\r",
+      }),
+    );
     let screen = "";
     for (let i = 0; i < 120 && !screen.includes("DIALMARK"); i++) {
-      screen = await conn.client.padi.surface.screen.state({ id });
+      screen = await Effect.runPromise(
+        conn.client.padi.surface.screen.state({ id }),
+      );
       if (!screen.includes("DIALMARK")) await sleep(50);
     }
     expect(screen).toContain("DIALMARK");
@@ -404,16 +415,20 @@ describeDaemon("padi the process — dial acceptance", () => {
     const connA = await connect(a.socketPath);
     const connB = await connect(b.socketPath);
 
-    const { id } = await connA.client.padi.surface.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
-    // A's terminal is live on A…
-    expect(typeof (await connA.client.padi.surface.screen.state({ id }))).toBe(
-      "string",
+    const { id } = await Effect.runPromise(
+      connA.client.padi.surface.lifecycle.create({
+        cwd: makeStateRoot(),
+      }),
     );
+    // A's terminal is live on A…
+    expect(
+      typeof (await Effect.runPromise(
+        connA.client.padi.surface.screen.state({ id }),
+      )),
+    ).toBe("string");
     // …and INVISIBLE to B — its own kaval never saw it (a typed NOT_FOUND).
     await expect(
-      connB.client.padi.surface.screen.state({ id }),
+      Effect.runPromise(connB.client.padi.surface.screen.state({ id })),
     ).rejects.toThrow();
 
     await connA.dispose();
@@ -441,7 +456,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     // literal that happened to equal the current constant would silently turn
     // this into an assertion that compatibility HOLDS the day the constant
     // caught up to it, which is exactly how the old "5.0" spelling rotted.
-    const hello = await conn.client.control.surface.core.hello();
+    const hello = await Effect.runPromise(
+      conn.client.control.surface.core.hello(),
+    );
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
     expect(isContractVersionCompatible(hello.surfaceVersion, "6.0")).toBe(
       false,
@@ -453,7 +470,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     // the socket CLOSE", so the drain call may resolve OR reject as the socket tears
     // down mid-response — either way the load-bearing proof is that padi exits
     // cleanly (0), i.e. drain reached the frozen core and did its job.
-    await conn.client.control.surface.core.drain().catch(() => {});
+    await Effect.runPromise(conn.client.control.surface.core.drain()).catch(
+      () => {},
+    );
     expect(await p.exited).toBe(0);
 
     try {
@@ -531,13 +550,17 @@ describeDaemon(
       await waitForPadi(front.socketPath);
       const { client } = await stdioClient(front);
 
-      const hello = await client.control.surface.core.hello();
+      const hello = await Effect.runPromise(
+        client.control.surface.core.hello(),
+      );
       expect(hello.stateRoot).toBe(resolve(stateRoot));
       expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
       expect(hello.controlCoreVersion).toBe("1.0");
       expect(hello.startedAt).toBeGreaterThan(0);
 
-      const clock = await client.control.surface.core.clockNow();
+      const clock = await Effect.runPromise(
+        client.control.surface.core.clockNow(),
+      );
       expect(clock.epochMs).toBeGreaterThan(0);
 
       await reapStdioFront(front);
@@ -549,9 +572,11 @@ describeDaemon(
       await waitForPadi(front.socketPath);
       const { client } = await stdioClient(front);
 
-      const { id } = await client.padi.surface.lifecycle.create({
-        cwd: makeStateRoot(),
-      });
+      const { id } = await Effect.runPromise(
+        client.padi.surface.lifecycle.create({
+          cwd: makeStateRoot(),
+        }),
+      );
       expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
       // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
@@ -570,13 +595,17 @@ describeDaemon(
       expect(typeof firstFrame.data).toBe("string");
       expect(typeof firstFrame.topLine).toBe("number");
 
-      await client.padi.surface.lifecycle.sendInput({
-        id,
-        data: "echo FRONTMARK\r",
-      });
+      await Effect.runPromise(
+        client.padi.surface.lifecycle.sendInput({
+          id,
+          data: "echo FRONTMARK\r",
+        }),
+      );
       let screen = "";
       for (let i = 0; i < 120 && !screen.includes("FRONTMARK"); i++) {
-        screen = await client.padi.surface.screen.state({ id });
+        screen = await Effect.runPromise(
+          client.padi.surface.screen.state({ id }),
+        );
         if (!screen.includes("FRONTMARK")) await sleep(50);
       }
       expect(screen).toContain("FRONTMARK");
@@ -592,13 +621,17 @@ describeDaemon(
       const front1 = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front1.socketPath);
       const { client: client1 } = await stdioClient(front1);
-      const { id } = await client1.padi.surface.lifecycle.create({
-        cwd: makeStateRoot(),
-      });
-      await client1.padi.surface.lifecycle.sendInput({
-        id,
-        data: "echo SURVIVOR\r",
-      });
+      const { id } = await Effect.runPromise(
+        client1.padi.surface.lifecycle.create({
+          cwd: makeStateRoot(),
+        }),
+      );
+      await Effect.runPromise(
+        client1.padi.surface.lifecycle.sendInput({
+          id,
+          data: "echo SURVIVOR\r",
+        }),
+      );
 
       // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
       front1.child.kill("SIGTERM");
@@ -611,7 +644,9 @@ describeDaemon(
       const { client: client2 } = await stdioClient(front2);
       let screen = "";
       for (let i = 0; i < 120 && !screen.includes("SURVIVOR"); i++) {
-        screen = await client2.padi.surface.screen.state({ id });
+        screen = await Effect.runPromise(
+          client2.padi.surface.screen.state({ id }),
+        );
         if (!screen.includes("SURVIVOR")) await sleep(50);
       }
       expect(screen).toContain("SURVIVOR");

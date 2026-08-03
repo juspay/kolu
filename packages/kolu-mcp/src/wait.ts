@@ -36,7 +36,7 @@ import {
 import type { BespokeTool } from "@kolu/surface-mcp";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 // ── Shared arg pieces ─────────────────────────────────────────────────────
 
@@ -94,16 +94,22 @@ export const waitOutputSettledTool: BespokeTool = {
   mutates: false,
   description:
     'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Returns {result: "met", met: {fired, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
-  handler: async (args, client, signal) => {
-    const { id, idleMs, timeoutMs } = args as WaitOutputSettledArgs;
-    const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
-      id,
-      idleMs,
-      timeoutMs,
-      signal,
-    });
-    return waitJson<{ fired: "idle"; elapsedMs: number }>(id, outcome);
-  },
+  // The one bespoke tool that does NOT compose a surface member: padi's
+  // `awaitOutputSettled` is a Promise-shaped waiter that takes an AbortSignal,
+  // so this LIFTS it rather than composing it. That is why `signal` survives on
+  // `BespokeTool.handler` at all — it is forwarded to the scaffold, and the
+  // request edge's own interruption is what aborts it.
+  handler: (args, client, signal) =>
+    Effect.tryPromise(async () => {
+      const { id, idleMs, timeoutMs } = args as WaitOutputSettledArgs;
+      const outcome = await awaitOutputSettled(client as PadiSurfaceClient, {
+        id,
+        idleMs,
+        timeoutMs,
+        signal,
+      });
+      return waitJson<{ fired: "idle"; elapsedMs: number }>(id, outcome);
+    }),
 };
 
 // ── wait_agentState ───────────────────────────────────────────────────────
@@ -126,14 +132,16 @@ export const waitAgentStateTool: BespokeTool = {
   mutates: false,
   description:
     'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. Returns {result: "met", met: {agent, elapsedMs}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}.',
-  handler: async (args, client, signal) => {
-    const { id, until, timeoutMs } = args as WaitAgentStateArgs;
-    const outcome = await awaitAgentState(client as PadiSurfaceClient, {
-      id,
-      targets: new Set(until),
-      timeoutMs,
-      signal,
-    });
-    return waitJson<{ agent: AgentInfo; elapsedMs: number }>(id, outcome);
-  },
+  // Lifted, not composed — same reason as `wait_outputSettled` above.
+  handler: (args, client, signal) =>
+    Effect.tryPromise(async () => {
+      const { id, until, timeoutMs } = args as WaitAgentStateArgs;
+      const outcome = await awaitAgentState(client as PadiSurfaceClient, {
+        id,
+        targets: new Set(until),
+        timeoutMs,
+        signal,
+      });
+      return waitJson<{ agent: AgentInfo; elapsedMs: number }>(id, outcome);
+    }),
 };

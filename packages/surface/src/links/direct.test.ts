@@ -79,7 +79,7 @@ function buildClient(dispatch: SurfaceDispatch) {
   return {
     double: ref(face, "math", "double") as (input: {
       x: number;
-    }) => Promise<{ y: number }>,
+    }) => Effect.Effect<{ y: number }, unknown>,
     ticks: ref(face, "ticks", "get") as (input: {
       n: number;
     }) => Stream.Stream<{ i: number }>,
@@ -89,7 +89,9 @@ function buildClient(dispatch: SurfaceDispatch) {
 describe("directDispatch — the in-process identity link", () => {
   it("round-trips a request/response procedure with no wire", async () => {
     const client = buildClient(directDispatch(serve()));
-    expect(await client.double({ x: 21 })).toEqual({ y: 42 });
+    expect(await Effect.runPromise(client.double({ x: 21 }))).toEqual({
+      y: 42,
+    });
   });
 
   it("round-trips a stream", async () => {

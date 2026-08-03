@@ -2,7 +2,7 @@
  * Consuming the example surface outside SolidJS — the blocks the
  * "How to consume a surface outside SolidJS" page embeds. A CLI/TUI has no
  * reactive runtime, so it reads the surface directly off the member face:
- * one transport-blind connection, awaited procedure calls, run streams, and a
+ * one transport-blind connection, composed procedure calls, run streams, and a
  * live board folded through `mirrorRemoteSurface`.
  *
  * The face is deliberately STRUCTURAL (`face.surface.<member>.<verb>` is
@@ -12,20 +12,26 @@
  * the shape of each member it uses, once — after which every call site is fully
  * typed.
  *
- * Typechecked, never executed — the top-level awaits and loops exist only to
- * pin the real call shapes.
+ * **Every member call is a description.** A unary verb hands back an `Effect`,
+ * a streaming verb a `Stream`; neither dispatches anything until it is run. So a
+ * CLI COMPOSES its whole command and runs it ONCE, at its process edge — which is
+ * what makes a Ctrl-C actually stop the work rather than abandon a promise nobody
+ * is left waiting on.
+ *
+ * Typechecked, never executed.
  */
 
 import {
   buildSurfaceFace,
   type StreamingProcedure,
   type SurfaceFace,
-  type UnaryProcedure,
+  type UnaryEffect,
   unenrolledStreamCall,
 } from "@kolu/surface/client";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
-import { Effect, Option, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import {
   type KillArgs,
   type Killed,
@@ -65,7 +71,7 @@ const dispose = () => link.dispose();
 // #endregion connection
 
 // Name each member's shape ONCE — the face is structural on purpose.
-const kill = client.surface.proc?.kill as UnaryProcedure<KillArgs, Killed>;
+const kill = client.surface.proc?.kill as UnaryEffect<KillArgs, Killed, never>;
 const processKeys = client.surface.processes?.keys as StreamingProcedure<
   undefined,
   readonly Pid[]
@@ -76,28 +82,25 @@ const nodeLog = client.surface.nodeLog?.get as StreamingProcedure<
 >;
 
 // #region calls
-// A unary verb is a `Promise`; a streaming verb is a lazy Effect `Stream`, and a
-// snapshot-then-deltas member opens with its snapshot — so `Stream.runHead` IS
-// the one-shot read, and it interrupts the subscription as soon as that frame
-// lands.
-await kill({ pid });
-const snapshot = await Effect.runPromise(
-  Stream.runHead(processKeys(undefined)),
-);
-if (Option.isNone(snapshot)) {
-  throw new Error("processes keys yielded no snapshot frame — link failure");
-}
-const keys = snapshot.value;
+// A unary verb is a lazy `Effect`; a streaming verb is a lazy `Stream`, and a
+// snapshot-then-deltas member opens with its snapshot — so `firstFrameOrThrow`
+// IS the one-shot read, and it interrupts the subscription as soon as that frame
+// lands. Nothing below has dispatched yet: this is one description, built.
+const readKeys = Effect.gen(function* () {
+  yield* kill({ pid });
+  return yield* firstFrameOrThrow(
+    processKeys(undefined),
+    "processes keys yielded no snapshot frame — link failure",
+  );
+});
 // #endregion calls
 
 // #region iterate
 // Consume every frame. Running the stream IS the subscription; interrupting the
 // fiber (or the effect completing) tears the wire subscription down — there is
 // no `AbortSignal` to thread and none to forget.
-await Effect.runPromise(
-  Stream.runForEach(nodeLog(nodeId), (frame) =>
-    Effect.sync(() => process.stdout.write(frame.text)),
-  ),
+const tailLog = Stream.runForEach(nodeLog(nodeId), (frame) =>
+  Effect.sync(() => process.stdout.write(frame.text)),
 );
 // #endregion iterate
 
@@ -109,8 +112,8 @@ await Effect.runPromise(
 const fenced = unenrolledStreamCall(nodeLog, nodeId, {
   onRetry: () => resetView(),
 });
-await Effect.runPromise(
-  Stream.runForEach(fenced, (frame) => Effect.sync(() => render(frame))),
+const renderLog = Stream.runForEach(fenced, (frame) =>
+  Effect.sync(() => render(frame)),
 );
 // #endregion unenrolled
 
@@ -132,9 +135,26 @@ const { procedures, done } = mirrorRemoteSurface(
   { signal },
 );
 
-await procedures.proc.kill({ pid }); // same typed procedures, mirrored
-await done;
+// The mirrored procedures are the SAME shape the face hands back — an `Effect` —
+// so a forwarded call composes into the program exactly like a direct one.
+const killThroughMirror = procedures.proc.kill({ pid });
 // #endregion mirror
+
+// #region main
+// THE process edge: one run, for the whole command. Everything above is a value;
+// this is the only line that makes anything happen — and interrupting this fiber
+// (a SIGINT handler, a deadline) tears down every subscription it opened.
+const keys = await Effect.runPromise(
+  Effect.gen(function* () {
+    const snapshot = yield* readKeys;
+    yield* tailLog;
+    yield* renderLog;
+    yield* killThroughMirror;
+    return snapshot;
+  }),
+);
+await done;
+// #endregion main
 
 export type { Connection };
 export { client, dispose, done, keys, procedures };

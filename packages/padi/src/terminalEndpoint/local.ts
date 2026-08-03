@@ -215,7 +215,11 @@ export class PtyHostTerminalProxy implements TerminalHandle {
 
   write(data: string): void {
     void this.ready
-      .then(() => this.client.surface.terminal.write({ id: this.id, data }))
+      .then(() =>
+        runEndpointEdge(
+          this.client.surface.terminal.write({ id: this.id, data }),
+        ),
+      )
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
@@ -235,11 +239,13 @@ export class PtyHostTerminalProxy implements TerminalHandle {
    *  the client's toast exists for. */
   async resize(cols: number, rows: number): Promise<void> {
     await this.ready;
-    const { ok } = await this.client.surface.terminal.resize({
-      id: this.id,
-      cols,
-      rows,
-    });
+    const { ok } = await runEndpointEdge(
+      this.client.surface.terminal.resize({
+        id: this.id,
+        cols,
+        rows,
+      }),
+    );
     if (!ok)
       log.debug(
         { terminal: this.id, cols, rows },
@@ -249,9 +255,11 @@ export class PtyHostTerminalProxy implements TerminalHandle {
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.client.surface.terminal.getScreenState({
-      id: this.id,
-    });
+    const { data } = await runEndpointEdge(
+      this.client.surface.terminal.getScreenState({
+        id: this.id,
+      }),
+    );
     return data;
   }
 
@@ -284,10 +292,12 @@ export class PtyHostTerminalProxy implements TerminalHandle {
               ...(startLine !== undefined && { startLine }),
               ...(endLine !== undefined && { endLine }),
             } as const);
-    const { text } = await this.client.surface.terminal.getScreenText({
-      id: this.id,
-      extent,
-    });
+    const { text } = await runEndpointEdge(
+      this.client.surface.terminal.getScreenText({
+        id: this.id,
+        extent,
+      }),
+    );
     return text;
   }
 
@@ -297,20 +307,22 @@ export class PtyHostTerminalProxy implements TerminalHandle {
     epoch?: number,
   ): Promise<TerminalHistoryChunk> {
     await this.ready;
-    return this.client.surface.terminal.getHistory({
-      id: this.id,
-      // SPREAD both cursors, never spell them (#17): each is
-      // `Schema.optionalKey` on kaval's wire and the client face DECODES this
-      // input, so an ABSENT key is accepted and a present-but-`undefined` one is
-      // REJECTED — where zod's `.optional()` took either. Both absences are
-      // ORDINARY, not edge cases: an omitted `before` is the documented
-      // self-seeding first page (what the `screen_history` MCP tool sends), and
-      // an omitted `epoch` is every caller whose attach snapshot carried no
-      // `reflowEpoch`. Spelling either out throws before the call leaves padi.
-      ...(before !== undefined && { before }),
-      max,
-      ...(epoch !== undefined && { epoch }),
-    });
+    return runEndpointEdge(
+      this.client.surface.terminal.getHistory({
+        id: this.id,
+        // SPREAD both cursors, never spell them (#17): each is
+        // `Schema.optionalKey` on kaval's wire and the client face DECODES this
+        // input, so an ABSENT key is accepted and a present-but-`undefined` one is
+        // REJECTED — where zod's `.optional()` took either. Both absences are
+        // ORDINARY, not edge cases: an omitted `before` is the documented
+        // self-seeding first page (what the `screen_history` MCP tool sends), and
+        // an omitted `epoch` is every caller whose attach snapshot carried no
+        // `reflowEpoch`. Spelling either out throws before the call leaves padi.
+        ...(before !== undefined && { before }),
+        max,
+        ...(epoch !== undefined && { epoch }),
+      }),
+    );
   }
 }
 
@@ -351,6 +363,29 @@ export function onForegroundTapError(
   );
 }
 
+/**
+ * THE Effect run edge of padi's terminal-endpoint layer — one function, so the
+ * crossing is countable rather than scattered.
+ *
+ * Two shapes cross here and they are the same crossing. A TAP hands a `signal`,
+ * which becomes fiber interruption at exactly this seam (D10/#18) — the
+ * surrounding domain (`TerminalLifecycle.abort`, the port-nudge controller, the
+ * reconciler) stays AbortController-shaped because it is not Effect code, and
+ * interruption is what actually closes the kaval subscription. The SPAWN TAIL
+ * hands none: `spawnPty` is synchronous by contract (the sync-shadow invariant —
+ * the tile must render before the PTY exists), so the tail it fires cannot be
+ * `yield*`ed by anybody; there is no Effect above it to compose into, because its
+ * caller returns a value rather than a description.
+ *
+ * Everything else in this file composes.
+ */
+function runEndpointEdge<A>(
+  program: Effect.Effect<A, unknown>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return Effect.runPromise(program, signal ? { signal } : undefined);
+}
+
 export function bridgeStream<T>(
   source: Stream.Stream<T, unknown>,
   signal: AbortSignal,
@@ -366,12 +401,7 @@ export function bridgeStream<T>(
   // is a lifecycle problem ("we no longer know when this PTY dies"), not a missing field.
   onError?: (err: unknown) => void,
 ): Promise<void> {
-  // The ONE Effect run edge in padi's tap layer. `signal` is translated into
-  // fiber interruption at exactly this seam (D10/#18) — the surrounding domain
-  // (`TerminalLifecycle.abort`, the port-nudge controller, the reconciler) stays
-  // AbortController-shaped because it is not Effect code, and interruption is
-  // what actually closes the kaval subscription.
-  return Effect.runPromise(
+  return runEndpointEdge(
     Stream.runForEach(source, (value) =>
       Effect.sync(() => {
         try {
@@ -390,7 +420,7 @@ export function bridgeStream<T>(
         }
       }),
     ),
-    { signal },
+    signal,
   ).then(
     () => {},
     (err) => {
@@ -850,13 +880,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     proxy: PtyHostTerminalProxy,
     expected: ActiveTerminalProcess,
   ): Promise<{ pid: number; cwd: string } | null> {
-    const res = await ptyHostClient.surface.terminal.spawn(
-      await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
+    const res = await runEndpointEdge(
+      Effect.flatMap(buildTerminalSpawnInput({ id, cwd: opts.cwd }), (input) =>
+        ptyHostClient.surface.terminal.spawn(input),
+      ),
     );
     if (getActiveTerminal(id) !== expected) {
       proxy.markFailed(new TerminalSpawnRacedError());
       try {
-        await ptyHostClient.surface.terminal.kill({ id });
+        await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
       } catch (err) {
         log
           .child({ terminal: id })
@@ -980,11 +1012,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     tlog.error({ err }, reason);
     this.teardownSensors(id);
-    void ptyHostClient.surface.terminal
-      .kill({ id })
-      .catch((killErr) =>
+    void runEndpointEdge(ptyHostClient.surface.terminal.kill({ id })).catch(
+      (killErr) =>
         tlog.error({ err: killErr }, "kill of half-wired PTY failed"),
-      );
+    );
     this.unwindSpawnShadow(id, entry, prior);
   }
 
@@ -1245,7 +1276,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // cleanup instead.
     this.teardownSensors(id);
     try {
-      await ptyHostClient.surface.terminal.kill({ id });
+      await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
       tlog.error({ err }, "pty-host kill failed; unregistering anyway");
     }
@@ -1306,7 +1337,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
   async releaseSleptPty(id: TerminalId): Promise<void> {
     try {
-      await ptyHostClient.surface.terminal.kill({ id });
+      await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
       log
         .child({ terminal: id })
@@ -1400,7 +1431,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     log.info({ count: ids.length }, "killing all terminals");
     for (const id of ids) this.teardownSensors(id);
     try {
-      await ptyHostClient.surface.terminal.killAll({});
+      await runEndpointEdge(ptyHostClient.surface.terminal.killAll({}));
     } catch (err) {
       log.error({ err }, "pty-host killAll failed; draining anyway");
     }
@@ -1746,12 +1777,12 @@ export function reapUnrepresentablePty(rawId: string): void {
     { rawId },
     "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
   );
-  void ptyHostClient.surface.terminal
-    .kill({ id: rawId })
-    .catch((err) =>
-      log.error(
-        { err, rawId },
-        "kill of unrepresentable PTY failed; it remains live on the daemon",
-      ),
-    );
+  void runEndpointEdge(
+    ptyHostClient.surface.terminal.kill({ id: rawId }),
+  ).catch((err) =>
+    log.error(
+      { err, rawId },
+      "kill of unrepresentable PTY failed; it remains live on the daemon",
+    ),
+  );
 }

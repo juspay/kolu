@@ -69,7 +69,9 @@ const sharedIsDark = createSharedRoot((): (() => boolean) => {
       setViewerMode(prefersDark() ? "dark" : "light").pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
-            toast.error(`Failed to report viewer mode: ${toError(err).message}`);
+            toast.error(
+              `Failed to report viewer mode: ${toError(err).message}`,
+            );
           }),
         ),
       ),

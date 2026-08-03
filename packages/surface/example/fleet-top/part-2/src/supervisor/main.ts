@@ -42,18 +42,26 @@ import type { Memory } from "../common/surface";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
 /** The first frame of a snapshot-then-deltas member. */
-async function snapshot<T>(
+function snapshot<T>(
   stream: Stream.Stream<T, unknown>,
   what: string,
-): Promise<T> {
-  const head = await Effect.runPromise(Stream.runHead(stream));
-  if (Option.isNone(head)) {
-    throw new Error(`${what}: stream closed before its snapshot frame`);
-  }
-  return head.value;
+): Effect.Effect<T, Error> {
+  // A member stream fails with `unknown`; the endpoint's `connect` contract is
+  // "a plain Error unless it is the branded skew", so the narrowing happens HERE,
+  // once, rather than at each caller.
+  const head = Effect.mapError(Stream.runHead(stream), (err) =>
+    err instanceof Error ? err : new Error(String(err)),
+  );
+  return Effect.flatMap(head, (head) =>
+    Option.isNone(head)
+      ? Effect.fail(
+          new Error(`${what}: stream closed before its snapshot frame`),
+        )
+      : Effect.succeed(head.value),
+  );
 }
 
-async function main(): Promise<void> {
+const main = Effect.gen(function* () {
   const log = stderrLogger();
 
   // The daemon binary the driver spawns. In a Nix build this is the realised
@@ -85,7 +93,7 @@ async function main(): Promise<void> {
       onContractSkew: { kind: "recycle" },
       onBuildMismatch: { kind: "nudge-human" },
     },
-    probe: async () => null,
+    probe: () => Effect.succeed(null),
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node
       args: ["--import", "tsx/esm", daemonEntry],
@@ -107,14 +115,14 @@ async function main(): Promise<void> {
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
   });
 
-  // Boot: always-recycle → spawn → connect. Throws (after reporting `dead`) if
+  // Boot: always-recycle → spawn → connect. Fails (after reporting `dead`) if
   // it cannot bring the daemon up.
-  await converge(endpoint);
+  yield* converge(endpoint);
 
   const conn = endpoint.current();
   if (conn === undefined)
     throw new Error("endpoint connected but current() is undefined");
-  const mem = await snapshot(
+  const mem = yield* snapshot(
     (conn.client.surface.memory?.get as StreamingProcedure<undefined, Memory>)(
       undefined,
     ),
@@ -128,17 +136,17 @@ async function main(): Promise<void> {
   // The LIVE recycle: kill the daemon under us and stand a fresh one up, with
   // the status held at one honest "restarting". Degenerate steps — nothing to
   // preserve in this part.
-  await recycle(endpoint, {
-    capture: async () => undefined,
-    drain: async () => {},
-    reattach: async () => {},
+  yield* recycle(endpoint, {
+    capture: Effect.succeed(undefined),
+    drain: () => Effect.void,
+    reattach: () => Effect.void,
   });
   process.stderr.write("[supervisor] live recycle complete\n");
 
   endpoint.current()?.dispose();
-}
+});
 
-main().catch((err) => {
+Effect.runPromise(main).catch((err) => {
   process.stderr.write(`supervisor fatal: ${(err as Error).message}\n`);
   process.exit(1);
 });

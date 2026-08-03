@@ -175,7 +175,9 @@ const RecordButton: Component = () => {
               type="button"
               data-testid="record-webcam"
               class={`w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${webcamBtnAccent()}`}
-              onClick={() => runAction("toggle webcam", recorder.toggleWebcam())}
+              onClick={() =>
+                runAction("toggle webcam", recorder.toggleWebcam())
+              }
               aria-label={webcamLabel()}
               aria-pressed={recorder.webcamEnabled()}
             >

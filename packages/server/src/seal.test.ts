@@ -31,6 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
 import { describe, expect, it } from "vitest";
@@ -620,11 +621,11 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     const bound = new Set(
       Object.keys(
         buildAppRouter({
-          drainBoundPadi: async () => {},
+          drainBoundPadi: () => Effect.void,
           addHost: async () => {},
           removeHost: async () => {},
           reconnectHost: () => {},
-          renewHostDaemon: async () => {},
+          renewHostDaemon: () => Effect.void,
           // No viewer identity in a shape assertion — `null` is the answer for
           // every uncertain case anyway.
           viewerHost: async () => null,

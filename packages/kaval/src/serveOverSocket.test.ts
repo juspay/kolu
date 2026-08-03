@@ -16,6 +16,7 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { Effect } from "effect";
 import { drainForOverflow, spawnInput } from "./contractCorpus.testlib.ts";
 import {
   createInProcessPtyHost,
@@ -84,14 +85,16 @@ describeDaemon(
 
     it("serves terminal.list over the socket (empty before any spawn)", async () => {
       const { client, dispose } = await connect();
-      const { entries } = await client.surface.terminal.list({});
+      const { entries } = await Effect.runPromise(
+        client.surface.terminal.list({}),
+      );
       expect(entries).toEqual([]);
       await dispose();
     });
 
     it("serves the version handshake over the socket", async () => {
       const { client, dispose } = await connect();
-      const v = await client.surface.system.version({});
+      const v = await Effect.runPromise(client.surface.system.version({}));
       expect(v.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
       expect(v.pid).toBe(process.pid);
       await dispose();
@@ -100,8 +103,12 @@ describeDaemon(
     it("accepts more than one independent client connection", async () => {
       const a = await connect();
       const b = await connect();
-      expect((await a.client.surface.terminal.list({})).entries).toEqual([]);
-      expect((await b.client.surface.terminal.list({})).entries).toEqual([]);
+      expect(
+        (await Effect.runPromise(a.client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
+      expect(
+        (await Effect.runPromise(b.client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
       await a.dispose();
       await b.dispose();
     });
@@ -118,7 +125,9 @@ describeDaemon(
       expect(() => second.close()).not.toThrow();
       // the original listener is untouched and still serving
       const { client, dispose } = await connect();
-      expect((await client.surface.terminal.list({})).entries).toEqual([]);
+      expect(
+        (await Effect.runPromise(client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
       await dispose();
     });
   },
@@ -160,7 +169,9 @@ describeDaemon(
       const ctrl = await connectTo(ovfSocketPath);
       const attachConn = await connectTo(ovfSocketPath);
       const cwd = mkdtempSync(join(tmpdir(), "kolu-pty-ovf-cwd-"));
-      const { id } = await ctrl.client.surface.terminal.spawn(spawnInput(cwd));
+      const { id } = await Effect.runPromise(
+        ctrl.client.surface.terminal.spawn(spawnInput(cwd)),
+      );
 
       // Pull the snapshot — that runs the subscription (it subscribes to the
       // data channel) — then STOP reading. Unlike the in-process loopback, a
@@ -178,10 +189,14 @@ describeDaemon(
       // `yes` floods the PTY without bound; the drop sheds the wedged attach
       // subscriber while the screen mirror (a separate, always-drained consumer)
       // keeps flowing, so `getScreenText` over `ctrl` still answers.
-      await ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" });
+      await Effect.runPromise(
+        ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" }),
+      );
       let text = "";
       for (let i = 0; i < 120; i++) {
-        ({ text } = await ctrl.client.surface.terminal.getScreenText({ id }));
+        ({ text } = await Effect.runPromise(
+          ctrl.client.surface.terminal.getScreenText({ id }),
+        ));
         if (text.includes("OVFLINE")) break;
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -197,7 +212,7 @@ describeDaemon(
       expect(kinds).toContain("overflow");
 
       closeStream(iter);
-      await ctrl.client.surface.terminal.kill({ id });
+      await Effect.runPromise(ctrl.client.surface.terminal.kill({ id }));
       await ctrl.dispose();
       await attachConn.dispose();
     }, 20000);

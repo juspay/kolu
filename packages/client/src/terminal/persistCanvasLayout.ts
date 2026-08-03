@@ -13,7 +13,7 @@ import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { runAction } from "../runAction";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 
 /** Persist a tile's canvas geometry.
  *
@@ -26,7 +26,7 @@ export function persistCanvasLayout(
 ): void {
   runAction(
     "save canvas layout",
-    activePadiEffect.chrome.setCanvasLayout({ id, layout }).pipe(
+    activePadiRpc.chrome.setCanvasLayout({ id, layout }).pipe(
       Effect.catch((err) =>
         Effect.sync(() => {
           toast.error(`Failed to save canvas layout: ${toError(err).message}`);

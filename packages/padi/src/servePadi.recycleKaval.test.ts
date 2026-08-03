@@ -84,7 +84,9 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
   afterEach(() => vi.clearAllMocks());
 
   it("rethrows the skew as the DECLARED KavalContractSkew carrying both versions", async () => {
-    vi.mocked(restartLocalDaemon).mockRejectedValue(contractSkewRejection());
+    vi.mocked(restartLocalDaemon).mockReturnValue(
+      Effect.fail(contractSkewRejection()),
+    );
     const recycle = recycleKavalHandler();
 
     const refusal = await endedWith(recycle({ input: undefined }));
@@ -101,7 +103,7 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
 
   it("rethrows a NON-skew recycle failure untouched (the loud channel stays loud)", async () => {
     const boom = new Error("kaval endpoint failed to come up");
-    vi.mocked(restartLocalDaemon).mockRejectedValue(boom);
+    vi.mocked(restartLocalDaemon).mockReturnValue(Effect.fail(boom));
     const recycle = recycleKavalHandler();
 
     // UNDECLARED ⇒ a DEFECT (D4), and the value reaches the caller untouched.

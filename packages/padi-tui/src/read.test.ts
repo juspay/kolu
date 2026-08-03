@@ -174,10 +174,9 @@ describe("readTerminalKeys — the one-shot key set", () => {
   it("returns the FIRST snapshot frame of a still-live stream, and closes it", async () => {
     const { stream, isClosed } = observableKeys([[id("t1"), id("t2")]]);
 
-    expect(await Effect.runPromise(readTerminalKeys(keysOnlyClient(stream)))).toEqual([
-      id("t1"),
-      id("t2"),
-    ]);
+    expect(
+      await Effect.runPromise(readTerminalKeys(keysOnlyClient(stream))),
+    ).toEqual([id("t1"), id("t2")]);
     // Returning out of the `for await` interrupted the subscription — the ONLY
     // teardown left now that member verbs take no `signal`.
     expect(isClosed()).toBe(true);
@@ -198,7 +197,9 @@ describe("readTerminalKeys — the one-shot key set", () => {
     // CLI's one-line `padi-tui: <message>`.
     await expect(
       Effect.runPromise(
-        readTerminalKeys(keysOnlyClient(Stream.fail(new Error("socket hung up")))),
+        readTerminalKeys(
+          keysOnlyClient(Stream.fail(new Error("socket hung up"))),
+        ),
       ),
     ).rejects.toThrow(/socket hung up/);
   });

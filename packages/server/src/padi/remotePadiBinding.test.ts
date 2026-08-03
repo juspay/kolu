@@ -380,10 +380,10 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // generation before convergeAdmit enacts the resulting mismatch decision.
     await Promise.resolve(helloVals({ buildId: "build-old" }));
     const generation = new AbortController();
-    const fireDrain = vi.fn(async () => {});
+    const fireDrain = vi.fn(() => {});
     const plugs = generationBoundAdmitDrainPlugs(generation.signal, {
-      drain: fireDrain,
-      awaitExit: async () => {},
+      drain: Effect.sync(fireDrain),
+      awaitExit: Effect.void,
     });
     generation.abort();
 
@@ -395,18 +395,20 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
       }),
     );
     await expect(
-      convergeAdmit({
-        running: {
-          contractVersion: PADI_SURFACE_VERSION,
-          build: daemonBuild("build-old"),
-          instanceKey: instanceKeyFromStartedAt(1),
-        },
-        budget,
-        drain: plugs.drain,
-        awaitExit: plugs.awaitExit,
-        ceilingMs: CEIL,
-        log: collectLogger(() => {}),
-      }),
+      Effect.runPromise(
+        convergeAdmit({
+          running: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("build-old"),
+            instanceKey: instanceKeyFromStartedAt(1),
+          },
+          budget,
+          drain: plugs.drain,
+          awaitExit: plugs.awaitExit,
+          ceilingMs: CEIL,
+          log: collectLogger(() => {}),
+        }),
+      ),
     ).rejects.toThrow(/superseded/i);
     expect(fireDrain).not.toHaveBeenCalled();
   });
@@ -543,7 +545,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals())); // dies on drain (graceHellos 0)
     await pinAdopt(session); // adopt → bound
 
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(200);
     await r; // resolves only after the modelled link death
@@ -581,7 +583,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush();
     await expect(firstPin).rejects.toThrow(/superseded/i);
 
-    const renewed = session.renew();
+    const renewed = Effect.runPromise(session.renew());
     renewed.catch(() => {});
     await flush(200);
     await renewed;
@@ -598,7 +600,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals(), { diesOnDrain: false }));
     await pinAdopt(session);
 
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(80);
     await expect(r).rejects.toThrow(/did not (complete|exit)/i);
@@ -609,7 +611,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const { session } = makeArm({ binderBuildId: "" });
     // Never pinned → no combined client → renew throws honestly (the arm's message is
     // "not bound — cannot drain", the new spelling of the old "no adopted daemon").
-    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
+    await expect(Effect.runPromise(session.renew())).rejects.toThrow(
+      /not bound|cannot drain/i,
+    );
   });
 
   it("refuses to drain a padi it only REFUSED for a skew — honors the bind verdict, never downgrades it", async () => {
@@ -622,7 +626,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush(); // let the disconnect frame null `combined`
     // The restart verb must NOT reach the raw host client for a padi we never adopted —
     // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
-    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
+    await expect(Effect.runPromise(session.renew())).rejects.toThrow(
+      /not bound|cannot drain/i,
+    );
   });
 
   it("re-handshakes a NEW spawn on reconnect, refreshing identity", async () => {
@@ -859,7 +865,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
 
     // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
     // adopted-stale is a live adopted daemon.
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(CEIL);
     await r;

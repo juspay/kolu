@@ -18,7 +18,7 @@
  */
 
 import { padiSurface, type PadiTerminal } from "@kolu/padi/surface";
-import { firstFrameOrThrowEffect } from "@kolu/surface/first-frame";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Deferred, Effect } from "effect";
@@ -37,7 +37,7 @@ import type { PadiTuiClient } from "./connect.ts";
  *
  *  `keys` hands back a LAZY `Stream` synchronously — nothing is subscribed until
  *  it is consumed, and there is no `signal` to pass (D10/#18: cancellation is
- *  fiber interruption). `firstFrameOrThrowEffect` takes that `Stream` directly and
+ *  fiber interruption). `firstFrameOrThrow` takes that `Stream` directly and
  *  reads it with `Stream.runHead`, which interrupts the rest once the snapshot is
  *  in hand — so this one-shot read tears its own subscription down, and
  *  interrupting the READ tears it down too. The member ref is built INSIDE the
@@ -47,7 +47,7 @@ export function readTerminalKeys(
   client: PadiTuiClient,
 ): Effect.Effect<readonly TerminalId[], unknown> {
   return Effect.suspend(() =>
-    firstFrameOrThrowEffect(
+    firstFrameOrThrow(
       client.surface.terminals.keys(undefined),
       "padi terminals keys yielded no snapshot frame — link or protocol failure.",
     ),

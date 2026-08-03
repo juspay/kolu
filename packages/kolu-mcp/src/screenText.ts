@@ -32,9 +32,10 @@
  * node, before any wrapper — which is `jsonschema.ts`'s own stated law.
  */
 
+import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import type { BespokeTool } from "@kolu/surface-mcp";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 export const ScreenTextArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -66,10 +67,14 @@ export const screenTextTool: BespokeTool = {
   description:
     "A terminal's rendered screen + scrollback as plain text — the snapshot face. Pass tail: N to read only the last N lines (the cheap settle-check read).",
   // No `signal`: a surface procedure ref carries no cancellation handle any
-  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's).
-  handler: async (args, client) => {
+  // more (D10/#18 — Effect RPC has none, and interruption is the fiber's), and
+  // the handler's effect is already run under the request's signal by
+  // `surface-mcp`'s ONE CallTool edge.
+  handler: (args, client) => {
     const { id, tail } = args as ScreenTextArgs;
-    const text: string = await client.surface.screen.text({ id });
-    return tail === undefined ? text : tailLines(text, tail);
+    return Effect.map(
+      (client as PadiSurfaceClient).surface.screen.text({ id }),
+      (text: string) => (tail === undefined ? text : tailLines(text, tail)),
+    );
   },
 };

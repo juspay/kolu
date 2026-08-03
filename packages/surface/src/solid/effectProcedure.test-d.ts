@@ -1,40 +1,44 @@
 /**
- * TYPE-LEVEL drift-catch for the EFFECT procedure face — `EffectProcedure<S>`,
- * pinned against the SAME two derivations `boundProcedure.test-d.ts` pins its
- * Promise twin against.
+ * TYPE-LEVEL drift-catch for the procedure face — `EffectProcedure<S>`, this
+ * package's hand-rolled `ProcedureSpec`→callable arm-ladder, pinned against the
+ * OTHER derivation of the same axis: `SurfaceRpcsFor<S>` in `define.ts`, the
+ * type-level image of the runtime `Rpc` walk the wire actually carries.
  *
- * Three ladders now discriminate ONE axis (how a `ProcedureSpec`'s optional
- * `input`/`output` combine into four callable arms):
+ * Both derivations discriminate ONE axis — how a `ProcedureSpec`'s optional
+ * `input`/`output` combine into the four callable arms ({input,output} / {input} /
+ * {output} / neither). `SurfaceRpcsFor` maps each arm to an `Rpc` (payload /
+ * success / error schemas, resolved through `ProcedureInputSchema` et al.);
+ * `EffectProcedure` maps each arm to a hand-written client callable. They are
+ * structurally unrelated types, so TS catches no drift on its own. Adding a fifth
+ * arm, or changing input-optionality semantics, must move BOTH ladders in lockstep
+ * — this file fails to compile if only one moves.
  *
- *   - `SurfaceRpcsFor<S>` (`define.ts`) — the type-level image of the runtime `Rpc`
- *     walk the WIRE carries;
- *   - `BoundProcedure<S>` — the Promise callable;
- *   - `EffectProcedure<S>` — the Effect callable, this file's subject.
+ * (It absorbed `boundProcedure.test-d.ts` when the Promise ladder was deleted. The
+ * pins below are the union of both files' — nothing that was checked against
+ * `BoundProcedure` was dropped; each was re-anchored on the wire derivation, which
+ * is what both ladders were ever really being compared to.)
  *
- * They are structurally unrelated types, so TS catches no drift on its own.
- * Adding a fifth arm, or changing input-optionality semantics, must move all
- * three in lockstep — this file fails to compile if `EffectProcedure` is left
- * behind. `tsc --noEmit` green over it IS the assertion; there is no runtime.
+ * WHY these axes and not full mutual assignability: the two derivations
+ * deliberately speak DIFFERENT SIDES of the payload schema. `Rpc`'s generated
+ * client takes the make-in/`Type` side; the face takes the `Encoded` side and
+ * decodes at its edge (PLAN D2, review #13). Pinning mutual assignability would pin
+ * the very inversion the face exists to correct. What the two DO share are the
+ * facts asserted below:
  *
- * WHAT IS PINNED, and why each is not obvious:
+ *  1. **Arm parity.** Per arm: whether an input is present at all, and the
+ *     resolved SUCCESS type.
+ *  2. **The ENCODED input side (D2/#13).** For a schema whose Encoded and Type
+ *     sides DIVERGE (a decoding default; a transforming codec), the face's input
+ *     must be the Encoded side — positively (the wire-shaped literal is accepted)
+ *     and negatively (the Rpc client's own make-in side would have REJECTED it,
+ *     which is the regression these assertions exist to catch).
+ *  3. **Declared-error PRECISION.** The declared union rides a channel the compiler
+ *     tracks. So: the declared half of `E` equals the wire `Rpc`'s error exactly,
+ *     the framework half (`SurfaceCallFailure`) is always present so nobody can
+ *     believe a `catchTag` sweep left nothing unhandled, and the two halves are
+ *     DISJOINT — a declared error is never confusable with a transport death.
  *
- *  1. **Arm parity with `BoundProcedure`.** The Effect face must accept the very
- *     same arguments as the Promise face, or a consumer crossing from `await
- *     client.procedures.ns.verb(x)` to `client.effect.ns.verb(x)` would have to
- *     rewrite the call, and the Promise rows could not be a derived layer.
- *  2. **The ENCODED input side (D2/#13).** The face decodes at its edge, so the
- *     input arm speaks the wire's side, not the decoded one. Pinned positively
- *     (a wire-shaped literal is accepted) and negatively (Effect RPC's own
- *     generated client would have REJECTED it) — the regression the Promise
- *     file exists to catch, restated for the new ladder because a fresh mapped
- *     type is exactly where the inversion could creep back in.
- *  3. **Declared-error PRECISION.** The Effect face's whole gain over the Promise
- *     face is that the declared union rides a channel the compiler tracks rather
- *     than a phantom `safe()` has to recover. So: the declared half of `E`
- *     equals the wire `Rpc`'s error exactly, the framework half
- *     (`SurfaceCallFailure`) is always present so nobody can believe a
- *     `catchTag` sweep left nothing unhandled, and the two halves are DISJOINT —
- *     a declared error is never confusable with a transport death.
+ * `tsc --noEmit` green over this file IS the assertion; there is no runtime.
  */
 
 import { Effect, Schema } from "effect";
@@ -42,14 +46,10 @@ import type { Rpc } from "effect/unstable/rpc";
 import { expectTypeOf } from "vitest";
 import type { SurfaceCallFailure } from "../client";
 import { defineSurface, type SurfaceRpcsFor } from "../define";
-import type {
-  BoundProcedure,
-  EffectProcedure,
-  ProcedureEffect,
-} from "./surfaceClient";
+import type { EffectProcedure, ProcedureEffect } from "./surfaceClient";
 
-// A FIXED concrete spec touching all four arms — the same shape
-// `boundProcedure.test-d.ts` uses, so the two files pin the same axis.
+// A FIXED concrete spec touching all four arms. `defineSurface` runs its runtime
+// `Rpc` walk over these; `SurfaceRpcsFor` is that walk's type-level image.
 const fixture = defineSurface({
   procedures: {
     ns: {
@@ -80,23 +80,35 @@ type ErrorOf<F extends AnyFn> = Effect.Error<EffectOf<F>>;
  *  `catchTag`, made checkable. */
 type DeclaredOf<F extends AnyFn> = Exclude<ErrorOf<F>, SurfaceCallFailure>;
 
-// ── 1. Arm parity: the Effect face takes what the Promise face takes ──────
+// The Rpc derivation: an input-less procedure resolves `payload: Schema.Void`, so
+// its decoded payload is `void`. `[void] extends [void]` distinguishes it (a real
+// payload type is not `void`).
+// biome-ignore lint/suspicious/noConfusingVoidType: matching the absent-payload `Schema.Void` marker structurally requires `void` here.
+type WireHasInput<R> = [Rpc.Payload<R>] extends [void] ? false : true;
+// The face: input-present arms have a REQUIRED first param of the encoded schema
+// type; input-absent arms have `input?: undefined`, so the param widens to
+// `undefined`. `[undefined] extends [void]` is true, so the same predicate shape
+// keyed on `undefined` (the absent-input marker the face uses).
+type FaceHasInput<F extends AnyFn> = [Parameters<F>[0]] extends [undefined]
+  ? false
+  : true;
 
-expectTypeOf<Parameters<EffectProcedure<Procs["both"]>>>().toEqualTypeOf<
-  Parameters<BoundProcedure<Procs["both"]>>
+// ── 1. Arm parity: input PRESENCE and SUCCESS type agree with the wire ────
+
+expectTypeOf<FaceHasInput<EffectProcedure<Procs["both"]>>>().toEqualTypeOf<
+  WireHasInput<WireRpc<"both">>
 >();
-expectTypeOf<Parameters<EffectProcedure<Procs["inputOnly"]>>>().toEqualTypeOf<
-  Parameters<BoundProcedure<Procs["inputOnly"]>>
+expectTypeOf<FaceHasInput<EffectProcedure<Procs["inputOnly"]>>>().toEqualTypeOf<
+  WireHasInput<WireRpc<"inputOnly">>
 >();
-expectTypeOf<Parameters<EffectProcedure<Procs["outputOnly"]>>>().toEqualTypeOf<
-  Parameters<BoundProcedure<Procs["outputOnly"]>>
->();
-expectTypeOf<Parameters<EffectProcedure<Procs["neither"]>>>().toEqualTypeOf<
-  Parameters<BoundProcedure<Procs["neither"]>>
+expectTypeOf<
+  FaceHasInput<EffectProcedure<Procs["outputOnly"]>>
+>().toEqualTypeOf<WireHasInput<WireRpc<"outputOnly">>>();
+expectTypeOf<FaceHasInput<EffectProcedure<Procs["neither"]>>>().toEqualTypeOf<
+  WireHasInput<WireRpc<"neither">>
 >();
 
-// …and resolves the SAME success type as both other ladders, per arm. (`Awaited`
-// on the Promise side, `Effect.Success` on this one — same value, two shapes.)
+// …and resolves the SAME success type the wire `Rpc` does, per arm.
 expectTypeOf<SuccessOf<EffectProcedure<Procs["both"]>>>().toEqualTypeOf<
   Rpc.Success<WireRpc<"both">>
 >();
@@ -109,12 +121,9 @@ expectTypeOf<SuccessOf<EffectProcedure<Procs["outputOnly"]>>>().toEqualTypeOf<
 expectTypeOf<SuccessOf<EffectProcedure<Procs["neither"]>>>().toEqualTypeOf<
   Rpc.Success<WireRpc<"neither">>
 >();
-expectTypeOf<SuccessOf<EffectProcedure<Procs["both"]>>>().toEqualTypeOf<
-  Awaited<ReturnType<BoundProcedure<Procs["both"]>>>
->();
 
-// An input-less arm is `(input?: undefined)` on BOTH faces — so a call site that
-// passes nothing keeps compiling across the crossing.
+// An input-less arm is `(input?: undefined)` — a call site that passes nothing
+// compiles, which is the runtime shape `mintUnary` produces for it.
 expectTypeOf<EffectProcedure<Procs["neither"]>>().toBeCallableWith();
 expectTypeOf<EffectProcedure<Procs["outputOnly"]>>().toBeCallableWith();
 
@@ -202,14 +211,6 @@ expectTypeOf<DeclaredOf<EffectProcedure<EProcs["outputOnly"]>>>().toEqualTypeOf<
 >();
 expectTypeOf<DeclaredOf<EffectProcedure<EProcs["neither"]>>>().toEqualTypeOf<
   Rpc.Error<EWireRpc<"neither">>
->();
-
-// …and it is the SAME union the Promise face carries as a phantom, so `safe()`'s
-// narrowing and a `catchTag` on the Effect face agree by construction.
-type BoundErrorOf<F extends AnyFn> =
-  ReturnType<F> extends { readonly __error?: infer E } ? E : never;
-expectTypeOf<DeclaredOf<EffectProcedure<EProcs["both"]>>>().toEqualTypeOf<
-  BoundErrorOf<BoundProcedure<EProcs["both"]>>
 >();
 
 // The declared class's DATA is reachable off the narrowed channel — the read a

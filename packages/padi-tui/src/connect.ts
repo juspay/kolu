@@ -49,14 +49,8 @@ export function connectPadiTui(
   socketPath: string,
 ): Effect.Effect<Connection, unknown, Scope.Scope> {
   return Effect.map(
-    Effect.acquireRelease(
-      Effect.tryPromise({
-        try: () => connectPadi(socketPath),
-        // The raw rejection, unwrapped: the CLI's one-line diagnostic reads its
-        // `message`, and a framework wrapper would bury the actionable half.
-        catch: (err) => err,
-      }),
-      (conn) => Effect.sync(() => conn.dispose()),
+    Effect.acquireRelease(connectPadi(socketPath), (conn) =>
+      Effect.sync(() => conn.dispose()),
     ),
     // Scope the COMBINED dialed client to the padi sibling so `.surface.<member>`
     // resolves at `/surface/padi/<member>` — the same scope the re-serve mirrors.

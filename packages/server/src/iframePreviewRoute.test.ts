@@ -110,18 +110,18 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
   /** A faithful `preview.read` stand-in: the REAL serve-dir read, body base64'd
    *  for the wire (byte-for-byte what padi's `readPreview` returns). */
   function serveDirReader(name: string): PreviewRangeReader {
-    return async (range) => {
-      const r = await Effect.runPromise(
-        serveFile(tmpRoot, name, range ?? null),
+    return (range) =>
+      Effect.flatMap(serveFile(tmpRoot, name, range ?? null), (r) =>
+        Effect.promise(async () => {
+          const bodyBase64 =
+            typeof r.body === "string"
+              ? Buffer.from(r.body, "utf8").toString("base64")
+              : Buffer.from(await new Response(r.body).arrayBuffer()).toString(
+                  "base64",
+                );
+          return { status: r.status, headers: r.headers, bodyBase64 };
+        }),
       );
-      const bodyBase64 =
-        typeof r.body === "string"
-          ? Buffer.from(r.body, "utf8").toString("base64")
-          : Buffer.from(await new Response(r.body).arrayBuffer()).toString(
-              "base64",
-            );
-      return { status: r.status, headers: r.headers, bodyBase64 };
-    };
   }
 
   /** Wrap a reader to RECORD the exact `Range` header of every dial (probe + each
@@ -156,11 +156,12 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     return undefined;
   }
 
+  /** `assembleRemotePreview` is an Effect now; a test IS a process edge. */
+  const runPreview = (...args: Parameters<typeof assembleRemotePreview>) =>
+    Effect.runPromise(assembleRemotePreview(...args));
+
   it("serves a whole file (no Range) as a 200 with the real Content-Type and exact bytes", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("hello.txt"),
-      undefined,
-    );
+    const r = await runPreview(serveDirReader("hello.txt"), undefined);
     expect(r.status).toBe(200);
     expect(headerCI(r.headers, "content-type")).toMatch(/^text\/plain/);
     // A full 200 carries NO Content-Length (parity with the local streaming read).
@@ -171,7 +172,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
   it("round-trips BINARY bytes exactly across multiple chunks (no base64 corruption)", async () => {
     // 300-byte blob, 128-byte chunk → 3 dials (128 + 128 + 44). Bytes must match
     // the fixture exactly — a high-byte corruption on the base64 wire would show.
-    const r = await assembleRemotePreview(
+    const r = await runPreview(
       serveDirReader("blob.png"),
       undefined,
       undefined,
@@ -189,7 +190,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // the last a partial (44 bytes) — after the 1-byte probe. No dial exceeds the
     // chunk bound; none reads past EOF.
     const rec = recording(serveDirReader("blob.png"));
-    const r = await assembleRemotePreview(rec.read, undefined, undefined, 128);
+    const r = await runPreview(rec.read, undefined, undefined, 128);
     await drain(r.body); // pull the whole stream so every chunk dial fires
     expect(rec.ranges).toEqual([
       "bytes=0-0", // metadata probe
@@ -200,10 +201,7 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
   });
 
   it("serves a satisfiable Range as a 206 with Content-Range + Content-Length", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("hello.txt"),
-      "bytes=0-4",
-    );
+    const r = await runPreview(serveDirReader("hello.txt"), "bytes=0-4");
     expect(r.status).toBe(206);
     expect(headerCI(r.headers, "content-range")).toBe("bytes 0-4/11");
     expect(headerCI(r.headers, "content-length")).toBe("5");
@@ -213,20 +211,14 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
   it("resolves a suffix range via serve-dir's own parser (bytes=-5 → last 5 bytes)", async () => {
     // Proves the loop reuses `@kolu/serve-dir`'s `parseByteRange`, not a re-derived
     // one: `bytes=-5` on 11 bytes resolves to 6-10.
-    const r = await assembleRemotePreview(
-      serveDirReader("hello.txt"),
-      "bytes=-5",
-    );
+    const r = await runPreview(serveDirReader("hello.txt"), "bytes=-5");
     expect(r.status).toBe(206);
     expect(headerCI(r.headers, "content-range")).toBe("bytes 6-10/11");
     expect((await drain(r.body)).toString("utf8")).toBe("world");
   });
 
   it("416s an unsatisfiable Range on a non-empty file", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("hello.txt"),
-      "bytes=100-200",
-    );
+    const r = await runPreview(serveDirReader("hello.txt"), "bytes=100-200");
     expect(r.status).toBe(416);
     expect(headerCI(r.headers, "content-range")).toBe("bytes */11");
   });
@@ -236,48 +228,35 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // validator still matches the file's current ETag; a stale one serves the full
     // 200 rather than a 206 the client would stitch onto changed bytes.
     const reader = serveDirReader("blob.png");
-    const probe = await reader("bytes=0-0");
+    const probe = await Effect.runPromise(reader("bytes=0-0"));
     const etag = headerCI(probe.headers, "etag");
     expect(etag).toBeDefined();
     // Matching If-Range → the Range is honored (206 slice).
-    const match = await assembleRemotePreview(reader, "bytes=0-63", etag);
+    const match = await runPreview(reader, "bytes=0-63", etag);
     expect(match.status).toBe(206);
     expect(headerCI(match.headers, "content-range")).toBe("bytes 0-63/300");
     // Stale If-Range → the Range is ignored → full 200 with the whole file.
-    const stale = await assembleRemotePreview(
-      reader,
-      "bytes=0-63",
-      '"stale-nomatch"',
-    );
+    const stale = await runPreview(reader, "bytes=0-63", '"stale-nomatch"');
     expect(stale.status).toBe(200);
     expect(headerCI(stale.headers, "content-range")).toBeUndefined();
     expect((await drain(stale.body)).byteLength).toBe(300);
   });
 
   it("serves a ZERO-length file (no Range) as a 200 with an empty body", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("empty.txt"),
-      undefined,
-    );
+    const r = await runPreview(serveDirReader("empty.txt"), undefined);
     expect(r.status).toBe(200);
     expect(headerCI(r.headers, "content-type")).toMatch(/^text\/plain/);
     expect((await drain(r.body)).byteLength).toBe(0);
   });
 
   it("416s a Range against a ZERO-length file (bytes */0)", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("empty.txt"),
-      "bytes=0-100",
-    );
+    const r = await runPreview(serveDirReader("empty.txt"), "bytes=0-100");
     expect(r.status).toBe(416);
     expect(headerCI(r.headers, "content-range")).toBe("bytes */0");
   });
 
   it("propagates a missing-file error status verbatim (404, not a masked 200)", async () => {
-    const r = await assembleRemotePreview(
-      serveDirReader("nope.txt"),
-      undefined,
-    );
+    const r = await runPreview(serveDirReader("nope.txt"), undefined);
     expect(r.status).toBe(404);
     // The error body is the decoded plain-text reason, never streamed bytes.
     expect(typeof r.body).toBe("string");
@@ -289,48 +268,50 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // missing its tail.
     const inner = serveDirReader("blob.png");
     let chunkDials = 0;
-    const faulty: PreviewRangeReader = async (range) => {
-      // Count only the body-chunk dials (a real range with a non-zero end), not the
-      // `bytes=0-0` probe.
-      if (range && range !== "bytes=0-0") {
-        chunkDials += 1;
-        if (chunkDials === 2)
-          return { status: 500, headers: {}, bodyBase64: "" };
-      }
-      return inner(range);
-    };
-    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.suspend(() => {
+        // Count only the body-chunk dials (a real range with a non-zero end), not the
+        // `bytes=0-0` probe.
+        if (range && range !== "bytes=0-0") {
+          chunkDials += 1;
+          if (chunkDials === 2)
+            return Effect.succeed({ status: 500, headers: {}, bodyBase64: "" });
+        }
+        return inner(range);
+      });
+    const r = await runPreview(faulty, undefined, undefined, 128);
     expect(r.status).toBe(200); // headers committed before the fault
     await expect(drain(r.body)).rejects.toThrow(/expected 206, got 500/);
   });
 
   it("FAILS LOUDLY when a chunk returns a short body — never a silent truncation", async () => {
     const inner = serveDirReader("blob.png");
-    const faulty: PreviewRangeReader = async (range) => {
-      const r = await inner(range);
-      // Corrupt the first BODY chunk to one byte short of what its Content-Range
-      // promises. The length check must reject rather than emit a truncated body.
-      if (range === "bytes=0-127")
-        return { ...r, bodyBase64: r.bodyBase64.slice(0, 8) };
-      return r;
-    };
-    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.map(inner(range), (r) =>
+        // Corrupt the first BODY chunk to one byte short of what its Content-Range
+        // promises. The length check must reject rather than emit a truncated body.
+        range === "bytes=0-127"
+          ? { ...r, bodyBase64: r.bodyBase64.slice(0, 8) }
+          : r,
+      );
+    const r = await runPreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/expected 128 bytes/);
   });
 
   it("FAILS LOUDLY when the file size changes mid-stream — refuses an inconsistent body", async () => {
     const inner = serveDirReader("blob.png");
-    const faulty: PreviewRangeReader = async (range) => {
-      const r = await inner(range);
-      // Rewrite the SECOND chunk's Content-Range total to a different size, as if
-      // the file were replaced under the loop.
-      if (range === "bytes=128-255") {
-        const headers = { ...r.headers, "Content-Range": "bytes 128-255/999" };
-        return { ...r, headers };
-      }
-      return r;
-    };
-    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.map(inner(range), (r) =>
+        // Rewrite the SECOND chunk's Content-Range total to a different size, as if
+        // the file were replaced under the loop.
+        range === "bytes=128-255"
+          ? {
+              ...r,
+              headers: { ...r.headers, "Content-Range": "bytes 128-255/999" },
+            }
+          : r,
+      );
+    const r = await runPreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/size changed mid-stream/);
   });
 
@@ -342,13 +323,13 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // validator changes on any replace (mtime + inode), so mutating it here mimics
     // that swap — the loop must refuse rather than emit a Frankenstein body.
     const inner = serveDirReader("blob.png");
-    const faulty: PreviewRangeReader = async (range) => {
-      const r = await inner(range);
-      if (range === "bytes=128-255")
-        return { ...r, headers: { ...r.headers, ETag: '"deadbeef-swap"' } };
-      return r;
-    };
-    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.map(inner(range), (r) =>
+        range === "bytes=128-255"
+          ? { ...r, headers: { ...r.headers, ETag: '"deadbeef-swap"' } }
+          : r,
+      );
+    const r = await runPreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/validator/);
   });
 
@@ -361,14 +342,14 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // deleting that check fails THIS test (not just the same-size-replace one, which
     // an ETag-less serve-dir would also stop catching).
     const inner = serveDirReader("blob.png");
-    const noEtag: PreviewRangeReader = async (range) => {
-      const r = await inner(range);
-      const headers: Record<string, string> = {};
-      for (const [k, v] of Object.entries(r.headers))
-        if (k.toLowerCase() !== "etag") headers[k] = v;
-      return { ...r, headers };
-    };
-    await expect(assembleRemotePreview(noEtag, undefined)).rejects.toThrow(
+    const noEtag: PreviewRangeReader = (range) =>
+      Effect.map(inner(range), (r) => {
+        const headers: Record<string, string> = {};
+        for (const [k, v] of Object.entries(r.headers))
+          if (k.toLowerCase() !== "etag") headers[k] = v;
+        return { ...r, headers };
+      });
+    await expect(runPreview(noEtag, undefined)).rejects.toThrow(
       /no ETag validator/,
     );
   });
@@ -379,16 +360,16 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // total). Parsing only `/total` would accept it and emit the wrong slice; the
     // full Content-Range check rejects the offset mismatch.
     const inner = serveDirReader("blob.png");
-    const faulty: PreviewRangeReader = async (range) => {
-      const r = await inner(range);
-      if (range === "bytes=128-255")
-        return {
-          ...r,
-          headers: { ...r.headers, "Content-Range": "bytes 0-127/300" },
-        };
-      return r;
-    };
-    const r = await assembleRemotePreview(faulty, undefined, undefined, 128);
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.map(inner(range), (r) =>
+        range === "bytes=128-255"
+          ? {
+              ...r,
+              headers: { ...r.headers, "Content-Range": "bytes 0-127/300" },
+            }
+          : r,
+      );
+    const r = await runPreview(faulty, undefined, undefined, 128);
     await expect(drain(r.body)).rejects.toThrow(/wrong slice/);
   });
 
@@ -396,12 +377,13 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // A ranged `bytes=0-0` probe can only be 206/416/4xx/5xx; a 200 is a broken
     // upstream. The old code wrapped it via `errorResult` (a UTF-8 decode) and
     // served it as a success — corrupting binary. It must now throw instead.
-    const faulty: PreviewRangeReader = async (range) => {
-      if (range === "bytes=0-0")
-        return { status: 200, headers: {}, bodyBase64: "" };
-      return serveDirReader("blob.png")(range);
-    };
-    await expect(assembleRemotePreview(faulty, undefined)).rejects.toThrow(
+    const faulty: PreviewRangeReader = (range) =>
+      Effect.suspend(() =>
+        range === "bytes=0-0"
+          ? Effect.succeed({ status: 200, headers: {}, bodyBase64: "" })
+          : serveDirReader("blob.png")(range),
+      );
+    await expect(runPreview(faulty, undefined)).rejects.toThrow(
       /unexpected status 200/,
     );
   });
@@ -412,12 +394,8 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
     // rejection must propagate out of `assembleRemotePreview` unchanged so the route
     // can catch it and answer a logged 503 — not swallow it into a body or a 500.
     const linkFault = new Error("ssh link dropped mid-probe");
-    const read: PreviewRangeReader = async () => {
-      throw linkFault;
-    };
-    await expect(assembleRemotePreview(read, undefined)).rejects.toBe(
-      linkFault,
-    );
+    const read: PreviewRangeReader = () => Effect.fail(linkFault);
+    await expect(runPreview(read, undefined)).rejects.toBe(linkFault);
   });
 
   it("uses an 8 MiB production chunk bound", () => {
@@ -558,11 +536,9 @@ describe("iframe-preview route over a real node server (the raw target survives)
   const client: PreviewPadiClient = {
     surface: {
       preview: {
-        repoRootForTerminal: () => Promise.resolve({ repoRoot: tmpRoot }),
+        repoRootForTerminal: () => Effect.succeed({ repoRoot: tmpRoot }),
         read: () =>
-          Promise.reject(
-            new Error("the local arm must never dial preview.read"),
-          ),
+          Effect.fail(new Error("the local arm must never dial preview.read")),
       },
     },
   };
@@ -712,7 +688,7 @@ describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)",
       repoPath: string;
       filePath: string;
       range?: string;
-    }) => Promise<PreviewReadResult>;
+    }) => Effect.Effect<PreviewReadResult, unknown>;
     inputs: unknown[];
   } {
     const inputs: unknown[] = [];
@@ -728,7 +704,9 @@ describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)",
 
   it("OMITS the key on an unranged dial", async () => {
     const { read, inputs } = recordingPadi();
-    await remotePreviewReader(read, "/repo", "a.ts")(undefined);
+    await Effect.runPromise(
+      remotePreviewReader(read, "/repo", "a.ts")(undefined),
+    );
     expect(inputs.at(-1)).toEqual({ repoPath: "/repo", filePath: "a.ts" });
     expect(Object.hasOwn(inputs.at(-1) as object, "range")).toBe(false);
   });
@@ -738,8 +716,8 @@ describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)",
     // re-dials UNRANGED for the real Content-Type — the exact sequence that broke.
     const { read, inputs } = recordingPadi();
     const reader = remotePreviewReader(read, "/repo", "empty.txt");
-    await reader("bytes=0-0");
-    await reader(undefined);
+    await Effect.runPromise(reader("bytes=0-0"));
+    await Effect.runPromise(reader(undefined));
     expect(inputs.map((i) => (i as { range?: string }).range)).toEqual([
       "bytes=0-0",
       undefined,
@@ -749,7 +727,9 @@ describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)",
 
   it("still sends a real Range verbatim", async () => {
     const { read, inputs } = recordingPadi();
-    await remotePreviewReader(read, "/repo", "blob.png")("bytes=0-127");
+    await Effect.runPromise(
+      remotePreviewReader(read, "/repo", "blob.png")("bytes=0-127"),
+    );
     expect(inputs.at(-1)).toEqual({
       repoPath: "/repo",
       filePath: "blob.png",

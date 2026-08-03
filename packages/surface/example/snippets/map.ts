@@ -9,7 +9,7 @@
  * call shapes are what the docs pin.
  */
 
-import type { UnaryProcedure } from "@kolu/surface/client";
+import type { UnaryEffect } from "@kolu/surface/client";
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
 import type { WireTransport } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
@@ -193,19 +193,20 @@ function buildHostBinding(host: string, agentDrv: string): HostBinding {
     procedures: {
       proc: {
         // `kill` forwards to the CURRENT live agent client — a kill can land
-        // across a reconnect, so never a per-spawn stub. `Effect.promise`, not
-        // `tryPromise`: this procedure declares no error channel, so a link gap
-        // is an UNDECLARED failure and stays a loud defect.
+        // across a reconnect, so never a per-spawn stub. This procedure declares
+        // no error channel, so an upstream failure is UNDECLARED and `orDie` keeps
+        // it a loud defect rather than something a caller could branch on.
         kill: ({ input }) =>
-          Effect.promise(async () => {
+          Effect.gen(function* () {
             const pending = session.currentClient();
             if (pending === null) throw new Error("no live agent link");
-            const client = await pending;
-            const kill = client.surface.proc?.kill as UnaryProcedure<
+            const client = yield* Effect.promise(() => pending);
+            const kill = client.surface.proc?.kill as UnaryEffect<
               { pid: number },
-              { ok: boolean }
+              { ok: boolean },
+              never
             >;
-            return kill(input);
+            return yield* Effect.orDie(kill(input));
           }),
       },
     },
@@ -379,7 +380,8 @@ export function ownedState(transport: WireTransport) {
 const kill = (
   active: Entry<typeof entry.spec>,
   pid: number,
-): Promise<{ ok: boolean }> => active.procedures.proc.kill({ pid });
+): Effect.Effect<{ ok: boolean }, unknown> =>
+  active.procedures.proc.kill({ pid });
 // #endregion rpc
 
 // #region entrystatus

@@ -28,24 +28,32 @@
  */
 
 import { debounce } from "@solid-primitives/scheduled";
+import { Effect } from "effect";
 import { type Accessor, createEffect, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
 import {
   type StreamingProcedure,
-  type UnaryProcedure,
+  type UnaryEffect,
   unenrolledStreamCall,
 } from "../client";
 import type { Cell } from "../index";
+import { runDetached } from "../runStream";
 import { createSubscription, type Subscription } from "./createSubscription";
 
 export type Authority = "server" | "local";
 
-export type { UnaryProcedure };
+/** How a cell WRITES: the member ref off the face (a {@link UnaryEffect}), or any
+ *  function of the patch that describes the write.
+ *
+ *  Either way it is a DESCRIPTION, never a running call. `set` / `patch` hand the
+ *  description back to the caller, which runs it at its own UI edge; the coalesced
+ *  flush runs it on a detached fiber, because by then no caller is left to. */
+export type CellMutate<P> = (patch: P) => Effect.Effect<void, unknown>;
 
 export interface UseCellServerOptions<T, P = T> {
   source: StreamingProcedure<undefined, T>;
   authority?: "server";
-  mutate?: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
+  mutate?: CellMutate<P>;
   onError?: (err: Error) => void;
   /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
    *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
@@ -57,7 +65,7 @@ export interface UseCellLocalOptions<T extends object, P = T> {
   authority: "local";
   /** Default value for the local store; used until the first server yield. */
   initial: T;
-  mutate: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
+  mutate: CellMutate<P>;
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
@@ -92,9 +100,10 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  snapshot. This requires `applyPatch` to be a pure spread-merge (missing
    *  keys absent, not defaulted) — enforced at construction.
    *
-   *  CONTRACT: a coalesced `patch` resolves after the *local* apply, not the
-   *  server ack; callers needing acknowledgement must gate on the server echo.
-   *  Flush failures surface via `onError`, not the returned promise. */
+   *  CONTRACT: a coalesced `patch`'s effect completes after the *local* apply, not
+   *  the server ack; callers needing acknowledgement must gate on the server echo.
+   *  Flush failures surface via `onError`, not on the returned effect's channel —
+   *  by the time the flush runs, the fiber that queued it is long gone. */
   coalesceMs?: number;
   onError?: (err: Error) => void;
   /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
@@ -117,8 +126,8 @@ export interface UseCellResult<T, P> {
   value: Accessor<T | undefined>;
   pending: Accessor<boolean>;
   error: Accessor<Error | undefined>;
-  set: (next: T) => Promise<void>;
-  patch: (p: P, opts?: PatchOptions) => Promise<void>;
+  set: (next: T) => Effect.Effect<void, unknown>;
+  patch: (p: P, opts?: PatchOptions) => Effect.Effect<void, unknown>;
   sub: Subscription<T>;
 }
 
@@ -182,11 +191,14 @@ function useCellServer<Name extends string, T, P>(
     onComplete: options.onComplete,
   });
 
-  async function callMutate(p: P): Promise<void> {
-    if (!options.mutate) {
-      throw new Error("useCell: no mutate handler provided");
-    }
-    await options.mutate(p);
+  /** Suspended, so a cell with no mutate verb fails when the write is RUN rather
+   *  than throwing at the moment a handler merely builds it. */
+  function callMutate(p: P): Effect.Effect<void, unknown> {
+    return Effect.suspend(() =>
+      options.mutate
+        ? options.mutate(p)
+        : Effect.fail(new Error("useCell: no mutate handler provided")),
+    );
   }
 
   return {
@@ -255,13 +267,12 @@ function useCellLocal<Name extends string, T extends object, P>(
     const p = pendingPatch;
     if (p === undefined) return;
     pendingPatch = undefined;
-    void (async () => {
-      try {
-        await options.mutate(p);
-      } catch (err: unknown) {
-        options.onError?.(toError(err));
-      }
-    })();
+    // DETACHED, deliberately: the window this flush waited out is exactly the
+    // window in which the owner that queued it may have gone away, and dropping a
+    // user's edit because their component unmounted is the bug coalescing exists to
+    // avoid. `runDetached` is this package's one write edge; the failure has no
+    // caller left to reach, so it goes to `onError` like every other cell fault.
+    runDetached(options.mutate(p), (err) => options.onError?.(err));
   }
   // Coalescing merges queued patches through `applyPatch`; without it, two
   // patches in one window would collapse to last-write-wins and silently drop
@@ -297,15 +308,23 @@ function useCellLocal<Name extends string, T extends object, P>(
     value: () => store as T,
     pending: sub.pending,
     error: sub.error,
-    set: async (next) => {
-      applyLocal(next as unknown as P);
-      await options.mutate(next as unknown as P);
-    },
-    patch: async (p, opts) => {
-      applyLocal(p);
-      if (opts?.coalesce && scheduleFlush) enqueue(p);
-      else await options.mutate(p);
-    },
+    // The local apply is INSIDE the suspend, so it happens when the caller runs the
+    // write — not when it builds it. That keeps "apply locally, then send" one
+    // ordering rather than two, and an unrun write changes nothing at all.
+    set: (next) =>
+      Effect.suspend(() => {
+        applyLocal(next as unknown as P);
+        return options.mutate(next as unknown as P);
+      }),
+    patch: (p, opts) =>
+      Effect.suspend(() => {
+        applyLocal(p);
+        if (opts?.coalesce && scheduleFlush) {
+          enqueue(p);
+          return Effect.void;
+        }
+        return options.mutate(p);
+      }),
     sub,
   };
 }

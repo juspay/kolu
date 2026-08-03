@@ -13,7 +13,7 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
-import type { Effect } from "effect";
+import { Effect } from "effect";
 import {
   type Accessor,
   createMemo,
@@ -25,11 +25,10 @@ import {
 import type { SetStoreFunction } from "solid-js/store";
 import {
   buildSurfaceFace,
-  isTransportError,
   type StreamingProcedure,
   type SurfaceCallFailure,
   type SurfaceFace,
-  type UnaryProcedure,
+  type UnaryEffect,
   unenrolledStreamCall,
 } from "../client";
 import type {
@@ -219,8 +218,8 @@ export interface ReadOnlyBoundCell<T> {
  *  health FACT alongside every per-key sub's error, instead of a parallel
  *  per-collection accessor a consumer has to remember to read. */
 export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
-  upsert: (key: K, value: T) => Promise<void>;
-  delete: (key: K) => Promise<void>;
+  upsert: (key: K, value: T) => Effect.Effect<void, unknown>;
+  delete: (key: K) => Effect.Effect<void, unknown>;
 }
 
 export interface BoundCollection<K, T> {
@@ -235,10 +234,12 @@ export interface BoundCollection<K, T> {
     keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
   }): BoundCollectionResult<K, T>;
-  /** Imperative wire mutations. Available outside any component
-   *  lifecycle — call from command handlers, route loaders, anywhere. */
-  upsert(key: K, value: T): Promise<void>;
-  delete(key: K): Promise<void>;
+  /** Imperative wire mutations, as `Effect`s. Available outside any component
+   *  lifecycle — compose them into a command handler's program, a route loader,
+   *  anywhere. A Solid event handler runs one at its own UI edge (kolu spells that
+   *  `runAction`), which is where the Effect→DOM boundary belongs. */
+  upsert(key: K, value: T): Effect.Effect<void, unknown>;
+  delete(key: K): Effect.Effect<void, unknown>;
 }
 
 /** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
@@ -331,111 +332,41 @@ export interface BoundEvent<I, T> {
   ): void;
 }
 
-/** A bound procedure's RESULT: an ordinary `Promise` of the decoded output,
- *  carrying the spec's DECLARED error union as a type-level phantom (SK6/D4).
- *
- *  A phantom and not a wrapper, for the same reason oRPC used one: the call must
- *  stay `await`-able exactly like a `Promise` at every existing call site, while
- *  {@link safe} recovers the declared union from it. `__error` is never present at
- *  runtime — reading it is a type-level operation only. */
-export interface ProcedureResult<T, E> extends Promise<T> {
-  /** Phantom carrier for the declared error union. Never assigned. */
-  readonly __error?: E;
-}
-
-/** The bound face's declared-REJECTION type: the decoded union of the spec's
+/** The bound face's declared-FAILURE type: the decoded union of the spec's
  *  `error` schema, or `never` when the procedure declares no failures (define.ts's
  *  shared {@link ProcedureSpecError} extractor resolves `Schema.Never` there). A
  *  declared error travels as a `Schema.TaggedErrorClass` INSTANCE — `_tag` and data
- *  intact across every hop — so a caller narrows it with a `_tag` switch or an
- *  `instanceof`, never a magic-code compare. */
+ *  intact across every hop — so a caller narrows it with `Effect.catchTag`, a `_tag`
+ *  switch or an `instanceof`, never a magic-code compare. */
 type BoundProcedureError<S> = ProcedureSpecError<S>["Type"];
 
-/** Is `error` a DECLARED failure — a tagged error the server chose to raise and a
- *  schema carried across the wire — as opposed to a transport failure or an opaque
- *  defect?
+/** A bound procedure's result — an `Effect` carrying the spec's declared error
+ *  union in a real channel the compiler tracks through every `catchTag`,
+ *  `catchAll` and `orDie`.
  *
- *  The D4 successor of oRPC's `isDefinedError`, and the same job: tell "the server
- *  said no, and told you why" from "the call never got an answer". What changed is
- *  the discriminant — a `_tag` on a schema-carried class instead of a magic code
- *  string on an `ORPCError` — so once this narrows, a caller switches on `_tag`
- *  (or uses `instanceof` against the class the surface module exports) and the
- *  compiler follows.
- *
- *  Deliberately structural: a declared error crosses a relay hop by being decoded
- *  and re-encoded, and may arrive from a different module instance, so an
- *  `instanceof` against one realm's base class would silently stop recognising it. */
-export function isDefinedError(
-  error: unknown,
-): error is { readonly _tag: string } {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    typeof (error as { readonly _tag?: unknown })._tag === "string" &&
-    // A transport failure is NOT a declared error: nothing the server declared
-    // produced it, and branching on it as if it were is how a dead link gets
-    // reported as an application rejection.
-    !isTransportError(error)
-  );
-}
-
-/** The outcome of a bound call, as a VALUE instead of a rejection.
- *
- *  Three arms, discriminated so the compiler does the work a `try`/`catch` cannot:
- *  `catch (e)` binds `unknown` and erases the declared union, which is why oRPC
- *  needed a `safe` too. The `declared` flag is the discriminant — on its `true` arm
- *  `error` is the procedure's own declared union `E`, exactly narrow enough to
- *  switch on; on its `false` arm it is honestly `unknown` (a transport failure, a
- *  defect, anything the procedure never promised). */
-export type SafeResult<T, E> =
-  | { readonly ok: true; readonly data: T; readonly error: undefined }
-  | {
-      readonly ok: false;
-      readonly data: undefined;
-      readonly declared: true;
-      readonly error: E;
-    }
-  | {
-      readonly ok: false;
-      readonly data: undefined;
-      readonly declared: false;
-      readonly error: unknown;
-    };
-
-/** Await a bound call without throwing, returning a {@link SafeResult}.
- *
- *  ```ts
- *  const r = await safe(client.procedures.lifecycle.recycleKaval());
- *  if (!r.ok && r.declared && r.error._tag === "KavalContractSkew") { … }
- *  ```
- *
- *  The classification is {@link isDefinedError}'s, so "declared" means the same
- *  thing here and at a bare `catch`. */
-export async function safe<T, E>(
-  call: ProcedureResult<T, E>,
-): Promise<SafeResult<T, E>> {
-  try {
-    return { ok: true, data: await call, error: undefined };
-  } catch (error) {
-    return isDefinedError(error)
-      ? { ok: false, data: undefined, declared: true, error: error as E }
-      : { ok: false, data: undefined, declared: false, error };
-  }
-}
+ *  `E` is the spec's DECLARED union alone; {@link SurfaceCallFailure} — Effect
+ *  RPC's transport error plus the framework's own tagged vocabulary — is unioned
+ *  in here, because a call CAN fail that way and a channel that omitted it would
+ *  let a consumer believe `catchTag`-ing its declared tags left nothing to handle.
+ *  A caller that genuinely wants "any failure is fatal" writes `Effect.orDie`, and
+ *  says so. */
+export type ProcedureEffect<T, E> = Effect.Effect<T, E | SurfaceCallFailure>;
 
 /** A bound imperative procedure — a declaration-typed callable at
  *  `client.procedures.<ns>.<verb>(input)`. It IS the member call at the wire tag
  *  `surface/<ns>/<verb>`, re-exposed so the bound face is symmetric with
  *  `cells`/`collections`/`streams`/`events`. Input/output are inferred from the
  *  {@link ProcedureSpec} schemas — absent `input` ⇒ input-less, absent `output` ⇒
- *  `Promise<void>` — the exact arms the runtime `Rpc` derivation resolves through
+ *  `Effect<void>` — the exact arms the runtime `Rpc` derivation resolves through
  *  `ProcedureInputSchema`/`ProcedureOutputSchema`, so the bound signature and the
  *  wire shape can't drift. Deliberately a NARROW mapped type: recovering the
  *  callable shape by hand is what lets a generically-`unknown` map-entry face gain
  *  a typed procedure surface WITHOUT tripping the TS2590 "union too complex" a wide
- *  client type does under a generic entry spec.
+ *  client type does under a generic entry spec. `effectProcedure.test-d.ts` pins the
+ *  ladder against `SurfaceRpcsFor` — the type-level image of the runtime `Rpc` walk
+ *  — so the two cannot drift.
  *
- *  **The input arm is the ENCODED side (`Schema["Encoded"]`), the result arm the
+ *  **The input arm is the ENCODED side (`Schema["Encoded"]`), the success arm the
  *  DECODED side (`Schema["Type"]`)** — D2/#13. A schema carrying a decoding default
  *  makes a key OMITTABLE on the wire but REQUIRED after decode, and a transforming
  *  schema changes the type across the parse; typing the input decoded would demand
@@ -445,63 +376,12 @@ export async function safe<T, E>(
  *
  *  There is no second `options` argument. A unary call carries no `signal` under
  *  Effect (cancellation is fiber interruption, D10/#18) and no retry context (a
- *  write is never retried), so the only honest signature is `(input) => …`. */
-export type BoundProcedure<
-  // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own oracles — the concrete arms below narrow via `infer`.
-  S extends ProcedureSpec<any, any>,
-> = S extends {
-  input: infer In extends WireSchemaAny;
-  output: infer Out extends WireSchemaAny;
-}
-  ? (
-      input: In["Encoded"],
-    ) => ProcedureResult<Out["Type"], BoundProcedureError<S>>
-  : S extends { input: infer In extends WireSchemaAny }
-    ? (input: In["Encoded"]) => ProcedureResult<void, BoundProcedureError<S>>
-    : S extends { output: infer Out extends WireSchemaAny }
-      ? (
-          input?: undefined,
-        ) => ProcedureResult<Out["Type"], BoundProcedureError<S>>
-      : (input?: undefined) => ProcedureResult<void, BoundProcedureError<S>>;
-
-type BoundProceduresFor<S extends SurfaceSpec> = {
-  [NS in keyof S["procedures"] & string]: {
-    // `SurfaceSpec.procedures` already pins each member to a `ProcedureSpec`, so it
-    // satisfies `BoundProcedure`'s constraint directly — no guard/`any` needed here.
-    [V in keyof NonNullable<S["procedures"]>[NS] & string]: BoundProcedure<
-      NonNullable<S["procedures"]>[NS][V]
-    >;
-  };
-};
-
-/** A bound procedure's EFFECT result — the Effect-4 dual of
- *  {@link ProcedureResult}, and the honest one: where the Promise carries its
- *  declared union as an unreachable PHANTOM (a `Promise` has no error type, so
- *  `safe` has to recover it), an `Effect` carries it in a real channel the
- *  compiler tracks through every `catchTag`, `catchAll` and `orDie`.
+ *  write is never retried), so the only honest signature is `(input) => …`.
  *
- *  `E` is the spec's DECLARED union alone; {@link SurfaceCallFailure} — Effect
- *  RPC's transport error plus the framework's own tagged vocabulary — is unioned
- *  in here, because a call CAN fail that way and a channel that omitted it would
- *  let a consumer believe `catchTag`-ing its declared tags left nothing to handle.
- *  A caller that genuinely wants the Promise-era "any failure is fatal" shape
- *  writes `Effect.orDie`, and says so. */
-export type ProcedureEffect<T, E> = Effect.Effect<T, E | SurfaceCallFailure>;
-
-/** A bound imperative procedure, EFFECT-native — `client.effect.<ns>.<verb>(input)`.
- *
- *  The SAME four-arm ladder as {@link BoundProcedure} over the same
- *  {@link ProcedureSpec}, with the same sides of the same schemas: the input arm is
- *  the ENCODED side (`Schema["Encoded"]`, D2/#13 — the face decodes at its edge),
- *  the success arm the DECODED side. Only the return shape differs, so the two
- *  ladders move together or `effectProcedure.test-d.ts` stops compiling.
- *
- *  This is the face a caller composes with. `client.procedures.ns.verb(x)` can only
- *  be awaited — and an `await` is exactly what fiber interruption cannot reach
- *  through, which is why every consumer that needs a deadline, a race, a
- *  supersede-on-new-input or a Ctrl-C had to hand-roll an `AbortController`
- *  alongside it. `client.effect.ns.verb(x)` needs none of that: it is a
- *  description, and its caller's own combinators bound it. */
+ *  This is the face a caller COMPOSES with: a deadline, a race, a
+ *  supersede-on-new-input or a Ctrl-C are combinators here, where the Promise-shaped
+ *  row this replaced needed a hand-rolled `AbortController` alongside it that an
+ *  `await` could not honour anyway. */
 export type EffectProcedure<
   // biome-ignore lint/suspicious/noExplicitAny: mirrors `BoundProcedure`'s constraint — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,
@@ -630,31 +510,22 @@ export interface SurfaceClient<S extends SurfaceSpec> {
   readonly streams: BoundStreamsFor<S>;
   readonly events: BoundEventsFor<S>;
   /** The declared imperative procedures, bound to the link and typed from the
-   *  declaration — `client.procedures.<ns>.<verb>(input)`. The typed dual of the
-   *  reactive `.use()` primitives for the surface's non-descriptor RPCs: a
+   *  declaration — `client.procedures.<ns>.<verb>(input)`, each a composable
+   *  `Effect` carrying the spec's DECLARED error union (plus the framework's own
+   *  {@link SurfaceCallFailure}) in a channel the compiler tracks. The typed dual
+   *  of the reactive `.use()` primitives for the surface's non-descriptor RPCs: a
    *  consumer reaches a declared procedure here WITHOUT casting the raw `.rpc`
-   *  client or copying its callable shape. Reserved framework procedures
-   *  (`system.live` / `system.identity`) are contract-only — never in
-   *  `spec.procedures` — so they do NOT appear here; reach them (and the
-   *  link-root escape hatch) through `.rpc`. */
-  readonly procedures: BoundProceduresFor<S>;
-  /** The declared imperative procedures, EFFECT-native —
-   *  `client.effect.<ns>.<verb>(input)`. The same members as `.procedures`, at the
-   *  same names, with the same Encoded-in/decoded-out schema sides; the call
-   *  returns a composable `Effect` carrying the spec's DECLARED error union (plus
-   *  the framework's own {@link SurfaceCallFailure}) in a channel the compiler
-   *  tracks, instead of a `Promise` whose declared union survives only as a
-   *  phantom `safe()` has to recover.
+   *  client or copying its callable shape.
    *
-   *  Reach for it whenever the call is part of a larger program: a command that
-   *  must fold several members concurrently, a read that needs a deadline, a
-   *  request superseded by the next one, anything that must die on Ctrl-C. Those
-   *  all reduce to combinators here, where under `.procedures` each needs its own
-   *  `AbortController` — which a `Promise` cannot honour anyway.
+   *  Because the call is a description rather than a running promise, everything a
+   *  consumer used to hand-roll around it is a combinator: a deadline, a fold over
+   *  several members, a request superseded by the next one, a Ctrl-C that must
+   *  actually stop the wait.
    *
-   *  `.procedures` stays for the plain-async leaves; it is `Effect.runPromise`
-   *  over exactly these effects, so the two faces cannot disagree. */
-  readonly effect: EffectProceduresFor<S>;
+   *  Reserved framework procedures (`system.live` / `system.identity`) are
+   *  contract-only — never in `spec.procedures` — so they do NOT appear here; reach
+   *  them (and the link-root escape hatch) through `.rpc`. */
+  readonly procedures: EffectProceduresFor<S>;
   /** The subscription-health FACT — the `system.live` twin (`./health`). Reads
    *  every enrolled subscription's self-clearing `error()`/`pending()` plus the
    *  transport `live`, so a consumer reads ONE fact instead of hand-folding the
@@ -711,35 +582,16 @@ export interface SurfaceClient<S extends SurfaceSpec> {
  *  (The oRPC-era binds deferred this deref behind lazy getters so a hand-built
  *  PARTIAL mock link was tolerated; the face is no longer caller-supplied, so there
  *  is nothing partial to tolerate — a test stubs the DISPATCH, one layer down.) */
-function readMember(
-  nesting: Record<string, Record<string, unknown>>,
-  key: string,
-  which: string,
-): Record<string, unknown> {
-  const ns = nesting[key];
+function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
+  const ns = face.surface[key];
   if (ns === undefined) {
     throw new Error(
-      `surfaceClient: the face's ${which} nesting carries no member "${key}", but ` +
+      `surfaceClient: the face carries no member "${key}", but ` +
         "the spec declares it — the face walk and the bind walk disagree, which " +
         "is a framework bug.",
     );
   }
   return ns;
-}
-
-function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
-  return readMember(face.surface, key, "promise");
-}
-
-/** {@link memberOf}'s twin over the face's EFFECT nesting. Separate rather than a
- *  flag because the two are read for different reasons — the promise nesting feeds
- *  the Solid primitives, this one feeds `.effect` — and a caller that mixed them up
- *  would get a `Promise` where it typed an `Effect`, which no cast would catch. */
-function effectMemberOf(
-  face: SurfaceFace,
-  key: string,
-): Record<string, unknown> {
-  return readMember(face.effect, key, "effect");
 }
 
 /** Build the Solid client-side bundle for a surface over a **transport** — either
@@ -1248,14 +1100,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     const hasDeltas = collectionHasDeltas(
       rawColl as CollectionSpec<unknown, unknown>,
     );
-    const upsertRef = ns.upsert as UnaryProcedure<unknown, unknown>;
-    const deleteRef = ns.delete as UnaryProcedure<unknown, unknown>;
-    const upsert = async (k: unknown, v: unknown): Promise<void> => {
-      await upsertRef({ key: k, value: v });
-    };
-    const del = async (k: unknown): Promise<void> => {
-      await deleteRef({ key: k });
-    };
+    const upsertRef = ns.upsert as UnaryEffect<unknown, unknown, never>;
+    const deleteRef = ns.delete as UnaryEffect<unknown, unknown, never>;
+    const upsert = (k: unknown, v: unknown): Effect.Effect<void, unknown> =>
+      Effect.asVoid(upsertRef({ key: k, value: v }));
+    const del = (k: unknown): Effect.Effect<void, unknown> =>
+      Effect.asVoid(deleteRef({ key: k }));
     // The OPAQUE, app-declared client error policy for this collection (design §B),
     // reified into an error handler that threads the declared value to `onClientError`.
     // Read as `unknown` — the framework never inspects it. A collection has no
@@ -1524,22 +1374,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // primitive binds above — no `.use()` wrapper (a procedure is a one-shot call,
   // not a subscription), so nothing to enrol into `health()`.
   //
-  // Both shapes come off the ONE face walk: `.procedures` off its promise nesting,
-  // `.effect` off its effect nesting. Same loop, so a procedure can never appear on
-  // one face and not the other.
   const procedures: Record<string, Record<string, unknown>> = {};
-  const effectProcedures: Record<string, Record<string, unknown>> = {};
   for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
     const nsFace = memberOf(face, ns);
-    const nsEffectFace = effectMemberOf(face, ns);
     const bound: Record<string, unknown> = {};
-    const boundEffect: Record<string, unknown> = {};
-    for (const verb of Object.keys(verbs)) {
-      bound[verb] = nsFace[verb];
-      boundEffect[verb] = nsEffectFace[verb];
-    }
+    for (const verb of Object.keys(verbs)) bound[verb] = nsFace[verb];
     procedures[ns] = bound;
-    effectProcedures[ns] = boundEffect;
   }
 
   // The STRUCTURAL raw-stream path (Leak A). A raw `unenrolledStreamCall` owns its
@@ -1617,8 +1457,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     collections: collections as unknown as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
-    procedures: procedures as BoundProceduresFor<S>,
-    effect: effectProcedures as EffectProceduresFor<S>,
+    procedures: procedures as EffectProceduresFor<S>,
     health: registry.health,
     enroll: registry.enroll,
     rawStream,

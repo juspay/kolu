@@ -19,7 +19,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 
 export type IntentEditorSession = {
   title: string;
@@ -49,7 +49,7 @@ function init() {
   const writeIntent = (id: TerminalId, intent: string) => {
     runAction(
       "save intent",
-      activePadiEffect.chrome.setIntent({ id, intent }).pipe(
+      activePadiRpc.chrome.setIntent({ id, intent }).pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
             toast.error(`Failed to save intent: ${toError(err).message}`);

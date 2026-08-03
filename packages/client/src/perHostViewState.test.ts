@@ -42,8 +42,8 @@ vi.mock("./wire", async () => {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
     // `createViewState` reports the active tile through the per-host Effect face.
-    padiEffectOf: () => ({ chrome: { setActive: () => Effect.void } }),
-    activePadiEffect: { chrome: { setSubPanel: () => Effect.void } },
+    padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
+    activePadiRpc: { chrome: { setSubPanel: () => Effect.void } },
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };

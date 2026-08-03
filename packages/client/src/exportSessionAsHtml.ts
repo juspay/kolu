@@ -17,7 +17,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 import type { UiAction } from "./runAction";
-import { activePadiEffect } from "./wire";
+import { activePadiRpc } from "./wire";
 
 /** Own the object-URL lifecycle once: mint a blob URL for the document, hand
  *  it to a delivery strategy, and revoke after a generous delay so the new tab
@@ -59,15 +59,16 @@ export function exportSessionAsHtml(
         // nobody reads.
         const exports = yield* Effect.all(
           modes.map((mode) =>
-            activePadiEffect.transcript.exportHtml({ id, mode }),
+            activePadiRpc.transcript.exportHtml({ id, mode }),
           ),
           { concurrency: "unbounded" },
         );
-        for (const { html, filename } of exports) downloadExport(html, filename);
+        for (const { html, filename } of exports)
+          downloadExport(html, filename);
         toast.success("Session files exported", { id: loadingId });
         return;
       }
-      const { html, filename } = yield* activePadiEffect.transcript.exportHtml({
+      const { html, filename } = yield* activePadiRpc.transcript.exportHtml({
         id,
         mode: first,
       });

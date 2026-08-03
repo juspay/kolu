@@ -339,7 +339,6 @@ const argv = cli({
   ],
 });
 
-
 // ── stdout ───────────────────────────────────────────────────────────────
 
 /** The stdout consumer hung up (`kaval-tui list | head -1`). Not an exit-code
@@ -381,22 +380,6 @@ const writeErr = (text: string): Effect.Effect<void> =>
   Effect.sync(() => {
     process.stderr.write(text);
   });
-
-/** A pty-host PROCEDURE call, as an effect.
- *
- *  `PtyHostClient`'s Effect-native `effect[member][verb]` nesting exists on the
- *  face but is deliberately ERASED at the type (`SurfaceFace` keeps per-member
- *  precision one layer up, D2/#16), so a kaval consumer cannot reach it without
- *  a cast that would defeat the point. Until kaval's client type widens, this is
- *  the boundary where a Promise-shaped unary call joins the surrounding program
- *  — one function, so the boundary is countable rather than scattered.
- *
- *  What it buys, honestly: the call joins the fiber tree, so a Ctrl+C stops the
- *  CLI WAITING on it. What it does not: stopping the call itself — Effect RPC's
- *  unary path carries no cancellation token, so an abandoned procedure runs to
- *  completion on the daemon, unobserved. */
-const call = <A>(run: () => Promise<A>): Effect.Effect<A, unknown> =>
-  Effect.tryPromise({ try: run, catch: (err) => err });
 
 // ── Signals ──────────────────────────────────────────────────────────────
 
@@ -445,7 +428,7 @@ function resolveOne(
   query: string,
 ): Effect.Effect<string, unknown> {
   return Effect.flatMap(
-    call(() => conn.client.surface.terminal.list({})),
+    conn.client.surface.terminal.list({}),
     ({ entries }) => {
       const result = resolveTerminalId(
         query,
@@ -495,15 +478,16 @@ function resolveSocketPath(
 
 // ── The verbs ────────────────────────────────────────────────────────────
 
-function cmdList(conn: Connection, json: boolean): Effect.Effect<void, unknown> {
-  return Effect.flatMap(
-    call(() => conn.client.surface.terminal.list({})),
-    ({ entries }) =>
-      writeOut(
-        json
-          ? `${formatListJson(entries)}\n`
-          : `${formatList(entries, { now: Date.now(), home: homedir() })}\n`,
-      ),
+function cmdList(
+  conn: Connection,
+  json: boolean,
+): Effect.Effect<void, unknown> {
+  return Effect.flatMap(conn.client.surface.terminal.list({}), ({ entries }) =>
+    writeOut(
+      json
+        ? `${formatListJson(entries)}\n`
+        : `${formatList(entries, { now: Date.now(), home: homedir() })}\n`,
+    ),
   );
 }
 
@@ -530,14 +514,17 @@ function cmdSnapshot(
       ? ({ kind: "tail", lines: bound.tailLines } as const)
       : ({ kind: "full" } as const);
   return Effect.gen(function* () {
-    const { text } = yield* call(() =>
-      conn.client.surface.terminal.getScreenText({ id, extent }),
-    );
+    const { text } = yield* conn.client.surface.terminal.getScreenText({
+      id,
+      extent,
+    });
     yield* writeOutLine(text);
     // Trailer to stderr so stdout stays clean, scriptable scrollback — derived
     // from the text we already hold, no second round-trip to decorate it.
     const lines = text ? text.replace(/\n+$/, "").split("\n").length : 0;
-    yield* writeErr(`— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`);
+    yield* writeErr(
+      `— ${shortId(id)} · ${lines} line${lines === 1 ? "" : "s"}\n`,
+    );
   });
 }
 
@@ -561,9 +548,10 @@ function cmdHistory(
     const onePage = opts.lines;
     if (onePage !== undefined) {
       // One page: the N older lines immediately above the screen.
-      const res = yield* call(() =>
-        conn.client.surface.terminal.getHistory({ id, max: onePage }),
-      );
+      const res = yield* conn.client.surface.terminal.getHistory({
+        id,
+        max: onePage,
+      });
       if (res.kind === "chunk" && res.chunk) yield* writeOutLine(res.chunk);
       yield* writeErr(`— ${shortId(id)} · older history (≤${onePage} lines)\n`);
       return;
@@ -574,19 +562,17 @@ function cmdHistory(
     const pages: string[] = [];
     let before: number | undefined;
     for (;;) {
-      const res = yield* call(() =>
-        conn.client.surface.terminal.getHistory({
-          id,
-          // `before` is `Schema.optionalKey` (PLAN #17), which means the key is
-          // ABSENT — an explicit `before: undefined` is a decode failure, not the
-          // "self-seed from the top of the screen" request the pager's first
-          // iteration means. zod's `.optional()` tolerated the explicit undefined;
-          // this schema deliberately does not, so the key is SPREAD in only once
-          // there is a cursor to send.
-          ...(before === undefined ? {} : { before }),
-          max: HISTORY_PAGE_ROWS,
-        }),
-      );
+      const res = yield* conn.client.surface.terminal.getHistory({
+        id,
+        // `before` is `Schema.optionalKey` (PLAN #17), which means the key is
+        // ABSENT — an explicit `before: undefined` is a decode failure, not the
+        // "self-seed from the top of the screen" request the pager's first
+        // iteration means. zod's `.optional()` tolerated the explicit undefined;
+        // this schema deliberately does not, so the key is SPREAD in only once
+        // there is a cursor to send.
+        ...(before === undefined ? {} : { before }),
+        max: HISTORY_PAGE_ROWS,
+      });
       if (res.kind === "stale") break;
       // An all-blank page serializes to "" but is NOT exhaustion — advance past it
       // (the cursor still moves up) so older content ABOVE a blank run isn't cut
@@ -664,7 +650,7 @@ function cmdCreate(
     let input: PtyHostSpawnInput;
     let home: string;
     if (endpoint.kind === "host") {
-      const info = yield* call(() => conn.client.surface.system.info({}));
+      const info = yield* conn.client.surface.system.info({});
       input = buildRemoteCreateInput({
         id: newPtyId(),
         host: { shell: info.shell, home: info.home, path: info.path },
@@ -688,9 +674,7 @@ function cmdCreate(
       });
       home = homedir();
     }
-    const result = yield* call(() =>
-      conn.client.surface.terminal.spawn(input),
-    );
+    const result = yield* conn.client.surface.terminal.spawn(input);
     if (json) {
       // The raw { id, pid, cwd }, 2-space indented like `list --json`, with the
       // FULL id for scripts (`jq -r .id`). Controls are JSON-escaped, so — unlike
@@ -747,7 +731,9 @@ function readSendText(
     case "positional":
       return Effect.succeed(textArgs.join(" "));
     case "stdin":
-      return call(() => readStdin());
+      // Node's stdin is an async iterable, not an Effect — the one genuinely
+      // foreign Promise on this path, so it is LIFTED rather than composed.
+      return Effect.tryPromise({ try: readStdin, catch: (err) => err });
     case "file":
       // The path rides the descriptor (no cast). Read it as raw UTF-8 — no shell
       // in the loop, so backticks / $( ) in the payload reach the wire byte-exact.
@@ -838,7 +824,7 @@ function cmdSend(
     // validates the shipped sequencing, not a replica.
     yield* executeSendPlan(
       plan,
-      (data) => call(() => conn.client.surface.terminal.write({ id, data })),
+      (data) => conn.client.surface.terminal.write({ id, data }),
       shortId(id),
     );
 
@@ -1061,17 +1047,12 @@ function cmdAttach(
  *  frame) — that one is the transport's verdict, not this check's. */
 function assertCompatible(conn: Connection): Effect.Effect<void, CliFailure> {
   return Effect.flatMap(
-    Effect.catch(
-      Effect.tryPromise({
-        try: () => conn.client.surface.system.version({}),
-        catch: (err) => err,
-      }),
-      (err) =>
-        Effect.fail(
-          failure(
-            `could not read the daemon's pty-host version (${(err as Error).message}) — is it a kaval (or kolu-server) new enough to expose \`system.version\`? Try restarting it.`,
-          ),
+    Effect.catch(conn.client.surface.system.version({}), (err) =>
+      Effect.fail(
+        failure(
+          `could not read the daemon's pty-host version (${(err as Error).message}) — is it a kaval (or kolu-server) new enough to expose \`system.version\`? Try restarting it.`,
         ),
+      ),
     ),
     ({ contractVersion }) =>
       isContractVersionCompatible(contractVersion, PTY_HOST_CONTRACT_VERSION)
@@ -1098,7 +1079,8 @@ function connectTo(
       Effect.acquireRelease(
         Effect.catch(
           Effect.tryPromise({
-            try: () => dialAgentOnce(kavalHostDialOptions(endpoint.host, process.env)),
+            try: () =>
+              dialAgentOnce(kavalHostDialOptions(endpoint.host, process.env)),
             catch: (err) => err,
           }),
           (err) =>
@@ -1195,7 +1177,8 @@ function program(): Effect.Effect<void, unknown> {
         );
       }
       const parsed = parseUntil(argv.flags.until);
-      if (parsed.kind === "error") return yield* Effect.fail(failure(parsed.message));
+      if (parsed.kind === "error")
+        return yield* Effect.fail(failure(parsed.message));
       if (
         argv.flags.timeout !== undefined &&
         !isValidTimerMs(argv.flags.timeout)
@@ -1398,8 +1381,10 @@ function program(): Effect.Effect<void, unknown> {
           );
         }
         if (argv.command === "kill") {
-          return yield* runKill(conn, yield* resolveOne(conn, argv._.id), (line) =>
-            process.stderr.write(line),
+          return yield* runKill(
+            conn,
+            yield* resolveOne(conn, argv._.id),
+            (line) => process.stderr.write(line),
           );
         }
         return yield* Effect.fail(

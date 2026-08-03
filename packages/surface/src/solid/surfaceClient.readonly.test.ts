@@ -276,7 +276,7 @@ describe("surfaceClient cell verbs", () => {
       // A full-value local write. `surfaceClient` must NOT have injected the
       // spec-level `patch` (a `P`-merger expecting `{ delta }`) as `applyPatch`;
       // with no `applyPatch`, `useCell` full-replaces the store.
-      await cell.patch({ n: 9, label: "next" });
+      await Effect.runPromise(cell.patch({ n: 9, label: "next" }));
       // Full replacement landed — NOT the merger's `current.n + delta` (which,
       // fed a full `T`, would read `patch.delta === undefined` and corrupt `n`).
       expect(cell.value()).toEqual({ n: 9, label: "next" });

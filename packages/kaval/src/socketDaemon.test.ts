@@ -22,6 +22,7 @@ import { buildSurfaceFace } from "@kolu/surface/client";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { DAEMON_BIND_PID_ENV, gatePid } from "@kolu/surface-daemon";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
@@ -252,7 +253,7 @@ async function waitForSocket(socketPath: string, ms = 10000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const conn = await connect(socketPath);
-      await conn.client.surface.system.heartbeat({});
+      await Effect.runPromise(conn.client.surface.system.heartbeat({}));
       await conn.dispose();
       return;
     } catch {
@@ -373,12 +374,12 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       const pty = ptyHostClientOver(link.dispatch);
       const control = buildSurfaceFace(kavalControlSurface, link.dispatch)
         .surface.core as {
-        hello(): Promise<Record<string, unknown>>;
-        drain(): Promise<void>;
+        hello(): Effect.Effect<Record<string, unknown>, unknown>;
+        drain(): Effect.Effect<void, unknown>;
       };
 
-      const version = await pty.surface.system.version({});
-      const hello = await control.hello();
+      const version = await Effect.runPromise(pty.surface.system.version({}));
+      const hello = await Effect.runPromise(control.hello());
       expect(hello.surfaceVersion).toBe(version.contractVersion);
       expect(hello.startedAt).toBe(version.startedAt);
 
@@ -386,8 +387,8 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
       // frozen `core.drain` declares no error schema — so the refusal crosses as
       // an undeclared DEFECT (PLAN D4). What a caller relies on is unchanged: it
       // REJECTS, and the daemon is demonstrably still there afterwards.
-      await expect(control.drain()).rejects.toThrow();
-      await expect(control.hello()).resolves.toEqual(hello);
+      await expect(Effect.runPromise(control.drain())).rejects.toThrow();
+      await expect(Effect.runPromise(control.hello())).resolves.toEqual(hello);
       expect(isAlive(d.child.pid ?? -1)).toBe(true);
     } finally {
       await link.dispose();
@@ -405,7 +406,7 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
 
     // A is still serving.
     const c1 = await connect(socketPath);
-    await c1.client.surface.system.heartbeat({});
+    await Effect.runPromise(c1.client.surface.system.heartbeat({}));
     await c1.dispose();
 
     // SIGKILL A — no graceful gate release, so it leaves a stale gate.
@@ -416,7 +417,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const c = track(launch(socketPath));
     await waitForSocket(socketPath);
     const c2 = await connect(socketPath);
-    expect((await c2.client.surface.terminal.list({})).entries).toEqual([]);
+    expect(
+      (await Effect.runPromise(c2.client.surface.terminal.list({}))).entries,
+    ).toEqual([]);
     await c2.dispose();
     await reap(c);
   }, 30000);
@@ -446,12 +449,14 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     // non-self-reaping leader.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    const { pid } = await conn.client.surface.terminal.spawn({
-      argv: ["sleep", "100000"],
-      cwd: makeCwd(),
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
-      initFiles: [],
-    });
+    const { pid } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn({
+        argv: ["sleep", "100000"],
+        cwd: makeCwd(),
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
+        initFiles: [],
+      }),
+    );
     await conn.dispose();
     expect(isAlive(pid)).toBe(true);
 
@@ -484,12 +489,14 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     // backstop reaps it deterministically.
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    const { pid } = await conn.client.surface.terminal.spawn({
-      argv: ["/bin/sh", "-c", "trap '' HUP; exec sleep 100000"],
-      cwd: makeCwd(),
-      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
-      initFiles: [],
-    });
+    const { pid } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn({
+        argv: ["/bin/sh", "-c", "trap '' HUP; exec sleep 100000"],
+        cwd: makeCwd(),
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm" },
+        initFiles: [],
+      }),
+    );
     await conn.dispose();
     expect(isAlive(pid)).toBe(true);
 
@@ -571,20 +578,22 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   it("initFiles materialise under the daemon's rcDir across the process boundary, then are removed on exit", async () => {
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    const info = await conn.client.surface.system.info({});
+    const info = await Effect.runPromise(conn.client.surface.system.info({}));
     const rcName = "corpus-initfile";
     const rcPath = join(info.rcDir, rcName);
 
-    const { id } = await conn.client.surface.terminal.spawn({
-      argv: [info.shell],
-      cwd: makeCwd(),
-      env: { PATH: process.env.PATH ?? "", HOME: info.home },
-      initFiles: [{ name: rcName, content: "# corpus init marker\n" }],
-    });
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn({
+        argv: [info.shell],
+        cwd: makeCwd(),
+        env: { PATH: process.env.PATH ?? "", HOME: info.home },
+        initFiles: [{ name: rcName, content: "# corpus init marker\n" }],
+      }),
+    );
     // The file the client named landed on the daemon's disk.
     expect(existsSync(rcPath)).toBe(true);
 
-    await conn.client.surface.terminal.kill({ id });
+    await Effect.runPromise(conn.client.surface.terminal.kill({ id }));
     // onDispose removes it; poll briefly for the async cleanup.
     for (let i = 0; i < 60 && existsSync(rcPath); i++) await sleep(50);
     expect(existsSync(rcPath)).toBe(false);
@@ -598,15 +607,21 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const first = track(launch(socketPath));
     await waitForSocket(socketPath);
     const c1 = await connect(socketPath);
-    await c1.client.surface.terminal.spawn(spawnInput(makeCwd()));
-    expect((await c1.client.surface.terminal.list({})).entries).toHaveLength(1);
+    await Effect.runPromise(
+      c1.client.surface.terminal.spawn(spawnInput(makeCwd())),
+    );
+    expect(
+      (await Effect.runPromise(c1.client.surface.terminal.list({}))).entries,
+    ).toHaveLength(1);
     await c1.dispose();
     await reap(first);
 
     const second = track(launch(socketPath));
     await waitForSocket(socketPath);
     const c2 = await connect(socketPath);
-    expect((await c2.client.surface.terminal.list({})).entries).toEqual([]);
+    expect(
+      (await Effect.runPromise(c2.client.surface.terminal.list({}))).entries,
+    ).toEqual([]);
     await c2.dispose();
     await reap(second);
   }, 30000);
@@ -614,8 +629,8 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
   it("SIGKILL mid-attach: the client's stream errors or ends — it does not hang", async () => {
     const d = track(await startDaemon());
     const conn = await connect(d.socketPath);
-    const { id, pid } = await conn.client.surface.terminal.spawn(
-      spawnInput(makeCwd()),
+    const { id, pid } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(makeCwd())),
     );
     try {
       const iterator = openStream(
@@ -659,7 +674,9 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     expect(empty.stdout).toContain("no live terminals");
 
     const conn = await connect(d.socketPath);
-    await conn.client.surface.terminal.spawn(spawnInput(makeCwd()));
+    await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(makeCwd())),
+    );
 
     const populated = await runKavalTui(["list", "--socket", d.socketPath]);
     expect(populated.code).toBe(0);
@@ -727,7 +744,11 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const conn = await connect(d.socketPath);
     let screen = "";
     for (let i = 0; i < 100 && !screen.includes("CREATEMARK"); i++) {
-      screen = (await conn.client.surface.terminal.getScreenText({ id })).text;
+      screen = (
+        await Effect.runPromise(
+          conn.client.surface.terminal.getScreenText({ id }),
+        )
+      ).text;
       if (!screen.includes("CREATEMARK")) await sleep(50);
     }
     expect(screen).toContain("CREATEMARK");
@@ -761,7 +782,11 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     const conn = await connect(d.socketPath);
     let screen = "";
     for (let i = 0; i < 100 && !screen.includes("KS=["); i++) {
-      screen = (await conn.client.surface.terminal.getScreenText({ id })).text;
+      screen = (
+        await Effect.runPromise(
+          conn.client.surface.terminal.getScreenText({ id }),
+        )
+      ).text;
       if (!screen.includes("KS=[")) await sleep(50);
     }
     expect(screen).toContain(`KS=[${d.socketPath}]`);

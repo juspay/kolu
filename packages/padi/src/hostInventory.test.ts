@@ -8,6 +8,7 @@
  */
 
 import type { PadiDaemon } from "./stateRoot.ts";
+import { Effect } from "effect";
 import type { KavalDaemon } from "kaval";
 import { describe, expect, it } from "vitest";
 import {
@@ -248,18 +249,22 @@ describe("withSelfPadi — the serving padi reports itself by construction", () 
 
 describe("enumerateHostDaemons — the shared scan orchestration", () => {
   it("padi's own scan (active sockets set) marks the held kaval + serving padi active", async () => {
-    const inv = await enumerateHostDaemons({
-      discoverKavals: () => [
-        kaval({ socket: ACTIVE }),
-        kaval({ socket: LEGACY, kind: "port" }),
-      ],
-      discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
-      probe: async (socket) =>
-        socket === ACTIVE ? probe({ terminalCount: 2 }) : probe(),
-      activeKavalSocket: ACTIVE,
-      activeKavalAtLegacy: false,
-      activePadiSocket: PADI_ACTIVE,
-    });
+    const inv = await Effect.runPromise(
+      enumerateHostDaemons({
+        discoverKavals: () => [
+          kaval({ socket: ACTIVE }),
+          kaval({ socket: LEGACY, kind: "port" }),
+        ],
+        discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
+        probe: (socket) =>
+          Effect.succeed(
+            socket === ACTIVE ? probe({ terminalCount: 2 }) : probe(),
+          ),
+        activeKavalSocket: ACTIVE,
+        activeKavalAtLegacy: false,
+        activePadiSocket: PADI_ACTIVE,
+      }),
+    );
     expect(inv.kavals.find((k) => k.socket === ACTIVE)).toMatchObject({
       held: { active: true },
       terminalCount: 2,
@@ -273,14 +278,16 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
   it("a local-machine scan under a remote binding (no active sockets) marks NOTHING active", async () => {
     // This is exactly how kolu-server drives it for `daemonInventory.localScan`: the
     // machine kolu-server runs on is not the bound host, so no local daemon is kolu's.
-    const inv = await enumerateHostDaemons({
-      discoverKavals: () => [kaval({ socket: ACTIVE })],
-      discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
-      probe: async () => probe(),
-      activeKavalSocket: null,
-      activeKavalAtLegacy: false,
-      activePadiSocket: null,
-    });
+    const inv = await Effect.runPromise(
+      enumerateHostDaemons({
+        discoverKavals: () => [kaval({ socket: ACTIVE })],
+        discoverPadis: () => [padi({ socket: PADI_ACTIVE })],
+        probe: () => Effect.succeed(probe()),
+        activeKavalSocket: null,
+        activeKavalAtLegacy: false,
+        activePadiSocket: null,
+      }),
+    );
     // Leaks stay VISIBLE (listed) …
     expect(inv.kavals).toHaveLength(1);
     expect(inv.padis).toHaveLength(1);
@@ -294,20 +301,22 @@ describe("enumerateHostDaemons — the shared scan orchestration", () => {
     // or validation failure must surface; catching this seam would turn a failed
     // observation into a plausible all-null row.
     await expect(
-      enumerateHostDaemons({
-        discoverKavals: () => [
-          kaval({ socket: ACTIVE }),
-          kaval({ socket: STANDALONE, kind: "standalone" }),
-        ],
-        discoverPadis: () => [],
-        probe: async (socket) => {
-          if (socket === STANDALONE) throw new Error("probe blew up");
-          return probe({ terminalCount: 7 });
-        },
-        activeKavalSocket: ACTIVE,
-        activeKavalAtLegacy: false,
-        activePadiSocket: null,
-      }),
+      Effect.runPromise(
+        enumerateHostDaemons({
+          discoverKavals: () => [
+            kaval({ socket: ACTIVE }),
+            kaval({ socket: STANDALONE, kind: "standalone" }),
+          ],
+          discoverPadis: () => [],
+          probe: (socket) =>
+            socket === STANDALONE
+              ? Effect.fail(new Error("probe blew up"))
+              : Effect.succeed(probe({ terminalCount: 7 })),
+          activeKavalSocket: ACTIVE,
+          activeKavalAtLegacy: false,
+          activePadiSocket: null,
+        }),
+      ),
     ).rejects.toThrow("probe blew up");
   });
 });

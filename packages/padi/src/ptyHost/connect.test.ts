@@ -200,7 +200,7 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
   afterAll(async () => await listener.close());
 
   it("carries the served lifetime through to metadata.lifetime", async () => {
-    const conn = await connectKaval(socketPath);
+    const conn = await Effect.runPromise(connectKaval(socketPath));
     try {
       // The whole point of F6: this fails (undefined) if the `lifetime:
       // version.lifetime` copy in connect.ts is dropped, even though the type
@@ -212,7 +212,9 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
         staleKey: "fragment-build",
         navigableCommit: "fragment-commit",
       });
-      await expect(probeKavalStatus(socketPath)).resolves.toMatchObject({
+      await expect(
+        Effect.runPromise(probeKavalStatus(socketPath)),
+      ).resolves.toMatchObject({
         buildCommit: "fragment-commit",
       });
     } finally {
@@ -239,7 +241,7 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       [LIST_TAG]: () => Effect.succeed({ entries: [] }),
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toThrow(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /pty-host handshake failed — could not read control\.core\.hello/,
       );
     } finally {
@@ -253,7 +255,7 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       controlStartedAtOffset: 1,
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toThrow(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /pty-host handshake failed — control-core reports boot .* but system\.version reports/,
       );
     } finally {
@@ -270,10 +272,12 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       },
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toThrow(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
       );
-      await expect(probeKavalStatus(socketPath)).rejects.toThrow(
+      await expect(
+        Effect.runPromise(probeKavalStatus(socketPath)),
+      ).rejects.toThrow(
         "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
       );
     } finally {
@@ -300,7 +304,7 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     // the deadline timer is the one thing under our control.
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = connectKaval(socketPath).then(
+      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
         () => "resolved",
         (e: unknown) => (e as Error).message,
       );
@@ -333,7 +337,7 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     });
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = connectKaval(socketPath).then(
+      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
         () => "resolved",
         (e: unknown) => (e as Error).message,
       );
@@ -372,7 +376,9 @@ describe("connectKaval — in-epoch contract skew is DATA, not a transport failu
         }),
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toMatchObject({
+      await expect(
+        Effect.runPromise(connectKaval(socketPath)),
+      ).rejects.toMatchObject({
         daemonVersion: "1.0",
         requiredVersion: PTY_HOST_CONTRACT_VERSION,
       });
@@ -393,7 +399,9 @@ describe("probeKavalForConvergence — frozen production path", () => {
       mkdtempSync(join(tmpdir(), "kolu-probe-absent-")),
       "no.sock",
     );
-    await expect(probeKavalForConvergence(missing)).resolves.toBeNull();
+    await expect(
+      Effect.runPromise(probeKavalForConvergence(missing)),
+    ).resolves.toBeNull();
   });
 
   it("W8.2: isNoListenerError accepts both ECONNREFUSED and ENOENT (classifier pin)", () => {
@@ -420,7 +428,9 @@ describe("probeKavalForConvergence — frozen production path", () => {
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = probeKavalForConvergence(socketPath).then(
+      const outcome = Effect.runPromise(
+        probeKavalForConvergence(socketPath),
+      ).then(
         (v) => (v === null ? ("null" as const) : ("probe" as const)),
         (e: unknown) => e,
       );
@@ -450,7 +460,9 @@ describe("probeKavalForConvergence — frozen production path", () => {
     // call count unchanged and turns the test red (W8.2).
     const destroySpy = vi.spyOn(Socket.prototype, "destroy");
     try {
-      const probe = await probeKavalForConvergence(socketPath);
+      const probe = await Effect.runPromise(
+        probeKavalForConvergence(socketPath),
+      );
       expect(probe).not.toBeNull();
       if (probe === null) {
         throw new Error("unreachable: probe null after expect");

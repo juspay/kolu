@@ -23,7 +23,7 @@ import { createSharedRoot } from "./createSharedRoot";
 import { runAction } from "./runAction";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
-import { activePadiEffect, preferences } from "./wire";
+import { activePadiRpc, preferences } from "./wire";
 
 function init() {
   const store = useTerminalStore();
@@ -68,7 +68,7 @@ function init() {
   function setThemeName(id: TerminalId, name: string) {
     runAction(
       "set theme",
-      activePadiEffect.chrome.setTheme({ id, themeName: name }).pipe(
+      activePadiRpc.chrome.setTheme({ id, themeName: name }).pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
             toast.error(`Failed to set theme: ${toError(err).message}`);

@@ -61,8 +61,9 @@ export class CurrentViewer extends Context.Service<
 
 export interface BuildAppRouterDeps {
   /** Drain the bound padi — the re-targeted "restart" (persist + exit; kaval + its
-   *  PTYs survive; the reconnect loop re-spawns padi). */
-  drainBoundPadi: () => Promise<void>;
+   *  PTYs survive; the reconnect loop re-spawns padi). An `Effect`, like the handler
+   *  that composes it: the binder's drain is Effect-native all the way down. */
+  drainBoundPadi: () => Effect.Effect<void, unknown>;
   /** Add a padi host to the warm pool at runtime (the strip's "+ add host"). Re-adding
    *  an existing member rejects loudly (`host already exists`), never a silent no-op
    *  (surfaced to the strip as a rejected call — see the `hosts/add` handler below). */
@@ -79,7 +80,7 @@ export interface BuildAppRouterDeps {
   /** Update & restart a host's daemon stack (the contract-skew recovery, SK5):
    *  forwards to that host's `padiSession.renew()` — the binder-owned drain →
    *  re-dial → re-realise pipeline. Throws for an unknown host. */
-  renewHostDaemon: (host: HostKey) => Promise<void>;
+  renewHostDaemon: (host: HostKey) => Effect.Effect<void, unknown>;
   /** WHICH pool host this connection is sitting at, or `null` when none is or
    *  kolu cannot tell. `null` is the answer for every uncertain case — it leaves
    *  the port chip's forward exactly as it was.
@@ -115,12 +116,12 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
     "server/info": () =>
       Effect.sync(() => ({ identity: pwaIdentityForHostname(serverHostname) })),
     "daemon/restart": () =>
-      Effect.promise(async () => {
+      Effect.gen(function* () {
         log.info({}, "padi restart requested — draining the bound padi");
         // Drain the bound padi through the frozen control core: it persists its
         // layout and exits, its kaval + PTYs survive, and the binder's reconnect
         // loop re-spawns padi onto the surviving kaval. NEVER a kill-9.
-        await deps.drainBoundPadi();
+        yield* deps.drainBoundPadi();
       }),
     // WHICH host the caller is sitting at, if any. Reads THIS connection's
     // {@link CurrentViewer} service (the mount provides one per websocket), so the
@@ -158,12 +159,12 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
         deps.reconnectHost(input.host);
       }),
     "hosts/renewDaemon": (input: HostRef) =>
-      Effect.promise(async () => {
+      Effect.gen(function* () {
         log.info(
           { host: input.host },
           "host daemon renew requested — draining that host's padi to re-realise the current closure",
         );
-        await deps.renewHostDaemon(input.host);
+        yield* deps.renewHostDaemon(input.host);
       }),
   };
 

@@ -71,9 +71,9 @@ import {
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import {
   activeHost,
-  activePadiEffect,
+  activePadiRpc,
   activePadiStreams,
-  padiEffectOf,
+  padiRpcOf,
   padiMap,
 } from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
@@ -152,7 +152,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    query: (i) => activePadiEffect.git.getStatus(i),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
@@ -164,7 +164,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    query: (i) => activePadiEffect.git.getStatus(i),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => {
       if (isDeclared(err, WORKTREE_BASE_BRANCH_MISSING)) return;
       toast.error(`Git status stream: ${err.message}`);
@@ -180,7 +180,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       const m = codeDiffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    query: (i) => activePadiEffect.git.getStatus(i),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
@@ -203,7 +203,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const allPaths = repoQuery({
     input: browseInput,
     query: (i) =>
-      activePadiEffect.fs.listAll({ repoPath: i.repoPath }).pipe(
+      activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
             scope: {
@@ -229,7 +229,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   const ignoredPaths = repoQuery({
     input: () => (showIgnoredFiles() ? browseInput() : null),
     query: (i) =>
-      activePadiEffect.fs.listIgnored({ repoPath: i.repoPath }).pipe(
+      activePadiRpc.fs.listIgnored({ repoPath: i.repoPath }).pipe(
         Effect.map(
           (result): ScopedCodePaths => ({
             scope: {
@@ -257,7 +257,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    query: (i) => activePadiEffect.git.getDiff(i),
+    query: (i) => activePadiRpc.git.getDiff(i),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 
@@ -284,7 +284,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
     query: (i) =>
       isBinaryPreviewable(i.filePath)
-        ? activePadiEffect.fs
+        ? activePadiRpc.fs
             .filePreviewTag({ repoPath: i.repoPath, filePath: i.filePath })
             .pipe(
               Effect.map(
@@ -298,7 +298,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
                 }),
               ),
             )
-        : activePadiEffect.fs
+        : activePadiRpc.fs
             .readFile({ repoPath: i.repoPath, filePath: i.filePath })
             .pipe(
               Effect.map(
@@ -410,7 +410,7 @@ export function readFreshCodePaths(
   repoPath: string,
   includeIgnored: boolean,
 ): Effect.Effect<string[], unknown> {
-  const rpc = padiEffectOf(host);
+  const rpc = padiRpcOf(host);
   return Effect.all(
     [
       rpc.fs.listAll({ repoPath }),

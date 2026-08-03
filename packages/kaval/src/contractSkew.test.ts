@@ -92,9 +92,9 @@ async function readVersion(socketPath: string): Promise<string> {
     socketPath,
   });
   disposers.push(() => link.dispose());
-  const { contractVersion } = await ptyHostClientOver(
-    link.dispatch,
-  ).surface.system.version({});
+  const { contractVersion } = await Effect.runPromise(
+    ptyHostClientOver(link.dispatch).surface.system.version({}),
+  );
   return contractVersion;
 }
 
@@ -148,9 +148,13 @@ describeDaemon("in-epoch contract skew over the Effect wire", () => {
     });
     disposers.push(() => link.dispose());
     const client = ptyHostClientOver(link.dispatch);
-    await expect(client.surface.system.version({})).resolves.toMatchObject({
+    await expect(
+      Effect.runPromise(client.surface.system.version({})),
+    ).resolves.toMatchObject({
       contractVersion: PTY_HOST_CONTRACT_VERSION,
     });
-    await expect(client.surface.terminal.list({})).rejects.toThrow();
+    await expect(
+      Effect.runPromise(client.surface.terminal.list({})),
+    ).rejects.toThrow();
   });
 });

@@ -19,7 +19,7 @@
  * member every server answers.
  */
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
 /** The namespace + verb of the reserved clock procedure, single-sourced so the
@@ -57,20 +57,15 @@ export type ReservedClockNowRpc<Prefix extends string> = ReturnType<
  *  the reserved `surface.system.clockNow` round-trip. `probeSurfaceClockNow` casts once
  *  internally so a session/mirror passes `client` with no boundary cast.
  *
- *  STAGE 3 (client face) owns the `options` bag: the AbortSignal→fiber-interruption
- *  bridge is D10's boundary decision, and Effect RPC has no `signal` of its own
- *  (#18). The probe below keeps forwarding the caller's signal into that bag, so a
- *  caller that gives up (a deadline, a superseded dial, a destroyed session) still
- *  cancels the in-flight request rather than leaving it pending. */
+ *  There is no `options` bag and no signal: the member call is a lazy `Effect`, so a
+ *  caller that gives up (a deadline, a superseded dial, a destroyed session) cancels
+ *  the in-flight request by interrupting the fiber it ran the probe on (D10/#18). */
 export type SurfaceClockNowProbeable = {
   surface: Record<
     typeof CLOCK_NOW_NAMESPACE,
     Record<
       typeof CLOCK_NOW_VERB,
-      (
-        input: Record<string, never>,
-        options?: { signal?: AbortSignal },
-      ) => Promise<ServedClockNow>
+      (input: Record<string, never>) => Effect.Effect<ServedClockNow, unknown>
     >
   >;
 };
@@ -96,32 +91,36 @@ export class ClockNowUnavailableError extends Error {
 }
 
 /** The framework-reserved clock round-trip — the clock twin of
- *  `probeSurfaceIdentity` / `probeSurfaceLive`. Resolves with the server's
- *  own wall clock ({@link ServedClockNow}). Pass the thing that carries `.surface`; an
- *  optional {@link AbortSignal} is forwarded to the call's options bag so a caller that
- *  gives up on the probe CANCELS the in-flight request rather than leaving it pending —
- *  see `makeSession`'s clock poll, and {@link SurfaceClockNowProbeable} for the Stage-3
- *  ownership of that bag.
+ *  `probeSurfaceIdentity` / `probeSurfaceLive`. Succeeds with the server's
+ *  own wall clock ({@link ServedClockNow}). Pass the thing that carries `.surface`; a
+ *  caller that gives up on the probe cancels the in-flight request by interrupting the
+ *  fiber, so there is no signal to thread — see `makeSession`'s clock poll.
  *
- *  Navigates the route defensively and throws a TYPED {@link ClockNowUnavailableError}
- *  when it is structurally absent, so the caller never has to infer "member absent" from a
- *  `TypeError` message substring. */
+ *  Navigates the route defensively and FAILS with a TYPED
+ *  {@link ClockNowUnavailableError} when it is structurally absent, so the caller never
+ *  has to infer "member absent" from a `TypeError` message substring. The check is
+ *  inside the effect (`Effect.suspend`), so an absent member is a failure on the
+ *  channel the caller is already handling rather than a throw at the moment the probe
+ *  was merely BUILT. */
 export function probeSurfaceClockNow(
   client: unknown,
-  signal?: AbortSignal,
-): Promise<ServedClockNow> {
-  const surface = (client as Partial<SurfaceClockNowProbeable>).surface;
-  const verb = surface?.[CLOCK_NOW_NAMESPACE]?.[CLOCK_NOW_VERB];
-  if (typeof verb !== "function") {
-    throw new ClockNowUnavailableError(
-      surface === undefined
-        ? "no `surface` on the client"
-        : surface[CLOCK_NOW_NAMESPACE] === undefined
-          ? "no reserved `system` namespace"
-          : "no `system.clockNow` verb",
-    );
-  }
-  return verb({}, { signal });
+): Effect.Effect<ServedClockNow, unknown> {
+  return Effect.suspend(() => {
+    const surface = (client as Partial<SurfaceClockNowProbeable>).surface;
+    const verb = surface?.[CLOCK_NOW_NAMESPACE]?.[CLOCK_NOW_VERB];
+    if (typeof verb !== "function") {
+      return Effect.fail(
+        new ClockNowUnavailableError(
+          surface === undefined
+            ? "no `surface` on the client"
+            : surface[CLOCK_NOW_NAMESPACE] === undefined
+              ? "no reserved `system` namespace"
+              : "no `system.clockNow` verb",
+        ),
+      );
+    }
+    return verb({});
+  });
 }
 
 /** Measure the far-end host's wall-clock offset (ms) vs THIS process off one
@@ -135,12 +134,13 @@ export function probeSurfaceClockNow(
  *  a keyed `SurfaceMap`'s `EntryClock.toLocal` needs no change. A LOCAL host (same wall
  *  clock) yields ~0 honestly; offset-at-hello IS the contract (re-measured on each
  *  admit, no continuous drift correction). */
-export async function measureSurfaceClockOffset(
+export function measureSurfaceClockOffset(
   client: unknown,
-  signal?: AbortSignal,
-): Promise<number> {
-  const sentMs = Date.now();
-  const { epochMs } = await probeSurfaceClockNow(client, signal);
-  const rtt = Date.now() - sentMs;
-  return Math.round(epochMs - (sentMs + rtt / 2));
+): Effect.Effect<number, unknown> {
+  return Effect.gen(function* () {
+    const sentMs = Date.now();
+    const { epochMs } = yield* probeSurfaceClockNow(client);
+    const rtt = Date.now() - sentMs;
+    return Math.round(epochMs - (sentMs + rtt / 2));
+  });
 }

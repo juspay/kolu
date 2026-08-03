@@ -73,7 +73,7 @@ import { Z_HANDLE_INNER } from "../ui/stackLayers";
 import { runActionPromise } from "../runAction";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, activePadiEffect } from "../wire";
+import { activeHost, activePadiRpc } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import {
@@ -529,7 +529,7 @@ const CodeTab: Component<{
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
     return runActionPromise(
-      activePadiEffect.fs.listDirectory({ repoPath: p, dirPath }).pipe(
+      activePadiRpc.fs.listDirectory({ repoPath: p, dirPath }).pipe(
         Effect.tap((result) =>
           Effect.sync(() => {
             if (ctl.signal.aborted) return;

@@ -8,6 +8,7 @@
  * need to pin.
  */
 
+import { Effect } from "effect";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { surfaceClient } from "@kolu/surface/solid";
 import { connectSurface } from "@kolu/surface-app/solid";
@@ -33,7 +34,7 @@ const load = app.cells.load.use({ authority: "server" }); // Accessor<Load>
 const procs = app.collections.processes.use(); // .byKey(id) / .keys()
 const log = app.streams.nodeLog.use(() => nodeId, { onError }); // .pending() / .error()
 app.events.autosave.use(() => docId, handler, { onError }); // returns nothing
-await app.procedures.proc.kill({ pid }); // bound + typed from the declaration
+Effect.runFork(app.procedures.proc.kill({ pid })); // an Effect, run at the UI edge
 // #endregion solid
 
 const url = "wss://example.test/rpc/ws";

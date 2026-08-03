@@ -67,7 +67,9 @@ export function openWebcam(deviceId: string): Effect.Effect<void, unknown> {
       catch: (e) => e,
     });
   }).pipe(
-    Effect.tap((s) => Effect.sync(() => setState({ kind: "active", stream: s }))),
+    Effect.tap((s) =>
+      Effect.sync(() => setState({ kind: "active", stream: s })),
+    ),
     Effect.tapError((err) =>
       Effect.sync(() => setState({ kind: "error", message: errMsg(err) })),
     ),

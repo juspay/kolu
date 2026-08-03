@@ -40,11 +40,11 @@ import {
 /** The root fragment, over deps that are never called by these tests. */
 function rootFragment() {
   return buildAppRouter({
-    drainBoundPadi: async () => {},
+    drainBoundPadi: () => Effect.void,
     addHost: async () => {},
     removeHost: async () => {},
     reconnectHost: () => {},
-    renewHostDaemon: async () => {},
+    renewHostDaemon: () => Effect.void,
     viewerHost: async () => null,
   });
 }

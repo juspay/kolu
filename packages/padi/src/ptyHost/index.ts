@@ -31,7 +31,7 @@ import {
 } from "@kolu/surface-daemon-supervisor";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
 import type { SurfaceDispatch } from "@kolu/surface/link";
-import { Context, MutableRef, Ref } from "effect";
+import { Cause, Context, Effect, Fiber, MutableRef, Ref } from "effect";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
@@ -146,7 +146,7 @@ interface HeldEndpoint {
   readonly endpoint: KavalEndpoint;
   readonly restart: <Ctx>(
     steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
-  ) => Promise<void>;
+  ) => Effect.Effect<void, unknown>;
 }
 
 /**
@@ -169,7 +169,7 @@ class PtyHostEndpointState extends Context.Service<
   {
     /** The held endpoint + trigger, or honest absence before boot / while down. */
     readonly current: Ref.Ref<HeldEndpoint | undefined>;
-    /** Run a serialized restart against whatever is held; throws when nothing is. */
+    /** Run a serialized restart against whatever is held; dies when nothing is. */
     readonly restart: <Ctx>(
       steps: RestartSteps<
         PtyHostClient,
@@ -177,9 +177,9 @@ class PtyHostEndpointState extends Context.Service<
         Ctx,
         KavalConnectionMetadata
       >,
-    ) => Promise<void>;
+    ) => Effect.Effect<void, unknown>;
     /** The host facts, fetched once and cached for the PROCESS (see below). */
-    readonly info: () => Promise<PtyHostSystemInfo>;
+    readonly info: Effect.Effect<PtyHostSystemInfo, unknown>;
   }
 >()("padi/ptyHost/PtyHostEndpointState") {}
 
@@ -196,36 +196,52 @@ const heldEndpoint: Ref.Ref<HeldEndpoint | undefined> = Ref.makeUnsafe<
 >(undefined);
 
 /** Host facts (shell, home, platform, rcDir) read once per process and cached —
- *  constant for the daemon's life. The PROMISE is cached (not its value) so
- *  concurrent first spawns share a single round-trip.
+ *  constant for the daemon's life. The in-flight READ is cached (not its value),
+ *  as the FIBER running it, so concurrent first spawns join one round-trip instead
+ *  of each opening their own. A failed read stays cached exactly as the rejected
+ *  promise did: every later spawn joins the same failed fiber rather than silently
+ *  re-dialling a daemon that just said no.
  *
  *  Deliberately NOT invalidated on a recycle, and that is not an oversight: every
  *  field kaval reports here is derived from its daemon HOME (`rcDir` is
  *  `home.file("rc")`) or from the machine, both of which a recycle at the same
  *  rendezvous preserves. Clearing it would buy a redundant round-trip on the first
  *  spawn after every restart. */
-const cachedInfo: Ref.Ref<Promise<PtyHostSystemInfo> | undefined> =
-  Ref.makeUnsafe<Promise<PtyHostSystemInfo> | undefined>(undefined);
+const cachedInfo: Ref.Ref<Fiber.Fiber<PtyHostSystemInfo, unknown> | undefined> =
+  Ref.makeUnsafe<Fiber.Fiber<PtyHostSystemInfo, unknown> | undefined>(
+    undefined,
+  );
 
 /** The one instance. `PtyHostEndpointState` is also the `Context` key, so a future
  *  boot graph can PROVIDE this value; nothing here reads it out of a context,
  *  because the readers are not Effects. */
 const endpointState = PtyHostEndpointState.of({
   current: heldEndpoint,
-  restart: (steps) => {
-    const held = Ref.getUnsafe(heldEndpoint);
-    if (held === undefined) {
-      throw new Error("kaval endpoint not initialized — cannot restart");
-    }
-    return held.restart(steps);
-  },
-  info: () => {
+  restart: (steps) =>
+    Effect.suspend(() => {
+      const held = Ref.getUnsafe(heldEndpoint);
+      if (held === undefined) {
+        // A DEFECT, as the synchronous throw it replaces was: restarting before
+        // boot is an ordering bug in the caller, not a failure the surface
+        // declares.
+        throw new Error("kaval endpoint not initialized — cannot restart");
+      }
+      return held.restart(steps);
+    }),
+  // `forkDetach`, not `forkChild`: the read must outlive whichever spawn happened
+  // to ask first, because a second spawn may already be joined to it. And because
+  // `forkDetach` does not start the child until this fiber yields, the `setRef`
+  // below lands before the read can complete and be joined — so two callers can
+  // never each fork their own.
+  info: Effect.gen(function* () {
     const existing = Ref.getUnsafe(cachedInfo);
-    if (existing !== undefined) return existing;
-    const fresh = ptyHostClient.surface.system.info({});
-    setRef(cachedInfo, fresh);
-    return fresh;
-  },
+    if (existing !== undefined) return yield* Fiber.join(existing);
+    const fiber = yield* Effect.forkDetach(
+      ptyHostClient.surface.system.info({}),
+    );
+    setRef(cachedInfo, fiber);
+    return yield* Fiber.join(fiber);
+  }),
 });
 
 /** Install `ep` (and the restart trigger built over it) as the held endpoint. */
@@ -301,10 +317,10 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
 }
 
 /** Boot the local pty-host endpoint under the always-recycle policy and connect.
- *  Resolves whether or not the daemon came up — a boot failure reports `dead`
+ *  SUCCEEDS whether or not the daemon came up — a boot failure reports `dead`
  *  via `onStatus` and leaves `ptyHostClient` throwing, so the server can still
  *  listen and the UI honestly shows the dead/degraded state (never a crash, never
- *  an import-time throw).
+ *  an import-time throw). That is what the `never` error channel says.
  *
  *  This boot is NOT re-cast as a typed pipeline (unlike `runPadiDaemon`, L16): its
  *  step order is already enforced by DATA FLOW, not prose. `ep = createEndpoint(...)`
@@ -313,7 +329,7 @@ export function __setEndpointForTest(ep: KavalEndpoint): () => void {
  *  because there is no `ep` to pass. There is no side-effecting "must run before X"
  *  ordering here for a token to guard, so the same shape read as a latent hazard in
  *  `runPadiDaemon` (setters with no data edge between them) is a non-issue here. */
-export async function ensureLocalEndpoint(opts: {
+export function ensureLocalEndpoint(opts: {
   /** Primary kaval home — built by the caller via {@link padiKavalHome} (or a
    *  test fixture). Gate and socket co-located; never loose path strings. */
   home: DaemonHomePaths;
@@ -329,7 +345,7 @@ export async function ensureLocalEndpoint(opts: {
    *  PTYs against the saved session. Injected (not imported) so this composition
    *  root stays free of the terminal-endpoint layer, which imports back from
    *  here. Skipped on a fresh / recycled boot (no survivors to reconcile). */
-  onAdopted?: () => Promise<void>;
+  onAdopted?: Effect.Effect<void, unknown>;
   /** Run on the NO-SURVIVOR boot — a fresh / recycled daemon where nothing live
    *  survives (adoption reported `false`), OR after a failed adoption forces a
    *  recycle. PARKS the saved session (W1.R6): seeds a parked registry entry per
@@ -349,102 +365,119 @@ export async function ensureLocalEndpoint(opts: {
    *  across daemon recycles until it aborts (and absorbs a dead-on-boot daemon
    *  the same way — it simply waits, then picks up once the daemon connects). */
   onBootSettled?: (signal: AbortSignal) => void;
-}): Promise<void> {
-  const { home, legacyHome } = opts;
-  // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
-  // users can target it explicitly). Set before the endpoint's first status emit —
-  // the primary home by default; the adopt-hint flips it to the legacy socket
-  // when an upgrade adopts the port kaval, and a spawn resets it back.
-  setLocalSocketPath(home.socketPath);
-  // Refresh baked identity at boot (staleKey is process-constant, but keep the
-  // policy object the single source — bake is already fixed on the const above).
-  const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
-  const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>({
-    hostId: encodeHostLocation(LOCAL_LOCATION),
-    home,
-    // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
-    // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
-    // boot failure, never a surprise during a squatter recovery that is already
-    // coping with a wedged endpoint. Two spellings of the env var and two
-    // resolution timings on adjacent lines is how the two drift apart.
-    readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
-    readSocketHolders: osfactsSocketHolders(osfactsBin),
-    policy: kavalConvergencePolicy(),
-    probe: (socketPath) => probeKavalForConvergence(socketPath),
-    driver: localKavalDriver(home.socketPath),
-    // the framework hands you the path
-    connect: (path) => connectKaval(path),
-    log,
-    onStatus: opts.onStatus,
-    // The W2.2 upgrade bridge (only when the binder hinted a legacy home):
-    // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
-    // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
-    // PTYs' `KAVAL_SOCKET` and the daemon dialog point at the adopted daemon). SPAWN
-    // stays the primary home, so `onSpawned` resets the recorded location on the
-    // recycle that converges the migration.
-    adoptHint:
-      legacyHome === undefined
-        ? undefined
-        : {
-            home: legacyHome,
-            connect: (path) => connectKaval(path),
-            onAdopted: () => setLocalSocketPath(legacyHome.socketPath),
-          },
-    onSpawned: () => setLocalSocketPath(home.socketPath),
-  });
-  holdEndpoint(ep);
-  try {
-    // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
-    // no boot-method choice at the call site.
-    const outcome = await converge(ep);
-    const adopted = outcomeAdopted(outcome);
-    if (adopted && opts.onAdopted) {
-      try {
-        await opts.onAdopted();
-      } catch (err) {
-        // Reconciliation failed AFTER we adopted the survivor's connection — the
-        // daemon is connected but holds PTYs kolu may not have registered (F3).
-        // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
-        // PTYs are destroyed and the user's saved session falls back to the
-        // restore card, rather than leaving invisible live terminals behind it.
-        log.error(
-          { err },
-          "surviving-session reconciliation failed — recycling the adopted daemon",
-        );
-        await recycle(ep, destructiveRecycleSteps());
-        // The recycle spawned a FRESH daemon — nothing live survives now, so this
-        // is the no-survivor path: park the saved session for the restore card.
-        opts.onNotAdopted?.();
-      }
-    } else if (!adopted) {
-      // Fresh / recycled boot — no survivors. Park the saved session so the
-      // restore card can re-spawn it (W1.R6, replacing the old no-op).
-      opts.onNotAdopted?.();
-    }
-  } catch (err) {
-    // The endpoint already reported `dead`; don't crash the server boot.
-    log.error({ err }, "kaval endpoint failed to come up at boot");
-  }
+}): Effect.Effect<void> {
+  return Effect.gen(function* () {
+    const { home, legacyHome } = opts;
+    // Surface where this kaval listens, so the dialog can show it (and `kaval-tui`
+    // users can target it explicitly). Set before the endpoint's first status emit —
+    // the primary home by default; the adopt-hint flips it to the legacy socket
+    // when an upgrade adopts the port kaval, and a spawn resets it back.
+    setLocalSocketPath(home.socketPath);
+    // Refresh baked identity at boot (staleKey is process-constant, but keep the
+    // policy object the single source — bake is already fixed on the const above).
+    const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
+    const ep = createEndpoint<PtyHostClient, Identity, KavalConnectionMetadata>(
+      {
+        hostId: encodeHostLocation(LOCAL_LOCATION),
+        home,
+        // ONE axis — where this program's osfacts binary lives — resolved ONCE, at
+        // composition, and bound to BOTH OS-fact injects: a missing bake is a loud
+        // boot failure, never a surprise during a squatter recovery that is already
+        // coping with a wedged endpoint. Two spellings of the env var and two
+        // resolution timings on adjacent lines is how the two drift apart.
+        readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+        readSocketHolders: osfactsSocketHolders(osfactsBin),
+        policy: kavalConvergencePolicy(),
+        probe: (socketPath) => probeKavalForConvergence(socketPath),
+        driver: localKavalDriver(home.socketPath),
+        // the framework hands you the path
+        connect: (path) => connectKaval(path),
+        log,
+        onStatus: opts.onStatus,
+        // The W2.2 upgrade bridge (only when the binder hinted a legacy home):
+        // if the digest gate is empty but a COMPATIBLE pre-W2.2 kaval is alive at the
+        // port socket, ADOPT it and RECORD it as this kaval's live location (so spawned
+        // PTYs' `KAVAL_SOCKET` and the daemon dialog point at the adopted daemon). SPAWN
+        // stays the primary home, so `onSpawned` resets the recorded location on the
+        // recycle that converges the migration.
+        adoptHint:
+          legacyHome === undefined
+            ? undefined
+            : {
+                home: legacyHome,
+                connect: (path) => connectKaval(path),
+                onAdopted: () => setLocalSocketPath(legacyHome.socketPath),
+              },
+        onSpawned: () => setLocalSocketPath(home.socketPath),
+      },
+    );
+    holdEndpoint(ep);
+    // The whole boot, absorbed: the endpoint has already reported `dead` by the time
+    // anything here fails, so a failure must not crash the server boot. `catchCause`
+    // rather than `catch` because a DEFECT in the boot (a bug in a reconcile hook) is
+    // exactly as unfit to take the process down as a declared failure — the UI's job
+    // is to show `dead`, not to disappear.
+    yield* Effect.catchCause(
+      Effect.gen(function* () {
+        // The only boot verb: policy is fixed on the endpoint; no fence, no budget,
+        // no boot-method choice at the call site.
+        const outcome = yield* converge(ep);
+        const adopted = outcomeAdopted(outcome);
+        if (adopted && opts.onAdopted) {
+          yield* Effect.catchCause(opts.onAdopted, (cause) =>
+            Effect.gen(function* () {
+              // Reconciliation failed AFTER we adopted the survivor's connection — the
+              // daemon is connected but holds PTYs kolu may not have registered (F3).
+              // Fail CLOSED: recycle the daemon (kill + spawn fresh) so those hidden
+              // PTYs are destroyed and the user's saved session falls back to the
+              // restore card, rather than leaving invisible live terminals behind it.
+              log.error(
+                { err: Cause.squash(cause) },
+                "surviving-session reconciliation failed — recycling the adopted daemon",
+              );
+              yield* recycle(ep, destructiveRecycleSteps());
+              // The recycle spawned a FRESH daemon — nothing live survives now, so
+              // this is the no-survivor path: park the saved session for the restore
+              // card.
+              opts.onNotAdopted?.();
+            }),
+          );
+        } else if (!adopted) {
+          // Fresh / recycled boot — no survivors. Park the saved session so the
+          // restore card can re-spawn it (W1.R6, replacing the old no-op).
+          opts.onNotAdopted?.();
+        }
+      }),
+      (cause) =>
+        Effect.sync(() => {
+          // The endpoint already reported `dead`; don't crash the server boot.
+          log.error(
+            { err: Cause.squash(cause) },
+            "kaval endpoint failed to come up at boot",
+          );
+        }),
+    );
 
-  // Boot settled (success OR `dead`) — run whatever the caller hooked here. Used
-  // to start live inventory discovery (B3.5), which runs whatever the boot
-  // outcome: if the daemon is down, the reconciler's re-subscribe loop simply
-  // waits and picks up once it connects; if a survivor was adopted above, its
-  // snapshot is already-known terminals (idempotent no-ops). The signal is
-  // process-lifetime — never aborted today (no shutdown hook; the per-terminal
-  // taps live the same way), so the loop runs until the process ends and
-  // survives daemon recycles.
-  opts.onBootSettled?.(new AbortController().signal);
+    // Boot settled (success OR `dead`) — run whatever the caller hooked here. Used
+    // to start live inventory discovery (B3.5), which runs whatever the boot
+    // outcome: if the daemon is down, the reconciler's re-subscribe loop simply
+    // waits and picks up once it connects; if a survivor was adopted above, its
+    // snapshot is already-known terminals (idempotent no-ops). The signal is
+    // process-lifetime — never aborted today (no shutdown hook; the per-terminal
+    // taps live the same way), so the loop runs until the process ends and
+    // survives daemon recycles.
+    opts.onBootSettled?.(new AbortController().signal);
+  });
 }
 
 /** Run a serialized, session-preserving restart of the local kaval endpoint
  *  (B3.2). The caller (`restartLocal.ts`, the soul) supplies the restart steps —
  *  capture the session, drain the terminals, recycle, reattach — and this
- *  forwards them through the endpoint's coalescing + emit-guard trigger. Throws
+ *  forwards them through the endpoint's coalescing + emit-guard trigger. Dies
  *  if the endpoint hasn't been booted yet (`ensureLocalEndpoint` not run). */
 export function restartLocalEndpoint<Ctx>(
   steps: RestartSteps<PtyHostClient, Identity, Ctx, KavalConnectionMetadata>,
-): Promise<void> {
+): Effect.Effect<void, unknown> {
   return endpointState.restart(steps);
 }
 
@@ -578,38 +611,40 @@ export function composeSpawnInput(
 
 /** `composeSpawnInput` against the daemon's cached `system.info`, stamped with the
  *  socket THIS endpoint booted on so every terminal carries `KAVAL_SOCKET`. */
-export async function buildTerminalSpawnInput(args: {
+export function buildTerminalSpawnInput(args: {
   id: string;
   cwd?: string;
-}): Promise<PtyHostSpawnInput> {
-  // A terminal can only be spawned once the endpoint is up, which records the
-  // socket at boot (`ensureLocalEndpoint` → `setLocalSocketPath`), so an unset
-  // value here is an ordering bug — crash loud rather than ship a broken
-  // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` /
-  // `restartLocalEndpoint` guard the endpoint's other boot-set singletons.
-  const kavalSocket = getLocalSocketPath();
-  if (kavalSocket === undefined) {
-    throw new Error(
-      "local kaval socket path read before the endpoint recorded it at boot",
-    );
-  }
-  // The rest of the spec is gathered here — the one place the daemon's own facts
-  // are collected — so `composeSpawnInput` stays a pure function of its inputs.
-  //
-  // padi's own serving socket is recorded at boot by `daemonMain`
-  // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
-  // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
-  // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
-  // `readAgentToolsBake()` needs no guard for the opposite reason: a from-source
-  // daemon has no baked toolchain and says so by returning `[]`.
-  //
-  // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
-  // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
-  // is gathered here with the rest, so the composer reads no globals of its own.
-  return composeSpawnInput(args, await endpointState.info(), {
-    kavalSocket,
-    padiSocket: getPadiServeSocketPath(),
-    toolsPath: readAgentToolsBake(),
-    serverVersion: requireSpawnServerVersion(),
+}): Effect.Effect<PtyHostSpawnInput, unknown> {
+  return Effect.gen(function* () {
+    // A terminal can only be spawned once the endpoint is up, which records the
+    // socket at boot (`ensureLocalEndpoint` → `setLocalSocketPath`), so an unset
+    // value here is an ordering bug — crash loud rather than ship a broken
+    // `KAVAL_SOCKET`. Guarded at the point of use, like `liveClient` /
+    // `restartLocalEndpoint` guard the endpoint's other boot-set singletons.
+    const kavalSocket = getLocalSocketPath();
+    if (kavalSocket === undefined) {
+      throw new Error(
+        "local kaval socket path read before the endpoint recorded it at boot",
+      );
+    }
+    // The rest of the spec is gathered here — the one place the daemon's own facts
+    // are collected — so `composeSpawnInput` stays a pure function of its inputs.
+    //
+    // padi's own serving socket is recorded at boot by `daemonMain`
+    // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
+    // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
+    // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
+    // `readAgentToolsBake()` needs no guard for the opposite reason: a from-source
+    // daemon has no baked toolchain and says so by returning `[]`.
+    //
+    // `requireSpawnServerVersion()` DOES crash on an unset read — the app version
+    // is injected at boot and a blank `TERM_PROGRAM_VERSION` must not ship — and it
+    // is gathered here with the rest, so the composer reads no globals of its own.
+    return composeSpawnInput(args, yield* endpointState.info, {
+      kavalSocket,
+      padiSocket: getPadiServeSocketPath(),
+      toolsPath: readAgentToolsBake(),
+      serverVersion: requireSpawnServerVersion(),
+    });
   });
 }

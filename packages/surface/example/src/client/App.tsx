@@ -14,6 +14,7 @@
  * `system.*` procs and the link-root escape hatch stay on `app.rpc`).
  */
 
+import { Effect } from "effect";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { DEFAULT_PREFS, type Note, type NoteId } from "../common/surface";
 import { app } from "./wire";
@@ -69,8 +70,14 @@ export default function App() {
   // notes.upsert / notes.delete are bound; `notes.create` (an imperative
   // procedure, not a collection verb) rides the bound `app.procedures.<ns>.<verb>`
   // face — typed from the declaration, no `app.rpc` cast.
+  //
+  // Every write is an `Effect` — a DESCRIPTION. A DOM handler is where a
+  // description becomes work, so each one runs it here, at the UI edge, and
+  // nowhere deeper.
   const handleCreate = async () => {
-    const note = await app.procedures.notes.create({ title: "Untitled" });
+    const note = await Effect.runPromise(
+      app.procedures.notes.create({ title: "Untitled" }),
+    );
     setSelectedId(note.id);
   };
 
@@ -86,12 +93,14 @@ export default function App() {
     const current = selectedNote();
     if (!current) return;
     const next: Note = { ...current, [field]: value, updatedAt: Date.now() };
-    await notes.upsert(current.id, next); // in-component result handle
+    // in-component result handle
+    await Effect.runPromise(notes.upsert(current.id, next));
   };
 
   const handleDelete = async (id: NoteId): Promise<void> => {
     if (selectedId() === id) setSelectedId(null);
-    await app.collections.notes.delete(id); // top-level lifecycle-free path
+    // top-level lifecycle-free path
+    await Effect.runPromise(app.collections.notes.delete(id));
   };
 
   // Filter sidebar by search results. When no query, show all.

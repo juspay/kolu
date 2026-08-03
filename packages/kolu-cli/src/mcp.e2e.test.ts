@@ -151,7 +151,9 @@ async function waitForPadi(socketPath: string, ms = 20000): Promise<void> {
     let link: PadiLink | undefined;
     try {
       link = await unixSocketLink({ group: padiDaemonGroup, socketPath });
-      await padiClientOver(link.dispatch).control.surface.core.hello();
+      await Effect.runPromise(
+        padiClientOver(link.dispatch).control.surface.core.hello(),
+      );
       return;
     } catch {
       await sleep(150);
@@ -373,7 +375,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
       const deadline = Date.now() + 20000;
       for (;;) {
         try {
-          return await combined.control.surface.core.hello();
+          return await Effect.runPromise(combined.control.surface.core.hello());
         } catch (err) {
           if (Date.now() > deadline) throw err;
           await sleep(200);
@@ -411,16 +413,13 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     // The REAL local connect composition (guarded): re-dials the SAME
     // digest-keyed path each invocation — the adapter's redial hook.
     const dial = guardedMcpDial(
-      Effect.tryPromise({
-        try: async () => {
-          const conn = await connectPadi(socketPath);
-          return {
-            client: scopePadiSurface(conn.client),
-            dispose: conn.dispose,
-          };
-        },
-        catch: classifyDialFailure,
-      }),
+      Effect.map(
+        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
+        (conn) => ({
+          client: scopePadiSurface(conn.client),
+          dispose: conn.dispose,
+        }),
+      ),
     );
     // The adapter's face is a Promise thunk it owns the lifetime behind, so
     // the crossing happens here exactly as it does in `runKoluMcp`.
@@ -461,9 +460,11 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
         socketPath,
       });
       try {
-        await padiClientOver(
-          supervisor.dispatch,
-        ).padi.surface.lifecycle.recycleKaval(undefined);
+        await Effect.runPromise(
+          padiClientOver(
+            supervisor.dispatch,
+          ).padi.surface.lifecycle.recycleKaval(undefined),
+        );
       } finally {
         await supervisor.dispose();
       }

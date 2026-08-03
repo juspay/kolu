@@ -474,15 +474,22 @@ export interface CellHandlerDeps<T, P = T> {
 }
 
 /** The write-forwarding handlers a re-serving mirror plugs into
- *  {@link CellHandlerDeps.forward} — one per wire mutation verb. Each forward's
- *  promise is awaited by the handler's `Effect`, so a REJECTION reaches the wire
- *  client (fail-fast: a forward with no live upstream link throws loud, never a
- *  silent local no-op). An upstream rejection is UNDECLARED, so it crosses as a
- *  DEFECT — the crash-loudly channel, exactly as an undeclared throw did. */
+ *  {@link CellHandlerDeps.forward} — one per wire mutation verb. Each forward is an
+ *  `Effect` the handler's own effect runs, so the wire caller's `set` completes
+ *  only once the upstream write did, and a FAILURE reaches the wire client
+ *  (fail-fast: a forward with no live upstream link fails loud, never a silent
+ *  local no-op). An upstream failure is UNDECLARED, so it crosses as a DEFECT —
+ *  the crash-loudly channel, exactly as an undeclared throw did.
+ *
+ *  An `Effect` and not `void | Promise<void>`, and the difference is not cosmetic:
+ *  a mirror builds these out of a client-face member, which is an `Effect`, and an
+ *  `Effect` is not thenable — so the old `await run()` shape accepted one, awaited
+ *  nothing, and made the forward a SILENT NO-OP. The type now rejects at the
+ *  boundary what used to compile and do nothing. */
 export interface CellForward<T, P = T> {
-  set: (input: T) => void | Promise<void>;
-  patch: (input: P) => void | Promise<void>;
-  test__set: (input: T) => void | Promise<void>;
+  set: (input: T) => Effect.Effect<unknown, unknown>;
+  patch: (input: P) => Effect.Effect<unknown, unknown>;
+  test__set: (input: T) => Effect.Effect<unknown, unknown>;
 }
 
 export interface CellHandlers<T, P = T> {
@@ -497,14 +504,15 @@ export interface CellHandlers<T, P = T> {
   test__set: (input: T) => Effect.Effect<void>;
 }
 
-/** Run a mirror's write FORWARD as an `Effect`. The forward may be sync or
- *  async; either way the handler's effect completes only once the upstream write
- *  did, so the wire caller's `set` resolves after the authority accepted it. A
- *  rejection is a defect (undeclared), which is the fail-fast contract. */
-function forwardWrite(run: () => void | Promise<void>): Effect.Effect<void> {
-  return Effect.promise(async () => {
-    await run();
-  });
+/** Run a mirror's write FORWARD as an `Effect`. The handler's effect completes
+ *  only once the upstream write did, so the wire caller's `set` returns after the
+ *  authority accepted it. `orDie` because an upstream failure is UNDECLARED here —
+ *  the fail-fast contract, and the same disposition the old rejection-as-defect
+ *  shape had. `suspend` so building the handler never starts a write. */
+function forwardWrite(
+  run: () => Effect.Effect<unknown, unknown>,
+): Effect.Effect<void> {
+  return Effect.asVoid(Effect.orDie(Effect.suspend(run)));
 }
 
 /** Build the server-side handler suite for a Cell. Returns raw handler
@@ -1393,29 +1401,28 @@ export function publisherChannel<T>(
 /** The abort-time swallow contract in one predicate: a rejection is
  *  end-of-life noise iff `signal` has aborted and the error *is* its abort
  *  reason (the publisher rejects pending pulls with `signal.reason` on
- *  shutdown). Exported as the single home of that rule so the iteration
- *  swallow (`iterateUntilAborted`) and the projection layer's pre-iteration
- *  `upstream()` / connect-loop swallows (`./project`) all decide "is this
- *  the expected shutdown rejection?" with one body — a fix to the contract
- *  (the kind `kill.feature` pins) lands in exactly one place. */
-export function isAbortReason(
-  err: unknown,
-  signal: AbortSignal | undefined,
-): boolean {
+ *  shutdown).
+ *
+ *  **Module-private, and that is the whole remaining story.** It used to be an
+ *  exported contract because the projection layer's `upstream()` and connect-loop
+ *  swallows decided the same question; those swallows are gone — a connector is a
+ *  scoped Effect and an interrupted fiber cannot present as a failure, so there is
+ *  nothing left there to classify. What survives is the ONE place a raw
+ *  AsyncIterable is still pulled: the publisher bus. Two callers, both in this
+ *  file, both feeding {@link publisherChannel}. */
+function isAbortReason(err: unknown, signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true && err === signal.reason;
 }
 
 /** Iterate `source` and yield each item, ending cleanly if the iterator
- *  rejects with the signal's abort reason. Adds one microtask of delay
- *  per yield (see `publisherChannel`'s comment for why that matters).
+ *  rejects with the signal's abort reason.
  *
- *  The single home of the abort-time iterator-teardown contract: a
+ *  The abort-time iterator-teardown contract at the AsyncIterable layer: a
  *  downstream pull rejected with `signal.reason` on shutdown is end-of-life
- *  noise, swallowed here (via `isAbortReason`) so it never bubbles as an
- *  unhandled rejection. `projectSurface`'s `mapUpstream` composes on top of
- *  this so the per-frame swallow has exactly one definition; a fix to the
- *  abort contract (the kind `kill.feature` pins) lands in one place. */
-export async function* iterateUntilAborted<T>(
+ *  noise, swallowed here (via {@link isAbortReason}) so it never bubbles as an
+ *  unhandled rejection. Module-private for the same reason the predicate is —
+ *  its only caller is {@link publisherChannel}. */
+async function* iterateUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal | undefined,
 ): AsyncGenerator<T> {

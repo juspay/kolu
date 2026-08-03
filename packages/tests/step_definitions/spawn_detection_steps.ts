@@ -81,7 +81,9 @@ async function spawnCommandRooted(
     command,
     kavalSocket: kavalSocketPath(),
   });
-  const result = await conn.client.surface.terminal.spawn(input);
+  const result = await Effect.runPromise(
+    conn.client.surface.terminal.spawn(input),
+  );
   spawnedId = result.id;
   return result;
 }
@@ -89,7 +91,9 @@ async function spawnCommandRooted(
 async function cleanup() {
   if (conn && spawnedId) {
     try {
-      await conn.client.surface.terminal.kill({ id: spawnedId });
+      await Effect.runPromise(
+        conn.client.surface.terminal.kill({ id: spawnedId }),
+      );
     } catch {
       // The PTY may already be gone — nothing to reap.
     }

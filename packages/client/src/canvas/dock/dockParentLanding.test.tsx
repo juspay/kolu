@@ -23,8 +23,8 @@ vi.mock("../../wire", async () => {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
-    padiEffectOf: () => ({ chrome: { setActive: () => Effect.void } }),
-    activePadiEffect: {
+    padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
+    activePadiRpc: {
       chrome: { setSubPanel: () => Effect.void },
     },
   };

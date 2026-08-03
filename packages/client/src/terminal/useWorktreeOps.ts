@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
 import type { UiAction } from "../runAction";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 import type {
   TerminalCreateRefused,
   TerminalDiscardFailed,
@@ -37,7 +37,7 @@ export function useWorktreeOps(deps: {
     return Effect.suspend(() => {
       const id = toast.loading("Creating worktree…");
       return Effect.gen(function* () {
-        const result = yield* activePadiEffect.git.worktreeCreate({
+        const result = yield* activePadiRpc.git.worktreeCreate({
           repoPath,
           name,
         });
@@ -57,7 +57,7 @@ export function useWorktreeOps(deps: {
         // signal (OSC 133;A prompt mark) — a contract change deliberately
         // deferred out of phase 2 scope.
         if (initialCommand !== undefined) {
-          yield* activePadiEffect.lifecycle
+          yield* activePadiRpc.lifecycle
             .sendInput({ id: newTerminalId, data: `${initialCommand}\r` })
             .pipe(
               Effect.catch((err) =>
@@ -120,7 +120,7 @@ export function useWorktreeOps(deps: {
       }
       if (!worktreePath) return;
       const tid = toast.loading("Removing worktree…");
-      yield* activePadiEffect.git.worktreeRemove({ worktreePath }).pipe(
+      yield* activePadiRpc.git.worktreeRemove({ worktreePath }).pipe(
         Effect.tap(() =>
           Effect.sync(() => toast.success("Worktree removed", { id: tid })),
         ),

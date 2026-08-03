@@ -132,16 +132,15 @@ async function connect(over: ReturnType<typeof buildSurface>) {
       greet: {
         input: Schema.Struct({ name: Schema.String }),
         description: "Say hello.",
-        handler: (args) => {
-          const { name } = args as { name: string };
-          return { hello: name };
-        },
+        handler: (args) =>
+          Effect.sync(() => {
+            const { name } = args as { name: string };
+            return { hello: name };
+          }),
       },
       explode: {
-        description: "Always rejects — pins the isError framing.",
-        handler: async () => {
-          throw new Error("boom: the handler rejected");
-        },
+        description: "Always fails — pins the isError framing.",
+        handler: () => Effect.fail(new Error("boom: the handler rejected")),
       },
     },
     serverInfo: { name: "test-surface", version: "0.0.0" },
@@ -469,7 +468,7 @@ describe("serveSurfaceAsMcp — end to end over the in-memory transport", () => 
         peek: {
           mutates: false,
           description: "A genuinely read-only tool.",
-          handler: () => ({ ok: true }),
+          handler: () => Effect.succeed({ ok: true }),
         },
       },
       serverInfo: { name: "opt-in-test", version: "0.0.0" },
@@ -558,7 +557,8 @@ async function connectEdge(over: ReturnType<typeof buildEdgeSurface>) {
       // An array-input bespoke tool — also wrapped under `value` (F3).
       sum: {
         input: Schema.Array(Schema.Finite),
-        handler: (args) => (args as number[]).reduce((a, b) => a + b, 0),
+        handler: (args) =>
+          Effect.succeed((args as number[]).reduce((a, b) => a + b, 0)),
       },
     },
     serverInfo: { name: "edge-surface", version: "0.0.0" },
@@ -697,7 +697,7 @@ describe("serveSurfaceAsMcp — shape-mismatch fixes", () => {
     // read that relied on `get` alone would hang forever here; the bounded read
     // resolves not-found from the `keys`-absence watch instead — so a regression
     // back to the hang trips the 2s timeout and fails this test.
-    await over.client.surface.rows?.delete?.({ key: 42 });
+    await Effect.runPromise(over.client.surface.rows?.delete?.({ key: 42 }));
     const read = mcp.readResource({ uri: "surface://collections/rows/42" });
     const outcome = await Promise.race([
       read.then(
@@ -726,7 +726,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
         client: () => over.client,
         expose: { "counter.bump": "tool" },
         // `counter_bump` collides with the generated name for counter.bump.
-        tools: { counter_bump: { handler: () => "x" } },
+        tools: { counter_bump: { handler: () => Effect.succeed("x") } },
         transport: serverTransport,
       }),
     ).rejects.toThrow(
@@ -805,9 +805,10 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       tools: {
         drop: {
           description: "simulate a transport death",
-          handler: async () => {
-            throw new SurfaceStdioTransportClosed({ reason: "pipe closed" });
-          },
+          handler: () =>
+            Effect.fail(
+              new SurfaceStdioTransportClosed({ reason: "pipe closed" }),
+            ),
         },
       },
       serverInfo: { name: "t", version: "0" },

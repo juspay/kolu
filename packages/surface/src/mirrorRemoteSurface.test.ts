@@ -656,10 +656,14 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     const resets: number[] = [];
     const mirror = mirrorRemoteSurface(procSurface, serveProc(resets), {});
 
-    expect(await mirror.procedures.math.double({ x: 21 })).toEqual({ y: 42 });
-    expect(await mirror.procedures.math.ping()).toEqual({ pong: true });
+    expect(
+      await Effect.runPromise(mirror.procedures.math.double({ x: 21 })),
+    ).toEqual({ y: 42 });
+    expect(await Effect.runPromise(mirror.procedures.math.ping())).toEqual({
+      pong: true,
+    });
     await expect(
-      mirror.procedures.math.reset({ to: 7 }),
+      Effect.runPromise(mirror.procedures.math.reset({ to: 7 })),
     ).resolves.toBeUndefined();
     expect(resets).toEqual([7]); // the no-output call actually ran on the far side
   });
@@ -667,22 +671,31 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
   it("serve ∘ mirror ≈ identity — a re-served forwarded procedure round-trips", async () => {
     // Mirror the remote, then RE-SERVE the mirror by grafting its forwarders into
     // a second `implementSurface`. The re-served surface must behave like the
-    // remote — the location-transparency the whole epic rests on.
+    // remote — the location-transparency the whole epic rests on. The graft is a
+    // passthrough now: a handler wants an `Effect` and a forwarder IS one, so
+    // there is no adapter between them to get wrong. `orDie` only because THIS
+    // surface declares no error for these members — a remote failure is undeclared
+    // here, so it crosses as a defect (exactly what the old `Effect.promise` did
+    // to a rejection). A surface that DID declare one would graft bare.
     const mirror = mirrorRemoteSurface(procSurface, serveProc(), {});
     const reServedRuntime = implementSurface(procSurface, {
       procedures: {
         math: {
           double: ({ input }) =>
-            Effect.promise(() => mirror.procedures.math.double(input)),
-          ping: () => Effect.promise(() => mirror.procedures.math.ping()),
+            Effect.orDie(mirror.procedures.math.double(input)),
+          ping: () => Effect.orDie(mirror.procedures.math.ping()),
           reset: ({ input }) =>
-            Effect.promise(() => mirror.procedures.math.reset(input)),
+            Effect.orDie(mirror.procedures.math.reset(input)),
         },
       },
     });
     const reServed = surfaceClientRef(procSurface, reServedRuntime);
-    expect(await reServed.surface.math.double({ x: 21 })).toEqual({ y: 42 });
-    expect(await reServed.surface.math.ping()).toEqual({ pong: true });
+    expect(
+      await Effect.runPromise(reServed.surface.math.double({ x: 21 })),
+    ).toEqual({ y: 42 });
+    expect(await Effect.runPromise(reServed.surface.math.ping())).toEqual({
+      pong: true,
+    });
   });
 
   it("mirrors a stream into a sink AND forwards a procedure in one call", async () => {
@@ -723,25 +736,27 @@ describe("mirrorRemoteSurface — procedures (the total dual)", () => {
     const mirror = mirrorRemoteSurface(mixed, client, {
       streams: { ticks: { input: { n: 3 }, onFrame: (f) => frames.push(f.i) } },
     });
-    expect(await mirror.procedures.math.double({ x: 4 })).toEqual({ y: 8 });
+    expect(
+      await Effect.runPromise(mirror.procedures.math.double({ x: 4 })),
+    ).toEqual({ y: 8 });
     await mirror.done; // the ticks stream yielded 3 frames then closed → settles.
     expect(frames).toEqual([0, 1, 2]);
   });
 
-  it("a forwarder for a procedure the client lacks rejects (client/surface mismatch)", async () => {
+  it("a forwarder for a procedure the client lacks FAILS (client/surface mismatch)", async () => {
     // Omitting a streaming sink is non-interest; a procedure stub is always
     // present (the dual is total), but calling one the client doesn't expose is a
-    // mismatch — it must reject loudly, never resolve to undefined.
+    // mismatch — it must fail loudly, never succeed with undefined.
     const client = { surface: {} };
     const mirror = mirrorRemoteSurface(procSurface, asClient(client), {});
-    await expect(mirror.procedures.math.double({ x: 1 })).rejects.toThrow(
-      /client\/surface mismatch/,
-    );
-    // The lazy procedure channel and the eager streaming channel throw the SAME
-    // type, so a consumer can `instanceof`-discriminate the one fault regardless
-    // of which promise delivered it.
     await expect(
-      mirror.procedures.math.double({ x: 1 }),
+      Effect.runPromise(mirror.procedures.math.double({ x: 1 })),
+    ).rejects.toThrow(/client\/surface mismatch/);
+    // The lazy procedure channel and the eager streaming channel raise the SAME
+    // type, so a consumer can `instanceof`-discriminate the one fault regardless
+    // of which channel delivered it.
+    await expect(
+      Effect.runPromise(mirror.procedures.math.double({ x: 1 })),
     ).rejects.toBeInstanceOf(ClientSurfaceMismatchError);
   });
 

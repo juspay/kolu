@@ -41,59 +41,74 @@ export interface TopIdentity {
 
 /** The first frame of a snapshot-then-deltas member. `Stream.runHead`
  *  interrupts the subscription as soon as that frame lands. */
-async function snapshot<T>(
+function snapshot<T>(
   stream: Stream.Stream<T, unknown>,
   what: string,
-): Promise<T> {
-  const head = await Effect.runPromise(Stream.runHead(stream));
-  if (Option.isNone(head)) {
-    throw new Error(`${what}: stream closed before its snapshot frame`);
-  }
-  return head.value;
+): Effect.Effect<T, Error> {
+  // A member stream fails with `unknown`; the endpoint's `connect` contract is
+  // "a plain Error unless it is the branded skew", so the narrowing happens HERE,
+  // once, rather than at each caller.
+  const head = Effect.mapError(Stream.runHead(stream), (err) =>
+    err instanceof Error ? err : new Error(String(err)),
+  );
+  return Effect.flatMap(head, (head) =>
+    Option.isNone(head)
+      ? Effect.fail(
+          new Error(`${what}: stream closed before its snapshot frame`),
+        )
+      : Effect.succeed(head.value),
+  );
 }
 
-export async function connectTop(
+/** The endpoint's `connect` is an EFFECT — the supervisor composes it into its
+ *  own fibers, so a boot it gives up on tears the half-made connection down. */
+export function connectTop(
   socketPath: string,
-): Promise<DaemonConnection<TopClient, TopIdentity>> {
-  const socket = await dialSocket(socketPath);
-  const link = await stdioLink({
-    group: surface.group,
-    read: socket,
-    write: socket,
+): Effect.Effect<DaemonConnection<TopClient, TopIdentity>, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocket(socketPath);
+    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED.
+    const link = yield* Effect.promise(() =>
+      stdioLink({
+        group: surface.group,
+        read: socket,
+        write: socket,
+      }),
+    );
+    const client = buildSurfaceFace(surface, link.dispatch);
+
+    // Handshake: the first frame of the `load` cell proves the daemon is serving
+    // AND yields the identity we report. A dial that connects but never answers
+    // would hang here — the endpoint's `socketReadyMs` ceiling covers that.
+    const load = yield* snapshot(
+      (client.surface.load?.get as StreamingProcedure<undefined, Load>)(
+        undefined,
+      ),
+      "load",
+    );
+
+    const closeCbs: Array<() => void> = [];
+    let closed = false;
+    socket.once("close", () => {
+      closed = true;
+      for (const cb of closeCbs) cb();
+    });
+
+    return {
+      client,
+      identity: { cores: load.cores },
+      startedAt: Date.now(),
+      // Release the LINK's scope first (it holds the protocol's response fibers),
+      // then drop the socket. Dropping the socket alone would leak them.
+      dispose: () => {
+        void link.dispose().finally(() => socket.destroy());
+      },
+      // The endpoint subscribes to this to flip `connected → degraded` when the
+      // daemon dies mid-session (fires at most once).
+      onClose: (cb) => {
+        if (closed) cb();
+        else closeCbs.push(cb);
+      },
+    };
   });
-  const client = buildSurfaceFace(surface, link.dispatch);
-
-  // Handshake: the first frame of the `load` cell proves the daemon is serving
-  // AND yields the identity we report. A dial that connects but never answers
-  // would hang here — the endpoint's `socketReadyMs` ceiling covers that.
-  const load = await snapshot(
-    (client.surface.load?.get as StreamingProcedure<undefined, Load>)(
-      undefined,
-    ),
-    "load",
-  );
-
-  const closeCbs: Array<() => void> = [];
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-    for (const cb of closeCbs) cb();
-  });
-
-  return {
-    client,
-    identity: { cores: load.cores },
-    startedAt: Date.now(),
-    // Release the LINK's scope first (it holds the protocol's response fibers),
-    // then drop the socket. Dropping the socket alone would leak them.
-    dispose: () => {
-      void link.dispose().finally(() => socket.destroy());
-    },
-    // The endpoint subscribes to this to flip `connected → degraded` when the
-    // daemon dies mid-session (fires at most once).
-    onClose: (cb) => {
-      if (closed) cb();
-      else closeCbs.push(cb);
-    },
-  };
 }

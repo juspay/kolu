@@ -61,6 +61,7 @@
  * readable naming a live holder.
  */
 
+import { Effect } from "effect";
 import { execFile, spawn } from "node:child_process";
 import {
   existsSync,
@@ -476,7 +477,9 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   //    epoch never broke and this whole suite is green-washing a same-version
   //    window) nor `null` (honest absence, which is reserved for "no listener"
   //    and would let a fresh daemon race a live one for the rendezvous).
-  const probed = await probeKavalForConvergence(kavalSocket).then(
+  const probed = await Effect.runPromise(
+    probeKavalForConvergence(kavalSocket),
+  ).then(
     (probe) => ({ kind: "resolved" as const, probe }),
     (error: unknown) => ({ kind: "rejected" as const, error }),
   );
@@ -521,7 +524,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     async (path) => {
       // padi here is the CURRENT build, so the current dial is the right probe:
       // it is the production one, and it is what the calls below need anyway.
-      const conn = await connectPadi(path);
+      const conn = await Effect.runPromise(connectPadi(path));
       conn.dispose();
     },
     90_000,
@@ -549,17 +552,21 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
 
   // …and the replacement really is current-epoch: the same probe that could not
   // read the survivor now reads an identity, at this build's contract version.
-  const freshProbe = await probeKavalForConvergence(kavalSocket);
+  const freshProbe = await Effect.runPromise(
+    probeKavalForConvergence(kavalSocket),
+  );
   expect(freshProbe).not.toBeNull();
   expect(freshProbe?.identity.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
   freshProbe?.dispose();
 
-  const conn = await connectPadi(padiSock);
+  const conn = await Effect.runPromise(connectPadi(padiSock));
   try {
     // 5) Create a terminal so recycle has a session to capture.
-    const { id } = await conn.client.padi.surface.lifecycle.create({
-      cwd: stateRoot,
-    });
+    const { id } = await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.create({
+        cwd: stateRoot,
+      }),
+    );
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
     // Wait for autosave to persist the session (deterministic poll).
@@ -604,7 +611,9 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     }
 
     // 6) Restart kaval — the production recycle path.
-    await conn.client.padi.surface.lifecycle.recycleKaval(undefined);
+    await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.recycleKaval(undefined),
+    );
 
     // 7) Daemon replaced: gate pid changed (or the old process is dead and
     //    a new live holder is present).
@@ -708,7 +717,7 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     //     CURRENT kaval at this exact rendezvous, over this exact transport. Any
     //     later "the dial did not complete" is therefore about the PEER, not
     //     about the harness.
-    const kavalConn = await connectKaval(kavalSocket);
+    const kavalConn = await Effect.runPromise(connectKaval(kavalSocket));
     try {
       expect(kavalConn.metadata.contractVersion).toBe(
         PTY_HOST_CONTRACT_VERSION,
@@ -749,7 +758,7 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
     //     The classification KIND is pinned against bytes we own, in
     //     `yesterdayKaval.test.ts` — never against a previous binary's framing.
     const dialed = await Promise.race([
-      connectPadi(padiSock).then(
+      Effect.runPromise(connectPadi(padiSock)).then(
         (conn) => {
           conn.dispose();
           return "connected" as const;
@@ -881,7 +890,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       capability: "drainable",
       drainCeilingMs: PADI_TAKEOVER_DRAIN_CEILING_MS,
     });
-    const probed = await padiProbe(home.socketPath).then(
+    const probed = await Effect.runPromise(padiProbe(home.socketPath)).then(
       (probe) => ({ kind: "resolved" as const, probe }),
       (error: unknown) => ({ kind: "rejected" as const, error }),
     );
@@ -921,7 +930,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       },
       probe: (socketPath) => padiProbe(socketPath),
       driver: {
-        spawn: async () => {
+        spawn: Effect.promise(async () => {
           spawns += 1;
           reaper.track(
             spawn(
@@ -938,7 +947,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
               { stdio: "ignore", env: padiEnv() },
             ),
           );
-        },
+        }),
       },
       connect: (path) => connectPadi(path),
       log: silentLogger,
@@ -946,7 +955,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       socketReadyMs: 90_000,
     });
 
-    const outcome = await converge(ep);
+    const outcome = await Effect.runPromise(converge(ep));
     expect(
       outcome.kind,
       `an unspeakable padi must be TAKEN OVER, not left standing (got ${outcome.kind}: ${JSON.stringify(outcomeAnomaly(outcome))})`,
@@ -972,7 +981,7 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
     //    holds handshaked, and a fresh dial reads this build's contract version.
     const held = ep.current();
     expect(held, "the takeover held no connection").toBeDefined();
-    const conn = await connectPadi(home.socketPath);
+    const conn = await Effect.runPromise(connectPadi(home.socketPath));
     try {
       expect(conn.metadata.surfaceVersion).toBe(PADI_SURFACE_VERSION);
       expect(conn.identity.surfaceVersion).toBe(PADI_SURFACE_VERSION);
@@ -986,9 +995,11 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       ) as { session?: { terminals?: { id: string }[] } };
       expect(onDisk.session?.terminals?.map((t) => t.id)).toEqual([plantedId]);
 
-      const served = await firstFrameOrThrow(
-        conn.client.padi.surface.session.get(undefined),
-        "the new padi's session cell yielded no frame",
+      const served = await Effect.runPromise(
+        firstFrameOrThrow(
+          conn.client.padi.surface.session.get(undefined),
+          "the new padi's session cell yielded no frame",
+        ),
       );
       expect(
         served?.terminals.map((t) => t.id),

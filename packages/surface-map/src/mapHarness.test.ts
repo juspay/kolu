@@ -1348,7 +1348,9 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
 
       // (b) the PROCEDURE verb resolves — session/ping still routes (folds {mapKey}).
       expect(
-        await client.entry(A).procedures.session.ping({ echo: "pong" }),
+        await Effect.runPromise(
+          client.entry(A).procedures.session.ping({ echo: "pong" }),
+        ),
       ).toBe("pong");
 
       served.dispose();

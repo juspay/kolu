@@ -19,7 +19,7 @@
  *      keep).
  */
 
-import type { UnaryProcedure } from "@kolu/surface/client";
+import type { UnaryEffect } from "@kolu/surface/client";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
@@ -175,16 +175,23 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
         // gap is an UNDECLARED failure and must stay a loud defect rather than
         // something a browser could narrow on and quietly handle.
         kill: ({ input }) =>
-          Effect.promise(async () => {
+          Effect.gen(function* () {
             const pending = session.currentClient();
             if (pending === null)
               throw new Error("no live agent link — cannot kill");
-            const client = await pending;
-            const kill = client.surface.process?.kill as UnaryProcedure<
+            // The SESSION hands back a Promise (its reconnect machinery is
+            // Promise-shaped); the member call it yields is an Effect, so the
+            // lift stops at the session and the call composes.
+            const client = yield* Effect.promise(() => pending);
+            const kill = client.surface.process?.kill as UnaryEffect<
               KillArgs,
-              KillResult
+              KillResult,
+              never
             >;
-            return kill(input);
+            // The re-serving surface declares no error for this member, so an
+            // upstream transport failure is UNDECLARED here and crosses as a
+            // defect rather than being smuggled into a `never` channel.
+            return yield* Effect.orDie(kill(input));
           }),
       },
     },

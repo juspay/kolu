@@ -17,14 +17,18 @@
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
  *
  * **The Effect edges, named (PLAN D10/#25).** MCP's SDK is Promise- and
- * callback-shaped, so this module is a genuine process boundary and runs
- * effects at exactly two places: `resources/read` (`Effect.runPromise`, with
- * the MCP request's `AbortSignal` handed straight to the run so a cancelled
- * read INTERRUPTS the subscription it opened), and the `ResourcePusher`'s
- * per-URI subscription fibers (`Effect.runFork`, in `pusher.ts`). Everything
- * else here is already Promise-shaped: a unary member ref returns a Promise
- * (the framework's own `Effect.runPromise` edge on the client face), and a
- * bespoke tool handler is a consumer-supplied async function.
+ * callback-shaped, so this module is a genuine process boundary. Every request
+ * it serves runs its effect through ONE function — {@link runRequest} — and the
+ * `ResourcePusher`'s per-URI subscription fibers are the only other run in the
+ * package (`Effect.runFork`, in `pusher.ts`).
+ *
+ * `runRequest` exists because the SDK hands EVERY request an `AbortSignal` and
+ * every request is answered with a `Promise`, so the crossing is the same fact
+ * twice: `resources/read` opens subscriptions, `tools/call` places a unary
+ * member call, and a cancelled request must interrupt either. Handing the
+ * signal to the RUN (rather than threading it through the calls) is what makes
+ * that one line instead of one per call site — under Effect a member call takes
+ * no `signal`, because cancellation IS fiber interruption (D10/#18).
  */
 
 import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
@@ -57,7 +61,9 @@ import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
 /** The structural shape of a served-surface client the adapter needs. The
  *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
  *  Solid client's `.rpc`, a wire link's face) — `.surface.<key>.<verb>(...)`,
- *  where a streaming verb returns a `Stream` and a unary one a `Promise`.
+ *  where a streaming verb returns a `Stream` and a unary one an `Effect`. Both
+ *  are lazy: nothing dispatches until this module runs the value it was handed,
+ *  which it does once, at {@link runRequest}.
  *
  *  Declared locally rather than reusing `@kolu/surface`'s `SurfaceFace` because
  *  dispatch string-indexes then *calls* the leaves
@@ -249,6 +255,21 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     }
   };
 
+  /** THE request edge: answer one MCP request by running its effect under the
+   *  request's own `AbortSignal`.
+   *
+   *  Every handler below funnels through here, so the package's Promise boundary
+   *  is one function rather than one per request kind. Handing the signal to the
+   *  RUN interrupts the request's fiber on cancellation, and that interrupt tears
+   *  down everything the request opened — a `resources/read`'s subscriptions
+   *  through the streams' own finalizers, a `tools/call`'s in-flight dispatch —
+   *  which is the bound the threaded `AbortSignal` used to give, expressed once
+   *  instead of at every call site. */
+  const runRequest = <A>(
+    effect: Effect.Effect<A, unknown>,
+    signal: AbortSignal,
+  ): Promise<A> => Effect.runPromise(effect, { signal });
+
   // Index resources by URI for O(1) read/subscribe dispatch.
   const byUri = new Map<string, ResourceEntry>();
   for (const r of resolved.resources) byUri.set(r.uri, r);
@@ -367,7 +388,13 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           const callArgs = exposed.hasInput
             ? unwrapArgs(exposed.wrapped, args)
             : undefined;
-          return ok(await proc(callArgs));
+          // A unary member call is an `Effect`; it runs at the request edge, so
+          // a cancelled `tools/call` interrupts the dispatch instead of leaving
+          // it in flight with nobody to answer. A DECLARED failure rejects with
+          // the squashed error, which the `catch` below turns into the `isError`
+          // tool result the contract promises — the same route a rejecting
+          // procedure took before.
+          return ok(await runRequest(proc(callArgs), extra.signal));
         });
       }
       const entry = bespokeTools.get(name);
@@ -384,9 +411,14 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
             ? Schema.decodeUnknownSync(tool.input)(rawInput)
             : rawInput;
         // `await` for the same reason as the exposed-procedure branch above: a
-        // rejecting handler must land in `failFrom`, never escape as -32603.
+        // failing handler must land in `failFrom`, never escape as -32603. The
+        // handler DESCRIBES its work; it runs at the same request edge every
+        // other handler does, so a cancelled `tools/call` interrupts it.
         return await withClient(async (client) => {
-          const out = await tool.handler(parsed, client, extra.signal);
+          const out = await runRequest(
+            tool.handler(parsed, client, extra.signal),
+            extra.signal,
+          );
           return ok(out);
         });
       }
@@ -423,19 +455,12 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   }));
 
   // ── resources/read ─────────────────────────────────────────────────────
-  // Hand the MCP request's abort signal to the RUN, not to the calls: under
-  // Effect there is no `signal` on a member call, and cancellation is fiber
-  // interruption (D10/#18). `Effect.runPromise(_, { signal })` interrupts the
-  // read's fiber when the request is cancelled, and the interrupt tears down
-  // every subscription the read opened through the streams' own finalizers —
-  // the same bound the threaded `AbortSignal` used to provide, expressed once
-  // at the edge instead of at every call site.
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
     const result = await withClient((client) =>
-      Effect.runPromise(
+      runRequest(
         readSnapshot(client, uri, byUri, keySchemaByCollection),
-        { signal: extra.signal },
+        extra.signal,
       ),
     );
     if (isMiss(result)) {

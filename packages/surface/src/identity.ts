@@ -21,6 +21,7 @@
  * be dev-might-be-real) can't be written.
  */
 
+import type { Effect } from "effect";
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
@@ -109,7 +110,7 @@ export type SurfaceIdentityProbeable = {
     typeof IDENTITY_NAMESPACE,
     Record<
       typeof IDENTITY_VERB,
-      (input: Record<string, never>) => Promise<ServedIdentity>
+      (input: Record<string, never>) => Effect.Effect<ServedIdentity, unknown>
     >
   >;
 };
@@ -118,10 +119,11 @@ export type SurfaceIdentityProbeable = {
  *  `probeSurfaceLive`. Resolves with the server's served identity
  *  ({@link ServedIdentity}). Pass the thing that carries `.surface`.
  *
- *  STAGE 3 (client face): as with `probeSurfaceLive`, the nested Promise face this
- *  walks is what `surfaceClient` hand-builds from the spec (D2); the walk itself is
- *  transport-agnostic and unchanged by the Effect port. */
-export function probeSurfaceIdentity(client: unknown): Promise<ServedIdentity> {
+ *  As with `probeSurfaceLive`, the value is the member call off the face — a lazy
+ *  `Effect` the caller composes and bounds. */
+export function probeSurfaceIdentity(
+  client: unknown,
+): Effect.Effect<ServedIdentity, unknown> {
   return (client as SurfaceIdentityProbeable).surface[IDENTITY_NAMESPACE][
     IDENTITY_VERB
   ]({});

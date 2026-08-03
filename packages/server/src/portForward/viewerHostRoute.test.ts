@@ -29,11 +29,11 @@ const ZEST: HostKey = { kind: "remote", target: "zest" };
 function harness(answer: HostKey | null = null) {
   const viewerHost = vi.fn(async () => answer);
   const deps: BuildAppRouterDeps = {
-    drainBoundPadi: async () => {},
+    drainBoundPadi: () => Effect.void,
     addHost: async () => {},
     removeHost: async () => {},
     reconnectHost: () => {},
-    renewHostDaemon: async () => {},
+    renewHostDaemon: () => Effect.void,
     viewerHost,
   };
   return { viewerHost, handlers: buildAppRouter(deps).handlers };

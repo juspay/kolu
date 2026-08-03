@@ -182,9 +182,12 @@ export class UnknownCommandError extends Data.TaggedError(
 export function koluFace(
   argv?: string[],
 ): Effect.Effect<KoluCliFace, ReservedFaceError | UnknownCommandError> {
-  return Effect.suspend<KoluCliFace, ReservedFaceError | UnknownCommandError, never>(
-    () =>
-      match(parseKoluCli(argv))
+  return Effect.suspend<
+    KoluCliFace,
+    ReservedFaceError | UnknownCommandError,
+    never
+  >(() =>
+    match(parseKoluCli(argv))
       .with({ face: "web" }, (p) => Effect.succeed<KoluCliFace>(p))
       .with({ face: "mcp" }, (p) => Effect.succeed<KoluCliFace>(p))
       .with({ face: P.union(...RESERVED_FACES) }, (p) =>

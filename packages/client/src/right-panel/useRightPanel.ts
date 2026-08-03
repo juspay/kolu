@@ -53,7 +53,7 @@ import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
-import { activePadiEffect, preferences, updatePreferences } from "../wire";
+import { activePadiRpc, preferences, updatePreferences } from "../wire";
 
 /** A spot in the Code tab's navigable space — the unit `@kolu/solid-browser`'s
  *  history records. `mode` is the All/Local/Branch sub-view, carried *inside*
@@ -195,7 +195,7 @@ function reportToServer(id: TerminalId): void {
   // write that already happened, with nothing to compose into.
   runAction(
     "save panel state",
-    activePadiEffect.chrome
+    activePadiRpc.chrome
       .setRightPanel({
         id,
         collapsed: s.collapsed,

@@ -19,7 +19,7 @@
 export type {
   StreamingProcedure,
   SurfaceFace,
-  UnaryProcedure,
+  UnaryEffect,
 } from "../client";
 // The keyed-root swap atom: run a factory under a root disposed + rebuilt on a key
 // change (the switch-abort ordering). Pure solid-generic; `@kolu/surface-map`'s
@@ -97,26 +97,18 @@ export {
   type BoundCellOptions,
   type BoundCollection,
   type BoundEvent,
-  type BoundProcedure,
   type BoundStream,
   buildSurfaceClient,
-  // The EFFECT-native twin of `BoundProcedure` — `client.effect.<ns>.<verb>` — for
-  // a consumer that COMPOSES a member call (a deadline, a race, a supersede, a
-  // Ctrl-C) rather than awaiting it.
+  // The bound procedure — `client.procedures.<ns>.<verb>` — an `Effect` a consumer
+  // COMPOSES (a deadline, a race, a supersede, a Ctrl-C) rather than awaits. The
+  // declared error union rides its channel, so the narrowing verbs an awaited
+  // rejection used to need (`isDefinedError` / `safe`) are `Effect.catchTag` now.
   type EffectProcedure,
   type ProcedureEffect,
-  // The declared-error narrowing verbs (SK6/D4) — a tagged-error `_tag` test plus
-  // the non-throwing `safe(...)`, owned HERE so an app never imports a transport
-  // vendor to read a typed rejection, and never has to hand-classify "the server
-  // declared this" against "the call never got an answer".
-  isDefinedError,
   type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
-  type ProcedureResult,
   resolveTransport,
-  safe,
-  type SafeResult,
   type SurfaceClient,
   type SurfaceClients,
   surfaceClient,

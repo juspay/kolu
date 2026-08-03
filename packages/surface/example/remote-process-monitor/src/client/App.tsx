@@ -15,6 +15,7 @@
  * driven by the re-serve's own `health()` fact, phase-agnostic.
  */
 
+import { Effect } from "effect";
 import type { StreamingProcedure } from "@kolu/surface/client";
 import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
@@ -126,12 +127,15 @@ export default function App() {
     return rows;
   });
 
-  const killProcess = async (pid: number, signal: "TERM" | "KILL") => {
-    try {
-      await app.procedures.process.kill({ pid, signal });
-    } catch (err) {
-      console.error(`kill ${pid} ${signal} failed`, err);
-    }
+  // A declared procedure is an EFFECT: the failure rides the error channel, so
+  // the policy is a combinator rather than a `try`/`catch`, and the DOM handler
+  // is the edge that runs it.
+  const killProcess = (pid: number, signal: "TERM" | "KILL"): void => {
+    Effect.runFork(
+      Effect.catchCause(app.procedures.process.kill({ pid, signal }), (cause) =>
+        Effect.sync(() => console.error(`kill ${pid} ${signal} failed`, cause)),
+      ),
+    );
   };
 
   return (

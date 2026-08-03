@@ -1,24 +1,22 @@
 /**
- * The EFFECT-native member face (`face.effect` / `client.effect`), driven
- * IN-PROCESS over `directDispatch` — no wire, so every failure these tests
- * observe was raised by a handler and carried by the face, never manufactured by
- * a transport.
+ * The member face (`face.surface` / `client.procedures`), driven IN-PROCESS over
+ * `directDispatch` — no wire, so every failure these tests observe was raised by a
+ * handler and carried by the face, never manufactured by a transport.
  *
- * That in-process framing is the point of the central pin. The Promise face can
- * only reject, and a rejection erases its type: a caller cannot tell "the server
+ * That in-process framing is the point of the central pin. A `Promise` can only
+ * reject, and a rejection erases its type: a caller cannot tell "the server
  * declared this and said no" from "the call never got an answer" without
- * `safe()`/`isDefinedError` re-classifying at runtime. On the Effect face the
- * DECLARED tagged class is in the error CHANNEL, so the compiler carries the
- * distinction — and these tests prove the runtime agrees: a declared failure
- * arrives as its own class, an undeclared throw is still a DEFECT, and neither is
- * ever an `RpcClientError`.
+ * re-classifying at runtime. On this face the DECLARED tagged class is in the error
+ * CHANNEL, so the compiler carries the distinction — and these tests prove the
+ * runtime agrees: a declared failure arrives as its own class, an undeclared throw
+ * is still a DEFECT, and neither is ever an `RpcClientError`.
  *
- * The rest pins the properties that make the Effect face worth having and the
- * Promise face safe to keep beside it:
+ * The rest pins the properties that make the face worth having:
  *
- *   - the two nestings carry the SAME members (a mirror, not a subset), with the
- *     streaming rows literally the same references;
- *   - a Promise row IS its Effect twin, run — same tag, same decode, same failure;
+ *   - it carries every member the SPEC declares, plus the reserved `system` ones;
+ *   - the two leaf shapes are the right ones — a unary verb is an `Effect`, a
+ *     streaming verb a `Stream`, and each row is minted once;
+ *   - the argument is decoded at the EDGE, on the Encoded side (D2/#13);
  *   - the call is a DESCRIPTION: building it dispatches nothing;
  *   - it composes — a deadline actually interrupts the handler, which is exactly
  *     what an `await` cannot do.
@@ -54,8 +52,8 @@ const surface = defineSurface({
     math: {
       // `Schema.NumberFromString` DIVERGES across the parse: the Encoded side the
       // face accepts is a string, the decoded side a handler sees is a number.
-      // Driving the Effect row with the wire-shaped literal is what pins that the
-      // new rows kept the face's Encoded-in contract (D2/#13).
+      // Driving the row with the wire-shaped literal is what pins that the face
+      // kept its Encoded-in contract (D2/#13).
       double: { input: Schema.NumberFromString, output: Schema.Number },
       // The declared-failure channel.
       refuse: {
@@ -113,26 +111,26 @@ function faceOver(served: Served) {
   return buildSurfaceFace(surface, directDispatch(served.runtime));
 }
 
-/** Read one row off the EFFECT nesting. The face is deliberately structural
+/** Read one unary row off the face. The face is deliberately structural
  *  (per-member precision lives in the spec-derived bound faces), so a raw read is
  *  an index that may miss — and missing is a test-wiring bug, never a value to
  *  soldier on with. */
-function effectRow<I, O, E>(
+function unaryRow<I, O, E>(
   face: ReturnType<typeof faceOver>,
   member: string,
   verb: string,
 ): UnaryEffect<I, O, E> {
-  const row = face.effect[member]?.[verb];
+  const row = face.surface[member]?.[verb];
   if (typeof row !== "function") {
-    throw new Error(`the face's effect nesting carries no "${member}.${verb}"`);
+    throw new Error(`the face carries no "${member}.${verb}"`);
   }
   return row as UnaryEffect<I, O, E>;
 }
 
-describe("the Effect face fails with the DECLARED error, in-process", () => {
+describe("the face fails with the DECLARED error, in-process", () => {
   it("a declared failure arrives as its own tagged class, data intact", async () => {
     const served = serve();
-    const refuse = effectRow<{ why: string }, void, DemoRefused>(
+    const refuse = unaryRow<{ why: string }, void, DemoRefused>(
       faceOver(served),
       "math",
       "refuse",
@@ -155,7 +153,7 @@ describe("the Effect face fails with the DECLARED error, in-process", () => {
 
   it("the declared failure rides the ERROR channel, not the defect channel", async () => {
     const served = serve();
-    const refuse = effectRow<{ why: string }, void, DemoRefused>(
+    const refuse = unaryRow<{ why: string }, void, DemoRefused>(
       faceOver(served),
       "math",
       "refuse",
@@ -176,14 +174,14 @@ describe("the Effect face fails with the DECLARED error, in-process", () => {
 
   it("`catchTag` on the declared tag recovers it, and reads its data", async () => {
     const served = serve();
-    const refuse = effectRow<{ why: string }, void, DemoRefused>(
+    const refuse = unaryRow<{ why: string }, void, DemoRefused>(
       faceOver(served),
       "math",
       "refuse",
     );
 
-    // The compiler-side gain, exercised at runtime: no `safe()`, no
-    // `isDefinedError`, no cast — the tag IS the branch.
+    // The compiler-side gain, exercised at runtime: no re-classifying helper, no
+    // cast — the tag IS the branch.
     const recovered = await Effect.runPromise(
       Effect.catchTag(refuse({ why: "quota" }), "DemoRefused", (err) =>
         Effect.succeed(`refused: ${err.because}`),
@@ -194,9 +192,9 @@ describe("the Effect face fails with the DECLARED error, in-process", () => {
     await served.runtime.close();
   });
 
-  it("an UNDECLARED throw stays a DEFECT on the Effect row", async () => {
+  it("an UNDECLARED throw stays a DEFECT", async () => {
     const served = serve();
-    const boom = effectRow<undefined, void, never>(
+    const boom = unaryRow<undefined, void, never>(
       faceOver(served),
       "math",
       "boom",
@@ -206,7 +204,7 @@ describe("the Effect face fails with the DECLARED error, in-process", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
       // Nothing declared it, so no caller may branch on it as a domain outcome —
-      // D4's crash-loudly channel, unchanged by the new row.
+      // D4's crash-loudly channel.
       expect(Result.isSuccess(Cause.findError(exit.cause))).toBe(false);
       expect(Result.isSuccess(Cause.findDefect(exit.cause))).toBe(true);
       expect(Cause.pretty(exit.cause)).toContain("undeclared kaboom");
@@ -216,64 +214,47 @@ describe("the Effect face fails with the DECLARED error, in-process", () => {
   });
 });
 
-describe("the two nestings are one face", () => {
-  it("carry exactly the same members and verbs", () => {
+describe("the face carries what the spec declares", () => {
+  it("every declared member, plus the reserved `system` namespace", () => {
     const served = serve();
     const face = faceOver(served);
 
-    expect(Object.keys(face.effect).sort()).toEqual(
-      Object.keys(face.surface).sort(),
+    // Asserted against the SPEC, not against a second nesting: the face's job is
+    // to re-nest exactly the members `defineSurface` minted tags for.
+    expect(Object.keys(face.surface).sort()).toEqual(
+      ["math", "system", "ticks"].sort(),
     );
-    for (const member of Object.keys(face.surface)) {
-      const promiseVerbs = Object.keys(
-        face.surface[member] as Record<string, unknown>,
-      ).sort();
-      const effectVerbs = Object.keys(
-        face.effect[member] as Record<string, unknown>,
-      ).sort();
-      expect(effectVerbs).toEqual(promiseVerbs);
-    }
-    // The reserved members are minted through the same helper, so they mirror too
-    // — which is what will let the three probes cross without a second walk.
-    expect(Object.keys(face.effect)).toContain("system");
-  });
-
-  it("a STREAMING row is the identical reference (a Stream is already Effect-native)", () => {
-    const served = serve();
-    const face = faceOver(served);
-    expect(face.effect.ticks?.get).toBe(face.surface.ticks?.get);
-  });
-
-  it("a UNARY Promise row IS its Effect twin, run", async () => {
-    const served = serve();
-    const face = faceOver(served);
-
-    // Distinct functions (one wraps the other) …
-    expect(face.effect.math?.double).not.toBe(face.surface.math?.double);
-    // … over the same tag, the same decode and the same failure.
-    const asPromise = face.surface.math?.double as (
-      i: string,
-    ) => Promise<number>;
-    const asEffect = effectRow<string, number, never>(face, "math", "double");
-    expect(await asPromise("21")).toBe(42);
-    expect(await Effect.runPromise(asEffect("21"))).toBe(42);
-
-    const refusePromise = face.surface.math?.refuse as (i: {
-      why: string;
-    }) => Promise<void>;
-    await expect(refusePromise({ why: "same" })).rejects.toBeInstanceOf(
-      DemoRefused,
+    expect(Object.keys(face.surface.math as object).sort()).toEqual(
+      ["boom", "double", "hang", "refuse"].sort(),
     );
-
-    await served.runtime.close();
+    // The three framework-reserved members are minted by the same walk, at the
+    // same tags `defineSurface` claimed — which is what lets the reserved probes
+    // address them structurally.
+    expect(Object.keys(face.surface.system as object).sort()).toEqual(
+      ["clockNow", "identity", "live"].sort(),
+    );
   });
 
-  it("decodes the ENCODED argument at the edge, on the Effect row too", async () => {
+  it("a unary verb is an Effect and a streaming verb is a Stream", () => {
+    const served = serve();
+    const face = faceOver(served);
+
+    const ticks = face.surface.ticks?.get as (i: { n: number }) => unknown;
+    expect(Stream.isStream(ticks({ n: 1 }))).toBe(true);
+    // …and the row is minted ONCE, so a consumer that captured it keeps the same
+    // reference (the retry fence and the bound faces both rely on that).
+    expect(face.surface.ticks?.get).toBe(face.surface.ticks?.get);
+
+    const double = unaryRow<string, number, never>(face, "math", "double");
+    expect(Effect.isEffect(double("1"))).toBe(true);
+  });
+
+  it("decodes the ENCODED argument at the edge", async () => {
     const served = serve();
     // `NumberFromString`: the wire-shaped `"21"` is what the row accepts, and the
     // handler is handed the decoded `21`. Typing the input decoded would have
     // demanded a `number` the wire never carries (#13).
-    const double = effectRow<string, number, never>(
+    const double = unaryRow<string, number, never>(
       faceOver(served),
       "math",
       "double",
@@ -283,18 +264,18 @@ describe("the two nestings are one face", () => {
   });
 });
 
-describe("an Effect row is a description, and it composes", () => {
+describe("a unary row is a description, and it composes", () => {
   it("building the call dispatches nothing", async () => {
     const served = serve();
-    const refuse = effectRow<{ why: string }, void, DemoRefused>(
+    const refuse = unaryRow<{ why: string }, void, DemoRefused>(
       faceOver(served),
       "math",
       "refuse",
     );
 
-    // The Promise row starts the call at the call site — there is no other shape a
-    // `Promise` can have. The Effect row does not, which is what lets a caller
-    // build it once and retry, race or discard it.
+    // A `Promise` would have started the call at the call site — there is no other
+    // shape it can have. This does not, which is what lets a caller build it once
+    // and retry, race or discard it.
     const call = refuse({ why: "unrun" });
     await Effect.runPromise(Effect.sleep(5));
     const exit = await Effect.runPromiseExit(Effect.flip(call));
@@ -305,7 +286,7 @@ describe("an Effect row is a description, and it composes", () => {
 
   it("a deadline INTERRUPTS the handler — what an `await` cannot do", async () => {
     const served = serve();
-    const hang = effectRow<undefined, void, never>(
+    const hang = unaryRow<undefined, void, never>(
       faceOver(served),
       "math",
       "hang",
@@ -318,7 +299,7 @@ describe("an Effect row is a description, and it composes", () => {
     expect(Exit.isFailure(exit)).toBe(true);
     // … and the WORK stopped, rather than running on unobserved behind an
     // abandoned promise. This is the property every hand-rolled `AbortController`
-    // in the CLI/TUI tail exists to approximate and cannot reach through an
+    // in the CLI/TUI tail existed to approximate and could not reach through an
     // `await`.
     expect(served.hangInterrupted()).toBe(true);
 
@@ -326,22 +307,22 @@ describe("an Effect row is a description, and it composes", () => {
   });
 });
 
-describe("client.effect — the spec-typed Effect procedures", () => {
+describe("client.procedures — the spec-typed procedure face", () => {
   it("binds every declared procedure, with the declared error in the channel", async () => {
     const served = serve();
     const client = surfaceClient(surface, directDispatch(served.runtime));
 
-    expect(await Effect.runPromise(client.effect.math.double("4"))).toBe(8);
+    expect(await Effect.runPromise(client.procedures.math.double("4"))).toBe(8);
 
     const failure = await Effect.runPromise(
-      Effect.flip(client.effect.math.refuse({ why: "typed" })),
+      Effect.flip(client.procedures.math.refuse({ why: "typed" })),
     );
     expect(failure).toBeInstanceOf(DemoRefused);
 
     // The typed face's channel is narrow enough to branch on WITHOUT a cast — the
     // runtime twin of `effectProcedure.test-d.ts`'s type-level pin.
     const recovered = await Effect.runPromise(
-      client.effect.math.refuse({ why: "typed" }).pipe(
+      client.procedures.math.refuse({ why: "typed" }).pipe(
         Effect.catchTag("DemoRefused", (err: DemoRefused) =>
           Effect.succeed(err.because),
         ),
@@ -355,11 +336,11 @@ describe("client.effect — the spec-typed Effect procedures", () => {
     await served.runtime.close();
   });
 
-  it("`.procedures` and `.effect` name the same verbs", async () => {
+  it("`.procedures` names the same verbs the raw face carries", async () => {
     const served = serve();
     const client = surfaceClient(surface, directDispatch(served.runtime));
-    expect(Object.keys(client.effect.math).sort()).toEqual(
-      Object.keys(client.procedures.math).sort(),
+    expect(Object.keys(client.procedures.math).sort()).toEqual(
+      Object.keys(client.rpc.surface.math as object).sort(),
     );
     await served.runtime.close();
   });

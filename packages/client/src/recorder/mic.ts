@@ -54,9 +54,7 @@ function errMsg(err: unknown): string {
  *  This is a user-GESTURE-bound call, so nothing asynchronous may precede it:
  *  `runAction` forks on the caller's stack, and the `getUserMedia` here is the
  *  first thing this effect does. */
-export function openMicPreview(
-  deviceId: string,
-): Effect.Effect<void, unknown> {
+export function openMicPreview(deviceId: string): Effect.Effect<void, unknown> {
   return Effect.suspend(() => {
     closeMicPreview();
     return Effect.tryPromise({

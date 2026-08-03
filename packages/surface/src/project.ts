@@ -42,13 +42,14 @@ import { Cause, Effect, Stream } from "effect";
 import {
   buildSurfaceFace,
   type StreamingProcedure,
-  type SurfaceFace,
+  type SurfaceCallFailure,
 } from "./client";
 import {
   type CellSpec,
   defineSurface,
   type EventSpec,
   type ProcedureSpec,
+  type ProcedureSpecError,
   type StreamSpec,
   type Surface,
   type SurfaceSpec,
@@ -101,26 +102,55 @@ export type SurfaceReadFace<S extends SurfaceSpec> = {
   };
 } & {
   [NS in keyof S["procedures"] & string]: {
-    // The same four-arm ladder the Solid face's `BoundProcedure` resolves, on the
+    // The same four-arm ladder the Solid face's `EffectProcedure` resolves, on the
     // same two sides — encoded in, decoded out. A projection forwards a procedure
     // by CALLING it, so erasing either side here would silently un-type the one
     // place a projection's `deps` reads a remote result.
+    //
+    // The error channel carries the spec's DECLARED union (via `define.ts`'s own
+    // `ProcedureSpecError`, the one extractor for "how a spec declares errors")
+    // plus the framework's {@link SurfaceCallFailure} half, so a projection that
+    // `catchTag`s its declared tags is still told a transport death is unhandled.
     [V in keyof NonNullable<S["procedures"]>[NS] & string]: NonNullable<
       S["procedures"]
     >[NS][V] extends {
       input: infer In extends WireSchemaAny;
       output: infer Out extends WireSchemaAny;
     }
-      ? (input: In["Encoded"]) => Promise<Out["Type"]>
+      ? (
+          input: In["Encoded"],
+        ) => Effect.Effect<
+          Out["Type"],
+          | ProcedureSpecError<NonNullable<S["procedures"]>[NS][V]>["Type"]
+          | SurfaceCallFailure
+        >
       : NonNullable<S["procedures"]>[NS][V] extends {
             input: infer In extends WireSchemaAny;
           }
-        ? (input: In["Encoded"]) => Promise<void>
+        ? (
+            input: In["Encoded"],
+          ) => Effect.Effect<
+            void,
+            | ProcedureSpecError<NonNullable<S["procedures"]>[NS][V]>["Type"]
+            | SurfaceCallFailure
+          >
         : NonNullable<S["procedures"]>[NS][V] extends {
               output: infer Out extends WireSchemaAny;
             }
-          ? (input?: undefined) => Promise<Out["Type"]>
-          : (input?: undefined) => Promise<void>;
+          ? (
+              input?: undefined,
+            ) => Effect.Effect<
+              Out["Type"],
+              | ProcedureSpecError<NonNullable<S["procedures"]>[NS][V]>["Type"]
+              | SurfaceCallFailure
+            >
+          : (
+              input?: undefined,
+            ) => Effect.Effect<
+              void,
+              | ProcedureSpecError<NonNullable<S["procedures"]>[NS][V]>["Type"]
+              | SurfaceCallFailure
+            >;
   };
 };
 
@@ -130,17 +160,10 @@ export type SurfaceReadFace<S extends SurfaceSpec> = {
  *  *spec*, so a projection's `deps` callback names the source surface once and gets
  *  a typed read face.
  *
- *  It IS the face, with only the `surface` nesting re-typed: the face's other
- *  nestings (today `effect`) ride through erased, so a projection that wants a
- *  composable member call reaches `client.effect.<ns>.<verb>` and narrows it
- *  itself. Spelling this as a narrowing of `SurfaceFace` rather than a fresh
- *  object type is also what keeps `surfaceClientRef`'s single cast a NARROWING
- *  rather than an `as unknown as` — a new nesting on the face cannot silently
- *  turn that cast into a lie. */
-export type SurfaceClientOf<S extends SurfaceSpec> = Omit<
-  SurfaceFace,
-  "surface"
-> & {
+ *  It IS the face, with its one nesting re-typed from the spec — so a projection
+ *  gets a composable member call (an `Effect`, catchable and bounded) straight off
+ *  `client.surface.<ns>.<verb>`, with no narrowing of its own to write. */
+export type SurfaceClientOf<S extends SurfaceSpec> = {
   readonly surface: SurfaceReadFace<S>;
 };
 

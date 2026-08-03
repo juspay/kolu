@@ -21,13 +21,7 @@ export function runKill(
   id: string,
   confirm: (line: string) => void,
 ): Effect.Effect<void, unknown> {
-  return Effect.map(
-    Effect.tryPromise({
-      try: () => conn.client.surface.terminal.kill({ id }),
-      catch: (err) => err,
-    }),
-    () => {
-      confirm(`— killed ${shortId(id)}\n`);
-    },
-  );
+  return Effect.map(conn.client.surface.terminal.kill({ id }), () => {
+    confirm(`— killed ${shortId(id)}\n`);
+  });
 }

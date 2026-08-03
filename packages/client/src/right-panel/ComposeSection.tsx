@@ -29,7 +29,7 @@ import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
 import { runAction, type UiAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activePadiEffect } from "../wire";
+import { activePadiRpc } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
@@ -91,7 +91,7 @@ const ComposeSection: Component<{
       // text must survive rather than be wiped by a stale send's completion.
       const sent = draft();
       setSending(true);
-      return activePadiEffect.lifecycle
+      return activePadiRpc.lifecycle
         .sendInput({ id: props.terminalId, data })
         .pipe(
           Effect.andThen(() =>
@@ -118,7 +118,9 @@ const ComposeSection: Component<{
           ),
           Effect.catch((err) =>
             Effect.sync(() => {
-              toast.error(`Failed to send to terminal: ${toError(err).message}`);
+              toast.error(
+                `Failed to send to terminal: ${toError(err).message}`,
+              );
             }),
           ),
           Effect.ensuring(Effect.sync(() => setSending(false))),

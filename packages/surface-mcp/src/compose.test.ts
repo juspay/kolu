@@ -249,8 +249,12 @@ function projectB(a: SourceA) {
       },
       procedures: {
         node: {
-          rerun: ({ input }) =>
-            Effect.promise(() => client.surface.node.rerun(input)),
+          // The upstream member call IS an effect — the projection forwards it
+          // by composing, with nothing to lift. B's `rerun` declares no error
+          // schema, so the framework's own `SurfaceCallFailure` (a transport
+          // death on the A→B hop) is UNDECLARED here and crosses as a defect
+          // rather than being smuggled into a channel the spec says is `never`.
+          rerun: ({ input }) => Effect.orDie(client.surface.node.rerun(input)),
         },
       },
     }),
@@ -307,25 +311,29 @@ async function compose(initial: readonly Node[]): Promise<Composed> {
         input: Schema.Struct({ note: Schema.optionalKey(Schema.String) }),
         description: "Kick off a run and summarize the curated node view.",
         mutates: true,
-        handler: async (args, client) => {
+        handler: (args, client) =>
           // One-shot read of a snapshot-first member: take the first frame and
           // end the stream, which releases the subscription through its own
-          // finalizers. This `Effect.runPromise` is the bespoke handler's own
-          // edge — a consumer-supplied async function, not framework code.
-          const head = await Effect.runPromise(
-            Stream.runHead(
-              (client as SurfaceClientCallable).surface.nodes?.get?.(
-                undefined,
-              ) as Stream.Stream<readonly BNode[]>,
-            ),
-          );
-          const snapshot = Option.getOrElse(head, (): readonly BNode[] => []);
-          return {
-            started: true,
-            note: (args as { note?: string }).note ?? null,
-            nodeCount: snapshot.length,
-          };
-        },
+          // finalizers. Nothing is RUN here — the handler describes the read and
+          // the adapter runs it at the request edge, so a cancelled tools/call
+          // interrupts the subscription instead of orphaning it.
+          Stream.runHead(
+            (client as SurfaceClientCallable).surface.nodes?.get?.(
+              undefined,
+            ) as Stream.Stream<readonly BNode[]>,
+          ).pipe(
+            Effect.map((head) => {
+              const snapshot = Option.getOrElse(
+                head,
+                (): readonly BNode[] => [],
+              );
+              return {
+                started: true,
+                note: (args as { note?: string }).note ?? null,
+                nodeCount: snapshot.length,
+              };
+            }),
+          ),
       },
     },
     serverInfo: { name: "compose-test", version: "0.0.0" },

@@ -19,7 +19,7 @@
  * against a real `implementSurface`) belongs with the server, and lands with it.
  */
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   ClockNowUnavailableError,
@@ -29,13 +29,13 @@ import {
 } from "./clockNow";
 import { defineSurface } from "./define";
 
-/** A minimal stand-in for the typed nested client face the Stage-3 client
- *  builds: `client.surface.<namespace>.<verb>(input, opts)`. */
+/** A minimal stand-in for the typed nested client face: every unary verb is a
+ *  lazy `Effect`, so the probe composes rather than awaits. */
 function faceAnswering(epochMs: () => number) {
   return {
     surface: {
       system: {
-        clockNow: async () => ({ epochMs: epochMs() }),
+        clockNow: () => Effect.sync(() => ({ epochMs: epochMs() })),
       },
     },
   };
@@ -111,25 +111,38 @@ describe("framework-reserved system/clockNow member", () => {
 });
 
 describe("probeSurfaceClockNow", () => {
-  it("resolves against a client face carrying the reserved member", async () => {
+  it("succeeds against a client face carrying the reserved member", async () => {
     await expect(
-      probeSurfaceClockNow(faceAnswering(() => 1234)),
+      Effect.runPromise(probeSurfaceClockNow(faceAnswering(() => 1234))),
     ).resolves.toEqual({ epochMs: 1234 });
   });
 
-  it("throws a TYPED absence error rather than a TypeError, per missing step", () => {
+  it("FAILS with a TYPED absence error rather than a TypeError, per missing step", async () => {
     // The whole point of the typed error: a caller classifies "member absent" by
     // an `instanceof` check, never by string-matching a `TypeError` message,
     // which differs by WHICH navigation step is undefined and by JS engine.
-    expect(() => probeSurfaceClockNow({})).toThrow(ClockNowUnavailableError);
-    expect(() => probeSurfaceClockNow({})).toThrow(
-      /no `surface` on the client/,
-    );
-    expect(() => probeSurfaceClockNow({ surface: {} })).toThrow(
+    const absence = (client: unknown): Promise<Error> =>
+      Effect.runPromise(
+        Effect.flip(probeSurfaceClockNow(client)),
+      ) as Promise<Error>;
+    await expect(absence({})).resolves.toBeInstanceOf(ClockNowUnavailableError);
+    expect((await absence({})).message).toMatch(/no `surface` on the client/);
+    expect((await absence({ surface: {} })).message).toMatch(
       /no reserved `system` namespace/,
     );
-    expect(() => probeSurfaceClockNow({ surface: { system: {} } })).toThrow(
+    expect((await absence({ surface: { system: {} } })).message).toMatch(
       /no `system.clockNow` verb/,
+    );
+  });
+
+  it("does not even LOOK at the client until it is run", async () => {
+    // The absence check moved inside the effect, so merely BUILDING a probe
+    // against a bad client is not an error — which is what lets a caller compose
+    // the probe into a program that may never reach it.
+    const unrun = probeSurfaceClockNow({});
+    await Effect.runPromise(Effect.sleep(1));
+    await expect(Effect.runPromise(unrun)).rejects.toThrow(
+      /no `surface` on the client/,
     );
   });
 });
@@ -139,14 +152,16 @@ describe("measureSurfaceClockOffset", () => {
     // The face answers with this process's own `Date.now()`, so the measured
     // offset must be ~0 — the RTT-midpoint sampling keeps it from being biased by
     // the round-trip latency.
-    const offset = await measureSurfaceClockOffset(faceAnswering(Date.now));
+    const offset = await Effect.runPromise(
+      measureSurfaceClockOffset(faceAnswering(Date.now)),
+    );
     expect(Math.abs(offset)).toBeLessThan(100);
   });
 
   it("reports a far-end clock that is ahead as a positive offset", async () => {
     const skewMs = 3_600_000;
-    const offset = await measureSurfaceClockOffset(
-      faceAnswering(() => Date.now() + skewMs),
+    const offset = await Effect.runPromise(
+      measureSurfaceClockOffset(faceAnswering(() => Date.now() + skewMs)),
     );
     expect(Math.abs(offset - skewMs)).toBeLessThan(100);
   });

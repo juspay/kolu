@@ -338,7 +338,9 @@ function resolveSocketPath(flags: {
       return Effect.fail(
         failure(
           `more than one padi daemon is running:\n  ${resolved.candidates
-            .map((d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`)
+            .map(
+              (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
+            )
             .join(
               "\n  ",
             )}\nPass --socket <path> or --state-root <dir> to pick one.`,
@@ -400,9 +402,7 @@ function connectTo(
   return endpoint.kind === "host"
     ? Effect.catch(connectPadiTuiViaHost(endpoint.host), (err) =>
         Effect.fail(
-          failure(
-            `could not reach padi on ${endpoint.host} — ${message(err)}`,
-          ),
+          failure(`could not reach padi on ${endpoint.host} — ${message(err)}`),
         ),
       )
     : Effect.catch(connectPadiTui(endpoint.socketPath), (err) =>
@@ -498,9 +498,7 @@ function cmdWatch(
       const shutdown = yield* shutdownRequest;
       const conn = yield* connectTo(endpoint);
       const only =
-        query === undefined
-          ? undefined
-          : yield* resolveArg(conn.client, query);
+        query === undefined ? undefined : yield* resolveArg(conn.client, query);
 
       const lines = yield* Queue.unbounded<string, Cause.Done>();
       const emit = (line: string): void => {
@@ -718,7 +716,9 @@ function cmdCreate(
     const bits = [`— created ${shortId(result.id)}`];
     if (parentId !== undefined) bits.push(`split of ${shortId(parentId)}`);
     if (result.worktree !== undefined) {
-      bits.push(`worktree ${result.worktree.branch} at ${result.worktree.path}`);
+      bits.push(
+        `worktree ${result.worktree.branch} at ${result.worktree.path}`,
+      );
     }
     if (result.ran !== undefined) bits.push(`running \`${result.ran}\``);
     yield* writeErr(`${bits.join(" · ")}\n`);

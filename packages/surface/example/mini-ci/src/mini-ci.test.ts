@@ -230,7 +230,7 @@ describe("mini-ci runner over stdio (loopback)", () => {
     await until(() => isDone(tracker.states));
     const settledFrames = tracker.states.length;
 
-    const result = await rerunNode(h.client, "build");
+    const result = await Effect.runPromise(rerunNode(h.client, "build"));
     expect(result.ok).toBe(true);
 
     // After rerun, both nodes must cycle back through `pending` and settle

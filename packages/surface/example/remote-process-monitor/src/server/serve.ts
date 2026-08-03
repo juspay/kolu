@@ -20,7 +20,7 @@
  * pair every transport takes; `main.ts` gives it to `serveSurfaceSocket`.
  */
 
-import type { UnaryProcedure } from "@kolu/surface/client";
+import type { UnaryEffect } from "@kolu/surface/client";
 import { mirrorRemoteSurface } from "@kolu/surface/mirror";
 import {
   type CellStore,
@@ -150,11 +150,12 @@ export function buildSurface(opts: BuildSurfaceOptions) {
               throw new Error("no live agent link — cannot forward kill");
             }
             const client = await clientPromise;
-            const kill = client.surface.process?.kill as UnaryProcedure<
+            const kill = client.surface.process?.kill as UnaryEffect<
               KillArgs,
-              KillResult
+              KillResult,
+              never
             >;
-            return kill(input);
+            return Effect.runPromise(kill(input));
           }),
       },
     },

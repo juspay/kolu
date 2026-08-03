@@ -214,12 +214,13 @@ import { ptyHostClientOver, ptyHostSurface } from "kaval";
 const link = await unixSocketLink({ group: ptyHostSurface.group, socketPath });
 const client = ptyHostClientOver(link.dispatch);
 
-await client.surface.terminal.list({}); // Promise<{ entries }>
+client.surface.terminal.list({}); // Effect<{ entries }> — lazy
 client.surface.terminalAttach.get({ id }); // Stream<PtyHostDataMsg> — lazy
 await link.dispose(); // releases the link's protocol fibers
 ```
 
-A procedure still returns a `Promise`; a streaming member returns a lazy
-`Stream`, synchronously. Cancellation is fiber interruption — there is no
-`AbortSignal` to thread. A pull-shaped consumer runs it with
-`Stream.toAsyncIterable` and unsubscribes with `iterator.return()`.
+Both leaf shapes are lazy: a procedure returns an `Effect` carrying its declared
+error union, a streaming member returns a `Stream`. Neither dispatches until it
+runs, and cancellation is fiber interruption — there is no `AbortSignal` to
+thread. A pull-shaped consumer runs a stream with `Stream.toAsyncIterable` and
+unsubscribes with `iterator.return()`.

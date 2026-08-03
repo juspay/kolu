@@ -24,6 +24,7 @@
  * the correct behaviour for a reserved verb.
  */
 
+import type { Effect } from "effect";
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
@@ -70,7 +71,7 @@ export type SurfaceLiveProbeable = {
     typeof LIVENESS_NAMESPACE,
     Record<
       typeof LIVENESS_VERB,
-      (input: Record<string, never>) => Promise<unknown>
+      (input: Record<string, never>) => Effect.Effect<unknown, unknown>
     >
   >;
 };
@@ -85,11 +86,12 @@ export type SurfaceLiveProbeable = {
  *  {@link SurfaceLiveProbeable} HERE, so callers pass `client.rpc` / `client` with
  *  NO cast at the boundary instead of each hand-pinning the assertion.
  *
- *  STAGE 3 (client face): the Promise-returning nested face this walks is the
- *  face `surfaceClient` hand-builds from the spec (D2). The walk itself is
- *  transport-agnostic and unchanged by the Effect port — what Stage 3 supplies is
- *  the face, not a different probe. */
-export function probeSurfaceLive(client: unknown): Promise<unknown> {
+ *  Returns the member call as it comes off the face: a lazy `Effect`. Nothing is
+ *  dispatched until a watchdog runs it, which is what lets the watchdog bound the
+ *  probe with its own timeout and let interruption tear a stale probe down. */
+export function probeSurfaceLive(
+  client: unknown,
+): Effect.Effect<unknown, unknown> {
   return (client as SurfaceLiveProbeable).surface[LIVENESS_NAMESPACE][
     LIVENESS_VERB
   ]({});

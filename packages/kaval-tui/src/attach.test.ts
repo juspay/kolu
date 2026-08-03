@@ -38,7 +38,6 @@ import { resolveTerminalId, shortId } from "./render.ts";
 import { planSend, type SendPlan } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
 
-
 /** A plain sleep. It used to live in `wait.ts` as the package's one
  *  `setTimeout` wrapper; production has no use for it any more (the wait's idle
  *  window is a queue timeout, the attach's re-subscribe pause an `Effect.sleep`),
@@ -102,15 +101,16 @@ function fakeTty(): FakeTty {
  *  passes straight through. */
 function clientWithSlowWrite(
   client: PtyTuiClient,
-  hook: () => Promise<void>,
+  hook: Effect.Effect<void>,
 ): PtyTuiClient {
   const terminal = new Proxy(client.surface.terminal, {
     get(target, prop, receiver) {
       if (prop === "write") {
-        return async (input: { id: string; data: string }) => {
-          await hook();
-          return target.write(input);
-        };
+        // A member call is an EFFECT, so the delay composes in front of it
+        // rather than wrapping a promise — the write still happens exactly once,
+        // and only when the attach loop runs the value it was handed.
+        return (input: { id: string; data: string }) =>
+          Effect.flatMap(hook, () => target.write(input));
       }
       return Reflect.get(target, prop, receiver);
     },
@@ -148,7 +148,7 @@ beforeAll(async () => {
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     lifetime: { kind: "forever" },
   });
-  killAll = () => client.surface.terminal.killAll({});
+  killAll = () => Effect.runPromise(client.surface.terminal.killAll({}));
   const socketPath = join(
     mkdtempSync(join(tmpdir(), "kolu-pty-sock-")),
     "pty-host.sock",
@@ -189,18 +189,22 @@ describeDaemon("runAttach — over a real unix socket", () => {
     // accepts our fully-specified input and echoes the id back (the round-trip
     // `create` relies on so the printed id is the one `attach` then resolves).
     const id = "11111111-2222-3333-4444-555555555555";
-    const result = await conn.client.surface.terminal.spawn(
-      buildCreateInput({
-        id,
-        cwd: dir,
-        env: process.env,
-        kavalSocket: KAVAL_SOCK,
-      }),
+    const result = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(
+        buildCreateInput({
+          id,
+          cwd: dir,
+          env: process.env,
+          kavalSocket: KAVAL_SOCK,
+        }),
+      ),
     );
     expect(result.id).toBe(id);
     expect(result.cwd).toBe(dir);
     expect(result.pid).toBeGreaterThan(0);
-    const { entries } = await conn.client.surface.terminal.list({});
+    const { entries } = await Effect.runPromise(
+      conn.client.surface.terminal.list({}),
+    );
     expect(entries.some((e) => e.id === id)).toBe(true);
   });
 
@@ -212,22 +216,27 @@ describeDaemon("runAttach — over a real unix socket", () => {
     // A command (not $SHELL) that prints a marker then stays alive, so the PTY
     // is still listable when we read its screen — proves the `[command…]`
     // positional reaches the host's spawn verbatim.
-    await conn.client.surface.terminal.spawn(
-      buildCreateInput({
-        id,
-        cwd: dir,
-        env: process.env,
-        command: ["sh", "-c", "echo CMDMARK-create; sleep 100"],
-        kavalSocket: KAVAL_SOCK,
-      }),
+    await Effect.runPromise(
+      conn.client.surface.terminal.spawn(
+        buildCreateInput({
+          id,
+          cwd: dir,
+          env: process.env,
+          command: ["sh", "-c", "echo CMDMARK-create; sleep 100"],
+          kavalSocket: KAVAL_SOCK,
+        }),
+      ),
     );
     let screen = "";
     await until(
       () => screen.includes("CMDMARK-create"),
       "command output",
       async () => {
-        screen = (await conn.client.surface.terminal.getScreenText({ id }))
-          .text;
+        screen = (
+          await Effect.runPromise(
+            conn.client.surface.terminal.getScreenText({ id }),
+          )
+        ).text;
       },
     );
   });
@@ -243,26 +252,31 @@ describeDaemon("runAttach — over a real unix socket", () => {
     // `sh`, so a match means the child's environment carried it. `env: process.env`
     // may itself carry an OUTER id (this test can run inside a kolu terminal) — a
     // match on THIS id also proves the stamp overwrote the inherited one.
-    await conn.client.surface.terminal.spawn(
-      buildCreateInput({
-        id,
-        cwd: dir,
-        env: process.env,
-        kavalSocket: KAVAL_SOCK,
-        command: [
-          "sh",
-          "-c",
-          'printf "TERMID=[%s]\\n" "$KAVAL_TERMINAL_ID"; sleep 100',
-        ],
-      }),
+    await Effect.runPromise(
+      conn.client.surface.terminal.spawn(
+        buildCreateInput({
+          id,
+          cwd: dir,
+          env: process.env,
+          kavalSocket: KAVAL_SOCK,
+          command: [
+            "sh",
+            "-c",
+            'printf "TERMID=[%s]\\n" "$KAVAL_TERMINAL_ID"; sleep 100',
+          ],
+        }),
+      ),
     );
     let screen = "";
     await until(
       () => screen.includes(`TERMID=[${id}]`),
       "KAVAL_TERMINAL_ID echoed by the child",
       async () => {
-        screen = (await conn.client.surface.terminal.getScreenText({ id }))
-          .text;
+        screen = (
+          await Effect.runPromise(
+            conn.client.surface.terminal.getScreenText({ id }),
+          )
+        ).text;
       },
     );
   });
@@ -274,41 +288,51 @@ describeDaemon("runAttach — over a real unix socket", () => {
     const id = "33333333-4444-5555-6666-777777777777";
     // Print 60 numbered lines into the default 24-row grid, so the top scrolls
     // out of the visible screen — the exact long-buffer case #1607 hit.
-    await conn.client.surface.terminal.spawn(
-      buildCreateInput({
-        id,
-        cwd: dir,
-        env: process.env,
-        kavalSocket: KAVAL_SOCK,
-        command: [
-          "sh",
-          "-c",
-          "for i in $(seq 1 60); do printf 'L%02d\\n' $i; done; sleep 100",
-        ],
-      }),
+    await Effect.runPromise(
+      conn.client.surface.terminal.spawn(
+        buildCreateInput({
+          id,
+          cwd: dir,
+          env: process.env,
+          kavalSocket: KAVAL_SOCK,
+          command: [
+            "sh",
+            "-c",
+            "for i in $(seq 1 60); do printf 'L%02d\\n' $i; done; sleep 100",
+          ],
+        }),
+      ),
     );
     let screen = "";
     await until(
       () => screen.includes("L60"),
       "all lines printed",
       async () => {
-        screen = (await conn.client.surface.terminal.getScreenText({ id }))
-          .text;
+        screen = (
+          await Effect.runPromise(
+            conn.client.surface.terminal.getScreenText({ id }),
+          )
+        ).text;
       },
     );
 
     // Full read keeps the scrolled-off top.
-    const full = (await conn.client.surface.terminal.getScreenText({ id }))
-      .text;
+    const full = (
+      await Effect.runPromise(
+        conn.client.surface.terminal.getScreenText({ id }),
+      )
+    ).text;
     expect(full).toContain("L01");
     expect(full).toContain("L60");
 
     // --viewport: only the visible screen (the daemon's own 24 rows) — drops L01.
     const viewport = (
-      await conn.client.surface.terminal.getScreenText({
-        id,
-        extent: { kind: "viewport" },
-      })
+      await Effect.runPromise(
+        conn.client.surface.terminal.getScreenText({
+          id,
+          extent: { kind: "viewport" },
+        }),
+      )
     ).text;
     expect(viewport).toContain("L60");
     expect(viewport).not.toContain("L01");
@@ -316,10 +340,12 @@ describeDaemon("runAttach — over a real unix socket", () => {
     // --tail 3: exactly the last 3 rendered lines (the bottom of the buffer —
     // L60 plus the blank cursor line, never the scrolled-off top).
     const tail = (
-      await conn.client.surface.terminal.getScreenText({
-        id,
-        extent: { kind: "tail", lines: 3 },
-      })
+      await Effect.runPromise(
+        conn.client.surface.terminal.getScreenText({
+          id,
+          extent: { kind: "tail", lines: 3 },
+        }),
+      )
     ).text;
     expect(tail.split("\n")).toHaveLength(3);
     expect(tail).toContain("L60");
@@ -330,8 +356,8 @@ describeDaemon("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id, pid } = await conn.client.surface.terminal.spawn(
-      spawnInput(dir),
+    const { id, pid } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
     );
     const { tty, out, type } = fakeTty();
     const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
@@ -350,7 +376,9 @@ describeDaemon("runAttach — over a real unix socket", () => {
     type("\r~.");
     const outcome = await done;
     expect(outcome).toEqual({ kind: "detached" });
-    const { entries } = await conn.client.surface.terminal.list({});
+    const { entries } = await Effect.runPromise(
+      conn.client.surface.terminal.list({}),
+    );
     expect(entries.some((e) => e.id === id)).toBe(true);
   });
 
@@ -358,7 +386,9 @@ describeDaemon("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
+    );
     const { tty, out, type } = fakeTty();
     const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
@@ -372,7 +402,9 @@ describeDaemon("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
+    );
     const { tty, out, type } = fakeTty();
 
     // ssh-style escape ordering, pinned tightly: a slow write must still flush
@@ -382,10 +414,14 @@ describeDaemon("runAttach — over a real unix socket", () => {
     // would resolve while the write is still in flight and `writeLanded` would
     // be false — so this assertion fails loudly on the F2 regression.
     let writeLanded = false;
-    const slowClient = clientWithSlowWrite(conn.client, async () => {
-      await new Promise((r) => setTimeout(r, 200));
-      writeLanded = true;
-    });
+    const slowClient = clientWithSlowWrite(
+      conn.client,
+      Effect.flatMap(Effect.sleep(200), () =>
+        Effect.sync(() => {
+          writeLanded = true;
+        }),
+      ),
+    );
 
     const done = Effect.runPromise(runAttach(slowClient, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
@@ -398,15 +434,20 @@ describeDaemon("runAttach — over a real unix socket", () => {
     expect(writeLanded).toBe(true);
 
     // And the PTY survived the detach and ran the pre-detach line.
-    const { entries } = await conn.client.surface.terminal.list({});
+    const { entries } = await Effect.runPromise(
+      conn.client.surface.terminal.list({}),
+    );
     expect(entries.some((e) => e.id === id)).toBe(true);
     let screen = "";
     await until(
       () => screen.includes("PRE-DETACH-15"),
       "pre-detach line",
       async () => {
-        screen = (await conn.client.surface.terminal.getScreenText({ id }))
-          .text;
+        screen = (
+          await Effect.runPromise(
+            conn.client.surface.terminal.getScreenText({ id }),
+          )
+        ).text;
       },
     );
   });
@@ -415,7 +456,9 @@ describeDaemon("runAttach — over a real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
-    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
+    );
     const { tty, out, type } = fakeTty();
     const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
@@ -424,9 +467,11 @@ describeDaemon("runAttach — over a real unix socket", () => {
     type("~.");
     expect(await done).toEqual({ kind: "detached" });
     // The help went to the LOCAL tty only — the PTY's screen never saw it.
-    const { text } = await conn.client.surface.terminal.getScreenText({
-      id,
-    });
+    const { text } = await Effect.runPromise(
+      conn.client.surface.terminal.getScreenText({
+        id,
+      }),
+    );
     expect(text).not.toContain("kaval-tui escapes");
   });
 });
@@ -436,7 +481,9 @@ describeDaemon("send — over the same real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-send-"));
-    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
+    );
 
     // The canonical two-command shape `cmdSend` drives: the literal text as one
     // send, then an explicit `--key Enter` as its OWN send — `send` never adds an
@@ -455,12 +502,8 @@ describeDaemon("send — over the same real unix socket", () => {
     expect(textPlan.write).toBe("echo SENDMARK-$((6 * 7))");
     expect(enterPlan.write).toBe("\r");
     const writeToPty = (data: string) =>
-      Effect.promise(() =>
-        conn.client.surface.terminal.write({ id, data }).then(() => {}),
-      );
-    await Effect.runPromise(
-      executeSendPlan(textPlan, writeToPty, shortId(id)),
-    );
+      Effect.asVoid(conn.client.surface.terminal.write({ id, data }));
+    await Effect.runPromise(executeSendPlan(textPlan, writeToPty, shortId(id)));
     await Effect.runPromise(
       executeSendPlan(enterPlan, writeToPty, shortId(id)),
     );
@@ -470,8 +513,11 @@ describeDaemon("send — over the same real unix socket", () => {
       () => screen.includes("SENDMARK-42"),
       "sent command output",
       async () => {
-        screen = (await conn.client.surface.terminal.getScreenText({ id }))
-          .text;
+        screen = (
+          await Effect.runPromise(
+            conn.client.surface.terminal.getScreenText({ id }),
+          )
+        ).text;
       },
     );
   });
@@ -505,26 +551,28 @@ describeDaemon(
       extraEnv: Record<string, string> = {},
     ): Promise<string> {
       const dir = mkdtempSync(join(tmpdir(), "kolu-submit-"));
-      const { id } = await conn.client.surface.terminal.spawn(
-        buildCreateInput({
-          id: newPtyId(),
-          // `env` is mined for the canonical base (PATH, so `node` resolves); the
-          // fixture's own config vars are NOT canonical, so they ride the explicit
-          // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
-          // a var the clean base drops. This also exercises extraEnv over a real spawn.
-          cwd: dir,
-          env: process.env,
-          extraEnv: {
-            FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
-            // The fixture recognizes the SAME bracketed-paste markers `planSend`
-            // wraps text with — pass the protocol constants so it can't drift.
-            FIXTURE_PASTE_START: BRACKETED_PASTE_START,
-            FIXTURE_PASTE_END: BRACKETED_PASTE_END,
-            ...extraEnv,
-          },
-          command: ["node", FIXTURE],
-          kavalSocket: KAVAL_SOCK,
-        }),
+      const { id } = await Effect.runPromise(
+        conn.client.surface.terminal.spawn(
+          buildCreateInput({
+            id: newPtyId(),
+            // `env` is mined for the canonical base (PATH, so `node` resolves); the
+            // fixture's own config vars are NOT canonical, so they ride the explicit
+            // `--env` escape hatch (extraEnv) — the same path a real caller uses to add
+            // a var the clean base drops. This also exercises extraEnv over a real spawn.
+            cwd: dir,
+            env: process.env,
+            extraEnv: {
+              FIXTURE_DEBOUNCE_MS: String(DEBOUNCE_MS),
+              // The fixture recognizes the SAME bracketed-paste markers `planSend`
+              // wraps text with — pass the protocol constants so it can't drift.
+              FIXTURE_PASTE_START: BRACKETED_PASTE_START,
+              FIXTURE_PASTE_END: BRACKETED_PASTE_END,
+              ...extraEnv,
+            },
+            command: ["node", FIXTURE],
+            kavalSocket: KAVAL_SOCK,
+          }),
+        ),
       );
       await untilScreen(id, (s) => s.includes("READY"), "fixture READY");
       return id;
@@ -533,10 +581,12 @@ describeDaemon(
     /** The FULL scrollback (not the viewport) so a marker can't scroll away behind
      *  the fixture's busy-stream output. */
     async function screenOf(id: string): Promise<string> {
-      const { text } = await conn.client.surface.terminal.getScreenText({
-        id,
-        extent: { kind: "full" },
-      });
+      const { text } = await Effect.runPromise(
+        conn.client.surface.terminal.getScreenText({
+          id,
+          extent: { kind: "full" },
+        }),
+      );
       return text;
     }
 
@@ -565,7 +615,9 @@ describeDaemon(
           plan,
           (data) =>
             Effect.promise(async () => {
-              await conn.client.surface.terminal.write({ id, data });
+              await Effect.runPromise(
+                conn.client.surface.terminal.write({ id, data }),
+              );
             }),
           shortId(id),
         ),
@@ -691,10 +743,14 @@ describeDaemon("runKill — over the same real unix socket", () => {
     timeout: 30_000,
   }, async () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-kill-"));
-    const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
+    const { id } = await Effect.runPromise(
+      conn.client.surface.terminal.spawn(spawnInput(dir)),
+    );
 
     // Live and listable first.
-    const { entries } = await conn.client.surface.terminal.list({});
+    const { entries } = await Effect.runPromise(
+      conn.client.surface.terminal.list({}),
+    );
     expect(entries.some((e) => e.id === id)).toBe(true);
 
     // `kaval-tui kill <id>` resolves the short id (or any unique prefix) to the
@@ -727,9 +783,9 @@ describeDaemon("runKill — over the same real unix socket", () => {
       () => gone,
       "the killed terminal to leave the list",
       async () => {
-        gone = !(await conn.client.surface.terminal.list({})).entries.some(
-          (e) => e.id === id,
-        );
+        gone = !(
+          await Effect.runPromise(conn.client.surface.terminal.list({}))
+        ).entries.some((e) => e.id === id);
       },
     );
   });
