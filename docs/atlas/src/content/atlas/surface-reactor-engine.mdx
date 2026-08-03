@@ -1,48 +1,66 @@
 ---
 title: The reactor engine — decided
-description: "The ratified engine decision for the reactive bridge: @preact/signals-core behind reactor.ts now; @solidjs/signals the named swap target once Solid 2.0 and its ecosystem stabilize; kolu's frontend stays on Solid 1.9. Grounded in a live-Node-probed comparison of six engines — today's choice is maintenance posture, not architecture, because reactor.ts is a proven two-way door."
+description: "The ratified engine decision for the reactive bridge: Effect's Atom (effect/unstable/reactivity) behind reactor.ts, adopted when the whole repo moved to Effect. The swap off @preact/signals-core was 13 call sites and zero wrapper-test edits — the two-way door proving itself. Records the four measured Atom-vs-preact divergences, each closed once inside the wrapper, and the probed six-engine comparison that stands as the reason none of the alternatives is a fallback."
 parents: [reference, padi, surface]
 status: accepted
-maturity: seedling
-updated: 2026-07-10
+maturity: budding
+updated: 2026-08-03
 ---
 
-import PrLink from "../../components/PrLink.astro";
+import Footnote from "../../components/Footnote.astro";
 
-**The decision.** [The reactive bridge](surface-reactive-bridge.html)'s engine is **`@preact/signals-core`**, behind `reactor.ts`, now; **`@solidjs/signals` is the named swap target** once Solid 2.0 and its ecosystem stabilize; kolu's **frontend stays on Solid 1.9**. Despite the name, `@preact/signals-core` imports nothing from preact — it is a framework-free graph library (zero deps, no DOM/global reach, fully synchronous) that happens to live in preact's monorepo; choosing it couples kolu to nothing React-shaped. And because `reactor.ts` is a demonstrated two-way door (below), **today's choice is maintenance posture and default semantics, not architecture**. Everything here is grounded in source reads and live Node probes (Node 24.14.1, 2026-07-10).
+**The decision.** [The reactive bridge](surface-reactive-bridge.html)'s engine is **Effect's `Atom`/`AtomRegistry`** (`effect/unstable/reactivity`), behind `reactor.ts`. It replaced `@preact/signals-core`, which held the slot from the bridge's first slice until the Effect campaign. There is **no named swap target** any more: the point of a wrapper is that the next engine is whichever one passes the laws, and the last swap proved the door opens.
 
-## Why preact wins today
+The reason is not that Atom is a better graph library than preact's. It is that the daemon's concurrency, lifetime and error vocabulary is now Effect end to end — fibers, scopes, `Ref`, `Queue`, `Stream` — and a second, unrelated graph library sitting inside that process is one dependency, one set of semantics and one failure mode more than the codebase needs. The engine seam was always meant to make that call cheap. It was: **13 call sites, zero edits to the wrapper's own tests.**
 
-It is the only candidate that passes every bridge law with zero patches in `reactor.ts`: explicit nested `batch()` with **promptly** reads (a signal modified within a batch reads updated — kolu's read-your-writes law); a throwing computed **caches and rethrows on every read** until a dependency changes, then recovers (probed) — loud, never swallowed; effect disposers + cleanup + per-signal `watched`/`unwatched` hooks (a direct fit for "a member knows when it has subscribers") and GC-able unreferenced subgraphs — built for long-lived processes. The one gap — no custom `equals` option — is a non-cost: the bridge's law already places equals at the single writer's publish gate inside the framework (`server.ts:198-207`); the engine never needs to own it.
+## What the seam is, and what it hides
 
-## The eliminations, one line each
+`reactor.ts` defines exactly four primitives and nothing else — `signal` (a mutable root), `derive` (lazy, glitch-free), `effect` (subscriber + disposer), `batch` (one frame) — over ONE module-level `AtomRegistry`. The registry is deliberately **not** behind a `Layer`: putting it there would drag every consumer of `source` / `scan` / `computed` into an Effect context, and the bridge's face is, and must remain, a synchronous non-Effect surface that a plain callback can write to.<Footnote>This is the same line the run-edge ledger draws: the reactor's poll dep stays `() => Promise<T>` and `everyMs` stays a `setInterval`. The ENGINE is Effect; the FACE is not. Collapsing the two would put an `Effect.runPromise` inside `reactor.ts`.</Footnote>
 
-- **`@vue/reactivity` (standalone):** exports **no `batch`/`flush`** — Vue's batching lives in `@vue/runtime-core`'s scheduler, so reactor.ts would hand-roll exactly the frame the engine was supposed to own.
-- **`alien-signals`:** a throwing computed's **second read silently returns `undefined`** (probed) — the `caught-error-must-not-collapse-to-empty` defect class, verbatim; an effect throw aborts the rest of the flush queue.
-- **`@reactively/core`:** dead (last publish 2023) and **no effect disposal API at all** — the algorithm's lineage moved to `@solidjs/signals`.
-- **TC39 `signal-polyfill`:** the README's first line forbids production use; Stage 1 since April 2024 with no advancement; no effect, no batch (build both on `subtle.Watcher`). And **Solid 2.0 is not built on it** — 2.0's core is `@solidjs/signals`, its own API and repo; Solid is a design participant in the proposal, not an implementer (cited in the comparison's sources).
-- **solid-js 1.x deep-imported into Node:** the `node` condition routes to `dist/server.js` whose `createEffect` is a no-op; the `dist/solid.js` workaround risks **two disjoint silent reactive graphs in one process** (one plain `'solid-js'` import, yours or transitive, loads the server build alongside) — the worst failure mode under fail-fast, and an unsupported configuration.
+`biome.jsonc` bans `effect/unstable/reactivity` repo-wide with two overrides — `reactor.ts` and the laws test. That pin is what makes "one exit from the graph" structural rather than a review convention, and it is the reason this swap cost thirteen call sites instead of an audit: **the pin outlived the engine it was first written for.**
 
-## The Solid 2.0 findings
+## The four divergences, each closed once
 
-- `solid-js@2.0.0-beta.17` itself is still browser/SSR-shaped: the node build's `createEffect` passes the apply half as `undefined` — a live probe ran the effect **zero** times. The framework package is not the daemon's engine even in 2.0.
-- The ecosystem peer-excludes 2.x today: corvu → `^1.8`, solid-sonner → `^1.6.0`, the `@solid-primitives/*` kolu uses → `^1.6.12`, `@solidjs/testing-library`'s range unsatisfied by a `2.0.0-beta.x` prerelease. The UI stack kolu's conventions prefer does not install against the beta — frontend migration is blocked on the ecosystem, not just kolu's own code.
-- **But `@solidjs/signals` passes the full standalone Node probe** — `createRoot` + `createSignal` + `createMemo` + `createEffect(compute, apply)` + `flush()`, equality-cascade stop, root disposal. **One engine on both sides is the named future**: daemon imports `@solidjs/signals`, browser imports `solid-js@2` wrapping the same core — one algorithm, one semantics, two entry packages. Its one semantic caveat survives the swap: 2.0 defers writes (reads are stale until `flush()`), so reactor.ts adds a `flush()`-at-publish rule to preserve the promptly law — one rule, law-tested.
+Atom is not preact with different spelling. Four behaviours differ, all found by running the laws against the raw engine, and each is absorbed by the wrapper so no call site ever meets it.
 
-## The two-way door, demonstrated
+| # | Atom's behaviour | Where it is closed |
+|---|---|---|
+| 1 | **No implicit batch.** A write notifies immediately; preact's `batch()` was explicit but the bridge wants every write batched. | The batch is baked into `signal`'s SETTER. `batch()` and a source `emit` merely nest (depth-counted). A missed batch is now unspellable — no site can forget. |
+| 2 | **A throwing derivation escapes on the writer's stack.** | A derivation's node value is a `Result<T, unknown>`, so the atom read is total; the throw is re-raised at `.value` / `.peek()`. Equality is `Atom.withEquality` over the PAYLOAD, or a fresh `Result` object per recompute would republish every frame and lose the equality-cascade stop. |
+| 3 | **Auto-removal loses state** — an unobserved node is dropped and its next read starts over. | `signal()` bakes in `Atom.keepAlive`. Pure derivations still auto-dispose, which is what you want. |
+| 4 | **`Object.is` equality**, so a `NaN` → `NaN` write does not propagate (preact's `!==` republished). | Adopted deliberately: fewer spurious wire frames, and no test anywhere pinned the old behaviour. Stated in the laws rather than left to be discovered. |
 
-The same four-primitive contract — `signal` · `computed` (glitch-free lazy pull + equality-cascade stop) · `effect` (with disposal) · `batch` — was exercised on five engines in this comparison with only surface-syntax differences. The wrapper owns the three things engines disagree on — **equals gating, error policy, flush discipline** — so those laws are pinned by reactor.ts's own tests, not by engine behavior. A later swap to `@solidjs/signals` is mechanical: rename the calls, add the `flush()`-at-publish rule, run the law tests.
+### The dual edge — the one nobody predicted
 
-## The probed comparison
+`padi/src/activity/finishQuiet.ts` holds a derivation that WRITES a level it just READ. Atom invalidates a level's dependents by **clearing that level's `children` set** — which, for the derivation currently mid-recompute, drops an edge it had already established and cannot re-establish. The next bump then reached nobody, and padi's urgency froze one frame behind. A real red, caught by `finishQuiet.dualEdge.test.ts`.
 
-| | **@preact/signals-core** | @vue/reactivity | alien-signals | @reactively/core | signal-polyfill (TC39) | solid-js 1.x deep-import | @solidjs/signals 2.0β |
-|---|---|---|---|---|---|---|---|
-| Node viability (probed) | ✅ zero deps, no globals | ✅ (+@vue/shared) | ✅ zero deps | ✅ | ✅ | ⚠️ works via `dist/solid.js`; dual-graph trap, unsupported | ✅ core pkg; `solid-js` itself still server-stubbed |
-| Glitch-free + batch | ✅ probed; explicit nested `batch()`, promptly reads | ✅ probed; **no batch export** — hand-roll scheduler | ✅ probed; `startBatch/endBatch`, sync flush | ✅ algorithm; manual `stabilize()` | graph yes; **no effect/batch — build on Watcher** | ✅ (browser build) | ✅ probed; implicit microtask batch, **reads stale until `flush()`** |
-| Equality-cascade stop / spec-equals | ✅ stop probed; no `equals` opt → gate in reactor (where kolu's law puts it anyway) | ✅ stop probed; no `equals` opt | ✅; no `equals`, `prev` param workaround | ✅ custom `equals` | ✅ spec `equals` | ✅ solid `equals` opt | ✅ solid `equals` opt |
-| Effect disposal / long-lived ownership | ✅ disposer + cleanup + watched/unwatched hooks; GC-able subgraphs | ✅ `effectScope` (probed) | ✅ disposer + scope | ❌ **no dispose API** | ⚠️ DIY on Watcher | ✅ `createRoot` | ✅ `createRoot` (probed) |
-| Error propagation | ✅ cached + **rethrown every read**, recovers (probed) — fail-fast | ✅ throws at reader/setter (probed) | ❌ **swallows: 2nd read returns `undefined`** (probed) | ❌ none | ✅ ERRORED rethrow | solid semantics | solid semantics |
-| Maintenance | ✅ Preact team, commit 3 days ago, stable 1.x | ✅ Vue team; 3.6 swaps internals | ✅ active; StackBlitz; Vue 3.6 basis | ❌ dead (2023) | ❌ 17 mo stale; "do not use in production" | ✅ solid team (but usage unsupported) | ⚠️ beta, active daily |
-| Size/deps | 259 KB unpacked, 0 deps (min ~4 KB) | 343 KB + 1 dep | 47 KB, 0 deps | 11 KB, 0 deps | 142 KB, 0 deps | 1 MB pkg | 357 KB, 0 deps |
-| reactor.ts adaptation | trivial (`.value`↔fn, equals gate) | medium (**write the scheduler**) | small + **must add error discipline** | large (disposal, scheduler) | large (**write effect+batch**) | none, but fragile | none API-wise; add `flush()`-at-publish |
-| Future alignment | neutral; easy to leave | 3.6 internals churn behind stable API | becomes Vue's core | lineage moved to @solidjs/signals | Stage 1, yrs away | dead end (2.0 replaces it) | **the named future target** |
+The fix lives in `signal`'s setter: re-assert the edge, and **only** for a level the running derivation genuinely read (tracked in `currentDeps`) — a derivation that merely writes a level must not acquire a dependency on it, which would be a loop. O(1), on the pathological path only. preact gave this away for free, because its target list is not cleared mid-computation; the code now states the behaviour and names the incident it protects.
+
+## The cost, stated: an unstable namespace
+
+`effect/unstable/reactivity` is exactly what its path says — an unstable namespace, with `~effect-atom/*` heritage still visible in its own type ids. The engine is a moving target across beta bumps in a way `@preact/signals-core@1.x` was not. That is a real cost and it is not talked away; it is **paid for by the laws test**, which was rewritten against the raw engine and grew from four laws to seven:
+
+- **subscribed diamond under `batch`** — one recompute, one notify, and `seen` proves no half-updated pair. This is the property the always-batch rule exists for.
+- **synchronous notification** — a subscriber has run before `set` returns, and before an enclosing `batch` returns. The publish-ordering seam `kill.feature` and `streamOrdering.test.ts` rest on. A future Atom bump that deferred notification to a microtask goes RED here instead of silently reordering the wire.
+- **`Object.is` equality / NaN** — divergence #4, pinned rather than remembered.
+
+## The probed comparison — why nothing here is a fallback
+
+The table below is the original six-engine evaluation (source reads plus live Node probes, Node 24.14.1, 2026-07-10), kept because it is still the reason the alternatives are not candidates. Its eliminations have not aged:
+
+- **`@vue/reactivity` (standalone):** exports **no `batch`/`flush`** — Vue's batching lives in `@vue/runtime-core`'s scheduler, so `reactor.ts` would hand-roll exactly the frame the engine was supposed to own.
+- **`alien-signals`:** a throwing computed's **second read silently returns `undefined`** (probed) — the `caught-error-must-not-collapse-to-empty` defect class, verbatim.
+- **`@reactively/core`:** dead (last publish 2023) and **no effect disposal API at all**.
+- **TC39 `signal-polyfill`:** the README's first line forbids production use; Stage 1 with no advancement; no effect, no batch.
+- **solid-js 1.x deep-imported into Node:** the `node` condition routes to `dist/server.js` whose `createEffect` is a no-op; the `dist/solid.js` workaround risks **two disjoint silent reactive graphs in one process** — the worst failure mode under fail-fast.
+- **`@solidjs/signals`** passed its standalone Node probe and was the named swap target under the old decision. It is no longer named — not because it failed, but because "one engine on both sides" stopped being the deciding axis the moment the daemon's whole vocabulary became Effect. kolu's frontend stays on Solid 1.9 regardless; the ecosystem still peer-excludes 2.x.
+
+| | **Atom (effect/unstable/reactivity)** | @preact/signals-core | @vue/reactivity | alien-signals | @reactively/core | signal-polyfill (TC39) | solid-js 1.x deep-import | @solidjs/signals 2.0β |
+|---|---|---|---|---|---|---|---|---|
+| Node viability | ✅ already in the closure — zero new deps | ✅ zero deps, no globals | ✅ (+@vue/shared) | ✅ zero deps | ✅ | ✅ | ⚠️ dual-graph trap, unsupported | ✅ core pkg; `solid-js` itself still server-stubbed |
+| Glitch-free + batch | ✅ probed; **no implicit batch** — baked into the setter | ✅ explicit nested `batch()`, promptly reads | ✅ **no batch export** — hand-roll scheduler | ✅ `startBatch/endBatch` | ✅ manual `stabilize()` | graph yes; **no effect/batch** | ✅ (browser build) | ✅ implicit microtask batch, **reads stale until `flush()`** |
+| Equality-cascade stop | ✅ `Atom.withEquality`; `Object.is` default (NaN divergence) | ✅ probed; no `equals` opt | ✅ probed; no `equals` opt | ✅; `prev` param workaround | ✅ custom `equals` | ✅ spec `equals` | ✅ solid `equals` opt | ✅ solid `equals` opt |
+| Effect disposal / long-lived ownership | ✅ disposer; **auto-removal needs `keepAlive`** on roots | ✅ disposer + cleanup + watched/unwatched hooks | ✅ `effectScope` | ✅ disposer + scope | ❌ **no dispose API** | ⚠️ DIY on Watcher | ✅ `createRoot` | ✅ `createRoot` |
+| Error propagation | ✅ total read via `Result`, re-raised at the wrapper | ✅ cached + rethrown every read | ✅ throws at reader/setter | ❌ **swallows: 2nd read returns `undefined`** | ❌ none | ✅ ERRORED rethrow | solid semantics | solid semantics |
+| Maintenance | ⚠️ **unstable namespace**, moves with the beta | ✅ Preact team, stable 1.x | ✅ Vue team; 3.6 swaps internals | ✅ active; Vue 3.6 basis | ❌ dead (2023) | ❌ "do not use in production" | ✅ solid team (usage unsupported) | ⚠️ beta, active daily |
+| `reactor.ts` adaptation | done: 4 divergences + the dual edge, 13 call sites | trivial | medium (**write the scheduler**) | small + **must add error discipline** | large | large | none, but fragile | none API-wise; add `flush()`-at-publish |
