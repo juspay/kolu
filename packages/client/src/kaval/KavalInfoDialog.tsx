@@ -9,6 +9,7 @@
  *  `boundHostKavals()`/`localScanKavals()` ride `useHostInventory`/`useDaemonInventory`
  *  per that same table. */
 
+import { runAction } from "../runAction";
 import { isCleanRef } from "@kolu/surface-app";
 import type { RunningKaval } from "kolu-common/surface";
 import type { Component } from "solid-js";
@@ -320,7 +321,7 @@ const KavalInfoDialog: Component<{
                 tone="neutral"
                 onConfirm={() => {
                   props.onOpenChange(false);
-                  void restartDaemon();
+                  runAction("restart kaval", restartDaemon());
                 }}
               />
               <p class="text-[11px] leading-relaxed text-fg-3">

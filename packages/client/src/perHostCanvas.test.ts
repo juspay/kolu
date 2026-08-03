@@ -39,6 +39,7 @@
  *  the fixture is refactored to the real owner. See the commit message for the
  *  fixture old→new map + that red-run record.) */
 
+import { Effect } from "effect";
 import type {
   SavedSession,
   TerminalInfo,
@@ -50,7 +51,7 @@ import { batch, createRoot, createSignal } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const rpcSpy = vi.hoisted(() => ({
-  setActive: vi.fn(async () => {}),
+  setActive: vi.fn(() => Effect.void),
 }));
 
 // Hoisted mutable slots the mock reads THROUGH — assigned to the module-level
@@ -74,18 +75,20 @@ vi.mock("./wire", async () => {
     padiMap: mockPadiMap,
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
-    // `createViewState`'s `writeActive` reports the active tile through the shared
-    // map's `entry().procedures.chrome.setActive` (a benign no-op in the testlib).
-    activePadiRpc: {
+    // `createViewState`'s `writeFocus` reports the active tile through the
+    // per-host Effect face `padiEffectOf(host)`.
+    padiEffectOf: () => ({
       chrome: { setActive: rpcSpy.setActive },
+    }),
+    activePadiEffect: {
       session: {
-        restore: vi.fn(async () => {}),
-        forfeit: vi.fn(async () => {}),
-        import: vi.fn(async () => {}),
+        restore: vi.fn(() => Effect.void),
+        forfeit: vi.fn(() => Effect.void),
+        import: vi.fn(() => Effect.void),
       },
       lifecycle: {
-        create: vi.fn(async () => {}),
-        sendInput: vi.fn(async () => {}),
+        create: vi.fn(() => Effect.void),
+        sendInput: vi.fn(() => Effect.void),
       },
     },
     // The per-tab active host — flips on a switch; drives the per-host keying in

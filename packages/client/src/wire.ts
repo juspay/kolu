@@ -567,9 +567,22 @@ export const activePadiRpc = hostScoped.procedures;
  *  the framework's OWN narrow mapped type over the entry spec, the same one
  *  `Entry.procedures` is typed by — so the two faces cannot come to describe
  *  different members, and a wrong verb is still a compile error. */
-export const activePadiEffect = hostScoped.rpc.effect as SurfaceClient<
-  typeof padiEntrySurface.spec
->["effect"];
+export const activePadiEffect = hostScoped.rpc.effect as PadiEffectFace;
+
+/** The same Effect-native procedure face for a SPECIFIC host — the twin of
+ *  {@link activePadiEffect} for the callers that already hold a `HostKey` and
+ *  must not route to whichever host happens to be active (the per-host scope's
+ *  active-tile report, which belongs to the host that owns the scope).
+ *
+ *  `padiMap.entry(k)` is the pure, owner-free point lens, so this is safe to call
+ *  outside a reactive owner — exactly as `padiMap.entry(host).procedures` was. */
+export function padiEffectOf(host: HostKey): PadiEffectFace {
+  return padiMap.entry(host).rpc.effect as PadiEffectFace;
+}
+
+/** The declared padi procedures, Effect-native — see {@link activePadiEffect}
+ *  for why this is a narrowing of the structural face rather than a delegate. */
+type PadiEffectFace = SurfaceClient<typeof padiEntrySurface.spec>["effect"];
 
 /** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
  *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The

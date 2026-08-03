@@ -21,6 +21,7 @@
  *  real `localStorage`, so the per-host key assertion is falsifiable (`beforeEach`
  *  clears it for isolation). */
 
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { batch, createRoot, createSignal } from "solid-js";
@@ -40,6 +41,9 @@ vi.mock("./wire", async () => {
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
+    // `createViewState` reports the active tile through the per-host Effect face.
+    padiEffectOf: () => ({ chrome: { setActive: () => Effect.void } }),
+    activePadiEffect: { chrome: { setSubPanel: () => Effect.void } },
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition.
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
   };

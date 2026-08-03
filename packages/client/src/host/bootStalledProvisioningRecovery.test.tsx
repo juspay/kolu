@@ -32,7 +32,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   host: { kind: "remote", target: "zest" } as HostKey,
-  reconnect: vi.fn(() => Effect.void),
+  reconnect: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   resetBootDeadline: vi.fn(),
 }));
 vi.mock("../wire", () => ({

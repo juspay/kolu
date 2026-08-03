@@ -89,7 +89,7 @@ import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import WelcomeDialog from "./WelcomeDialog";
-import { activeHost, activePadiRpc, hostKeys, setActiveHost } from "./wire";
+import { activeHost, activePadiEffect, hostKeys, setActiveHost } from "./wire";
 
 const App: Component = () => {
   const { store, crud, session, worktree, getSubject } = useTerminals();
@@ -225,7 +225,7 @@ const App: Component = () => {
   // guard persists across invocations.
   const runImportSession = createImportSessionAction({
     pick: importSession,
-    runImport: ({ session }) => activePadiRpc.session.import({ session }),
+    runImport: ({ session }) => activePadiEffect.session.import({ session }),
   });
 
   const commands = createCommands({
@@ -257,7 +257,7 @@ const App: Component = () => {
     },
     handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
-    handleImportSession: () => void runImportSession(),
+    handleImportSession: () => runAction("import session", runImportSession()),
     simulateAlert: attention.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
@@ -557,8 +557,12 @@ const App: Component = () => {
                 install={pwaInstall}
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
-                onRestore={(opts) => void session.handleRestoreSession(opts)}
-                onForfeit={() => void session.handleForfeitSession()}
+                onRestore={(opts) =>
+                  runAction("restore session", session.handleRestoreSession(opts))
+                }
+                onForfeit={() =>
+                  runAction("start fresh", session.handleForfeitSession())
+                }
                 onCreate={dockPalette.onCreate}
               />
             </div>

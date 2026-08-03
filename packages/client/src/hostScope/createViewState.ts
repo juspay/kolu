@@ -30,6 +30,8 @@
  *  persisted fact this factory owns, since a fullscreen posture over zero tiles is
  *  meaningless; its key is evicted when the host leaves the pool. */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import {
@@ -41,13 +43,14 @@ import {
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import { perHostBoolPref } from "../persistedPref";
+import { runAction } from "../runAction";
 import {
   activeTileOf,
   type TerminalFocus,
   type TerminalPlacement,
 } from "../terminal/focusedTerminal";
 import { useVisitRecency } from "../terminal/visitRecency";
-import { padiMap } from "../wire";
+import { padiEffectOf } from "../wire";
 
 // A terminal that has drawn attention while unwatched, surfaced as a dock unread
 // mark. (The former `"badge-only"` state drove the active-host OS badge; W5
@@ -142,14 +145,20 @@ export function createViewState(
     // it must not vanish silently: log it so a persistent failure is visible rather
     // than a stale restore with no trace. No toast — this fires on every tile
     // activation, and a background bookkeeping report is not a user-facing action.
-    void padiMap
-      .entry(host)
-      .procedures.chrome.setActive({ id: tileId })
-      .catch((err: Error) => {
-        console.error(
-          `hostScope: failed to report active terminal ${tileId} to ${encoded}: ${err.message}`,
-        );
-      });
+    runAction(
+      "report active terminal",
+      padiEffectOf(host)
+        .chrome.setActive({ id: tileId })
+        .pipe(
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              console.error(
+                `hostScope: failed to report active terminal ${tileId} to ${encoded}: ${toError(err).message}`,
+              );
+            }),
+          ),
+        ),
+    );
   }
 
   function reconcileLiveIds(liveIds: readonly TerminalId[]): void {

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -27,11 +28,11 @@ const h = vi.hoisted(() => ({
 // (`lifecycle.restoreSleeping` was also part of that dead loop and is now retired
 // from the padi surface entirely — see #1784's W12 disposition.)
 const rpc = vi.hoisted(() => ({
-  restore: vi.fn(async () => {}),
-  import: vi.fn(async () => {}),
-  forfeit: vi.fn(async () => {}),
-  create: vi.fn(async () => {}),
-  sendInput: vi.fn(async () => {}),
+  restore: vi.fn(() => Effect.void),
+  import: vi.fn(() => Effect.void),
+  forfeit: vi.fn(() => Effect.void),
+  create: vi.fn(() => Effect.void),
+  sendInput: vi.fn(() => Effect.void),
 }));
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
@@ -52,7 +53,7 @@ vi.mock("../wire", async () => {
     // The GROUNDED accessor the per-host scope reads — the shared testlib composition,
     // pinned to the static local host (`beforeEach` adds LOCAL_HOST to membership).
     groundedActiveHost: mockGroundedActiveHost(() => LOCAL_HOST),
-    activePadiRpc: {
+    activePadiEffect: {
       session: {
         restore: rpc.restore,
         import: rpc.import,
@@ -282,10 +283,9 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             // Let the hydration effect flush so `savedSession()` is populated.
             await new Promise((r) => setTimeout(r, 0));
 
-            await session.handleRestoreSession({
-              resumeAgents: true,
-              optOutIds: [],
-            });
+            await Effect.runPromise(
+                session.handleRestoreSession({ resumeAgents: true, optOutIds: [] }),
+            );
 
             // ONE server call — the whole restore. Intent, not a client id list.
             expect(rpc.restore).toHaveBeenCalledTimes(1);
@@ -340,10 +340,9 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
 
-            await session.handleRestoreSession({
-              resumeAgents: true,
-              optOutIds: ["1"],
-            });
+            await Effect.runPromise(
+                session.handleRestoreSession({ resumeAgents: true, optOutIds: ["1"] }),
+            );
 
             expect(toastSpy.success).toHaveBeenCalledWith(
               "Restored 2 terminals, resumed 1 agent",
@@ -398,7 +397,7 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(h.savedSession);
 
-            await session.handleForfeitSession();
+            await Effect.runPromise(session.handleForfeitSession());
 
             // ONE server call — the explicit discard — with the empty input the
             // contract declares.
@@ -559,7 +558,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             subPanelSpy.setActiveSubTab.mockClear();
 
             // 3) The user clicks Restore — `handleRestoreSession` resets the latch.
-            await session.handleRestoreSession({});
+            await Effect.runPromise(session.handleRestoreSession({}));
 
             // 4) The restored terminals arrive under FRESH ids. With the latch
             // reset, the hydration effect re-seeds the restored parent's sub-tab.

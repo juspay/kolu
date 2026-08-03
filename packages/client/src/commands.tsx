@@ -557,7 +557,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 name: "Restart kaval",
                 description:
                   "Recycle the terminal daemon and restore your session",
-                onSelect: () => void restartDaemon(),
+                onSelect: () => runAction("restart kaval", restartDaemon()),
               },
             ]
           : []),

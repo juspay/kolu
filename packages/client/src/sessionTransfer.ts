@@ -18,7 +18,8 @@ import {
   type SavedSession,
   SavedSessionSchema,
 } from "@kolu/padi/surface";
-import { Result, Schema } from "effect";
+import { toError } from "@kolu/surface/run-stream";
+import { Cause, Effect, Result, Schema } from "effect";
 import { toast } from "solid-sonner";
 import { triggerDownload } from "./download";
 
@@ -82,43 +83,57 @@ export function parseSavedSession(text: string): SavedSession {
   return result.success;
 }
 
-/** Prompt for a JSON file and return the validated session, or null if the
+/** Prompt for a JSON file and answer with the validated session, or null if the
  *  user dismisses the picker or the file is malformed (errors surface as a
  *  toast). The caller owns restoring it — keeping the restore call out of
- *  here means restore rejections are handled at the call site rather than
+ *  here means restore failures are handled at the call site rather than
  *  swallowed. */
-export async function importSession(): Promise<SavedSession | null> {
-  try {
-    const text = await pickJsonFile();
-    if (text === null) return null; // picker dismissed
-    return parseSavedSession(text);
-  } catch (err) {
-    toast.error(`Import failed: ${(err as Error).message}`);
-    return null;
-  }
+export function importSession(): Effect.Effect<SavedSession | null> {
+  return pickJsonFile().pipe(
+    Effect.map((text) =>
+      // picker dismissed
+      text === null ? null : parseSavedSession(text),
+    ),
+    // `catchCause`, not `catch`: `parseSavedSession` THROWS its user-facing
+    // message (it is a pure function shared with the unit tests), so inside an
+    // effect that message arrives as a DEFECT, and a plain error-channel
+    // recovery would miss it — the import would die instead of toasting.
+    Effect.catchCause((cause) =>
+      Effect.sync((): SavedSession | null => {
+        toast.error(`Import failed: ${toError(Cause.squash(cause)).message}`);
+        return null;
+      }),
+    ),
+  );
 }
 
-/** Resolve with the picked file's text, or null if the user dismisses the
- *  picker without choosing a file. */
-function pickJsonFile(): Promise<string | null> {
-  return new Promise((resolve, reject) => {
+/** The picked file's text, or null if the user dismisses the picker without
+ *  choosing a file.
+ *
+ *  `Effect.callback` over the file input's two terminal events. The hazard the
+ *  old `new Promise` documented is structural here: `resume` is idempotent, so
+ *  the `cancel` listener that keeps a dismissed picker from hanging forever
+ *  cannot double-settle against `change`. */
+function pickJsonFile(): Effect.Effect<string | null, Error> {
+  return Effect.callback<string | null, Error>((resume) => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "application/json,.json";
     // Dismissing the picker fires `cancel`, not `change`, in modern browsers —
-    // without this listener `change` never fires and the Promise hangs forever.
-    input.addEventListener("cancel", () => resolve(null));
+    // without this listener `change` never fires and the read never settles.
+    input.addEventListener("cancel", () => resume(Effect.succeed(null)));
     input.addEventListener("change", () => {
       const file = input.files?.[0];
       if (!file) {
-        resolve(null);
+        resume(Effect.succeed(null));
         return;
       }
-      file
-        .text()
-        .then(resolve, () =>
-          reject(new Error("could not read the selected file")),
-        );
+      resume(
+        Effect.tryPromise({
+          try: () => file.text(),
+          catch: () => new Error("could not read the selected file"),
+        }),
+      );
     });
     input.click();
   });

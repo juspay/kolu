@@ -1,6 +1,8 @@
 /** Session restore — hydration from server state, session restore handler. */
 
 import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
@@ -8,11 +10,12 @@ import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
 import { activeScope } from "../hostScope/hostScopes";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { lifecycle } from "../rpc/rpc";
+import type { UiAction } from "../runAction";
 import {
   savedSessionSub,
   savedSession as serverSavedSession,
 } from "../hostScope/activeWire";
-import { activePadiRpc } from "../wire";
+import { activePadiEffect } from "../wire";
 import { useSubPanel } from "./useSubPanel";
 import type { TerminalStore } from "./useTerminalStore";
 import { containingTileOf, descendantsByRoot } from "./terminalTree";
@@ -215,12 +218,13 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     }
   });
 
-  async function handleRestoreSession(
+  function handleRestoreSession(
     options: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
-  ) {
-    if (isRestoring()) return;
-    const session = savedSession();
-    if (!session) return;
+  ): UiAction {
+    return Effect.suspend(() => {
+      if (isRestoring()) return Effect.void;
+      const session = savedSession();
+      if (!session) return Effect.void;
     // Keep the restore card mounted until the server restore actually completes.
     // Synchronously clearing `savedSession` before the async RPC returns detaches
     // the click target mid-event — Playwright sees "element detached from the DOM"
@@ -228,8 +232,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // reveal. The visible card during the restore window is gated by
     // `isRestoring()`; on success we clear `savedSession` before the toast, on
     // failure we leave it set so the user can retry.
-    setIsRestoring(true);
-    // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
+      setIsRestoring(true);
+      // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
     // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
     // canvas — but an in-session restore (the `recycleKaval` recycle→restore, no
     // page reload) is PRECISELY a re-seed event: it re-spawns every terminal under
@@ -239,25 +243,29 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // parent's active sub-tab is never set and its split comes back HIDDEN. Clearing
     // it here lets the effect re-seed once the restored terminals arrive; it
     // re-latches true after seeding, so a later reconnect is still a no-op.
-    const latch = activeScope()?.restore;
-    // Re-arm: this runs from the restore card (already past the decision), so drop
-    // back to `decided` via the NAMED transition — the next hydration effect
-    // re-seeds the view. (A named `reseedForRestore()` rather than an out-of-band
-    // raw phase write, which is exactly the hand-rolled-state-machine smell L18 named.)
-    latch?.reseedForRestore();
-    // Host stamp is required for the toast count and the card's membership —
-    // require it BEFORE the RPC so a missing stamp cannot be misreported as a
-    // restore failure after the host already applied the session.
-    if (session.resumableIds === undefined) {
-      setIsRestoring(false);
-      throw new Error(
-        "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+      const latch = activeScope()?.restore;
+      // Re-arm: this runs from the restore card (already past the decision), so drop
+      // back to `decided` via the NAMED transition — the next hydration effect
+      // re-seeds the view. (A named `reseedForRestore()` rather than an out-of-band
+      // raw phase write, which is exactly the hand-rolled-state-machine smell L18 named.)
+      latch?.reseedForRestore();
+      // Host stamp is required for the toast count and the card's membership —
+      // require it BEFORE the RPC so a missing stamp cannot be misreported as a
+      // restore failure after the host already applied the session. A DEFECT,
+      // not a typed failure: padi stamping membership on every serve is an
+      // invariant, so a missing stamp is a framework bug the run edge must
+      // report loudly, never a state this card offers a retry for.
+      if (session.resumableIds === undefined) {
+        setIsRestoring(false);
+        return Effect.die(
+          new Error(
+            "Saved session missing host-stamped resumableIds — padi must stamp membership on every serve",
+          ),
+        );
+      }
+      const id = toast.loading(
+        `Restoring ${session.terminals.length} terminals…`,
       );
-    }
-    const id = toast.loading(
-      `Restoring ${session.terminals.length} terminals…`,
-    );
-    try {
       // ONE writer, ONE call: padi re-spawns every terminal server-side (the
       // former client respawn loop is deleted). No `lifecycle.*` create /
       // sendInput fires from the client during restore — only this
@@ -271,37 +279,49 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       // client may only say resume yes/no + opt-outs of that set.
       const resumeAgents = options.resumeAgents ?? true;
       const optOutIds = options.optOutIds ? [...options.optOutIds] : [];
-      await activePadiRpc.session.restore({
-        resumeAgents,
-        // SPREAD, never `optOutIds: … : undefined` (#17): the field is
-        // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and a
-        // present-but-`undefined` one is REJECTED. "No opt-outs" — the ordinary
-        // restore — is exactly the absent case.
-        ...(optOutIds.length > 0 && { optOutIds }),
-      });
-      setSavedSession(null);
-      // Faithful summary — "Restored N terminals, resumed M agents". M is the
-      // host-served resumable set minus opt-outs when resume is on; 0 when off.
-      // Counts EVERY host-resumable terminal (including parented/splits).
       const hostResumable = session.resumableIds;
-      const optOut = new Set(optOutIds);
-      const resumed = resumeAgents
-        ? hostResumable.filter((tid) => !optOut.has(tid)).length
-        : 0;
-      toast.success(
-        resumed > 0
-          ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${
-              resumed > 1 ? "s" : ""
-            }`
-          : "Session restored",
-        { id },
-      );
-    } catch (err) {
-      toast.error(`Restore failed: ${(err as Error).message}`, { id });
-      throw err;
-    } finally {
-      setIsRestoring(false);
-    }
+      return activePadiEffect.session
+        .restore({
+          resumeAgents,
+          // SPREAD, never `optOutIds: … : undefined` (#17): the field is
+          // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and a
+          // present-but-`undefined` one is REJECTED. "No opt-outs" — the ordinary
+          // restore — is exactly the absent case.
+          ...(optOutIds.length > 0 && { optOutIds }),
+        })
+        .pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              setSavedSession(null);
+              // Faithful summary — "Restored N terminals, resumed M agents". M is
+              // the host-served resumable set minus opt-outs when resume is on; 0
+              // when off. Counts EVERY host-resumable terminal (including
+              // parented/splits).
+              const optOut = new Set(optOutIds);
+              const resumed = resumeAgents
+                ? hostResumable.filter((tid) => !optOut.has(tid)).length
+                : 0;
+              toast.success(
+                resumed > 0
+                  ? `Restored ${session.terminals.length} terminals, resumed ${resumed} agent${
+                      resumed > 1 ? "s" : ""
+                    }`
+                  : "Session restored",
+                { id },
+              );
+            }),
+          ),
+          // Recovered here, where the old shape re-threw into an unhandled
+          // rejection nothing read: the toast IS the outcome, and `savedSession`
+          // is deliberately left set so the user can retry.
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(`Restore failed: ${toError(err).message}`, { id });
+            }),
+          ),
+          Effect.ensuring(Effect.sync(() => setIsRestoring(false))),
+        );
+    });
   }
 
   /** Explicit forfeit — the user chose "Start fresh" over the saved session.
@@ -310,16 +330,22 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  success the server pushes a `null` saved-session snapshot, which the
    *  re-fetch effect above folds into `savedSession` and dismisses the card;
    *  we also clear it optimistically so the card drops immediately. */
-  async function handleForfeitSession() {
-    const session = savedSession();
-    if (!session) return;
-    // Optimistic dismissal: the card is gone the moment the user commits.
-    setSavedSession(null);
-    await activePadiRpc.session.forfeit({}).catch((err: Error) => {
-      // Surface the failure and restore the card so the user can retry —
-      // a caught error must not collapse silently to the empty state.
-      setSavedSession(session);
-      toast.error(`Failed to start fresh: ${err.message}`);
+  function handleForfeitSession(): UiAction {
+    return Effect.suspend(() => {
+      const session = savedSession();
+      if (!session) return Effect.void;
+      // Optimistic dismissal: the card is gone the moment the user commits.
+      setSavedSession(null);
+      return activePadiEffect.session.forfeit({}).pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            // Surface the failure and restore the card so the user can retry —
+            // a caught error must not collapse silently to the empty state.
+            setSavedSession(session);
+            toast.error(`Failed to start fresh: ${toError(err).message}`);
+          }),
+        ),
+      );
     });
   }
 

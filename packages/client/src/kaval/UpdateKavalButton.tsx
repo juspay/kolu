@@ -12,6 +12,7 @@
  * re-realise → fresh correct-version kaval pipeline.
  */
 
+import { runAction } from "../runAction";
 import type { Component } from "solid-js";
 import { RestartIcon } from "../ui/Icons";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
@@ -38,7 +39,7 @@ const UpdateKavalButton: Component<{
       // KavalInfoDialog's host-scoping header), and the skew canvas card only
       // ever renders for the active host — so the presented facts and the
       // renewed host agree by construction.
-      void renewDaemon(activeHost());
+      runAction("update kaval", renewDaemon(activeHost()));
     }}
   />
 );

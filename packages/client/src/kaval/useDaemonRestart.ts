@@ -18,11 +18,13 @@ import type { DaemonStatus } from "@kolu/padi/surface";
 // (`@kolu/surface/solid`, which now OWNS them — they were re-exports from
 // `@orpc/client`): the transport vendor stays encapsulated behind the surface
 // boundary, and there is no longer a vendor to reach for.
-import { safe } from "@kolu/surface/solid";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { activePadiRpc, client } from "../wire";
+import type { UiAction } from "../runAction";
+import { activePadiEffect, client } from "../wire";
 import { daemonChannelLive, liveWarming } from "./useDaemonStatus";
 
 // True from the click until the restart RPC settles — closes the visible click
@@ -60,42 +62,49 @@ export function restartInFlight(status: DaemonStatus | undefined): boolean {
 
 /** Restart the local kaval daemon, preserving the session. Safe to call from
  *  multiple affordances; re-entrant calls while one is in flight are ignored. */
-export async function restartDaemon(): Promise<void> {
-  if (restarting()) return;
-  setRestarting(true);
-  const id = toast.loading("Restarting kaval…");
-  // The bound face carries the DECLARED error union as its rejection phantom
-  // (SK6/D4), and `safe()` — not try/catch, whose binding erases it to `unknown`
-  // — is what surfaces it. `declared` is the discriminant now: on its `true` arm
-  // `error` IS `KavalContractSkew`, the procedure's own declared union, so the
-  // `_tag` switch below is exhaustive-checked and both versions arrive TYPED (a
-  // rename in `@kolu/padi/surface` is a compile error, never a toast printing
-  // `undefined`). On the `false` arm the failure is honestly `unknown` — a
-  // transport drop, a defect, anything the procedure never promised — so it is
-  // normalised before its message is read.
-  const result = await safe(activePadiRpc.lifecycle.recycleKaval());
-  if (result.ok) {
-    toast.success("kaval restarted — your session is offered for restore", {
-      id,
-    });
-  } else if (result.declared && result.error._tag === "KavalContractSkew") {
-    // Surface the server's own message (the versions ride it, typed —
-    // toast-conventions.md: never swallow `err.message`) AND the guidance the
-    // typed skew lets us add: a restart can't fix a contract skew, so point at
-    // the recovery the `incompatible` daemon state surfaces beside this toast
-    // (the skew card / dialog's "Update & restart kaval").
-    toast.error(
-      `Couldn’t restart kaval: ${result.error.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
-      { id },
+export function restartDaemon(): UiAction {
+  return Effect.suspend(() => {
+    if (restarting()) return Effect.void;
+    setRestarting(true);
+    const id = toast.loading("Restarting kaval…");
+    // The DECLARED error union now rides the effect's error channel (SK6/D4),
+    // so `catchTag` is the discriminant `safe().declared` used to be — and a
+    // sharper one: the tag is matched by the compiler against the procedure's
+    // own union, so a rename in `@kolu/padi/surface` is a compile error here
+    // rather than a toast printing `undefined`. What `catchTag` does NOT catch
+    // is the framework's `SurfaceCallFailure` half, which is exactly right: a
+    // transport drop is not the skew, and the residual arm below says so.
+    return activePadiEffect.lifecycle.recycleKaval().pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          toast.success("kaval restarted — your session is offered for restore", {
+            id,
+          });
+        }),
+      ),
+      Effect.catchTag("KavalContractSkew", (skew) =>
+        // Surface the server's own message (the versions ride it, typed —
+        // toast-conventions.md: never swallow `err.message`) AND the guidance the
+        // typed skew lets us add: a restart can't fix a contract skew, so point at
+        // the recovery the `incompatible` daemon state surfaces beside this toast
+        // (the skew card / dialog's "Update & restart kaval").
+        Effect.sync(() => {
+          toast.error(
+            `Couldn’t restart kaval: ${skew.message} — restarting can’t fix that. Use “Update & restart kaval”.`,
+            { id },
+          );
+        }),
+      ),
+      // Everything the procedure never promised — a transport drop, a keyed-map
+      // rejection — normalised before its message is read.
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(`Couldn’t restart kaval: ${toError(err).message}`, { id });
+        }),
+      ),
+      Effect.ensuring(Effect.sync(() => setRestarting(false))),
     );
-  } else {
-    const err = result.error;
-    toast.error(
-      `Couldn’t restart kaval: ${err instanceof Error ? err.message : String(err)}`,
-      { id },
-    );
-  }
-  setRestarting(false);
+  });
 }
 
 // The hosts with a renew in flight, from click until the drain RPC settles —
@@ -119,30 +128,41 @@ export function renewInFlight(host: HostKey): boolean {
  *  persisted), the reconnect loop re-dials — re-realising the CURRENT closure
  *  on the host — and the fresh padi's converge policy recycles the old kaval
  *  from its new build. Re-entrant calls while one is in flight are ignored. */
-export async function renewDaemon(host: HostKey): Promise<void> {
-  const key = encodeHostKey(host);
-  if (renewingHosts().has(key)) return;
-  setRenewingHosts((s) => new Set(s).add(key));
-  const id = toast.loading("Updating & restarting kaval…");
-  try {
-    await client.hosts.renewDaemon({ host });
-    // HONEST at resolve time: the RPC resolves when the DRAIN takes (the old
-    // padi persisted + exited) — the re-provision + fresh kaval land
-    // asynchronously via the binder's reconnect loop, and the daemon-status
-    // chrome (the same surface that raised the skew card) narrates that
-    // convergence live. Claiming "restarted at the current build" here would
-    // assert an outcome this call never waits for.
-    toast.success(
-      "Host daemon drained — re-provisioning the current build; kaval reconnects shortly",
-      { id },
+export function renewDaemon(host: HostKey): UiAction {
+  return Effect.suspend(() => {
+    const key = encodeHostKey(host);
+    if (renewingHosts().has(key)) return Effect.void;
+    setRenewingHosts((s) => new Set(s).add(key));
+    const id = toast.loading("Updating & restarting kaval…");
+    return client.hosts.renewDaemon({ host }).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          // HONEST at answer time: the RPC answers when the DRAIN takes (the old
+          // padi persisted + exited) — the re-provision + fresh kaval land
+          // asynchronously via the binder's reconnect loop, and the daemon-status
+          // chrome (the same surface that raised the skew card) narrates that
+          // convergence live. Claiming "restarted at the current build" here would
+          // assert an outcome this call never waits for.
+          toast.success(
+            "Host daemon drained — re-provisioning the current build; kaval reconnects shortly",
+            { id },
+          );
+        }),
+      ),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(`Couldn’t update kaval: ${toError(err).message}`, { id });
+        }),
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          setRenewingHosts((s) => {
+            const next = new Set(s);
+            next.delete(key);
+            return next;
+          });
+        }),
+      ),
     );
-  } catch (err) {
-    toast.error(`Couldn’t update kaval: ${(err as Error).message}`, { id });
-  } finally {
-    setRenewingHosts((s) => {
-      const next = new Set(s);
-      next.delete(key);
-      return next;
-    });
-  }
+  });
 }

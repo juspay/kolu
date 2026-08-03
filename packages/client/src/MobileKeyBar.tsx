@@ -17,6 +17,8 @@
  *  terminal the user is typing into (soft-keyboard letters already do, via
  *  xterm's own onData). */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";
 import {
@@ -26,9 +28,10 @@ import {
   toggleStickyAlt,
   toggleStickyCtrl,
 } from "./terminal/stickyModifiers";
+import { runAction } from "./runAction";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
-import { activePadiRpc } from "./wire";
+import { activePadiEffect } from "./wire";
 
 interface Key {
   label: string;
@@ -100,10 +103,15 @@ const MobileKeyBar: Component = () => {
     const id = store.focusedId();
     if (!id) return;
     tick();
-    void activePadiRpc.lifecycle.sendInput({
-      id,
-      data: applyStickyModifiers(data),
-    });
+    runAction(
+      "send key",
+      activePadiEffect.lifecycle
+        .sendInput({ id, data: applyStickyModifiers(data) })
+        // A keystroke's delivery has no UI to report to and never had one:
+        // the terminal itself is the feedback. `Effect.ignore` says so where
+        // the bare `void` only implied it.
+        .pipe(Effect.ignore),
+    );
   }
 
   return (

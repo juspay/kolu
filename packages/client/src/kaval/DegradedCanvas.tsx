@@ -22,6 +22,7 @@
  * The affordance is a total function of the state sum.
  */
 
+import { runAction } from "../runAction";
 import { type Component, type JSX, Show } from "solid-js";
 import DocLink from "../ui/DocLink";
 import { WarningIcon } from "../ui/Icons";
@@ -71,7 +72,7 @@ const RestartableCard: Component<{ state: "dead" | "degraded" }> = (props) => {
         <RestartKavalButton
           inFlight={restartInFlight(localDaemonStatus())}
           tone="danger"
-          onConfirm={() => void restartDaemon()}
+          onConfirm={() => runAction("restart kaval", restartDaemon())}
         />
       }
     >

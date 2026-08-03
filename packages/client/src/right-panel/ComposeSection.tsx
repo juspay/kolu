@@ -21,12 +21,15 @@
  *  target is always a live PTY — `sendInput` would otherwise quiet-drop. */
 
 import { activeArm } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
+import { runAction, type UiAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activePadiRpc } from "../wire";
+import { activePadiEffect } from "../wire";
 import { planComposeSend } from "./composeSend";
 
 /** `localStorage` key prefix for the per-terminal draft — same
@@ -75,43 +78,52 @@ const ComposeSection: Component<{
   // Reactive on `draft()`, so the button disables live as the box empties.
   const canSend = () => planComposeSend(draft()) !== null;
 
-  async function send(): Promise<void> {
-    // Re-entry guard: ⌘/Ctrl+Enter fires on the textarea even while a send is
-    // pending (the disabled BUTTON blocks the click path, not the key path), so
-    // without this a fast double-chord would dispatch two writes.
-    if (sending()) return;
-    const data = planComposeSend(draft());
-    if (data === null) return;
-    // Capture the exact text being sent, so the success path clears ONLY this
-    // draft — if the user keeps typing during the in-flight RPC, their newer
-    // text must survive rather than be wiped by a stale send's completion.
-    const sent = draft();
-    setSending(true);
-    try {
-      await activePadiRpc.lifecycle.sendInput({
-        id: props.terminalId,
-        data,
-      });
-      // `sendInput` is `getActiveTerminal(id)?.handle.write(...)` server-side —
-      // the `?.` QUIET-DROPS (resolves, no throw) if the arm slept between the
-      // click and this resolve, so an awaited success does NOT confirm delivery.
-      // Re-check liveness and throw into the catch below, exactly as
-      // `deliverScratchPaste` does, so an unconfirmed write preserves the draft
-      // and toasts instead of erasing text that never arrived.
-      if (!isActive()) {
-        throw new Error("terminal no longer active — draft not sent");
-      }
-      // Confirmed live — clear the draft, but only if it still holds exactly
-      // what we sent (an edit landed during the await keeps the newer text).
-      // The sent text now lives in the agent's (unsubmitted) input line, which
-      // the server-side PTY holds across reloads, so nothing is lost.
-      if (draft() === sent) setDraft("");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast.error(`Failed to send to terminal: ${message}`);
-    } finally {
-      setSending(false);
-    }
+  function send(): UiAction {
+    return Effect.suspend(() => {
+      // Re-entry guard: ⌘/Ctrl+Enter fires on the textarea even while a send is
+      // pending (the disabled BUTTON blocks the click path, not the key path),
+      // so without this a fast double-chord would dispatch two writes.
+      if (sending()) return Effect.void;
+      const data = planComposeSend(draft());
+      if (data === null) return Effect.void;
+      // Capture the exact text being sent, so the success path clears ONLY this
+      // draft — if the user keeps typing during the in-flight RPC, their newer
+      // text must survive rather than be wiped by a stale send's completion.
+      const sent = draft();
+      setSending(true);
+      return activePadiEffect.lifecycle
+        .sendInput({ id: props.terminalId, data })
+        .pipe(
+          Effect.andThen(() =>
+            Effect.suspend(() => {
+              // `sendInput` is `getActiveTerminal(id)?.handle.write(...)`
+              // server-side — the `?.` QUIET-DROPS (succeeds, no failure) if the
+              // arm slept between the click and this answer, so a successful
+              // call does NOT confirm delivery. Re-check liveness and FAIL into
+              // the recovery below, exactly as `deliverScratchPaste` does, so an
+              // unconfirmed write preserves the draft and toasts instead of
+              // erasing text that never arrived.
+              if (!isActive())
+                return Effect.fail(
+                  new Error("terminal no longer active — draft not sent"),
+                );
+              // Confirmed live — clear the draft, but only if it still holds
+              // exactly what we sent (an edit that landed during the call keeps
+              // the newer text). The sent text now lives in the agent's
+              // (unsubmitted) input line, which the server-side PTY holds across
+              // reloads, so nothing is lost.
+              if (draft() === sent) setDraft("");
+              return Effect.void;
+            }),
+          ),
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(`Failed to send to terminal: ${toError(err).message}`);
+            }),
+          ),
+          Effect.ensuring(Effect.sync(() => setSending(false))),
+        );
+    });
   }
 
   return (
@@ -127,7 +139,7 @@ const ComposeSection: Component<{
           // can hold a multiline draft.
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
             e.preventDefault();
-            void send();
+            runAction("send to terminal", send());
           }
         }}
         rows={expanded() ? 4 : 1}
@@ -144,7 +156,7 @@ const ComposeSection: Component<{
             type="button"
             data-testid="compose-send"
             disabled={!canSend() || sending()}
-            onClick={() => void send()}
+            onClick={() => runAction("send to terminal", send())}
             class="shrink-0 rounded-md border border-accent/30 bg-accent/15 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Send&nbsp;→
