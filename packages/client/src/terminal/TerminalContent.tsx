@@ -154,7 +154,9 @@ const TerminalContent: Component<{
       fallback={
         <DormantTileBody
           terminalId={props.terminalId}
-          onWake={() => void crud.handleWake(props.terminalId)}
+          onWake={() => {
+            runAction("wake terminal", crud.handleWake(props.terminalId));
+          }}
           onFocus={props.onFocus}
         />
       }
