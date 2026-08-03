@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import {
+  collectAwaitedFaceCalls,
+  validateAwaitedFaceCalls,
+} from "./awaitedFace";
+import {
   assertAppendOnly,
   census,
   readCurrentSuite,
@@ -166,6 +170,13 @@ if (currentIds.size !== current.records.length) {
 const runEdges = collectRunEdges(repoRoot);
 validateRunEdges(runEdges, RUN_EDGE_ALLOWLIST);
 const runEdgeSites = [...runEdges.values()].reduce((sum, n) => sum + n, 0);
+
+// The `await`-on-a-member-face ban (B8a) — the run-edge budget's twin, and here
+// for the same reason. `await` on a non-thenable is legal TypeScript that
+// evaluates to the description, so a face call awaited instead of composed
+// compiles, type-checks, reads exactly like the code it replaced, and never
+// dispatches. Neither tsc nor biome can see it.
+validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
 
 console.log(
   `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files`,
