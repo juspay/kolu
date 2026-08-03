@@ -13,8 +13,9 @@
  *   connected  → degraded             (the daemon died mid-session)
  *
  * **Two boot policies.** `ensure()` is always-recycle (B2, "the door"): a live
- * survivor is *killed*, then a fresh daemon is spawned — every boot exercises
- * kill → `waitForPidGone` → spawn → connect, the exact race #1034 lost, but with
+ * survivor is *stopped*, then a fresh daemon is spawned — every boot exercises
+ * the two-deadline reap (`reapHolder`: SIGTERM → wait → SIGKILL → wait) → spawn →
+ * connect, the exact race #1034 lost, but with
  * zero sessions at stake. `adoptOrEnsure()` (B3.3) is adopt-or-recycle: a live,
  * handshake-compatible survivor is *adopted* (connected to, never killed) so the
  * PTYs it holds — and the session they carry — survive a supervisor restart;
@@ -1415,7 +1416,7 @@ export function createEndpoint<
     holdConnection(next);
   };
 
-  // The kill-then-respawn recycle, defined once: SIGTERM a proven-live holder we
+  // The stop-then-respawn recycle, defined once: reap a proven-live holder we
   // cannot use, then spawn + connect + hold a fresh daemon in its place. Both
   // policies that recycle — `ensure`'s always-recycle and `adoptOrEnsure`'s
   // skew-recycle — call this, so the mechanism never drifts between them.
