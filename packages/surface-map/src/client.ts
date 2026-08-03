@@ -175,7 +175,16 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
       // `failed` has no `connection` field to drop — its record is already floor-proof by
       // construction, so it passes through whole rather than being rebuilt.
       .with({ kind: "failed" }, (s) => s)
-      .with({ kind: "warming" }, (s) => ({ ...s, connection: undefined }))
+      // REBUILD without the key rather than spreading `connection: undefined`, for
+      // the same reason the `connected` arm above rebuilds: `connection` is
+      // `Schema.optionalKey` on the published union, and "no fine word" is spelled
+      // as an ABSENT key — a present-`undefined` is a shape the schema refuses, so
+      // a floored value that ever reached an encode (a mirror, a relay) would throw
+      // (#17). The two demoting arms now spell absence the one same way.
+      .with({ kind: "warming" }, (s) => ({
+        kind: "warming" as const,
+        membershipId: s.membershipId,
+      }))
       .exhaustive()
   );
 }

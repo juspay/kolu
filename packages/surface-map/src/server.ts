@@ -264,16 +264,25 @@ function projectStatus<Failure, Conn>(
   // from one frame — the drishti#102 divergence has no construction path.
   connection?: Conn,
 ): EntryStatus<Failure, Conn> {
+  // SPREAD `connection` onto every live arm, never spell it (#17). The field is
+  // `Schema.optionalKey` on the published union (see `entryStatusSchema`), which
+  // accepts an ABSENT key and REJECTS a present-`undefined` one — where zod's
+  // `.optional()` took either. The argument is genuinely optional (a registry
+  // entry's `connection?: Conn`, and a map with no `connection` option supplies
+  // none), so a plain `connection,` writes the key present-with-`undefined` on
+  // every arm, and the encode that publishes the entry rejects it. One binding,
+  // spread three times, so the three arms cannot drift apart on the discipline.
+  const conn = connection === undefined ? {} : { connection };
   switch (state.kind) {
     case "copying":
     case "connecting":
-      return { kind: "warming", membershipId, connection };
+      return { kind: "warming", membershipId, ...conn };
     case "connected":
       return {
         kind: "connected",
         membershipId,
         clockOffset: state.clockOffset,
-        connection,
+        ...conn,
       };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
@@ -293,7 +302,7 @@ function projectStatus<Failure, Conn>(
       // such field; see {@link FailureEvidence}).
       const refuse = state.refuse;
       return refuse === undefined
-        ? { kind: "warming", membershipId, connection }
+        ? { kind: "warming", membershipId, ...conn }
         : { kind: "failed", membershipId, ...refuse };
     }
     // A terminal give-up (the reconnect loop stopped for good) — always a red
