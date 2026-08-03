@@ -1,30 +1,41 @@
 /**
- * @kolu/surface-app/server — the Hono glue that serves the shell fresh.
+ * @kolu/surface-app/server — the Effect HTTP layers that serve the shell fresh.
  *
- * `installFreshStatic` is the freshness contract on the wire: no-store shell,
+ * `freshStaticLayer` is the freshness contract on the wire: no-store shell,
  * immutable hashed assets, 404 on an asset miss (never the HTML shell), the
  * `/sw.js` worker (self-destructing by default; the fetch-less notification
- * worker when `serviceWorker: "notify"`), and the SPA fallback. `installPwaManifest` serves
- * the desktop-app manifest. `installSurfaceApp` wires both in the common order.
+ * worker when `serviceWorker: "notify"`), and the SPA fallback. `pwaManifestLayer`
+ * serves the desktop-app manifest. `surfaceAppLayer` merges both.
  * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
  * bundles it with the `identity.info` probe impl as the deps a consumer drops
  * into an `implementSurfaces` entry — surface-app is served as a SIBLING surface,
- * not merged into the app surface. Register your `/rpc/*` (surface) routes
- * BEFORE the static installers — the static catch-all is last.
+ * not merged into the app surface.
+ *
+ * These are `HttpRouter` LAYERS, not `app.use(...)` installers: registration
+ * order carries no meaning any more. `HttpRouter` ranks routes by specificity
+ * (find-my-way), so a `/rpc/*` route beats the static `GET /*` catch-all no
+ * matter which layer is merged first — the ordering footgun the Hono installers
+ * documented is gone by construction.
  */
 
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { serveStatic } from "@hono/node-server/serve-static";
 import {
   type SurfaceHandlers,
   surfaceRpcServerLayer,
 } from "@kolu/surface/server";
-import { Effect, Exit, Layer, Scope } from "effect";
+import { Effect, Exit, type FileSystem, Layer, type Path, Scope } from "effect";
+import {
+  Headers,
+  type HttpPlatform,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+  HttpStaticServer,
+} from "effect/unstable/http";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 import { Socket, SocketServer } from "effect/unstable/socket";
-import type { Hono } from "hono";
 import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
@@ -67,85 +78,240 @@ export interface ManifestOptions {
   [extra: string]: unknown;
 }
 
-/** Stamp the freshness `Cache-Control` policy onto a Hono app and serve the SPA
- *  from `root`. Serves the `/sw.js` worker itself (no-cache); a `/assets/*` miss
- *  404s; any other unmatched path serves the `no-store` shell so a normal reload
- *  can never replay a stale one. `serviceWorker` picks which worker `/sw.js`
- *  serves (default `"retire"`, the self-destructing one). */
-export function installFreshStatic(
-  app: Hono,
+/** The build-time precompressed siblings, in SERVER preference order — the same
+ *  order (and the same suffixes) the Hono `serve-static` this replaced walked, so
+ *  a client offering several encodings gets the same one it did. */
+const PRECOMPRESSED: readonly (readonly [encoding: string, suffix: string])[] =
+  [
+    ["br", ".br"],
+    ["zstd", ".zst"],
+    ["gzip", ".gz"],
+  ];
+
+/** Content types worth serving a precompressed sibling for. Ported VERBATIM from
+ *  `@hono/node-server`'s `serve-static` (its `COMPRESSIBLE_CONTENT_TYPE_REGEX`),
+ *  because it is the behaviour this layer replaces: without it an
+ *  already-compressed asset (a `woff2`, a `png`) whose build wrongly emitted a
+ *  `.br` sibling would start being served doubly-compressed. Paired with the
+ *  "unknown or `application/octet-stream` also compresses" arm below, exactly as
+ *  the original had it. */
+const COMPRESSIBLE_CONTENT_TYPE =
+  /^\s*(?:text\/[^;\s]+|application\/(?:javascript|json|xml|xml-dtd|ecmascript|dart|postscript|rtf|tar|toml|vnd\.dart|vnd\.ms-fontobject|vnd\.ms-opentype|wasm|x-httpd-php|x-javascript|x-ns-proxy-autoconfig|x-sh|x-tar|x-virtualbox-hdd|x-virtualbox-ova|x-virtualbox-ovf|x-virtualbox-vbox|x-virtualbox-vdi|x-virtualbox-vhd|x-virtualbox-vmdk|x-www-form-urlencoded)|font\/(?:otf|ttf)|image\/(?:bmp|vnd\.adobe\.photoshop|vnd\.microsoft\.icon|vnd\.ms-dds|x-icon|x-ms-bmp)|message\/rfc822|model\/gltf-binary|x-shader\/x-fragment|x-shader\/x-vertex|[^;\s]+?\+(?:json|text|xml|yaml))(?:[;\s]|$)/i;
+
+/** The conditional-request headers this layer refuses to honour. The Hono
+ *  `serve-static` it replaces emitted NO `ETag` and answered NO `304` — a
+ *  `no-store` shell that starts answering `304` is a freshness-contract change of
+ *  exactly the kolu#1319 family, and the platform's weak validator is
+ *  `mtime`+`size`, which in a Nix store (every mtime pinned to the epoch)
+ *  collides across two builds of a same-size shell. So the conditionals are
+ *  stripped off the request before the file engine sees them: every response is a
+ *  full `200`, as before. */
+const CONDITIONAL_HEADERS = ["if-none-match", "if-modified-since"];
+
+/** The request target minus query/fragment, WITHOUT decoding — the classifier
+ *  input (`cacheControlFor` / `isImmutableAssetPath` read a path prefix) and the
+ *  target handed back to the file engine, which owns the single decode. */
+const pathnameOf = (url: string): string => {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+};
+
+/** Serve the SPA from `root` with the freshness `Cache-Control` policy stamped
+ *  on every response. Serves the `/sw.js` worker itself (no-cache); a
+ *  `/assets/*` miss 404s; any other unmatched path serves the `no-store` shell so
+ *  a normal reload can never replay a stale one. `serviceWorker` picks which
+ *  worker `/sw.js` serves (default `"retire"`, the self-destructing one).
+ *
+ *  The bytes come from `HttpStaticServer` (Effect's own file engine: MIME table,
+ *  byte ranges, directory→index, root containment) so this module owns ONLY the
+ *  freshness policy — the part that is surface-app's, and the part four
+ *  stale-client regressions were fought over. The platform services it needs
+ *  (`FileSystem`, `Path`, `HttpPlatform`) are the consumer's to provide —
+ *  `NodeHttpServer.layerHttpServices` on Node. */
+export function freshStaticLayer(
   opts: { root: string; serviceWorker?: ServiceWorkerMode } & FreshnessPaths,
-): void {
+): Layer.Layer<
+  never,
+  never,
+  | HttpRouter.HttpRouter
+  | FileSystem.FileSystem
+  | Path.Path
+  | HttpPlatform.HttpPlatform
+> {
   const root = resolve(opts.root);
   const swSource = SW_SOURCE_FOR[opts.serviceWorker ?? "retire"];
-  // The `/sw.js` worker, served no-cache — registered first so the static
-  // catch-all never shadows it, and so the app never hand-rolls this route.
-  app.get("/sw.js", (c) => {
-    c.header("Cache-Control", cacheControlFor("/sw.js")!);
-    return c.body(swSource, 200, {
-      "content-type": "text/javascript; charset=utf-8",
-    });
-  });
-  app.use("/*", async (c, next) => {
-    const directive = cacheControlFor(c.req.path, opts);
-    if (directive) c.header("Cache-Control", directive);
-    return next();
-  });
-  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) — but ONLY under
-  // the immutable hashed-asset prefix, never the shell. serve-static negotiates
-  // `Accept-Encoding`, serves the sibling with the right `Content-Encoding`, keeps
-  // the original `Content-Type`, and appends `Vary`; it fires only when a sibling
-  // actually exists. Scoping the `precompressed` route to `assetPrefix` (the same
-  // prefix `isImmutableAssetPath` owns) keeps the "never serve a compressed shell"
-  // half of the freshness contract MECHANICAL and enforced here — even if a
-  // consumer's build wrongly emitted an `index.html.br`, the shell (served by the
-  // identity catch-all below) can never go out compressed and pin returning
-  // browsers to a stale post-build stamp (kolu#1319). The whole payload win is the
-  // `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs nothing. A consumer
-  // that precompresses nothing serves byte-identical identity responses either way.
+  // Precompressed siblings (`.br`/`.zst`/`.gz`) are negotiated ONLY under the
+  // immutable hashed-asset prefix, never the shell. Even if a consumer's build
+  // wrongly emitted an `index.html.br`, the shell can never go out compressed and
+  // pin returning browsers to a stale post-build stamp (kolu#1319). The whole
+  // payload win is the `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs
+  // nothing; a consumer that precompresses nothing serves byte-identical identity
+  // responses either way.
   const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
-  // The mechanical guarantee above holds ONLY while `assetPrefix` is disjoint from
-  // the shell — a caller-supplied `assetPrefix: "/"` (or `""`) would scope the
-  // `precompressed` route over `/index.html` too and re-open the exact kolu#1319
-  // stale-stamp footgun. `assetPrefix` is a public, overridable input, so assert
-  // the invariant fail-fast (the file's no-fallback philosophy) rather than trust
-  // its shape: if any shell path is classified as an immutable asset, the prefix
-  // captures the shell and this is a misconfiguration, not a degraded mode.
+  // That guarantee holds ONLY while `assetPrefix` is disjoint from the shell — a
+  // caller-supplied `assetPrefix: "/"` (or `""`) would put `/index.html` under
+  // negotiation too and re-open the exact kolu#1319 stale-stamp footgun.
+  // `assetPrefix` is a public, overridable input, so assert the invariant
+  // fail-fast (the file's no-fallback philosophy) rather than trust its shape: if
+  // any shell path is classified as an immutable asset, the prefix captures the
+  // shell and this is a misconfiguration, not a degraded mode. Thrown from the
+  // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
+  // composed rather than mid-boot.
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
   if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
     throw new Error(
-      `installFreshStatic: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
+      `freshStaticLayer: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
     );
   }
-  app.use(`${assetPrefix}*`, serveStatic({ root, precompressed: true }));
-  app.use("/*", serveStatic({ root }));
-  app.get(
-    "/*",
-    (c, next) => {
-      if (isImmutableAssetPath(c.req.path, opts)) {
-        c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
-        return c.notFound();
-      }
-      c.header("Cache-Control", SHELL_CACHE_CONTROL);
-      return next();
-    },
-    serveStatic({ root, path: "index.html" }),
+  return HttpRouter.use((router) =>
+    Effect.gen(function* () {
+      // `orDie`: a file engine that cannot even be constructed for this root is a
+      // misconfiguration, and a boot that limps on without static serving is the
+      // silent degradation this package exists to refuse.
+      const files = yield* Effect.orDie(HttpStaticServer.make({ root }));
+
+      /** Serve one target under `root`, or `undefined` when there is no such
+       *  file. Anything that is NOT a plain miss (a permission error, an unreadable
+       *  root) is a defect — it must never masquerade as a 404 and fall through to
+       *  the shell. */
+      const serveAt = (
+        request: HttpServerRequest.HttpServerRequest,
+        target: string,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse | undefined> =>
+        files.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            request.modify({ url: target }),
+          ),
+          Effect.catch((error) =>
+            error.reason._tag === "RouteNotFound"
+              ? Effect.succeed(undefined)
+              : Effect.die(error),
+          ),
+        );
+
+      /** Swap in a build-time precompressed sibling when the client accepts one
+       *  and it exists: the sibling's bytes, the ORIGINAL's `Content-Type`, the
+       *  matching `Content-Encoding`, and an appended `Vary`. Identity otherwise —
+       *  no sibling, a declining client, or an already-compressed media type. */
+      const negotiate = (
+        request: HttpServerRequest.HttpServerRequest,
+        target: string,
+        identity: HttpServerResponse.HttpServerResponse,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        Effect.gen(function* () {
+          const contentType = identity.headers["content-type"];
+          if (
+            contentType !== undefined &&
+            contentType !== "application/octet-stream" &&
+            !COMPRESSIBLE_CONTENT_TYPE.test(contentType)
+          ) {
+            return identity;
+          }
+          // Membership in the comma-split token set, in SERVER preference order —
+          // no q-value parsing, matching the `serve-static` this replaced (a
+          // `br;q=0` token is simply not the string `br`, so it never matches).
+          const accepted = new Set(
+            (request.headers["accept-encoding"] ?? "")
+              .split(",")
+              .map((token) => token.trim()),
+          );
+          for (const [encoding, suffix] of PRECOMPRESSED) {
+            if (!accepted.has(encoding)) continue;
+            const sibling = yield* serveAt(request, target + suffix);
+            if (sibling === undefined) continue;
+            const vary = sibling.headers.vary;
+            return HttpServerResponse.setHeaders(sibling, {
+              // The sibling's own name would type it `application/octet-stream`;
+              // the representation is still the original's.
+              "content-type": contentType ?? "application/octet-stream",
+              "content-encoding": encoding,
+              vary:
+                vary === undefined
+                  ? "Accept-Encoding"
+                  : `${vary}, Accept-Encoding`,
+            });
+          }
+          return identity;
+        });
+
+      /** Stamp the freshness directive LAST, so it wins over anything the file
+       *  engine set. `null` (no opinion — a root-level asset that is neither shell
+       *  nor hashed) leaves the response header-free, as before. */
+      const stamp = (
+        path: string,
+        response: HttpServerResponse.HttpServerResponse,
+      ): HttpServerResponse.HttpServerResponse => {
+        const directive = cacheControlFor(path, opts);
+        return directive === null
+          ? response
+          : HttpServerResponse.setHeader(response, "cache-control", directive);
+      };
+
+      const handler = (
+        request: HttpServerRequest.HttpServerRequest,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        Effect.gen(function* () {
+          const path = pathnameOf(request.url);
+          const plain = request.modify({
+            headers: Headers.removeMany(request.headers, CONDITIONAL_HEADERS),
+          });
+          const hit = yield* serveAt(plain, path);
+          if (isImmutableAssetPath(path, opts)) {
+            // A hashed-asset miss 404s and that 404 is itself uncacheable — it must
+            // NEVER fall through to the HTML shell, which under a `.js` URL is the
+            // wrong MIME and would be pinned `immutable` for a year.
+            if (hit === undefined) {
+              return HttpServerResponse.text("not found", {
+                status: 404,
+                headers: { "cache-control": ASSET_MISS_CACHE_CONTROL },
+              });
+            }
+            return stamp(path, yield* negotiate(plain, path, hit));
+          }
+          if (hit !== undefined) return stamp(path, hit);
+          // Every other unmatched path serves the shell — including one that LOOKS
+          // like a file (`/favicon.png`). The directive is spelled explicitly
+          // because `cacheControlFor` has no opinion about e.g. `/t/abc`, and the
+          // shell must never go out cacheable.
+          const shell = yield* serveAt(plain, "/");
+          return HttpServerResponse.setHeader(
+            shell ?? HttpServerResponse.text("not found", { status: 404 }),
+            "cache-control",
+            SHELL_CACHE_CONTROL,
+          );
+        });
+
+      // The `/sw.js` worker, served no-cache from the shared constant — the app
+      // never hand-rolls this route, and no static file can shadow it (a literal
+      // route outranks the `/*` catch-all).
+      yield* router.add(
+        "GET",
+        "/sw.js",
+        HttpServerResponse.text(swSource, {
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": cacheControlFor("/sw.js")! },
+        }),
+      );
+      yield* router.add("GET", "/*", handler);
+    }),
   );
 }
 
 /** Serve a dynamic web app manifest. The app supplies branding; the library
  *  owns assembly + the install-friendly defaults (start_url, display). */
-export function installPwaManifest(
-  app: Hono,
+export function pwaManifestLayer(
   manifest: ManifestOptions,
-  path = "/manifest.webmanifest",
-): void {
+  path: HttpRouter.PathInput = "/manifest.webmanifest",
+): Layer.Layer<never, never, HttpRouter.HttpRouter> {
   const { name, short_name, themeColor, backgroundColor, icons, ...extra } =
     manifest;
-  // `c.body` (not `c.json`) so the spec-mandated `application/manifest+json`
-  // content-type isn't overridden back to `application/json`.
-  app.get(path, (c) =>
-    c.body(
+  // `text` with an explicit `contentType` (not `json`) so the spec-mandated
+  // `application/manifest+json` isn't overridden back to `application/json`.
+  return HttpRouter.add(
+    "GET",
+    path,
+    HttpServerResponse.text(
       JSON.stringify({
         name,
         short_name: short_name ?? name,
@@ -156,30 +322,40 @@ export function installPwaManifest(
         icons: icons ?? [],
         ...extra,
       }),
-      200,
-      { "content-type": "application/manifest+json" },
+      { contentType: "application/manifest+json" },
     ),
   );
 }
 
 /** The greenfield convenience: manifest (if given) + fresh static serving
- *  (incl. `/sw.js`), wired in the right order. Granular pieces are exported for
- *  apps that want to compose them by hand. */
-export function installSurfaceApp(
-  app: Hono,
+ *  (incl. `/sw.js`), in one layer. The granular layers are exported for apps that
+ *  compose them by hand — kolu serves the manifest UNCONDITIONALLY (its dev proxy
+ *  forwards `/manifest.webmanifest` to a server with no built client) and adds
+ *  the static layer only when a dist exists, which is exactly why the two stay
+ *  separable. */
+export function surfaceAppLayer(
   opts: {
     clientDist: string;
     manifest?: ManifestOptions;
     serviceWorker?: ServiceWorkerMode;
   } & FreshnessPaths,
-): void {
-  if (opts.manifest) installPwaManifest(app, opts.manifest);
-  installFreshStatic(app, {
+): Layer.Layer<
+  never,
+  never,
+  | HttpRouter.HttpRouter
+  | FileSystem.FileSystem
+  | Path.Path
+  | HttpPlatform.HttpPlatform
+> {
+  const statics = freshStaticLayer({
     root: opts.clientDist,
     assetPrefix: opts.assetPrefix,
     shellPaths: opts.shellPaths,
     serviceWorker: opts.serviceWorker,
   });
+  return opts.manifest === undefined
+    ? statics
+    : Layer.merge(pwaManifestLayer(opts.manifest), statics);
 }
 
 /** A build-identity source. A plain value or a sync thunk is read at

@@ -15,17 +15,59 @@ by subpath.
 
 ## Serving the fresh shell
 
-`installSurfaceApp` (`@kolu/surface-app/server`) serves the shell: a `no-store`
+`surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store`
 `index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a
 404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
 Staleness is structurally impossible because the one document that names the
 bundle is always re-fetched.
 
+These are **`HttpRouter` layers** (`effect/unstable/http`), not framework
+installers: merge them into your app layer in any order — routes are ranked by
+specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
+`freshStaticLayer` and `surfaceAppLayer` require the platform services that read
+files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
+`NodeHttpServer.layerHttpServices`. Both **throw at composition time** if
+`assetPrefix` would capture a shell path (that would put a compressed
+`index.html` sibling on the wire; kolu#1319).
+
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `installSurfaceApp` | `/server` | serve the no-store shell + immutable assets |
-| `installFreshStatic` | `/server` | fresh static + optional notification worker |
-| `installPwaManifest` | `/server` | the web manifest |
+| `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
+| `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
+| `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
+
+```ts
+const app = Layer.mergeAll(
+  rpcRoutes,
+  surfaceAppLayer({ clientDist, manifest: { name: "my app" } }),
+);
+
+const server = createServer();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(app);
+      return yield* NodeHttpServer.makeHandler(httpEffect, { scope });
+    }).pipe(Scope.provide(scope), Effect.provide(NodeHttpServer.layerHttpServices)),
+  ),
+);
+```
+
+<Aside type="caution" title="Own the `http.Server`; don't let `HttpServer.serve` own it">
+  `NodeHttpServer.makeHandler` on a server you created keeps the `upgrade` event
+  yours. `HttpServer.serve` registers its **own** `upgrade` listener, and Node
+  fans an event out to every listener — so it would also answer a socket
+  `acceptSurfaceSocket` has already upgraded.
+</Aside>
+
+<Aside type="note" title="No `304`s, by design">
+  The static layer strips `If-None-Match` / `If-Modified-Since` before the file
+  engine sees them, so every hit is a full `200`. The platform's validator is
+  size+mtime, and in a Nix store every mtime is the epoch — a `304` there could
+  replay a stale same-size shell, which is the bug the whole freshness contract
+  exists to prevent.
+</Aside>
 | `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
 | `buildSurfaceClient()` | `/bun` | the Bun build equivalent |
 

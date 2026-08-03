@@ -6,10 +6,12 @@
  * transport by `implementSurfaces`. The `surfaceApp` entry's deps come from
  * `surfaceAppServer()` in one call (commit auto-resolved, the buildInfo cell's
  * async `connect` fired internally by the surface runtime); the `demo` entry
- * wires only the example's own cell. `installSurfaceApp` serves the shell fresh
- * + the manifest + the `/sw.js` retirement worker. The example writes no cell
- * store wiring, no `/sw.js` route, and no commit literal. To see skew in dev,
- * boot with `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
+ * wires only the example's own cell. `surfaceAppLayer` serves the shell fresh
+ * + the manifest + the `/sw.js` retirement worker, as an `HttpRouter` layer this
+ * server mounts on an `http.Server` it OWNS (so the `upgrade` event below stays
+ * ours alone). The example writes no cell store wiring, no `/sw.js` route, and
+ * no commit literal. To see skew in dev, boot with `SURFACE_APP_COMMIT=<other>`
+ * — a real deploy-simulating override.
  *
  * The RPC leg is ONE WebSocket: `acceptSurfaceSocket` keeps the
  * gate → enrol → dispatch order (a stale tab bound to a previous server
@@ -19,8 +21,9 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { serve } from "@hono/node-server";
+import { NodeHttpServer } from "@effect/platform-node";
 import {
   implementSurfacesOnPublisher,
   inMemoryPublisher,
@@ -29,13 +32,14 @@ import {
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   acceptSurfaceSocket,
-  installSurfaceApp,
   type ServableSocket,
   serveSurfaceSocket,
+  surfaceAppLayer,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import {
   EMPTY_STATS,
@@ -139,29 +143,49 @@ function pushStats(patch: Partial<ServerStats>): void {
 // Tick the server clock once a second so even a single tab sees the cell update live.
 setInterval(() => pushStats({ now: Date.now() }), 1000);
 
-const app = new Hono();
+// The HTTP app is a LAYER, not a framework instance: `surfaceAppLayer` is one
+// call for the fresh shell + manifest + `/sw.js` retirement. With no dist yet
+// there is simply no route, and every request 404s.
+const appLayer = existsSync(DIST_DIR)
+  ? surfaceAppLayer({
+      clientDist: DIST_DIR,
+      manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
+    })
+  : Layer.empty;
 
-if (existsSync(DIST_DIR)) {
-  // one call: fresh shell + manifest + /sw.js retirement — all from the library.
-  installSurfaceApp(app, {
-    clientDist: DIST_DIR,
-    manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
-  });
-}
-
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: HOST },
-  (info) => {
-    console.log(
-      `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${resolveCommit()})`,
-    );
-    if (!existsSync(DIST_DIR)) {
-      console.log(
-        "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
-      );
-    }
-  },
+// We own the `http.Server` and hand its `request` event an Effect handler,
+// rather than letting `HttpServer.serve` own the listener. That is what leaves
+// the `upgrade` event to US (below): Node fans an event out to EVERY listener,
+// so a second, framework-owned upgrade handler would also try to answer a socket
+// we have already upgraded.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      // The platform services the static layer asks for: file system, path, the
+      // file-response platform, ETags.
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
 );
+server.listen({ host: HOST, port: PORT }, () => {
+  console.log(
+    `@kolu/surface-app-example on http://${HOST}:${PORT} (server commit ${resolveCommit()})`,
+  );
+  if (!existsSync(DIST_DIR)) {
+    console.log(
+      "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
+    );
+  }
+});
 
 const wss = new WebSocketServer({ noServer: true });
 

@@ -13,9 +13,16 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
+import { NodeHttpServer } from "@effect/platform-node";
 import { implementSurfaces } from "@kolu/surface/server";
-import { Effect } from "effect";
-import { Hono } from "hono";
+import { Effect, type FileSystem, type Layer, type Path, Stream } from "effect";
+import {
+  type HttpPlatform,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
 import { socketPair } from "./fakeSocket.testlib";
@@ -27,47 +34,135 @@ import {
 import {
   acceptSurfaceSocket,
   buildInfoServer,
+  freshStaticLayer,
   gateStaleSocket,
   type GateableSocket,
   heartbeatSweep,
   type HeartbeatableSocket,
-  installFreshStatic,
-  installSurfaceApp,
+  pwaManifestLayer,
   type ServableSocket,
   serveSurfaceSocket,
   startWsHeartbeat,
+  surfaceAppLayer,
   surfaceAppServer,
 } from "./server";
 import type { BuildInfo } from "./surface";
 import { surfaceAppSurface } from "./surface";
 
-describe("installFreshStatic — the /sw.js route", () => {
+/** What a driven request answers with — the shape the old `app.request(...)`
+ *  `Response` gave these tests, so the assertions stay about behaviour. */
+interface Answer {
+  status: number;
+  header: (name: string) => string | undefined;
+  text: string;
+}
+
+/** The bytes of a response body, whichever variant carries them. */
+const bodyText = (
+  response: HttpServerResponse.HttpServerResponse,
+): Effect.Effect<string> => {
+  const body = response.body;
+  switch (body._tag) {
+    case "Empty":
+      return Effect.succeed("");
+    case "Uint8Array":
+      return Effect.succeed(new TextDecoder().decode(body.body));
+    case "Stream":
+      return Stream.runFold(
+        Stream.orDie(body.stream),
+        () => "",
+        (acc, chunk) => acc + new TextDecoder().decode(chunk),
+      );
+    // A file response on Node is `Raw` around a node `Readable` — the platform
+    // hands the stream straight to the socket.
+    case "Raw":
+      return Effect.promise(async () => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of body.body as Readable) {
+          chunks.push(Buffer.from(chunk as Uint8Array));
+        }
+        return Buffer.concat(chunks).toString("utf8");
+      });
+    default:
+      return Effect.succeed("");
+  }
+};
+
+/**
+ * Drive an app layer the way a Node request reaches it: a RAW request target
+ * (`request.url` is the untouched `IncomingMessage.url`, never a WHATWG-parsed
+ * URL) through the real router, out an `HttpServerResponse`. The platform
+ * services are the real Node ones — these tests read real files off a real temp
+ * dist, exactly as the Hono ones did.
+ */
+const drive = (
+  appLayer: Layer.Layer<
+    never,
+    never,
+    | HttpRouter.HttpRouter
+    | FileSystem.FileSystem
+    | Path.Path
+    | HttpPlatform.HttpPlatform
+  >,
+  target: string,
+  headers: Record<string, string> = {},
+): Promise<Answer> =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const app = yield* HttpRouter.toHttpEffect(appLayer);
+      const request = HttpServerRequest.fromWeb(
+        new Request("http://test/", { headers }),
+      ).modify({ url: target });
+      const response = yield* app.pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, request),
+        // An unmatched route is a 404 here, the way the server's own error
+        // handling renders it — never a failed test run.
+        Effect.catch((error) =>
+          error.reason._tag === "RouteNotFound"
+            ? Effect.succeed(
+                HttpServerResponse.text("not found", { status: 404 }),
+              )
+            : Effect.die(error),
+        ),
+      );
+      return {
+        status: response.status,
+        header: (name: string) => response.headers[name.toLowerCase()],
+        text: yield* bodyText(response),
+      };
+    }).pipe(Effect.scoped, Effect.provide(NodeHttpServer.layerHttpServices)),
+  );
+
+describe("freshStaticLayer — the /sw.js route", () => {
   it("serves the self-destructing retirement worker by default", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root: "/nonexistent" });
-    const res = await app.request("/sw.js");
+    const res = await drive(
+      freshStaticLayer({ root: "/nonexistent" }),
+      "/sw.js",
+    );
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("text/javascript");
-    expect(await res.text()).toBe(SW_SOURCE);
+    expect(res.header("content-type")).toContain("text/javascript");
+    expect(res.text).toBe(SW_SOURCE);
   });
 
   it("serves the fetch-less notification worker with serviceWorker: 'notify'", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root: "/nonexistent", serviceWorker: "notify" });
-    const res = await app.request("/sw.js");
+    const res = await drive(
+      freshStaticLayer({ root: "/nonexistent", serviceWorker: "notify" }),
+      "/sw.js",
+    );
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(NOTIFICATION_SW_SOURCE);
+    expect(res.text).toBe(NOTIFICATION_SW_SOURCE);
   });
 
   it("serves /sw.js no-cache so the browser's update check always sees a fresh worker", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root: "/nonexistent", serviceWorker: "notify" });
-    const res = await app.request("/sw.js");
-    expect(res.headers.get("Cache-Control")).toContain("no-cache");
+    const res = await drive(
+      freshStaticLayer({ root: "/nonexistent", serviceWorker: "notify" }),
+      "/sw.js",
+    );
+    expect(res.header("Cache-Control")).toContain("no-cache");
   });
 });
 
-describe("installFreshStatic — precompressed asset negotiation", () => {
+describe("freshStaticLayer — precompressed asset negotiation", () => {
   // The immutable hashed assets carry the whole client bundle, so the win is
   // serving their build-time `.br`/`.gz` siblings (no per-request CPU) with the
   // right `Content-Encoding`, the original `Content-Type`, and a `Vary` header —
@@ -91,95 +186,254 @@ describe("installFreshStatic — precompressed asset negotiation", () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it("serves the .br sibling when the client prefers brotli, keeping the original Content-Type", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root });
-    const res = await app.request("/assets/app-abc123.js", {
-      headers: { "Accept-Encoding": "br, gzip" },
-    });
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { "Accept-Encoding": "br, gzip" },
+    );
     expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Encoding")).toBe("br");
-    expect(res.headers.get("Vary")).toContain("Accept-Encoding");
+    expect(res.header("Content-Encoding")).toBe("br");
+    expect(res.header("Vary")).toContain("Accept-Encoding");
     // The `.br` extension must NOT leak into the type as octet-stream.
-    expect(res.headers.get("Content-Type")).toContain("javascript");
-    expect(await res.text()).toBe("BROTLI-PAYLOAD");
+    expect(res.header("Content-Type")).toContain("javascript");
+    expect(res.text).toBe("BROTLI-PAYLOAD");
   });
 
   it("falls back to the .gz sibling when the client accepts only gzip", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root });
-    const res = await app.request("/assets/app-abc123.js", {
-      headers: { "Accept-Encoding": "gzip" },
-    });
-    expect(res.headers.get("Content-Encoding")).toBe("gzip");
-    expect(await res.text()).toBe("GZIP-PAYLOAD");
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { "Accept-Encoding": "gzip" },
+    );
+    expect(res.header("Content-Encoding")).toBe("gzip");
+    expect(res.text).toBe("GZIP-PAYLOAD");
   });
 
   it("serves identity bytes when the client offers no matching encoding", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root });
-    const res = await app.request("/assets/app-abc123.js", {
-      headers: { "Accept-Encoding": "identity" },
-    });
-    expect(res.headers.get("Content-Encoding")).toBeNull();
-    expect(await res.text()).toBe("console.log('identity')");
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { "Accept-Encoding": "identity" },
+    );
+    expect(res.header("Content-Encoding")).toBeUndefined();
+    expect(res.text).toBe("console.log('identity')");
   });
 
   it("serves identity when no precompressed sibling exists, even if the client accepts br", async () => {
-    const app = new Hono();
-    installFreshStatic(app, { root });
-    const res = await app.request("/assets/plain-def456.js", {
-      headers: { "Accept-Encoding": "br, gzip" },
-    });
-    expect(res.headers.get("Content-Encoding")).toBeNull();
-    expect(await res.text()).toBe("console.log('plain')");
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/plain-def456.js",
+      { "Accept-Encoding": "br, gzip" },
+    );
+    expect(res.header("Content-Encoding")).toBeUndefined();
+    expect(res.text).toBe("console.log('plain')");
   });
 
   it("never serves a compressed sibling for a ROOT file like the shell, even when one exists and the client accepts br", async () => {
     // A build that (wrongly) emitted an `index.html.br` must not defeat the
-    // freshness contract. The `precompressed` route is scoped to `/assets/*`, so a
-    // root-level `.br` sibling is never negotiated: the `no-store` shell always
-    // goes out identity, so a returning browser can't be pinned to a stale
-    // post-build stamp (kolu#1319). This is the invariant made mechanical inside
-    // the module that owns the contract, rather than left to each consumer's build.
+    // freshness contract. Negotiation is scoped to `/assets/*`, so a root-level
+    // `.br` sibling is never considered: the `no-store` shell always goes out
+    // identity, so a returning browser can't be pinned to a stale post-build stamp
+    // (kolu#1319). This is the invariant made mechanical inside the module that
+    // owns the contract, rather than left to each consumer's build.
     writeFileSync(join(root, "index.html"), "<!doctype html>identity shell");
     writeFileSync(join(root, "index.html.br"), "BROTLI-SHELL");
-    const app = new Hono();
-    installFreshStatic(app, { root });
-    const res = await app.request("/index.html", {
-      headers: { "Accept-Encoding": "br, gzip" },
+    const res = await drive(freshStaticLayer({ root }), "/index.html", {
+      "Accept-Encoding": "br, gzip",
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Encoding")).toBeNull();
-    expect(await res.text()).toBe("<!doctype html>identity shell");
+    expect(res.header("Content-Encoding")).toBeUndefined();
+    expect(res.text).toBe("<!doctype html>identity shell");
+  });
+
+  it("leaves an already-compressed media type alone, even with a sibling on disk", async () => {
+    // The compressible-content-type guard the Hono `serve-static` carried: a
+    // `.png` whose build wrongly emitted a `.br` sibling must go out identity, not
+    // doubly compressed.
+    writeFileSync(join(root, "assets", "logo-abc123.png"), "PNG-BYTES");
+    writeFileSync(join(root, "assets", "logo-abc123.png.br"), "BROTLI-PNG");
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/logo-abc123.png",
+      { "Accept-Encoding": "br, gzip" },
+    );
+    expect(res.header("Content-Encoding")).toBeUndefined();
+    expect(res.text).toBe("PNG-BYTES");
   });
 
   it("throws fail-fast when a caller's assetPrefix would capture the shell (guards the kolu#1319 invariant)", () => {
-    // The precompressed route's shell-safety is mechanical ONLY while assetPrefix
-    // is disjoint from the shell, so a shell-capturing override (`/`) must fail
-    // loud at install time — never silently degrade into serving a compressed shell.
-    const app = new Hono();
-    expect(() => installFreshStatic(app, { root, assetPrefix: "/" })).toThrow(
+    // Negotiation's shell-safety is mechanical ONLY while assetPrefix is disjoint
+    // from the shell, so a shell-capturing override (`/`) must fail loud where the
+    // layer is composed — never silently degrade into serving a compressed shell.
+    expect(() => freshStaticLayer({ root, assetPrefix: "/" })).toThrow(
       /kolu#1319|stale/,
     );
   });
 });
 
-describe("installSurfaceApp — forwards the serviceWorker option to /sw.js", () => {
+describe("freshStaticLayer — the freshness contract on the wire", () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "fresh-contract-"));
+    mkdirSync(join(root, "assets"));
+    writeFileSync(join(root, "assets", "app-abc123.js"), "BUNDLE");
+    writeFileSync(join(root, "index.html"), "<!doctype html>shell");
+    writeFileSync(join(root, "favicon.ico"), "ICO");
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it("pins a hashed asset immutable for a year", async () => {
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+    );
+    expect(res.status).toBe(200);
+    expect(res.header("Cache-Control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+  });
+
+  it("404s an /assets/* MISS with no-store — never the HTML shell under a .js URL", async () => {
+    const res = await drive(freshStaticLayer({ root }), "/assets/gone-999.js");
+    expect(res.status).toBe(404);
+    expect(res.header("Cache-Control")).toBe("no-store");
+    expect(res.text).not.toContain("doctype");
+  });
+
+  it("serves the no-store shell for an unmatched app route", async () => {
+    const res = await drive(freshStaticLayer({ root }), "/t/abc");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("<!doctype html>shell");
+    // `cacheControlFor` has no opinion about `/t/abc`, so the shell directive is
+    // spelled explicitly — a cacheable shell is the whole bug this package exists
+    // to prevent.
+    expect(res.header("Cache-Control")).toBe("no-store");
+  });
+
+  it("serves the shell for a MISSING file outside the asset prefix (a stray /foo.png)", async () => {
+    // Deliberately NOT the "looks like a file ⇒ 404" rule some SPA servers use:
+    // outside `/assets/*` an unmatched path is an app route, whatever its
+    // extension, and only the hashed-asset prefix 404s.
+    const res = await drive(freshStaticLayer({ root }), "/foo.png");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("<!doctype html>shell");
+    expect(res.header("Cache-Control")).toBe("no-store");
+  });
+
+  it("serves index.html for the directory request `/`", async () => {
+    const res = await drive(freshStaticLayer({ root }), "/");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("<!doctype html>shell");
+    expect(res.header("Cache-Control")).toBe("no-store");
+  });
+
+  it("leaves a root-level file that is neither shell nor hashed asset unpinned", async () => {
+    const res = await drive(freshStaticLayer({ root }), "/favicon.ico");
+    expect(res.status).toBe(200);
+    expect(res.text).toBe("ICO");
+    expect(res.header("Cache-Control")).toBeUndefined();
+  });
+
+  it("answers a byte range with 206 + Content-Range", async () => {
+    const res = await drive(
+      freshStaticLayer({ root }),
+      "/assets/app-abc123.js",
+      { Range: "bytes=0-2" },
+    );
+    expect(res.status).toBe(206);
+    expect(res.header("Content-Range")).toBe("bytes 0-2/6");
+    expect(res.text).toBe("BUN");
+  });
+
+  it("never answers 304, even when the client offers the response's own validator", async () => {
+    // The Hono `serve-static` this replaced emitted no ETag and answered no 304.
+    // The platform's weak validator is mtime+size, which in a Nix store (all
+    // mtimes pinned to the epoch) collides across two builds of a same-size shell
+    // — a 304 there would replay a stale shell, the kolu#1319 family exactly. So
+    // conditional requests are refused outright.
+    const first = await drive(freshStaticLayer({ root }), "/index.html");
+    const etag = first.header("etag");
+    expect(etag).toBeDefined();
+    const second = await drive(freshStaticLayer({ root }), "/index.html", {
+      "If-None-Match": etag as string,
+    });
+    expect(second.status).toBe(200);
+    expect(second.text).toBe("<!doctype html>shell");
+  });
+});
+
+describe("pwaManifestLayer — the web app manifest", () => {
+  it("serves the spec content-type, with the library's install-friendly defaults", async () => {
+    const res = await drive(
+      pwaManifestLayer({ name: "Kolu" }),
+      "/manifest.webmanifest",
+    );
+    expect(res.status).toBe(200);
+    // `application/json` would be the wrong type for a manifest — browsers want
+    // the spec one.
+    expect(res.header("Content-Type")).toContain("application/manifest+json");
+    expect(JSON.parse(res.text)).toEqual({
+      name: "Kolu",
+      short_name: "Kolu",
+      start_url: "/",
+      display: "standalone",
+      theme_color: "#0c0c0e",
+      background_color: "#0c0c0e",
+      icons: [],
+    });
+  });
+
+  it("passes extra manifest fields straight through (real manifests are richer)", async () => {
+    const res = await drive(
+      pwaManifestLayer({
+        name: "Kolu",
+        description: "terminals on a canvas",
+        launch_handler: { client_mode: "focus-existing" },
+      }),
+      "/manifest.webmanifest",
+    );
+    expect(JSON.parse(res.text)).toMatchObject({
+      description: "terminals on a canvas",
+      launch_handler: { client_mode: "focus-existing" },
+    });
+  });
+
+  it("serves at a caller-chosen path", async () => {
+    const res = await drive(
+      pwaManifestLayer({ name: "Kolu" }, "/app.webmanifest"),
+      "/app.webmanifest",
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("surfaceAppLayer — the greenfield composition", () => {
   it("default forwards the retirement worker", async () => {
-    const app = new Hono();
-    installSurfaceApp(app, { clientDist: "/nonexistent" });
-    expect(await (await app.request("/sw.js")).text()).toBe(SW_SOURCE);
+    const res = await drive(
+      surfaceAppLayer({ clientDist: "/nonexistent" }),
+      "/sw.js",
+    );
+    expect(res.text).toBe(SW_SOURCE);
   });
 
   it("forwards serviceWorker: 'notify' to the notification worker", async () => {
-    const app = new Hono();
-    installSurfaceApp(app, {
-      clientDist: "/nonexistent",
-      serviceWorker: "notify",
-    });
-    expect(await (await app.request("/sw.js")).text()).toBe(
-      NOTIFICATION_SW_SOURCE,
+    const res = await drive(
+      surfaceAppLayer({
+        clientDist: "/nonexistent",
+        serviceWorker: "notify",
+      }),
+      "/sw.js",
     );
+    expect(res.text).toBe(NOTIFICATION_SW_SOURCE);
+  });
+
+  it("serves the manifest alongside the static routes when one is given", async () => {
+    const layer = surfaceAppLayer({
+      clientDist: "/nonexistent",
+      manifest: { name: "Kolu" },
+    });
+    expect((await drive(layer, "/manifest.webmanifest")).status).toBe(200);
+    expect((await drive(layer, "/sw.js")).text).toBe(SW_SOURCE);
   });
 });
 
