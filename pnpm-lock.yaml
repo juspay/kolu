@@ -348,6 +348,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -575,6 +578,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1018,6 +1024,10 @@ importers:
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/port-forward:
+    dependencies:
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1037,6 +1047,9 @@ importers:
 
   packages/serve-dir:
     dependencies:
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -1198,6 +1211,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
         version: link:../integrations/io
@@ -2175,6 +2191,9 @@ importers:
       cli-truncate:
         specifier: ^6.1.1
         version: 6.1.1
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.17)(react@19.2.8)

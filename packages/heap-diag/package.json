@@ -15,7 +15,8 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@kolu/log": "workspace:*"
+    "@kolu/log": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

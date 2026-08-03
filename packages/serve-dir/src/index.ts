@@ -2,8 +2,9 @@
  *  ABSOLUTE root, answer a request for a file under it with a streaming
  *  byte-range `Response`. The whole package is `(root, relPath, request) ->
  *  Response` — it knows nothing about terminals, git, or kolu (zero *workspace*
- *  deps — `node:fs`/`node:path`/`node:stream` plus the focused `mrmime` MIME
- *  table), so any app serving files from a dynamic absolute root can plug in.
+ *  deps — `node:fs`/`node:path`/`node:stream`, the focused `mrmime` MIME table,
+ *  and `effect` for the I/O half's lifetime and error vocabulary), so any app
+ *  serving files from a dynamic absolute root can plug in.
  *  The consumer keeps its own glue:
  *    - WHICH root (e.g. a terminal's repo root / `$PWD`) is injected by the
  *      caller, never decided here;

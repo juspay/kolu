@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@kolu/log": "workspace:*",
+    "effect": "catalog:",
     "kolu-io": "workspace:*"
   },
   "devDependencies": {
