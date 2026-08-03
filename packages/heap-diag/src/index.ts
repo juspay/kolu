@@ -37,6 +37,18 @@
  *     `extraColumns` subsystem counts, under the `<logPrefix>` event. The column
  *     that climbs monotonically alongside rss is the leak site.
  *
+ * Deliberately NOT included: an Effect `Schedule`/fiber for the two timers
+ * below. Both are `.unref()`'d, and the unref is load-bearing rather than
+ * hygiene-by-habit: this module is the ONLY thing arming a timer in a
+ * diag-enabled process that is otherwise ready to exit, so a ref'd timer would
+ * hold a draining daemon open for up to five minutes. Effect 4's default
+ * `Clock` sleeps on a plain, ref'd `setTimeout` (`effect/src/internal/effect.ts`,
+ * `ClockImpl.sleepMillis`) and exposes no unref, so `Effect.sleep` /
+ * `Schedule.fixed` cannot express this timer without a bespoke Clock service.
+ * A diagnostics instrument is not worth inventing one for — so the cadence
+ * stays on node timers, and this comment is the record of why, so the next
+ * sweep does not re-litigate it.
+ *
  * Deliberately NOT included: periodic automatic heap snapshots during the run.
  * Each `v8.writeHeapSnapshot()` transiently doubles the live heap; taking one
  * near the ceiling would push V8 over its limit and trigger the very OOM we are

@@ -59,6 +59,9 @@ importers:
       '@kolu/solid-browser':
         specifier: workspace:*
         version: link:../solid-browser
+      effect:
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
@@ -348,9 +351,6 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
-      effect:
-        specifier: 4.0.0-beta.102
-        version: 4.0.0-beta.102
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
