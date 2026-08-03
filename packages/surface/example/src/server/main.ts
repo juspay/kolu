@@ -1,5 +1,6 @@
 /**
- * Server entry — Hono for static assets, a plain `ws` server for the surface.
+ * Server entry — an `HttpRouter` layer for static assets, a plain `ws` server
+ * for the surface.
  *
  * Effect RPC speaks ndjson over ONE bidirectional transport, so a surface has a
  * single browser-facing leg: the WebSocket. Every call — a cell subscription, a
@@ -15,19 +16,22 @@
  * No HTTPS, no auth, no migrations — just enough wiring to demonstrate the
  * framework end-to-end. Static client is served from
  * `KOLU_SURFACE_EXAMPLE_DIST` (set by the Nix wrapper) when present;
- * otherwise the dev path is "Vite serves the client on its own port,
- * Hono only handles `/rpc/*`".
+ * otherwise the dev path is "Vite serves the client on its own port, and this
+ * server answers only the `/rpc/ws` upgrade" — with no dist there is simply no
+ * HTTP route and every request 404s.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { serve } from "@hono/node-server";
+import { existsSync } from "node:fs";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
+  freshStaticLayer,
   type ServableSocket,
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { runtime } from "./serve";
 
@@ -38,48 +42,49 @@ const HOST = process.env.HOST ?? "127.0.0.1";
 const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const DIST_DIR = process.env.KOLU_SURFACE_EXAMPLE_DIST;
 
-const app = new Hono();
-
 // ── Static client (Nix-build mode) ────────────────────────────────────
-if (DIST_DIR && existsSync(DIST_DIR)) {
-  app.get("*", (c) => {
-    const url = new URL(c.req.url);
-    const filePath =
-      url.pathname === "/"
-        ? join(DIST_DIR, "index.html")
-        : join(DIST_DIR, url.pathname);
-    const safe = resolve(filePath);
-    if (!safe.startsWith(resolve(DIST_DIR))) return c.notFound();
-    const target = existsSync(safe) ? safe : join(DIST_DIR, "index.html");
-    const body = readFileSync(target);
-    return new Response(new Uint8Array(body), {
-      headers: { "content-type": guessContentType(target) },
-    });
-  });
-}
+// `freshStaticLayer` is the maintained one — Effect's own file engine for the
+// bytes (MIME table, byte ranges, root containment) plus surface-app's
+// freshness policy: a `no-store` shell, immutable hashed `/assets/*`, and the
+// SPA fallback this example used to hand-roll. With no dist the layer is simply
+// ABSENT: a missing capability is no route, never a degraded one.
+const appLayer =
+  DIST_DIR !== undefined && existsSync(DIST_DIR)
+    ? freshStaticLayer({ root: DIST_DIR })
+    : Layer.empty;
 
-function guessContentType(p: string): string {
-  if (p.endsWith(".html")) return "text/html; charset=utf-8";
-  if (p.endsWith(".js")) return "application/javascript; charset=utf-8";
-  if (p.endsWith(".css")) return "text/css; charset=utf-8";
-  if (p.endsWith(".svg")) return "image/svg+xml";
-  if (p.endsWith(".json")) return "application/json; charset=utf-8";
-  return "application/octet-stream";
-}
-
-// ── HTTP server bind via @hono/node-server ────────────────────────────
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: HOST },
-  (info) => {
-    const where = `http://${info.address}:${info.port}`;
-    console.log(`@kolu/surface-example listening on ${where}`);
-    if (!DIST_DIR) {
-      console.log(
-        "  (no KOLU_SURFACE_EXAMPLE_DIST set — start Vite separately for the client)",
-      );
-    }
-  },
+// ── HTTP server ───────────────────────────────────────────────────────
+// We own the `http.Server` and hand its `request` event an Effect handler,
+// rather than letting `HttpServer.serve` own the listener. That is what leaves
+// the `upgrade` event to US (below): node fans an event out to EVERY listener,
+// so a second, framework-owned upgrade handler would also try to answer a
+// socket we have already upgraded.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      // The platform services the static layer asks for: file system, path, the
+      // file-response platform, ETags.
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
 );
+server.listen({ host: HOST, port: PORT }, () => {
+  console.log(`@kolu/surface-example listening on http://${HOST}:${PORT}`);
+  if (!DIST_DIR) {
+    console.log(
+      "  (no KOLU_SURFACE_EXAMPLE_DIST set — start Vite separately for the client)",
+    );
+  }
+});
 
 // ── WebSocket: the surface's one transport ────────────────────────────
 const wss = new WebSocketServer({ noServer: true });

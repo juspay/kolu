@@ -14,13 +14,15 @@
  * only browser-reachable RPC entry point.
  */
 
-import { serve } from "@hono/node-server";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   type ServableSocket,
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { createTop } from "./top";
 
@@ -31,17 +33,34 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const top = createTop();
 top.start();
 
-const app = new Hono();
-
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: HOST },
-  (info) => {
-    process.stdout.write(
-      `fleet-top part 1 listening on http://${info.address}:${info.port}\n` +
-        "  (run `pnpm run dev:client` for the UI on vite's port)\n",
-    );
-  },
+// This part serves NO http routes — vite serves the UI on its own port, and the
+// only thing this process answers is the `/rpc/ws` upgrade below. So the router
+// layer is empty and every plain request 404s through `HttpRouter`'s own
+// `RouteNotFound`. We still own the `http.Server` (rather than letting
+// `HttpServer.serve` own the listener) because node fans `upgrade` out to EVERY
+// listener, and the ws seam must be the only one.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(Layer.empty);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
 );
+server.listen({ host: HOST, port: PORT }, () => {
+  process.stdout.write(
+    `fleet-top part 1 listening on http://${HOST}:${PORT}\n` +
+      "  (run `pnpm run dev:client` for the UI on vite's port)\n",
+  );
+});
 
 // ── WebSocket: the surface's one transport ─────────────────────────────
 const wss = new WebSocketServer({

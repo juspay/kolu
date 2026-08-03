@@ -16,14 +16,16 @@
  *   PORT                          HTTP+WS port (default 7740)
  */
 
-import { serve } from "@hono/node-server";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
 import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
   type ServableSocket,
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
 import { type MapRegistry, serveSurfaceMap } from "@kolu/surface-map/server";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { type HostFailure, hostMap } from "../common/map";
 import { buildHostBinding, type HostBinding } from "./hosts";
@@ -72,16 +74,31 @@ const registry: MapRegistry<string, "copying", HostFailure> = {
 const { group, handlers } = serveSurfaceMap(hostMap, registry);
 
 // ── Serve the map over one WebSocket ────────────────────────────────────
-const app = new Hono();
-
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: "0.0.0.0" },
-  (info) => {
-    process.stdout.write(
-      `fleet-top part 3 serving ${bindings.size} host(s) on http://localhost:${info.port}\n`,
-    );
-  },
+// No http routes here either — the browser gets its UI from vite and this
+// process answers only the `/rpc/ws` upgrade, so the router layer is empty and
+// every plain request 404s. We own the `http.Server` so the ws seam below stays
+// the ONLY `upgrade` listener.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(Layer.empty);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
 );
+server.listen({ host: "0.0.0.0", port: PORT }, () => {
+  process.stdout.write(
+    `fleet-top part 3 serving ${bindings.size} host(s) on http://localhost:${PORT}\n`,
+  );
+});
 
 const wss = new WebSocketServer({
   noServer: true,

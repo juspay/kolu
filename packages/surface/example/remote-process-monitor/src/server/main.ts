@@ -24,15 +24,11 @@
  *                                 bundle from this dir (production mode)
  */
 
-import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateWsOrigin,
-  type OriginGateRequest,
-  parseAllowedOrigins,
-  type UpgradeSocket,
-} from "@kolu/surface/ws-origin";
-import {
+  freshStaticLayer,
   type ServableSocket,
   serveSurfaceSocket,
 } from "@kolu/surface-app/server";
@@ -41,7 +37,8 @@ import {
   resolveBakedAgentDrv,
   sshConnector,
 } from "@kolu/surface-remote";
-import { Hono } from "hono";
+import { Effect, Scope } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { surface } from "../common/surface";
 import { buildSurface } from "./serve";
@@ -89,34 +86,48 @@ async function main(): Promise<void> {
   const { runtime } = buildSurface({ session });
 
   // ── HTTP server: serve client bundle in production ─────────────────
-  const app = new Hono();
+  // The http app is a LAYER, not a framework instance. In production
+  // `freshStaticLayer` serves the built bundle (Effect's file engine for the
+  // bytes, surface-app's freshness policy for the headers); in dev vite owns
+  // the UI and this process answers one plain text route.
   const distDir = process.env.KOLU_SURFACE_EXAMPLE_DIST;
-  if (distDir !== undefined && distDir.length > 0) {
-    app.use("*", serveStatic({ root: distDir }));
-    log(`serving client bundle from ${distDir}`);
-  } else {
-    app.get("/", (c) =>
-      c.text(
-        "remote-process-monitor server is up. Start vite (`pnpm run dev:client`) for the UI.",
-      ),
-    );
-  }
-
-  const httpServer = serve(
-    {
-      fetch: app.fetch,
-      port: PORT,
-      hostname: "0.0.0.0",
-    },
-    (info) => {
-      // Print the "listening" line ONLY after the bind completes —
-      // otherwise Vite's WS proxy races the parent's nix-build step
-      // and logs spurious ECONNREFUSED until the bind catches up.
-      log(
-        `listening on http://${info.address}:${info.port} (open http://localhost:${info.port}/)`,
+  const hasDist = distDir !== undefined && distDir.length > 0;
+  if (hasDist) log(`serving client bundle from ${distDir}`);
+  const appLayer = hasDist
+    ? freshStaticLayer({ root: distDir })
+    : HttpRouter.add(
+        "GET",
+        "/",
+        HttpServerResponse.text(
+          "remote-process-monitor server is up. Start vite (`pnpm run dev:client`) for the UI.",
+        ),
       );
-    },
+
+  // We own the `http.Server` so the `upgrade` seam below stays ours alone —
+  // node fans an event out to every listener, and a framework-owned upgrade
+  // handler would try to answer a socket we have already upgraded.
+  const httpServer = createServer();
+  const httpScope = Scope.makeUnsafe();
+  httpServer.on(
+    "request",
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+        return yield* NodeHttpServer.makeHandler(httpEffect, {
+          scope: httpScope,
+        });
+      }).pipe(
+        Scope.provide(httpScope),
+        Effect.provide(NodeHttpServer.layerHttpServices),
+      ),
+    ),
   );
+  httpServer.listen({ host: "0.0.0.0", port: PORT }, () => {
+    // Print the "listening" line ONLY after the bind completes —
+    // otherwise Vite's WS proxy races the parent's nix-build step
+    // and logs spurious ECONNREFUSED until the bind catches up.
+    log(`listening on http://0.0.0.0:${PORT} (open http://localhost:${PORT}/)`);
+  });
 
   // ── WebSocket: the browser's one transport ─────────────────────────
   const wss = new WebSocketServer({
@@ -148,24 +159,15 @@ async function main(): Promise<void> {
       log(`browser ws serving failed: ${String(err)}`),
     );
   });
-  (
-    httpServer as unknown as {
-      on: (
-        event: "upgrade",
-        cb: (req: unknown, socket: unknown, head: unknown) => void,
-      ) => void;
-    }
-  ).on("upgrade", (req, socket, head) => {
-    const r = req as OriginGateRequest & { url?: string };
-    const s = socket as UpgradeSocket;
-    if (r.url !== "/rpc/ws") {
-      s.destroy();
+  httpServer.on("upgrade", (req, socket, head) => {
+    if (req.url !== "/rpc/ws") {
+      socket.destroy();
       return;
     }
     // CSWSH gate — reject a cross-site browser Origin before we upgrade.
     // Especially load-bearing here: this demo binds all interfaces.
     if (
-      gateWsOrigin({ headers: r.headers ?? {} }, s, {
+      gateWsOrigin(req, socket, {
         allowedOrigins: ALLOWED_ORIGINS,
         onReject: (origin) =>
           log(
@@ -175,11 +177,8 @@ async function main(): Promise<void> {
     ) {
       return;
     }
-    wss.handleUpgrade(
-      req as Parameters<typeof wss.handleUpgrade>[0],
-      socket as Parameters<typeof wss.handleUpgrade>[1],
-      head as Parameters<typeof wss.handleUpgrade>[2],
-      (ws) => wss.emit("connection", ws, req),
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss.emit("connection", ws, req),
     );
   });
 
@@ -200,12 +199,8 @@ async function main(): Promise<void> {
         /* already gone */
       }
     }
-    const srv = httpServer as unknown as {
-      closeAllConnections?: () => void;
-      close: (cb?: () => void) => void;
-    };
-    srv.closeAllConnections?.();
-    srv.close(() => process.exit(0));
+    httpServer.closeAllConnections();
+    httpServer.close(() => process.exit(0));
     // Belt-and-braces: if close() still hangs (unexpected stuck
     // socket), exit forcibly after a short grace window.
     setTimeout(() => process.exit(0), 1000).unref();
