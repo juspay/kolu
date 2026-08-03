@@ -75,6 +75,8 @@ import {
   MapEntryFailed,
   MapKeyNonCanonical,
   MapKeyUnknown,
+  SurfaceRelayTransportLost,
+  SurfaceStdioTransportClosed,
 } from "@kolu/surface/errors";
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -310,6 +312,37 @@ export const MapRejectionSchema = Schema.Union([
 /** The decoded union of {@link MapRejectionSchema}. */
 export type MapRejection = typeof MapRejectionSchema.Type;
 
+/** The transport deaths a folded call carries UP from the entry's own link.
+ *
+ *  A map hop does not only raise its own three rejections — it FORWARDS
+ *  (`serveSurfaceMap`'s `unaryHandler` / `forwardStream` hand the call straight to
+ *  `session.dispatch`), so whatever the entry's link fails with becomes this member's
+ *  failure. That link is a stdio/unix leg (`SurfaceStdioTransportClosed`, e.g. the
+ *  daemon behind the entry is respawning) or a re-serve relay
+ *  (`SurfaceRelayTransportLost`), and BOTH are `@kolu/surface/errors` classes the far
+ *  end was built from. Undeclared, they were encoded against a union that does not
+ *  contain them and reached the caller as an OPAQUE STRING defect
+ *  (`Expected MapKeyNonCanonical | MapKeyUnknown | MapEntryFailed, got
+ *  SurfaceStdioTransportClosed …`) — precisely the flattening the D4 declaration
+ *  exists to kill, and precisely what made a caller unable to tell a respawning
+ *  daemon ("not yet") from a terminal fault ("never").
+ *
+ *  `SurfaceTransportRetired` is deliberately ABSENT: it is the BROWSER socket's own
+ *  4001 retirement, raised by the consumer's link, never carried up through a
+ *  forward. */
+const ForwardedTransportDeathSchema = Schema.Union([
+  SurfaceStdioTransportClosed,
+  SurfaceRelayTransportLost,
+]);
+
+/** Everything the FRAMEWORK itself can put on a folded member's error channel: the
+ *  map's own rejections ({@link MapRejectionSchema}) plus the transport deaths its
+ *  forward relays ({@link ForwardedTransportDeathSchema}). */
+const FoldedFrameworkErrorSchema = Schema.Union([
+  MapRejectionSchema,
+  ForwardedTransportDeathSchema,
+]);
+
 // ── Key-fold schema builders (mirror @kolu/surface/define, +mapKey) ─────
 //
 // Each mirrors a per-primitive Rpc emitter in `@kolu/surface/define`, wrapping the
@@ -360,16 +393,18 @@ export function foldInput(inner?: WireSchemaAny): WireSchemaAny {
   }) as unknown as WireSchemaAny;
 }
 
-/** A folded member's declared error channel: the map's own three rejections, plus
- *  the ENTRY's declared error union when it has one (SK6). Without threading the
- *  leaf's declaration through, the map hop would decode the leaf's typed failure
- *  against a union that does not contain it and flatten it into an opaque defect —
- *  exactly the collapse the declaration exists to kill. */
+/** A folded member's declared error channel: everything the FRAMEWORK can raise on
+ *  this hop ({@link FoldedFrameworkErrorSchema} — the map's own three rejections plus
+ *  the entry link's transport deaths the forward relays), plus the ENTRY's declared
+ *  error union when it has one (SK6). Without threading each of those declarations
+ *  through, the map hop would encode the failure against a union that does not contain
+ *  it and flatten it into an opaque defect — exactly the collapse the declaration
+ *  exists to kill. */
 function foldedError(entryError?: WireSchemaAny): WireSchemaAny {
   return (entryError === undefined
-    ? MapRejectionSchema
+    ? FoldedFrameworkErrorSchema
     : Schema.Union([
-        MapRejectionSchema,
+        FoldedFrameworkErrorSchema,
         entryError,
       ])) as unknown as WireSchemaAny;
 }

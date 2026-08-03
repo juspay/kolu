@@ -45,6 +45,10 @@
  */
 
 import { isTransportError } from "@kolu/surface/client";
+import {
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   websocketLink,
@@ -120,12 +124,17 @@ export class RpcCallFailed extends Error {
 /** Is this failure the padi binding still WARMING UP — i.e. "not yet", not "never"?
  *
  *  The successor of the old HTTP `503` split, restated on the wire's own vocabulary.
- *  Three shapes mean "ask again":
+ *  Four shapes mean "ask again":
  *
  *   - a TRANSPORT failure (`RpcClientError`) or a per-call timeout — the server isn't
- *     listening yet, or the socket dropped mid-restart;
+ *     listening yet, or the HARNESS'S OWN socket dropped mid-restart;
  *   - `MapKeyUnknown` — the host pool has not seeded this key yet, so the map has no
  *     entry to route to;
+ *   - the ENTRY LINK's transport death — `SurfaceStdioTransportClosed` (the padi
+ *     process behind the entry is respawning, so its stdio/unix leg is gone) or
+ *     `SurfaceRelayTransportLost` (a re-serve's middle hop dropped). The map forwards
+ *     the entry's failure verbatim, so these are what a call issued DURING a padi
+ *     restart answers with;
  *   - `UpstreamUnavailableError` — the entry exists but its re-serve has no live
  *     upstream link (`@kolu/surface-remote`'s `reServeSurface`). This is EXACTLY what
  *     used to be answered as `503`. It crosses as a DEFECT, and Effect's defect codec
@@ -134,12 +143,26 @@ export class RpcCallFailed extends Error {
  *
  *  Everything else — a declared procedure error, a schema rejection, a `MapEntryFailed`
  *  terminal fault — is PERMANENT and must surface immediately, exactly as a non-503
- *  HTTP status did. */
+ *  HTTP status did. `SurfaceTransportRetired` stays permanent too: that is the server
+ *  RETIRING a stale tab's socket (close code 4001), and re-dialling only re-presents
+ *  the same corpse.
+ *
+ *  **Why "never retry a dead transport" does not apply here.** `@kolu/surface/client`'s
+ *  `shouldRetryStreamError` refuses `SurfaceStdioTransportClosed` because IT would be
+ *  retrying over that same dead link. The harness is not: it re-issues over its own
+ *  live websocket, and the server re-dials the entry when padi comes back — so a fresh
+ *  call reaches a fresh link. The predicates come from `@kolu/surface/errors` so this
+ *  branches on the declared `_tag`, never on the failure's prose. */
 export function isPadiWarmingUp(err: unknown): boolean {
   if (!(err instanceof RpcCallFailed)) return false;
   if (err.timedOut) return true;
   const failure = err.failure;
   if (isTransportError(failure)) return true;
+  if (
+    isSurfaceStdioTransportClosed(failure) ||
+    isSurfaceRelayTransportLost(failure)
+  )
+    return true;
   const tag = (failure as { readonly _tag?: unknown } | null)?._tag;
   if (tag === "MapKeyUnknown") return true;
   return (

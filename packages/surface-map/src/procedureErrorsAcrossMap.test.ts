@@ -20,16 +20,27 @@
  * `MapKeyNonCanonical`, D4) are pinned here too — they ride the same declared channel
  * and must survive the same wire hop with their `_tag` and fields, which is why they
  * live in `@kolu/surface/errors` rather than in this package.
+ *
+ * And so are the transport deaths the forward RELAYS from the entry's own link
+ * (`ForwardedTransportDeathSchema`) — the same flattening, one layer down: the map
+ * raises none of them itself, it just hands the call to `session.dispatch`, so a
+ * respawning daemon's `SurfaceStdioTransportClosed` IS this member's failure.
  */
 
 import { defineSurface, surfaceTag } from "@kolu/surface/define";
-import { MapEntryFailed, MapKeyUnknown } from "@kolu/surface/errors";
+import {
+  MapEntryFailed,
+  MapKeyUnknown,
+  SurfaceRelayTransportLost,
+  SurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { createLoopbackPair } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface } from "@kolu/surface/server";
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { fold } from "./envelope";
 import {
@@ -248,6 +259,91 @@ describe("the in-process forward preserves the same tags (no wire, same vocabula
     );
     const err = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
     expect(err).toBeInstanceOf(MapKeyUnknown);
+    served.dispose();
+  });
+});
+
+// ── The entry LINK's transport death, relayed ──────────────────────────────
+//
+// The map raises none of these itself: `unaryHandler` hands the call straight to
+// `session.dispatch`, so a dead entry leg's tagged death IS the folded member's
+// failure. Undeclared, it was encoded against a union that does not contain it and
+// reached the caller as an opaque STRING defect carrying only the parse prose —
+// which is how kolu's e2e `Before` hook read a padi that was merely RESPAWNING as a
+// PERMANENT failure ("Expected MapKeyNonCanonical | MapKeyUnknown | MapEntryFailed,
+// got SurfaceStdioTransportClosed"). A caller that must tell "not yet" from "never"
+// can only do so if the `_tag` survives the hop.
+
+/** A DEAD entry link: every call fails with `err`, exactly as a stdio leg whose
+ *  subprocess is gone (or a re-serve relay whose upstream dropped) does. */
+const deadLink = (err: unknown): SurfaceDispatch => ({
+  unary: () => Effect.fail(err),
+  stream: () => Stream.fail(err),
+});
+
+describe("a DEAD entry link's transport death crosses the map hop typed (not flattened)", () => {
+  it.each([
+    {
+      what: "stdio leg (the daemon behind the entry is respawning)",
+      error: () =>
+        new SurfaceStdioTransportClosed({ reason: "padi respawning" }),
+      ctor: SurfaceStdioTransportClosed,
+      tag: "SurfaceStdioTransportClosed",
+    },
+    {
+      what: "re-serve relay (the middle hop's upstream dropped)",
+      error: () => new SurfaceRelayTransportLost({ reason: "upstream gone" }),
+      ctor: SurfaceRelayTransportLost,
+      tag: "SurfaceRelayTransportLost",
+    },
+  ])("arrives as the same tagged error over a real wire — $what", async ({
+    error,
+    ctor,
+    tag,
+  }) => {
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: daemonSurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    const served = serveSurfaceMap(map, reg.registry);
+    const pair = createLoopbackPair();
+    const serving = serveOverStdio({
+      group: served.group,
+      handlers: served.handlers,
+      transport: pair.server,
+    });
+    const mapLink = await stdioLink({
+      group: served.group,
+      read: pair.client.read,
+      write: pair.client.write,
+    });
+    reg.addSession(A, deadLink(error()), connected(0));
+    await settle();
+
+    // BOTH arms of `foldedError`: `recycle` threads an ENTRY-declared error
+    // (`DemoContractSkew`) into the union, `boom` does not — a transport death must
+    // survive either way, or the declaration would only hold for members that
+    // happen to declare a domain error of their own.
+    for (const memberTag of [RECYCLE_TAG, BOOM_TAG]) {
+      const exit = await runExit(
+        mapLink.dispatch.unary(memberTag, fold("a", { id: "x" })),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) continue;
+      // A declared FAILURE, not a die: the caller is entitled to branch on it.
+      expect(Cause.hasFails(exit.cause)).toBe(true);
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      const err = Cause.squash(exit.cause);
+      expect(err).toBeInstanceOf(ctor);
+      expect(err).toMatchObject({ _tag: tag });
+    }
+
+    await mapLink.dispose();
+    pair.client.write.end();
+    pair.server.write.end();
+    await serving;
     served.dispose();
   });
 });
