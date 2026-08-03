@@ -79,9 +79,18 @@ function fork<A>(label: string, action: UiAction<A>): Fiber.Fiber<A, never> {
  *  Fire-and-forget by design: the click is over, and nothing in the UI is
  *  waiting on the outcome (the action's own toasts and store writes ARE the
  *  outcome). `label` names the action for the defect path only, so it reads as a
- *  user-facing noun phrase — "create terminal", not "handleCreate". */
-export function runAction(label: string, action: UiAction): void {
-  fork(label, action);
+ *  user-facing noun phrase — "create terminal", not "handleCreate".
+ *
+ *  Returns the fiber, which almost every caller ignores. It exists for work
+ *  whose lifetime is neither the click nor a reactive owner — the terminal
+ *  attach loop, restarted from an xterm write callback where there is no owner
+ *  to hang `onCleanup` on, and torn down by a handle the component holds. Reach
+ *  for {@link runOwnedAction} whenever an owner IS in scope. */
+export function runAction<A>(
+  label: string,
+  action: UiAction<A>,
+): Fiber.Fiber<A, never> {
+  return fork(label, action);
 }
 
 /** Run a UI action tied to the CURRENT Solid owner: the fiber is interrupted

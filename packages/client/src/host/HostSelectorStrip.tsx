@@ -558,7 +558,7 @@ const AddHostAffordance: Component = () => {
   });
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
-  const submit = (): void =>
+  const submit = (): void => {
     runAction(
       "add host",
       addHost(draft(), () => {
@@ -566,6 +566,7 @@ const AddHostAffordance: Component = () => {
         setOpen(false);
       }),
     );
+  };
   return (
     <>
       <button

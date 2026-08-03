@@ -1,4 +1,4 @@
-import { Stream } from "effect";
+import { Effect, type Fiber, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { consumeReattachingStream } from "./reattachingStream";
 
@@ -16,6 +16,15 @@ function streamThat<T>(
 /** Resolve pending microtasks so the fire-and-forget fiber advances. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+/** Run the loop the way its one production caller does: one fiber, interrupted
+ *  to stop it. The `AbortSignal` this helper used to take is gone — teardown is
+ *  fiber interruption (D10/#18), and there is nothing left to thread. */
+function start(
+  ...args: Parameters<typeof consumeReattachingStream<string>>
+): Fiber.Fiber<void, never> {
+  return Effect.runFork(consumeReattachingStream(...args).pipe(Effect.orDie));
+}
+
 describe("consumeReattachingStream", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -24,7 +33,6 @@ describe("consumeReattachingStream", () => {
 
   it("abnormal end → re-attaches and re-subscribes with fresh items", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const controller = new AbortController();
     const items: string[] = [];
     const onReattach = vi.fn();
     // 1st stream FAILS after its frame → abnormal mid-chain end; 2nd emits then
@@ -34,13 +42,7 @@ describe("consumeReattachingStream", () => {
       .mockReturnValueOnce(streamThat(["stale"], new Error("padi died")))
       .mockReturnValueOnce(streamThat(["fresh-snapshot", "live"]));
 
-    consumeReattachingStream(
-      streamFn,
-      (item) => items.push(item),
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    start(streamFn, (item) => items.push(item), onReattach, "test");
 
     // Drain the loop, waiting past the real-timer 300ms backoff that sits
     // between the failed first attempt and the re-subscribe.
@@ -55,20 +57,13 @@ describe("consumeReattachingStream", () => {
   });
 
   it("graceful end (PTY exit) → does NOT loop or re-attach", async () => {
-    const controller = new AbortController();
     const items: string[] = [];
     const onReattach = vi.fn();
     const streamFn = vi
       .fn<() => Stream.Stream<string, unknown>>()
       .mockReturnValue(streamThat(["a", "b"]));
 
-    consumeReattachingStream(
-      streamFn,
-      (item) => items.push(item),
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    start(streamFn, (item) => items.push(item), onReattach, "test");
 
     for (let i = 0; i < 10; i++) await flush();
 
@@ -78,75 +73,62 @@ describe("consumeReattachingStream", () => {
   });
 
   // The successor of the old "expected cleanup error" case. There is no such
-  // error to classify any more: teardown is a fiber INTERRUPT, and
-  // `runStreamScoped` reports nothing once its stopper has run — so an unmount
-  // can no longer be mistaken for a mid-chain death by any predicate, because it
-  // never reaches the failure handler at all (D10/#18).
-  it("abort mid-stream → the loop stops silently, no re-attach", async () => {
-    const controller = new AbortController();
+  // error to classify any more: teardown is a fiber INTERRUPT, and an
+  // interruption is not a failure — so an unmount can no longer be mistaken for
+  // a mid-chain death by any predicate, because it never reaches the failure
+  // handler at all (D10/#18).
+  it("interrupt mid-stream → the loop stops silently, no re-attach", async () => {
     const items: string[] = [];
     const onReattach = vi.fn();
-    // Never ends on its own: only the abort can stop it.
+    // Never ends on its own: only the interrupt can stop it.
     const streamFn = vi
       .fn<() => Stream.Stream<string, unknown>>()
       .mockReturnValue(Stream.concat(streamThat(["a"]), Stream.never));
 
-    consumeReattachingStream(
-      streamFn,
-      (item) => items.push(item),
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    const fiber = start(streamFn, (item) => items.push(item), onReattach, "test");
 
     for (let i = 0; i < 5; i++) await flush();
     expect(items).toEqual(["a"]);
 
-    controller.abort();
+    fiber.interruptUnsafe();
     for (let i = 0; i < 10; i++) await flush();
 
     expect(streamFn).toHaveBeenCalledTimes(1); // stopped, never re-subscribed
     expect(onReattach).not.toHaveBeenCalled();
   });
 
-  it("signal already aborted → streamFn is never invoked", async () => {
-    const controller = new AbortController();
-    controller.abort();
+  it("interrupting during the BACKOFF stops the loop — the sleep is interruptible", async () => {
+    // The successor of "signal already aborted → streamFn is never invoked".
+    // That case tested a pre-armed abort against a hand-rolled `open()` guard;
+    // the guard is gone, and what replaces it is stronger: the backoff is an
+    // `Effect.sleep` inside the retry schedule, so an interrupt lands DURING it
+    // and no re-subscribe ever happens. The old `clearTimeout` bookkeeping the
+    // abort listener did is what this deletes.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     const onReattach = vi.fn();
     const streamFn = vi
       .fn<() => Stream.Stream<string, unknown>>()
-      .mockReturnValue(streamThat(["never"]));
+      .mockReturnValue(streamThat<string>([], new Error("padi died")));
 
-    consumeReattachingStream(
-      streamFn,
-      () => {},
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    const fiber = start(streamFn, () => {}, onReattach, "test");
 
-    for (let i = 0; i < 10; i++) await flush();
+    await new Promise((r) => setTimeout(r, 50)); // failed once, now sleeping
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    fiber.interruptUnsafe();
 
-    expect(streamFn).not.toHaveBeenCalled();
-    expect(onReattach).not.toHaveBeenCalled();
+    await new Promise((r) => setTimeout(r, 350)); // well past the backoff
+    expect(streamFn).toHaveBeenCalledTimes(1); // never re-subscribed
   });
 
   it("waits ~300ms between a failed attempt and the re-subscribe (backoff)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const controller = new AbortController();
     const onReattach = vi.fn();
     const streamFn = vi
       .fn<() => Stream.Stream<string, unknown>>()
       .mockReturnValueOnce(streamThat<string>([], new Error("padi died")))
       .mockReturnValueOnce(streamThat(["fresh"]));
 
-    consumeReattachingStream(
-      streamFn,
-      () => {},
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    start(streamFn, () => {}, onReattach, "test");
 
     // Let the first attempt fail + onReattach fire, but DON'T yet cross the
     // backoff. Real timers, not fake ones: the attempt runs on an Effect fiber

@@ -154,8 +154,9 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   // `onMount` fires exactly once) — shared timing with the desktop popover.
   onMount(() => focusOnMount(inputEl));
 
-  const submit = (): void =>
+  const submit = (): void => {
     runAction("add host", addHost(draft(), props.onClose));
+  };
 
   return (
     <div

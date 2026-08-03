@@ -104,13 +104,14 @@ export const useTerminalCrud = createSharedRoot(() => {
   // reordering of local state that happens to re-home sub-terminals server-side),
   // so this one runs its effect at the seam rather than pushing the Effect shape
   // through a port type whose every other member is `void`.
-  const setParent = (subId: TerminalId, parentId: TerminalId | null): void =>
+  const setParent = (subId: TerminalId, parentId: TerminalId | null): void => {
     runAction(
       "re-home split",
       activePadiEffect.chrome
         .setParent({ id: subId, parentId })
         .pipe(toastFailure("Failed to set parent")),
     );
+  };
 
   const evictionPorts: TerminalEvictionPorts = {
     activeId: store.activeId,

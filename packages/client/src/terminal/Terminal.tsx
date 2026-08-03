@@ -41,7 +41,7 @@ import {
   createBackfillController,
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
-import { Effect } from "effect";
+import { Effect, type Fiber } from "effect";
 import {
   sameGrid,
   type TerminalGrid,
@@ -136,7 +136,15 @@ const Terminal: Component<{
   // kit disposes the terminal itself; we release only our own references).
   let linkProviderDisposable: { dispose(): void } | null = null;
   let backfill: BackfillController | null = null;
-  let streamAbort: AbortController | null = null;
+  /** The LIVE attach attempt's fiber — interrupting it ends that attempt's
+   *  consume loop and any backoff it is sleeping through. Component-lifetime,
+   *  because the teardown below is the component's. */
+  let attachFiber: Fiber.Fiber<unknown, never> | null = null;
+  /** Component teardown latch. Interruption stops the fiber, but it is
+   *  ASYNCHRONOUS, and xterm can still invoke a stashed write callback after the
+   *  pane is gone — so "am I torn down" stays a synchronous fact, exactly as the
+   *  `signal.aborted` it replaces was. */
+  let attachTornDown = false;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -281,7 +289,9 @@ const Terminal: Component<{
     // bridge cleared BEFORE the terminal is disposed — the old single-function
     // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
     onCleanup(() => {
-      streamAbort?.abort();
+      attachTornDown = true;
+      attachFiber?.interruptUnsafe();
+      attachFiber = null;
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -429,9 +439,6 @@ const Terminal: Component<{
       () => props.visible,
     );
 
-    streamAbort = new AbortController();
-    const signal = streamAbort.signal;
-
     // Scrollback backfill: attach paints only the recent screenful; as the user
     // scrolls up, fetch older chunks from kaval and prepend them into this
     // terminal's own scrollback. Seeded from the attach snapshot's `topLine`
@@ -549,14 +556,10 @@ const Terminal: Component<{
     function openAttachStream() {
       // ALL of this attempt's state lives here, in its closure — never in a
       // binding a successor could overwrite. `attempt` decides whether this
-      // loop's work still counts; `abort` ends this loop and no other.
+      // loop's work still counts; `superseded` is this attempt's own teardown
+      // latch, set BEFORE its fiber is interrupted.
       const attempt = attempts.open();
-      const abort = new AbortController();
-      // The whole loop — not just its RPC — is scoped to this attempt: aborting
-      // it ends this consumer's `while`, so a superseded attempt cannot keep
-      // re-subscribing on the successor's behalf. Component unmount still ends
-      // every attempt through the same signal.
-      const attemptSignal = AbortSignal.any([signal, abort.signal]);
+      let superseded = false;
       /** The grid THIS attach attempt asked the host to serialize at. Written by
        *  the thunk on every open, read by the snapshot frame that answers it — so
        *  an attempt and the grid it is only valid for are one thing, not two. */
@@ -564,8 +567,15 @@ const Terminal: Component<{
 
       /** Live = still the current attempt AND not torn down. `isCurrent()` alone
        *  stays true forever when no successor opens, so an unmounted pane's
-       *  scroll-lock-stashed callback would still act. */
-      const attemptLive = () => attempt.isCurrent() && !attemptSignal.aborted;
+       *  scroll-lock-stashed callback would still act.
+       *
+       *  Both latches are SYNCHRONOUS, and they must be: fiber interruption
+       *  stops the loop but is asynchronous, so a frame or a stashed xterm write
+       *  callback already past its last suspension can still arrive. Stopping
+       *  the work and refusing a stale result are two jobs — the same law
+       *  `attachAttempts.ts` states for the generation gate. */
+      const attemptLive = () =>
+        attempt.isCurrent() && !superseded && !attachTornDown;
 
       // Every effect this attempt can still fire after supersession, guarded in
       // one place — keyed on the LIVE predicate, so it is inert after unmount
@@ -592,12 +602,15 @@ const Terminal: Component<{
        *  `attemptLive()` at every call site, so several superseded callbacks
        *  reaching here produce ONE successor, not a cascade. */
       const reopenForStaleGrid = () => {
-        abort.abort();
+        // Latch first, interrupt second — the window between them is exactly
+        // where a late frame of this attempt would otherwise land.
+        superseded = true;
+        attachFiber?.interruptUnsafe();
         resetForFreshSnapshot();
         openAttachStream();
       };
 
-      consumeReattachingStream(
+      const consume = consumeReattachingStream(
         () => {
           // Read the grid at the moment this stream is opened, and REMEMBER it:
           // the snapshot that comes back is only meaningful at this exact grid,
@@ -615,19 +628,18 @@ const Terminal: Component<{
           // Absent is unreachable — `onceMeasured` opens the stream only once a
           // grid exists, and a measured grid is never un-measured.
           //
-          // A bare `throw` here would NOT fail loud: this thunk's throws are
-          // caught by `consumeReattachingStream`, classified as an abnormal end,
-          // console.warn'd and retried every 300ms — and each retry runs
-          // `resetForFreshSnapshot`, which WIPES the user's screen. So the
-          // assertion aborts the stream FIRST: the outer `while (!signal.aborted)`
-          // then exits after one pass, and the breach surfaces where a user can
-          // see it instead of turning into a blank pane blinking 3×/second.
+          // A throw here is a DEFECT, and that is what makes it fail loud: the
+          // re-attach loop retries FAILURES, so a defect is not retried — it
+          // reaches the run edge, which reports it (console + toast) and ends the
+          // attach. Retrying it would instead run `resetForFreshSnapshot` every
+          // 300ms, blanking the user's pane three times a second. The old shape
+          // had to abort the stream by hand to get this; now it is what the two
+          // channels already mean.
           const measured = h.grid();
           if (!measured) {
-            const msg = `terminal ${props.terminalId}: attach opened without a measured grid`;
-            toast.error(msg);
-            streamAbort?.abort();
-            throw new Error(msg);
+            throw new Error(
+              `terminal ${props.terminalId}: attach opened without a measured grid`,
+            );
           }
           requestedGrid = measured;
           return unenrolledStreamCall(
@@ -636,12 +648,11 @@ const Terminal: Component<{
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
-              // The attempt's lifetime is `attemptSignal`, which
-              // `consumeReattachingStream` translates into ONE fiber interrupt —
-              // there is no signal to thread into the call itself any more
-              // (D10/#18). The reset hook stays guarded for the same reason as
-              // before: a superseded attempt's retry must not wipe the
-              // successor's screen.
+              // The attempt's lifetime IS its fiber — interrupting it tears the
+              // subscription down through the stream's own finalizers, so there
+              // is no signal to thread into the call (D10/#18). The reset hook
+              // stays guarded for the same reason as before: a superseded
+              // attempt's retry must not wipe the successor's screen.
               onRetry: resetIfLive,
             },
           );
@@ -768,9 +779,16 @@ const Terminal: Component<{
           }
         },
         resetIfLive,
-        attemptSignal,
         "Terminal attach",
       );
+      // One fiber per attempt. Interrupting it ends this consumer AND any
+      // backoff it is sleeping through, so a superseded attempt cannot keep
+      // re-subscribing on the successor's behalf — what the per-attempt
+      // `AbortController` fused with `AbortSignal.any` used to buy, minus the
+      // fusing. `orDie`: the retry schedule is infinite, so a failure reaching
+      // here is unreachable by construction and says so loudly rather than
+      // silently ending the attach.
+      attachFiber = runAction("Terminal attach", consume.pipe(Effect.orDie));
     }
 
     // Initial focus, mirroring the old post-fit focus on first mount.
