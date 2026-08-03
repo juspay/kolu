@@ -102,6 +102,7 @@ import {
 } from "@kolu/surface-daemon-supervisor";
 import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { Schema } from "effect";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
@@ -121,7 +122,16 @@ import {
   writeStateRootManifest,
 } from "../stateRoot.ts";
 import { PADI_SURFACE_VERSION } from "../surface.ts";
+import {
+  LOCAL_LOCATION,
+  type SavedSession,
+  SavedSessionSchema,
+} from "../vocab.ts";
 import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
+
+/** The saved session, ENCODED by its own schema — so the blob planted on disk is
+ *  valid by construction and cannot drift from what a padi of this build reads. */
+const encodeSavedSession = Schema.encodeSync(SavedSessionSchema);
 
 /** The drain ceiling padi's binder declares for its probe
  *  (`PADI_DRAIN_TEARDOWN_CEILING_MS` in kolu-server). Restated here for the same
@@ -818,26 +828,29 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
   //    live PTY, and PARKS it for the restore card — which is exactly the state
   //    a takeover must preserve.
   const plantedId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  // Built as a VALUE and encoded by the schema, never hand-written JSON: the
+  // point of the assertion downstream is that the new padi SERVES this blob, and
+  // a blob the current schema cannot decode would fail there for a reason that
+  // has nothing to do with the takeover.
+  const plantedSession = {
+    terminals: [
+      {
+        id: plantedId,
+        state: "active",
+        cwd: stateRoot,
+        lastActivityAt: 1,
+        git: null,
+        pr: { kind: "absent" },
+        location: LOCAL_LOCATION,
+        restoreTarget: { kind: "none" },
+      },
+    ],
+    activeTerminalId: plantedId,
+    savedAt: 1_700_000_000_000,
+  } satisfies SavedSession;
   writeFileSync(
     join(stateRoot, "config.json"),
-    `${JSON.stringify(
-      {
-        session: {
-          terminals: [
-            {
-              id: plantedId,
-              cwd: stateRoot,
-              lastActivityAt: 1,
-              themeName: "nord",
-            },
-          ],
-          activeTerminalId: plantedId,
-          savedAt: 1_700_000_000_000,
-        },
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify({ session: encodeSavedSession(plantedSession) }, null, 2)}\n`,
   );
 
   try {

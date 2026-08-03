@@ -1465,7 +1465,12 @@ export function createEndpoint<
     // Re-attest through the SAME identity law, right before the kill (the
     // ordering `recoverGatelessSquatter` uses for its own kill). Only the window
     // between this read and the signal is irreducible.
-    const holder = await liveServingHolder(held);
+    //
+    // Against `primaryRv`, NOT `held`: the classification and its corroboration
+    // both came from the primary rendezvous (`probeCorroborated`), so that is the
+    // gate whose answer can be compared to `peer.pid` at all. Re-reading a
+    // different rendezvous would compare two unrelated facts.
+    const holder = await liveServingHolder(primaryRv);
     if (holder === undefined || holder !== peer.pid) {
       spec.log.warn(
         {
