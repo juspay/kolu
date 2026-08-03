@@ -168,9 +168,10 @@ describe("implementSurfaces: connect cell-dep", () => {
           cells: {
             state: {
               store,
-              connect: async (cell) => {
-                cell.set({ value: 99 });
-              },
+              connect: (cell) =>
+                Effect.sync(() => {
+                  cell.set({ value: 99 });
+                }),
             },
           },
           procedures: {
@@ -179,7 +180,9 @@ describe("implementSurfaces: connect cell-dep", () => {
         },
       },
     );
-    // `connect` is async; let the microtask settle.
+    // The connector installs on the constructing stack, so the write has already
+    // landed — but let a microtask settle anyway, so this test cannot silently
+    // start depending on synchrony it does not mean to assert.
     await Promise.resolve();
     expect(store.get()).toEqual({ value: 99 });
     expect(published).toContainEqual({ value: 99 });

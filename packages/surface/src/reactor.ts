@@ -38,7 +38,7 @@
  * every frame. This is a permanent boundary, not a phase gap.
  */
 
-import { Result } from "effect";
+import { Effect, Result, type Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SiblingRead, SurfaceSpec } from "./define";
@@ -50,7 +50,13 @@ import {
   DERIVED_POLL_BRAND,
   type SiblingSourcesRuntime,
 } from "./reactorBrand";
-import type { CellStore, Disposer } from "./server";
+import type { CellConnector, CellStore } from "./server";
+
+/** A teardown callback. The reactor's face is deliberately NON-Effect (locked
+ *  decision 1) so a non-Effect consumer — padi's port sampler drives
+ *  {@link PollSource.connectPoll} directly — never has to mint a run edge to use
+ *  it. Sync or async; the framework awaits it either way. */
+export type Disposer = () => void | Promise<void>;
 
 // ── The engine seam ──────────────────────────────────────────────────────
 //
@@ -337,9 +343,19 @@ export interface PollSource<T> extends GraphNode<T | undefined> {
    *  via `set`, then install the caller's tick cadence. Each later tick re-reads
    *  under a non-overlap (`inFlight`) guard and, on a read throw, LOG-SKIP-CONTINUEs
    *  (holds the last published value), never tearing down a long-lived poll.
-   *  Returns the loop's disposer. Called once by `derived.cell`'s connect seam. The
-   *  owned connector's `signal` (from the runtime) rides every read and, on abort,
-   *  latches the poll's teardown so `close()` can't strand a seed or late-publish. */
+   *  Returns the loop's disposer.
+   *
+   *  DELIBERATELY Promise + `AbortSignal`-shaped, not an `Effect`. `derived.cell`'s
+   *  connect seam is the usual driver and bridges it into a scoped connector — but
+   *  it is public because a non-cell consumer drives it directly (padi's port
+   *  sampler samples every terminal outside any wire member), and an
+   *  Effect-returning face would make that consumer mint an `Effect.run*` edge for
+   *  a bridge whose whole job is to be synchronous and non-Effect (locked decision
+   *  1, the same argument that keeps {@link PollSourceOptions.read} a Promise).
+   *
+   *  `signal` rides every read and, on abort, latches the poll's teardown — so a
+   *  `close()` can strand neither a seed nor a late publish. Under a `derived.cell`
+   *  the abort IS the connector's interruption, forwarded by the bridge. */
   connectPoll(set: (next: T) => void, signal?: AbortSignal): Promise<Disposer>;
 }
 
@@ -348,9 +364,10 @@ export interface PollSource<T> extends GraphNode<T | undefined> {
 export interface PollSourceOptions<T> {
   /** The async poll read. The T+0 call is the seed (first failure propagates); a
    *  later call that throws is logged and skipped (the loop holds its last value).
-   *  Receives the owned connector's `AbortSignal` (aborted on `close()`), which a
-   *  cooperative read should honour so a slow read never strands a closing runtime;
-   *  ignoring it is fine when the read always settles promptly. */
+   *  Receives the poll connector's `AbortSignal` (aborted when the runtime's
+   *  `close()` interrupts the connector), which a cooperative read should honour so
+   *  a slow read never strands a closing runtime; ignoring it is fine when the read
+   *  always settles promptly. */
   read: (signal?: AbortSignal) => Promise<T>;
   /** Install the tick cadence: called once after the seed lands, handed a `tick`
    *  that triggers a guarded re-read. Return an uninstall fn (or nothing). */
@@ -668,10 +685,12 @@ function pollSource<T>({
   let dirty = false;
   let uninstall: (() => void) | undefined;
   let disposed = false;
-  // The owned connector's abort signal (threaded from `connectPoll`) — passed to
-  // every `read` for cooperative cancellation, and its `abort` LATCHES `disposed`
-  // so a `close()` during the seed read can't late-publish/install (and the read,
-  // if it respects the signal, unblocks a `close()` waiting on it).
+  // The connector's abort signal (threaded from `connectPoll`) — passed to every
+  // `read` for cooperative cancellation, and its `abort` LATCHES `disposed` so a
+  // `close()` during the seed read can't late-publish/install (and the read, if it
+  // respects the signal, unblocks a `close()` waiting on it). Under a
+  // `derived.cell` it is the scoped connector's own controller, aborted by the
+  // fiber's interruption.
   let connSignal: AbortSignal | undefined;
   // A read rejection caused by OUR OWN abort (a `close()` cancelling a cooperative
   // read) is expected shutdown noise, not a poll failure — distinguished so it is
@@ -765,7 +784,7 @@ function pollSource<T>({
     value: level,
     [POLL_SOURCE_BRAND]: true,
     connectPoll: async (set, signal) => {
-      // The owned connector's abort is the poll's teardown trigger: it LATCHES
+      // The connector's abort is the poll's teardown trigger: it LATCHES
       // `disposed` (so the post-seed guard below suppresses a late publish/install
       // if `close()` raced the seed) and tears down any installed loop. Abort BEFORE
       // the seed even starts is honoured too.
@@ -936,20 +955,25 @@ export interface DerivedCell<T> {
    *  builds its OWN private serving store (seeded from this `get`) and drives it
    *  exclusively through the `connect` seam. */
   readonly store: CellStore<T>;
-  /** The `connect` seam. Subscribes the node's level and returns a
-   *  {@link Disposer} that tears down the effect + backing node — so the
-   *  {@link SurfaceRuntime}'s `close()` disposes the reactor subscription (the
-   *  derived cell joins the runtime's ownership). A POLL-source cell connects
-   *  ASYNCHRONOUSLY — it returns a `Promise<Disposer>` that resolves once the T+0
-   *  seed read lands (a rejection propagates to the runtime's `done`); the
-   *  runtime's async connector seam awaits either shape. */
-  readonly connect: (
-    cell: { set: (next: T) => void },
-    opts?: { signal?: AbortSignal },
-  ) => Disposer | Promise<Disposer>;
-  /** Tear down the connect effect and the backing node. Idempotent — the same
-   *  teardown `connect` returns, so a standalone owner and the runtime's
-   *  `close()` never double-dispose. */
+  /** The `connect` seam — the framework's `CellConnector`, so a derived cell
+   *  drops into `implementSurface`'s `cells.<key>` slot with no adapter.
+   *
+   *  It SUBSCRIBES THE NODE'S LEVEL SYNCHRONOUSLY, inside the effect's acquire:
+   *  the runtime forks the connector and Effect runs a `sync` step on the forking
+   *  stack, so the publish path is live before `implementSurface` returns and
+   *  every later graph write reaches the wire on the WRITER's own stack. That is
+   *  the ordering `streamOrdering.test.ts` (a) and `kill.feature` pin, and it is
+   *  why the publish is never forked. Teardown is the scope's: interruption (the
+   *  runtime's `close()`) releases the subscription and the backing node.
+   *
+   *  A POLL-source cell suspends inside the effect until its T+0 seed read lands
+   *  (a failure propagates to the runtime's `done`); interruption becomes the
+   *  abort its Promise-shaped `read` sees. */
+  readonly connect: CellConnector<T>;
+  /** Tear down the connect effect and the backing node, for a caller that owns
+   *  its OWN teardown point (a test, a standalone driver serving no runtime).
+   *  Idempotent, and it is the SAME teardown the connector's scope runs — so a
+   *  standalone owner and the runtime's `close()` never double-dispose. */
   readonly dispose: () => void;
   /** An ENGINE-TRACKED read of this cell's graph node (its `computed`/`scan`
    *  signal, LIVE). The boot walk registers it as this derived member's `$`
@@ -1051,30 +1075,92 @@ function connectPublishEffect<T>(
   });
 }
 
-/** The async poll-connect protocol, shared by every builder that wires a POLL
- *  source (`derived.cell` and `derived.collection`). `connectPoll` does the T+0
- *  seed read (a rejection propagates through this promise to the runtime's
- *  `done`), publishes it via `onValue`, and installs the tick loop — resolving to
- *  the loop's disposer. If the builder was torn down while the seed was in flight
- *  (`isTorn()`), dispose the just-installed loop rather than joining it to a
- *  torn-down node; otherwise `adopt` the disposer and return the builder's
- *  `teardown` so the runtime's `close()` disposes the subscription. */
+/** Install a builder's SYNCHRONOUS subscription as a scoped resource — the
+ *  non-poll shape of every derived connector.
+ *
+ *  `acquireRelease` (not `sync` then `addFinalizer`) because acquisition must be
+ *  uninterruptible: a subscription installed but not yet registered for release
+ *  is a leak with no owner. The acquire runs on the FORKING stack, which is what
+ *  keeps the graph→wire publish synchronous with the writer. */
+function scopedInstall(
+  install: () => void,
+  teardown: () => void,
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.asVoid(
+    Effect.acquireRelease(Effect.sync(install), () => Effect.sync(teardown)),
+  );
+}
+
+/** The reason a poll connector's own `AbortSignal` carries when its scope closes
+ *  without the fiber having been interrupted. Named so a poll `read` that
+ *  surfaces its abort reason says something true. */
+const POLL_CONNECTOR_CLOSED = new Error(
+  "reactor: poll connector closed (the surface runtime released it)",
+);
+
+/** The poll-connect protocol, shared by every builder that wires a POLL source
+ *  (`derived.cell` and `derived.collection`) — the ONE place the reactor's
+ *  Promise-shaped poll driver meets the framework's scoped connector.
+ *
+ *  `connectPoll` stays `(set, signal) => Promise<Disposer>` deliberately (locked
+ *  decision 1: the reactor's FACE is non-Effect, so padi's port sampler can drive
+ *  a poll source without minting a run edge). The bridge is therefore three
+ *  things and no more:
+ *
+ *  - the connector's own `AbortController`, released with the scope, is the
+ *    poll's teardown latch and the `AbortSignal` every `read` receives;
+ *  - `Effect.tryPromise` hands the FIBER's interruption signal in, and that
+ *    signal aborts the controller — so `close()` becomes a real abort on an
+ *    in-flight cooperative read rather than a promise nobody is left awaiting;
+ *  - the seed's failure is the effect's failure (it reaches the runtime's
+ *    `done`), and the loop's disposer becomes a scope finalizer.
+ *
+ *  If the builder was torn down while the seed was in flight (`isTorn()`),
+ *  dispose the just-installed loop rather than joining it to a torn-down node. */
 function connectPollNode<T>(
   poll: PollSource<T>,
   onValue: (v: T) => void,
   isTorn: () => boolean,
   adopt: (d: Disposer) => void,
-  teardown: Disposer,
-  signal?: AbortSignal,
-): Promise<Disposer> {
-  return poll.connectPoll(onValue, signal).then((loopDispose) => {
-    if (isTorn()) {
-      loopDispose();
-      return () => {};
-    }
-    adopt(loopDispose);
-    return teardown;
-  });
+  teardown: () => void,
+): Effect.Effect<void, unknown, Scope.Scope> {
+  return Effect.flatMap(
+    Effect.acquireRelease(
+      Effect.sync(() => new AbortController()),
+      (ctl) =>
+        Effect.sync(() => {
+          ctl.abort(POLL_CONNECTOR_CLOSED);
+          teardown();
+        }),
+    ),
+    (ctl) =>
+      Effect.flatMap(
+        Effect.tryPromise({
+          try: (interrupted) => {
+            // Interruption ⇒ abort. The fiber's own signal fires the instant the
+            // runtime interrupts this connector; forwarding it to the poll's
+            // controller is what lets a cooperative `read(signal)` unblock a
+            // `close()` — and what latches the poll's teardown even though
+            // Effect has already stopped awaiting this promise.
+            interrupted.addEventListener(
+              "abort",
+              () => ctl.abort(interrupted.reason),
+              { once: true },
+            );
+            return poll.connectPoll(onValue, ctl.signal);
+          },
+          catch: (err) => err,
+        }),
+        (loopDispose) =>
+          Effect.sync(() => {
+            if (isTorn()) {
+              loopDispose();
+              return;
+            }
+            adopt(loopDispose);
+          }),
+      ),
+  );
 }
 
 /** The one-shot connect guard shared by every derived builder (cell, compute cell,
@@ -1143,47 +1229,50 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
     // walk seeds this cell's store from the SPEC DEFAULT — the async connect below
     // publishes the first read. The brand tells the walk which seed to use.
     ...(poll ? { [DERIVED_POLL_BRAND]: true } : {}),
-    connect: (cell, opts) => {
-      assertOneShotConnect(torn, connected, "derived cell");
-      connected = true;
-      if (poll) {
-        // A poll source connects ASYNCHRONOUSLY (see `connectPollNode`): the T+0
-        // seed read faults the runtime's `done` on rejection — a boot crash,
-        // never a fabricated default. The owned connector's `signal` rides in so
-        // `close()` during the seed cooperatively cancels it (no late publish).
-        return connectPollNode(
-          poll,
-          (next) => cell.set(next),
-          () => torn,
-          (d) => {
-            disposeEffect = d;
-          },
-          teardown,
-          opts?.signal,
-        );
-      }
-      // The connect seam: an engine effect subscribes the node's level and
-      // pushes every change through the ctx setter (the member's write gate).
-      // The first synchronous run pushes the seed, which the member's `equals`
-      // dedups against the identical store seed — so wiring a derived cell
-      // publishes nothing until the level genuinely moves.
-      //
-      // Stateless-compute error policy (no bridge effect body escapes its
-      // wrapper): a LATER read that throws — a `computed(fn)` node whose `fn`
-      // hits a case it can't handle — is logged and the last published value
-      // HELD, healing on the next good recompute. (The SEED throw is a boot crash,
-      // caught at the eager `store.get()` pull, not here.) Without this a
-      // `derived.cell(computed(fn))` throw would escape synchronously into the
-      // writer's stack.
-      disposeEffect = connectPublishEffect(
-        () => node.value.value,
-        (next) => cell.set(next),
-        "derived cell",
-      );
-      // Return the teardown so the runtime's `close()` disposes this
-      // subscription (the reactor sub joins the runtime's ownership).
-      return teardown;
-    },
+    connect: (cell) =>
+      Effect.suspend(() => {
+        assertOneShotConnect(torn, connected, "derived cell");
+        connected = true;
+        if (poll) {
+          // A poll source SUSPENDS inside the connector (see `connectPollNode`):
+          // the T+0 seed read faults the runtime's `done` on failure — a boot
+          // crash, never a fabricated default — and the fiber's interruption
+          // becomes the abort a `close()` during the seed cooperatively cancels
+          // the read with (no late publish).
+          return connectPollNode(
+            poll,
+            (next) => cell.set(next),
+            () => torn,
+            (d) => {
+              disposeEffect = d;
+            },
+            teardown,
+          );
+        }
+        // The connect seam: an engine effect subscribes the node's level and
+        // pushes every change through the ctx setter (the member's write gate).
+        // Installed inside `acquireRelease`'s ACQUIRE, which the runtime runs on
+        // its own stack — so the subscription is live before `implementSurface`
+        // returns and each later graph write publishes synchronously with the
+        // writer. The first synchronous run pushes the seed, which the member's
+        // `equals` dedups against the identical store seed — so wiring a derived
+        // cell publishes nothing until the level genuinely moves.
+        //
+        // Stateless-compute error policy (no bridge effect body escapes its
+        // wrapper): a LATER read that throws — a `computed(fn)` node whose `fn`
+        // hits a case it can't handle — is logged and the last published value
+        // HELD, healing on the next good recompute. (The SEED throw is a boot
+        // crash, caught at the eager `store.get()` pull, not here.) Without this
+        // a `derived.cell(computed(fn))` throw would escape synchronously into
+        // the writer's stack.
+        return scopedInstall(() => {
+          disposeEffect = connectPublishEffect(
+            () => node.value.value,
+            (next) => cell.set(next),
+            "derived cell",
+          );
+        }, teardown);
+      }),
     dispose: teardown,
   };
 }
@@ -1284,25 +1373,28 @@ function computeCell<S extends SurfaceSpec, T>(
     [DERIVED_CELL_BRAND]: true,
     [DERIVED_COMPUTE_BRAND]: true,
     bindSiblings,
-    connect: (cell) => {
-      assertOneShotConnect(torn, connected, "derived compute cell");
-      connected = true;
-      const n = requireNode();
-      // Stateless-compute error policy — LOG-SKIP-CONTINUE holding the last
-      // published value: a throw in the compute (a recompute hitting a case it
-      // can't handle) is logged and the last good value HELD, and the next
-      // successful recompute heals it. (Contrast `scan`'s stop-hold: a scan
-      // carries state, so a throwing step STOPS; a stateless compute has no
-      // corrupt accumulator to protect, so it continues.) The first run pushes
-      // the seed, which the member's `equals` dedups against the identical store
-      // seed — so wiring publishes nothing until the derivation genuinely moves.
-      disposeEffect = connectPublishEffect(
-        () => n.value,
-        (next) => cell.set(next),
-        "derived compute cell",
-      );
-      return teardown;
-    },
+    connect: (cell) =>
+      Effect.suspend(() => {
+        assertOneShotConnect(torn, connected, "derived compute cell");
+        connected = true;
+        const n = requireNode();
+        // Stateless-compute error policy — LOG-SKIP-CONTINUE holding the last
+        // published value: a throw in the compute (a recompute hitting a case it
+        // can't handle) is logged and the last good value HELD, and the next
+        // successful recompute heals it. (Contrast `scan`'s stop-hold: a scan
+        // carries state, so a throwing step STOPS; a stateless compute has no
+        // corrupt accumulator to protect, so it continues.) The first run pushes
+        // the seed, which the member's `equals` dedups against the identical
+        // store seed — so wiring publishes nothing until the derivation genuinely
+        // moves.
+        return scopedInstall(() => {
+          disposeEffect = connectPublishEffect(
+            () => n.value,
+            (next) => cell.set(next),
+            "derived compute cell",
+          );
+        }, teardown);
+      }),
     dispose: teardown,
   };
 }
@@ -1373,47 +1465,50 @@ function derivedCollection<K, V>(
     [DERIVED_COLLECTION_BRAND]: true,
     readAll: () => new Map(current) as Map<unknown, unknown>,
     readOne: (key) => current.get(key as K),
-    connect: (publishers, opts) => {
-      assertOneShotConnect(torn, connected, "derived collection");
-      connected = true;
-      const pub = {
-        upsert: (k: K, v: V) => publishers.upsert(k, v),
-        remove: (k: K) => publishers.remove(k),
-        equals: publishers.equals as (a: V, b: V) => boolean,
-      };
-      if (poll) {
-        // Async (see `connectPollNode`): the seed read gives the first whole map
-        // (reconciled against the empty baseline ⇒ every key upserted), then each
-        // tick's map reconciles. A first-read rejection faults the runtime's `done`;
-        // the owned connector's `signal` cancels a seed a `close()` races.
-        return connectPollNode(
-          poll,
-          (nextMap) => reconcile(nextMap, pub),
-          () => torn,
-          (d) => {
-            disposeReconcile = d;
-          },
-          teardown,
-          opts?.signal,
-        );
-      }
-      // A non-poll node (a `computed`/`$`-compute producing a map): an engine effect
-      // reconciles on each change. Log-skip-continue on a compute throw (hold last).
-      disposeReconcile = effect(() => {
-        let nextMap: ReadonlyMap<K, V>;
-        try {
-          nextMap = node.value.value;
-        } catch (err) {
-          console.error(
-            "derived collection: recompute threw — holding last published keys",
-            err,
+    connect: (publishers) =>
+      Effect.suspend(() => {
+        assertOneShotConnect(torn, connected, "derived collection");
+        connected = true;
+        const pub = {
+          upsert: (k: K, v: V) => publishers.upsert(k, v),
+          remove: (k: K) => publishers.remove(k),
+          equals: publishers.equals as (a: V, b: V) => boolean,
+        };
+        if (poll) {
+          // Suspends (see `connectPollNode`): the seed read gives the first whole
+          // map (reconciled against the empty baseline ⇒ every key upserted),
+          // then each tick's map reconciles. A first-read failure faults the
+          // runtime's `done`; interruption cancels a seed a `close()` races.
+          return connectPollNode(
+            poll,
+            (nextMap) => reconcile(nextMap, pub),
+            () => torn,
+            (d) => {
+              disposeReconcile = d;
+            },
+            teardown,
           );
-          return;
         }
-        reconcile(nextMap, pub);
-      });
-      return teardown;
-    },
+        // A non-poll node (a `computed`/`$`-compute producing a map): an engine
+        // effect reconciles on each change, installed synchronously so the first
+        // reconcile — and every later one — rides the writer's stack.
+        // Log-skip-continue on a compute throw (hold last).
+        return scopedInstall(() => {
+          disposeReconcile = effect(() => {
+            let nextMap: ReadonlyMap<K, V>;
+            try {
+              nextMap = node.value.value;
+            } catch (err) {
+              console.error(
+                "derived collection: recompute threw — holding last published keys",
+                err,
+              );
+              return;
+            }
+            reconcile(nextMap, pub);
+          });
+        }, teardown);
+      }),
     dispose: teardown,
   };
 }

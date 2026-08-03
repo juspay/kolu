@@ -195,11 +195,14 @@ Persistence and pub/sub are supplied as dependencies.
   member's **decoded** payload.
 - **`ctx`** — the typed cells/collections/events mutation map.
 - **`done`** — a `Promise<void>` that **rejects on an owned runtime fault** (a
-  cell connector rejecting) and resolves after a clean `close()`. A serving site
-  MUST observe it and route it into its existing failure policy.
-- **`close()`** — releases every owned source (cell-connector disposers, the
-  reactor/derived subscriptions they return). Idempotent; aborts each source
-  first, then awaits its settle, then runs its disposer.
+  cell connector failing, or one of its finalizers) and resolves after a clean
+  `close()`. A serving site MUST observe it and route it into its existing
+  failure policy.
+- **`close()`** — releases every owned source. Each connector runs as a FIBER in
+  its own scope, so `close()` **interrupts** each one and awaits its exit — and a
+  fiber's exit already includes its scope's finalizers, which is why "abort, then
+  observe the settle, then dispose" is one await rather than three steps.
+  Idempotent, and always resolves: a teardown fault is routed to `done`.
 
 **`group` + `handlers` is the pair every transport takes** — `serveOverStdio`,
 `serveOverUnixSocket`, `serveSurfaceSocket`, or `directDispatch` in-process.
@@ -214,7 +217,9 @@ end) and a handler nobody advertises are both boot crashes.
 
 Dependency shapes, per member:
 
-- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. A `connect(cell, { signal })` async source-republish receives an abort signal and MAY return a `Disposer`; it is an owned source of the runtime (its rejection reaches `done`, `close()` aborts + disposes it).
+- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. `connect` is a **`CellConnector<T>`**: `(cell) => Effect<void, unknown, Scope>`. It is an owned source of the runtime — a failure reaches `done`, and `close()` **interrupts** it, which releases whatever it acquired (`Effect.acquireRelease` / `addFinalizer` / `forkScoped`). There is no abort signal to thread and no disposer to return: cancellation is interruption, so an interrupted connector is end-of-life by construction and can never masquerade as a fault.
+
+  Two rules for writing one. **Install synchronously** — the runtime forks the connector and Effect runs a `sync` step on the forking stack, so an `acquireRelease` whose acquire subscribes is live the instant `implementSurface` returns. And **do not fork the publish**: routing a frame through a fiber or a queue moves it behind an event published in the same tick, which is the delivery order `kill.feature` pins. Fork what must be concurrent, never the publish.
 - `collections: { <k>: { readAll, upsert, remove } }` — persistence only; the surface wraps publish.
 - `streams: { <k>: { source } }` — `source(input)` returns an Effect `Stream`; cancellation is fiber **interruption**, so there is no `AbortSignal` to thread and none to forget. Or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
 - `procedures: { <ns>: { <verb>: ({ input, ctx }) => Effect } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares an `error` schema **fails** the Effect with an instance of a declared tagged class (`Effect.fail(new KavalBusy({ … }))`); an undeclared throw stays a defect, so reach for `Effect.promise` over `Effect.tryPromise` where no error is declared.
@@ -327,6 +332,7 @@ Guarantees a `derived.cell` rides:
 - **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire. `equals` lives on the member's spec.
 - **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists. A compute cell's node is built after every sibling mirror exists, then eager-pulled.
 - **Compute error policy: log-skip-continue.** A throw in a `derived.cell(($) => …)` recompute is logged and the last published value HELD; the next successful recompute heals it (contrast `scan`'s stop-hold, which carries state).
+- **The publish is synchronous with the writer.** A derived cell's `connect` is a `CellConnector` whose acquire subscribes the node on the runtime's own stack, and the graph notifies synchronously — so a graph write and an event published in the same tick reach a consumer in publish order. Teardown is the scope's: `close()` interrupts the connector, which disposes the subscription and the backing node. A POLL-source cell suspends inside the connector for its T+0 seed, and interruption becomes the `AbortSignal` its Promise-shaped `read` sees.
 
 `scan` carries the **stop-hold error law**: a step that throws stops the
 derivation (its source subscription is disposed), holds the last value (never a

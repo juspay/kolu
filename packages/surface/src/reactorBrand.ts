@@ -10,7 +10,13 @@
  * form an import cycle (`reactor.ts` imports `server.ts`'s `CellStore`). With the
  * brand here, `server.ts` and `reactor.ts` each import this leaf and the engine
  * stays reachable only through `reactor.ts` — the lint ban's one exit.
+ *
+ * "Import-free" means free of the SIGNALS ENGINE and of `reactor.ts`, not free
+ * of types: the collection connect seam is a scoped `Effect`, and its type has
+ * to be spelled.
  */
+
+import type { Effect, Scope } from "effect";
 
 /** Property key branding a `derived.cell(...)` dep. `Symbol.for` (not a fresh
  *  `Symbol`) so the brand survives duplicate-module-instance edge cases (a test
@@ -158,17 +164,17 @@ export interface DerivedCollectionBranded {
   /** One key's current value (or `undefined`) — the per-key `get` snapshot. */
   readOne(key: unknown): unknown;
   /** The connect seam: subscribe the backing node and reconcile each new map
-   *  against the last by `equals`, driving the surface's per-key publishers. The
-   *  walk fires it (a poll node connects async, so it may return a
-   *  `Promise<Disposer>`); the returned disposer joins the runtime's ownership. */
-  connect(
-    publishers: {
-      upsert(key: unknown, value: unknown): void;
-      remove(key: unknown): void;
-      equals(a: unknown, b: unknown): boolean;
-    },
-    opts?: { signal?: AbortSignal },
-  ): (() => void) | Promise<() => void>;
+   *  against the last by `equals`, driving the surface's per-key publishers.
+   *  Shaped exactly like a cell's `CellConnector` — a SCOPED effect the walk runs
+   *  as an owned source, whose reconcile subscription installs synchronously and
+   *  whose teardown is the scope's (a poll node suspends inside it for the T+0
+   *  seed). Spelled structurally here rather than imported so this file stays the
+   *  engine-free brand module the boot walk reads. */
+  connect(publishers: {
+    upsert(key: unknown, value: unknown): void;
+    remove(key: unknown): void;
+    equals(a: unknown, b: unknown): boolean;
+  }): Effect.Effect<void, unknown, Scope.Scope>;
   /** Tear down the backing node + the reconcile subscription. Idempotent. */
   dispose(): void;
 }

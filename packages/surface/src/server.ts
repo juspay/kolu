@@ -41,13 +41,20 @@
  * `AbortSignal` (a PTY tap, a node API) bridges at ITS OWN edge through
  * {@link streamFromAbortableSource}.
  *
+ * The seam's LAST residual — the cell `connect` hook, which carried
+ * `{signal: AbortSignal}` + a `Disposer` because it had to reach a lint-pinned
+ * `reactor.ts` — is gone too: {@link CellConnector} is now a scoped `Effect`, so
+ * the runtime's owned sources are fibers, `close()` is interruption, and teardown
+ * is a scope. Nothing in this file classifies an abort-caused rejection any more,
+ * because an interrupted fiber cannot present as a failure.
+ *
  * Low-level escape hatches: `cellHandlers` / `collectionHandlers` /
  * `streamHandlers` / `eventHandlers` build the same handler bodies for
  * a single primitive — useful when a primitive needs custom plumbing
  * that doesn't fit `implementSurface`'s declarative path.
  */
 
-import { Effect, Layer, type Scope, Stream } from "effect";
+import { Cause, Effect, Layer, type Scope, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcServer } from "effect/unstable/rpc";
 import {
@@ -1466,10 +1473,10 @@ export type CellImplDeps<
       /** Optional async-source republish. The runtime fires it ONCE after
        *  the cell is wired, handing it the cell ctx setter (so a late-arriving
        *  value flows through the same equals/onWrite/store.set/bus.publish path)
-       *  AND an abort signal. It MAY return a disposer. The connector is an
-       *  OWNED SOURCE of the {@link SurfaceRuntime}: a rejection reaches `done`,
-       *  and `close()` aborts the signal then runs the disposer. Owned by the
-       *  runtime — apps never call it. */
+       *  and running the SCOPED effect it returns as an OWNED SOURCE of the
+       *  {@link SurfaceRuntime}: a failure reaches `done`, and `close()`
+       *  interrupts it, which releases whatever it acquired. Owned by the
+       *  runtime — apps never call it. See {@link CellConnector}. */
       connect?: CellConnector<Decoded<S["schema"]>>;
     }
   : {
@@ -1783,50 +1790,99 @@ export interface ImplementSurfaceDeps<S extends SurfaceSpec> {
 
 // ── Supervision: SurfaceRuntime / owned sources ─────────────────────────
 
-/** A teardown callback returned by an async cell connector — the framework
- *  calls it during {@link SurfaceRuntime.close}. Sync or async. */
-export type Disposer = () => void | Promise<void>;
-
 /** A cell connector: the async-source republish hook the runtime fires once after
- *  wiring a cell. It receives the cell's private setter and an abort signal, and
- *  MAY return a {@link Disposer} (sync or async). The `void` arm is load-bearing,
- *  not confusing — a `void`-returning `async` connector produces `Promise<void>`,
- *  which the async arm must accept.
+ *  wiring a cell. It receives the cell's private setter and returns a SCOPED
+ *  effect — the connector's whole lifetime, stated as one value.
  *
- *  Cancellation: `close()` aborts the signal. A connector that awaits abortable
- *  work with it (`await fetch(url, { signal })`, the package's own
- *  `Channel.subscribe`, …) and rejects with the signal's reason is treated as a
- *  clean cancellation — that abort-caused rejection is swallowed, not an owned
- *  fault, so a clean close resolves `done`. A GENUINE (non-abort) rejection is an
- *  owned fault and reaches `done`. */
-export type CellConnector<T> = (
-  cell: { set: (next: T) => void },
-  opts: { signal: AbortSignal },
-  // biome-ignore lint/suspicious/noConfusingVoidType: the void arm is required so a void-returning async connector's Promise<void> is assignable; see the doc above.
-) => void | Disposer | Promise<void | Disposer>;
+ *  **Teardown is the scope, cancellation is interruption.** Whatever the
+ *  connector acquires (`Effect.acquireRelease`, `Effect.addFinalizer`, a forked
+ *  child) is released when the runtime's `close()` interrupts it. There is no
+ *  disposer to return, no abort signal to thread, and no "was that rejection just
+ *  our own teardown?" question — an interruption is end-of-life by construction,
+ *  so a clean close resolves `done` and only a GENUINE failure (or a finalizer
+ *  faulting) reaches it.
+ *
+ *  **Install synchronously; do not fork the publish.** The runtime forks the
+ *  connector, and Effect runs a `sync` step on the forking stack — so a connector
+ *  whose acquire is `Effect.sync(() => subscribe(publish))` is live the instant
+ *  `implementSurface` returns, and every later publish rides the WRITER's stack.
+ *  Routing the publish through a fiber or a queue instead would move a reactor
+ *  cell's frame behind an event published in the same tick, which is the ordering
+ *  `streamOrdering.test.ts` (a) and `kill.feature` pin. Fork the parts that must
+ *  be concurrent (`Effect.forkScoped`), never the publish itself. */
+export type CellConnector<T> = (cell: {
+  set: (next: T) => void;
+}) => Effect.Effect<void, unknown, Scope.Scope>;
 
-/** One supervised, owned async source of a served surface — today a cell
- *  connector (the `connect` seam). Its `settled` reaching a rejection is an
- *  OWNED FAULT that must reach `done`; `close()` aborts it (signal
- *  cancellation), awaits its settlement, then runs its disposer — the #1719
- *  ownership doctrine (abort first, then observe the settle) applied at the
- *  runtime seam. */
+/** One supervised, owned source of a served surface — a cell connector (the
+ *  `connect` seam) running as a FIBER in its own scope.
+ *
+ *  The three-verb `{abort, settled, dispose}` contract this replaced collapses
+ *  because a fiber already has all three: interruption cancels it, its exit is
+ *  the settle, and Effect runs the scope's finalizers AS PART of that exit. So
+ *  #1719's abort-then-observe is not a sequence the framework has to sequence any
+ *  more — it is what `interrupt` then `await exit` means. */
 interface SurfaceSource {
-  /** Signal cancellation to the source (idempotent). */
-  abort(): void;
-  /** Resolves when the source's `connect` call settled; rejects if it faulted. */
+  /** Cancel the source — fiber interruption (idempotent). */
+  interrupt(): void;
+  /** Resolves once the source's fiber has exited AND its scope's finalizers have
+   *  run. An interrupt-only exit is a CLEAN end (that is how `close()` stops it);
+   *  any other failure — the connector's own, or a finalizer's — rejects, and is
+   *  the OWNED FAULT that must reach `done`. */
   settled: Promise<void>;
-  /** Release the source's held resources (its returned disposer). */
-  dispose(): Promise<void>;
 }
 
 /** A deferred connector START — a thunk the walk collects but does NOT invoke.
  *  Construction is transactional: the walk validates EVERY member (and the caller
  *  builds the final router) BEFORE any thunk runs, so a later missing dep or a
- *  router-assembly throw can never leave an earlier connector already spun up with
- *  no abort owner / no fault observer. Invoking the thunk starts the connector and
- *  returns its supervised {@link SurfaceSource}. */
+ *  router-assembly throw can never leave an earlier connector already running with
+ *  nobody observing its exit. Invoking the thunk starts the connector and returns
+ *  its supervised {@link SurfaceSource}. */
 type SurfaceSourceStart = () => SurfaceSource;
+
+/** Start one owned source: fork the connector into its own scope and PARK it.
+ *
+ *  THE ONE `Effect.run*` EDGE in this file, and the argument for it: a served
+ *  surface's public face is synchronous-construction + Promise-shaped
+ *  `done`/`close`, so this is where a connector's Effect becomes a supervised
+ *  fiber. Everything downstream of it composes.
+ *
+ *  Three properties are bought by the shape rather than coded:
+ *
+ *  - **The connector installs SYNCHRONOUSLY.** `Effect.runFork` executes the
+ *    effect on this stack until it suspends, so a connector whose acquire is a
+ *    `sync` subscription is live before `start()` returns — which is what keeps a
+ *    reactor cell's publish on the writer's stack (see {@link CellConnector}).
+ *  - **A synchronous throw cannot escape `start()`.** A defect inside the
+ *    connector lands in the fiber's exit, not on this stack, so an earlier
+ *    source can never be orphaned by a later one throwing during the start pass.
+ *    `Effect.suspend` puts even the BUILDER call (`connect(cell)`) inside the
+ *    fiber, so a consumer whose connector throws while constructing its effect is
+ *    covered by the same guarantee. (This is what the derived-collection connect's
+ *    hand-rolled microtask deferral — and the same-turn-close guard it then
+ *    needed — existed for.)
+ *  - **`Effect.never` after the connector** keeps the scope open for the source's
+ *    whole life: a connector that COMPLETES (it installed a watch and returned)
+ *    must not have its finalizers run on completion. `never` is a bare suspension
+ *    — no timer, no handle — so a parked source never holds the event loop open. */
+function startOwnedSource(
+  connect: () => Effect.Effect<void, unknown, Scope.Scope>,
+): SurfaceSource {
+  const fiber = Effect.runFork(
+    Effect.scoped(Effect.andThen(Effect.suspend(connect), Effect.never)),
+  );
+  const settled = new Promise<void>((resolve, reject) => {
+    fiber.addObserver((exit) => {
+      if (exit._tag === "Success") return resolve();
+      // Our OWN interruption (`close()`) — the clean end-of-life edge, never a
+      // fault. Anything else, including a finalizer's defect, is owned and must
+      // reach `done`.
+      if (Cause.hasInterruptsOnly(exit.cause)) return resolve();
+      reject(Cause.squash(exit.cause));
+    });
+  });
+  return { interrupt: () => fiber.interruptUnsafe(), settled };
+}
 
 /** Wire a set of owned sources into the `done` / `close` supervision contract.
  *
@@ -1834,12 +1890,12 @@ type SurfaceSourceStart = () => SurfaceSource;
  *    fault reaches `done` rather than floating as an unhandled rejection), and
  *    resolves once a clean `close` has torn everything down.
  *  - `close` is idempotent and always resolves (teardown is harmless to repeat):
- *    it aborts every source FIRST, then runs each source's settle-then-dispose
- *    sequence INDEPENDENTLY and concurrently (so a still-parked source's
- *    rejection is observed, never abandoned — #1719, and a parked source blocks
- *    only its own dispose, never a sibling's release). A fault seen during
- *    teardown — a settle rejection OR a disposer rejection — is routed to
- *    `done`, not thrown from `close`. */
+ *    it interrupts every source FIRST, then observes each exit INDEPENDENTLY and
+ *    concurrently (so a still-parked source's failure is observed, never
+ *    abandoned — #1719, and a source that refuses interruption blocks only its
+ *    own release, never a sibling's). A fault seen during teardown — the
+ *    connector's own or one of its finalizers' — is routed to `done`, not thrown
+ *    from `close`. */
 function superviseSurface(sources: SurfaceSource[]): {
   done: Promise<void>;
   close: () => Promise<void>;
@@ -1865,30 +1921,16 @@ function superviseSurface(sources: SurfaceSource[]): {
 
   const close = (): Promise<void> => {
     closing ??= (async () => {
-      // Abort every source FIRST, then run each source's own
-      // settle-then-dispose sequence INDEPENDENTLY (not behind a global
-      // settlement barrier): a source that ignores cancellation blocks only its
-      // OWN dispose, never a sibling's resource release. Each sequence still
-      // observes the settle before disposing (#1719 abort-then-observe), and
-      // BOTH a settle fault AND a dispose fault are OWNED teardown faults that
-      // must reach `done` — so the per-source task rethrows whichever it saw
-      // (the settle fault first, as the earlier root cause).
-      for (const s of sources) s.abort();
-      const outcomes = await Promise.allSettled(
-        sources.map(async (s) => {
-          let settleFault: { reason: unknown } | undefined;
-          try {
-            await s.settled;
-          } catch (err) {
-            settleFault = { reason: err };
-          }
-          // Always release the source's held resources, even if its settle
-          // faulted — a fault must not strand a disposer. A dispose rejection
-          // propagates out of this task (an owned teardown fault → `done`).
-          await s.dispose();
-          if (settleFault) throw settleFault.reason;
-        }),
-      );
+      // Interrupt every source FIRST, then observe each exit INDEPENDENTLY (not
+      // behind a global settlement barrier): a source that refuses interruption
+      // blocks only its OWN release, never a sibling's. Each source's exit
+      // already INCLUDES its scope's finalizers — Effect runs them as part of
+      // interruption — so "abort, then observe the settle, then dispose"
+      // (#1719) is now one await rather than a sequence to orchestrate, and a
+      // finalizer that faults is carried out on the same exit as the connector's
+      // own failure.
+      for (const s of sources) s.interrupt();
+      const outcomes = await Promise.allSettled(sources.map((s) => s.settled));
       // Surface EVERY teardown fault, not just the first: with the eager catch
       // stood down (above), this barrier is the sole settler during close, so a
       // second concurrently-faulting source is never silently dropped. One fault
@@ -1977,7 +2019,7 @@ export function superviseTerminalSource(
  *  axis (group + handlers + ctx + done + close) parameterized over its ctx
  *  shape, so the singular and plural runtimes below differ only in `Ctx`, never
  *  in the supervision members. `done` rejects on an owned runtime fault (a cell
- *  connector rejecting) and resolves on a clean `close`; `close` releases every
+ *  connector failing) and resolves on a clean `close`; `close` releases every
  *  owned source and is idempotent. */
 export interface SurfaceRuntimeHandle<Ctx> {
   /** The flat `RpcGroup` this runtime serves — every member's `Rpc`, keyed by
@@ -1993,7 +2035,8 @@ export interface SurfaceRuntimeHandle<Ctx> {
    *  serving site MUST observe this and route it into its existing failure
    *  policy. */
   readonly done: Promise<void>;
-  /** Release every owned source (cell-connector disposers). Idempotent. */
+  /** Release every owned source — interrupt each cell connector, which runs its
+   *  scope's finalizers. Idempotent. */
   close(): Promise<void>;
 }
 
@@ -2156,9 +2199,9 @@ function walkSurface<const S extends SurfaceSpec>(
           onWrite?: (next: unknown) => void;
           forward?: CellForward<unknown, unknown>;
           hasSnapshot?: () => boolean;
-          // The connector's ONE source of truth — a full `CellConnector`
-          // (abort signal + optional `Disposer`), not a re-declared narrower
-          // shape that a later cast would have to correct.
+          // The connector's ONE source of truth — a full `CellConnector` (a
+          // scoped effect), not a re-declared narrower shape that a later cast
+          // would have to correct.
           connect?: CellConnector<unknown>;
         }
       | undefined;
@@ -2364,46 +2407,17 @@ function walkSurface<const S extends SurfaceSpec>(
     // equals/onWrite/store.set/bus.publish path — without exposing `set` on a
     // derived cell's public ctx.
     //
-    // The connector is an OWNED SOURCE (not fire-and-forget): it receives an
-    // abort signal and MAY return a disposer, and its settle is tracked so a
-    // fault reaches the runtime's `done` (never floats) and `close` aborts +
-    // disposes it. A `void`-returning connector keeps working unchanged.
+    // The connector is an OWNED SOURCE (not fire-and-forget): it is a SCOPED
+    // effect, so its resources are released when `close()` interrupts it and its
+    // exit is tracked — a genuine failure reaches the runtime's `done` (never
+    // floats), while the interruption `close()` itself caused is a clean end.
     if (cellDeps.connect) {
       const connect = cellDeps.connect;
       // DEFER the start: collect a thunk rather than firing the connector here,
-      // so an invalid LATER member can never leave this connector spun up with
-      // no abort owner / no fault observer. The caller invokes the thunk only
-      // after the whole surface — and, for a sibling map, every sibling — has
-      // validated.
-      starts.push(() => {
-        const ctl = new AbortController();
-        let disposer: Disposer | undefined;
-        const settled = (async () => {
-          try {
-            const d = await connect(writeArm, { signal: ctl.signal });
-            if (typeof d === "function") disposer = d;
-          } catch (err) {
-            // A rejection CAUSED by our own abort — `close()` aborted the signal
-            // and a signal-respecting connector cooperatively rejected with
-            // `signal.reason` (`await fetch({ signal })`, the package's own
-            // `Channel.subscribe`, etc.) — is expected end-of-life noise, NOT an
-            // owned fault. Swallow it through the canonical `isAbortReason` (the
-            // same rule `iterateUntilAborted` / `deriveCell` use) so a clean
-            // close resolves `done` (#1719). A GENUINE (non-abort) rejection —
-            // the connector faulting on its own — still propagates and reaches
-            // `done`.
-            if (isAbortReason(err, ctl.signal)) return;
-            throw err;
-          }
-        })();
-        return {
-          abort: () => ctl.abort(),
-          settled,
-          dispose: async () => {
-            await disposer?.();
-          },
-        };
-      });
+      // so an invalid LATER member can never leave this connector running with
+      // nobody observing its exit. The caller invokes the thunk only after the
+      // whole surface — and, for a sibling map, every sibling — has validated.
+      starts.push(() => startOwnedSource(() => connect(writeArm)));
     }
 
     for (const v of resolveCellVerbs(cellSpec)) {
@@ -2607,45 +2621,25 @@ function walkSurface<const S extends SurfaceSpec>(
     // collection re-publishes every present key). Same lifecycle as a derived
     // cell's connector — a fault reaches the runtime's `done` (a poll reconciler's
     // first-read rejection included), and `close` disposes the node + subscription.
+    //
+    // Note what is NOT here any more: the hand-rolled microtask deferral and the
+    // same-turn-close guard it needed. Both existed because a SYNCHRONOUS connect
+    // fault (a non-poll collection whose first reconcile's publisher throws) had
+    // to become a rejection rather than escape `start()`. Inside a fiber that is
+    // free — a defect lands on the exit — so the connect runs synchronously again
+    // and can no longer race a `close()` that has not happened yet.
     if (derivedColl) {
       const dc = derivedColl;
       const collEquals = collSpec.equals ?? (() => false);
-      starts.push(() => {
-        const ctl = new AbortController();
-        // DEFER the connect to a microtask so a SYNCHRONOUS connect fault — a
-        // non-poll collection's initial reconcile whose publisher throws — becomes
-        // `settled`'s rejection reaching `done`, instead of escaping `start()` and
-        // orphaning sources that already started (the transactional-start guarantee).
-        // The connector's `signal` rides in so a poll reconciler cancels a seed a
-        // `close()` races; `dispose()` latches teardown for the non-poll effect too.
-        const settled = Promise.resolve()
-          .then(() => {
-            // `close()` in the same turn synchronously aborts `ctl` and disposes the
-            // collection BEFORE this microtask runs — so observe cancellation here and
-            // no-op cleanly, rather than calling `connect()` on a torn collection
-            // (which throws "connect() after dispose()" and faults `done` on an
-            // otherwise clean immediate close). A real synchronous connect fault still
-            // rejects `settled` because the microtask boundary is retained.
-            if (ctl.signal.aborted) return;
-            return dc.connect(
-              {
-                upsert: wrappedUpsert,
-                remove: wrappedRemove,
-                equals: collEquals as (a: unknown, b: unknown) => boolean,
-              },
-              { signal: ctl.signal },
-            );
-          })
-          .then(() => {});
-        return {
-          abort: () => {
-            ctl.abort();
-            dc.dispose();
-          },
-          settled,
-          dispose: async () => dc.dispose(),
-        };
-      });
+      starts.push(() =>
+        startOwnedSource(() =>
+          dc.connect({
+            upsert: wrappedUpsert,
+            remove: wrappedRemove,
+            equals: collEquals as (a: unknown, b: unknown) => boolean,
+          }),
+        ),
+      );
     }
 
     const memberHandlers = collectionHandlers(

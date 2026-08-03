@@ -32,12 +32,13 @@
  * finalizers. There is no abort signal to thread, no abort-time rejection to
  * swallow, and no `iterateUntilAborted` wrapper — the whole class of "was that
  * failure just our own teardown?" question disappears with the AbortSignal that
- * raised it. Only `deriveCell` still holds a controller, because a cell CONNECTOR
- * is still AbortSignal-shaped (a `reactor.ts` coupling S2 recorded, not a choice
- * here).
+ * raised it. `deriveCell` now says the same thing: the cell CONNECTOR is a scoped
+ * `Effect`, so the derivation IS the effect the runtime owns — no controller, no
+ * fiber handle, no disposer, and **no `Effect.run*` edge left in this module**
+ * (it held three, purely because the connector seam was Promise/Disposer-shaped).
  */
 
-import { Cause, Effect, Fiber, Stream } from "effect";
+import { Cause, Effect, Stream } from "effect";
 import {
   buildSurfaceFace,
   type StreamingProcedure,
@@ -55,8 +56,8 @@ import {
 } from "./define";
 import { directDispatch } from "./links/direct";
 import {
+  type CellConnector,
   type CellStore,
-  type Disposer,
   type EventHandlerDeps,
   type ImplementSurfaceDeps,
   implementSurface,
@@ -227,17 +228,17 @@ export function deriveEvent<I, F, T>(
 
 /** The `cells.<key>` impl deps a derived (no-patch) cell needs: an
  *  `inMemoryCell` store and a `connect` hook that subscribes upstream. Matches
- *  the no-patch branch of `CellImplDeps`. `connect` returns a {@link Disposer}
- *  (interrupts the upstream subscription) so the runtime's `close()` tears the
- *  derivation down — the derived cell joins the {@link SurfaceRuntime}'s
- *  ownership rather than living for the process lifetime unconditionally. */
+ *  the no-patch branch of `CellImplDeps`. `connect` IS the upstream subscription
+ *  as a scoped effect, so the runtime's `close()` interrupts it and the stream's
+ *  own finalizers tear A's subscription down — the derived cell joins the
+ *  {@link SurfaceRuntime}'s ownership rather than living for the process lifetime
+ *  unconditionally. */
 export interface DerivedCellDeps<T> {
   store: CellStore<T>;
-  /** Returns an ASYNC disposer — the "await teardown" guarantee is in the TYPE, not
-   *  only in prose, so a caller that must know the upstream subscription is fully
-   *  torn down (the runtime`s `close()`) can `await` it without a cast. Assignable
-   *  to { Disposer}, which the framework slot declares. */
-  connect: (cell: { set: (next: T) => void }) => () => Promise<void>;
+  /** The framework's {@link CellConnector} — the "teardown is awaited" guarantee
+   *  is now the SCOPE's, not a disposer's return type: `close()` interrupts this
+   *  effect and does not resolve until its finalizers have run. */
+  connect: CellConnector<T>;
 }
 
 /** Derive a cell that tracks an upstream A cell and republishes `map(frame)`.
@@ -256,80 +257,65 @@ export interface DerivedCellDeps<T> {
  *  is asynchronous). Once A's first frame lands it's overwritten with the mapped
  *  snapshot through the same equals/onWrite/store.set/bus.publish path.
  *
- *  Teardown: `connect` owns its own FIBER and RETURNS a disposer, so the
- *  {@link SurfaceRuntime}'s `close()` interrupts the upstream subscription when the
- *  served surface is torn down — the derivation lives exactly as long as the
- *  runtime that owns it, not unconditionally for the process. The two teardown
- *  paths differ in their COMPLETION guarantee: `connect`'s returned disposer awaits
- *  the interruption, so it resolves only once the upstream subscription has fully
- *  torn down (the #1719 abort-then-observe contract the runtime's `close()` relies
- *  on). The standalone `dispose` — for a caller that owns its OWN teardown point (a
- *  test, a scoped adapter serving no runtime) — interrupts and returns immediately,
- *  NOT awaiting; use it for fire-and-forget cancellation, the returned disposer when
- *  you must know teardown finished. Interruption is idempotent, so the two never
- *  conflict.
+ *  Teardown: `connect` IS the pump, so the {@link SurfaceRuntime}'s `close()`
+ *  interrupts it and A's subscription closes through the stream's own finalizers —
+ *  the derivation lives exactly as long as the runtime that owns it, not
+ *  unconditionally for the process. The #1719 abort-then-observe guarantee comes
+ *  free: `close()` awaits each source's exit, and a fiber's exit already includes
+ *  its finalizers. A caller that owns its OWN teardown point (a test, a scoped
+ *  adapter serving no runtime) runs the same effect in a scope of its own and
+ *  closes it — which is why there is no `dispose()` member any more, and no second
+ *  teardown path whose completion guarantee differs from the first.
  *
  *  Error policy: a non-interruption upstream failure is routed to `opts.onError` and
  *  the subscription ends; the cell keeps its last value. Left to propagate it would
- *  become an unobserved fiber failure and the derived cell would silently stop
- *  tracking. `onError` defaults to a stderr log so a failure is never invisible —
- *  pass `() => {}` to opt into silent-stop deliberately, or supply a handler that
- *  re-arms the subscription if you need retry/backoff. (An INTERRUPTION —
- *  `dispose()` / shutdown — is end-of-life, never an error: `runStreamScoped`'s rule,
- *  applied here through `Effect.runFork` + `Fiber.interrupt`.) */
+ *  fault the whole runtime's `done`, and the derived cell would take the surface
+ *  down rather than silently stop tracking. `onError` defaults to a stderr log so a
+ *  failure is never invisible — pass `() => {}` to opt into silent-stop
+ *  deliberately, or supply a handler that re-arms the subscription if you need
+ *  retry/backoff. (An INTERRUPTION — shutdown — is end-of-life, never an error:
+ *  `runStreamScoped`'s rule, now applied through the scope itself.) */
 export function deriveCell<F, T>(
   upstream: UpstreamSource<undefined, F>,
   map: (frame: F) => T,
   initial: T,
   opts?: { onError?: (err: unknown) => void },
-): DerivedCellDeps<T> & { dispose: () => void } {
+): DerivedCellDeps<T> {
   const store = inMemoryCell<T>(initial);
   const onError =
     opts?.onError ??
     ((err: unknown) => {
       console.error("deriveCell: upstream subscription failed", err);
     });
-  // Assigned by `connect`; `dispose()` before a connect is a no-op (nothing has
-  // subscribed yet), exactly as aborting an unused controller was.
-  let fiber: Fiber.Fiber<void, never> | undefined;
-  const interrupt = () => {
-    const f = fiber;
-    return f === undefined ? Effect.void : Fiber.interrupt(f);
-  };
   return {
     // `inMemoryCell` satisfies `CellStore<T>` directly (its `get`/`set`),
     // so hand its store straight through — no rename adapter.
     store,
-    connect: (cell) => {
-      // The framework calls `connect` once, after the cell ctx is wired, handing us
-      // its setter — every mapped frame flows through the surface's
-      // equals/onWrite/store.set/bus.publish path (we do NOT touch `store`
-      // directly, or the wire side wouldn't see the publish).
-      //
-      // `Effect.catchCause` (not a bare `catch`) so an upstream DEFECT is reported
-      // too: a projection whose upstream dies must not go quiet just because the
-      // failure arrived on the defect channel. Interruption is excluded — it is how
-      // the disposer below stops this fiber, and reporting our own teardown as a
-      // failure is the `caught-error-must-not-collapse` defect in reverse.
-      fiber = Effect.runFork(
-        Effect.catchCause(
-          Stream.runForEach(upstream(undefined), (frame) =>
-            Effect.sync(() => cell.set(map(frame))),
-          ),
-          (cause) =>
-            Effect.sync(() => {
-              if (!Cause.hasInterruptsOnly(cause)) onError(Cause.squash(cause));
-            }),
+    // The framework runs `connect` once, after the cell ctx is wired, handing us
+    // its setter — every mapped frame flows through the surface's
+    // equals/onWrite/store.set/bus.publish path (we do NOT touch `store`
+    // directly, or the wire side wouldn't see the publish).
+    //
+    // The pump runs IN the connector's own fiber rather than a forked child: the
+    // connector's lifetime IS the subscription's, so a fork would only add a
+    // handle to interrupt by hand. (`Stream.runForEach` never completes while A
+    // lives, and the runtime parks a completed connector anyway.)
+    //
+    // `Effect.catchCause` (not a bare `catch`) so an upstream DEFECT is reported
+    // too: a projection whose upstream dies must not go quiet just because the
+    // failure arrived on the defect channel. Interruption is excluded — it is how
+    // `close()` stops this pump, and reporting our own teardown as a failure is
+    // the `caught-error-must-not-collapse` defect in reverse.
+    connect: (cell) =>
+      Effect.catchCause(
+        Stream.runForEach(upstream(undefined), (frame) =>
+          Effect.sync(() => cell.set(map(frame))),
         ),
-      );
-      // Return an ASYNC disposer: interrupt the upstream subscription AND await its
-      // teardown (the stream's finalizers), so the SurfaceRuntime's `close()` does
-      // not resolve before A's subscription is fully torn down.
-      return () => Effect.runPromise(interrupt());
-    },
-    dispose: () => {
-      Effect.runFork(interrupt());
-    },
+        (cause) =>
+          Effect.sync(() => {
+            if (!Cause.hasInterruptsOnly(cause)) onError(Cause.squash(cause));
+          }),
+      ),
   };
 }
 

@@ -129,14 +129,14 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the stdio serve boundary: build the serving layer into a scope, close it at the end — `serveOverStdio` resolves a classified end and never rejects",
   },
   {
-    path: "packages/surface/src/project.ts",
-    sites: 3,
-    why: "the projection bridge into the non-Effect reactor: fork the upstream pump on `connect`, and interrupt it from the sync and async disposers the cell machinery calls",
-  },
-  {
     path: "packages/surface/src/runStream.ts",
     sites: 1,
     why: "THE Solid bridge — the one place a member stream becomes a fiber with a synchronous stopper, which every `createSubscription` rides",
+  },
+  {
+    path: "packages/surface/src/server.ts",
+    sites: 1,
+    why: "one fiber per owned cell connector — a served surface's face is synchronous construction plus a Promise-shaped `done`/`close`, so this is where a connector's scoped Effect becomes a supervised fiber; it replaces `project.ts`'s three, which existed only because the connector seam was Promise/Disposer-shaped",
   },
   {
     path: "packages/surface/src/solid/liveSignal.ts",

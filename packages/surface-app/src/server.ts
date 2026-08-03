@@ -21,6 +21,7 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import {
+  type CellConnector,
   type SurfaceHandlers,
   surfaceRpcServerLayer,
 } from "@kolu/surface/server";
@@ -392,8 +393,12 @@ export interface BuildInfoCellEntry<T extends BuildInfo> {
    *  consumer serving this fragment via `implementSurfaces` never calls it. The
    *  fragment owns the seed→resolve→set composition; the app never hand-writes
    *  the `{ commit }` seed and a second `ctx.set`. A no-op (deduped) when the
-   *  source was sync — nothing late to push. */
-  connect: (cell: { set: (value: T) => void }) => Promise<void>;
+   *  source was sync — nothing late to push.
+   *
+   *  The framework's {@link CellConnector}: a scoped effect the runtime owns, so
+   *  a `close()` while the async source is still in flight interrupts the wait
+   *  instead of publishing into a torn-down cell. */
+  connect: CellConnector<T>;
 }
 
 /** What `buildInfoServer` returns: a one-cell map, spreadable into `cells`. */
@@ -514,14 +519,18 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
       equals,
       current: () => value,
       ready,
-      connect: async (cell) => {
-        await ready;
-        // Republish through the cell's ctx setter (which the runtime routes to
-        // the bus + the `equals` dedup gate). A sync-sourced fragment has
-        // nothing late to push, but re-asserting the seeded value is harmless
-        // (deduped).
-        cell.set(value);
-      },
+      connect: (cell) =>
+        Effect.flatMap(
+          Effect.promise(() => ready),
+          () =>
+            Effect.sync(() => {
+              // Republish through the cell's ctx setter (which the runtime routes
+              // to the bus + the `equals` dedup gate). A sync-sourced fragment has
+              // nothing late to push, but re-asserting the seeded value is
+              // harmless (deduped).
+              cell.set(value);
+            }),
+        ),
     },
   };
 }

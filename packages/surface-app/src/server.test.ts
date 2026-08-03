@@ -461,7 +461,7 @@ describe("buildInfoServer — sync sources", () => {
   it("connect on a sync source republishes the (deduped) seed", async () => {
     const frag = buildInfoServer({ commit: "abc1234" });
     const set = vi.fn();
-    await frag.buildInfo.connect({ set });
+    await Effect.runPromise(Effect.scoped(frag.buildInfo.connect({ set })));
     expect(set).toHaveBeenCalledWith({ commit: "abc1234" });
   });
 });
@@ -491,7 +491,7 @@ describe("buildInfoServer — async sources", () => {
       buildInfo: async () => ({ bootId: "boot-late" }),
     });
     const set = vi.fn();
-    await frag.buildInfo.connect({ set });
+    await Effect.runPromise(Effect.scoped(frag.buildInfo.connect({ set })));
     expect(set).toHaveBeenCalledWith({
       commit: "abc1234",
       bootId: "boot-late",

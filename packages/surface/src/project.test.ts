@@ -22,7 +22,7 @@
  * `AbortController` used to carry, minus the signal.
  */
 
-import { Effect, Fiber, Schema, Stream } from "effect";
+import { Effect, Exit, Fiber, Schema, Scope, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { defineSurface } from "./define";
 import {
@@ -359,37 +359,43 @@ describe("projectSurface — surface B derived from a client of surface A", () =
     }
   });
 
-  it("deriveCell.dispose() tears down the upstream cell subscription", async () => {
+  it("closing the connector's scope tears down the upstream cell subscription", async () => {
     const { a, aClient } = setup();
 
     const seen: number[] = [];
     const derived = deriveCell(aClient.surface.count.get, (n) => n + 1, 1);
-    // wire it the way implementSurface would: fire connect with a recording setter.
-    derived.connect({ set: (v) => seen.push(v) });
+    // Wire it the way implementSurface would: run the connector into a scope the
+    // caller owns. The scope IS the teardown point — there is no second
+    // `dispose()` path whose completion guarantee differs from this one.
+    const scope = Scope.makeUnsafe();
+    const fiber = Effect.runFork(
+      Scope.provide(derived.connect({ set: (v) => seen.push(v) }), scope),
+    );
     await vi.waitFor(() => expect(seen).toEqual([1])); // A.count 0 → 1
 
-    // dispose must not throw…
-    expect(() => derived.dispose()).not.toThrow();
+    // Closing must not throw…
+    fiber.interruptUnsafe();
+    await Effect.runPromise(Scope.close(scope, Exit.void));
 
     // …and must actually END the upstream subscription: a later A mutation
     // reaches nobody. (The old `AbortController` assertion, restated on the
-    // observable the disposer is supposed to affect.)
+    // observable the teardown is supposed to affect.)
     await new Promise((r) => setTimeout(r, 10));
     a.ctx.cells.count.set(41);
     await new Promise((r) => setTimeout(r, 10));
     expect(seen).toEqual([1]);
   });
 
-  it("connect()'s disposer interrupts AND awaits the upstream's async teardown (F3)", async () => {
+  it("interrupting the connector AWAITS the upstream's async teardown (F3)", async () => {
     let finallyDone = false;
     const upstream = (): Stream.Stream<number> =>
       Stream.ensuring(
         // one frame, then park until the disposer interrupts us
         Stream.concat(Stream.make(1), Stream.never),
         Effect.promise(async () => {
-          // Async teardown work — `close()` (via the disposer) must WAIT for
-          // this, rather than resolving the instant it fires the interrupt
-          // (#1719).
+          // Async teardown work — `close()` must WAIT for this, rather than
+          // resolving the instant it fires the interrupt (#1719). The wait is now
+          // the FIBER's: interruption does not complete until every finalizer has.
           await new Promise((r) => setTimeout(r, 20));
           finallyDone = true;
         }),
@@ -397,17 +403,17 @@ describe("projectSurface — surface B derived from a client of surface A", () =
 
     const seen: number[] = [];
     const derived = deriveCell(upstream, (n) => n, 0);
-    const disposer = derived.connect({
-      set: (v) => seen.push(v),
-    }) as () => Promise<void>;
+    const fiber = Effect.runFork(
+      Effect.scoped(derived.connect({ set: (v) => seen.push(v) })),
+    );
     await vi.waitFor(() => expect(seen).toEqual([1]));
 
-    const p = disposer();
-    // The disposer's promise is still pending — the upstream's finalizer has not
-    // finished, so a runtime `close()` awaiting this would not yet resolve.
+    fiber.interruptUnsafe();
+    // The fiber has not exited — the upstream's finalizer has not finished, so a
+    // runtime `close()` awaiting this exit would not yet resolve.
     expect(finallyDone).toBe(false);
-    await p;
-    // Only after awaiting the disposer is the upstream fully torn down.
+    await Effect.runPromise(Fiber.await(fiber));
+    // Only after awaiting the exit is the upstream fully torn down.
     expect(finallyDone).toBe(true);
   });
 
@@ -428,7 +434,9 @@ describe("projectSurface — surface B derived from a client of surface A", () =
         onError: (e) => errors.push(e),
       });
       const seen: number[] = [];
-      derived.connect({ set: (v) => seen.push(v) });
+      Effect.runFork(
+        Effect.scoped(derived.connect({ set: (v) => seen.push(v) })),
+      );
 
       // The first frame lands; then the failure is routed to onError, NOT
       // rethrown into an unhandled rejection.

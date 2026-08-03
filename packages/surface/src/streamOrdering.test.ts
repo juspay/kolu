@@ -19,7 +19,11 @@
  *   (a) when two channels publish in the SAME TICK, delivery order at a consumer
  *       equals publish order;
  *   (b) a single-emission-then-complete event source delivers its value BEFORE
- *       end-of-stream.
+ *       end-of-stream;
+ *   (c) (a) again, but with one of the two publishes coming from the REACTOR —
+ *       the case a scoped cell connector could quietly break by forking its
+ *       publish, which the seam retirement (B4b) made expressible for the first
+ *       time.
  *
  * Whatever the streaming substrate — async generators, Effect `Stream`, anything
  * later — these must hold. Do not relax one to make the other pass; that is the
@@ -29,6 +33,7 @@
 import { Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
+import { derived, scan, source } from "./reactor";
 import {
   implementSurface,
   inMemoryStore,
@@ -210,6 +215,91 @@ describe("stream ordering: a single-emission-then-complete event source", () => 
     await settle();
     expect(seen).toEqual([1, 2]);
     await Effect.runPromise(Fiber.interrupt(fiber));
+    await runtime.close();
+  });
+});
+
+// ── (c) a REACTOR cell's frame keeps its place in the same-tick order ────
+
+describe("stream ordering: a derived cell and an event publishing in one tick", () => {
+  it("delivers in publish order — the reactor's publish rides the writer's stack", async () => {
+    // (a)'s shape with the cell replaced by a reactor `derived.cell`. The cell's
+    // authority is a graph write (`emit`), and the connector that turns that write
+    // into a wire frame is a SCOPED EFFECT now — so the question this pins is the
+    // one the connector-seam retirement raised: does the publish still happen on
+    // the WRITER's stack? Fork the connector's publish (or route it through a
+    // queue) and the cell frame lands after the event, flipping the order
+    // `kill.feature`'s `removeAndAutoSwitch` depends on.
+    const surface = defineSurface({
+      cells: {
+        terminalList: {
+          schema: Schema.Array(Schema.String),
+          default: [] as readonly string[],
+          equals: (a: readonly string[], b: readonly string[]) =>
+            a.length === b.length && a.every((v, i) => v === b[i]),
+          verbs: ["get"] as const,
+        },
+      },
+      events: {
+        terminalExit: {
+          inputSchema: Schema.String,
+          outputSchema: Schema.Struct({ code: Schema.Number }),
+        },
+      },
+    });
+
+    let emit!: (next: readonly string[]) => void;
+    const src = source<readonly string[]>((e) => {
+      emit = e;
+    });
+    const list = scan<readonly string[], readonly string[]>(
+      src,
+      ["t1", "t2"],
+      (_state, frame) => frame,
+    );
+    const runtime = implementSurface(surface, {
+      cells: { terminalList: derived.cell(list) },
+      events: { terminalExit: {} },
+    });
+
+    const log: string[] = [];
+    const listFiber = Effect.runFork(
+      Stream.runForEach(
+        streamAt(runtime.handlers, "surface/terminalList/get"),
+        (v) =>
+          Effect.sync(() => {
+            log.push(`list:${JSON.stringify(v)}`);
+          }),
+      ),
+    );
+    const exitFiber = Effect.runFork(
+      Stream.runForEach(
+        streamAt(runtime.handlers, "surface/terminalExit/get", "t2"),
+        (v) =>
+          Effect.sync(() => {
+            log.push(`exit:${JSON.stringify(v)}`);
+          }),
+      ),
+    );
+    await settle();
+    expect(log).toEqual(['list:["t1","t2"]']); // the cell's snapshot proves its leg
+    log.length = 0;
+
+    // THE RACE: a GRAPH write and an event publish, one synchronous tick.
+    emit(["t1"]);
+    runtime.ctx.events.terminalExit.publish("t2", { code: 137 });
+    await settle();
+    expect(log).toEqual(['list:["t1"]', 'exit:{"code":137}']);
+
+    // …and the reverse order is equally preserved.
+    log.length = 0;
+    runtime.ctx.events.terminalExit.publish("t2", { code: 1 });
+    emit([]);
+    await settle();
+    expect(log).toEqual(['exit:{"code":1}', "list:[]"]);
+
+    await Effect.runPromise(Fiber.interrupt(listFiber));
+    await Effect.runPromise(Fiber.interrupt(exitFiber));
     await runtime.close();
   });
 });
