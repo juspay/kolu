@@ -44,6 +44,7 @@ import {
   getSavedSession,
   saveSession,
   setSavedSession,
+  setSavedSessionFromSnapshot,
 } from "../session/session.ts";
 import {
   type ActiveTerminalProcess,
@@ -295,6 +296,7 @@ beforeAll(() => {
     },
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
+    persistFinal: setSavedSessionFromSnapshot,
   });
 });
 

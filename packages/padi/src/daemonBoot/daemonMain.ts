@@ -42,7 +42,10 @@ import {
 } from "@kolu/surface/server";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { configureNixShellEnv } from "kolu-pty";
-import { initAutosaveGate } from "../session/autosaveGate.ts";
+import {
+  captureFinalSession,
+  initAutosaveGate,
+} from "../session/autosaveGate.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
 import {
   setPadiActivityFeedStore,
@@ -290,6 +293,10 @@ function configureDaemonIdentity(
     snapshot: snapshotSession,
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
+    // The shutdown edge writes through the EMPTY-PRESERVE receptacle — the same
+    // one the control-core drain uses — so a stop observed mid-teardown cannot
+    // null a non-empty saved blob (the W1 zest-loss class).
+    persistFinal: setSavedSessionFromSnapshot,
   });
   return { configured: true };
 }
@@ -564,21 +571,21 @@ function padiDaemonProgram(
   }
   const onDrain = (): void => {
     // Persist the live layout so a re-spawn restores it; the PTYs stay alive in
-    // kaval. `setSavedSessionFromSnapshot` is the EMPTY-PRESERVE receptacle: a drain
-    // while the registry is empty or parked-only must NOT null a non-empty saved blob
-    // (the W1 zest-loss class) — an empty snapshot leaves the existing session intact,
-    // and the write cancels any pending autosave that could re-null it afterward.
-    const snap = snapshotSession();
-    // A control-core drain is why padi is about to exit — logged HERE (the spine only
-    // logs the generic "daemon shutting down {reason: abort}", which can't be told from
-    // a plain signal). This is the newer-binder convergence / "restart" endpoint; the
-    // kaval + PTYs survive it, so name that so an operator reads a graceful handover,
-    // not a crash.
+    // kaval. Through the AutosaveGate's SHUTDOWN EDGE, which is the one owner of
+    // "is it safe to persist now, and with what value?" — the same decision the
+    // signal edge below takes, so the two ways padi is asked to stop cannot drift
+    // in what they write.
+    //
+    // A control-core drain is why padi is about to exit — logged HERE (the spine
+    // only logs the generic "daemon shutting down {reason: abort}", which can't be
+    // told from a plain signal). This is the newer-binder convergence / "restart"
+    // endpoint; the kaval + PTYs survive it, so name that so an operator reads a
+    // graceful handover, not a crash.
     log.info(
-      { terminals: snap.terminals.length },
-      "control-core drain received — persisting session and exiting; kaval + PTYs survive",
+      {},
+      "control-core drain received — capturing session and exiting; kaval + PTYs survive",
     );
-    setSavedSessionFromSnapshot(snap);
+    captureFinalSession("control-core drain");
     drainController.abort();
   };
 
@@ -626,7 +633,7 @@ function padiDaemonProgram(
     // is needed. The serving padi still reports ITSELF by construction — see
     // `withSelfPadi` — reading padi's serve socket from the module global.)
 
-    return yield* Effect.promise(() =>
+    const exit = yield* Effect.promise(() =>
       daemonMain({
         // Full home — gate+socket from one resolve; override absorbed at construction.
         home,
@@ -661,6 +668,27 @@ function padiDaemonProgram(
         gate,
       }),
     );
+
+    // ── The SIGNAL EDGE: padi's last act before it exits ──────────────────
+    // A supervisor that stops padi by SIGTERM (the cross-epoch TAKEOVER, a
+    // systemd stop, an operator) gets padi's own in-process shutdown — but until
+    // now that shutdown persisted NOTHING, so the durable session trailed the live
+    // one by the autosave throttle's 500 ms window. That is an unnecessary loss
+    // for an ORDERLY stop, and the takeover load-bears on it not happening: the
+    // successor seeds from exactly this blob.
+    //
+    // ONLY the `signal` reason. The other four are already answered:
+    //   - `abort`       — the control-core drain already captured (`onDrain`), and
+    //                     an external test/parent abort rides the same path;
+    //   - `anchor-gone` — the state-root is DELETED; the place a session would
+    //                     persist to is exactly what is gone (#2010);
+    //   - `pid-gone`    — the harness that bound this padi's lifetime is gone, and
+    //                     with it the workspace the session describes;
+    //   - `idle`        — unreachable under padi's `forever`/`boundToPid` lifetime.
+    if (exit.kind === "shutdown" && exit.reason === "signal") {
+      yield* Effect.sync(() => captureFinalSession("signal"));
+    }
+    return exit;
   });
 
   // `Effect.scoped` is what makes the surface runtime's release deterministic:

@@ -189,6 +189,7 @@ beforeAll(async () => {
     snapshot: snapshotSession,
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
+    persistFinal: setSavedSessionFromSnapshot,
   });
   await tick(10);
 });
