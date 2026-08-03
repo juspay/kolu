@@ -3,43 +3,41 @@
  *    1. kolu's `BINARY_PREVIEWABLE_EXTENSIONS` classifier is fully covered by
  *       serve-dir's Content-Type map (and the per-family MIME invariants the
  *       client's `<video>`/`<img>` dispatch relies on);
- *    2. the pure web-shell URL helpers (`previewTailFromRawUrl` /
- *       `rawTargetFromContext`) hand padi's `previewFile` a correct, un-
- *       normalized file tail — including end-to-end through the real
- *       @hono/node-server adapter, where the RAW target must survive WHATWG
- *       normalization.
+ *    2. the pure web-shell URL helper (`previewTailFromRawUrl`) hands padi's
+ *       `previewFile` a correct, un-normalized file tail — including end-to-end
+ *       through the SHIPPED route on a real node server, where the RAW request
+ *       target must survive to the guard.
  *  The realpath/symlink-escape 403 coverage now lives against padi's
  *  `readPreview` (`packages/padi/src/preview.test.ts`), since the guard moved
- *  there when the Hono route was re-backed onto that read. */
+ *  there when the route was re-backed onto that read. */
 
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import type { HttpBindings } from "@hono/node-server";
-import { serve } from "@hono/node-server";
-import { previewFile } from "@kolu/padi/assembly";
+import { NodeHttpServer } from "@effect/platform-node";
 import { padiClientOver } from "@kolu/padi/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
-import { Effect, Stream } from "effect";
-import { Hono } from "hono";
+import { Effect, Exit, Scope, Stream } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
   buildTerminalFileUrl,
   PDF_PREVIEWABLE_EXTENSIONS,
   RASTER_IMAGE_EXTENSIONS,
   SANDBOX_PREVIEWABLE_EXTENSIONS,
-  TERMINAL_FILE_ROUTE_BASE,
-  TERMINAL_FILE_ROUTE_FILE_SEGMENT,
   VIDEO_EXTENSIONS,
 } from "kolu-common/preview";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   assembleRemotePreview,
+  PREVIEW_ROUTE_PATTERN,
+  type PreviewHostPool,
+  type PreviewPadiClient,
   type PreviewRangeReader,
   type PreviewReadResult,
+  previewRouteHandler,
   previewTailFromRawUrl,
-  rawTargetFromContext,
   REMOTE_PREVIEW_CHUNK_BYTES,
   remotePreviewReader,
 } from "./iframePreviewRoute.ts";
@@ -111,7 +109,9 @@ describe("assembleRemotePreview — the remote-bind chunked range-loop", () => {
    *  for the wire (byte-for-byte what padi's `readPreview` returns). */
   function serveDirReader(name: string): PreviewRangeReader {
     return async (range) => {
-      const r = await serveFile(tmpRoot, name, range ?? null);
+      const r = await Effect.runPromise(
+        serveFile(tmpRoot, name, range ?? null),
+      );
       const bodyBase64 =
         typeof r.body === "string"
           ? Buffer.from(r.body, "utf8").toString("base64")
@@ -450,7 +450,7 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
     try {
       fs.writeFileSync(path.join(tmpRoot, filePath), "video-bytes");
-      const res = await serveFile(tmpRoot, tail);
+      const res = await Effect.runPromise(serveFile(tmpRoot, tail));
       expect(res.status).toBe(200);
       expect(await readServeBody(res.body)).toBe("video-bytes");
     } finally {
@@ -468,7 +468,7 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
 
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
     try {
-      const res = await serveFile(tmpRoot, tail);
+      const res = await Effect.runPromise(serveFile(tmpRoot, tail));
       expect(res.status).toBe(400);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -487,7 +487,7 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
     try {
       fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
-      const res = await serveFile(tmpRoot, tail);
+      const res = await Effect.runPromise(serveFile(tmpRoot, tail));
       expect(res.status).toBe(400);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -505,7 +505,7 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tail-"));
     try {
       fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
-      const res = await serveFile(tmpRoot, tail);
+      const res = await Effect.runPromise(serveFile(tmpRoot, tail));
       expect(res.status).toBe(400);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -532,54 +532,70 @@ describe("previewTailFromRawUrl (the tail extraction index.ts feeds serve-dir)",
 });
 
 // The unit tests above feed `previewTailFromRawUrl` a literal raw string, but
-// production hands it a value from a real Hono + @hono/node-server request. That
-// adapter builds `c.req.raw.url` via `new URL(...).href`, which WHATWG-normalizes
-// dot segments BEFORE the handler runs — so a route reading `c.req.raw.url` would
-// have the `..` collapsed away and serve the sibling file. These tests boot the
-// real adapter and drive it over HTTP to prove the shipped route sources the RAW
-// target (`c.env.incoming.url`) and the `..` guard holds end-to-end.
-describe("iframe-preview route over real @hono/node-server (raw target survives the adapter)", () => {
+// production hands it `HttpServerRequest.url` off a real node request. This suite
+// boots the SHIPPED handler behind a real `http.Server` through the same
+// `NodeHttpServer.makeHandler` seam kolu-server's boot uses, and drives it with
+// VERBATIM request targets — so "`HttpServerRequest.url` is the raw,
+// un-normalized `IncomingMessage.url`" is proven here, not assumed.
+//
+// It is also the tripwire for the one banned shortcut: `HttpRouter.toWebHandler`
+// builds a Web `Request`, which WHATWG-normalizes `..` / `%2e%2e` BEFORE the
+// handler runs and would silently serve the sibling file. If this route is ever
+// reached through a web handler, the two 400 tests below go green-to-200.
+describe("iframe-preview route over a real node server (the raw target survives)", () => {
   const host = "local";
   const terminalId = "abc";
   let tmpRoot: string;
-  let server: ReturnType<typeof serve>;
+  let server: http.Server;
+  let handlerScope: Scope.Closeable;
   let baseUrl: string;
+
+  /** The bound-padi client the route dials. `preview.read` is the REMOTE arm's
+   *  dial: a `host = "local"` request must take the in-process `previewFile` arm,
+   *  so reaching it here is a failure, not a fallback. */
+  const client: PreviewPadiClient = {
+    surface: {
+      preview: {
+        repoRootForTerminal: () => Promise.resolve({ repoRoot: tmpRoot }),
+        read: () =>
+          Promise.reject(
+            new Error("the local arm must never dial preview.read"),
+          ),
+      },
+    },
+  };
+  const pool: PreviewHostPool = {
+    getSession: (encoded) =>
+      encoded === "local"
+        ? { currentClient: () => Promise.resolve(client) }
+        : undefined,
+  };
 
   beforeAll(async () => {
     tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-route-int-"));
     fs.writeFileSync(path.join(tmpRoot, "clip.mp4"), "video-bytes");
     fs.writeFileSync(path.join(tmpRoot, "secret.html"), "SECRET");
 
-    // Drive the SAME shipped target-selection adapter production uses
-    // (`rawTargetFromContext`, which reads the RAW `c.env.incoming.url` and
-    // fails CLOSED to a 500 when `incoming` is absent rather than serving the
-    // WHATWG-normalized `c.req.raw.url`), slice the tail, hand it to padi's
-    // `readPreview`, and reconstruct the Response — the exact re-backed route
-    // shape from `index.ts`, so this test can't drift from it.
-    const app = new Hono<{ Bindings: HttpBindings }>();
-    const pattern = `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*`;
-    app.get(pattern, async (c) => {
-      const hostParam = c.req.param("host");
-      const id = c.req.param("terminalId");
-      const rawTarget = rawTargetFromContext(c);
-      if (rawTarget === undefined) {
-        return c.text("raw request target unavailable", 500);
-      }
-      const rawTail = previewTailFromRawUrl(rawTarget, hostParam, id);
-      const r = await previewFile({
-        repoPath: tmpRoot,
-        filePath: rawTail,
-        range: c.req.header("range"),
-      });
-      return new Response(r.body as BodyInit, {
-        status: r.status,
-        headers: r.headers,
-      });
-    });
+    handlerScope = await Effect.runPromise(Scope.make());
+    const handler = await Effect.runPromise(
+      Effect.gen(function* () {
+        const httpEffect = yield* HttpRouter.toHttpEffect(
+          HttpRouter.add(
+            "GET",
+            PREVIEW_ROUTE_PATTERN,
+            previewRouteHandler({ pool, log: { error: () => {} } }),
+          ),
+        );
+        return yield* NodeHttpServer.makeHandler(httpEffect, {
+          scope: handlerScope,
+        });
+      }).pipe(Scope.provide(handlerScope)),
+    );
 
-    server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
+    server = http.createServer();
+    server.on("request", handler);
     await new Promise<void>((resolve) =>
-      server.on("listening", () => resolve()),
+      server.listen(0, "127.0.0.1", () => resolve()),
     );
     const addr = server.address();
     if (!addr || typeof addr === "string") {
@@ -590,6 +606,7 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    await Effect.runPromise(Scope.close(handlerScope, Exit.void));
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
@@ -636,6 +653,33 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     );
     expect(res.status).toBe(400);
     expect(res.body).not.toContain("SECRET");
+  });
+
+  it("400s a host segment that is not a canonical host key", async () => {
+    const res = await rawGet(
+      `/api/terminals/not-a-key/${terminalId}/file/clip.mp4`,
+    );
+    expect(res.status).toBe(400);
+    expect(res.body).toBe("invalid host key");
+  });
+
+  // A key that decodes but is not a current pool member is a loud 404 — never a
+  // silent fall-through to the default host's bytes.
+  it("404s a canonical host key that is not a pool member", async () => {
+    const res = await rawGet(
+      `/api/terminals/remote%3Abox/${terminalId}/file/clip.mp4`,
+    );
+    expect(res.status).toBe(404);
+    expect(res.body).toBe('unknown host "remote:box"');
+  });
+
+  it("serves a filename carrying a literal % through the whole route", async () => {
+    fs.writeFileSync(path.join(tmpRoot, "100% done.mp4"), "pct-bytes");
+    const res = await rawGet(
+      buildTerminalFileUrl(host, terminalId, "100% done.mp4"),
+    );
+    expect(res.status).toBe(200);
+    expect(res.body).toBe("pct-bytes");
   });
 });
 

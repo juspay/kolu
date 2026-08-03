@@ -1014,7 +1014,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         return c.text("padi link fault serving preview", 503);
       }
     } else {
-      r = await previewFile({ repoPath, filePath: rawTail, range, ifRange });
+      // The local arm's ONE run edge: this hono handler is Promise-shaped by
+      // contract, and `previewFile` is the Effect that reads the bytes. It runs
+      // with the request's own signal so a browser abandoning a video seek
+      // interrupts the read (and closes the descriptor) instead of streaming
+      // into a socket nobody is holding. Retires with the route when the
+      // hono→effect/unstable/http rewrite lands.
+      r = await Effect.runPromise(
+        previewFile({ repoPath, filePath: rawTail, range, ifRange }),
+        { signal: c.req.raw.signal },
+      );
     }
     return new Response(r.body as BodyInit, {
       status: r.status,

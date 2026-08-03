@@ -55,8 +55,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/server/src/index.ts",
-    sites: 1,
-    why: "the reactor's poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect (locked decision 1)",
+    sites: 2,
+    why: "two hono-handler edges: the reactor's poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect (locked decision 1); and the local iframe-preview read, run with the request's own AbortSignal so an abandoned seek interrupts the file read — both retire with the hono→effect/unstable/http rewrite",
   },
   {
     path: "packages/server/src/portForward/hostPorts.ts",

@@ -815,7 +815,10 @@ export function buildPadiSurfaceDeps(deps: {
       // rides the procedure wire; the `..`/`%2f`/symlink 403 guard is
       // re-enforced inside `readPreview` by padi's own `previewRealpathGuard`.
       preview: {
-        read: ({ input }) => handle(() => readPreview(input)),
+        // Straight through — `readPreview` is already an Effect whose ONE
+        // declared fault (`PreviewTooLarge`) is typed into its failure channel,
+        // so it needs none of `handle`'s throw-sniffing to get there.
+        read: ({ input }) => readPreview(input),
         // Resolve a terminal's repoRoot off padi's OWN registry (`snapshotFor`, the
         // source of truth) — the re-serving binder's iframe route turns the URL's
         // terminal id into a repo path with this, then STREAMS the file itself via

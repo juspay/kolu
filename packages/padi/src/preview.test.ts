@@ -9,8 +9,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readPreview } from "./preview.ts";
+import { readPreview as readPreviewEffect } from "./preview.ts";
+
+/** The one run edge for this file — a test IS a process edge (the run-edge
+ *  allowlist's own policy). The declared `PreviewTooLarge` failure is squashed
+ *  back out to a rejection so the cap assertions below stay `.rejects`
+ *  assertions on the error VALUE rather than on a fiber-failure wrapper. */
+function readPreview(...args: Parameters<typeof readPreviewEffect>) {
+  return Effect.runPromiseExit(readPreviewEffect(...args)).then((exit) =>
+    Exit.isSuccess(exit)
+      ? exit.value
+      : Promise.reject(Cause.squash(exit.cause)),
+  );
+}
 
 /** Decode `readPreview`'s base64 body back to a UTF-8 string for assertions. */
 function decodeBody(bodyBase64: string): string {
