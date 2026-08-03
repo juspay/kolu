@@ -20,6 +20,9 @@
  * a still-live, about-to-exit daemon.
  */
 
+import { Effect, Ref } from "effect";
+import { runFace } from "../promiseFace.ts";
+
 export type DrainAndAwaitExitResult = {
   /** True when the exit was observed within `ceilingMs`. */
   readonly took: boolean;
@@ -42,42 +45,74 @@ export function drainRejectionSuffix(rejection: string | null): string {
  * ceiling wins) to stop cleanly, so a poll-based plug never leaks a probe every tick
  * after the primitive returns.
  */
-export async function drainAndAwaitExit(
+export function drainAndAwaitExitEffect(
   drain: () => Promise<void>,
   awaitExit: (signal: AbortSignal) => Promise<void>,
   { ceilingMs }: { ceilingMs: number },
-): Promise<DrainAndAwaitExitResult> {
-  if (!Number.isFinite(ceilingMs) || ceilingMs <= 0) {
-    throw new Error(
-      `drainAndAwaitExit ceilingMs must be a positive number, got ${ceilingMs}`,
+): Effect.Effect<DrainAndAwaitExitResult, Error> {
+  return Effect.suspend(() => {
+    if (!Number.isFinite(ceilingMs) || ceilingMs <= 0) {
+      return Effect.fail(
+        new Error(
+          `drainAndAwaitExit ceilingMs must be a positive number, got ${ceilingMs}`,
+        ),
+      );
+    }
+    const abort = new AbortController();
+    // ARM FIRST — and in THIS step, not inside a fiber whose start we would be
+    // trusting: the exit oracle must be watching before the drain verb can
+    // possibly fire (F3/F10), so the plug is invoked here, synchronously, and
+    // the drain is forked below.
+    const exited = awaitExit(abort.signal);
+    // Defensive, and still needed under fibers: when the CEILING wins the race
+    // below, the fiber reading this promise is interrupted while the promise
+    // itself lives on — a plug that rejects afterwards would have no reader and
+    // take the process down as an unhandled rejection.
+    exited.catch(() => {});
+
+    return Effect.gen(function* () {
+      const rejection = yield* Ref.make<string | null>(null);
+      // Fire-and-forget, as a supervised CHILD fiber: it is interrupted when
+      // this effect finishes, so a drain the daemon never answers cannot outlive
+      // the wait that stopped caring about it. A sync throw and an async
+      // rejection are the same fact here — drain completion is never ground
+      // truth — so `tryPromise` folds both into the recorded string.
+      //
+      // `startImmediately` is LOAD-BEARING: the verb must actually fire before
+      // the race below can win. A daemon whose exit oracle resolves at once
+      // (an already-dead process) would otherwise see the child interrupted
+      // before it ever called `drain`, and the daemon would never be asked.
+      yield* Effect.forkChild(
+        Effect.tryPromise({ try: drain, catch: (e) => String(e) }).pipe(
+          Effect.catch((message) => Ref.set(rejection, message)),
+        ),
+        { startImmediately: true },
+      );
+
+      // GROUND TRUTH is the exit. The ceiling is the other runner in the race,
+      // and losing it interrupts the sleep — no timer handle to clear, no
+      // `timer!` definite-assignment hack, no dangling `"timeout"` promise.
+      const took = yield* Effect.raceFirst(
+        Effect.as(
+          Effect.promise(() => exited),
+          true,
+        ),
+        Effect.as(Effect.sleep(ceilingMs), false),
+      );
+      return { took, drainRejection: yield* Ref.get(rejection) };
+    }).pipe(
+      // The ceiling won (or we were interrupted): tell the plug to stop, so a
+      // poll-based oracle does not leak a probe every tick after we return.
+      Effect.ensuring(Effect.sync(() => abort.abort())),
     );
-  }
-  const abort = new AbortController();
-  const exited = awaitExit(abort.signal);
-  // Defensive: a mis-behaving plug must not crash the process.
-  exited.catch(() => {});
-
-  let drainRejection: string | null = null;
-  // Normalize so a sync throw is captured the same as an async rejection —
-  // drain completion is never ground truth; the framework owns cleanup.
-  void Promise.resolve()
-    .then(() => drain())
-    .catch((e) => {
-      drainRejection = String(e);
-    });
-
-  let timer!: ReturnType<typeof setTimeout>;
-  const timedOut = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), ceilingMs);
   });
-  try {
-    const outcome = await Promise.race([
-      exited.then(() => "exited" as const),
-      timedOut,
-    ]);
-    return { took: outcome === "exited", drainRejection };
-  } finally {
-    clearTimeout(timer);
-    abort.abort();
-  }
+}
+
+/** The Promise face of {@link drainAndAwaitExitEffect} — see `promiseFace.ts`. */
+export function drainAndAwaitExit(
+  drain: () => Promise<void>,
+  awaitExit: (signal: AbortSignal) => Promise<void>,
+  opts: { ceilingMs: number },
+): Promise<DrainAndAwaitExitResult> {
+  return runFace(drainAndAwaitExitEffect(drain, awaitExit, opts));
 }
