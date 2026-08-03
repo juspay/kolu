@@ -14,13 +14,12 @@
     "start": "tsx src/server/main.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.10",
+    "@effect/platform-node": "catalog:",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-app": "workspace:*",
     "@kolu/surface-map": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "effect": "catalog:",
-    "hono": "^4.12.25",
     "solid-js": "^1.9.0",
     "ts-pattern": "^5.9.0",
     "ws": "^8.21.0"

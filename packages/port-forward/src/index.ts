@@ -22,11 +22,8 @@
  * exactly the exposure of having run the dev server on `0.0.0.0` yourself. The
  * trust boundary is the network the machine is on.
  *
- * The package's only runtime npm dependency is `effect` — the workspace's
- * single concurrency/lifetime vocabulary, which the map's state machine is
- * written in rather than re-derived from promise slots and latches. Everything
- * else is node builtins. A remote forward spawns `ssh`, so a consumer's
- * packaging must put OpenSSH on
+ * The package has no runtime npm dependencies (node builtins only), but a
+ * remote forward spawns `ssh`, so a consumer's packaging must put OpenSSH on
  * PATH. It is the shared capability under the standalone `vazhi` TUI today and
  * kolu's Inspector next (the Atlas note's PRT2), and neither app should have to
  * drag the other's world in to use it.

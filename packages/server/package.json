@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
-    "@hono/node-server": "^2.0.10",
     "@kolu/artifact-sdk": "workspace:*",
     "@kolu/heap-diag": "workspace:*",
     "@kolu/log": "workspace:*",
@@ -29,8 +28,6 @@
     "anyforge": "workspace:*",
     "conf": "^15.1.0",
     "effect": "catalog:",
-    "hono": "^4.12.25",
-    "hono-pino": "^0.10.3",
     "kaval": "workspace:*",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",

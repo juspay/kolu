@@ -13,7 +13,6 @@
     "@kolu/port-forward": "workspace:*",
     "ansi-escapes": "^7.3.0",
     "cli-truncate": "^6.1.1",
-    "effect": "catalog:",
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "react": "^19.2.8"

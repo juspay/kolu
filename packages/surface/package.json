@@ -57,7 +57,6 @@
   "dependencies": {
     "@effect/platform-browser": "4.0.0-beta.102",
     "@effect/platform-node": "4.0.0-beta.102",
-    "@preact/signals-core": "^1.8.0",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
     "effect": "4.0.0-beta.102",

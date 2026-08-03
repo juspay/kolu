@@ -65,9 +65,6 @@ importers:
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -578,9 +575,6 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
-      effect:
-        specifier: 4.0.0-beta.102
-        version: 4.0.0-beta.102
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1024,10 +1018,6 @@ importers:
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.21.0)(yaml@2.8.3))
 
   packages/port-forward:
-    dependencies:
-      effect:
-        specifier: 4.0.0-beta.102
-        version: 4.0.0-beta.102
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1069,9 +1059,6 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -1123,12 +1110,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      hono-pino:
-        specifier: ^0.10.3
-        version: 0.10.3(hono@4.12.31)(pino@10.3.1)
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1211,9 +1192,6 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
-      effect:
-        specifier: 4.0.0-beta.102
-        version: 4.0.0-beta.102
       kolu-io:
         specifier: workspace:*
         version: link:../integrations/io
@@ -1408,9 +1386,6 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      '@preact/signals-core':
-        specifier: ^1.8.0
-        version: 1.14.4
       '@solid-primitives/rootless':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
@@ -1464,15 +1439,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1485,9 +1454,6 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../surface
@@ -1497,9 +1463,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1710,9 +1673,9 @@ importers:
 
   packages/surface/example:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
@@ -1722,9 +1685,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1762,9 +1722,9 @@ importers:
 
   packages/surface/example/fleet-top/part-1:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -1774,9 +1734,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1836,9 +1793,9 @@ importers:
 
   packages/surface/example/fleet-top/part-3:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
@@ -1854,9 +1811,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1916,9 +1870,9 @@ importers:
 
   packages/surface/example/remote-process-monitor:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.102
+        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -1931,9 +1885,6 @@ importers:
       effect:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -2197,9 +2148,6 @@ importers:
       cli-truncate:
         specifier: ^6.1.1
         version: 6.1.1
-      effect:
-        specifier: 4.0.0-beta.102
-        version: 4.0.0-beta.102
       ink:
         specifier: ^7.1.1
         version: 7.1.1(@types/react@19.2.17)(react@19.2.8)
@@ -3164,9 +3112,6 @@ packages:
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
 
-  '@preact/signals-core@1.14.4':
-    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
-
   '@rolldown/binding-android-arm64@1.1.2':
     resolution: {integrity: sha512-2cZ+7xRS+DBcuJBJKnfzsbleumJhBqSlJVpuzHC0nTqfd3QQ7Vx2/x5YR/D7cBamKSeWplwo82Fn9lqYUDEMfA==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -4045,9 +3990,6 @@ packages:
   defaults@1.0.4:
     resolution: {integrity: sha512-eFuaLoy/Rxalv2kr+lqMlUnrDWV+3j4pljOIJgLIhI058IQfWJ7vXhyEIHu+HtC738klGALYxOKDO0bQP3tg8A==}
 
-  defu@6.1.7:
-    resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
-
   denque@2.1.0:
     resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
     engines: {node: '>=0.10'}
@@ -4339,13 +4281,6 @@ packages:
 
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
-
-  hono-pino@0.10.3:
-    resolution: {integrity: sha512-n0RNPIFOoq25Fg8b4D5gus4sVqI0z+8I17ibl96+p43d07UnZ0EMM/It0qSgfc7UtaC+XP5FkFmRHwBp6owsNA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      hono: ^4.12.27
-      pino: '>=7.1.0'
 
   hono@4.12.31:
     resolution: {integrity: sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg==}
@@ -6599,8 +6534,6 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
-  '@preact/signals-core@1.14.4': {}
-
   '@rolldown/binding-android-arm64@1.1.2':
     optional: true
 
@@ -7363,8 +7296,6 @@ snapshots:
     dependencies:
       clone: 1.0.4
 
-  defu@6.1.7: {}
-
   denque@2.1.0: {}
 
   depd@2.0.0: {}
@@ -7680,12 +7611,6 @@ snapshots:
       '@types/hast': 3.0.4
 
   help-me@5.0.0: {}
-
-  hono-pino@0.10.3(hono@4.12.31)(pino@10.3.1):
-    dependencies:
-      defu: 6.1.7
-      hono: 4.12.31
-      pino: 10.3.1
 
   hono@4.12.31: {}
 
