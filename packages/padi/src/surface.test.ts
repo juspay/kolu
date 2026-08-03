@@ -13,6 +13,7 @@ import {
   PadiIdentitySchema,
   PadiPreviewReadInputSchema,
   PadiPreviewReadOutputSchema,
+  PadiStatusSchema,
   PadiTerminalSchema,
   PadiUrgencySchema,
   PadiVersionSchema,
@@ -621,5 +622,87 @@ describe("PadiUrgency — the rolling-deploy defaults, in BYTES", () => {
     const a = decode({ awaitingIds: [] });
     const b = decode({ awaitingIds: [] });
     expect(a.finishedIds).not.toBe(b.finishedIds);
+  });
+});
+
+describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", () => {
+  // `status.expectedKaval` and the attach frame's `reflowEpoch` are the two
+  // fields the `optionalKey` audit judged differently, and the difference is
+  // load-bearing rather than stylistic — so both verdicts are pinned here.
+  const ID = "123e4567-e89b-12d3-a456-426614174000";
+  const KAVAL = { staleKey: "abc123", navigableCommit: "deadbeef" };
+
+  describe("status.expectedKaval stays optionalKey — one producer, disciplined", () => {
+    const encode = Schema.encodeUnknownSync(PadiStatusSchema);
+
+    it("omits the key entirely off-nix, where there is no baked identity", () => {
+      expect(JSON.stringify(encode({}))).toBe("{}");
+    });
+
+    it("carries the identity when nix baked one", () => {
+      expect(JSON.stringify(encode({ expectedKaval: KAVAL }))).toBe(
+        `{"expectedKaval":{"staleKey":"${KAVAL.staleKey}","navigableCommit":"${KAVAL.navigableCommit}"}}`,
+      );
+    });
+
+    it("REJECTS a present-but-undefined key — the shape `servePadi` used to seed", () => {
+      // The tightening is a FEATURE here: `servePadi` has the only producer, and
+      // it now spreads. Falsify by restoring `expectedKaval: … : undefined` there
+      // — every `status` subscribe then fails to encode with the string below.
+      expect(accepts(PadiStatusSchema, { expectedKaval: undefined })).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("the attach snapshot's reflowEpoch is `optional` — five verbatim hops", () => {
+    // Unlike `expectedKaval`, this value is FORWARDED across kaval's decoded
+    // frame → `OpenedAttach` → `TerminalAttachment` → the re-attach frame → here.
+    // Reading an absent optional key yields `undefined`, so every hop re-creates
+    // the key; `Schema.optional` restores exactly zod's tolerance while leaving
+    // the emitted bytes key-omitted.
+    const frame = padiSurface.spec.streams.terminalAttach.outputSchema;
+    const encode = Schema.encodeUnknownSync(frame);
+
+    it("ACCEPTS a present-but-undefined reflowEpoch, and OMITS it from the bytes", () => {
+      expect(
+        JSON.stringify(
+          encode({
+            kind: "snapshot",
+            data: "hi",
+            topLine: 0,
+            reflowEpoch: undefined,
+          }),
+        ),
+      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+    });
+
+    it("an ABSENT key emits the same bytes — `optional` never nulls", () => {
+      expect(
+        JSON.stringify(encode({ kind: "snapshot", data: "hi", topLine: 0 })),
+      ).toBe('{"kind":"snapshot","data":"hi","topLine":0}');
+    });
+
+    it("still emits a real epoch, and still REJECTS a non-integer one", () => {
+      expect(
+        JSON.stringify(
+          encode({ kind: "snapshot", data: "", topLine: 3, reflowEpoch: 7 }),
+        ),
+      ).toBe('{"kind":"snapshot","data":"","topLine":3,"reflowEpoch":7}');
+      expect(
+        accepts(frame, {
+          kind: "snapshot",
+          data: "",
+          topLine: 0,
+          reflowEpoch: "7",
+        }),
+      ).toBe(false);
+    });
+
+    it("a delta frame is untouched by any of this", () => {
+      expect(JSON.stringify(encode({ kind: "delta", data: ID }))).toBe(
+        `{"kind":"delta","data":"${ID}"}`,
+      );
+    });
   });
 });

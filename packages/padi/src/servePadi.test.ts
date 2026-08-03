@@ -35,6 +35,8 @@ import {
   PADI_SURFACE_VERSION,
   type PadiIdentity,
   PadiParkedTerminalSchema,
+  type PadiStatus,
+  PadiStatusSchema,
 } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
@@ -230,6 +232,40 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       startedAt: 42,
       lifetime: { kind: "forever" },
     });
+  });
+});
+
+describe("padi's `status` cell — the expected-kaval axis, OFF-NIX (#17 audit)", () => {
+  /** The `status` cell's in-memory backing, narrowed out of the deps shape. */
+  function statusBacking(): PadiStatus {
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+      lifetime: { kind: "forever" },
+      stateRoot: "/tmp/padi-test-state-root",
+    });
+    const store = (
+      deps.cells?.status as { store?: { get: () => PadiStatus } } | undefined
+    )?.store;
+    if (!store) throw new Error("padi deps must back the status cell");
+    return store.get();
+  }
+
+  // A vitest run has no `KAVAL_BUILD_ID` — nix bakes it and nothing else does —
+  // so `currentPtyHostIdentity().staleKey` is `""` here, which is the ORDINARY
+  // state of every from-source server, not an edge case. `expectedKaval` is
+  // `Schema.optionalKey`, and this seeded value is what EVERY `status` subscribe
+  // encodes, so the pre-fix `expectedKaval: … : undefined` seed broke the cell
+  // for the whole from-source world. Falsify by restoring that ternary: the
+  // encode below throws `Expected { readonly staleKey: string; … }, got undefined`.
+  it("OMITS the key off-nix — the seeded value must ENCODE on the wire", () => {
+    const status = statusBacking();
+    expect(Object.hasOwn(status, "expectedKaval")).toBe(false);
+    expect(
+      JSON.stringify(Schema.encodeUnknownSync(PadiStatusSchema)(status)),
+    ).toBe("{}");
   });
 });
 

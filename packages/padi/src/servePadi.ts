@@ -255,8 +255,15 @@ export function buildPadiSurfaceDeps(deps: {
   // silent. Seeded once at boot into a read-only cell — a build constant never
   // changes at runtime, so there is no write-trigger (unlike urgency).
   const identity = currentPtyHostIdentity();
+  // SPREAD, never `expectedKaval: … : undefined` (#17): the field is
+  // `Schema.optionalKey`, so an ABSENT key is accepted and a present-but-
+  // `undefined` one is REJECTED — where zod's `.optional()` took either. The
+  // off-nix case (`staleKey === ""`) is the ORDINARY one for any run outside a
+  // nix build, and this value is seeded into the `status` cell, whose every
+  // subscribe ENCODES it — so spelling the `undefined` broke the cell for every
+  // from-source server, not an edge case.
   const status: PadiStatus = {
-    expectedKaval: identity.staleKey ? identity : undefined,
+    ...(identity.staleKey ? { expectedKaval: identity } : {}),
   };
   // padi's OWN identity (distinct from the kaval `identity` above) — the per-host
   // `identity` cell twin of the control-core `hello`. `commit` is a DECLARED value:

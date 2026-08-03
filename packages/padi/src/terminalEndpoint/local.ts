@@ -170,7 +170,11 @@ export class TerminalSpawnRacedError extends Error {
   }
 }
 
-class PtyHostTerminalProxy implements TerminalHandle {
+/** Exported so a seam test can drive the REAL producer against a REAL
+ *  `ptyHostClientOver` face — the face is where kaval's input schemas are
+ *  decoded, so a paraphrased fake would not exercise the gate this proxy has to
+ *  satisfy (#17: an `optionalKey` field rejects a present-`undefined`). */
+export class PtyHostTerminalProxy implements TerminalHandle {
   pid = 0;
   /** Resolves once `terminal.spawn` has created the PTY. Rejects if spawn
    *  failed, so a queued write / awaited attach surfaces the failure instead
@@ -262,12 +266,24 @@ class PtyHostTerminalProxy implements TerminalHandle {
     // start/end is a line range; nothing set is the full scrollback. The three
     // never combine, so there's no precedence to encode — each maps to its own
     // `ScreenExtent` variant rather than an open range standing in for "full".
+    //
+    // The `range` arm SPREADS each bound, never spells it (#17): both are
+    // `Schema.optionalKey` on kaval's wire and the client face DECODES this
+    // input, so an ABSENT key is accepted and a present-but-`undefined` one is
+    // REJECTED — where zod's `.optional()` took either. A HALF-open range (only
+    // a start, or only an end) is exactly the shape `screen.text` forwards when
+    // the caller sent one bound, so spelling the missing half out would throw
+    // before the call ever left padi.
     const extent =
       tailLines !== undefined
         ? ({ kind: "tail", lines: tailLines } as const)
         : startLine === undefined && endLine === undefined
           ? ({ kind: "full" } as const)
-          : ({ kind: "range", startLine, endLine } as const);
+          : ({
+              kind: "range",
+              ...(startLine !== undefined && { startLine }),
+              ...(endLine !== undefined && { endLine }),
+            } as const);
     const { text } = await this.client.surface.terminal.getScreenText({
       id: this.id,
       extent,
@@ -283,9 +299,17 @@ class PtyHostTerminalProxy implements TerminalHandle {
     await this.ready;
     return this.client.surface.terminal.getHistory({
       id: this.id,
-      before,
+      // SPREAD both cursors, never spell them (#17): each is
+      // `Schema.optionalKey` on kaval's wire and the client face DECODES this
+      // input, so an ABSENT key is accepted and a present-but-`undefined` one is
+      // REJECTED — where zod's `.optional()` took either. Both absences are
+      // ORDINARY, not edge cases: an omitted `before` is the documented
+      // self-seeding first page (what the `screen_history` MCP tool sends), and
+      // an omitted `epoch` is every caller whose attach snapshot carried no
+      // `reflowEpoch`. Spelling either out throws before the call leaves padi.
+      ...(before !== undefined && { before }),
       max,
-      epoch,
+      ...(epoch !== undefined && { epoch }),
     });
   }
 }
@@ -1449,8 +1473,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // always yields a snapshot first, even an empty one), so FAIL LOUD rather
         // than fabricate a valid `{ snapshot: "", topLine: 0 }` that paints a
         // blank, frozen pane indistinguishable from a real empty terminal.
-        if (signal?.aborted)
-          return { snapshot: "", topLine: 0, reflowEpoch: undefined, iter };
+        // OMIT `reflowEpoch` rather than spelling `undefined`: "this attachment
+        // reports no reflow generation" is an ABSENT key, and an explicit
+        // `undefined` is the one spelling nothing downstream can honestly carry.
+        if (signal?.aborted) return { snapshot: "", topLine: 0, iter };
         throw new Error(
           `attach(${id}): stream ended before its mandatory snapshot frame`,
         );

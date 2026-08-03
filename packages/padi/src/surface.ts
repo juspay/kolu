@@ -1175,7 +1175,21 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
           // generation this snapshot was serialized under; the client re-seeds
           // its backfill epoch from it so a foreign-resize reflow halts backfill
           // rather than corrupts it (F3). Absent from a kaval predating 5.2.
-          reflowEpoch: Schema.optionalKey(NonNegativeInt),
+          //
+          // `Schema.optional`, NOT `optionalKey` — the one place on this wire
+          // that reads the way zod's `.optional()` did, and deliberately. This
+          // value is FORWARDED VERBATIM across five hops of optional-typed
+          // records before it is encoded: kaval's decoded attach frame →
+          // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
+          // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
+          // optional key yields `undefined`, so EVERY hop re-creates the key
+          // present-with-`undefined`, and no amount of conditional-spread
+          // discipline at one hop survives the next (`exactOptionalPropertyTypes`
+          // is not set, so the compiler never objects). `optional` is
+          // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
+          // the key is omitted, never nulled — and a non-integer is still
+          // rejected. Pinned by a byte fixture in `surface.test.ts`.
+          reflowEpoch: Schema.optional(NonNegativeInt),
         }),
       ]),
     },

@@ -114,7 +114,16 @@ export function publishDaemonStatus(
           identity: status.identity,
           startedAt: status.startedAt,
           contractVersion: status.metadata.contractVersion,
-          lifetime: status.metadata.lifetime,
+          // SPREAD, exactly like `socket` below (#17): `lifetime` is
+          // `Schema.optionalKey` on `DaemonStatusSchema`, and the metadata field
+          // it mirrors is itself optional (a survivor kaval predating the
+          // `system.version` field reports none). Reading an absent optional key
+          // yields `undefined`, so a plain `lifetime: …` would re-create the key
+          // present-with-`undefined` — the shape the encode rejects, taking the
+          // whole `daemonStatus` push down with it.
+          ...(status.metadata.lifetime !== undefined && {
+            lifetime: status.metadata.lifetime,
+          }),
           ...socket,
         }
       : status.state === "incompatible"

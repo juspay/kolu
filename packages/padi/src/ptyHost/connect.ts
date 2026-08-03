@@ -251,7 +251,14 @@ export async function connectKaval(
     startedAt: hello.startedAt,
     metadata: {
       contractVersion: hello.surfaceVersion,
-      lifetime: version.lifetime,
+      // SPREAD, never `lifetime: version.lifetime` (#17): `system.version`
+      // declares `lifetime` as `Schema.optionalKey`, so a survivor kaval that
+      // predates the field decodes with the key ABSENT and this read is
+      // `undefined`. That value is mirrored onto `DaemonStatus.lifetime` —
+      // `optionalKey` there too — whose every wire push ENCODES it, and an
+      // `optionalKey` rejects a present `undefined` where zod's `.optional()`
+      // took either. Keeping the key absent here is what keeps that mirror legal.
+      ...(version.lifetime !== undefined && { lifetime: version.lifetime }),
       pid: version.pid,
       dispatch,
     },
