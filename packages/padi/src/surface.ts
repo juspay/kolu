@@ -354,8 +354,23 @@ export {
  *  in-epoch skew mechanism (`isContractVersionCompatible`, the binder's
  *  drain-newer-else-refuse) keeps working unchanged from this epoch forward;
  *  CROSS-epoch peers are the supervisor's `unspeakable-protocol` domain (D6/#3),
- *  which this module never claims to classify. */
-export const PADI_SURFACE_VERSION = "5.0";
+ *  which this module never claims to classify.
+ *
+ *  5.1 (additive · minor): `session.restore` gains an OUTPUT — the active-terminal
+ *  marker as of the end of the restore ({@link PadiSessionRestoreOutputSchema}).
+ *  The procedure answered `void` before, and the client read the restored active
+ *  tile off the `session` cell's NEXT snapshot instead; that is a race the client
+ *  cannot win (the cell publishes behind a synchronous disk write, the terminals
+ *  do not), and it cost the wrong tile whenever a loaded box lost it. A new
+ *  emitted field on an existing procedure, so the same rule 4.1/4.2 state applies:
+ *  the shape padi emits changed, therefore the version says so. The minor suffices
+ *  for the usual reason — a newer binder against a 5.0 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
+ *  surface, and an older binder against a 5.1 padi is build-mismatched and drains
+ *  it first, so no parser meets a frame of the other shape. `session.import` is
+ *  UNTOUCHED: it restores a blob the client just handed over and seeds no view, so
+ *  giving it an answer nothing reads would be shape for its own sake. */
+export const PADI_SURFACE_VERSION = "5.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -977,6 +992,24 @@ export const PadiSessionRestoreInputSchema = Schema.Struct({
   optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+/** `session.restore`'s ANSWER — the active-terminal marker as of the end of the
+ *  restore (the saved marker mapped onto the freshly-spawned ids), or `null` when
+ *  the host holds none.
+ *
+ *  The client seeds its active tile from THIS, not from the `session` cell's next
+ *  snapshot. The two are not interchangeable: the restored terminals publish as
+ *  they spawn, while the cell's snapshot publishes only after `saveSession` has
+ *  been through padi's Conf — a synchronous DISK write — so on a loaded box the
+ *  client sees the full restored set while still holding the blob it CONSUMED,
+ *  whose `activeTerminalId` names pre-restore ids that no longer exist. Riding the
+ *  call makes the ordering structural: the answer cannot arrive after the
+ *  terminals it describes. The id is still only a MARKER — it can name a terminal
+ *  whose respawn failed and re-parked — so the client re-validates membership
+ *  before seeding, exactly as it does for the persisted marker. */
+export const PadiSessionRestoreOutputSchema = Schema.Struct({
+  activeTerminalId: Schema.NullOr(Schema.String),
+});
+
 /** `session.import` — replace the persisted session with an imported blob (the
  *  diagnostic "Import session" flow, moved host-side), then restore it. */
 export const PadiSessionImportInputSchema = Schema.Struct({
@@ -1402,7 +1435,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {
-      restore: { input: PadiSessionRestoreInputSchema },
+      restore: {
+        input: PadiSessionRestoreInputSchema,
+        output: PadiSessionRestoreOutputSchema,
+      },
       import: { input: PadiSessionImportInputSchema },
       /** Explicitly discard the pending restore — drop the parked restore-card
        *  entries AND clear the saved session together. The deliberate "start fresh"

@@ -20,6 +20,15 @@ const h = vi.hoisted(() => ({
   awaited: 0,
   sessionPending: true,
   savedSession: null as unknown,
+  /** The saved-session cell's reactive version — read by the `activeWire` mock's
+   *  accessor, bumped by {@link pushSavedSession}. Wired below the imports (the
+   *  hoisted bag is built before `solid-js` is available); an inert stand-in
+   *  until then, which is all the pre-mount assignments need. */
+  sessionVersion: (() => 0) as () => number,
+  /** PUSH a new saved-session snapshot the way the cell does — assign AND
+   *  notify, so the hydration effect re-runs. Tests that only need a value
+   *  BEFORE mount can still assign `h.savedSession` directly. */
+  pushSavedSession: (_value: unknown) => {},
 }));
 
 // Spies for every RPC `handleRestoreSession` could conceivably fire. The W1.R6
@@ -28,7 +37,13 @@ const h = vi.hoisted(() => ({
 // (`lifecycle.restoreSleeping` was also part of that dead loop and is now retired
 // from the padi surface entirely — see #1784's W12 disposition.)
 const rpc = vi.hoisted(() => ({
-  restore: vi.fn(() => Effect.void),
+  // `session.restore` ANSWERS with the active-terminal marker it settled on — the
+  // seed's source of truth. `null` is the honest default for the tests that only
+  // care that the call was made.
+  restore: vi.fn(
+    (): Effect.Effect<{ activeTerminalId: string | null }> =>
+      Effect.succeed({ activeTerminalId: null }),
+  ),
   import: vi.fn(() => Effect.void),
   forfeit: vi.fn(() => Effect.void),
   create: vi.fn(() => Effect.void),
@@ -74,7 +89,15 @@ vi.mock("../wire", async () => {
 // now. Drive them through the same hoisted bag.
 vi.mock("../hostScope/activeWire", () => ({
   savedSessionSub: { pending: () => h.sessionPending },
-  savedSession: () => h.savedSession,
+  // The saved-session CELL is a live subscription — a host PUSH must re-run the
+  // hydration effect. Reading the version signal (created below, once the real
+  // `solid-js` import has run) inside the accessor gives the hoisted bag that
+  // reactivity, so a test can deliver the terminals and the session snapshot in
+  // EITHER order and drive the real wire ordering.
+  savedSession: () => {
+    h.sessionVersion();
+    return h.savedSession;
+  },
 }));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
@@ -102,6 +125,17 @@ vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import { useSessionRestore } from "./useSessionRestore";
 import type { TerminalStore } from "./useTerminalStore";
+
+// Wire the saved-session cell's reactivity now that `solid-js` has loaded (the
+// hoisted bag above is built before any import runs).
+{
+  const [version, bump] = createSignal(0);
+  h.sessionVersion = version;
+  h.pushSavedSession = (value: unknown) => {
+    h.savedSession = value;
+    bump((n) => n + 1);
+  };
+}
 
 beforeEach(() => {
   // The restore latch is per-host owner state now: empty membership to DISPOSE
@@ -481,6 +515,109 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledWith("B");
             expect(reconcileLiveIds).toHaveBeenCalledWith(["B", "A"]);
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — the restored active tile does NOT ride the session-cell echo", () => {
+  // THE RACE (aarch64-darwin e2e "Restored multi-tile session preserves active
+  // terminal", both retries): a restore delivers its result on TWO independently
+  // timed channels. `restoreSession` spawns the terminals — publishing the
+  // `terminals` collection — and only THEN calls `saveSession`, whose cell write
+  // goes through padi's Conf (a synchronous DISK write) before the `session`
+  // snapshot is published. On a loaded box that disk write can outlast the
+  // client's per-terminal metadata round-trips, so the hydration effect sees the
+  // full restored set while still holding the blob it CONSUMED — whose
+  // `activeTerminalId` names a PRE-restore id that no longer exists. The
+  // membership check then silently falls back to `topIds[0]` and `markSeeded()`
+  // latches the wrong tile for the rest of the session: a lost write, not a slow
+  // one, which is why the step failed for the full 20 s on every attempt.
+  //
+  // The fix makes the ordering STRUCTURAL: `session.restore` ANSWERS with the
+  // active terminal the host settled on, the hook pins that answer on the host's
+  // latch, and the seed waits for the call to answer instead of racing the blob.
+  // This test drives the adverse ordering directly — restored terminals arrive
+  // while the session cell still holds the consumed blob — and is red without it.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  /** The blob the user clicked Restore on: pre-restore ids, and an
+   *  `activeTerminalId` naming the SECOND of them. */
+  const consumedBlob = {
+    terminals: [],
+    activeTerminalId: "old-1",
+    savedAt: 1,
+    resumableIds: [],
+  };
+
+  it("seeds the host-reported active tile when the restored terminals beat the session push", async () => {
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = consumedBlob;
+    // The host maps the saved active through old→new and answers with the id it
+    // made active — the FRESH id of the second tile.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
+              [],
+            );
+            const [meta, setMeta] = createSignal<
+              Record<string, TerminalMetadata>
+            >({});
+            const setActiveSilently = vi.fn();
+            const store = {
+              listSub: Object.assign(() => list(), { pending: () => false }),
+              terminalIds: () =>
+                (list() ?? []).map((t) => t.id) as TerminalId[],
+              getMetadata: (id: TerminalId) => meta()[id],
+              setActiveSilently,
+              activeId: () => null,
+              reconcileLiveIds: () => {},
+            } as unknown as TerminalStore;
+
+            // Empty canvas + a saved session → the restore card.
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(consumedBlob);
+
+            // The user restores. The host spawns both tiles under FRESH ids and
+            // publishes them; its `session` snapshot is still in flight behind
+            // the disk write, so the cell keeps serving the CONSUMED blob.
+            await Effect.runPromise(session.handleRestoreSession({}));
+            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
+            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+
+            // The SECOND tile is active — the host said so. Reading the consumed
+            // blob here would pick `new-0` (its "old-1" is in no live set).
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(setActiveSilently).not.toHaveBeenCalledWith("new-0");
+
+            // The late session push is a no-op: the view is already seeded.
+            setActiveSilently.mockClear();
+            h.pushSavedSession({
+              terminals: [],
+              activeTerminalId: "new-1",
+              savedAt: 2,
+              resumableIds: [],
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
             dispose();
             resolve();
           } catch (err) {

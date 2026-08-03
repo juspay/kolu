@@ -38,7 +38,13 @@ async function postSavedSession(
  *  timestamp is captured on the first POST per scenario and replayed
  *  verbatim on subsequent self-heal re-POSTs — so the test always
  *  asserts that the *originally persisted* session restores, never a
- *  fresh-savedAt one a regression might require. */
+ *  fresh-savedAt one a regression might require.
+ *
+ *  `activeTerminalId` is stashed and replayed the SAME way, and must be: the
+ *  self-heal re-POSTs below pass only the terminal list, `test__set` writes the
+ *  WHOLE blob, and an omitted `activeTerminalId` key decodes to `null`. A
+ *  re-POST that dropped it therefore ERASED the active marker — leaving an
+ *  assertion on the restored active tile unable to pass however long it polled. */
 async function postSavedSessionPayload(
   world: KoluWorld,
   terminals: SavedTerminal[],
@@ -46,6 +52,9 @@ async function postSavedSessionPayload(
 ): Promise<void> {
   if (world.savedSessionSavedAt === undefined) {
     world.savedSessionSavedAt = Date.now();
+  }
+  if (activeTerminalId !== undefined) {
+    world.savedSessionActiveId = activeTerminalId;
   }
   const payload: {
     terminals: SavedTerminal[];
@@ -71,8 +80,8 @@ async function postSavedSessionPayload(
     })),
     savedAt: world.savedSessionSavedAt,
   };
-  if (activeTerminalId !== undefined)
-    payload.activeTerminalId = activeTerminalId;
+  if (world.savedSessionActiveId !== undefined)
+    payload.activeTerminalId = world.savedSessionActiveId;
   await padiCall("session/test__set", payload);
 }
 

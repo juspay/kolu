@@ -37,6 +37,7 @@ import {
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
 import {
+  getActiveTerminalId,
   restoreActiveTerminalId,
   restoreSpawn,
   setTerminalParent,
@@ -148,12 +149,24 @@ function respawnActive(
  *  Resume intent is host-owned: the host computes the resumable set from each
  *  record's `restoreTarget` ({@link resumableTerminalIds}); the client may only
  *  subtract via `optOutIds`. `resumeAgents: false` resumes none; `true` (default)
- *  resumes every host-resumable id not listed in `optOutIds`. */
+ *  resumes every host-resumable id not listed in `optOutIds`.
+ *
+ *  ANSWERS with the active-terminal marker as of the end of the restore — the
+ *  saved marker mapped through `oldToNew`, read back from its ONE writer rather
+ *  than re-derived. The client seeds its active tile from THIS answer. It used to
+ *  read the `session` cell instead, and that is a race the client cannot win: the
+ *  terminals are published as they spawn, while the cell's snapshot only publishes
+ *  after `saveSession` has been through padi's Conf (a synchronous DISK write). On
+ *  a loaded box the disk write outlasts the client's per-terminal metadata
+ *  round-trips, so the client saw the full restored set while still holding the
+ *  blob it CONSUMED — pre-restore ids, none of them live — and silently seeded the
+ *  FIRST tile instead. Riding the call means the answer cannot arrive after the
+ *  terminals it describes. */
 export async function restoreSession(
   input: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
-): Promise<void> {
+): Promise<{ activeTerminalId: string | null }> {
   const saved = getSavedSession();
-  if (!saved) return;
+  if (!saved) return { activeTerminalId: getActiveTerminalId() };
   const resumeAgents = input.resumeAgents ?? true;
   const optOut = new Set(input.optOutIds ?? []);
   const hostResumable = new Set(resumableTerminalIds(saved.terminals));
@@ -322,6 +335,12 @@ export async function restoreSession(
       `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (missing parent): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
     );
   }
+  // Read the marker back from its ONE writer rather than re-deriving the mapping:
+  // a spawn that failed and re-parked above cannot leave this answer disagreeing
+  // with what the host actually holds. The id can still name a terminal that did
+  // not come back (its respawn was re-parked), which is exactly why the client
+  // re-validates membership before seeding.
+  return { activeTerminalId: getActiveTerminalId() };
 }
 
 /** Settle the fresh restore respawns INDEPENDENTLY — the ONE place the mixed

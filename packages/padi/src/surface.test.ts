@@ -58,7 +58,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 5.0 — the D6 protocol-epoch flag day — and DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 5.1 — a minor over the D6 protocol epoch — and DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -84,7 +84,13 @@ describe("padiSurface contract", () => {
     // reporting "4.7" would compare EQUAL to this build's expectation and be adopted
     // as wire-compatible — the version lever silently disarmed across the one break
     // it most needed to name.
-    expect(PADI_SURFACE_VERSION).toBe("5.0");
+    //
+    // 5.1 is the first additive minor of this epoch: `session.restore` gained an
+    // OUTPUT — the active-terminal marker it settled on — so the client stops
+    // reading a restore's active tile off the `session` cell's next snapshot. That
+    // was a race the client cannot win: the snapshot publishes behind a
+    // synchronous disk write while the restored terminals publish as they spawn.
+    expect(PADI_SURFACE_VERSION).toBe("5.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -100,11 +106,11 @@ describe("padiSurface contract", () => {
     );
     // The IN-EPOCH mechanism still works and must keep working from here on: a
     // binder that expects a future additive minor refuses a padi still reporting
-    // 5.0, so convergence drains-and-respawns it BEFORE the new client touches a
+    // 5.1, so convergence drains-and-respawns it BEFORE the new client touches a
     // member padi does not serve.
-    expect(isContractVersionCompatible("5.0", "5.1")).toBe(false);
-    // A newer additive minor still serves a 5.0 consumer.
-    expect(isContractVersionCompatible("5.1", "5.0")).toBe(true);
+    expect(isContractVersionCompatible("5.1", "5.2")).toBe(false);
+    // A newer additive minor still serves a 5.1 consumer.
+    expect(isContractVersionCompatible("5.2", "5.1")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);

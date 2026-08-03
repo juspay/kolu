@@ -94,6 +94,20 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       }
     }
     if (latch.phase === "seeded") return;
+    // A restore THIS client issued is still in flight — the host has not yet said
+    // which tile it made active. Its terminals reach us first (they publish as they
+    // spawn; the `session` cell's snapshot publishes only after a synchronous disk
+    // write), so seeding now would read the blob we CONSUMED, whose
+    // `activeTerminalId` names pre-restore ids that no longer exist, silently pick
+    // `topIds[0]`, and `markSeeded()` the WRONG tile for the rest of the session.
+    // Waiting for the call to answer is what makes the ordering structural rather
+    // than a race the client happens to win on a fast box. Reactive by design: the
+    // flip to false re-runs this effect, and `latch.restoredActive` (a NON-reactive
+    // gate, like `phase`) is read on that run. The flag is per-HOOK, so a restore
+    // on one host briefly holds another host's FIRST seed too — self-clearing, and
+    // the alternative (a second in-flight fact per latch) would state one thing
+    // twice.
+    if (isRestoring()) return;
     // Wait for the composed record to arrive (via `store.getMetadata`) for EVERY
     // listed terminal — hydration reads `parentId` and `subPanel` off the record
     // (since #806 the list snapshot no longer carries `meta`). `getMetadata`
@@ -112,8 +126,17 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // never reaches here: the empty-vs-restore decision above returns first
     // (`terminalIds()` is empty).
     if (joined.length === 0) return;
+    // A restore that just answered names the active tile ITSELF — prefer it over
+    // the persisted marker, which for exactly this hydration is the blob the
+    // restore consumed. `restoredActive` is a BOX, so a host that answered "no
+    // active terminal" (`{ id: null }`) stays distinct from "no restore answered"
+    // (`null`) and does not fall back to that stale blob.
+    const restored = latch.restoredActive;
     latch.markSeeded();
-    hydrateFromTerminals(joined, fromServer?.activeTerminalId ?? null);
+    hydrateFromTerminals(
+      joined,
+      restored ? restored.id : (fromServer?.activeTerminalId ?? null),
+    );
   });
 
   function hydrateFromTerminals(
@@ -290,8 +313,14 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
           ...(optOutIds.length > 0 && { optOutIds }),
         })
         .pipe(
-          Effect.tap(() =>
+          Effect.tap((restored) =>
             Effect.sync(() => {
+              // The host's answer to "which tile is active now" — pinned on the
+              // latch of the host this restore ran against (captured above, so a
+              // mid-flight host switch can't misfile it) BEFORE `isRestoring`
+              // drops and releases the hydration effect's gate. This, not the
+              // `session` cell's next snapshot, is what seeds the active tile.
+              latch?.reportRestoredActive(restored.activeTerminalId);
               setSavedSession(null);
               // Faithful summary — "Restored N terminals, resumed M agents". M is
               // the host-served resumable set minus opt-outs when resume is on; 0
