@@ -35,13 +35,17 @@
  *
  *   2. **`newReadsOld`'s "compatible contract ⇒ adopt" arm is permanently the
  *      RECYCLE arm.** A previous-EPOCH kaval is undecodable to this build, which
- *      is the supervisor's `unspeakable-protocol` observation; kaval's declared
- *      policy for it is RECYCLE (padi's own is refuse, which is why padi is never
- *      the thing being recycled here). So the assertion inverted: the survivor
- *      MUST be replaced, and the replacement MUST be one this build can speak to.
+ *      is the supervisor's `unspeakable-protocol` observation, and its disposition
+ *      is to TAKE THE SURVIVOR OVER. So the assertion inverted: the survivor MUST
+ *      be replaced, and the replacement MUST be one this build can speak to.
  *      "Either adopted or recycled" was a real observation while both were
  *      possible; within this epoch only one is, and accepting both would let a
  *      silent same-version collapse pass.
+ *
+ *   3. **A third arm, `newTakesOverOldPadi`.** The daemon a padi IS, not the one
+ *      it supervises. Until PLAN D6/Wave A a cross-epoch PADI was REFUSED — left
+ *      standing, the upgrade unconverged until a human intervened — so the
+ *      hands-off takeover is proven here against a real previous-release padi.
  *
  * The CLASSIFICATION KIND (`UnspeakableProtocolError`, raised at the first-frame
  * decode rather than at the 30 s hello deadline) is pinned in
@@ -64,6 +68,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
 import { connect } from "node:net";
@@ -89,17 +94,41 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { daemonBuild } from "@kolu/surface-daemon";
+import {
+  converge,
+  outcomeAnomaly,
+  probeDaemonIdentity,
+} from "@kolu/surface-daemon-supervisor";
+import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { KAVAL_GATE_FILE, PTY_HOST_CONTRACT_VERSION } from "kaval";
-import { connectPadi } from "../dial.ts";
+import { currentPadiBuildIdentity } from "../daemonBoot/buildId.ts";
+import {
+  connectPadi,
+  type PadiConnectionMetadata,
+  type PadiDaemonClient,
+  type PadiHelloIdentity,
+} from "../dial.ts";
 import { connectKaval, probeKavalForConvergence } from "../ptyHost/connect.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
+  padiRuntimeHome,
   padiSocketPath,
   writeStateRootManifest,
 } from "../stateRoot.ts";
+import { PADI_SURFACE_VERSION } from "../surface.ts";
 import { SHARED_ARTIFACTS } from "./sharedArtifacts.testlib.ts";
+
+/** The drain ceiling padi's binder declares for its probe
+ *  (`PADI_DRAIN_TEARDOWN_CEILING_MS` in kolu-server). Restated here for the same
+ *  reason the policy below is: the binder lives in a package this one does not
+ *  depend on. It is inert on this path — a cross-epoch peer never yields a
+ *  drainable probe to fire it — but the probe's shape must still be padi's. */
+const PADI_TAKEOVER_DRAIN_CEILING_MS = 2000;
 
 const execFileAsync = promisify(execFile);
 
@@ -458,8 +487,9 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
 
   // 3) Boot CURRENT padi against the same state-root. Its endpoint meets a peer
   //    it cannot decode at a rendezvous whose gate it owns — the supervisor's
-  //    `unspeakable-protocol` observation — and kaval's declared policy for that
-  //    is RECYCLE. (padi's own policy is refuse; padi is never the recycled one.)
+  //    `unspeakable-protocol` observation — whose disposition is to TAKE THE
+  //    SURVIVOR OVER. (padi itself is the subject of `newTakesOverOldPadi`; here
+  //    the current padi is the supervisor, not the survivor.)
   reaper.track(
     spawn(
       process.execPath,
@@ -741,6 +771,238 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
   }
 }
 
+/**
+ * THE HANDS-OFF ARM — a previous-release PADI is TAKEN OVER, with no human.
+ *
+ * `newReadsOld` covers the daemon a padi supervises (kaval). This one covers the
+ * daemon a padi IS: the supervisor here is kolu-server's padi binder, and until
+ * PLAN D6/Wave A its disposition for a cross-epoch padi was REFUSE — the survivor
+ * left standing, the upgrade permanently unconverged until an operator stopped it
+ * out of band. That is the whole point of the change, so it is proven against a
+ * REAL previous-release binary and not only at the fold's unit seam.
+ *
+ * The binder is restated here rather than imported: `ensurePadiBinding` lives in
+ * `packages/server`, and the dependency arrow does not point that way. What is
+ * restated is only padi's DECLARED convergence surface — the same three values
+ * `ensurePadiBinding` supplies (`padiConvergencePolicy`, `probeDaemonIdentity`
+ * for a drainable handshake, `connectPadi`) — over the SAME framework
+ * `createEndpoint` + `converge`. The disposition under test belongs to the
+ * framework, so driving the framework with padi's own values is the honest test;
+ * a copy of the binder would be testing the copy.
+ *
+ * What it asserts, in order:
+ *   1. the previous-release padi is UP (transport-neutral readiness, D6);
+ *   2. this build's padi probe cannot obtain an identity from it — the premise,
+ *      measured against the released artifact rather than assumed;
+ *   3. `converge` reports `recycled` — the survivor was replaced, not adopted;
+ *   4. the old pid is PROVABLY DEAD and a DIFFERENT live pid holds padi's gate;
+ *   5. the replacement speaks THIS build's contract (`PADI_SURFACE_VERSION`);
+ *   6. the session planted on disk before the old padi booted SURVIVED the
+ *      takeover and is what the new padi serves — seeded from disk, not lost.
+ */
+async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
+  assertDaemonSpawnAllowed("previous-release padi + current padi takeover");
+
+  const stateRoot = mkdtempSync(join(tmpdir(), "upgrade-window-takeover-sr-"));
+  const home = padiRuntimeHome(stateRoot);
+  const kavalSocket = padiKavalSocketPath(stateRoot);
+  const kavalGate = join(dirname(kavalSocket), KAVAL_GATE_FILE);
+  writeStateRootManifest(dirname(kavalSocket), stateRoot);
+
+  // 0) SEED THE DISK before anything boots. The takeover's promise is that the
+  //    successor picks up where the survivor left off, and the only channel a
+  //    protocol epoch cannot break is padi's own state-root. Planting BEFORE the
+  //    previous padi boots (rather than writing under a live one) is deliberate:
+  //    a running padi owns `config.json`, and a write under it would race its
+  //    own `Conf` flush. The previous padi reads this blob, finds no matching
+  //    live PTY, and PARKS it for the restore card — which is exactly the state
+  //    a takeover must preserve.
+  const plantedId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  writeFileSync(
+    join(stateRoot, "config.json"),
+    `${JSON.stringify(
+      {
+        session: {
+          terminals: [
+            {
+              id: plantedId,
+              cwd: stateRoot,
+              lastActivityAt: 1,
+              themeName: "nord",
+            },
+          ],
+          activeTerminalId: plantedId,
+          savedAt: 1_700_000_000_000,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  try {
+    // 1) Boot the PREVIOUS-release padi at this state-root.
+    reaper.track(
+      spawn(
+        window.padiBin,
+        [
+          "--state-root",
+          stateRoot,
+          "--allow-nix-shell-with-env-whitelist",
+          "default",
+        ],
+        { stdio: "ignore", env: padiEnv() },
+      ),
+    );
+    const oldPadiPid = await waitForNeutralReadiness(
+      home.socketPath,
+      home.gatePath,
+      "previous padi",
+      90_000,
+    );
+
+    // 2) The premise, measured: this build's convergence probe cannot obtain an
+    //    identity from a previous-EPOCH padi. Neither an identity (the epoch
+    //    never broke) nor `null` (absence is reserved for "no listener").
+    const padiProbe = probeDaemonIdentity({
+      capability: "drainable",
+      drainCeilingMs: PADI_TAKEOVER_DRAIN_CEILING_MS,
+    });
+    const probed = await padiProbe(home.socketPath).then(
+      (probe) => ({ kind: "resolved" as const, probe }),
+      (error: unknown) => ({ kind: "rejected" as const, error }),
+    );
+    if (probed.kind === "resolved") probed.probe?.dispose();
+    expect(
+      probed.kind,
+      "this build's probe obtained an identity from a previous-release padi — the wire epoch did not break",
+    ).toBe("rejected");
+    console.log(
+      `previousRelease.e2e: previous padi is unspeakable to this build — ${
+        probed.kind === "rejected" && probed.error instanceof Error
+          ? probed.error.message
+          : String(probed)
+      }`,
+    );
+
+    // 3) THE TAKEOVER — the binder's own values, over the framework's own verb.
+    let spawns = 0;
+    const ep = createEndpointForKoluTest<
+      PadiDaemonClient,
+      PadiHelloIdentity,
+      PadiConnectionMetadata
+    >({
+      hostId: "padi",
+      home,
+      policy: {
+        capability: "drainable",
+        baked: {
+          contractVersion: PADI_SURFACE_VERSION,
+          build: daemonBuild(currentPadiBuildIdentity().staleKey),
+        },
+        // padi's declared arms, verbatim from `padiConvergencePolicy`. This is
+        // the policy whose unspeakable disposition USED to be refuse.
+        onContractSkew: { kind: "drain-newer-else-refuse" },
+        onBuildMismatch: { kind: "drain-and-replace" },
+        drainBudget: { maxAttempts: 3, onGiveUp: "adopt-stale" },
+      },
+      probe: (socketPath) => padiProbe(socketPath),
+      driver: {
+        spawn: async () => {
+          spawns += 1;
+          reaper.track(
+            spawn(
+              process.execPath,
+              [
+                "--import",
+                TSX_LOADER,
+                PADI_BIN,
+                "--state-root",
+                stateRoot,
+                "--allow-nix-shell-with-env-whitelist",
+                "default",
+              ],
+              { stdio: "ignore", env: padiEnv() },
+            ),
+          );
+        },
+      },
+      connect: (path) => connectPadi(path),
+      log: silentLogger,
+      onStatus: () => {},
+      socketReadyMs: 90_000,
+    });
+
+    const outcome = await converge(ep);
+    expect(
+      outcome.kind,
+      `an unspeakable padi must be TAKEN OVER, not left standing (got ${outcome.kind}: ${JSON.stringify(outcomeAnomaly(outcome))})`,
+    ).toBe("recycled");
+    expect(outcomeAnomaly(outcome)).toBeNull();
+    expect(spawns).toBe(1);
+
+    // 4) The old daemon is provably gone, and a DIFFERENT live pid holds the gate.
+    expect(
+      isHolderLive(oldPadiPid),
+      `the previous-release padi (pid ${oldPadiPid}) survived the takeover`,
+    ).toBe(false);
+    const newPadiPid = gatePid(home.gatePath);
+    expect(newPadiPid).toBeTypeOf("number");
+    if (newPadiPid === undefined) throw new Error("padi gate has no pid");
+    expect(newPadiPid).not.toBe(oldPadiPid);
+    expect(isHolderLive(newPadiPid)).toBe(true);
+    console.log(
+      `previousRelease.e2e: padi TAKEN OVER — ${oldPadiPid} (previous epoch) → ${newPadiPid} (this build)`,
+    );
+
+    // 5) …and it really is a padi of this epoch: the connection the takeover
+    //    holds handshaked, and a fresh dial reads this build's contract version.
+    const held = ep.current();
+    expect(held, "the takeover held no connection").toBeDefined();
+    const conn = await connectPadi(home.socketPath);
+    try {
+      expect(conn.metadata.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+      expect(conn.identity.surfaceVersion).toBe(PADI_SURFACE_VERSION);
+      expect(conn.identity.stateRoot).toBe(stateRoot);
+
+      // 6) SEEDED FROM DISK. The blob planted before any of this booted is
+      //    still on disk AND is what the new padi serves — the successor picked
+      //    up the survivor's state rather than starting blank.
+      const onDisk = JSON.parse(
+        readFileSync(join(stateRoot, "config.json"), "utf8"),
+      ) as { session?: { terminals?: { id: string }[] } };
+      expect(onDisk.session?.terminals?.map((t) => t.id)).toEqual([plantedId]);
+
+      const served = await firstFrameOrThrow(
+        conn.client.padi.surface.session.get(undefined),
+        "the new padi's session cell yielded no frame",
+      );
+      expect(
+        served?.terminals.map((t) => t.id),
+        "the new padi did not seed its session from disk",
+      ).toEqual([plantedId]);
+
+      // Same #11 grounding the other arm does: a takeover must not mint a
+      // shared on-disk artifact nobody registered.
+      const unknown = unknownProtocolFilesOnDisk(
+        SHARED_ARTIFACTS,
+        RUNTIME_ROOT,
+        stateRoot,
+      );
+      expect(
+        unknown,
+        unknownSharedFileMessage(SHARED_ARTIFACTS, unknown),
+      ).toEqual([]);
+    } finally {
+      conn.dispose();
+      held?.dispose();
+    }
+  } finally {
+    reapGateHolders([home.gatePath, kavalGate]);
+    rmSync(stateRoot, { recursive: true, force: true });
+  }
+}
+
 describeDaemon("bidirectional previous-release daemon window", () => {
   it("runs new-reads-old and old-reads-new against distinct stores", async () => {
     const window = await resolvePreviousWindow();
@@ -760,10 +1022,18 @@ describeDaemon("bidirectional previous-release daemon window", () => {
       newReadsOld,
       oldReadsNew,
     });
-    // Raised from 300 s with the epoch break: two of the waits above are now
+    // The third arm — the hands-off PADI takeover. Called here rather than
+    // through `runPreviousReleaseWindow` because that helper is shared spine
+    // (`@kolu/surface-daemon`, drishti's too) and this arm is padi's alone; its
+    // window assertion has already run above.
+    await newTakesOverOldPadi(window);
+    // Raised from 300 s with the epoch break: three of the waits above are now
     // DEADLINES on a peer that may never answer (the unspeakable classification
-    // in `newReadsOld`, the cross-epoch dial in `oldReadsNew`), where before both
-    // legs completed handshakes in milliseconds. The individual bounds are what
-    // keep the suite honest; this ceiling only has to be larger than their sum.
-  }, 420_000);
+    // in `newReadsOld`, the cross-epoch dial in `oldReadsNew`, the padi probe in
+    // `newTakesOverOldPadi`), where before every leg completed handshakes in
+    // milliseconds. Raised again from 420 s with the takeover arm, which boots a
+    // previous-release padi, waits out one silence bound, and boots a current
+    // padi in its place. The individual bounds are what keep the suite honest;
+    // this ceiling only has to be larger than their sum.
+  }, 600_000);
 });
