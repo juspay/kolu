@@ -41,7 +41,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/client/src/runAction.ts",
     sites: 2,
-    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for Solid's own `createResource`, whose fetcher contract is a Promise",
+    why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
   },
   {
     path: "packages/kolu-cli/src/main.ts",
@@ -52,6 +52,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/kolu-cli/src/mcp.ts",
     sites: 1,
     why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",
+  },
+  {
+    path: "packages/padi-tui/src/main.ts",
+    sites: 1,
+    why: "padi-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and this CLI's stop semantics are PER COMMAND — a `watch` the user stopped is a clean 0, a `wait` interrupted is a 130 that must still print which terminal was left waiting",
   },
   {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",

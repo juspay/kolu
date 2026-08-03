@@ -33,31 +33,45 @@
  * remains implemented by `@kolu/surface-remote`.
  */
 import { dialPadiViaHost } from "@kolu/padi/dial";
+import { Effect, type Scope } from "effect";
 import type { Connection, PadiTuiClient } from "./connect.ts";
 
 /** Dial a padi on `host` over ssh, one-shot. Provisions the daemon's closure, runs
  *  `padi --stdio`, gates the padiSurface contract version, and returns the
- *  padi-sibling-scoped `Connection` the verbs speak. */
-export async function connectPadiTuiViaHost(host: string): Promise<Connection> {
-  const dial = await dialPadiViaHost(host);
-  // There is nothing left to SCOPE here. `dialPadiViaHost` opens the ssh link with
-  // padi's SIBLING surface (`padiRemoteDialSurface` in the dial kit), so the face
-  // it hands back already addresses `surface/padi/<member>` — the flat-tag
-  // successor of the old combined client whose `.surface.padi` namespace this used
-  // to narrow. Naming that face is a CAST because `AgentDial.client` is the
-  // framework's deliberately STRUCTURAL `SurfaceFace`: per-member precision is
-  // spec-derived one layer up (D2/#16 — a second precise mapped type over the same
-  // spec is the union-budget blowup the erased seam exists to avoid), so the ssh
-  // connector cannot hand back a padi-typed value however the dial is spelled.
-  // It is the SAME claim `padiClientOver` makes on the local leg, and it is checked
-  // where it can be: the dial's own `probe` reads `identity` through this face and
-  // refuses a skewed padi before this line is reached.
-  //
-  // `localCwd: undefined`: a remote padi runs elsewhere, so our local cwd need not
-  // exist there — `create` omits cwd and lets padi default to the host's home.
-  return {
-    client: dial.client as unknown as PadiTuiClient,
-    dispose: dial.dispose,
-    localCwd: undefined,
-  };
+ *  padi-sibling-scoped `Connection` the verbs speak — as a SCOPED effect, so the
+ *  ssh child and its link die with the caller's scope exactly as the local
+ *  socket does. Same shape, same lifetime rule, whichever transport. */
+export function connectPadiTuiViaHost(
+  host: string,
+): Effect.Effect<Connection, unknown, Scope.Scope> {
+  return Effect.map(
+    Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => dialPadiViaHost(host),
+        catch: (err) => err,
+      }),
+      (dial) => Effect.sync(() => dial.dispose()),
+    ),
+    // There is nothing left to SCOPE in the SURFACE sense here.
+    // `dialPadiViaHost` opens the ssh link with padi's SIBLING surface
+    // (`padiRemoteDialSurface` in the dial kit), so the face it hands back
+    // already addresses `surface/padi/<member>` — the flat-tag successor of the
+    // old combined client whose `.surface.padi` namespace this used to narrow.
+    // Naming that face is a CAST because `AgentDial.client` is the framework's
+    // deliberately STRUCTURAL `SurfaceFace`: per-member precision is spec-derived
+    // one layer up (D2/#16 — a second precise mapped type over the same spec is
+    // the union-budget blowup the erased seam exists to avoid), so the ssh
+    // connector cannot hand back a padi-typed value however the dial is spelled.
+    // It is the SAME claim `padiClientOver` makes on the local leg, and it is
+    // checked where it can be: the dial's own `probe` reads `identity` through
+    // this face and refuses a skewed padi before this line is reached.
+    //
+    // `localCwd: undefined`: a remote padi runs elsewhere, so our local cwd need
+    // not exist there — `create` omits cwd and lets padi default to the host's
+    // home.
+    (dial) => ({
+      client: dial.client as unknown as PadiTuiClient,
+      localCwd: undefined,
+    }),
+  );
 }

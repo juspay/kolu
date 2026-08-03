@@ -22,7 +22,7 @@
 
 import type { PadiTerminal } from "@kolu/padi/surface";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import { Stream } from "effect";
+import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiTuiClient } from "./connect.ts";
 import { awaitAgentState } from "@kolu/padi/dial";
@@ -174,7 +174,7 @@ describe("readTerminalKeys — the one-shot key set", () => {
   it("returns the FIRST snapshot frame of a still-live stream, and closes it", async () => {
     const { stream, isClosed } = observableKeys([[id("t1"), id("t2")]]);
 
-    expect(await readTerminalKeys(keysOnlyClient(stream))).toEqual([
+    expect(await Effect.runPromise(readTerminalKeys(keysOnlyClient(stream)))).toEqual([
       id("t1"),
       id("t2"),
     ]);
@@ -188,7 +188,7 @@ describe("readTerminalKeys — the one-shot key set", () => {
     // protocol failure. Collapsing the two would make `wait <id>` report `no
     // terminal matching <id>` and `status` render a blank table.
     await expect(
-      readTerminalKeys(keysOnlyClient(Stream.empty)),
+      Effect.runPromise(readTerminalKeys(keysOnlyClient(Stream.empty))),
     ).rejects.toThrow(/no snapshot frame/i);
   });
 
@@ -197,8 +197,8 @@ describe("readTerminalKeys — the one-shot key set", () => {
     // could only reject; `main`'s single `.catch` is what turns this into the
     // CLI's one-line `padi-tui: <message>`.
     await expect(
-      readTerminalKeys(
-        keysOnlyClient(Stream.fail(new Error("socket hung up"))),
+      Effect.runPromise(
+        readTerminalKeys(keysOnlyClient(Stream.fail(new Error("socket hung up")))),
       ),
     ).rejects.toThrow(/socket hung up/);
   });
@@ -267,7 +267,7 @@ describe("settledSnapshot — the `status` read", () => {
     });
 
     await expect(
-      settledSnapshot(client, { maxMs: 5000, graceMs: 50 }),
+      Effect.runPromise(settledSnapshot(client, { maxMs: 5000, graceMs: 50 })),
     ).rejects.toThrow(/link closed/i);
   });
 
@@ -285,7 +285,9 @@ describe("settledSnapshot — the `status` read", () => {
       get: (k) => (k === id("t1") ? tget : new FakeSource<PadiTerminal>()),
     });
 
-    const entries = await settledSnapshot(client, { maxMs: 5000, graceMs: 20 });
+    const entries = await Effect.runPromise(
+      settledSnapshot(client, { maxMs: 5000, graceMs: 20 }),
+    );
     expect(entries.map(([k]) => k)).toEqual([id("t1")]);
   });
 });

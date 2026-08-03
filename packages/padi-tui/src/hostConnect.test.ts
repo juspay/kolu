@@ -4,6 +4,7 @@
  * transport-blind `Connection` every verb is written against.
  */
 
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({ dialPadiViaHost: vi.fn() }));
@@ -31,7 +32,11 @@ describe("connectPadiTuiViaHost", () => {
     const client = fakePadiFace();
     h.dialPadiViaHost.mockResolvedValue({ client, dispose: () => {} });
 
-    const connection = await connectPadiTuiViaHost("nix@prod");
+    const connection = await Effect.runPromise(
+      Effect.scoped(
+        Effect.map(connectPadiTuiViaHost("nix@prod"), (conn) => ({ ...conn })),
+      ),
+    );
 
     expect(h.dialPadiViaHost).toHaveBeenCalledWith("nix@prod");
     // Identity, not shape: the dial already scoped the face, so re-wrapping it
@@ -41,13 +46,35 @@ describe("connectPadiTuiViaHost", () => {
     expect(connection.localCwd).toBeUndefined();
   });
 
-  it("threads the shared dial's disposal through", async () => {
+  it("disposes the shared dial when the caller's SCOPE closes", async () => {
     const dispose = vi.fn();
     h.dialPadiViaHost.mockResolvedValue({ client: fakePadiFace(), dispose });
 
-    const connection = await connectPadiTuiViaHost("nix@prod");
-    connection.dispose();
+    // Nothing in the body disposes anything — closing the scope is what does,
+    // which is the whole point of the dial being an `acquireRelease`: a verb
+    // cannot forget, and an interrupt partway through still releases.
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(connectPadiTuiViaHost("nix@prod"), () => Effect.void),
+      ),
+    );
 
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT dispose while the scope is still open", async () => {
+    const dispose = vi.fn();
+    h.dialPadiViaHost.mockResolvedValue({ client: fakePadiFace(), dispose });
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(connectPadiTuiViaHost("nix@prod"), () =>
+          Effect.sync(() => {
+            expect(dispose).not.toHaveBeenCalled();
+          }),
+        ),
+      ),
+    );
     expect(dispose).toHaveBeenCalledTimes(1);
   });
 });
