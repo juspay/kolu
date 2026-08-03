@@ -16,6 +16,7 @@
  */
 
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   __resetPadiSurfaceCtxForTest,
@@ -29,7 +30,11 @@ import {
   registerTerminal,
   unregisterTerminal,
 } from "../terminal-registry.ts";
-import { LOCAL_LOCATION } from "../vocab.ts";
+import {
+  composeTerminalMetadata,
+  LOCAL_LOCATION,
+  SavedTerminalSchema,
+} from "../vocab.ts";
 import {
   commitSnapshot,
   installSnapshot,
@@ -39,6 +44,11 @@ import {
 } from "./metadata.ts";
 
 const ID = "term-pub-test";
+
+/** The exact decode `snapshotSession` (terminals.ts) runs over every composed
+ *  record on each autosave — spelled here so the seam test below exercises the
+ *  real disk-persist gate, not a paraphrase of it. */
+const decodeSavedTerminal = Schema.decodeUnknownSync(SavedTerminalSchema);
 
 /** A registry entry — AUTHORED half (`meta`, no snapshot field) + the OBSERVED
  *  half (`awareness`, the fold's whole-replace target), both on the one entry. */
@@ -171,6 +181,25 @@ describe("metadata publish routing", () => {
     );
     await settle();
     expect(dirtyCount).toBe(0);
+  });
+
+  it("updateMemory leaves `lastAgentCommand` ABSENT when nothing is remembered, so the saved record still decodes", () => {
+    // `lastAgentCommand` is an OPTIONAL KEY: absent ≡ "never ran a known agent".
+    // A plain assignment of the absent memory field wrote the key PRESENT with
+    // `undefined`, which `SavedTerminalSchema` rejects — and `snapshotSession`
+    // decodes SYNCHRONOUSLY inside the autosave, so the throw took padi down the
+    // first time an agent was detected in a terminal with no remembered launch
+    // line (the agent indicator then froze/vanished in the browser).
+    updateMemory(ID, { lastActivityAt: 123 }, { kind: "none" });
+    const entry = getTerminal(ID) as ActiveTerminalProcess;
+    expect("lastAgentCommand" in entry.meta).toBe(false);
+    // The real consumer: `snapshotSession`'s decode of the composed record.
+    expect(() =>
+      decodeSavedTerminal({
+        ...composeTerminalMetadata(entry.meta, entry.snapshot),
+        id: ID,
+      }),
+    ).not.toThrow();
   });
 
   it("publishTerminalState fires terminals:dirty (a lifecycle flip arms autosave)", async () => {
