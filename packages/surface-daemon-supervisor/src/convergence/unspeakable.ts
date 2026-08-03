@@ -36,7 +36,10 @@
  *    plus the two attestations D6/#3 requires before convergence may act on it —
  *    **we own the gate file** at this rendezvous, and **we verified the pid** it
  *    names (`liveServingHolder`'s identity law). Only this one becomes a
- *    convergence observation.
+ *    convergence observation, and it is what buys the TAKEOVER (PLAN D6 /
+ *    Wave A): the holder is re-attested, stopped by signal — the in-process
+ *    shutdown a drain verb would have requested — and replaced by a daemon of
+ *    this epoch, which seeds from disk.
  *
  * The split is the whole safety story, and it is what lets the `silence` trigger
  * exist at all: a merely SLOW peer and a foreign squatter both stop at the

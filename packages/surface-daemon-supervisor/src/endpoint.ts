@@ -59,18 +59,27 @@ import type {
 import {
   isUnspeakablePeerError,
   isUnspeakableProtocolError,
+  unspeakableClause,
   UnspeakablePeerError,
 } from "./convergence/unspeakable.ts";
 import { dialSocket } from "./dialSocket.ts";
 import type { DaemonDriver } from "./driver.ts";
-import { registerEndpointPrivate } from "./endpoint.private.ts";
+import {
+  registerEndpointPrivate,
+  type TakeoverResult,
+} from "./endpoint.private.ts";
 import { ENDPOINT_STATES, type EndpointState } from "./endpointStates.ts";
 import type {
   ReadSocketHolders,
   SocketHolder,
   SocketOccupancy,
 } from "./socketHolder.ts";
-import { waitForPidGone } from "./waitForPidGone.ts";
+import {
+  REAP_KILL_CEILING_MS,
+  REAP_TERM_CEILING_MS,
+  type ReapOutcome,
+  reapHolder,
+} from "./reapHolder.ts";
 
 // `ENDPOINT_STATES` / `EndpointState` are the single source of truth for the
 // reported state set; they live in the zero-dependency `endpointStates.ts` leaf
@@ -848,30 +857,35 @@ export function createEndpoint<
     }
   };
 
-  // SIGTERM a proven-live gate holder and wait for it to actually exit. Reports
-  // `dead` and throws if it does not exit within the recycle ceiling —
+  // Stop a proven-live gate holder and do not return until the OS says it is
+  // gone — the two-deadline reap (SIGTERM → wait → SIGKILL → wait) that
+  // `reapHolder` owns. Reports `dead` and throws when even SIGKILL did not take:
   // respawning over a still-live holder would just yield to it (single
   // instance), a silent no-op recycle, so fail loudly instead.
-  const killLiveHolder = async (holder: number): Promise<void> => {
+  //
+  // `why` names the disposition that reached here (always-recycle boot, gate-less
+  // squatter recovery, cross-epoch takeover) so one journal line tells an operator
+  // WHICH policy killed this daemon, not merely that something did.
+  const killLiveHolder = async (
+    holder: number,
+    why: string,
+  ): Promise<Extract<ReapOutcome, { kind: "reaped" }>> => {
     spec.log.info(
       { hostId: spec.hostId, pid: holder },
-      "recycling live daemon (boot policy = always recycle)",
+      `stopping live daemon — ${why}`,
     );
-    try {
-      process.kill(holder, "SIGTERM");
-    } catch {
-      // Raced its own exit between the liveness probe and here — fine, the
-      // wait below confirms it's gone.
-    }
-    const gone = await waitForPidGone(holder);
-    if (!gone) {
+    const reap = await reapHolder(holder);
+    if (reap.kind === "survived") {
       // Respawning now would just make the new daemon yield to the still-live
       // gate holder (single instance) — a silent no-op recycle. Fail loudly.
       emit({ state: "dead" });
       throw new Error(
-        `daemon pid ${holder} did not exit within the recycle ceiling`,
+        `daemon pid ${holder} survived SIGTERM (${REAP_TERM_CEILING_MS}ms) and then SIGKILL ` +
+          `(${REAP_KILL_CEILING_MS}ms) after ${reap.waitedMs}ms — a process that outlives SIGKILL is ` +
+          "stuck in uninterruptible sleep; nothing this supervisor can do will free the rendezvous",
       );
     }
+    return reap;
   };
 
   // Hold a freshly-established connection: record it, wire its mid-session close
@@ -1304,7 +1318,10 @@ export function createEndpoint<
       // inside `killLiveHolder` is IRREDUCIBLE — there is no atomic check-and-kill
       // syscall — so it is a bounded, considered race, NOT an oversight, and the SAME
       // race `killLiveHolder` already lives with on a gate pid.
-      await killLiveHolder(reportedPid);
+      await killLiveHolder(
+        reportedPid,
+        "a re-attested gate-less skewed squatter holds our rendezvous",
+      );
       return "recycled";
     }
     // The holder kept changing across every attempt — a pathological flap. `free`
@@ -1403,8 +1420,92 @@ export function createEndpoint<
   // policies that recycle — `ensure`'s always-recycle and `adoptOrEnsure`'s
   // skew-recycle — call this, so the mechanism never drifts between them.
   const recycle = async (holder: number): Promise<void> => {
-    await killLiveHolder(holder);
+    await killLiveHolder(holder, "boot policy = always recycle");
     await spawnConnectHold();
+  };
+
+  /**
+   * The CROSS-EPOCH TAKEOVER (PLAN D6 / Wave A) — the disposition for a
+   * CORROBORATED {@link UnspeakablePeerError}.
+   *
+   * Its whole argument is one sentence: **for a daemon we have proven is our
+   * own, SIGTERM is a drain that needs no wire.** The refusal this replaces
+   * reasoned that `drain-newer-else-refuse` cannot drain over an undecodable
+   * protocol and must therefore leave the survivor standing — true about the
+   * drain VERB, and false about the act. The verb was only ever a way to ask the
+   * daemon to run its own in-process shutdown; the kernel asks the same question
+   * with a signal, the daemon answers it identically (persist, close, release the
+   * gate), and its children live in their own processes and survive either way.
+   * What refusing actually bought was a permanently wedged product: an operator
+   * had to stop a daemon out of band before an upgrade could ever converge.
+   *
+   * Three things keep this from being the #1313 hazard (a binder must never
+   * SIGTERM a running padi):
+   *
+   *  - The peer is CORROBORATED — our gate at this rendezvous named it and its
+   *    process identity passed {@link liveServingHolderProbe}'s law. An
+   *    uncorroborated unspeakable peer never reaches here; it is `probe-failed`
+   *    and keeps the untouched {@link SocketSquatterForeignError} arm.
+   *  - The peer is UNREACHABLE BY CONSTRUCTION, not merely unresponsive. Both
+   *    triggers are bounded below the protocol's own liveness floor, so a daemon
+   *    of THIS epoch that is merely slow has demonstrably still spoken (its
+   *    protocol layer answers pings beneath its handlers) and yields an identity
+   *    — an ordinary adopt/drain decision, never this one.
+   *  - The holder is RE-ATTESTED immediately before the kill, and must still be
+   *    the exact pid we corroborated. A daemon that was replaced under us is one
+   *    we have proven nothing about, so we touch nothing and say so.
+   *
+   * Loss is bounded by the old daemon's continuous autosave (and, from this
+   * epoch on, its signal-edge final capture) — the successor seeds from disk.
+   */
+  const takeOver = async (
+    peer: UnspeakablePeerError,
+  ): Promise<TakeoverResult> => {
+    emit({ state: "connecting" });
+    // Re-attest through the SAME identity law, right before the kill (the
+    // ordering `recoverGatelessSquatter` uses for its own kill). Only the window
+    // between this read and the signal is irreducible.
+    const holder = await liveServingHolder(held);
+    if (holder === undefined || holder !== peer.pid) {
+      spec.log.warn(
+        {
+          hostId: spec.hostId,
+          socketPath: peer.socketPath,
+          gatePath: peer.gatePath,
+          classifiedPid: peer.pid,
+          holderNow: holder,
+        },
+        "the undecodable daemon we classified is no longer the holder of our gate — touching nothing and re-deciding against a fresh observation",
+      );
+      return { kind: "holder-changed", observed: holder };
+    }
+
+    const reap = await killLiveHolder(
+      holder,
+      `it speaks a protocol epoch this supervisor cannot decode (${peer.evidence.trigger})`,
+    );
+    // THE takeover observation: everything an operator needs after the fact —
+    // what was killed, why it was provably ours, and how long the wait took.
+    // Logged BEFORE the respawn so a failed spawn still leaves the record.
+    spec.log.warn(
+      {
+        hostId: spec.hostId,
+        socketPath: peer.socketPath,
+        gatePath: peer.gatePath,
+        pid: peer.pid,
+        trigger: peer.evidence.trigger,
+        endedBy: reap.endedBy,
+        waitedMs: reap.waitedMs,
+        termCeilingMs: REAP_TERM_CEILING_MS,
+        killCeilingMs: REAP_KILL_CEILING_MS,
+      },
+      `convergence: TOOK OVER the daemon at ${peer.socketPath} — pid ${peer.pid} was provably ours ` +
+        `(our gate ${peer.gatePath} named it and its process identity verified) and it ${unspeakableClause(peer.evidence)}. ` +
+        `Stopped by ${reap.endedBy} after ${reap.waitedMs}ms; its own shutdown ran, so the session is seeded from disk. ` +
+        "Starting this build's daemon in its place.",
+    );
+    await spawnConnectHold();
+    return { kind: "taken-over", spawned: { kind: "spawned-fresh" } };
   };
 
   // `recoverGatelessSquatter` wrapped in the endpoint's "failures report `dead`
@@ -1799,6 +1900,8 @@ export function createEndpoint<
       // ADOPTED; a proven SKEW is RECYCLED. Returns BindResult (F5).
       return adoptSurvivor("recycle");
     },
+
+    takeOver,
 
     async adoptOrSpawnOrRefuse(): Promise<BindResult> {
       // ADOPT-OR-SPAWN-OR-REFUSE (W2.2): a proven contract SKEW is REFUSED, not

@@ -50,7 +50,7 @@ import {
   unspeakableClause,
   type UnspeakablePeerError,
 } from "./unspeakable.ts";
-import { endpointPrivate } from "../endpoint.private.ts";
+import { endpointPrivate, type TakeoverResult } from "../endpoint.private.ts";
 import type { Endpoint } from "../endpoint.ts";
 
 export interface ConvergenceProbeBase {
@@ -188,16 +188,15 @@ type FoldCtx = {
   lastKnownRunning: ConvergenceIdentity | null;
   resolveDrainable: () => Promise<Observation>;
   /**
-   * The always-recycle bind (kill the verified gate holder, spawn fresh). Used
-   * by exactly ONE arm — the `unspeakable` observation under a `recycle`
-   * contract-skew policy — because `bind` cannot serve it: the ordinary
-   * adopt-or-recycle path only recycles a survivor the soul's `connect` PROVED
-   * to be a skew, and an unspeakable peer proves nothing to a `connect` that
-   * cannot speak to it either (it fails non-skew ⇒ "unreachable" ⇒ left
-   * standing). D6/#3's kaval disposition needs the kill, so it names the bind
-   * that kills.
+   * The cross-epoch TAKEOVER (re-attest the corroborated pid, stop it, spawn
+   * fresh). Used by exactly ONE arm — the `unspeakable` observation — because
+   * `bind` cannot serve it: the ordinary adopt-or-recycle path only recycles a
+   * survivor the soul's `connect` PROVED to be a skew, and an unspeakable peer
+   * proves nothing to a `connect` that cannot speak to it either (it fails
+   * non-skew ⇒ "unreachable" ⇒ left standing). This disposition needs the kill,
+   * so it names the bind that kills.
    */
-  recycleHolder: () => Promise<BindResult>;
+  takeOverHolder: (peer: UnspeakablePeerError) => Promise<TakeoverResult>;
   heldBind: BindResult | null;
   /**
    * When non-null, the drain budget is already spent (give-up path). decide still
@@ -305,41 +304,42 @@ function probeFailedOutcome(args: {
 }
 
 /**
- * The `refuse` disposition for an unspeakable peer (PLAN D6/#3).
+ * The ONE arm on which a corroborated unspeakable peer is NOT taken over: the
+ * gate stopped naming the pid we classified, somewhere between the probe and the
+ * kill.
  *
- * Stated in code, because it is the whole reason this arm is not just
- * "drain-and-replace with a scarier message": **a drain verb on an unspeakable
- * wire is unreachable.** `drain-newer-else-refuse` cannot drain what it cannot
- * ask, and "newer" is not even a question that has an answer here — a version is
- * something you read off a wire you can speak. So the ordered policy degenerates
- * to its other arm: REFUSE. The survivor is left standing and degraded, never
- * killed (#1313 holds all the way down: a padi binder does not SIGTERM a running
- * padi, and least of all one whose PTYs it cannot see).
- *
- * The message is operator-facing on purpose: it is the only thing that tells a
- * human why an upgrade did not converge and what to do — the daemon is from a
- * previous protocol epoch and must be stopped out of band.
+ * Nothing was signalled. That is the point: a holder we have not proven
+ * unspeakable is a holder we do not touch, and the daemon standing there now was
+ * never observed at all — it may be a perfectly healthy daemon of this epoch
+ * that replaced the old one while we were deciding. So this pass refuses, loudly
+ * and with the evidence, and the caller's next converge decides against a fresh
+ * observation (the reconnect loop already runs one).
  */
-function unspeakableRefusedOutcome(args: {
+function takeoverUntouchedOutcome(args: {
   peer: UnspeakablePeerError;
+  observed: number | undefined;
   expected: ConvergenceIdentity;
   running: ConvergenceIdentity | null;
   log: Logger;
   releaseHeld: () => void;
 }): ConvergenceOutcome {
   args.releaseHeld();
+  const holderNow =
+    args.observed === undefined
+      ? "no live holder our identity law accepts"
+      : `pid ${args.observed}`;
   const detail =
-    `the daemon holding ${args.peer.socketPath} (pid ${args.peer.pid}, named by our gate ` +
-    `${args.peer.gatePath}) ${unspeakableClause(args.peer.evidence)} — it speaks a ` +
-    `protocol epoch this supervisor cannot decode. Its drain verb is therefore unreachable, so ` +
-    `drain-newer-else-refuse degenerates to REFUSE: the survivor is left standing + degraded and ` +
-    `is never killed. Stop that daemon out of band (its children will not survive) and boot again ` +
-    `to converge.`;
+    `the daemon holding ${args.peer.socketPath} ${unspeakableClause(args.peer.evidence)} — it speaks a ` +
+    `protocol epoch this supervisor cannot decode — but by the time the takeover re-attested it, our ` +
+    `gate ${args.peer.gatePath} named ${holderNow} rather than the classified pid ${args.peer.pid}. ` +
+    "NOTHING was signalled: a holder this supervisor has not proven unspeakable is one it does not " +
+    "touch. Converging again re-observes whoever is there now.";
   args.log.error(
     {
       socketPath: args.peer.socketPath,
       gatePath: args.peer.gatePath,
       pid: args.peer.pid,
+      holderNow: args.observed,
       trigger: args.peer.evidence.trigger,
       mineContract: args.expected.contractVersion,
     },
@@ -363,48 +363,46 @@ function unspeakableRefusedOutcome(args: {
   };
 }
 
-/** Fold the `unspeakable` observation through the CONTRACT-SKEW policy — the
- *  axis it belongs to, since an undecodable wire is the limit case of a contract
- *  skew (the one whose version we cannot even read). `decide()` stays untouched:
- *  it folds an IDENTITY, and an unspeakable peer never yielded one. */
+/**
+ * Enact the `unspeakable` observation: **TAKE OVER** (PLAN D6 / Wave A).
+ *
+ * There is no policy switch here any more, and that is the change. The
+ * contract-skew policy answers "what do I do about a daemon whose version I read
+ * and dislike" — and this is not that question: an undecodable wire is not a
+ * skew (a version is something you read off a wire you can speak), and the drain
+ * verb the ordered padi policy would reach for does not exist on it. The old
+ * reading concluded REFUSE from that and left the survivor standing, which meant
+ * a cross-epoch upgrade could never converge without a human stopping a daemon
+ * out of band.
+ *
+ * The act that IS available is the one the drain verb was only ever a way to
+ * request: the daemon's own in-process shutdown, asked for with a signal instead
+ * of a message. Every consumer wants it — kaval called it `recycle` already, and
+ * padi's refusal was a statement about the wire mistaken for a statement about
+ * the daemon — so it is one disposition, enacted the same way for both, and the
+ * safety that used to be carried by the policy is carried where it belongs: by
+ * the CORROBORATION (`endpoint.ts` proved the gate is ours and verified the pid)
+ * and by the re-attestation immediately before the kill.
+ *
+ * `decide()` stays untouched: it folds an IDENTITY, and an unspeakable peer
+ * never yielded one.
+ */
 async function enactUnspeakable(
   peer: UnspeakablePeerError,
   ctx: FoldCtx,
 ): Promise<ConvergenceOutcome> {
-  const policy = ctx.policy.onContractSkew;
-  switch (policy.kind) {
-    case "recycle":
-      // kaval: a daemon that cannot serve this supervisor must be replaced, and
-      // an epoch break is the hardest possible version of that. Its PTYs die —
-      // unavoidable at a wire break, exactly as for an in-epoch contract skew.
-      ctx.log.warn(
-        {
-          socketPath: peer.socketPath,
-          gatePath: peer.gatePath,
-          pid: peer.pid,
-          trigger: peer.evidence.trigger,
-        },
-        "convergence: the daemon at our rendezvous speaks an undecodable protocol epoch — recycling it (verified gate holder; its children do not survive a wire break)",
-      );
-      return consumeBindResult(await ctx.recycleHolder(), ctx, {
-        kind: "recycle",
-      });
-    case "refuse":
-    case "drain-newer-else-refuse":
-      return unspeakableRefusedOutcome({
-        peer,
-        expected: ctx.expected,
-        running: ctx.lastKnownRunning,
-        log: ctx.log,
-        releaseHeld: ctx.releaseHeld,
-      });
-    default: {
-      const _exhaustive: never = policy;
-      throw new Error(
-        `unreachable contract-skew policy: ${JSON.stringify(_exhaustive)}`,
-      );
-    }
+  const taken = await ctx.takeOverHolder(peer);
+  if (taken.kind === "holder-changed") {
+    return takeoverUntouchedOutcome({
+      peer,
+      observed: taken.observed,
+      expected: ctx.expected,
+      running: ctx.lastKnownRunning,
+      log: ctx.log,
+      releaseHeld: ctx.releaseHeld,
+    });
   }
+  return consumeBindResult(taken.spawned, ctx, { kind: "recycle" });
 }
 
 function identityUnverifiableOutcome(args: {
@@ -463,11 +461,11 @@ async function foldObserved(
   obs: Observation,
   ctx: FoldCtx,
 ): Promise<ConvergenceOutcome> {
-  // Terminal for BOTH dispositions, and decided before anything else: an
-  // undecodable wire makes every downstream question (identity, drain, adopt)
-  // unaskable, so there is nothing for `decide` to fold. The give-up ride
-  // (`rideStale`) is deliberately not consulted — a budget that governs how many
-  // times we may DRAIN a lineage says nothing about a peer we cannot drain.
+  // Decided before anything else: an undecodable wire makes every downstream
+  // question (identity, drain, adopt) unaskable, so there is nothing for `decide`
+  // to fold. The give-up ride (`rideStale`) is deliberately not consulted — a
+  // budget that governs how many times we may DRAIN a lineage says nothing about
+  // a peer we cannot drain.
   if (obs.kind === "unspeakable") return enactUnspeakable(obs.peer, ctx);
 
   if (obs.kind === "failed") {
@@ -942,15 +940,15 @@ export async function converge<
   const resolveDrainable = (): Promise<Observation> =>
     observeProbe(() => endpoint.probe());
 
-  // The always-recycle boot: SIGTERM the VERIFIED gate holder, then spawn +
-  // connect + hold a fresh daemon. It reports `dead` and throws on failure (the
-  // endpoint's own contract), which propagates out of `converge` exactly as a
-  // throwing `bind` already does — a recycle that could not happen must not be
-  // reported as a bind that merely refused.
-  const recycleHolder = async (): Promise<BindResult> => {
-    await binds.ensure();
-    return { kind: "spawned-fresh" };
-  };
+  // The cross-epoch takeover: re-attest the corroborated holder, stop it (SIGTERM
+  // → bounded wait → SIGKILL → bounded wait), then spawn + connect + hold a fresh
+  // daemon. It reports `dead` and throws on failure (the endpoint's own
+  // contract), which propagates out of `converge` exactly as a throwing `bind`
+  // already does — a takeover that could not happen must not be reported as a
+  // bind that merely refused.
+  const takeOverHolder = (
+    peer: UnspeakablePeerError,
+  ): Promise<TakeoverResult> => binds.takeOver(peer);
 
   const ctx: FoldCtx = {
     policy,
@@ -961,7 +959,7 @@ export async function converge<
     releaseHeld,
     lastKnownRunning: null,
     resolveDrainable,
-    recycleHolder,
+    takeOverHolder,
     heldBind: null,
     rideStale: null,
   };

@@ -48,9 +48,14 @@ export type UnconvergedCause =
    * whose gate file is ours and whose pid we verified. NOT a version skew: a
    * version is something you read off a wire you can speak.
    *
-   * This cause rides a `refused` outcome only, and only for a policy that does
-   * not recycle: a drain verb on an unspeakable wire is unreachable, so
-   * `drain-newer-else-refuse` degenerates to refuse (see `converge.ts`).
+   * A corroborated peer is normally TAKEN OVER (PLAN D6 / Wave A: stopped by
+   * signal — the in-process shutdown a drain verb would have requested — and
+   * replaced by a daemon of this epoch, which seeds from disk). So this cause
+   * rides a `refused` outcome for exactly ONE residual: the gate stopped naming
+   * the classified `pid` between the observation and the kill, so nothing was
+   * signalled and nothing was replaced. `pid` is the pid we CLASSIFIED, which is
+   * by definition no longer the holder; `detail` names whoever is (see
+   * `converge.ts`).
    */
   | {
       readonly kind: "unspeakable-protocol";

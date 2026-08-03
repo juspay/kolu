@@ -57,6 +57,7 @@ It is generic over the client `C` and identity `I`.
 | `scrubDaemonNodeOptions(nodeOptions)` | strip dev-only Node flags from an inherited `NODE_OPTIONS` so a spawned daemon never opens the SUPERVISOR's inspector or writes its profiles; returns `undefined` when nothing of value remains, so the var is dropped rather than emptied. Opt-in per driver |
 | `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence; `serializeRestart` returns a single-flight `triggerRestart` wrapper |
 | `waitForPidGone(pid, opts?)` | poll `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
+| `reapHolder(pid, opts?)` | the two-deadline stop every supervisor kill site shares: `SIGTERM` → wait `REAP_TERM_CEILING_MS` (120 s) → `SIGKILL` → wait `REAP_KILL_CEILING_MS` (5 s). Answers `{ kind: "reaped", endedBy, waitedMs }` or `{ kind: "survived", waitedMs }` — a record, because which signal ended it and how long it took are what an operator reads after the fact |
 | `ReadSocketHolders` | the TYPE of the `readSocketHolders` inject: `(socketPath: string) => Promise<SocketOccupancy>`. The reader that satisfies it is `osfactsSocketHolders(bin)` from **`osfacts-client`**, bound to an already-resolved osfacts binary path (`bakedOsFactsBin(<your env var>)` — this package never learns which var a consumer bakes). It calls `osfacts socket-holders <path> --procs`; the platform split, the parse, the honesty policy AND the fold live in the tool and its client, not here. Bind it to the same resolved path as `processIdentityAsync` so one root spells its env var once for both OS facts |
 | `SocketOccupancy` · `SocketHolder` | the **three-way** answer, never one possibly-empty list: `{ kind: "held", holders }` (a NON-EMPTY tuple by type — `readonly [SocketHolder, ...SocketHolder[]]` — so a consumer never writes an unreachable empty-check), `{ kind: "none" }` (**proven** nothing holds it — only linux's world-readable `/proc/net/unix` can prove this), `{ kind: "unattributed", detail }` (something may hold it and the OS would not say what — a bound-but-unreadable holder, or a search that could not complete). Only `none` is evidence of freedom, and the endpoint still re-probes before spawning. Both types are **re-exported from `osfacts-client`**, whose `foldSocketOccupancy(reading)` produces them from a `SocketHoldersReading` — one fold, so kolu and drishti cannot spell the three-way differently |
 | `SocketSquatterForeignError` · `isSocketSquatterForeignError(err)` | thrown when the process holding the rendezvous socket did NOT complete the kaval handshake — a foreign / non-conforming holder that is **never** killed. Carries `socketPath`, `holders: SocketHolder[]` (each a pid and an OPTIONAL `command` — absent, never `"?"`, when the identity read lost the race, so a sentinel can never be mistaken for a process actually named `?`) and `detail?: string` so the refusal names the squatter — and when the OS named NOBODY, `detail` is the `unattributed` reading's own words (`the holder search could not complete (darwin_proc_fds: BLIND_OR_EMPTY)`), which the message renders instead of "an unidentifiable process". On darwin the nameless case is the ordinary one, so the explanation, not just the decision, has to survive the fold. Brand-checked, realm-robust |
@@ -127,7 +128,7 @@ mismatch is `uncorrelated`.
 | `BindResult` · `BoundResidentCharacterization` | private-bind result; adopted residents carry four-valued characterization (`characterized \| absent \| failed \| uncorrelated`) |
 | `drainAndAwaitExit(drain, awaitExit, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share |
 | `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `unconverged.running` is nullable (unknown); `link-failed` is session-owned |
-| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged`. The `unspeakable-protocol` arm carries `socketPath` · `gatePath` · the verified `pid` left standing |
+| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged`. The `unspeakable-protocol` arm carries `socketPath` · `gatePath` · the `pid` that was CLASSIFIED; it rides a refusal only when the gate stopped naming that pid before the takeover could act |
 | `UnspeakableEvidence` · `unspeakableClause(evidence)` | WHY a peer is unspeakable, as DATA: `{ trigger: "undecodable-frame", frame }` or `{ trigger: "silence", silentForMs }`. There is no third arm, and the renderer is shared so the dial path, the corroboration site and the fold cannot drift in what they tell an operator |
 | `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)` | the TRANSPORT fact, raised by `probeDaemonIdentity`'s dial at one of those two triggers — never by the hello deadline, a close, or a member error. Carries `socketPath` and the `evidence` field. Uncorroborated it is an ordinary `probe-failed`. Brand-checked, realm-robust |
 | `UnspeakablePeerError` · `isUnspeakablePeerError(err)` | the CORROBORATED verdict — the same fact plus the two attestations the endpoint adds: the gate at this rendezvous is OURS and its `pid` passed the holder identity law. Carries `gatePath` and `pid` beside them. Only this becomes the `unspeakable-protocol` observation |
@@ -178,13 +179,28 @@ Classification happens at the trigger, not by waiting out the frozen hello's
 30 s deadline — which is also what keeps `awaitHelloGone` responsive inside a
 drain ceiling when the peer will never answer.
 
-The disposition is the **contract-skew policy**, because an undecodable wire is
-the limit case of a contract skew (the one whose version cannot be read):
+The disposition is **TAKEOVER**, for every policy — the contract-skew policy is
+not consulted, because this is not a skew (a version is something you read off a
+wire you can speak) and the drain verb the ordered padi policy would reach for
+does not exist on an undecodable wire. What *is* available is the act the drain
+verb was only ever a way to request: the daemon's own in-process shutdown, asked
+for with a **signal** instead of a message.
 
-| policy | disposition |
+| step | what happens |
 | --- | --- |
-| `recycle` (kaval) | SIGTERM the verified gate holder and spawn fresh — its children do not survive a wire break, as at any contract skew |
-| `refuse` · `drain-newer-else-refuse` (padi) | **refuse**: a drain verb on an unspeakable wire is unreachable, so the ordered policy degenerates to its other arm. The survivor is left standing + degraded, never killed, and the `unconverged` anomaly carries the `unspeakable-protocol` cause plus an operator-facing `detail` that says to stop that daemon out of band |
+| re-attest | the gate must still name the exact pid that was classified. If it names anyone else, **nothing is signalled** — that holder was never observed — and the pass refuses with the `unspeakable-protocol` cause |
+| `SIGTERM` | the old daemon's own shutdown runs (persist, close, release the gate). Bounded by `REAP_TERM_CEILING_MS` (120 s) — a deadline, not a delay |
+| `SIGKILL` | only past that deadline, bounded by `REAP_KILL_CEILING_MS` (5 s). Still alive after it ⇒ the endpoint reports `dead` and fails loud |
+| spawn | a daemon of this epoch is started and connected at the same rendezvous; it **seeds from disk**, so loss is bounded by the old daemon's autosave debounce |
+
+The takeover is logged as one operator-readable line carrying what was stopped,
+why it was provably ours, which signal ended it, and how long the wait took. The
+outcome is `recycled` — the holder was replaced, not adopted.
+
+Kaval's `recycle` reaches the same act by the same path; padi's old **refuse**
+is gone, because reasoning from "the drain verb is unreachable" to "leave it
+standing" left a cross-epoch upgrade permanently unconverged until a human
+stopped a daemon out of band.
 
 <Aside type="note" title="Two policies in the wild">
   [kaval](/kaval) declares `recycle-on-skew`; [padi](/padi) declares `drain-newer-else-refuse` with

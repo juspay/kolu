@@ -13,18 +13,26 @@
  *  1. CORROBORATION IS REQUIRED. An unspeakable peer at a rendezvous with no
  *     gate of ours is an ordinary `probe-failed` refusal — never the new
  *     observation, never a licence to touch anything.
- *  2. REFUSE (padi / `drain-newer-else-refuse`). Corroborated, the survivor is
- *     left standing and degraded, with a typed `unspeakable-protocol` cause and
- *     an operator-facing message that says why drain could not run.
- *  3. RECYCLE (kaval). Corroborated, the verified gate holder is SIGTERM'd and a
- *     fresh daemon is spawned — the path the ordinary adopt-or-recycle bind
- *     cannot take, because an unspeakable peer never proves a skew to a
- *     `connect` that cannot speak to it either.
+ *  2. TAKEOVER, FOR EVERY POLICY (PLAN D6 / Wave A). Corroborated, the verified
+ *     gate holder is stopped and a daemon of this epoch is spawned in its place
+ *     — under padi's ordered `drain-newer-else-refuse` exactly as under kaval's
+ *     `recycle`. This is the path the ordinary adopt-or-recycle bind cannot
+ *     take, because an unspeakable peer never proves a skew to a `connect` that
+ *     cannot speak to it either. (padi's old REFUSE is gone: it reasoned from
+ *     "the drain verb is unreachable" to "leave it standing", which meant a
+ *     cross-epoch upgrade could never converge without a human.)
+ *  3. A HOLDER WE DID NOT CLASSIFY IS NEVER TOUCHED. If the gate stops naming
+ *     the classified pid between the observation and the kill, nothing is
+ *     signalled and the pass refuses with the typed `unspeakable-protocol`
+ *     cause.
  *  4. A FOREIGN SQUATTER IS UNTOUCHED. The gate-less-squatter recovery keeps its
  *     own refusal (`SocketSquatterForeignError`); nothing here reaches it.
- *  5. BOTH TRIGGERS EARN THE SAME VERDICT. Laws 1–3 above are driven by an
+ *  5. A MERELY SLOW DAEMON OF THIS EPOCH IS NEVER TAKEN OVER. The trigger bounds
+ *     sit above the protocol's own liveness floor, so slowness still yields an
+ *     IDENTITY — an ordinary adopt, with the survivor alive at the end.
+ *  6. BOTH TRIGGERS EARN THE SAME VERDICT. Laws 1–3 above are driven by an
  *     injected `undecodable-frame` fact; the `silence` block near the bottom
- *     drives 1 and 3 again through the REAL dial against a peer that accepts and
+ *     drives 1 and 2 again through the REAL dial against a peer that accepts and
  *     never speaks — the shape a real previous release actually presents.
  */
 
@@ -45,6 +53,7 @@ import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testli
 import { afterEach, describe, expect, it } from "vitest";
 import {
   converge,
+  instanceKeyFromStartedAt,
   outcomeAdopted,
   outcomeAnomaly,
 } from "./convergence/converge.ts";
@@ -52,6 +61,7 @@ import type { ConvergencePolicy } from "./convergence/policy.ts";
 import {
   isUnspeakablePeerError,
   isUnspeakableProtocolError,
+  UnspeakablePeerError,
   UnspeakableProtocolError,
 } from "./convergence/unspeakable.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
@@ -184,30 +194,115 @@ describe("unspeakable-protocol — corroboration", () => {
   });
 });
 
-describe("unspeakable-protocol — the refuse disposition (padi)", () => {
-  it("leaves a verified survivor standing, with a typed cause and an operator message", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "sds-unspeakable-refuse-"));
-    tmpDirs.push(dir);
-    const socketPath = join(dir, "d.sock");
-    const gatePath = join(dir, "d.pid");
-    // Our gate, naming a live pid (this process), over an accepting socket:
-    // both attestations the escalation requires. Nothing is ever killed on this
-    // path, which is why using our own pid is safe here.
-    await listenSilently(socketPath);
-    writeFileSync(gatePath, `${process.pid}\n`);
+describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () => {
+  it("stops the verified gate holder and spawns this build's daemon in its place", async () => {
+    // A REAL child process holds the gate, because this disposition really does
+    // stop it — the one arm that cannot be proven against a fake pid. This is
+    // the arm that used to REFUSE: padi's ordered `drain-newer-else-refuse`
+    // reasoned from "the drain verb is unreachable" to "leave it standing",
+    // which left a cross-epoch upgrade permanently unconverged.
+    const survivor = await plantYesterdayDaemon({
+      gateFile: "daemon.pid",
+      socketFile: "daemon.sock",
+      assertSpawnAllowed: assertDaemonSpawnAllowed,
+      plantState: () => {},
+      withSocket: true,
+    });
+    fixtures.push({ dispose: survivor.dispose });
+    if (survivor.process.kind !== "live") {
+      throw new Error("expected a live survivor process");
+    }
+    if (survivor.listener.kind !== "listening") {
+      throw new Error("expected a listening survivor socket");
+    }
+    const survivorPid = survivor.process.pid;
+    const survivorServer = survivor.listener.server;
 
+    let spawned = 0;
+    const statuses: EndpointStatus<{ v: string }>[] = [];
     const endpoint = createEndpoint<string, { v: string }>({
       hostId: "test",
-      home: { dir, gatePath, socketPath },
+      home: {
+        dir: survivor.dir,
+        gatePath: survivor.gatePath,
+        socketPath: survivor.socketPath,
+      },
       policy: padiPolicy,
       probe: unspeakableProbe,
       driver: {
         spawn: async () => {
-          throw new Error("a refuse policy must never spawn over the survivor");
+          spawned += 1;
+          // The stopped daemon's socket goes with it; the "fresh daemon" binds a
+          // new one at the same rendezvous.
+          survivorServer.close();
+          await listenSilently(survivor.socketPath);
+        },
+      },
+      connect: async () => ({
+        client: "fresh",
+        identity: { v: "2.0" },
+        startedAt: 7,
+        dispose: () => {},
+        onClose: () => {},
+      }),
+      log: silent,
+      onStatus: (_h, s) => statuses.push(s),
+      socketReadyMs: 2_000,
+      socketPollMs: 5,
+      adoptConnectAttempts: 1,
+      adoptConnectRetryMs: 1,
+    });
+
+    const out = await converge(endpoint);
+    // The same outcome kaval's arm reports, because it is the same act: the
+    // holder was replaced, not adopted.
+    expect(out.kind).toBe("recycled");
+    expect(outcomeAnomaly(out)).toBeNull();
+    expect(spawned).toBe(1);
+    expect(statuses.at(-1)?.state).toBe("connected");
+    expect(endpoint.current()).toBeDefined();
+    // Mutate-to-prove: the survivor really is gone.
+    expect(() => process.kill(survivorPid, 0)).toThrow();
+  }, 40_000);
+
+  it("NEVER touches a holder it did not classify — the gate changed under us", async () => {
+    // The irreducible window: between the probe that classified pid P and the
+    // signal, our gate came to name someone else. That someone was never
+    // observed — it may be a healthy daemon of this epoch that replaced the old
+    // one — so nothing is signalled and the pass refuses instead.
+    const dir = mkdtempSync(join(tmpdir(), "sds-unspeakable-changed-"));
+    tmpDirs.push(dir);
+    const socketPath = join(dir, "d.sock");
+    const gatePath = join(dir, "d.pid");
+    await listenSilently(socketPath);
+    // The gate names THIS process (live, over a serving socket) — a holder the
+    // identity law accepts. The corroborated error below names a different one.
+    writeFileSync(gatePath, `${process.pid}\n`);
+
+    const classifiedPid = 1; // never this test process
+    const endpoint = createEndpoint<string, { v: string }>({
+      hostId: "test",
+      home: { dir, gatePath, socketPath },
+      policy: padiPolicy,
+      // A pre-corroborated peer error: the endpoint's own corroboration passes
+      // it straight through, so what is under test is purely the re-attestation
+      // the takeover performs immediately before the kill.
+      probe: (path) =>
+        Promise.reject(
+          new UnspeakablePeerError({
+            socketPath: path,
+            gatePath,
+            pid: classifiedPid,
+            evidence: { trigger: "silence", silentForMs: 8_000 },
+          }),
+        ),
+      driver: {
+        spawn: async () => {
+          throw new Error("nothing may be spawned over an unclassified holder");
         },
       },
       connect: async () => {
-        throw new Error("a refuse policy must never dial the survivor's soul");
+        throw new Error("nothing may be dialed over an unclassified holder");
       },
       log: silent,
       onStatus: () => {},
@@ -228,17 +323,95 @@ describe("unspeakable-protocol — the refuse disposition (padi)", () => {
       kind: "unspeakable-protocol",
       socketPath,
       gatePath,
-      pid: process.pid,
+      pid: classifiedPid,
     });
-    // …and the sentence itself says the thing an operator needs: the ordered
-    // drain policy could not drain, so it degenerated to refuse.
-    expect(anomaly.detail).toContain("drain verb is therefore unreachable");
-    expect(anomaly.detail).toContain("REFUSE");
-    expect(anomaly.detail).toContain("never killed");
-    // The survivor is left standing: nothing was held, nothing was spawned.
+    expect(anomaly.detail).toContain("NOTHING was signalled");
+    expect(anomaly.detail).toContain(String(process.pid));
     expect(endpoint.current()).toBeUndefined();
+    // And this process — the holder we never classified — is obviously still here.
+    expect(() => process.kill(process.pid, 0)).not.toThrow();
   });
 });
+
+describeDaemon(
+  "unspeakable-protocol — what the takeover must NOT reach",
+  () => {
+    it("a merely SLOW daemon of this epoch is adopted, never stopped", async () => {
+      // The safety the unconditional takeover rests on. Reaching `enactUnspeakable`
+      // requires the corroborated peer error and nothing else, and the dial can
+      // only raise it past a bound that sits ABOVE the protocol's own liveness
+      // floor — a peer of this epoch answers pings beneath its handlers, so
+      // slowness always still yields an IDENTITY. (That bound is pinned at the
+      // dial itself, in `probeDaemonIdentity.test.ts`, with a hello that answers
+      // only at 6 s.) Here we pin the consequence at the DISPOSITION seam: an
+      // identity — however late it arrives — folds through `decide`, and the live
+      // survivor is alive at the end.
+      const survivor = await plantYesterdayDaemon({
+        gateFile: "daemon.pid",
+        socketFile: "daemon.sock",
+        assertSpawnAllowed: assertDaemonSpawnAllowed,
+        plantState: () => {},
+        withSocket: true,
+      });
+      fixtures.push({ dispose: survivor.dispose });
+      if (survivor.process.kind !== "live") {
+        throw new Error("expected a live survivor process");
+      }
+      const survivorPid = survivor.process.pid;
+
+      let probes = 0;
+      const endpoint = createEndpoint<string, { v: string }>({
+        hostId: "test",
+        home: {
+          dir: survivor.dir,
+          gatePath: survivor.gatePath,
+          socketPath: survivor.socketPath,
+        },
+        policy: padiPolicy,
+        probe: async () => {
+          probes += 1;
+          // Slow — but it ANSWERS, which is the whole difference.
+          await new Promise((r) => setTimeout(r, 250));
+          return {
+            capability: "drainable" as const,
+            identity: padiPolicy.baked,
+            instanceKey: instanceKeyFromStartedAt(7),
+            fireDrain: async () => {},
+            awaitExit: async () => {},
+            drainCeilingMs: 1_000,
+            dispose: () => {},
+          };
+        },
+        driver: {
+          spawn: async () => {
+            throw new Error(
+              "a slow but speakable survivor must not be replaced",
+            );
+          },
+        },
+        connect: async () => ({
+          client: "adopted",
+          identity: { v: "2.0" },
+          startedAt: 7,
+          dispose: () => {},
+          onClose: () => {},
+        }),
+        log: silent,
+        onStatus: () => {},
+        socketPollMs: 5,
+        adoptConnectAttempts: 1,
+        adoptConnectRetryMs: 1,
+      });
+
+      const out = await converge(endpoint);
+      expect(out.kind).toBe("adopted");
+      expect(outcomeAdopted(out)).toBe(true);
+      expect(probes).toBeGreaterThan(0);
+      // Mutate-to-prove, the other way round: the survivor is STILL THERE.
+      expect(() => process.kill(survivorPid, 0)).not.toThrow();
+    }, 40_000);
+  },
+);
 
 describeDaemon("unspeakable-protocol — the recycle disposition (kaval)", () => {
   it("SIGTERMs the verified gate holder and spawns fresh", async () => {

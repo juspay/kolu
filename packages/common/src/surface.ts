@@ -541,10 +541,12 @@ export const PadiConvergenceSchema = Schema.Union([
          *  which is why it is its own cause rather than a widened `probe-failed`
          *  (that arm still protects a foreign socket-squatter from SIGTERM).
          *
-         *  padi's disposition is REFUSE: `drain-newer-else-refuse` cannot drain
-         *  over an unspeakable wire, so it degenerates to refuse and the operator
-         *  must clear the survivor themselves. The typed evidence is what the card
-         *  shows them — which socket, which gate, which pid. */
+         *  The disposition is TAKEOVER (PLAN D6 / Wave A) — stop the verified
+         *  holder by signal and start a daemon of this epoch in its place — so
+         *  this cause reaches a card only for the ONE residual it cannot act on:
+         *  the gate stopped naming the classified pid between the observation and
+         *  the kill, so NOTHING was signalled. The typed evidence is what the card
+         *  shows — which socket, which gate, which pid was classified. */
         kind: Schema.Literal("unspeakable-protocol"),
         socketPath: Schema.String,
         gatePath: Schema.String,
