@@ -574,6 +574,31 @@ function externalHolders(reading: SocketOccupancy): SocketHolder[] {
     : [];
 }
 
+/**
+ * What a status BECOMES while a supervised restart holds the surface.
+ *
+ * While a restart is held, the recycle's transient transitions — the old
+ * connection closing (`degraded`) and the fresh daemon coming up (`connecting`)
+ * — are both part of one "restarting", not separate states a consumer should
+ * render. Coerce them; let the terminal `connected`/`dead` (and the explicit
+ * `restarting` from `holdRestarting`) report honestly. `incompatible` is
+ * DELIBERATELY not coerced (SK4): a proven skew inside a restart is that
+ * restart's terminal VERDICT — repainting it as "restarting" would show
+ * progress against a daemon a restart cannot fix.
+ *
+ * A pure function of the two inputs, deliberately: this is the rule an operator
+ * sees, and it is worth stating (and testing) without an endpoint, a daemon or a
+ * socket around it.
+ */
+export function underRestartHold<I, M>(
+  held: boolean,
+  status: EndpointStatus<I, M>,
+): EndpointStatus<I, M> {
+  return held && (status.state === "connecting" || status.state === "degraded")
+    ? { state: "restarting" }
+    : status;
+}
+
 export function createEndpoint<
   C,
   I,
@@ -646,19 +671,7 @@ export function createEndpoint<
     }) as ConnectedEndpointStatus<I, M>;
 
   const emit = (status: EndpointStatus<I, M>): void => {
-    // While a restart is held, the recycle's transient transitions — the old
-    // connection closing (`degraded`) and the fresh daemon coming up
-    // (`connecting`) — are both part of one "restarting", not separate states a
-    // consumer should render. Coerce them; let the terminal `connected`/`dead`
-    // (and the explicit `restarting` from `holdRestarting`) report honestly.
-    // `incompatible` is DELIBERATELY not coerced (SK4): a proven skew inside a
-    // restart is that restart's terminal VERDICT — repainting it as
-    // "restarting" would show progress against a daemon a restart cannot fix.
-    const reported: EndpointStatus<I, M> =
-      restartHold &&
-      (status.state === "connecting" || status.state === "degraded")
-        ? { state: "restarting" }
-        : status;
+    const reported = underRestartHold(restartHold, status);
     lastReported = reported.state;
     try {
       spec.onStatus(spec.hostId, reported);
@@ -1557,7 +1570,7 @@ export function createEndpoint<
   // so a one-off failure never costs the survivor its live PTYs. The survivor's
   // socket stays up across the retries (we never killed it), so each retry
   // re-dials the SAME daemon.
-  const connectSurvivor = async (
+  const connectSurvivorEffect = (
     // Candidate holder pid(s), LOG CONTEXT ONLY (the dial targets the rendezvous,
     // not a pid). A SET, not a single pid, because on darwin the OS lookup may
     // include connected clients alongside the listener — logging one of them as
@@ -1565,17 +1578,29 @@ export function createEndpoint<
     // real daemon. A gate-recorded caller passes its single `[holder]`.
     logHolders: number[],
     connect: () => Promise<DaemonConnection<C, I, M>>,
-  ): Promise<SurvivorConnect> => {
-    // Seeded so a misconfigured `adoptConnectAttempts <= 0` (the loop never runs)
-    // surfaces a loud, meaningful `unreachable` error rather than a bare
-    // `undefined` — fail loud over fail silent.
-    let lastErr: unknown = new Error(
-      `survivor connect made no attempts (adoptConnectAttempts=${adoptConnectAttempts})`,
-    );
-    for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
-      try {
-        return { kind: "adopted", conn: await connect() };
-      } catch (err) {
+  ): Effect.Effect<SurvivorConnect> =>
+    Effect.gen(function* () {
+      // The three-way verdict is the SUCCESS channel throughout (F4/H12): a
+      // transport hiccup and a proven skew must never collapse into one error,
+      // because `unreachable` means "leave the survivor's live PTYs alone" and
+      // `skew` means "replace it". Retry therefore steps this loop rather than
+      // an error channel, where the distinction would have to be re-derived.
+      //
+      // Seeded so a misconfigured `adoptConnectAttempts <= 0` (the loop never runs)
+      // surfaces a loud, meaningful `unreachable` error rather than a bare
+      // `undefined` — fail loud over fail silent.
+      let lastErr: unknown = new Error(
+        `survivor connect made no attempts (adoptConnectAttempts=${adoptConnectAttempts})`,
+      );
+      for (let attempt = 1; attempt <= adoptConnectAttempts; attempt++) {
+        const dialed = yield* Effect.tryPromise({
+          try: connect,
+          catch: (err) => err,
+        }).pipe(Effect.result);
+        if (dialed._tag === "Success") {
+          return { kind: "adopted", conn: dialed.success } as const;
+        }
+        const err = dialed.failure;
         lastErr = err;
         // A genuine contract skew is terminal: an incompatible daemon stays
         // incompatible no matter how many times we re-dial it, so stop retrying
@@ -1585,7 +1610,7 @@ export function createEndpoint<
             { hostId: spec.hostId, holders: logHolders, err: String(err) },
             "survivor connect hit a contract skew — recycling (incompatible daemon)",
           );
-          return { kind: "skew", err };
+          return { kind: "skew", err } as const;
         }
         const last = attempt === adoptConnectAttempts;
         spec.log.warn(
@@ -1601,11 +1626,16 @@ export function createEndpoint<
                 "leaving the survivor up (its PTYs are not killed)"
             : "survivor connect failed (non-skew) — retrying without killing the survivor",
         );
-        if (!last) await new Promise((r) => setTimeout(r, adoptConnectRetryMs));
+        if (!last) yield* Effect.sleep(adoptConnectRetryMs);
       }
-    }
-    return { kind: "unreachable", err: lastErr };
-  };
+      return { kind: "unreachable", err: lastErr } as const;
+    });
+
+  const connectSurvivor = (
+    logHolders: number[],
+    connect: () => Promise<DaemonConnection<C, I, M>>,
+  ): Promise<SurvivorConnect> =>
+    runFace(connectSurvivorEffect(logHolders, connect));
 
   // Connect to a live survivor at rendezvous `rv` (via its own `connect`) and act on
   // the verdict: ADOPT (hold it; `onAdopted` records where it lives), RECYCLE/REFUSE a

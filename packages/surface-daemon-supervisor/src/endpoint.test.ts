@@ -8,9 +8,11 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
   type DaemonConnection,
   DaemonContractSkewError,
+  ENDPOINT_STATES,
   type EndpointStatus,
   isSocketSquatterForeignError,
   SocketSquatterForeignError,
+  underRestartHold,
 } from "./endpoint.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 
@@ -1724,3 +1726,30 @@ describeDaemon(
     });
   },
 );
+
+describe("underRestartHold — the emit-guard's rule, without an endpoint", () => {
+  const hold = (state: EndpointStatus<unknown>["state"]) =>
+    underRestartHold(true, { state } as EndpointStatus<unknown>).state;
+
+  it("folds the recycle's transients into one `restarting`", () => {
+    expect(hold("connecting")).toBe("restarting");
+    expect(hold("degraded")).toBe("restarting");
+  });
+
+  it("never coerces a terminal verdict — including a proven skew (SK4)", () => {
+    // `incompatible` is the case worth stating on its own: repainting a skew as
+    // "restarting" would show progress against a daemon a restart cannot fix.
+    expect(hold("incompatible")).toBe("incompatible");
+    expect(hold("connected")).toBe("connected");
+    expect(hold("dead")).toBe("dead");
+    expect(hold("restarting")).toBe("restarting");
+  });
+
+  it("is the identity when no restart is held", () => {
+    for (const state of ENDPOINT_STATES) {
+      expect(
+        underRestartHold(false, { state } as EndpointStatus<unknown>).state,
+      ).toBe(state);
+    }
+  });
+});
