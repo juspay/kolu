@@ -547,13 +547,15 @@ export function cellHandlers<Name extends string, T, P = T>(
 
   return {
     // The AUTHORING cell serves its own store as the snapshot and then relays the
-    // bus. `Stream.suspend` keeps the read LAZY — the snapshot must be taken when
-    // the subscription starts, never when the handler value was built.
-    get: () =>
-      Stream.concat(
-        Stream.suspend(() => Stream.fromIterable([deps.store.get()])),
-        channelStream(deps.bus),
-      ),
+    // bus — subscribe-before-snapshot, exactly like the mirror arm above and the
+    // two collection reads. A plain `concat(snapshot, bus)` would acquire the bus
+    // subscription only AFTER the snapshot chunk had been produced AND forwarded
+    // downstream (across a socket, for a wire consumer), so every `set` landing in
+    // that window published to nobody and was LOST FOREVER — the store moved on and
+    // no later frame re-states it. That is not a theoretical gap: it is how a
+    // reconnecting kolu-server mirror froze on padi's baked `newTerminalPolicy`
+    // default (the push lands in the window; the cell never moves again).
+    get: () => subscribeBeforeSnapshot(deps.bus, () => [deps.store.get()]),
     set: (input) =>
       Effect.sync(() => {
         deps.onMutate?.(input as unknown as P, deps.store.get());

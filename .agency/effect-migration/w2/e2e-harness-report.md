@@ -307,3 +307,135 @@ ws stays `open`, and Restart kaval recovers.
   `pumpRemoteSurface` parks on `cursor.next()` forever in that case. The fix
   removes the only way we know to reach it, but the hole is structural — a
   candidate for a later W-item.
+
+---
+
+## 8. D4 — an authoring cell's `get` lost every write that landed in its
+##      snapshot→subscribe gap (the inherit-policy push)
+
+### The symptom
+
+A full local sweep at `CUCUMBER_PARALLEL=6` read **509 scenarios (454 failed, 55
+passed)**. 452 of those failures were the SAME shared `Before` hook
+(`packages/tests/support/hooks.ts:1151` → `waitForInheritPolicy` at `:1063`):
+
+```
+kolu-server never pushed the inherit new-terminal policy to padi within 5000ms
+(last read: padi still reads {"kind":"shuffle","mode":"dark"})
+```
+
+`{"kind":"shuffle","mode":"dark"}` is padi's BAKED DEFAULT — so the value the
+harness read was one nobody had ever pushed. It looked exactly like a dead
+pusher: fine for a worker's first scenarios, then every later scenario in that
+worker failing, forever.
+
+### It was not the pusher
+
+`installNewTerminalPolicyPusher` was instrumented and driven through a
+purpose-built repro (spawn a from-source server, set the preference, SIGKILL the
+padi daemon at its pid gate, wait for the respawn, re-read). The pusher does
+everything right across the respawn:
+
+```
+DBG scanForConnects   host=local familyPhase=disconnected alreadyConnected=false
+DBG scanForConnects   host=local familyPhase=connecting   alreadyConnected=false
+DBG scanForConnects   host=local familyPhase=connected    alreadyConnected=false
+DBG pushTo enter      host=local epoch=1
+DBG pushTo: phase     host=local phase=connected
+DBG pushTo: calling set  policy={"kind":"inherit"}
+DBG pushTo: set RESOLVED policy={"kind":"inherit"}     ← the write was ACCEPTED
+```
+
+…and the harness still read `{"kind":"shuffle","mode":"dark"}` for the next ten
+seconds. A LATER preference change (`shuffle`, then `inherit` again) landed on
+the mirror immediately. So: padi held the right value, the mirror did not, and
+only the ONE push issued on the connect edge went missing.
+
+### The root cause
+
+`cellHandlers`' AUTHORING arm (`packages/surface/src/server.ts`) served a cell's
+`get` as
+
+```ts
+Stream.concat(
+  Stream.suspend(() => Stream.fromIterable([deps.store.get()])),
+  channelStream(deps.bus),
+)
+```
+
+`Stream.concat` acquires the SECOND stream only after the first has been produced
+**and forwarded downstream** — across a socket, for a wire consumer. So between
+"the snapshot was read" and "the bus subscription exists" there is a real window
+with **zero subscribers**, and `applyAndPublish`'s `bus.publish(next)` in that
+window goes to nobody. A cell is STATE, not a log: nothing ever re-states it, so
+the consumer is pinned to the snapshot until the next write — or forever, on a
+quiescent cell.
+
+kolu-server's re-served padi mirror hits that window on every padi respawn by
+construction: the session enters `connected` (the adopt path), the pusher writes
+`newTerminalPolicy` on that same edge, and the mirror's own subscription is being
+established at exactly that moment. The push lands in the gap, padi holds
+`inherit`, the mirror holds the baked default, and — because the pusher's
+per-link dedup correctly records what it SENT — nothing ever re-sends it.
+
+The mechanism to close this window already existed in the same file and was
+already used by the mirror arm, `collections.keys` and `collections.get`:
+`subscribeBeforeSnapshot`. The authoring arm was the one member that never
+adopted it.
+
+### The fix
+
+```ts
+get: () => subscribeBeforeSnapshot(deps.bus, () => [deps.store.get()]),
+```
+
+One line, one file. The subscription is acquired before the snapshot thunk runs,
+so a write in the window is BUFFERED by the channel rather than dropped. The
+documented, benign double-delivery of subscribe-before-snapshot applies (a cell
+frame is a full replacement, so a repeat folds idempotently) — the collection
+reads have accepted the same trade since they adopted it.
+
+**The seam test** is in `packages/surface/src/cellHandlers.test.ts`: the cell twin
+of the existing `collectionDeltas` / `collectionKeysMembership` pins — write from
+INSIDE the snapshot read and assert (a) the bus already had a live subscriber and
+(b) a second frame arrives. Falsified against the fix reverted: it times out at
+8s, the second frame never coming.
+
+### Gates
+
+| gate | result |
+| --- | --- |
+| `just test-quick features/theme.feature` (`CUCUMBER_PARALLEL=1`), run twice | **13 scenarios / 86 steps passed**, both runs |
+| `pnpm typecheck` (whole workspace) | exit 0 |
+| `just lint` (biome, `--error-on-warnings`) | 1786 files checked, clean |
+| `test:unit` — surface 548, surface-app 166, surface-map 76, surface-daemon 53, surface-remote 287, padi 500, server 318, common 96 | all pass |
+| **full sweep** `CUCUMBER_PARALLEL=6 just test-quick` | **509 scenarios (32 failed, 477 passed)** — was 454 failed |
+
+Zero `waitForInheritPolicy` failures remain.
+
+### The 32 stragglers (pre-existing, NOT fixed here)
+
+Six unrelated clusters:
+
+- **`code-tab.feature` × 23** — the diff payload fails to decode:
+  `diffContent: "Error: Expected string, got undefined at [\"oldPath\"]"`. A
+  schema-migration artifact, not a transport one.
+- **`claude-code.feature` × 4** — `Expected agent indicator state "waiting", got
+  "null" after 20031ms` (and `thinking` / `awaiting_user` ×2).
+- **`sleeping-terminals.feature` × 2** — `the slept terminal should be sleeping`.
+- **`dock.feature` × 2** — `padi liveness probe failed permanently
+  (surface/padi/lifecycle/killAll: Expected MapKeyNonCanonical | MapKeyUnknown |
+  MapEntryFailed, got SurfaceStdioTransportClosed …)`. A padi that died at the
+  wrong moment is classified PERMANENT by `isPadiWarmingUp` instead of retryable.
+- **`opencode.feature` × 1** — `Expected OpenCode indicator state "waiting", got
+  state="thinking"`.
+
+### Follow-ups this opens
+
+- **The drishti pair-PR gate is a judgement call.** No exported signature moved
+  and no contract changed — `cellHandlers`' `get` now honours the
+  snapshot-then-deltas invariant the Reference page already documents. It IS a
+  runtime-behaviour change in a shared package, so drishti inherits the fix for
+  free; a re-pin + green CI run is the whole of it if the gate is applied.
+- **The odu-impact verdict is `none`** by inspection (no export added, removed or
+  re-signatured); the grep at odu's pinned SHA still owes its receipt.

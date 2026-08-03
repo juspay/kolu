@@ -15,7 +15,7 @@
  *     side effect) so existing cells are unaffected.
  */
 
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { defineSurface } from "./define";
 import { cell } from "./index";
@@ -24,6 +24,7 @@ import {
   type Channel,
   cellHandlers,
   implementSurfaceOnPublisher,
+  inMemoryChannel,
 } from "./server";
 
 /** In-memory cell store + channel pair for handler-level tests. */
@@ -267,5 +268,56 @@ describe("implementSurface: ctx.cells.<key>.set respects equals + onWrite", () =
     ctx.cells.c.set({ n: 1 });
     expect(publishSpy).toHaveBeenCalledTimes(1);
     expect(onWrite).toHaveBeenCalledWith({ n: 1 });
+  });
+});
+
+describe("cellHandlers: an AUTHORING cell's `get` is subscribe-before-snapshot", () => {
+  it("delivers a write that lands DURING the snapshot read (no lost-update gap)", async () => {
+    // The sharpest probe of "subscribe strictly precedes snapshot", the cell twin
+    // of the collection `deltas`/`keys` pins: write from INSIDE the snapshot read.
+    // With subscribe-AFTER-snapshot the publish hits zero subscribers, and — a
+    // cell being state, not a log — nothing ever re-states it: the consumer is
+    // stuck on the snapshot forever and `Stream.take(2)` hangs.
+    //
+    // This is not hypothetical. It is how kolu-server's re-served mirror froze on
+    // padi's baked `newTerminalPolicy` default across a padi respawn: the policy
+    // push lands in exactly this window, and the cell never moves again.
+    let value = "a";
+    const bus = inMemoryChannel<string>();
+    let subscribersDuringSnapshot = -1;
+    let armed = true;
+    const store: CellStore<string> = {
+      get: () => {
+        if (armed) {
+          armed = false;
+          subscribersDuringSnapshot = bus.subscriberCount();
+          value = "b";
+          bus.publish("b");
+        }
+        return value;
+      },
+      set: (v) => {
+        value = v;
+      },
+    };
+    const handlers = cellHandlers(
+      cell({ name: "c", schema: Schema.String, default: "" }),
+      { store, bus },
+    );
+
+    const frames = await Effect.runPromise(
+      Stream.runCollect(Stream.take(handlers.get(), 2)),
+    );
+
+    // The subscriber was ALREADY live while the snapshot was being read…
+    expect(subscribersDuringSnapshot).toBe(1);
+    // …so TWO frames arrived. (The snapshot itself already reflects the write —
+    // the documented, benign double-delivery of subscribe-before-snapshot; a cell
+    // frame is a full replacement, so a repeat folds idempotently. What must never
+    // happen is the second frame going missing.)
+    expect(frames.length).toBe(2);
+    expect(frames[1]).toBe("b");
+    // …and the subscription is released once the stream ends.
+    expect(bus.subscriberCount()).toBe(0);
   });
 });
