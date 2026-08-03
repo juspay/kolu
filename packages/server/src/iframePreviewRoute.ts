@@ -1,7 +1,7 @@
 /** Kolu glue for the iframe-preview file route
  *  (`FsReadFileOutput.kind === "binary"`). The byte read itself (range,
  *  content-type, lexical + realpath guard) is now padi's `previewFile` — the
- *  STREAMING serve-dir read the Hono route in `index.ts` re-backs onto, so a
+ *  STREAMING serve-dir read this route is backed by, so a
  *  multi-GB video flows disk→socket with bounded heap. (`padiSurface.procedures
  *  .preview.read` / `readPreview` is the BASE64 WIRE-ONLY wrapper over the same
  *  read.)
@@ -14,50 +14,53 @@
  *      RIGHT host's bytes flow back with a bounded heap (see that function). The
  *      old fail-closed 501 is gone.
  *
- *  What also remains here are the two PURE web-shell URL helpers the route needs to
- *  hand a correct, un-normalized file tail to EITHER arm:
- *    - `rawTargetFromContext` selects the RAW request target
- *      (`c.env.incoming.url`), the origin-form URL before WHATWG normalization;
- *    - `previewTailFromRawUrl` slices the terminal-scoped file path out of it,
- *      keeping `%`-encoding intact so serve-dir's single decode recovers the
- *      real name and the per-segment `..`/`%2f` traversal guard still fires.
- *  Both are unit-tested in `iframePreviewRoute.test.ts`; the realpath/symlink
- *  guard's 403 coverage now lives against padi's `previewFile`. */
+ *  What also remains here are the PURE web-shell URL helper the route needs to
+ *  hand a correct, un-normalized file tail to EITHER arm, and the route itself:
+ *    - `previewTailFromRawUrl` slices the terminal-scoped file path out of the
+ *      RAW request target, keeping `%`-encoding intact so serve-dir's single
+ *      decode recovers the real name and the per-segment `..`/`%2f` traversal
+ *      guard still fires;
+ *    - {@link previewRouteHandler} is the route, on `effect/unstable/http`.
+ *  Both are unit-tested in `iframePreviewRoute.test.ts` (including end-to-end
+ *  over a real node server); the realpath/symlink guard's 403 coverage now lives
+ *  against padi's `previewFile`.
+ *
+ *  There is no longer a "select the raw target" adapter: `HttpServerRequest.url`
+ *  IS the node `IncomingMessage.url` (`NodeHttpServer`'s request impl assigns it
+ *  verbatim), so the raw, un-normalized origin-form target reaches the handler
+ *  with no WHATWG round trip to defend against and no absent-`incoming` case to
+ *  fail closed on. That property is what the integration test at the bottom of
+ *  `iframePreviewRoute.test.ts` proves empirically, and it is why this route must
+ *  be reached through the NODE handler path — `HttpRouter.toWebHandler` builds a
+ *  Web `Request` and re-normalizes, which would silently reopen the traversal
+ *  hole. */
 
-import type { HttpBindings } from "@hono/node-server";
+import type { Logger } from "@kolu/log";
+import { previewFile } from "@kolu/padi/assembly";
+import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
+import type { ServeResult } from "@kolu/serve-dir";
 import {
   getHeaderCI,
   parseByteRange,
   rangeResponseHead,
   rawPathname,
 } from "@kolu/serve-dir";
-import type { ServeResult } from "@kolu/serve-dir";
-import type { PadiPreviewReadOutputSchema } from "@kolu/padi/surface";
-import type { Context } from "hono";
+import { Effect, Result, Stream } from "effect";
+import {
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
+import {
+  decodeHostKey,
+  decodeHostKeyValue,
+  encodeHostKey,
+} from "kolu-common/hostKey";
 import {
   TERMINAL_FILE_ROUTE_BASE,
   TERMINAL_FILE_ROUTE_FILE_SEGMENT,
 } from "kolu-common/preview";
-
-/** The RAW, un-normalized request target `previewTailFromRawUrl` must slice —
- *  resolved here so the selection lives in ONE place the route and its test both
- *  call. Returns the Node `IncomingMessage.url` (`c.env.incoming.url`), the
- *  origin-form target @hono/node-server receives before any normalization.
- *
- *  Returns `undefined` (a no-match sentinel) when `incoming` is absent. We do
- *  NOT fall back to `c.req.raw.url`: that value is built via `new URL(...).href`
- *  and HAS run WHATWG path normalization (collapsing `foo/../secret`), so it
- *  can't defend the `..` guard this module exists to enforce. Falling back would
- *  fail OPEN — silently serving the exact normalized target the guard rejects.
- *  Kolu's only production adapter is @hono/node-server, which always supplies
- *  `incoming`; the absent case is a fail-closed error the route maps to a 500,
- *  not a quiet downgrade to an unsafe serve.
- *
- *  `c.env` is read as `Partial<HttpBindings>` so this works whether or not the
- *  caller's app typed the node binding into its env. */
-export function rawTargetFromContext(c: Context): string | undefined {
-  return (c.env as Partial<HttpBindings>).incoming?.url;
-}
+import type { HostKey } from "kolu-common/surfacesWithPadi";
 
 /** Extract the still-encoded path tail for a terminal's preview route from a
  *  RAW request URL. Slices off `${BASE}/{host}/{terminalId}/${FILE}/`, returning
@@ -65,13 +68,13 @@ export function rawTargetFromContext(c: Context): string | undefined {
  *  prefix — the route registration guarantees it does, but the guard keeps this
  *  pure and total).
  *
- *  `host` is the DECODED route param (`c.req.param("host")`); the client encodes
- *  it with `encodeURIComponent` (see `buildTerminalFileUrl`), so re-encoding it
- *  here reproduces the exact raw segment the pathname carries — the same canonical
- *  round-trip the caller relies on.
+ *  `host` is the DECODED route param (`HttpRouter.params.host`); the client
+ *  encodes it with `encodeURIComponent` (see `buildTerminalFileUrl`), so
+ *  re-encoding it here reproduces the exact raw segment the pathname carries —
+ *  the same canonical round-trip the caller relies on.
  *
  *  The un-normalized pathname comes from serve-dir's `rawPathname`, NOT
- *  `new URL(rawUrl).pathname` / Hono's `c.req.path` / `c.req.param("*")` — see
+ *  `new URL(rawUrl).pathname` / a router's own decoded params — see
  *  `rawPathname`'s doc comment for why every pre-normalizing/pre-decoding source
  *  defeats a guard serve-dir is supposed to enforce. Here we only add the
  *  kolu-specific prefix slice on top of that raw pathname. */
@@ -100,7 +103,7 @@ export function previewTailFromRawUrl(
 // A multi-GB video forced through one call would blow both the daemon's and
 // kolu-server's heap (and hit `readPreview`'s 64 MiB inline cap). So this arm NEVER
 // asks for the whole file at once: it drives BOUNDED byte ranges in a loop, each
-// ≤ `REMOTE_PREVIEW_CHUNK_BYTES`, and pushes them into a `ReadableStream` the Hono
+// ≤ `REMOTE_PREVIEW_CHUNK_BYTES`, and pushes them into a `ReadableStream` the
 // route hands to the socket — so the peak heap is one chunk, not one file, on both
 // hops. Range resolution (which 206/416/200 a given `Range` header yields) is NOT
 // re-implemented here: it's `@kolu/serve-dir`'s own `parseByteRange`, the single
@@ -440,3 +443,239 @@ export async function assembleRemotePreview(
     body: streamByteRange(read, lo, hi, total, etag, chunkBytes),
   };
 }
+
+// ── The ROUTE ────────────────────────────────────────────────────────────────
+//
+// Serves repo files referenced by `FsReadFileOutput.kind === "binary"`. The URL
+// contract (base + builder + parser) lives entirely in this module and
+// `kolu-common/preview`; the composition root only supplies the pool, the logger
+// and the artifact-sdk decoration.
+
+/** The route pattern. `:host` / `:terminalId` are ordinary params (the router
+ *  decodes them, which is correct — the client `encodeURIComponent`s both, see
+ *  `buildTerminalFileUrl`); the trailing `*` matches the file tail, which is
+ *  deliberately NOT read from the router — see {@link previewRouteHandler}. */
+export const PREVIEW_ROUTE_PATTERN =
+  `${TERMINAL_FILE_ROUTE_BASE}/:host/:terminalId/${TERMINAL_FILE_ROUTE_FILE_SEGMENT}/*` as const;
+
+/** The bound-padi members this route dials, as a NARROW structural seam rather
+ *  than the full `PadiSurfaceClient`: the route needs exactly two procedures, so
+ *  spelling those two keeps it testable against a fake with no dial machinery.
+ *  `iframePreviewRoute.test.ts` pins the real client/session/pool types against
+ *  these, so the seam cannot drift from what the composition root passes. */
+export interface PreviewPadiClient {
+  readonly surface: {
+    readonly preview: {
+      readonly repoRootForTerminal: (input: {
+        terminalId: string;
+      }) => Promise<{ repoRoot: string | null }>;
+      readonly read: (input: {
+        repoPath: string;
+        filePath: string;
+        range?: string;
+      }) => Promise<PreviewReadResult>;
+    };
+  };
+}
+
+/** One host's warm padi session (the `@kolu/surface-remote` `Session` shape). */
+export interface PreviewHostSession {
+  currentClient(): Promise<PreviewPadiClient> | null;
+}
+
+/** The host pool the route resolves `:host` against. */
+export interface PreviewHostPool {
+  getSession(encodedHost: string): PreviewHostSession | undefined;
+}
+
+/** A plain-text refusal. Every non-body arm of the route answers with one, and
+ *  they are what the e2e browse scenarios observe. */
+const refusal = (body: string, status: number) =>
+  HttpServerResponse.text(body, {
+    status,
+    contentType: "text/plain; charset=utf-8",
+  });
+
+/** serve-dir's `ServeResult` → an HTTP response, verbatim. A `ReadableStream`
+ *  body stays a stream (bytes flow disk→socket with a bounded heap, so a
+ *  multi-GB video never lands in kolu-server's memory); a string body is an
+ *  error reason. Status and headers are serve-dir's own — this route never
+ *  reshapes them. */
+const serveResultResponse = (
+  r: ServeResult,
+): HttpServerResponse.HttpServerResponse =>
+  typeof r.body === "string"
+    ? HttpServerResponse.text(r.body, { status: r.status, headers: r.headers })
+    : HttpServerResponse.stream(
+        Stream.fromReadableStream({
+          evaluate: () => r.body as ReadableStream<Uint8Array>,
+          onError: (error) => error,
+        }),
+        { status: r.status, headers: r.headers },
+      );
+
+/** The iframe-preview byte route's handler.
+ *
+ *  Compose it into a router at {@link PREVIEW_ROUTE_PATTERN}, wrapped in
+ *  artifact-sdk's `withArtifactSdk` decorator so `text/html` previews carry the
+ *  comments SDK. The decoration is applied by the caller, not here: it belongs
+ *  to kolu's product, not to the byte route. */
+export const previewRouteHandler = (options: {
+  readonly pool: PreviewHostPool;
+  readonly log: Pick<Logger, "error">;
+}): Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  never,
+  HttpServerRequest.HttpServerRequest | HttpRouter.RouteContext
+> =>
+  Effect.gen(function* () {
+    const { pool, log } = options;
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const params = yield* HttpRouter.params;
+    const rawHostParam = params.host;
+    const terminalId = params.terminalId;
+    // Unreachable through the registered pattern — both segments must match for
+    // this handler to run at all. Stated rather than cast so the route is total.
+    if (rawHostParam === undefined || terminalId === undefined) {
+      return refusal("malformed preview route", 400);
+    }
+
+    // The preview reads a per-HOST terminal's bytes, so the tab's active host rides
+    // in the URL (`buildTerminalFileUrl`, as `encodeHostKey`'s canonical string) and we
+    // resolve against THAT host's padi — not the local default. Without this, switching
+    // to a remote host would ask the LOCAL padi about a remote terminal id (a 404, or
+    // the wrong bytes on an id collision). Decode + re-validate the key through the
+    // SAME codec + schema the map is keyed by (rejects a malformed segment → 400), then
+    // find its warm session; a key that isn't a current pool member (an unseeded or
+    // departed host) is a loud 404, never a silent fall-through to the default host.
+    let host: HostKey;
+    try {
+      host = decodeHostKeyValue(decodeHostKey(rawHostParam));
+    } catch {
+      return refusal("invalid host key", 400);
+    }
+    const session = pool.getSession(encodeHostKey(host));
+    if (!session) {
+      return refusal(`unknown host "${encodeHostKey(host)}"`, 404);
+    }
+
+    // Slice the tail off the RAW request target — NOT the router's decoded
+    // params. `HttpRouter.params["*"]` is `decodeURIComponent`d by the matcher,
+    // which would decode the tail before `@kolu/serve-dir` decodes it again
+    // (double-decode), and any WHATWG `new URL(...)` round trip would collapse
+    // `foo/../secret` and `foo/%2e%2e/` to `secret` BEFORE the handler sees it,
+    // defeating serve-dir's `..` guard. `HttpServerRequest.url` on the node
+    // handler path IS the raw `IncomingMessage.url` (origin-form `/path?query`),
+    // so it is exactly what serve-dir must see. `previewTailFromRawUrl` documents
+    // the rest (correctness for `%`-bearing names + `%2f` traversal defense) and
+    // is unit-tested — including end-to-end over a real node server — in
+    // `iframePreviewRoute.test.ts`.
+    const rawTail = previewTailFromRawUrl(
+      request.url,
+      rawHostParam,
+      terminalId,
+    );
+
+    // Which directory this terminal serves (its git repo root) — RE-SOURCED from
+    // padi's registry over the SELECTED host's session, since padi (not kolu-server)
+    // owns the terminal registry now. padi resolves terminal id → repoRoot; how
+    // kolu-server then reads the bytes forks on the host (local disk vs. the remote
+    // host), see below. Either way the file is never forced whole through the base64
+    // procedure.
+    const clientPromise = session.currentClient();
+    // A degraded/warming binding (skew · unconverged · linkFailed · not-yet-connected)
+    // yields a NULL `currentClient()` (`remotePadiBinding.ts` currentClient) — a loud
+    // 503 here, never a hang.
+    if (!clientPromise) return refusal("padi is not connected", 503);
+    // Both the client AWAIT and the repoRoot resolve stay in ONE attempted effect so
+    // a client-promise rejection (a fresh spawn that fails its handshake) maps to the
+    // same 503 link-fault, not an uncaught 500.
+    const resolved = yield* Effect.result(
+      Effect.tryPromise({
+        try: async () => {
+          const client = await clientPromise;
+          const { repoRoot } = await client.surface.preview.repoRootForTerminal(
+            { terminalId },
+          );
+          return { client, repoRoot };
+        },
+        catch: (err) => err,
+      }),
+    );
+    if (Result.isFailure(resolved)) {
+      // padi's `repoRootForTerminal` returns `{ repoRoot: null }` for an
+      // unknown/unmapped terminal — it never FAILS for the no-repo case (that is
+      // the `if (!repoRoot)` 404 below). So a failure here is an OPERATIONAL
+      // failure of the bound link (the client promise rejected, padi went down
+      // mid-read, a protocol error, an unexpected handler fault), NOT "no repo".
+      // Surface it as a 503 so the real fault is visible instead of masqueraded as an
+      // ordinary missing-file 404.
+      log.error(
+        { err: resolved.failure, terminalId },
+        "padi repoRoot resolve failed (link fault)",
+      );
+      return refusal("padi link fault resolving terminal repo", 503);
+    }
+    const { client, repoRoot } = resolved.success;
+    if (!repoRoot) return refusal("terminal has no repo", 404);
+    // Bind to a const so the non-null narrowing survives into the remote closure.
+    const repoPath = repoRoot;
+
+    const range = request.headers.range;
+    // `If-Range` guards a `<video>` seek against the file changing mid-session: both
+    // arms honor the `Range` only while this validator still matches the file's
+    // current ETag (RFC 9110 §13.1.3), else serve the full 200.
+    const ifRange = request.headers["if-range"];
+    // The byte read forks on the SELECTED host — but the file tail + repoRoot (and
+    // their `..`/`%2f` defenses above) are identical for both arms, so a remote path
+    // never reaches a local read, and vice versa.
+    //   - REMOTE host: the file lives on the ssh HOST, so dial that host's padi
+    //     `preview.read` in bounded chunks (`assembleRemotePreview`) — the RIGHT
+    //     host's bytes, streamed back with an O(chunk) heap on both hops. padi
+    //     re-enforces its realpath/403 guard host-side inside the read.
+    //   - LOCAL default (`host.kind === "local"`): read THIS machine's disk directly via
+    //     the shared streaming `previewFile` (the same underlying serve-dir read padi
+    //     serves) — no hop, no base64 round trip, byte-identical to before.
+    // Both return serve-dir's `ServeResult` shape; the artifact-sdk HTML decorator
+    // the caller wraps this handler in rewrites text/html downstream in either case.
+    if (host.kind !== "local") {
+      // The remote arm's METADATA dials (the 1-byte probe + any re-dial) run inside
+      // this attempt; a link fault there maps to the SAME logged 503 as the repoRoot
+      // resolve above. The streaming body's per-chunk dials run LATER, when the
+      // response is written, so a fault there can't reach THIS catch — but it is NOT
+      // swallowed: for a binary preview the stream goes straight to the socket and
+      // the fault resets the connection (loud at the transport); for a `text/html`
+      // preview the artifact-sdk decorator drains the body, so the fault surfaces
+      // there and is caught by `routeErrorLogging` (a LOGGED 500). Either way loud,
+      // never a silent short body.
+      const remote = yield* Effect.result(
+        Effect.tryPromise({
+          try: () =>
+            assembleRemotePreview(
+              // The reader is built by `remotePreviewReader` rather than spelled
+              // inline — it owns the one `optionalKey` discipline this dial needs
+              // (#17), pinned beside the type it satisfies.
+              remotePreviewReader(
+                (input) => client.surface.preview.read(input),
+                repoPath,
+                rawTail,
+              ),
+              range,
+              ifRange,
+            ),
+          catch: (err) => err,
+        }),
+      );
+      if (Result.isFailure(remote)) {
+        log.error(
+          { err: remote.failure, terminalId },
+          "padi preview read failed (link fault)",
+        );
+        return refusal("padi link fault serving preview", 503);
+      }
+      return serveResultResponse(remote.success);
+    }
+    return serveResultResponse(
+      yield* previewFile({ repoPath, filePath: rawTail, range, ifRange }),
+    );
+  });

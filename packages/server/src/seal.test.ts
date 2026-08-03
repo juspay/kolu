@@ -126,6 +126,16 @@ const WEB_SHELL_FILES = [
   // beside the shell, wired into `buildRemotePool`'s `persist` hook from `index.ts`.
   // Pure shell glue (a file codec keyed by pool membership), not terminal domain.
   "hostPersistence",
+  // The liveness probe route — a constant 200 `kolu` with no dependencies, so it
+  // answers as soon as the HTTP handler is attached (which is what `ci::dev-smoke`
+  // and the packaged-binary smoke both wait on). Pure HTTP shell code.
+  "healthRoute",
+  // The web shell's HTTP middleware: the catch-all fault logger (an uncaught route
+  // fault — e.g. the artifact-sdk HTML decorator draining a remote-preview stream
+  // that faults past the route's own 503 `try` — becomes a LOGGED 500) plus the
+  // per-request debug log. The one bridge between the serving stack and pino.
+  // Pure HTTP shell code, runs no terminal domain.
+  "httpMiddleware",
   "iframePreviewRoute",
   "index",
   "log",
@@ -138,11 +148,6 @@ const WEB_SHELL_FILES = [
   // gate is pinnable apart from index.ts's boot-only closure. Web-shell policy.
   "padiMemoryGate",
   "pwaIdentity",
-  // The web shell's catch-all `app.onError` logger — turns an uncaught route/
-  // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
-  // stream that faults past the route's own 503 `try`) into a LOGGED 500. Pure HTTP
-  // shell code, runs no terminal domain.
-  "routeErrors",
   "router",
   "state",
   "surface",

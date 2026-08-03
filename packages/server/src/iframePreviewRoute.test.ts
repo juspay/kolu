@@ -18,6 +18,7 @@ import path from "node:path";
 import { NodeHttpServer } from "@effect/platform-node";
 import { padiClientOver } from "@kolu/padi/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
+import type { RemotePool } from "@kolu/surface-remote";
 import { Effect, Exit, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import {
@@ -41,6 +42,7 @@ import {
   REMOTE_PREVIEW_CHUNK_BYTES,
   remotePreviewReader,
 } from "./iframePreviewRoute.ts";
+import type { PadiSession } from "./padi/padiSession.ts";
 
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
   // If any previewable extension lacked a real type, serve-dir would serve it as
@@ -630,6 +632,16 @@ describe("iframe-preview route over a real node server (the raw target survives)
       req.end();
     });
   }
+
+  // Every test here drives a FAKE pool, so the seam could drift from what the
+  // composition root actually passes without a single test noticing. This is the
+  // compile-time pin that stops it: the REAL `RemotePool<PadiSession, …>` must be
+  // assignable to the narrow structural seam.
+  it("the narrow seam accepts the REAL pool the composition root passes", () => {
+    const asSeam = (p: RemotePool<PadiSession, undefined>): PreviewHostPool =>
+      p;
+    expect(typeof asSeam).toBe("function");
+  });
 
   it("serves an in-root file (sanity: the route is wired)", async () => {
     const res = await rawGet(
