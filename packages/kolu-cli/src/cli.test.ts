@@ -6,11 +6,13 @@
  * Unit-level: parses only, no server boots, no MCP serve.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { Cause, Effect, Exit, Runtime } from "effect";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PORT } from "kolu-common/config";
 import {
+  type KoluCliFace,
   type KoluCliParse,
-  koluFaceOrExit,
+  koluFace,
   parseKoluCli,
   reservedFaceMessage,
 } from "./cli.ts";
@@ -140,44 +142,77 @@ describe("kolu subcommand dispatch (kolu-cli PR1)", () => {
     }
   });
 
-  describe("koluFaceOrExit", () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
+  describe("koluFace", () => {
+    /** Run the dispatch effect to an `Exit` — a fail-fast arm is now a VALUE on
+     *  the error channel, so these assertions need no `process.exit` spy at
+     *  all; the exit code they used to prove is carried by the error itself and
+     *  read by `main.ts`'s teardown. */
+    const faceExit = (
+      argv: string[],
+    ): Exit.Exit<KoluCliFace, { readonly message: string }> =>
+      Effect.runSyncExit(koluFace(argv));
 
-    it("kolu tui fails fast: the named message on stderr, exit non-zero", () => {
-      const exitSpy = mockExitThrow();
-      const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      expect(() => koluFaceOrExit(["tui"])).toThrow("exit(1)");
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const written = String(stderrSpy.mock.calls[0]?.[0]);
-      expect(written).toBe(`${reservedFaceMessage("tui")}\n`);
-      expect(written).toContain("not shipped yet");
-      expect(written).toContain("kolu.dev/atlas/kolu-cli.html");
+    /** The one failure a fail-fast arm produces, or a NAMED throw if the arm
+     *  succeeded — never a silent `undefined` the assertions below would then
+     *  vacuously pass against. */
+    const failureOf = (argv: string[]) => {
+      const exit = faceExit(argv);
+      if (!Exit.isFailure(exit)) {
+        throw new Error(`expected ${argv.join(" ")} to fail, it succeeded`);
+      }
+      return Cause.squash(exit.cause) as {
+        readonly _tag: string;
+        readonly message: string;
+        readonly [Runtime.errorExitCode]?: number;
+        readonly [Runtime.errorReported]?: boolean;
+      };
+    };
+
+    it("kolu tui fails fast: the named message, tagged, exit code 1", () => {
+      const err = failureOf(["tui"]);
+      expect(err._tag).toBe("ReservedFaceError");
+      expect(err.message).toBe(reservedFaceMessage("tui"));
+      expect(err.message).toContain("not shipped yet");
+      expect(err.message).toContain("kolu.dev/atlas/kolu-cli.html");
+      // The exit-code map is the marker, read by `NodeRuntime.runMain`'s
+      // default teardown — so THIS is what pins `kolu tui` exiting non-zero.
+      expect(err[Runtime.errorExitCode]).toBe(1);
+      // …and the CLI prints its own line, so Effect must not also dump the
+      // cause on top of it.
+      expect(err[Runtime.errorReported]).toBe(false);
     });
 
     it("kolu mcp dispatches as a real face now, carrying its host", () => {
-      expect(koluFaceOrExit(["mcp"])).toEqual({ face: "mcp", host: undefined });
-      expect(koluFaceOrExit(["mcp", "--host", "user@zest"])).toEqual({
-        face: "mcp",
-        host: "user@zest",
-      });
-    });
-
-    it("returns the parsed flags for bare and web spellings", () => {
-      expect(koluFaceOrExit(["--port", "7001"])).toEqual(
-        koluFaceOrExit(["web", "--port", "7001"]),
+      expect(faceExit(["mcp"])).toEqual(
+        Exit.succeed({ face: "mcp", host: undefined }),
+      );
+      expect(faceExit(["mcp", "--host", "user@zest"])).toEqual(
+        Exit.succeed({ face: "mcp", host: "user@zest" }),
       );
     });
 
-    it("an unknown command fails fast: named message, exit non-zero", () => {
+    it("returns the parsed flags for bare and web spellings", () => {
+      expect(faceExit(["--port", "7001"])).toEqual(
+        faceExit(["web", "--port", "7001"]),
+      );
+    });
+
+    it("an unknown command fails fast: named message, exit code 1", () => {
+      const err = failureOf(["tuii"]);
+      expect(err._tag).toBe("UnknownCommandError");
+      expect(err.message).toContain('unknown command "tuii"');
+      expect(err.message).toContain("web");
+      expect(err[Runtime.errorExitCode]).toBe(1);
+    });
+
+    it("builds nothing until it is run — the parse is inside the effect", () => {
+      // `koluFace` is suspended, so constructing it must not reach cleye (which
+      // prints and exits for `--version`). A built-but-unrun effect that had
+      // already parsed would show up here as an exit.
       const exitSpy = mockExitThrow();
-      const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-      expect(() => koluFaceOrExit(["tuii"])).toThrow("exit(1)");
-      expect(exitSpy).toHaveBeenCalledWith(1);
-      const written = String(stderrSpy.mock.calls[0]?.[0]);
-      expect(written).toContain('unknown command "tuii"');
-      expect(written).toContain("web");
+      expect(() => koluFace(["--version"])).not.toThrow();
+      expect(exitSpy).not.toHaveBeenCalled();
+      vi.restoreAllMocks();
     });
   });
 });

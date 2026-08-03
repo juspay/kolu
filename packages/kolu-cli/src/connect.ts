@@ -43,44 +43,127 @@ import {
   resolveRunningPadiSocket,
   scopePadiSurface,
 } from "@kolu/padi/dial";
+import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { Data, Effect } from "effect";
 
 /** The transport-blind handle a CLI face is written against — the padi-scoped
- *  client plus a `dispose` that drops the socket/pipe. */
+ *  client plus a `dispose` that drops the socket/pipe.
+ *
+ *  Deliberately NOT an `Effect.acquireRelease`d resource, and the reason is the
+ *  consumer: the MCP adapter (`kolu-mcp`) OWNS a dialed connection's lifetime —
+ *  it holds one across many tool calls and disposes it on its own redial /
+ *  shutdown path. A scope here would end the link at the wrong moment (the dial
+ *  effect's own scope), so the handle keeps carrying its `dispose` and the dial
+ *  hands the resource OUT. Where kolu-cli owns a link itself — it does not
+ *  today — the scoped form is the one to reach for. */
 export interface KoluCliConnection {
   client: PadiSurfaceClient;
   dispose: () => void;
 }
 
+/** The running padi could not be NAMED: none discovered, or several with no
+ *  `$PADI_SOCKET` to pick one. A usage fact about this host, never a transient
+ *  — a retry cannot change it, so it is its own tag. */
+export class PadiNotAddressable extends Data.TaggedError(
+  "PadiNotAddressable",
+)<{ readonly message: string }> {}
+
+/** The padi we named speaks a `padiSurface` this build cannot talk to.
+ *
+ *  This is the ONE place the supervisor's BRAND check runs (see
+ *  `isContractSkewError`: a brand, never `instanceof`, because a CLI face and
+ *  the dial kit that raised the error can sit on different module instances of
+ *  `@kolu/surface-daemon-supervisor`). Classifying AT THE RAISE SITE is what
+ *  makes the misrouting hazard unspellable downstream: every consumer past this
+ *  point matches on `_tag`, and a `_tag` compare is realm-safe by construction,
+ *  so no second module instance can turn a permanent skew into a retryable
+ *  transport gap. */
+export class PadiContractSkew extends Data.TaggedError("PadiContractSkew")<{
+  readonly message: string;
+}> {}
+
+/** Anything else the dial can fail with — padi down, restarting, the socket
+ *  moved, an ssh leg that never came up. Transient by assumption, so the MCP
+ *  face surfaces it as a RETRYABLE tool-call error. */
+export class PadiDialFailed extends Data.TaggedError("PadiDialFailed")<{
+  readonly message: string;
+  readonly cause: unknown;
+}> {}
+
+/** Every way a kolu-cli dial can fail, as one union — the alphabet
+ *  `guardedMcpDial` exhausts. */
+export type KoluCliDialError =
+  | PadiNotAddressable
+  | PadiContractSkew
+  | PadiDialFailed;
+
+/** Turn a raw dial rejection into the tagged arm that describes it. The brand
+ *  check lives here and nowhere else (see {@link PadiContractSkew}); exported so
+ *  the classification is unit-testable against a REAL
+ *  `DaemonContractSkewError` rather than only through a live socket. */
+export function classifyDialFailure(
+  err: unknown,
+): PadiContractSkew | PadiDialFailed {
+  if (isContractSkewError(err)) {
+    return new PadiContractSkew({ message: err.message });
+  }
+  // Guard the message a human/agent actually reads — a non-`Error` rejection (a
+  // thrown string, a rejected non-Error value) would make an unguarded
+  // `(err as Error).message` read `undefined`, degrading the ONE diagnostic that
+  // says what broke.
+  return new PadiDialFailed({
+    message: err instanceof Error ? err.message : String(err),
+    cause: err,
+  });
+}
+
 /**
  * Dial the LOCAL padi: resolve the running daemon's socket fresh (digest-keyed
- * — see the module header), dial + handshake through `connectPadi` (a contract
- * skew fails LOUD with `DaemonContractSkewError`), then scope to padi's sibling
- * face.
+ * — see the module header), dial + handshake through `connectPadi`, then scope
+ * to padi's sibling face.
  *
  * Fail-fast on the resolution edges — the CLI faces dial a padi that ALREADY
  * runs, never provision one:
  *   - no daemon discovered → a named error naming the fix (start kolu / set
  *     `$PADI_SOCKET`), not a doomed dial against the default path;
  *   - more than one → a named error listing each candidate socket.
+ *
+ * A LAZY effect, so "re-resolve fresh per dial" (the module header's restart
+ * discipline) stays true by construction: nothing runs until the adapter redials,
+ * and each run re-reads the registry.
  */
-export async function connectKoluCliLocal(): Promise<KoluCliConnection> {
+export const connectKoluCliLocal: Effect.Effect<
+  KoluCliConnection,
+  KoluCliDialError
+> = Effect.suspend<KoluCliConnection, KoluCliDialError, never>(() => {
   const resolved = resolveRunningPadiSocket();
   if (resolved.kind === "many") {
     const lines = resolved.candidates
       .map((c) => `  PADI_SOCKET=${c.socket}`)
       .join("\n");
-    throw new Error(
-      `more than one padi daemon is running on this host — set $PADI_SOCKET to pick one:\n${lines}`,
+    return Effect.fail(
+      new PadiNotAddressable({
+        message: `more than one padi daemon is running on this host — set $PADI_SOCKET to pick one:\n${lines}`,
+      }),
     );
   }
   if (resolved.kind === "none") {
-    throw new Error(
-      "no running padi daemon found on this host — start kolu (its padi serves the terminals), or set $PADI_SOCKET to an explicit socket.",
+    return Effect.fail(
+      new PadiNotAddressable({
+        message:
+          "no running padi daemon found on this host — start kolu (its padi serves the terminals), or set $PADI_SOCKET to an explicit socket.",
+      }),
     );
   }
-  const conn = await connectPadi(resolved.socket);
-  return {
-    client: scopePadiSurface(conn.client),
-    dispose: conn.dispose,
-  };
-}
+  const socket = resolved.socket;
+  return Effect.map(
+    Effect.tryPromise({
+      try: () => connectPadi(socket),
+      catch: classifyDialFailure,
+    }),
+    (conn) => ({
+      client: scopePadiSurface(conn.client),
+      dispose: conn.dispose,
+    }),
+  );
+});

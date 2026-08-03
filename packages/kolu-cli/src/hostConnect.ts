@@ -29,28 +29,50 @@ import {
   padiClientOver,
   scopePadiSurface,
 } from "@kolu/padi/dial";
-import type { KoluCliConnection } from "./connect.ts";
+import { Effect } from "effect";
+import {
+  classifyDialFailure,
+  type KoluCliConnection,
+  type KoluCliDialError,
+  PadiDialFailed,
+} from "./connect.ts";
 
 /** Dial a padi on `host` over ssh, one-shot: provision, run `padi --stdio`,
  *  gate the padiSurface contract version, scope to padi's sibling face. All
  *  diagnostics ride stderr (dialAgentOnce's default sink) — stdout is the MCP
- *  protocol channel and must never carry a log line. */
-export async function connectKoluCliViaHost(
+ *  protocol channel and must never carry a log line.
+ *
+ *  Fails with the SAME tagged alphabet the local dial does
+ *  ({@link KoluCliDialError}), classified by the same `classifyDialFailure`, so
+ *  the MCP face's skew-vs-transport policy is written once and a face stays
+ *  transport-blind on the failure side too — not only on the success side. */
+export function connectKoluCliViaHost(
   host: string,
-): Promise<KoluCliConnection> {
-  const dial = await dialPadiViaHost(host);
-  if (dial.dispatch === undefined) {
-    // `AgentDial.dispatch` is optional because it is a property of the
-    // TRANSPORT, not of the dial role — but every `sshConnector` dial supplies
-    // one, so its absence is a broken link, not a mode to degrade into. Fail
-    // loud here rather than hand the MCP face a client that cannot address padi.
-    dial.dispose();
-    throw new Error(
-      `padi dial to ${host} returned no dispatch — the ssh link produced no addressable wire`,
-    );
-  }
-  return {
-    client: scopePadiSurface(padiClientOver(dial.dispatch)),
-    dispose: dial.dispose,
-  };
+): Effect.Effect<KoluCliConnection, KoluCliDialError> {
+  return Effect.flatMap(
+    Effect.tryPromise({
+      try: () => dialPadiViaHost(host),
+      catch: classifyDialFailure,
+    }),
+    (dial) => {
+      if (dial.dispatch === undefined) {
+        // `AgentDial.dispatch` is optional because it is a property of the
+        // TRANSPORT, not of the dial role — but every `sshConnector` dial
+        // supplies one, so its absence is a broken link, not a mode to degrade
+        // into. Fail loud here rather than hand the MCP face a client that
+        // cannot address padi.
+        dial.dispose();
+        return Effect.fail(
+          new PadiDialFailed({
+            message: `padi dial to ${host} returned no dispatch — the ssh link produced no addressable wire`,
+            cause: undefined,
+          }),
+        );
+      }
+      return Effect.succeed({
+        client: scopePadiSurface(padiClientOver(dial.dispatch)),
+        dispose: dial.dispose,
+      });
+    },
+  );
 }

@@ -52,8 +52,10 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
-import { guardedMcpConnect } from "./mcp.ts";
+import { classifyDialFailure } from "./connect.ts";
+import { guardedMcpDial } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
@@ -408,13 +410,21 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // The REAL local connect composition (guarded): re-dials the SAME
     // digest-keyed path each invocation — the adapter's redial hook.
-    const connect = guardedMcpConnect(async () => {
-      const conn = await connectPadi(socketPath);
-      return {
-        client: scopePadiSurface(conn.client),
-        dispose: conn.dispose,
-      };
-    });
+    const dial = guardedMcpDial(
+      Effect.tryPromise({
+        try: async () => {
+          const conn = await connectPadi(socketPath);
+          return {
+            client: scopePadiSurface(conn.client),
+            dispose: conn.dispose,
+          };
+        },
+        catch: classifyDialFailure,
+      }),
+    );
+    // The adapter's face is a Promise thunk it owns the lifetime behind, so
+    // the crossing happens here exactly as it does in `runKoluMcp`.
+    const connect = () => Effect.runPromise(dial);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluMcp({

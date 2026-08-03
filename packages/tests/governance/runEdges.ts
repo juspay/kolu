@@ -44,6 +44,16 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the root-procedure face's Promise edge — a SolidJS leaf awaits it, and it rejects with the squashed tagged error so `_tag` narrowing stays honest",
   },
   {
+    path: "packages/kolu-cli/src/main.ts",
+    sites: 1,
+    why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",
+  },
+  {
+    path: "packages/kolu-cli/src/mcp.ts",
+    sites: 1,
+    why: "the MCP-SDK's connect callback — `serveSurfaceAsMcp` asks for `() => Promise<Connection>` and OWNS the connection it gets, re-invoking it on its own redial path, so the crossing cannot be composed away without changing kolu-mcp's face",
+  },
+  {
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
     sites: 1,
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
