@@ -7,9 +7,12 @@
  * process that IGNORES SIGTERM must still be gone when `reapHolder` returns.
  */
 import { spawn } from "node:child_process";
-import { describeDaemon } from "@kolu/daemon-test-gate";
-import { afterEach, expect, it } from "vitest";
+import {
+  assertDaemonSpawnAllowed,
+  describeDaemon,
+} from "@kolu/daemon-test-gate";
 import { isHolderLive } from "@kolu/surface-daemon";
+import { afterEach, expect, it } from "vitest";
 import {
   REAP_KILL_CEILING_MS,
   REAP_TERM_CEILING_MS,
@@ -30,6 +33,10 @@ afterEach(() => {
 /** A node child that sleeps forever. `trapTerm` makes it IGNORE SIGTERM — the
  *  wedged daemon the escalation exists for. */
 async function sleeper(trapTerm: boolean): Promise<number> {
+  // Gated at the CALL SITE, where the fork actually happens — the `describeDaemon`
+  // wrapper around the cases below is a different function, and the hygiene
+  // backstop is per-site by design (#1334/#1375).
+  assertDaemonSpawnAllowed("reapHolder fixture child");
   const body = trapTerm
     ? "process.on('SIGTERM',()=>{});setInterval(()=>{},1000);console.log('up')"
     : "setInterval(()=>{},1000);console.log('up')";
