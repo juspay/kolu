@@ -24,6 +24,7 @@ import {
   servePtyHostOverUnixSocket,
 } from "kaval";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { Effect, Exit, Scope } from "effect";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { type AttachOutcome, type AttachTty, runAttach } from "./attach.ts";
 import {
@@ -36,7 +37,14 @@ import { runKill } from "./kill.ts";
 import { resolveTerminalId, shortId } from "./render.ts";
 import { planSend, type SendPlan } from "./send.ts";
 import { executeSendPlan } from "./sendExec.ts";
-import { delay } from "./wait.ts";
+
+
+/** A plain sleep. It used to live in `wait.ts` as the package's one
+ *  `setTimeout` wrapper; production has no use for it any more (the wait's idle
+ *  window is a queue timeout, the attach's re-subscribe pause an `Effect.sleep`),
+ *  so it lives with its last consumer instead of being kept alive as an export. */
+const delay = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
 
 const silentLog = {
   debug: () => {},
@@ -75,9 +83,10 @@ function fakeTty(): FakeTty {
   return {
     tty: {
       input,
-      write: async (d) => {
-        out += d;
-      },
+      write: (d) =>
+        Effect.sync(() => {
+          out += d;
+        }),
       size: () => ({ cols: 80, rows: 24 }),
       onResize: () => () => {},
       setRawMode: () => {},
@@ -129,6 +138,8 @@ async function until(
 
 let listener: PtyHostSocketListener;
 let conn: Connection;
+/** The dial is scoped now; the suite owns a scope for the connection's life. */
+let connScope: Scope.Closeable;
 let killAll: () => Promise<unknown>;
 
 beforeAll(async () => {
@@ -147,22 +158,23 @@ beforeAll(async () => {
     served,
     log: silentLog,
   });
-  conn = await connectPtyHost(socketPath);
+  connScope = Scope.makeUnsafe();
+  conn = await Effect.runPromise(
+    Scope.provide(connectPtyHost(socketPath), connScope),
+  );
 });
 
 afterAll(async () => {
   await killAll();
-  await conn.dispose();
+  await Effect.runPromise(Scope.close(connScope, Exit.void));
   await listener.close();
 });
 
 describeDaemon("runAttach — over a real unix socket", () => {
   it("returns not-found for an id no PTY has (before any screen takeover)", async () => {
     const { tty, out } = fakeTty();
-    const outcome = await runAttach(
-      conn.client,
-      "00000000-0000-0000-0000-000000000000",
-      { tty },
+    const outcome = await Effect.runPromise(
+      runAttach(conn.client, "00000000-0000-0000-0000-000000000000", { tty }),
     );
     expect(outcome).toEqual({ kind: "not-found" });
     // Honest failure: nothing was painted on the local screen.
@@ -322,7 +334,7 @@ describeDaemon("runAttach — over a real unix socket", () => {
       spawnInput(dir),
     );
     const { tty, out, type } = fakeTty();
-    const done = runAttach(conn.client, id, { tty });
+    const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
 
     // The one-shot notice + the snapshot paint arrive first.
     await until(() => out().includes("snapshot restored"), "attach notice");
@@ -348,7 +360,7 @@ describeDaemon("runAttach — over a real unix socket", () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
     const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
     const { tty, out, type } = fakeTty();
-    const done = runAttach(conn.client, id, { tty });
+    const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
     type("exit 7\r");
     const outcome = (await done) as Extract<AttachOutcome, { kind: "exited" }>;
@@ -375,7 +387,7 @@ describeDaemon("runAttach — over a real unix socket", () => {
       writeLanded = true;
     });
 
-    const done = runAttach(slowClient, id, { tty });
+    const done = Effect.runPromise(runAttach(slowClient, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
 
     // The command and the line-start detach land in ONE stdin burst:
@@ -405,7 +417,7 @@ describeDaemon("runAttach — over a real unix socket", () => {
     const dir = mkdtempSync(join(tmpdir(), "kolu-attach-"));
     const { id } = await conn.client.surface.terminal.spawn(spawnInput(dir));
     const { tty, out, type } = fakeTty();
-    const done = runAttach(conn.client, id, { tty });
+    const done = Effect.runPromise(runAttach(conn.client, id, { tty }));
     await until(() => out().includes("snapshot restored"), "attach notice");
     type("~?");
     await until(() => out().includes("kaval-tui escapes"), "help text");
@@ -442,15 +454,15 @@ describeDaemon("send — over the same real unix socket", () => {
     const enterPlan = planSend({ kind: "keys", keyData: "\r" }); // a standalone `--key Enter`
     expect(textPlan.write).toBe("echo SENDMARK-$((6 * 7))");
     expect(enterPlan.write).toBe("\r");
-    await executeSendPlan(
-      textPlan,
-      (data) => conn.client.surface.terminal.write({ id, data }).then(() => {}),
-      shortId(id),
+    const writeToPty = (data: string) =>
+      Effect.promise(() =>
+        conn.client.surface.terminal.write({ id, data }).then(() => {}),
+      );
+    await Effect.runPromise(
+      executeSendPlan(textPlan, writeToPty, shortId(id)),
     );
-    await executeSendPlan(
-      enterPlan,
-      (data) => conn.client.surface.terminal.write({ id, data }).then(() => {}),
-      shortId(id),
+    await Effect.runPromise(
+      executeSendPlan(enterPlan, writeToPty, shortId(id)),
     );
 
     let screen = "";
@@ -548,12 +560,15 @@ describeDaemon(
      *  `executeSendPlan` (the same function `cmdSend` runs), over this suite's
      *  socket write — so the acceptance test validates the real sequencing. */
     const runPlan = (id: string, plan: SendPlan): Promise<void> =>
-      executeSendPlan(
-        plan,
-        async (data) => {
-          await conn.client.surface.terminal.write({ id, data });
-        },
-        shortId(id),
+      Effect.runPromise(
+        executeSendPlan(
+          plan,
+          (data) =>
+            Effect.promise(async () => {
+              await conn.client.surface.terminal.write({ id, data });
+            }),
+          shortId(id),
+        ),
       );
 
     /** Send just the text (a bracketed paste, no Enter) — step 1 of the flow. */
@@ -698,9 +713,11 @@ describeDaemon("runKill — over the same real unix socket", () => {
     // Drive the real command body; capture its stderr confirmation through the
     // injected sink instead of the process's stderr.
     let confirmed = "";
-    await runKill(conn, resolved.id, (line) => {
-      confirmed += line;
-    });
+    await Effect.runPromise(
+      runKill(conn, resolved.id, (line) => {
+        confirmed += line;
+      }),
+    );
     // The one-line confirmation names the short id, like `attach`'s trailers.
     expect(confirmed).toBe(`— killed ${shortId(id)}\n`);
 

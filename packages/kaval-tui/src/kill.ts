@@ -4,6 +4,7 @@
  * `attach.ts`). `main.ts` resolves the short id via `resolveOne` and hands the
  * full id here; this module owns the kill RPC + its stderr confirmation.
  */
+import { Effect } from "effect";
 import type { Connection } from "./connect.ts";
 import { shortId } from "./render.ts";
 
@@ -15,11 +16,18 @@ import { shortId } from "./render.ts";
  *  like `attach`'s trailers, so stdout stays empty: `kill` yields no scriptable
  *  payload, only an exit code (0 on success, the catch-all 1 on an RPC/transport
  *  error). The sink is injected so a test can capture the line without a tty. */
-export async function runKill(
+export function runKill(
   conn: Connection,
   id: string,
   confirm: (line: string) => void,
-): Promise<void> {
-  await conn.client.surface.terminal.kill({ id });
-  confirm(`— killed ${shortId(id)}\n`);
+): Effect.Effect<void, unknown> {
+  return Effect.map(
+    Effect.tryPromise({
+      try: () => conn.client.surface.terminal.kill({ id }),
+      catch: (err) => err,
+    }),
+    () => {
+      confirm(`— killed ${shortId(id)}\n`);
+    },
+  );
 }

@@ -23,6 +23,7 @@ import {
   servePtyHostOverUnixSocket,
 } from "kaval";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { Deferred, Effect, Exit, Scope } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
@@ -42,6 +43,14 @@ const sleep = (ms: number): Promise<void> =>
 let listener: PtyHostSocketListener;
 let conn: Connection;
 let killAll: () => Promise<unknown>;
+/** The dial is a SCOPED effect now, so the suite holds a scope of its own for
+ *  the connection's lifetime and closes it in `afterAll` — the test's equivalent
+ *  of the one scope a command opens. */
+let connScope: Scope.Closeable;
+
+/** Run a wait at the test's own process edge — a test IS one. */
+const runWait = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+  Effect.runPromise(effect);
 
 /** Spawn a `cat` PTY (a pure echo — writes come straight back as output deltas)
  *  and return its id. The id is minted client-side, so it's the resolved full id
@@ -79,7 +88,10 @@ beforeAll(async () => {
     served,
     log: silentLog,
   });
-  conn = await connectPtyHost(socketPath);
+  connScope = Scope.makeUnsafe();
+  conn = await Effect.runPromise(
+    Scope.provide(connectPtyHost(socketPath), connScope),
+  );
 });
 
 afterEach(async () => {
@@ -87,7 +99,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  await conn.dispose();
+  await Effect.runPromise(Scope.close(connScope, Exit.void));
   await listener.close();
 });
 
@@ -190,11 +202,11 @@ describeDaemon(
   () => {
     it("resolves `idle` after the window once a terminal goes quiet", async () => {
       const id = await spawnCat(); // cat is silent with no input
-      const outcome = await awaitOutputCondition(conn.client, {
+      const outcome = await runWait(awaitOutputCondition(conn.client, {
         id,
         condition: { kind: "idle", ms: 300 },
         timeoutMs: 5000,
-      });
+      }));
       expect(outcome.kind).toBe("met");
       if (outcome.kind === "met") {
         expect(outcome.fired).toBe("idle");
@@ -205,11 +217,11 @@ describeDaemon(
 
     it("resolves `idle` after output STOPS (emits, then pauses > window)", async () => {
       const id = await spawnCat();
-      const p = awaitOutputCondition(conn.client, {
+      const p = runWait(awaitOutputCondition(conn.client, {
         id,
         condition: { kind: "idle", ms: 400 },
         timeoutMs: 8000,
-      });
+      }));
       // Emit three bursts ~120ms apart (each resets the window), then stay quiet.
       await sleep(100); // let the subscription + snapshot settle first
       for (let i = 0; i < 3; i++) {
@@ -239,11 +251,11 @@ describeDaemon(
       })();
       try {
         const t0 = Date.now();
-        const outcome = await awaitOutputCondition(conn.client, {
+        const outcome = await runWait(awaitOutputCondition(conn.client, {
           id,
           condition: { kind: "idle", ms: 500 },
           timeoutMs: 1500,
-        });
+        }));
         expect(outcome.kind).toBe("timeout");
         expect(Date.now() - t0).toBeGreaterThanOrEqual(1400); // ran to the cap
       } finally {
@@ -258,11 +270,11 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
   it("resolves `match` when new output matches the regex", async () => {
     const id = await spawnCat();
     let resolved = false;
-    const p = awaitOutputCondition(conn.client, {
+    const p = runWait(awaitOutputCondition(conn.client, {
       id,
       condition: { kind: "match", regex: /KAVAL-WAIT-MARK/ },
       timeoutMs: 5000,
-    });
+    }));
     void p.finally(() => {
       resolved = true;
     });
@@ -290,12 +302,12 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
 
   it("resolves `gone` when the terminal exits before the condition", async () => {
     const id = await spawnCat();
-    const p = awaitOutputCondition(conn.client, {
+    const p = runWait(awaitOutputCondition(conn.client, {
       id,
       // A long idle window the kill must short-circuit before it could fire.
       condition: { kind: "idle", ms: 5000 },
       timeoutMs: 10000,
-    });
+    }));
     await sleep(100);
     const t0 = Date.now();
     await conn.client.surface.terminal.kill({ id });
@@ -304,16 +316,22 @@ describeDaemon("awaitOutputCondition — match, exit, and interrupt", () => {
     expect(Date.now() - t0).toBeLessThan(3000); // not the 5s window / 10s timeout
   });
 
-  it("resolves `interrupted` when the caller's signal aborts", async () => {
-    const id = await spawnCat(); // silent, so only the abort can settle it
-    const abort = new AbortController();
-    const p = awaitOutputCondition(conn.client, {
-      id,
-      condition: { kind: "idle", ms: 9000 },
-      signal: abort.signal,
-    });
+  it("resolves `interrupted` when the caller asks it to stop", async () => {
+    const id = await spawnCat(); // silent, so only the stop can settle it
+    // The Ctrl+C seam is a `stop` EFFECT rather than an `AbortSignal`, and it is
+    // deliberately not fiber interruption: `interrupted` is an outcome this wait
+    // REPORTS (`--json` emits a frame for it), and an interrupted fiber reports
+    // nothing.
+    const stop = Deferred.makeUnsafe<void>();
+    const p = runWait(
+      awaitOutputCondition(conn.client, {
+        id,
+        condition: { kind: "idle", ms: 9000 },
+        stop: Deferred.await(stop),
+      }),
+    );
     await sleep(150);
-    abort.abort();
+    Deferred.doneUnsafe(stop, Effect.void);
     const outcome = await p;
     expect(outcome.kind).toBe("interrupted");
   });

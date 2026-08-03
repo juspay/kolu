@@ -20,6 +20,7 @@ import {
 } from "kaval";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { Effect, Exit, Scope } from "effect";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { type Connection, connectPtyHost } from "./connect.ts";
 import { buildCreateInput, newPtyId } from "./create.ts";
@@ -34,6 +35,8 @@ const silentLog = {
 
 let listener: PtyHostSocketListener;
 let conn: Connection;
+/** The dial is scoped now; the suite owns a scope for the connection's life. */
+let connScope: Scope.Closeable;
 
 const label = (i: number) => `H${String(i).padStart(4, "0")}`;
 
@@ -61,12 +64,15 @@ beforeAll(async () => {
     log: silentLog,
   });
   void client;
-  conn = await connectPtyHost(socketPath);
+  connScope = Scope.makeUnsafe();
+  conn = await Effect.runPromise(
+    Scope.provide(connectPtyHost(socketPath), connScope),
+  );
 });
 
 afterAll(async () => {
   await conn.client.surface.terminal.killAll({});
-  await conn.dispose();
+  await Effect.runPromise(Scope.close(connScope, Exit.void));
   await listener.close();
 });
 

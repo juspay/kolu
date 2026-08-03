@@ -44,6 +44,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "THE SolidJS client's Effect→UI edge, named once so the ~100 DOM handlers above it read as `runAction(label, program)` instead of ~100 forks biome's Promise rules cannot see: a `runFork` for an event handler / owner-scoped launch, and a `runPromise` for the three seams whose Promise contract is not this package's (Solid's `createResource` fetcher, xterm-kit's backfill `fetch`, and `pollOnChange`'s signal-carrying read — the last driving interruption from the caller's AbortSignal)",
   },
   {
+    path: "packages/kaval-tui/src/main.ts",
+    sites: 1,
+    why: "kaval-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and an interrupted fiber cannot emit the `--json` frame + trailer a `wait` interrupted at 130 must still print",
+  },
+  {
     path: "packages/kolu-cli/src/main.ts",
     sites: 1,
     why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",

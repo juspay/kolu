@@ -12,6 +12,7 @@
  * the spec-to-face projection to drift.
  */
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
+import { Effect, type Scope } from "effect";
 import { type PtyHostClient, ptyHostClientOver, ptyHostSurface } from "kaval";
 
 /** The pty-host client — kaval's spec-derived member face
@@ -20,34 +21,37 @@ import { type PtyHostClient, ptyHostClientOver, ptyHostSurface } from "kaval";
  *  (`dialAgentOnce` → `stdioLink`), so one client type backs both transports. */
 export type PtyTuiClient = PtyHostClient;
 
-/** A live pty-host connection: the client plus a `dispose` that tears the
- *  transport down. Both the local socket path (`connectPtyHost`) and the ssh
- *  `--host` path (`main.ts`'s `connectHost`) return this shape, so every `cmd*()`
- *  is transport-blind — written against it once over either transport. This is
- *  the kaval-tui CLI's shape: a one-shot dialer needs only the client and a
- *  teardown. A long-lived consumer (kolu-server, P3) that wants the session's
+/** A live pty-host connection. Both the local socket path (`connectPtyHost`) and
+ *  the ssh `--host` path (`main.ts`'s `connectHost`) hand back this shape, so
+ *  every `cmd*()` is transport-blind — written against it once over either
+ *  transport. This is the kaval-tui CLI's shape: a one-shot dialer needs only
+ *  the client. A long-lived consumer (kolu-server, P3) that wants the session's
  *  `onState`/`markConnected` seam composes its own `Connection` variant carrying
- *  `session` (as mini-ci's dialer does) — it does NOT reuse this `{ client,
- *  dispose }`.
+ *  `session` (as mini-ci's dialer does) — it does NOT reuse this one.
  *
- *  `dispose` is ASYNC: a wire link's `dispose()` releases the scope holding the
- *  protocol's dial/ping/response fibers, and a link dropped without awaiting it
- *  leaks them. Callers await it. */
+ *  There is no `dispose` field, and its absence carries the rule it used to
+ *  document in prose: a wire link's teardown releases the scope holding the
+ *  protocol's dial/ping/response fibers, and a link dropped without awaiting
+ *  that leaks them. It is a SCOPE finalizer now, so it cannot be forgotten,
+ *  cannot be un-awaited, and runs on the interrupted path too. */
 export interface Connection {
   client: PtyTuiClient;
-  dispose: () => Promise<void>;
 }
 
-/** Connect to the pty-host at `socketPath`. Rejects with the raw socket error
- *  (`ECONNREFUSED` for a dead/absent server, `ENOENT` for a missing path) so
- *  the caller can print an honest, actionable message. */
-export async function connectPtyHost(socketPath: string): Promise<Connection> {
-  const link = await unixSocketLink({
-    group: ptyHostSurface.group,
-    socketPath,
-  });
-  return {
-    client: ptyHostClientOver(link.dispatch),
-    dispose: () => link.dispose(),
-  };
+/** Connect to the pty-host at `socketPath`, for the caller's SCOPE. Fails with
+ *  the raw socket error (`ECONNREFUSED` for a dead/absent server, `ENOENT` for a
+ *  missing path) so the caller can print an honest, actionable message. */
+export function connectPtyHost(
+  socketPath: string,
+): Effect.Effect<Connection, unknown, Scope.Scope> {
+  return Effect.map(
+    Effect.acquireRelease(
+      Effect.tryPromise({
+        try: () => unixSocketLink({ group: ptyHostSurface.group, socketPath }),
+        catch: (err) => err,
+      }),
+      (link) => Effect.promise(() => link.dispose()),
+    ),
+    (link) => ({ client: ptyHostClientOver(link.dispatch) }),
+  );
 }

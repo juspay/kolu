@@ -16,6 +16,7 @@
  * a knob here would just be another thing to tune, and the honest behavior
  * (never hang) shouldn't be defeatable.
  */
+import { Effect } from "effect";
 import type { SendPlan } from "./send.ts";
 
 /** How long a single `terminal.write` may take before `send` gives up and fails
@@ -30,33 +31,24 @@ export const SEND_WRITE_DEADLINE_MS = 8_000;
  *  that doesn't complete in time throws a loud error naming `target` (the stalled
  *  terminal) — the caller surfaces it as `kaval-tui: <msg>` and exits non-zero,
  *  so `send` never hangs on a terminal that isn't consuming input. */
-export async function executeSendPlan(
+export function executeSendPlan(
   plan: SendPlan,
-  write: (data: string) => Promise<void>,
+  write: (data: string) => Effect.Effect<void, unknown>,
   target: string,
-): Promise<void> {
-  await writeWithDeadline(write, plan.write, target);
-}
-
-/** Race one write against the deadline. On timeout, reject loud; the pending
- *  write is abandoned (harmless for a one-shot CLI that then exits). The timer
- *  is always cleared so a fast write doesn't hold the event loop open. */
-function writeWithDeadline(
-  write: (data: string) => Promise<void>,
-  data: string,
-  target: string,
-): Promise<void> {
-  let timer: ReturnType<typeof setTimeout>;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(
+): Effect.Effect<void, unknown> {
+  // The whole "race one write against a deadline" dance — a `new Promise` whose
+  // `reject` fires from a `setTimeout`, a `Promise.race`, and a `.finally` to
+  // clear the timer so a fast write doesn't hold the event loop open — is one
+  // combinator. The timer cannot be leaked because there is no timer to leak,
+  // and the abandoned write is abandoned by interruption rather than left
+  // running with nobody attached to its rejection.
+  return Effect.timeoutOrElse(write(plan.write), {
+    duration: SEND_WRITE_DEADLINE_MS,
+    orElse: () =>
+      Effect.fail(
         new Error(
           `write to terminal ${target} stalled — no acknowledgement within ${SEND_WRITE_DEADLINE_MS}ms. The terminal is not draining its input (a program that has stopped reading stdin?). Aborting rather than hanging.`,
         ),
-      );
-    }, SEND_WRITE_DEADLINE_MS);
+      ),
   });
-  return Promise.race([write(data), deadline]).finally(() =>
-    clearTimeout(timer),
-  );
 }
