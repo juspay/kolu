@@ -439,3 +439,132 @@ Six unrelated clusters:
   free; a re-pin + green CI run is the whole of it if the gate is applied.
 - **The odu-impact verdict is `none`** by inspection (no export added, removed or
   re-signatured); the grep at odu's pinned SHA still owes its receipt.
+
+---
+
+## 9. `dock.feature` — a respawning padi read as a permanent failure
+
+`dock.feature`'s two stragglers came from the `Before` hook's padi liveness probe
+dying with `surface/padi/lifecycle/killAll: Expected MapKeyNonCanonical |
+MapKeyUnknown | MapEntryFailed, got SurfaceStdioTransportClosed`, and that message
+turned out to be the whole story: it is a **`ParseError`'s prose**, not an error the
+harness could classify. The surface-map's folded members declare
+`MapRejectionSchema` as their error channel, but `serveSurfaceMap` does not only
+raise those three — its `unaryHandler` / `forwardStream` hand the call straight to
+`session.dispatch`, so whatever the **entry's own link** fails with becomes the
+member's failure. When padi is mid-restart that is a `SurfaceStdioTransportClosed`
+(the stdio leg to the old process is gone); undeclared, it was encoded against a
+union that does not contain it and reached the caller as an **opaque string defect**
+— the exact D4 flattening the declaration exists to kill, and the reason
+`isPadiWarmingUp` could not tell a respawning daemon (*not yet*) from a terminal
+fault (*never*). So the root fix is **product-side**: `foldedError`
+(`@kolu/surface-map/define.ts`) now declares `ForwardedTransportDeathSchema`
+(`SurfaceStdioTransportClosed | SurfaceRelayTransportLost`) alongside
+`MapRejectionSchema` on every folded member, so the tag survives the hop with its
+data intact; `SurfaceTransportRetired` is deliberately excluded (that is the browser
+socket's own 4001 retirement, never carried up through a forward). With the tag
+intact the harness fix is the small one the classification gap always wanted:
+`isPadiWarmingUp` retries on `isSurfaceStdioTransportClosed` /
+`isSurfaceRelayTransportLost` **imported from `@kolu/surface/errors`** — the `_tag`,
+never the prose — while every genuinely-declared map rejection keeps the old
+503-split's semantics exactly (`MapKeyUnknown` retries; `MapEntryFailed`,
+`MapKeyNonCanonical` and any declared procedure error stay permanent). The rest of
+the classifier scanned clean: the only other client-side transport shape is Effect
+RPC's `RpcClientError`, a single `_tag` wrapping a `reason` union of
+worker/socket/HTTP/`RpcClientDefect` reasons (`RpcClientDefect` never travels bare),
+which `isTransportError` already catches wholesale. Two seam tests below e2e pin it:
+`procedureErrorsAcrossMap.test.ts` proves a dead entry link's death arrives at the
+outer client over a **real wire** as the same tagged failure (not a die) on both
+arms of `foldedError` — with and without an entry-declared error — and fails without
+the product fix; `packages/tests/support/rpcWire.test.ts` pins the retry/permanent
+split tag by tag, including that the **flattened prose string is still permanent**,
+so nobody can re-hide a regressed declaration behind a message match. No sibling
+signature turned up: of §8's 32 stragglers only `dock.feature` carried the liveness
+probe wording, the other clusters failing on their own assertions — but the same
+classifier also guards `resetPadiScenarioState` (via `retryPadiScenarioReset`) and
+`waitForInheritPolicy`, so any `Before`/theme setup that caught a padi mid-restart
+was one scheduling accident away from the same permanent death. Gates:
+`just test-quick features/dock.feature` (`CUCUMBER_PARALLEL=1`) **17 scenarios / 110
+steps passed, twice**; `pnpm typecheck` clean workspace-wide; `test:unit` green for
+surface 548, surface-map 78 (+2), surface-remote 287, server 318, common 96, padi
+500, client 1234, surface-app 166 and packages/tests 35 (+5, the file now reached via
+a `support/*.test.ts` glob); biome `--error-on-warnings` clean on every touched file;
+`ref-surface-map.mdx` updated in the same commit per the surface-reference rule.
+
+---
+
+## 10. The agent-state clusters — padi died on the first agent it ever saw
+
+`claude-code.feature`'s four stragglers (`Expected agent indicator state
+"thinking"/"waiting"/"awaiting_user", got "null" after ~20 s`) and
+`opencode.feature`'s one (`expected waiting, got thinking`) were the same
+**product** defect, and it was not in the detection pipeline at all: padi was
+**crashing**. `updateMemory` (`padi/src/terminalEndpoint/metadata.ts`) copies the
+fold's `AgentMemory` onto `entry.meta` field by field, so a terminal that had
+never run a known agent got `lastAgentCommand` written as a key **present with
+the value `undefined`**. The authored record spells that fact as an OPTIONAL KEY
+(`Schema.optionalKey`, per W3's #17 mapping table), which rejects a present
+`undefined` — and `snapshotSession` decodes every composed record
+**synchronously** (`Schema.decodeUnknownSync(SavedTerminalSchema)`) inside the
+session autosave. So the sequence was: the first agent observation stamps
+`lastActivityAt` → `updateMemory` lands the bad key → the composed record
+publishes fine (that is why the FIRST asserted state always passed) → ~500 ms
+later the debounced autosave throws `Expected string, got undefined at
+["lastAgentCommand"]` out of a timer and takes the daemon down. Every scenario
+that asserted a SECOND state saw the frozen or cleared indicator; the same death
+is what `dock.feature`'s `SurfaceStdioTransportClosed` liveness probe (§9) was
+observing from the other side, and it explains why the two clusters kept
+appearing together. zod's `.optional()` had tolerated the present `undefined`, so
+nothing before the migration ever exercised the shape; the schema is right and
+the producer was wrong — fixed at the one writer by DELETING the key on absence,
+the only spelling `optionalKey` accepts. The seam test
+(`metadata.test.ts` → "updateMemory leaves `lastAgentCommand` ABSENT …") runs the
+REAL disk-persist gate rather than a paraphrase: after a memory write with
+nothing remembered, `composeTerminalMetadata(entry.meta, entry.snapshot)` must
+still decode against `SavedTerminalSchema`; falsified against the fix reverted
+(it then throws the production error verbatim). Gates: `just test-quick
+features/claude-code.feature` **12 scenarios / 73 steps passed** and
+`features/opencode.feature` **4 scenarios / 20 steps passed**, each green twice
+(`CUCUMBER_PARALLEL=1`) — note this also cleared the three `Before`-hook liveness
+failures claude-code was inheriting from the crash; `features/session-restore.feature`
+**9 / 9** as a regression check on the restore-relevant memory write; padi
+typecheck exit 0; padi `test:unit` 501 passed (+1); biome `--error-on-warnings`
+clean on both touched files.
+
+## 11. `sleeping-terminals.feature` — the ☾ that silently did nothing
+
+The two failing scenarios (`:15`, `:56`) were both the `@codex-mock` ones, and
+both died on the same step: `the slept terminal should be sleeping`. Their tile
+stayed live for the full 20 s, with **no page error and no toast** — the ☾ button
+did nothing at all. Instrumenting the step (dump the page + read padi's own
+`terminals/get` from Node at the moment of failure) showed the record still
+`state: "active"`, with `lastActivityAt: null` and NO `restoreTarget` — a
+BRAND-NEW authored record for a terminal the fold had already been observing.
+That is not a stuck flip; that is a padi that died and re-adopted the surviving
+PTY. Root cause is §10's producer bug, not a second defect: a codex-mock terminal
+never runs a recognized launch line, so the first agent observation wrote the
+present-`undefined` `lastAgentCommand`, the debounced autosave took the daemon
+down ~500 ms later, and whether the browser's `lifecycle/sleep` landed before or
+after that death was a race — which is exactly why the cluster read as
+load-dependent (four consecutive failures at `CUCUMBER_PARALLEL=4`, then green
+the moment §10's fix landed in the tree). No sleep-path change was needed.
+
+What this cluster DOES add is a pin at its own seam. `beginSleep` re-DECODES the
+authored record it spreads (`decodeAuthoredSleeping({...entry.meta, state:
+"sleeping", sleptAt})`), so a producer that leaves a present `undefined` on an
+`optionalKey` field kills the FLIP as well as the autosave — and a lost flip is
+invisible: the RPC rejects into a caught toast, the tile stays live, nothing is
+logged in the browser. §10's seam test pins the disk-persist consumer; this one
+pins the sleep consumer, and drives it through the real writer
+(`updateMemory(id, { lastActivityAt }, { kind: "none" })`) rather than a
+hand-built meta, then asserts the flip reached the WIRE (a recorded
+`terminals.upsert` of `state: "sleeping"`) — a swallowed publish is the same dead
+tile. It lives in the ledger-frozen `sleepWake.test.ts` as a NEW `describe`, so
+no existing file path or `it()` title moves (`just --no-deps
+test-e2e-governance` re-run green: 58 features, 606 immutable revisions).
+Falsified by reverting §10's one-line producer fix: it then fails with the
+production error verbatim, `Expected string, got undefined at
+["lastAgentCommand"]`, thrown out of `beginSleep`. Gates: `just test-quick
+features/sleeping-terminals.feature` **7 scenarios / 75 steps passed**, twice;
+padi typecheck exit 0; padi `test:unit` 502 passed (+1); biome
+`--error-on-warnings` clean on the touched file.
