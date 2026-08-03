@@ -630,3 +630,140 @@ is unsound, not merely noisy. Both quiet-box re-runs were clean.
 - **No drishti pair-PR and no odu impact.** `kolu-git` is not exported through
   `@kolu/surface`; no exported signature moved (`GitChangedFile["oldPath"]` already
   read as `string | undefined` to every consumer) and the wire bytes are identical.
+
+---
+
+## 13. The `optionalKey` audit — §12's follow-up, run to the end
+
+§12 asked for one pass over every W3 `.optional()` → `Schema.optionalKey`
+conversion, because the substitution is a real tightening and it stays invisible
+until a cross-package caller forwards an `undefined`. This is that pass.
+
+**Ground truth first.** All 87 non-test `Schema.optionalKey(` call sites in
+`packages/**` (excluding the `surface/example/*` sample apps) were traced back
+through their conversion commit
+(`git show <sha>^:<file>`). **Every one of them was zod `.optional()`
+pre-migration** — there is no site where `optionalKey` was chosen for a field
+that had been required or nullable, so the mapping table was applied uniformly and
+the whole population is in scope. (The eleven `Schema.optionalKey(Schema.Never)`
+anti-fields on padi's daemon-status union were `z.never().optional()`, which
+tolerated present-`undefined` too; they are audited below with the rest.)
+
+**The mechanism, pinned rather than assumed.** Three facts decided every verdict,
+each verified against the repo's own `effect@4.0.0-beta.102` rather than recalled:
+
+1. `optionalKey` rejects present-`undefined` on **decode AND encode** (and through
+   `Schema.toCodecJson`, so RPC chunk encoding inherits it). §12 only exercised the
+   decode half; **five of the eight new findings are on the encode side** — a cell
+   value, two collection values and two stream frames.
+2. Every procedure/stream/event INPUT is `Schema.decodeUnknownSync`'d at the client
+   face edge (`packages/surface/src/client.ts:266`, applied at `:280`/`:295`), so a
+   bad input throws in the CALLER's process, before anything reaches the wire.
+3. `exactOptionalPropertyTypes` is not set, so `{x: undefined}` typechecks against
+   `{x?: T}` everywhere. Nothing in the type system participates in this.
+
+### Verdict counts
+
+| verdict | count | meaning |
+| --- | --- | --- |
+| **(a) provably safe** | 77 sites | every producer conditionally spreads, deletes on absence, or holds a total value. The tightening is a feature and was left alone. |
+| **(b) fixable producer** | 8 sites (6 findings) | a producer spelled the key with a possibly-`undefined` value. Fixed at the producer; the schema is untouched. |
+| **(c) schema should tolerate** | 2 sites (2 findings) | the value is forwarded VERBATIM across hops no conditional spread can discipline. §12's fix applied (`Schema.optional`), bytes pinned unchanged. |
+
+### The eight findings
+
+| # | field | schema site | verdict | producer(s) | live? |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `before` · `epoch` | `kaval/ptyHostSurface.ts:700,708` | **(b)** | `padi/terminalEndpoint/local.ts` `getHistory` forwarded padi's own decoded input verbatim | **yes** — an omitted `before` is the documented self-seeding first page (what the `screen_history` MCP tool sends); an omitted `epoch` is every caller whose snapshot carried no `reflowEpoch` |
+| 2 | `startLine` · `endLine` | `kaval/ptyHostSurface.ts:669,670` | **(b)** | same file's `getScreenText` built `{kind:"range", startLine, endLine}` unconditionally | reachable — a HALF-open range is what `screen.text` forwards when one bound was sent |
+| 3 | `expectedKaval` | `padi/surface.ts:435` | **(b)** | `padi/servePadi.ts` seeded `identity.staleKey ? identity : undefined` | **yes, deterministically** — off-nix `staleKey` is `""`, so every from-source server's `status` cell was un-encodable |
+| 4 | `lifetime` | `padi/vocab.ts:696` | **(b)** | `padi/ptyHost/connect.ts` then `ptyHost/daemonStatus.ts` — two hops, each re-creating the key | yes against a survivor kaval predating the `system.version` field: the whole `daemonStatus` push dies (blank KAVAL column, no DegradedCanvas) |
+| 5 | `range` | `padi/surface.ts:925` | **(b)** | `server/src/index.ts`'s inline preview reader (now the named `remotePreviewReader`) | **yes** — an UNRANGED dial is ordinary (empty-file Content-Type re-read; any request with no `Range` header) and surfaced as the route's 503 |
+| 6 | `connection` | `surface-map/define.ts:264` | **(b)** | `surface-map/server.ts` `projectStatus` (3 arms) + `client.ts` `floorOnLiveness`'s `warming` arm | latent — kolu's projector is total and a map with no connection schema drops the excess key |
+| 7 | `foregroundPid` | `kaval/ptyHostSurface.ts:430` | **(c)** | `kaval/ptyHost.ts` channel publish + `inProcessPtyHost.ts` warm-up snapshot, then `yield sample` forwards whole records | **yes** — `readForegroundPid` collapses `tcgetpgrp`'s transient `0` to `undefined`, and the killed frame takes the whole foreground tap (padi's agent detection) with it |
+| 8 | `reflowEpoch` | `padi/surface.ts:1178` | **(c)** | five verbatim hops: kaval's decoded frame → `OpenedAttach` → `TerminalAttachment` → `reattachingDeltas` → the wire | yes on an aborted attach, and on any kaval predating 5.2 — the fail-open the contract promises is the one case the producers could not express |
+
+### Why two of them are (c) and not (b)
+
+The (b)/(c) line is not severity, it is whether a producer CAN be disciplined. A
+field created at one site under our control is (b) — spread it and be done. A field
+forwarded verbatim through records that themselves type it optional is (c): reading
+an absent optional key yields `undefined`, so **every hop re-creates it**, and a
+conditional spread at one hop does not survive the next. `foregroundPid` is worse
+still — `for await (const sample of sub) yield sample` forwards whole records, which
+no spread can reach. That is the `oldPath` shape exactly, and it takes the `oldPath`
+fix: `Schema.optional` (= `optionalKey` + `UndefinedOr`), which leaves the emitted
+bytes untouched (key omitted, never nulled) and still rejects a wrong-typed value.
+Both are pinned by byte fixtures, so the tolerance can never quietly become a `null`.
+
+Nothing else was weakened. The other 85 sites keep `optionalKey`, including the
+eleven `optionalKey(Schema.Never)` anti-fields (every daemon-status arm is built
+fresh, never spread from a prior status) and the whole `PreferencesPatchSchema`
+field map (all eight client producers are single-key literals over non-nullable
+values).
+
+### PLAN #17's explicit-undefined strip — verified, both sites
+
+§4 of the brief: the in-process `.parse`-replacement callers that receive user or
+legacy data.
+
+- **`backfillSavedSession`** (`padi/vocab.ts:1036`) has no strip, and states why —
+  its input is `JSON.parse` output, where `undefined` is unrepresentable, so a
+  strip would be dead code pretending to hold a line the input shape already holds.
+  Verified for both callers: `client/sessionTransfer.ts` (`JSON.parse` directly) and
+  `padi/session/sessionRestore.ts` (the `session.import` input, already decoded at
+  the face — and a successful decode never emits a present-`undefined` optionalKey).
+- **The server state migration ladder** (`server/src/state.ts:181`) has no strip and
+  is **structurally immune**: `PersistedStateSchema` contains zero `optionalKey` —
+  the three top-level keys, all eleven `Preferences` fields and both `rightPanel`
+  fields are REQUIRED — so there is no key an explicit `undefined` could ride in on.
+  Its inputs are conf's `JSON.parse`d disk copy merged with literal defaults, and
+  every rung of the ladder is a spread, a destructure-drop or a presence-keyed
+  guard. Nothing to add.
+
+### Commits
+
+| commit | package |
+| --- | --- |
+| `fix(kaval): tolerate present-undefined on \`foregroundPid\`` | `kaval` |
+| `fix(padi): discipline four present-undefined producers, tolerate one` | `padi` |
+| `fix(server): discipline present-undefined on the remote preview's \`range\`` | `server` |
+| `fix(surface-map): discipline present-undefined on the fine \`connection\` word` | `surface-map` |
+
+Every fix carries a seam test that drives the REAL producer through the REAL gate —
+a `ptyHostClientOver` / `padiClientOver` face where the crossing is an input decode,
+the actual published store value where it is an encode — and every one was falsified
+against its fix reverted, failing with the production error verbatim.
+
+### Gates
+
+| gate | result |
+| --- | --- |
+| typecheck — `kaval`, `padi`, `server`, `surface-map` | exit 0 |
+| `test:unit` — padi **516** (+9), kaval **101** (+3), server **266** (+3), surface-map **82** (+4) | pass |
+| pre-existing failures, unchanged from HEAD (verified by `git stash`) | padi 1, kaval 3, server 6 — all the same Nix-baked-env gap (`daemonMain` reads an osfacts binary path the devshell bakes) |
+| `biome lint --error-on-warnings` + `format` on all 17 touched files | clean |
+| e2e | **NOT RUN** — a full sweep held the box; this audit stayed on vitest/tsc |
+
+### Follow-ups this leaves open
+
+- **Two near-misses worth a later structural fix, not fixed here** (both currently
+  safe, both one edit from not being). `session/sessionRestore.ts` forwards five
+  decoded optionals verbatim into the spawn path (`themeName`, `canvasLayout`,
+  `subPanel`, `rightPanel`, `intent`, plus `restoreTarget` and the two memory
+  fields) and is safe ONLY because `spawnPty` re-guards each with a truthiness test
+  before assigning to `entry.meta`. `InitialTerminalMetadataSchema` is never
+  decoded, so nothing enforces that guard: one `meta.x = opts.x` written without
+  the `if` and the terminals collection's publish throws. Similarly,
+  `client/right-panel/useRightPanel.ts` writes `selectedFileByMode: undefined` into
+  its Solid store and is saved only by a value-check at the wire producer.
+- **`DaemonStatus.identity` is type-permitted but producer-total.** The
+  `EndpointStatus` connected arm types `identity: I` where `I` includes `undefined`,
+  so `daemonStatus.ts` could write a present-`undefined`; today it cannot, because
+  `projectKavalIdentity` always returns a record (`UNKNOWN_KAVAL_IDENTITY` floor).
+  Left as (a) — no producer to discipline — but the type says otherwise, so a
+  future identity source is worth re-checking.
+- **No drishti pair-PR and no odu impact.** The gate's path list covers
+  `surface{,-app,-remote,-daemon,-daemon-supervisor}`; `surface-map` is not in it,
+  and the change there is private (`projectStatus`) with no signature moved. Nothing
+  in these four commits alters an exported signature or a wire byte.
