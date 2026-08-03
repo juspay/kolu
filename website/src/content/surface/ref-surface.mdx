@@ -377,6 +377,7 @@ below).
 | stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, and `.updated(...)` |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
 | procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureResult<O, E>` — an ordinary `Promise<O>` carrying the declared error union as a type-level phantom `safe()` recovers |
+| procedure (Effect) | `.effect.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
 
 Every declared procedure is bound at `.procedures.<ns>.<verb>` and typed from its
 declaration — the typed dual of the reactive `.use()` primitives. The **input is
@@ -387,13 +388,29 @@ also *holds* — a cell's `set`/`patch` payload, a collection key — stay decod
 because the client feeds them to the spec's own `patch` and keys its own maps
 with them.
 
+`.effect.<ns>.<verb>` is the same member, same arms, same schema sides — only the
+return shape differs. Reach for it whenever the call is **part of a program**
+rather than the whole of one: a command that folds several members concurrently, a
+read that needs a deadline, a request superseded by the next one, anything that
+must die on Ctrl-C. Those are combinators here; under `.procedures` each needs its
+own `AbortController`, which a `Promise` cannot honour anyway — an `await` is
+exactly what fiber interruption cannot reach through. The error channel is the
+declared union **plus** `SurfaceCallFailure` (Effect RPC's `RpcClientError` and the
+framework's own tagged vocabulary), so a `catchTag` sweep over the declared tags
+still leaves the compiler telling you a transport death is unhandled; write
+`Effect.orDie` if you mean "any failure is fatal". `.procedures` is
+`Effect.runPromise` over exactly these effects, so the two faces cannot disagree.
+
 `.rpc` remains for the framework-**reserved** members (`system.live` /
 `system.identity` / `system.clockNow`, never in `spec.procedures`) and as the
 escape hatch for a member the bound shapes can't model. It is the structural
 `SurfaceFace` — `rpc.surface.<member>.<verb>`, typed `unknown` per leaf by
 design: per-member precision lives in the bound faces, and a second precise
 mapped type over the same spec is the union-budget blowup that split is there to
-avoid. A declared procedure never needs it.
+avoid. A declared procedure never needs it. Its Effect-native twin sits beside it
+at `rpc.effect.<member>.<verb>`, covering **every** member (cells' `set`/`patch`,
+collections' `upsert`/`delete`, the reserved `system.*`), not just the declared
+procedures.
 
 A cell's `authority` is `"server"` (default — every push reconciles) or
 `"local"` (the local store wins after the first server yield). An `inputFn`
@@ -574,6 +591,14 @@ standalone surface or a composed sibling. A unary leaf is a
 subscription, and interrupting the fiber tears the wire subscription down. There
 is no `AbortSignal` to thread and none to forget.
 
+The same walk mints a second nesting, `face.effect[member][verb]`, where a unary
+leaf is a `UnaryEffect<I, O, E>` instead — a lazy `Effect` a caller composes with.
+It is a **complete mirror**, not a subset: a streaming leaf is already
+Effect-native, so `face.effect` holds the identical function reference
+`face.surface` does, and only the unary rows differ. They cannot drift, because
+each Promise row is literally `Effect.runPromise` over its own Effect twin — one
+tag, one decode, one failure, minted at one call site per verb.
+
 The per-subscription **retry fence** lives here too, not in a link: a link that
 retried inside itself could not tell one subscriber's supersession from
 another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
@@ -582,8 +607,10 @@ consumer sees is the member's fresh snapshot.
 
 | Export | Purpose |
 | --- | --- |
-| `buildSurfaceFace(surface, dispatch)` | the nested member face over a dispatch |
-| `SurfaceFace` · `UnaryProcedure<I,O>` · `StreamingProcedure<I,O>` | the face and its two leaf shapes |
+| `buildSurfaceFace(surface, dispatch)` | the nested member face over a dispatch — BOTH nestings, `face.surface` and `face.effect` |
+| `SurfaceFace` · `UnaryProcedure<I,O>` · `StreamingProcedure<I,O>` | the face and its two Promise-era leaf shapes |
+| `UnaryEffect<I,O,E>` | the Effect-native unary leaf — `(encoded input) => Effect<O, E \| SurfaceCallFailure>`, lazy, interruptible, composable |
+| `SurfaceCallFailure` | what a call can fail with that no spec declared: Effect RPC's `RpcClientError` plus the framework's own `SurfaceError` vocabulary. Defects are deliberately NOT in it — an undeclared throw stays an `Effect.die` |
 | `isTransportError(err)` | positive test for Effect RPC's `RpcClientError` — matched structurally on `_tag`, so it survives a second `effect` copy or a relay hop |
 | `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
 | `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
@@ -632,20 +659,52 @@ re-derives the held-open-`get` hazard below.
 
 | Export | Signature | Purpose |
 | --- | --- | --- |
-| `firstFrameOrUndefined(stream, signal?)` | `(Stream<T>, AbortSignal?) → Promise<T \| undefined>` | the snapshot frame, or `undefined` when the stream ends empty (a benign "no value yet") |
-| `firstFrameOrThrow(stream, onEmptyMessage, signal?)` | `(Stream<T>, string, AbortSignal?) → Promise<T>` | the snapshot frame; REJECTS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined` |
+| `firstFrameOrUndefinedEffect(stream)` | `(Stream<T>) → Effect<T \| undefined>` | the snapshot frame, or `undefined` when the stream ends empty (a benign "no value yet") |
+| `firstFrameOrThrowEffect(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | the snapshot frame; FAILS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined`. A recoverable failure, not a thrown defect, so a caller may `Effect.catch` it without swallowing bugs |
+| `firstFrameOrUndefined(stream, signal?)` | `(Stream<T>, AbortSignal?) → Promise<T \| undefined>` | the same read at this package's one-shot Promise edge |
+| `firstFrameOrThrow(stream, onEmptyMessage, signal?)` | `(Stream<T>, string, AbortSignal?) → Promise<T>` | the same read at that edge; REJECTS on an empty stream |
 | `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | the BOUNDED one-shot read of a collection ITEM. A `get` for a not-yet-member key is held open and yields nothing forever (#1681), so this races the item's first frame against BOTH a live `keys`-absence watch and a hard deadline — always both, never one |
 | `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | a typed sum, so "present with an `undefined` value" and "absent" can never collapse into one nullable hole — and so a caller can log the UNCERTAIN `deadline` case distinctly from a known absence |
 
-The two plain readers resolve a **Promise**: their consumers are the plain-async
-leaves (a TUI read, a dial handshake), and this is their sanctioned
-`Effect.runPromise` edge, held once here rather than per CLI. Pass `signal` when
-a non-Effect scaffold owns the cancellation — it becomes fiber interruption, so a
-caller that gave up never waits out a wedged-but-retrying link.
-`firstFrameOfCollectionItem` returns an **Effect** instead, because its consumers
-compose it inside a larger program (a concurrent fold over a host's terminals, an
-MCP `resources/read` running under the request's abort signal) where a Promise
-edge mid-program would detach the read from the interruption that bounds it.
+Each policy comes in two shapes, and the split is the interruption story. The
+**Effect** forms are the primitives: a read composed inside a larger program — a
+concurrent fold over a host's terminals, an MCP `resources/read` under the
+request's cancellation, a CLI command that must die on Ctrl-C — has to stay inside
+the fiber tree that bounds it, and a Promise edge mid-program detaches it from
+exactly that. (`firstFrameOfCollectionItem` has always been an Effect for this
+reason.) The **Promise** forms are the same reads at this package's one-shot
+`Effect.runPromise` edge, held once here rather than per CLI, for the plain-async
+leaves. Pass `signal` there when a non-Effect scaffold owns the cancellation — it
+becomes fiber interruption, so a caller that gave up never waits out a
+wedged-but-retrying link; under the Effect forms there is no signal to pass,
+because cancellation already *is* interruption.
+
+### The Effect→callback edge (`@kolu/surface/run-stream`)
+
+A member verb hands back a lazy `Stream`, and somewhere a non-Effect consumer has
+to RUN one so its frames become signal writes, terminal output, or a redraw.
+`runStreamScoped` is that place — one function, not one `Effect.runFork` per
+subscription primitive — and it owns three rules so nobody re-derives them:
+
+- **teardown is a fiber interrupt**, and the returned stopper latches *before*
+  interrupting, so after it runs nothing reports: not a late frame, not the
+  interruption exit, not a failure racing the stop;
+- **an interruption is never a failure** (an unmount must not register as a
+  subscription error in `health()`);
+- **a failure is normalised once** to an `Error`, so a tagged surface error still
+  arrives as itself and a caller can narrow on it.
+
+| Export | Signature | Purpose |
+| --- | --- | --- |
+| `runStreamScoped(stream, handlers)` | `(Stream<T>, { onFrame, onEnd, onFailure }) → () => void` | run the stream on its own fiber; returns the idempotent, synchronous stopper |
+| `StreamRunHandlers<T>` | `{ onFrame, onEnd, onFailure }` | the three mutually-exclusive outcomes — frames, then EITHER a typed end OR a failure, or silence if stopped first |
+| `toError(value)` | `(unknown) → Error` | the one failure normalisation (a tagged surface error passes through with its `_tag` intact) |
+
+It lives at the package **root**, on its own subpath, because it has nothing to do
+with Solid: `pollOnChange` is deliberately Solid-free and runs its pulse through
+this same edge, and so do consumers outside this repo. It is also re-exported from
+`@kolu/surface/solid`, so the Solid consumers that already import it there are
+unchanged.
 
 ### The bounded-wait scaffold (`@kolu/surface/wait`)
 
