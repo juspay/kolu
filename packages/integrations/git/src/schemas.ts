@@ -80,8 +80,15 @@ export const GitChangedFileSchema = Schema.Struct({
   /** Path relative to repo root. */
   path: Schema.String,
   status: GitChangeStatusSchema,
-  /** Original path before rename/copy. Only present for R/C statuses. */
-  oldPath: Schema.optionalKey(Schema.String),
+  /** Original path before rename/copy. Only present for R/C statuses.
+   *
+   *  `optional`, not `optionalKey`: the zod original was `z.string().optional()`,
+   *  which accepted the key present-but-`undefined` as well as absent. Callers
+   *  read this off a file record and hand it straight to `GitDiffInputSchema`
+   *  (`hostCodeTab.ts`), so `undefined` reaches the wire on every non-rename
+   *  file. `optional` encodes both cases to the same bytes — the key is omitted,
+   *  never nulled. */
+  oldPath: Schema.optional(Schema.String),
 });
 export type GitChangedFile = typeof GitChangedFileSchema.Type;
 
@@ -195,8 +202,11 @@ export const GitDiffInputSchema = Schema.Struct({
   filePath: Schema.String,
   mode: GitDiffModeSchema,
   /** Original path before rename/copy — passed from the file list so
-   *  getDiff can read old content at the correct path. */
-  oldPath: Schema.optionalKey(Schema.String),
+   *  getDiff can read old content at the correct path. `optional` for the same
+   *  reason as `GitChangedFileSchema.oldPath`: the caller forwards a plain
+   *  `file.oldPath`, which is `undefined` for every file that is not a
+   *  rename/copy. */
+  oldPath: Schema.optional(Schema.String),
 });
 
 /** Raw parts needed by the client-side diff renderer (`@pierre/diffs`'s

@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   FsReadFileOutputSchema,
   GitChangedFileSchema,
+  GitDiffInputSchema,
   GitDiffOutputSchema,
   GitInfoSchema,
   GitStatusOutputSchema,
@@ -79,20 +80,26 @@ describe("GitChangedFile wire bytes", () => {
     ).toEqual({ path: "a.ts", status: "M" });
   });
 
-  it("rejects an explicit `oldPath: undefined` — optionalKey means absent", () => {
-    // Stricter than the zod schema this replaced, and deliberately so
-    // (mapping law #17): an in-process caller must omit the key, not null
-    // it out with `undefined`. Every producer here uses a conditional
-    // spread, so no in-package path can hit this.
+  it("accepts an explicit `oldPath: undefined` and encodes it to no key", () => {
+    // The zod original was `z.string().optional()`, which accepted the key
+    // present-but-`undefined`. Mapping law #17 says match it exactly, so this
+    // is `Schema.optional`, not `Schema.optionalKey`. Consumers OUTSIDE this
+    // package read `file.oldPath` off a decoded record and forward it verbatim,
+    // so present-but-`undefined` is a shape that really crosses the wire.
     expect(
-      Result.isFailure(
-        Schema.decodeUnknownResult(GitChangedFileSchema)({
-          path: "a.ts",
-          status: "M",
-          oldPath: undefined,
-        }),
-      ),
-    ).toBe(true);
+      Schema.decodeUnknownSync(GitChangedFileSchema)({
+        path: "a.ts",
+        status: "M",
+        oldPath: undefined,
+      }),
+    ).toEqual({ path: "a.ts", status: "M" });
+    expect(
+      wire(GitChangedFileSchema, {
+        path: "a.ts",
+        status: "M",
+        oldPath: undefined,
+      }),
+    ).toBe('{"path":"a.ts","status":"M"}');
   });
 
   it("rejects a status letter git never emits to the Code tab", () => {
@@ -168,6 +175,60 @@ describe("GitStatusOutput wire bytes", () => {
           files: [],
           branch: { name: "master", upstream: null, ahead: 0, behind: 0 },
           workingTree: { staged: 1.5, modified: 0, untracked: 0 },
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("GitDiffInput wire bytes", () => {
+  // The Code tab builds this input by forwarding a `GitChangedFile`'s
+  // `oldPath` straight through, so the common case — a plain edit, no rename —
+  // is the key PRESENT and `undefined`. Encoding it must succeed and must emit
+  // no `oldPath` key at all.
+  it("encodes a non-rename request, dropping the undefined oldPath", () => {
+    expect(
+      wire(GitDiffInputSchema, {
+        repoPath: "/repo",
+        filePath: "a.ts",
+        mode: "local",
+        oldPath: undefined,
+      }),
+    ).toBe('{"repoPath":"/repo","filePath":"a.ts","mode":"local"}');
+  });
+
+  it("carries oldPath for a rename", () => {
+    expect(
+      wire(GitDiffInputSchema, {
+        repoPath: "/repo",
+        filePath: "new.ts",
+        mode: "branch",
+        oldPath: "old.ts",
+      }),
+    ).toBe(
+      '{"repoPath":"/repo","filePath":"new.ts","mode":"branch","oldPath":"old.ts"}',
+    );
+  });
+
+  it("decodes the undefined-oldPath request a browser peer sends", () => {
+    expect(
+      Schema.decodeUnknownSync(GitDiffInputSchema)({
+        repoPath: "/repo",
+        filePath: "a.ts",
+        mode: "local",
+        oldPath: undefined,
+      }),
+    ).toEqual({ repoPath: "/repo", filePath: "a.ts", mode: "local" });
+  });
+
+  it("still rejects a non-string oldPath", () => {
+    expect(
+      Result.isFailure(
+        Schema.decodeUnknownResult(GitDiffInputSchema)({
+          repoPath: "/repo",
+          filePath: "a.ts",
+          mode: "local",
+          oldPath: 7,
         }),
       ),
     ).toBe(true);

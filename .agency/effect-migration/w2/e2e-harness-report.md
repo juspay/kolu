@@ -568,3 +568,65 @@ production error verbatim, `Expected string, got undefined at
 features/sleeping-terminals.feature` **7 scenarios / 75 steps passed**, twice;
 padi typecheck exit 0; padi `test:unit` 502 passed (+1); biome
 `--error-on-warnings` clean on the touched file.
+
+---
+
+## 12. `code-tab.feature` — `optionalKey` is not `z.string().optional()`
+
+All 23 `code-tab.feature` stragglers carried the same string in the harness's
+Code-tab facts dump — `diffContent: "Error: Expected string, got undefined at
+[\"oldPath\"]"` — and it was a **mapping-law #17 miss in the git leaf**, not a
+transport or a producer bug. The zod original was `oldPath: z.string().optional()`
+on both `GitChangedFileSchema` and `GitDiffInputSchema`, and zod's `.optional()`
+accepts the key **present-but-`undefined`** as well as absent. The W3 conversion
+(`3220e5fbd`) chose `Schema.optionalKey(Schema.String)`, which accepts only
+*absent* — a deliberate tightening, argued in a test comment ("Every producer here
+uses a conditional spread, so no in-package path can hit this"). That survey was
+in-package only, and the producer that matters is not: the Code tab builds its diff
+request by forwarding a decoded file record's field verbatim —
+`{ repoPath, filePath, mode, oldPath: file.oldPath }`
+(`packages/client/src/right-panel/hostCodeTab.ts:249`) — so for **every file that
+is not a rename or copy** the key is present and `undefined`, and the input failed
+to encode before the request ever left the browser. Under zod that value was simply
+dropped; under `optionalKey` it is a decode error, which the client surfaced into
+the diff pane as the text all 23 scenarios read. The fix restores the zod tolerance
+exactly, one word per site: `Schema.optional(Schema.String)` on both `oldPath`
+fields (`packages/integrations/git/src/schemas.ts`). `optional` is `optionalKey`
+plus `UndefinedOr`, so the emitted bytes are unchanged — the key is omitted, never
+nulled — and a non-string `oldPath` is still rejected. Nothing was loosened at the
+assertion end: the test that had enshrined the tightening was inverted to assert
+the zod behaviour, and `GitDiffInputSchema` (previously uncovered) gained four byte
+fixtures in `packages/integrations/git/src/schemas.test.ts`, including the exact
+present-but-`undefined` shape the browser sends and its encoded bytes
+(`{"repoPath":"/repo","filePath":"a.ts","mode":"local"}`). Falsified by putting
+`optionalKey` back: three of the new cases fail with the production string
+verbatim, `Expected string, got undefined`.
+
+### Gates
+
+| gate | result |
+| --- | --- |
+| `just test-quick features/code-tab.feature:302` BEFORE the fix | 1 scenario failed — the diff view never rendered. The repro. |
+| `CUCUMBER_PARALLEL=1 just test-quick features/code-tab.feature`, twice | **114 scenarios / 1692 steps passed**, both runs; zero `oldPath` errors in either log |
+| typecheck — kolu-git, kolu-common, kolu-client, `@kolu/padi` | exit 0 |
+| `test:unit` — kolu-git 154, kolu-common 96, kolu-client 1234 | all pass |
+| biome `check --error-on-warnings` + `format` on the two touched files | clean |
+
+One note for whoever reads the run logs. A first full pass showed 10 unrelated
+failures — four of them the plain `Given the terminal is ready` locator timing out
+at 60 s — while a sibling agent's `dock.feature` run held the box at load ~13. It
+is worse than slow: a sibling `just test-quick` rebuilds `packages/client/dist`
+**underneath a peer's already-running server**, so concurrent e2e in one worktree
+is unsound, not merely noisy. Both quiet-box re-runs were clean.
+
+### Follow-ups this opens
+
+- **Audit the remaining W3 zod→Effect leaf conversions for the same
+  substitution.** `optionalKey` is the right default for a schema whose producers
+  all use conditional spreads, but it is *not* the mechanical translation of
+  `.optional()`, and the tightening stays invisible until a cross-package caller
+  forwards an `undefined`. Diffing each schema against its pre-migration
+  `.optional()` sites would settle it in one pass.
+- **No drishti pair-PR and no odu impact.** `kolu-git` is not exported through
+  `@kolu/surface`; no exported signature moved (`GitChangedFile["oldPath"]` already
+  read as `string | undefined` to every consumer) and the wire bytes are identical.
