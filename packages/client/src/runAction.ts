@@ -147,7 +147,8 @@ export function runActionPromise<A, E>(
   action: Effect.Effect<A, E>,
   signal?: AbortSignal,
 ): Promise<A> {
-  return signal === undefined
-    ? Effect.runPromise(action)
-    : Effect.runPromise(action, { signal });
+  return Effect.runPromise(
+    action,
+    signal === undefined ? undefined : { signal },
+  );
 }
