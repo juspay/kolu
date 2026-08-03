@@ -66,6 +66,7 @@ import { execFile, spawn } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -151,6 +152,9 @@ const TSX_LOADER = pathToFileURL(
 ).href;
 
 const RUNTIME_ROOT = mkdtempSync(join(tmpdir(), "upgrade-window-rt-"));
+/** The spawned daemons' stderr — see {@link daemonLogPath} for why it is kept and
+ *  why it lives outside both roots the artifact inventory sweeps. */
+const DAEMON_LOG_ROOT = mkdtempSync(join(tmpdir(), "upgrade-window-logs-"));
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
 
@@ -164,6 +168,7 @@ beforeAll(() => {
 afterAll(() => {
   vi.unstubAllEnvs();
   rmSync(RUNTIME_ROOT, { recursive: true, force: true });
+  rmSync(DAEMON_LOG_ROOT, { recursive: true, force: true });
 });
 afterEach(async () => {
   await reaper.dispose();
@@ -420,6 +425,44 @@ function padiEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Where a spawned daemon's stderr is kept.
+ *
+ *  padi and kaval log to fd 2 (`log.ts`), and this suite spawned them
+ *  `stdio: "ignore"` — so a daemon's account of itself was discarded as it was
+ *  written. That is what an assertion failure here costs: the arm takes two
+ *  minutes, its state-root is deleted in a `finally`, and the only thing left was
+ *  `expected false to be true`. Whoever picks the failure up has no way to tell a
+ *  spawn that failed and unwound from an autosave that was gated — the two
+ *  mechanisms behind a session that never lands — so they re-run and guess.
+ *
+ *  Deliberately NOT under the state-root or `XDG_RUNTIME_DIR`: both are swept by
+ *  `unknownProtocolFilesOnDisk`, and a harness log is not a shared protocol
+ *  artifact. Its own dir ({@link DAEMON_LOG_ROOT}), cleaned with the suite. */
+function daemonLogPath(name: string): string {
+  return join(DAEMON_LOG_ROOT, `${name}.stderr.log`);
+}
+
+/** An `stdio` triple that keeps a spawned daemon's stderr in {@link daemonLogPath}. */
+function stderrToFile(name: string): ["ignore", "ignore", number] {
+  return ["ignore", "ignore", openSync(daemonLogPath(name), "a")];
+}
+
+/** The tail of a daemon log, for an assertion message. Absent/unreadable is
+ *  reported as such — never silently empty, which would read as "the daemon said
+ *  nothing" when it means "we could not look". */
+function daemonLogTail(name: string, lines = 60): string {
+  const path = daemonLogPath(name);
+  if (!existsSync(path)) return `${name}: no log at ${path}`;
+  try {
+    const all = readFileSync(path, "utf8").trimEnd().split("\n");
+    return `${name} (last ${Math.min(lines, all.length)} of ${all.length} lines):\n${all
+      .slice(-lines)
+      .join("\n")}`;
+  } catch (err) {
+    return `${name}: log unreadable (${String(err)})`;
+  }
+}
+
 /** Kill whatever still holds these gates (test hygiene, never an assertion). */
 function reapGateHolders(gatePaths: readonly string[]): void {
   for (const gate of gatePaths) {
@@ -449,7 +492,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   // 1) Boot PREVIOUS-release kaval at the digest-keyed path current padi will dial.
   reaper.track(
     spawn(window.bin, ["--socket", kavalSocket], {
-      stdio: "ignore",
+      stdio: stderrToFile("previous-kaval"),
       env: {
         ...process.env,
         XDG_RUNTIME_DIR: RUNTIME_ROOT,
@@ -515,7 +558,7 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
         "--allow-nix-shell-with-env-whitelist",
         "default",
       ],
-      { stdio: "ignore", env: padiEnv() },
+      { stdio: stderrToFile("current-padi"), env: padiEnv() },
     ),
   );
 
@@ -589,7 +632,45 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
       }
       await sleep(100);
     }
-    expect(sessionPresent).toBe(true);
+    // An exhausted poll used to say only "expected false to be true" — the least
+    // informative thing a two-minute suite can say, and it cost a full
+    // investigation cycle to learn nothing (b375ed7 on x86_64-linux). It now
+    // reports the three facts that separate the two ways this can fail, because
+    // NOTHING else distinguishes them after the fact:
+    //
+    //   - the terminal VANISHED. `lifecycle.create` is a SYNC SHADOW
+    //     (`terminalEndpoint/local.ts`): it answers `{id, pid: 0}` and spawns on an
+    //     async tail, so a returned id proves only that padi minted one. A failed
+    //     spawn unwinds the shadow, and the autosave the shadow armed then fires
+    //     over an EMPTY registry and clears the blob.
+    //   - the terminal is STILL THERE and the blob stayed empty anyway — the
+    //     autosave was gated (a freeze lease, or `suppressed-parked`), which is a
+    //     defect in the gate, not in the spawn.
+    //
+    // padi's own terminal list answers which, and its log says why. The list read
+    // is bounded and never itself an assertion: a failure to read it is reported
+    // as such, so a diagnostic can never mask the failure it is describing.
+    const listing = await Effect.runPromise(
+      Effect.catch(
+        Effect.timeout(
+          firstFrameOrThrow(
+            conn.client.padi.surface.terminals.keys(undefined),
+            "padi's terminals keys stream yielded no frame",
+          ),
+          2_000,
+        ),
+        (err) => Effect.succeed(`unreadable (${String(err)})`),
+      ),
+    );
+    expect(
+      sessionPresent,
+      [
+        `the autosave never persisted a terminal within 15s of lifecycle.create (${id})`,
+        `padi's live terminals: ${JSON.stringify(listing)}`,
+        `config.json: ${existsSync(confPath) ? readFileSync(confPath, "utf8").slice(0, 2000) : "absent"}`,
+        daemonLogTail("current-padi"),
+      ].join("\n\n"),
+    ).toBe(true);
 
     // Ground the shared-artifact inventory against the LIVE runtime +
     // state-root: every non-log file must match an inventory diskBasename.
