@@ -30,10 +30,12 @@ src/
                           self-contained JS file at server startup.
 
   server/                 Host-server integration.
-    index.ts              mountArtifactSdk(app, opts) — one call.
-                          Registers the bundle route + an HTML-decoration
-                          middleware that splices <script src="..."> into
-                          text/html responses on the iframe-preview path.
+    index.ts              artifactSdkBundleLayer({sdkScriptPath}) — the
+                          bundle route, an effect/unstable/http layer.
+                          withArtifactSdk(sdkScriptPath) — a handler
+                          combinator the host applies to its iframe-preview
+                          route; splices <script src="..."> into a
+                          text/html 200 and drops the original's ETag.
     bundle.ts             esbuild-on-startup; cached in-memory with a
                           content hash for cache-busting.
     inject.ts             Pure HTML string splicer.
@@ -50,7 +52,7 @@ Package exports:
 
 - `./types` — `Locator`, message types
 - `./client` — parent-side bridge + pure anchor functions
-- `./server` — `mountArtifactSdk` + `MountOptions`
+- `./server` — `artifactSdkBundleLayer` + `withArtifactSdk` + `ArtifactSdkError`
 
 The `./core` and `./iframe` paths are internal — consume via `./client`
 or, for the iframe, build-bundle the source files directly.
