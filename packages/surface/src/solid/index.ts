@@ -100,6 +100,11 @@ export {
   type BoundProcedure,
   type BoundStream,
   buildSurfaceClient,
+  // The EFFECT-native twin of `BoundProcedure` — `client.effect.<ns>.<verb>` — for
+  // a consumer that COMPOSES a member call (a deadline, a race, a supersede, a
+  // Ctrl-C) rather than awaiting it.
+  type EffectProcedure,
+  type ProcedureEffect,
   // The declared-error narrowing verbs (SK6/D4) — a tagged-error `_tag` test plus
   // the non-throwing `safe(...)`, owned HERE so an app never imports a transport
   // vendor to read a typed rejection, and never has to hand-classify "the server

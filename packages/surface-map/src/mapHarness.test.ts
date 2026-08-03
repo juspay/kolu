@@ -336,15 +336,12 @@ describe("surface-map mock-entry e2e harness", () => {
       // and the map server unwraps it and routes to A's entry, so the snapshot is A's
       // urgency, never B's. The SAME envelope fold the `.use()` subs ride, exercised
       // at the addressing face.
-      const stream = (
-        client.entry(A).rpc as {
-          surface: {
-            urgency: {
-              get: () => Stream.Stream<{ awaiting: number }, unknown>;
-            };
-          };
-        }
-      ).surface.urgency.get();
+      // Narrowed PER MEMBER, not by re-typing the whole face: `SurfaceFace` is
+      // deliberately structural (per-member precision lives in the spec-derived
+      // bound faces), so the honest cast is on the one ref this test calls.
+      const urgencyGet = client.entry(A).rpc.surface.urgency
+        ?.get as () => Stream.Stream<{ awaiting: number }, unknown>;
+      const stream = urgencyGet();
       const firstA = await Effect.runPromise(
         Stream.runCollect(Stream.take(stream, 1)),
       );

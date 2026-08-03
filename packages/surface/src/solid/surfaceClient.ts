@@ -13,6 +13,7 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
+import type { Effect } from "effect";
 import {
   type Accessor,
   createMemo,
@@ -26,6 +27,7 @@ import {
   buildSurfaceFace,
   isTransportError,
   type StreamingProcedure,
+  type SurfaceCallFailure,
   type SurfaceFace,
   type UnaryProcedure,
   unenrolledStreamCall,
@@ -472,6 +474,60 @@ type BoundProceduresFor<S extends SurfaceSpec> = {
   };
 };
 
+/** A bound procedure's EFFECT result — the Effect-4 dual of
+ *  {@link ProcedureResult}, and the honest one: where the Promise carries its
+ *  declared union as an unreachable PHANTOM (a `Promise` has no error type, so
+ *  `safe` has to recover it), an `Effect` carries it in a real channel the
+ *  compiler tracks through every `catchTag`, `catchAll` and `orDie`.
+ *
+ *  `E` is the spec's DECLARED union alone; {@link SurfaceCallFailure} — Effect
+ *  RPC's transport error plus the framework's own tagged vocabulary — is unioned
+ *  in here, because a call CAN fail that way and a channel that omitted it would
+ *  let a consumer believe `catchTag`-ing its declared tags left nothing to handle.
+ *  A caller that genuinely wants the Promise-era "any failure is fatal" shape
+ *  writes `Effect.orDie`, and says so. */
+export type ProcedureEffect<T, E> = Effect.Effect<T, E | SurfaceCallFailure>;
+
+/** A bound imperative procedure, EFFECT-native — `client.effect.<ns>.<verb>(input)`.
+ *
+ *  The SAME four-arm ladder as {@link BoundProcedure} over the same
+ *  {@link ProcedureSpec}, with the same sides of the same schemas: the input arm is
+ *  the ENCODED side (`Schema["Encoded"]`, D2/#13 — the face decodes at its edge),
+ *  the success arm the DECODED side. Only the return shape differs, so the two
+ *  ladders move together or `effectProcedure.test-d.ts` stops compiling.
+ *
+ *  This is the face a caller composes with. `client.procedures.ns.verb(x)` can only
+ *  be awaited — and an `await` is exactly what fiber interruption cannot reach
+ *  through, which is why every consumer that needs a deadline, a race, a
+ *  supersede-on-new-input or a Ctrl-C had to hand-roll an `AbortController`
+ *  alongside it. `client.effect.ns.verb(x)` needs none of that: it is a
+ *  description, and its caller's own combinators bound it. */
+export type EffectProcedure<
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors `BoundProcedure`'s constraint — the concrete arms below narrow via `infer`.
+  S extends ProcedureSpec<any, any>,
+> = S extends {
+  input: infer In extends WireSchemaAny;
+  output: infer Out extends WireSchemaAny;
+}
+  ? (
+      input: In["Encoded"],
+    ) => ProcedureEffect<Out["Type"], BoundProcedureError<S>>
+  : S extends { input: infer In extends WireSchemaAny }
+    ? (input: In["Encoded"]) => ProcedureEffect<void, BoundProcedureError<S>>
+    : S extends { output: infer Out extends WireSchemaAny }
+      ? (
+          input?: undefined,
+        ) => ProcedureEffect<Out["Type"], BoundProcedureError<S>>
+      : (input?: undefined) => ProcedureEffect<void, BoundProcedureError<S>>;
+
+type EffectProceduresFor<S extends SurfaceSpec> = {
+  [NS in keyof S["procedures"] & string]: {
+    [V in keyof NonNullable<S["procedures"]>[NS] & string]: EffectProcedure<
+      NonNullable<S["procedures"]>[NS][V]
+    >;
+  };
+};
+
 /** Options for `client.rawStream` — the structural raw-stream path. */
 export interface RawStreamOptions<O> {
   /** Called for each frame the stream yields. */
@@ -582,6 +638,23 @@ export interface SurfaceClient<S extends SurfaceSpec> {
    *  `spec.procedures` — so they do NOT appear here; reach them (and the
    *  link-root escape hatch) through `.rpc`. */
   readonly procedures: BoundProceduresFor<S>;
+  /** The declared imperative procedures, EFFECT-native —
+   *  `client.effect.<ns>.<verb>(input)`. The same members as `.procedures`, at the
+   *  same names, with the same Encoded-in/decoded-out schema sides; the call
+   *  returns a composable `Effect` carrying the spec's DECLARED error union (plus
+   *  the framework's own {@link SurfaceCallFailure}) in a channel the compiler
+   *  tracks, instead of a `Promise` whose declared union survives only as a
+   *  phantom `safe()` has to recover.
+   *
+   *  Reach for it whenever the call is part of a larger program: a command that
+   *  must fold several members concurrently, a read that needs a deadline, a
+   *  request superseded by the next one, anything that must die on Ctrl-C. Those
+   *  all reduce to combinators here, where under `.procedures` each needs its own
+   *  `AbortController` — which a `Promise` cannot honour anyway.
+   *
+   *  `.procedures` stays for the plain-async leaves; it is `Effect.runPromise`
+   *  over exactly these effects, so the two faces cannot disagree. */
+  readonly effect: EffectProceduresFor<S>;
   /** The subscription-health FACT — the `system.live` twin (`./health`). Reads
    *  every enrolled subscription's self-clearing `error()`/`pending()` plus the
    *  transport `live`, so a consumer reads ONE fact instead of hand-folding the
@@ -638,15 +711,35 @@ export interface SurfaceClient<S extends SurfaceSpec> {
  *  (The oRPC-era binds deferred this deref behind lazy getters so a hand-built
  *  PARTIAL mock link was tolerated; the face is no longer caller-supplied, so there
  *  is nothing partial to tolerate — a test stubs the DISPATCH, one layer down.) */
-function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
-  const ns = face.surface[key];
+function readMember(
+  nesting: Record<string, Record<string, unknown>>,
+  key: string,
+  which: string,
+): Record<string, unknown> {
+  const ns = nesting[key];
   if (ns === undefined) {
     throw new Error(
-      `surfaceClient: the face carries no member "${key}", but the spec declares ` +
-        "it — the face walk and the bind walk disagree, which is a framework bug.",
+      `surfaceClient: the face's ${which} nesting carries no member "${key}", but ` +
+        "the spec declares it — the face walk and the bind walk disagree, which " +
+        "is a framework bug.",
     );
   }
   return ns;
+}
+
+function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
+  return readMember(face.surface, key, "promise");
+}
+
+/** {@link memberOf}'s twin over the face's EFFECT nesting. Separate rather than a
+ *  flag because the two are read for different reasons — the promise nesting feeds
+ *  the Solid primitives, this one feeds `.effect` — and a caller that mixed them up
+ *  would get a `Promise` where it typed an `Effect`, which no cast would catch. */
+function effectMemberOf(
+  face: SurfaceFace,
+  key: string,
+): Record<string, unknown> {
+  return readMember(face.effect, key, "effect");
 }
 
 /** Build the Solid client-side bundle for a surface over a **transport** — either
@@ -1430,12 +1523,23 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
   // types and never casts the raw `.rpc`. Pure structural walk-by-string, like the
   // primitive binds above — no `.use()` wrapper (a procedure is a one-shot call,
   // not a subscription), so nothing to enrol into `health()`.
+  //
+  // Both shapes come off the ONE face walk: `.procedures` off its promise nesting,
+  // `.effect` off its effect nesting. Same loop, so a procedure can never appear on
+  // one face and not the other.
   const procedures: Record<string, Record<string, unknown>> = {};
+  const effectProcedures: Record<string, Record<string, unknown>> = {};
   for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
     const nsFace = memberOf(face, ns);
+    const nsEffectFace = effectMemberOf(face, ns);
     const bound: Record<string, unknown> = {};
-    for (const verb of Object.keys(verbs)) bound[verb] = nsFace[verb];
+    const boundEffect: Record<string, unknown> = {};
+    for (const verb of Object.keys(verbs)) {
+      bound[verb] = nsFace[verb];
+      boundEffect[verb] = nsEffectFace[verb];
+    }
     procedures[ns] = bound;
+    effectProcedures[ns] = boundEffect;
   }
 
   // The STRUCTURAL raw-stream path (Leak A). A raw `unenrolledStreamCall` owns its
@@ -1514,6 +1618,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
     procedures: procedures as BoundProceduresFor<S>,
+    effect: effectProcedures as EffectProceduresFor<S>,
     health: registry.health,
     enroll: registry.enroll,
     rawStream,

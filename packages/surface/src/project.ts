@@ -38,7 +38,11 @@
  */
 
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { buildSurfaceFace, type StreamingProcedure } from "./client";
+import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+  type SurfaceFace,
+} from "./client";
 import {
   type CellSpec,
   defineSurface,
@@ -123,8 +127,19 @@ export type SurfaceReadFace<S extends SurfaceSpec> = {
  *  from the SOURCE surface's spec. Reach for `client.surface.<cellKey>.get()` and
  *  `client.surface.<ns>.<verb>(...)`. The type parameter is the source surface's
  *  *spec*, so a projection's `deps` callback names the source surface once and gets
- *  a typed read face. */
-export type SurfaceClientOf<S extends SurfaceSpec> = {
+ *  a typed read face.
+ *
+ *  It IS the face, with only the `surface` nesting re-typed: the face's other
+ *  nestings (today `effect`) ride through erased, so a projection that wants a
+ *  composable member call reaches `client.effect.<ns>.<verb>` and narrows it
+ *  itself. Spelling this as a narrowing of `SurfaceFace` rather than a fresh
+ *  object type is also what keeps `surfaceClientRef`'s single cast a NARROWING
+ *  rather than an `as unknown as` — a new nesting on the face cannot silently
+ *  turn that cast into a lie. */
+export type SurfaceClientOf<S extends SurfaceSpec> = Omit<
+  SurfaceFace,
+  "surface"
+> & {
   readonly surface: SurfaceReadFace<S>;
 };
 
