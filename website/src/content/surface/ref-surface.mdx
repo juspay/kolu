@@ -284,9 +284,12 @@ failure is rethrown unchanged; several are surfaced together as an
 
 `@kolu/surface/reactor` is the one exit from a backend signal graph into the
 cell machinery — state is a signal, derived state a computed, and the wire is
-the signal boundary that snapshots and replays. The signals engine
-(`@preact/signals-core`) is wrapped here and lint-banned everywhere else, so this
-wrapper is the graph's only exit by construction.
+the signal boundary that snapshots and replays. The signals engine is Effect's
+own `Atom`/`AtomRegistry` (`effect/unstable/reactivity`), wrapped here and
+lint-banned everywhere else, so this wrapper is the graph's only exit by
+construction. No engine type reaches the public surface: a node's level is a
+`ReadonlyLevel<T>` — `.value` (the TRACKED read: reading it inside a derivation
+is depending on it) and `.peek()` (untracked).
 
 | Export                      | Signature                                           | Role                                                                                                                                                                                                             |
 | --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -299,7 +302,7 @@ wrapper is the graph's only exit by construction.
 | `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })` | `@kolu/surface/viewer-identity` | which machine a viewer is actually at, for an app behind a reverse proxy — the trust gate WHOLE, so the order it rests on is enforced here rather than by each consumer re-reading prose: a header on an untrusted connection is ignored entirely, and on a trusted one the LAST forwarded entry wins. Takes the header in either shape a node request carries (string or repeated-header array). Beside it: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`. Pure and total — DNS and interface enumeration stay with the consumer |
 | `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
 | `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
-| `batch(fn)`                 | `(() => void) → void`                               | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes                                                        |
+| `batch(fn)`                 | `(() => T) → T`                                     | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes. Every write the bridge itself makes already opens one (the engine has no implicit batch), so this only ever nests |
 | `derived.cell(node)`        | `(GraphNode<T>) → DerivedCell<T>`                   | publish a pre-built graph node (a `scan`, a `computed`) as a cell — the deps for an `implementSurface` `cells.<key>` slot                                                                                        |
 | `derived.cell(($) => …)`    | `(($: SiblingRead<S>) => T) → DerivedComputeCell<S, T>` | publish a SIBLING derivation as a cell; `$` is the typed sibling-read face (`$.someCell(): T`, `$.someCollection(): ReadonlyMap<K, T>`). Reading a sibling is depending on it — the cell recomputes when a sibling it read changed |
 | `derived.collection(node)`  | `(GraphNode<ReadonlyMap<K,V>>) → DerivedCollection` | publish a keyed node (a poll `source` reading a whole `Map`, or a `computed` producing one) as a COLLECTION — the keyed-reconciler wire adapter: it diffs each frame against the last by the collection's `equals` and drives the surface's per-key publishers for exactly the changed + removed keys. Graph-owned (ctx `upsert`/`remove` throw) |
@@ -327,7 +330,7 @@ Guarantees a `derived.cell` rides:
 
 `scan` carries the **stop-hold error law**: a step that throws stops the
 derivation (its source subscription is disposed), holds the last value (never a
-fabricated reset), logs loudly, and latches `stopped` — a `ReadonlySignal<boolean>`
+fabricated reset), logs loudly, and latches `stopped` — a `ReadonlyLevel<boolean>`
 that is **server-observable in phase 0**: it gates the scan from stepping again
 and distinguishes a frozen derivation from a legitimately quiet one. Bridging
 `stopped` into the surface's client-side liveness (folding it into a member's

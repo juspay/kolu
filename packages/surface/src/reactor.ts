@@ -3,11 +3,12 @@
  *
  * State is a signal; derived state is a computed; **the wire is a signal
  * boundary that snapshots and replays.** This module is the ONE exit from the
- * backend signal graph into `@kolu/surface`'s cell machinery. A signals engine
- * (`@preact/signals-core` today; `@solidjs/signals` the named swap target) is a
- * dependency of `@kolu/surface` ONLY, wrapped HERE and nowhere else — the
- * engine's deep import is lint-banned outside this file (`biome.jsonc`), so this
- * wrapper is the graph's only exit by construction, not by review.
+ * backend signal graph into `@kolu/surface`'s cell machinery. The signals engine
+ * is Effect's own `Atom`/`AtomRegistry` (`effect/unstable/reactivity`) — no
+ * separate engine package, so `effect` is the only dependency `@kolu/surface`
+ * carries for the graph — wrapped HERE and nowhere else: the engine's deep
+ * import is lint-banned outside this file (`biome.jsonc`), so this wrapper is
+ * the graph's only exit by construction, not by review.
  *
  * Exports: `source` (push + poll `{ read, install }` shapes) + `scan` (phase 0);
  * SR7's typed `$` sibling-read face, `computed`, `batch`, and both `derived.cell`
@@ -37,13 +38,8 @@
  * every frame. This is a permanent boundary, not a phase gap.
  */
 
-import {
-  batch,
-  computed as engineComputed,
-  effect,
-  type ReadonlySignal,
-  signal,
-} from "@preact/signals-core";
+import { Result } from "effect";
+import { Atom, AtomRegistry } from "effect/unstable/reactivity";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
@@ -56,24 +52,226 @@ import {
 } from "./reactorBrand";
 import type { CellStore, Disposer } from "./server";
 
+// ── The engine seam ──────────────────────────────────────────────────────
+//
+// FOUR primitives and only four — `signal` (a mutable graph root), `derive`
+// (a lazily-pulled, glitch-free derivation), `effect` (a subscriber with a
+// disposer) and `batch` (one frame). That is the whole contract the engine note
+// pins, and it is why swapping the engine is a two-way door: everything below
+// this seam is plain JS, and the three things engines disagree on — equals
+// gating, error policy, flush discipline — are owned HERE, by the wrapper, not
+// by the engine.
+//
+// The engine is Effect's `Atom` + `AtomRegistry`. Two differences from a
+// preact-shaped engine are load-bearing and are neutralised here, once, so no
+// call site can get them wrong:
+//
+//   1. **Atom does not batch implicitly.** A preact setter opens an implicit
+//      batch; `AtomRegistry.set` does not, and an unbatched write to a diamond
+//      whose apex has a subscriber recomputes that apex ONCE PER LEG — a
+//      transient half-updated read plus a duplicate notify. So every write goes
+//      through {@link signal}'s setter, which wraps itself in `Atom.batch`.
+//      `batch` is depth-counted, so nesting inside the public `batch()` (or
+//      inside a source `emit`) costs nothing.
+//   2. **Atom rebuilds a stale node on the WRITER's stack** when it has active
+//      subscribers, so a throwing derivation would escape into `ctx.cells.x.set`
+//      instead of the subscriber that owns the log-skip-continue policy. So a
+//      derivation's node value is a {@link Result} — the read never throws — and
+//      the throw is re-raised at the READ faces (`.value`/`.peek()`), which is
+//      exactly where the bridge's error policy already lives.
+//
+// Nodes that CARRY STATE are `Atom.keepAlive`: an idle Atom node is removed and
+// its value silently resets to the atom's initial, which for a `scan` level or a
+// version counter is state loss. Pure derivations stay auto-disposing — they are
+// recomputed on demand, which is what "pure" means. The cost of `keepAlive` is
+// that the registry retains one small node per stateful graph node ever built,
+// past `dispose()`; that is bounded by BOOT-TIME construction (every `source` /
+// `scan` / `reactiveFamily` / compute cell in the tree is built once, when a
+// surface is implemented), never per connection, so it is a fixed cost rather
+// than a leak.
+
+/** The bridge's ONE graph. A module-level registry is the honest analogue of a
+ *  signal engine's implicit global graph, and it is what lets `source`/`scan`/
+ *  `computed` stay FREE FUNCTIONS: threading an `AtomRegistry` (or a `Layer`)
+ *  through them would force every consumer into an Effect context for what is a
+ *  synchronous, non-Effect bridge — the reactor's entire job. */
+const GRAPH = AtomRegistry.make();
+
+/** The ambient dependency-tracking context, live only for the duration of one
+ *  derivation's recompute.
+ *
+ *  Atom passes the tracking context in as an argument (`read: (get) => A`) where
+ *  a preact-shaped engine keeps it ambient. The bridge needs it ambient: a `$`
+ *  sibling read reaches the reader's node through an OPAQUE closure held by
+ *  `server.ts`'s boot walk (`SiblingSource.read`, deliberately engine-free so
+ *  `server.ts` never imports this module), and there is no argument to thread
+ *  through it. Saved/restored around every recompute, so nesting is exact. */
+let currentGet: Atom.AtomContext | undefined;
+
+/** What the running derivation has DEPENDED on so far — the set {@link signal}'s
+ *  setter consults to repair the DUAL-EDGE pattern (below). Lives beside
+ *  {@link currentGet} and is saved/restored with it. */
+let currentDeps: Set<unknown> | undefined;
+
+/** Run `f` with `get` as the ambient tracking context. */
+function withTracking<T>(get: Atom.AtomContext, f: () => T): T {
+  const priorGet = currentGet;
+  const priorDeps = currentDeps;
+  currentGet = get;
+  currentDeps = new Set();
+  try {
+    return f();
+  } finally {
+    currentGet = priorGet;
+    currentDeps = priorDeps;
+  }
+}
+
+/** A read that DEPENDS: inside a derivation it registers the edge; outside one it
+ *  is just a read (there is nothing to depend). */
+function trackedRead<T>(atom: Atom.Atom<T>): T {
+  if (currentGet === undefined) return GRAPH.get(atom);
+  currentDeps?.add(atom);
+  return currentGet(atom);
+}
+
+/** A derivation's node value: its result, or the throw it produced. Held as a
+ *  value so the node's read is TOTAL — see the seam note above. */
+type Outcome<T> = Result.Result<T, unknown>;
+
+/** Equality for a derivation's node: compare the PAYLOADS, so the
+ *  equality-cascade stop still works through the wrapper (a fresh `Result`
+ *  object per recompute would otherwise defeat it and re-publish every frame). A
+ *  failure is never equal to anything — a still-broken derivation re-runs the
+ *  subscriber, which is what heals it. */
+function sameOutcome<T>(a: Outcome<T>, b: Outcome<T>): boolean {
+  return (
+    Result.isSuccess(a) &&
+    Result.isSuccess(b) &&
+    Object.is(a.success, b.success)
+  );
+}
+
+/** Re-raise a derivation's throw at the read face. */
+function openOutcome<T>(outcome: Outcome<T>): T {
+  if (Result.isSuccess(outcome)) return outcome.success;
+  throw outcome.failure;
+}
+
+/** A read-only LEVEL — the engine-free face every graph node exposes. `value` is
+ *  the TRACKED read (reading it inside a derivation is depending on it); `peek()`
+ *  is the untracked one. Deliberately no engine type: this is the reactor's
+ *  public surface, and the next engine swap must not reach it. */
+export interface ReadonlyLevel<T> {
+  /** The current value, as a DEPENDENCY when read inside a derivation. */
+  readonly value: T;
+  /** The current value, tracking nothing. */
+  peek(): T;
+}
+
+/** A writable level — {@link ReadonlyLevel} plus the setter, which is the one
+ *  place a graph write can happen (and therefore the one place the batch is
+ *  guaranteed). Internal: the graph is every node's one writer. */
+interface MutableLevel<T> extends Omit<ReadonlyLevel<T>, "value"> {
+  value: T;
+}
+
+/** ≙ `signal` — a mutable graph root. `keepAlive` because it carries STATE. */
+function signal<T>(initial: T): MutableLevel<T> {
+  const atom = Atom.writable<T, T>(
+    () => initial,
+    (ctx, next) => {
+      ctx.setSelf(next);
+    },
+  ).pipe(Atom.keepAlive);
+  return {
+    get value(): T {
+      return trackedRead(atom);
+    },
+    set value(next: T) {
+      // The batch that Atom does not open for us — see the seam note.
+      Atom.batch(() => {
+        GRAPH.set(atom, next);
+      });
+      // THE DUAL EDGE. A derivation is allowed to write a level it just READ —
+      // padi's finish-quiet generation does exactly that: `project()` depends on
+      // the generation, then bumps it when the membership sync it performs
+      // changed something. The engine invalidates a level's dependents by
+      // CLEARING that level's dependent set, which, for the derivation that is
+      // mid-recompute, drops an edge it already established and can no longer
+      // re-establish — so the NEXT bump would reach nobody and the cell would
+      // silently freeze. Re-assert the edge, and only for a level this
+      // derivation genuinely read (a derivation that merely writes a level must
+      // not acquire a dependency on it — that is a loop).
+      if (currentGet !== undefined && currentDeps?.has(atom) === true) {
+        currentGet(atom);
+      }
+    },
+    peek: () => GRAPH.get(atom),
+  };
+}
+
+/** ≙ `computed` — a lazily-pulled, glitch-free derivation. Auto-disposing (it is
+ *  pure) and TOTAL (a throw becomes an {@link Outcome} and is re-raised at the
+ *  read faces, never on the writer's stack). */
+function derive<T>(compute: () => T): ReadonlyLevel<T> {
+  const atom = Atom.readable<Outcome<T>>((get) =>
+    withTracking(get, (): Outcome<T> => {
+      try {
+        return Result.succeed(compute());
+      } catch (err) {
+        return Result.fail(err);
+      }
+    }),
+  ).pipe(Atom.withEquality(sameOutcome<T>));
+  return {
+    get value(): T {
+      return openOutcome(trackedRead(atom));
+    },
+    peek: () => openOutcome(GRAPH.get(atom)),
+  };
+}
+
+/** Discard a subscription's payload — the reactor's effects re-read through the
+ *  level faces (which apply the error policy), never off the notification. */
+const ignoreValue = (): void => {};
+
+/** ≙ `effect` — run `body` now and after every change to whatever it read;
+ *  returns the disposer. A disposed effect runs nothing on a later change. */
+function effect(body: () => void): () => void {
+  const node = Atom.readable<null>((get) =>
+    withTracking(get, () => {
+      body();
+      return null;
+    }),
+  );
+  return GRAPH.subscribe(node, ignoreValue, { immediate: true });
+}
+
 /** `batch` — group several graph writes into ONE frame, so derivations
  *  recompute once. The bridge owns the batch at every internal graph entry point
- *  (a source `emit`, a poll tick); this re-export is the ONE knob an app reaches
- *  for to coalesce a multi-member burst of ctx writes into a single recompute
- *  pass (e.g. `batch(() => { registry.set(a); registry.delete(b); })`). It is the
- *  engine's `batch`, surfaced through the reactor so app code never deep-imports
- *  the engine. */
-export { batch };
+ *  (a source `emit`, a poll tick, every level write); this export is the ONE knob
+ *  an app reaches for to coalesce a multi-member burst of ctx writes into a
+ *  single recompute pass (e.g. `batch(() => { registry.set(a); registry.delete(b);
+ *  })`). It is the engine's `batch`, surfaced through the reactor so app code
+ *  never deep-imports the engine. */
+export function batch<T>(run: () => T): T {
+  let out!: T;
+  Atom.batch(() => {
+    out = run();
+  });
+  return out;
+}
 
 // ── Graph node ───────────────────────────────────────────────────────────
 
-/** A node in the backend signal graph: a current LEVEL (the engine signal every
+/** A node in the backend signal graph: a current LEVEL (the level every
  *  derivation reads) plus the disposer that tears down whatever it installed. A
  *  stateful node (a `scan`) additionally carries a `stopped` latch. */
 export interface GraphNode<T> {
-  /** The node's current value — a `ReadonlySignal`, so reads are dependencies
-   *  and writes are impossible from the outside. */
-  readonly value: ReadonlySignal<T>;
+  /** The node's current value — a {@link ReadonlyLevel}, so reads are
+   *  dependencies and writes are impossible from the outside. */
+  readonly value: ReadonlyLevel<T>;
   /** Tear down this node and everything it installed (source taps, effects). */
   readonly dispose: () => void;
 }
@@ -87,7 +285,7 @@ export interface ScanNode<T> extends GraphNode<T> {
    *  into the surface's client-side liveness is a LATER phase — the reactive
    *  bridge's open "unhealthy-after-N-failures" question; phase 0 stops loudly,
    *  logs, and latches, but does not yet flip health.) */
-  readonly stopped: ReadonlySignal<boolean>;
+  readonly stopped: ReadonlyLevel<boolean>;
 }
 
 // ── source — external input into the graph ───────────────────────────────
@@ -806,7 +1004,7 @@ export interface DerivedComputeCell<S extends SurfaceSpec, T>
  *  computed installs nothing, so its `dispose` is a no-op — it composes into
  *  `derived.cell(node)` exactly like a `scan`. */
 export function computed<T>(compute: () => T): GraphNode<T> {
-  return { value: engineComputed(compute), dispose: () => {} };
+  return { value: derive(compute), dispose: () => {} };
 }
 
 /** A derived cell's public store facade, shared by both `derived.cell` forms:
@@ -999,13 +1197,13 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
 function computeCell<S extends SurfaceSpec, T>(
   compute: (siblings: SiblingRead<S>) => T,
 ): DerivedComputeCell<S, T> {
-  let node: ReadonlySignal<T> | undefined;
+  let node: ReadonlyLevel<T> | undefined;
   const unsubscribes: Array<() => void> = [];
   let disposeEffect: (() => void) | undefined;
   let connected = false;
   let torn = false;
 
-  const requireNode = (): ReadonlySignal<T> => {
+  const requireNode = (): ReadonlyLevel<T> => {
     if (!node) {
       throw new Error(
         "derived compute cell: used before bindSiblings() — the boot walk must assemble $ and bind it before seeding/connecting.",
@@ -1042,7 +1240,7 @@ function computeCell<S extends SurfaceSpec, T>(
     //   - AUTHORED sibling (cell/collection) → a mirror: its value read live, its
     //     reactive edge a per-sibling version signal, created LAZILY on first read
     //     (an unread sibling gets no signal and no subscription) and bumped by the
-    //     sibling's post-equals change. Both reads happen inside `engineComputed`
+    //     sibling's post-equals change. Both reads happen inside the `derive`
     //     below, so the engine tracks them.
     const versions = new Map<string, ReturnType<typeof signal<number>>>();
     const siblings = new Proxy({} as SiblingRead<S>, {
@@ -1072,7 +1270,7 @@ function computeCell<S extends SurfaceSpec, T>(
         };
       },
     });
-    node = engineComputed(() => compute(siblings));
+    node = derive(() => compute(siblings));
   };
 
   return {
@@ -1303,7 +1501,7 @@ export function reactiveFamily<K, S>(
   const tokens = new Map<K, object>();
   // The pull-face's DIRECT listeners — fired synchronously, once per completed change edge
   // (the old hand-rolled `fire()` fan-out). They are NOT driven off the `version` signal:
-  // a Preact effect over `version` COALESCES two edges that land in one outer batch, which
+  // an engine effect over `version` COALESCES two edges that land in one outer batch, which
   // would fold a same-key remove + re-add into a single notification and leave `members()`
   // showing the key continuously present — violating the map's clause-3 (the `membershipId`
   // mint, and the client's per-key lifecycle, rest on remove and re-add being TWO observable
@@ -1435,7 +1633,7 @@ export function reactiveFamily<K, S>(
     // consumer detects a change (the in-place `latest` never changes ref). Lazy — the
     // O(M) copy is paid only if a `.value.value` consumer (a future `derived.collection`
     // over the family) exists; the pull-face `derived.registry` never reads it.
-    value: engineComputed(() => {
+    value: derive(() => {
       version.value; // track
       return new Map(latest);
     }),
