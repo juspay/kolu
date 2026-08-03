@@ -31,14 +31,11 @@ import { randomUUID } from "node:crypto";
 import { homedir, platform, userInfo } from "node:os";
 import { surfaceClientRef } from "@kolu/surface/project";
 import type { PtyHostClient } from "./ptyHostClient.ts";
-import {
-  implementSurface,
-  streamFromAbortableSource,
-  type SurfaceHandlers,
-} from "@kolu/surface/server";
-import { Effect } from "effect";
+import { implementSurface, type SurfaceHandlers } from "@kolu/surface/server";
+import { Duration, Effect, Fiber, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { currentPtyHostIdentity } from "./buildId.ts";
+import type { SubscriberOverflow } from "./fanOut.ts";
 import { removeInitFiles, writeInitFiles } from "./initFiles.ts";
 import type { DaemonLifetimeInfo, Logger } from "@kolu/surface-daemon";
 import { createPtyHost, type PtyId, type PtyListEntry } from "./ptyHost.ts";
@@ -110,7 +107,7 @@ export interface InProcessPtyHostDeps {
   rcDir: string;
   /** Per-attach-subscriber buffered-chunk cap before a slow consumer is dropped
    *  (and an `overflow` frame emitted). Forwarded to {@link createPtyHost}'s
-   *  `dataMaxQueue`; defaults to the {@link Channel} default. Lowered in tests
+   *  `dataMaxQueue`; defaults to the {@link FanOut} default. Lowered in tests
    *  to drive the drop deterministically. */
   dataMaxQueue?: number;
   /** The daemon's serialized lifetime (`forever` in production; `boundToPid`
@@ -157,95 +154,127 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
 
   /** Arm every exit before signaling, force termination, and acknowledge only
    *  after onExit teardown. The deadline converts node-pty's swallowed
-   *  process.kill error into a loud wire failure naming the residue. */
-  const terminate = async (ids: readonly PtyId[]): Promise<void> => {
-    const abort = new AbortController();
-    const exits = ids.map((id) => host.exitPromise(id, abort.signal));
-    for (const id of ids) host.kill(id, "SIGKILL");
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      await Promise.race([
-        Promise.all(exits),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
+   *  process.kill error into a loud wire failure naming the residue.
+   *
+   *  `startImmediately` is what makes "arm before signal" true: each waiter
+   *  fiber runs up to its registration before the fork returns, so the SIGKILL
+   *  below can never land on a PTY nobody is waiting for. The waiters are
+   *  CHILDREN of this fiber, so blowing the deadline (or an interruption from
+   *  above) tears every one of them down — the `AbortController` + `finally`
+   *  this replaces existed for exactly that. */
+  const terminate = (ids: readonly PtyId[]): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const armed = yield* Effect.forEach(ids, (id) =>
+        Effect.forkChild(host.exit(id), { startImmediately: true }),
+      );
+      for (const id of ids) host.kill(id, "SIGKILL");
+      yield* Effect.forEach(armed, Fiber.join, {
+        concurrency: "unbounded",
+        discard: true,
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: Duration.millis(PTY_TERMINATION_TIMEOUT_MS),
+          orElse: () => {
             const originalIds = new Set(ids);
             const survivors = host
               .list()
               .map((entry) => entry.id)
               .filter((id) => originalIds.has(id));
-            reject(
+            return Effect.die(
               new Error(
                 `pty-host: termination timed out after ${PTY_TERMINATION_TIMEOUT_MS}ms; surviving ids: ${survivors.join(", ") || "(none in inventory)"}`,
               ),
             );
-          }, PTY_TERMINATION_TIMEOUT_MS);
+          },
         }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-      // On timeout, deregister every unresolved waiter from its surviving
-      // entry. On success the waiters already removed their abort listeners,
-      // so this is a no-op.
-      abort.abort();
-    }
-  };
+      );
+    });
+
+  /** A metadata tap's slow-consumer drop, at the ONE place it can be reported.
+   *
+   *  These taps carry a handful of frames per command, so a subscriber that
+   *  overflows 10,000 of them is not lagging, it is wedged — and unlike
+   *  `terminalAttach` (whose consumer re-attaches on a typed `overflow` frame)
+   *  these members have no frame to say it with. So the drop is LOGGED, loudly
+   *  and by name, and the subscription then ends the way it always has: a
+   *  consumer that wants more re-subscribes. The end is not a silent swallow —
+   *  the log is the report, and the stream's end is what the consumer already
+   *  reads as "re-subscribe". */
+  const endOnOverflow =
+    (member: string, id?: string) =>
+    <A>(stream: Stream.Stream<A, SubscriberOverflow>): Stream.Stream<A> =>
+      Stream.catchTag(stream, "SubscriberOverflow", (err) =>
+        Stream.drain(
+          Stream.fromEffect(
+            Effect.sync(() => {
+              log.error(
+                { member, id, maxQueue: err.maxQueue },
+                "pty-host: dropped a wedged metadata subscriber; its subscription ends",
+              );
+            }),
+          ),
+        ),
+      );
 
   const surface = implementSurface(ptyHostSurface, {
     streams: {
       // Per-terminal output — snapshot then live deltas (streaming.md §2).
       terminalAttach: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
-            requirePtySync(input.id as PtyId);
-            // `overflow` flips if THIS subscriber is dropped for lagging past the
-            // bound. The deltas then end (the drop pushes CLOSE), so we surface a
-            // typed `overflow` frame as the LAST frame — distinct from a graceful
-            // end (PTY exit / interruption), which yields no such frame. A
-            // consumer reads it as "re-attach for a fresh snapshot", not "the PTY
-            // is gone".
-            let overflow = false;
-            const att = host.attach(input.id, signal, {
-              onOverflow: () => {
-                overflow = true;
-              },
-              resizeTo: input.resizeTo,
-            });
-            yield {
-              kind: "snapshot" as const,
-              data: att.snapshot,
-              topLine: att.topLine,
-              reflowEpoch: att.reflowEpoch,
-            };
-            for await (const data of att.deltas) {
-              yield { kind: "delta" as const, data };
-            }
-            if (overflow) yield { kind: "overflow" as const };
-          }),
+          Stream.unwrap(
+            Effect.gen(function* () {
+              requirePtySync(input.id as PtyId);
+              const att = yield* host.attach(input.id, {
+                resizeTo: input.resizeTo,
+              });
+              // A drop for lagging past the bound arrives on the deltas' ERROR
+              // channel, so it becomes a typed `overflow` frame as the LAST frame
+              // — distinct from a graceful end (PTY exit / interruption), which
+              // yields no such frame. A consumer reads it as "re-attach for a
+              // fresh snapshot", not "the PTY is gone". The distinction is held
+              // by the type: there is no flag to forget to check.
+              return Stream.make({
+                kind: "snapshot" as const,
+                data: att.snapshot,
+                topLine: att.topLine,
+                reflowEpoch: att.reflowEpoch,
+              }).pipe(
+                Stream.concat(
+                  att.deltas.pipe(
+                    Stream.map((data) => ({ kind: "delta" as const, data })),
+                    Stream.catchTag("SubscriberOverflow", () =>
+                      Stream.make({ kind: "overflow" as const }),
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ),
       },
       // Host-global meaningful-output edges (resize-excluded at the source). A live
       // edge feed — no snapshot frame (a consumer stamps arrival time and derives
       // its own windows; a missed edge only delays a downstream finish).
       activity: {
-        source: () =>
-          streamFromAbortableSource((signal) => host.subscribeActivity(signal)),
+        source: () => endOnOverflow("activity")(host.subscribeActivity()),
       },
       cwd: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
+          Stream.suspend(() => {
             requirePtySync(input.id as PtyId);
-            for await (const cwd of host.subscribeCwd(input.id, signal)) {
-              yield { cwd };
-            }
+            return host.subscribeCwd(input.id).pipe(
+              Stream.map((cwd) => ({ cwd })),
+              endOnOverflow("cwd", input.id),
+            );
           }),
       },
       title: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
+          Stream.suspend(() => {
             requirePtySync(input.id as PtyId);
-            for await (const title of host.subscribeTitle(input.id, signal)) {
-              yield { title };
-            }
+            return host.subscribeTitle(input.id).pipe(
+              Stream.map((title) => ({ title })),
+              endOnOverflow("title", input.id),
+            );
           }),
       },
       // Preexec command marks — snapshot-then-deltas (streaming.md §2). The
@@ -259,39 +288,48 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // command's recency as if the user just ran it.
       commandRun: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
-            requirePtySync(input.id as PtyId);
-            const sub = host.subscribeCommandRun(input.id, signal);
-            const last = host.getLastCommand(input.id);
-            // The snapshot carries the RETAINED command's dialect (it may be a
-            // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
-            // seed is published synchronously at spawn, before any subscriber, so
-            // it never arrives live) — hence `shellJoin: false` on the live frames.
-            if (last !== undefined)
-              yield {
-                command: last,
-                replayed: true,
-                shellJoin: host.getLastCommandShellJoin(input.id),
-              };
-            for await (const command of sub) {
-              yield { command, replayed: false, shellJoin: false };
-            }
-          }),
+          Stream.unwrap(
+            Effect.gen(function* () {
+              requirePtySync(input.id as PtyId);
+              const sub = yield* host.subscribeCommandRun(input.id);
+              // The snapshot carries the RETAINED command's dialect (it may be a
+              // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
+              // seed is published synchronously at spawn, before any subscriber, so
+              // it never arrives live) — hence `shellJoin: false` on the live frames.
+              const live = sub.marks.pipe(
+                Stream.map((command) => ({
+                  command,
+                  replayed: false,
+                  shellJoin: false,
+                })),
+                endOnOverflow("commandRun", input.id),
+              );
+              return sub.retained === undefined
+                ? live
+                : Stream.make({
+                    command: sub.retained.command,
+                    replayed: true,
+                    shellJoin: sub.retained.shellJoin,
+                  }).pipe(Stream.concat(live));
+            }),
+          ),
       },
       // Foreground samples — a current snapshot first so a freshly-wired
       // consumer warms its cache immediately, then live deltas (a duplicate
       // snapshot is harmless: the consumer's reconcile is idempotent).
       foreground: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
-            requirePtySync(input.id as PtyId);
-            const sub = host.subscribeForeground(input.id, signal);
-            yield {
-              process: host.getProcess(input.id) ?? "",
-              foregroundPid: host.getForegroundPid(input.id),
-            };
-            for await (const sample of sub) yield sample;
-          }),
+          Stream.unwrap(
+            Effect.gen(function* () {
+              requirePtySync(input.id as PtyId);
+              const sub = yield* host.subscribeForeground(input.id);
+              return Stream.make(sub.current).pipe(
+                Stream.concat(
+                  endOnOverflow("foreground", input.id)(sub.samples),
+                ),
+              );
+            }),
+          ),
       },
       // Natural exit — yields the exit code once, then ends. Interrupting the
       // subscribing fiber aborts the host-side waiter (a kill aborts this before
@@ -300,47 +338,47 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // kaval-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
         source: (input) =>
-          streamFromAbortableSource(async function* (signal) {
-            try {
-              const exitCode = await host.exitPromise(input.id, signal);
-              yield { exitCode };
-            } catch (err) {
-              // Abort (teardown / socket close) is the EXPECTED rejection — end
-              // quietly; the waiter is already removed. Anything else is not:
-              // in-process `exitPromise` only rejects on abort, but a
-              // socket-served one could reject on transport error, and silently
-              // ending the stream there would leave the consumer's terminal
-              // never cleaned up. Surface it instead of swallowing.
-              if (signal.aborted) return;
-              log.error(
-                { err, id: input.id },
-                "pty-host exitPromise rejected unexpectedly (non-abort)",
-              );
-              throw err;
-            }
-          }),
+          // `host.exit` cannot fail — it succeeds with the child's code, or with
+          // the tombstone's for an already-dead id — so there is no rejection to
+          // classify here. Interrupting the subscribing fiber deregisters the
+          // waiter and yields nothing, which is the kill-silence `local.ts`
+          // relies on; the try/catch that had to tell an abort apart from a
+          // transport error is gone with the AbortSignal that made it necessary.
+          Stream.fromEffect(
+            Effect.map(host.exit(input.id), (exitCode) => ({ exitCode })),
+          ),
       },
       // Host-global membership feed — a snapshot of every live PTY first
       // (snapshot-then-deltas, streaming.md §2), then created/exited deltas as
-      // other clients spawn or end PTYs. SUBSCRIBE before the snapshot (the
-      // Channel's eager-subscribe): a spawn racing the pair is then delivered as
-      // a delta rather than dropped. A create caught in BOTH the snapshot and a
-      // delta is harmless — the consumer's adoption is idempotent (its registry
-      // guard). Takes no id, so it is deliberately not `requirePty`-guarded.
+      // other clients spawn or end PTYs. The host takes both halves in ONE step
+      // (`subscribeInventory`), so a spawn racing the pair is delivered as a
+      // delta rather than dropped. Takes no id, so it is deliberately not
+      // `requirePty`-guarded.
       inventory: {
         source: () =>
-          streamFromAbortableSource(async function* (signal) {
-            const deltas = host.subscribeInventory(signal);
-            yield {
-              kind: "snapshot" as const,
-              entries: host.list().map(toWireEntry),
-            };
-            for await (const ev of deltas) {
-              yield ev.kind === "created"
-                ? { kind: "created" as const, entry: toWireEntry(ev.entry) }
-                : ev; // exited — { kind, id } is already the wire shape
-            }
-          }),
+          Stream.unwrap(
+            Effect.map(host.subscribeInventory(), (sub) =>
+              Stream.make({
+                kind: "snapshot" as const,
+                entries: sub.entries.map(toWireEntry),
+              }).pipe(
+                Stream.concat(
+                  sub.deltas.pipe(
+                    Stream.map(
+                      (ev) =>
+                        ev.kind === "created"
+                          ? {
+                              kind: "created" as const,
+                              entry: toWireEntry(ev.entry),
+                            }
+                          : ev, // exited — { kind, id } is already the wire shape
+                    ),
+                    endOnOverflow("inventory"),
+                  ),
+                ),
+              ),
+            ),
+          ),
       },
     },
     procedures: {
@@ -400,26 +438,18 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
         // the re-spawn would otherwise delete the new PTY. This is explicitly
         // destructive, so use SIGKILL: node-pty's default SIGHUP can lose an
         // immediate post-spawn kill while the child becomes its session leader.
-        // `Effect.promise`, not `tryPromise`: a `terminate` rejection means the
-        // termination DEADLINE blew (node-pty swallowed a signal-delivery error
-        // and a PTY survived). The procedure declares no error, so that stays an
-        // undeclared DEFECT — a host that cannot kill its own child is broken,
-        // not busy (PLAN D4).
-        kill: ({ input }) =>
-          Effect.map(
-            Effect.promise(() => terminate([input.id])),
-            () => ({ ok: true }),
-          ),
+        // `terminate` DIES rather than fails when the termination DEADLINE blows
+        // (node-pty swallowed a signal-delivery error and a PTY survived). The
+        // procedure declares no error, so that stays an undeclared DEFECT — a
+        // host that cannot kill its own child is broken, not busy (PLAN D4).
+        kill: ({ input }) => Effect.as(terminate([input.id]), { ok: true }),
         killAll: () =>
           Effect.suspend(() => {
             const ids = host.list().map((e) => e.id);
             // killAll is the reset boundary used by test setup and operators:
             // reporting success while old PTYs still occupy inventory makes the
             // next world race residue.
-            return Effect.map(
-              Effect.promise(() => terminate(ids)),
-              () => ({ killed: ids.length }),
-            );
+            return Effect.as(terminate(ids), { killed: ids.length });
           }),
         write: ({ input }) =>
           Effect.sync(() => {

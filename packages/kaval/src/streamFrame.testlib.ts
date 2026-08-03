@@ -17,7 +17,21 @@
  * daemon's hashed closure.
  */
 
-import { Stream } from "effect";
+import { Effect, type Scope, Stream } from "effect";
+
+/** Run a SCOPED effect to completion and close its scope immediately — for a
+ *  test that wants the value a scoped acquire produced (an attach's snapshot and
+ *  cursor) and not the subscription that came with it, which the scope close
+ *  releases.
+ *
+ *  Synchronous on purpose: `attach`'s publish-epoch coalescing is only
+ *  observable when a burst of attaches shares one tick, so a test that counts
+ *  serializes cannot afford a Promise hop between them. */
+export function runScopedSync<A>(
+  effect: Effect.Effect<A, never, Scope.Scope>,
+): A {
+  return Effect.runSync(Effect.scoped(effect));
+}
 
 /** Subscribe to a surface stream member and expose it as an async ITERATOR — the
  *  one place this package bridges `Stream` back to the pull-a-frame-at-a-time

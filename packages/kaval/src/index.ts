@@ -11,7 +11,7 @@
  *  - `createPtyHost` — the **primitive**: a `node-pty` child + an
  *    `@xterm/headless` screen mirror + the VT-derived event taps (cwd via
  *    OSC 7, title via OSC 0/2, command-run via OSC 633, foreground via
- *    `tcgetpgrp`, exit), fanned out through a bounded per-PTY channel. Owns
+ *    `tcgetpgrp`, exit), fanned out through a bounded per-PTY fan-out. Owns
  *    ONLY the PTY — no git, PRs, agents, file tree, or transport. It takes a
  *    fully-prepared spawn (env/shell-init is the caller's job — `kolu-pty`).
  *  - `ptyHostSurface` — the typed **contract** (the `PtyHost` interface
@@ -57,13 +57,19 @@ export {
   type PtyHostClient,
   ptyHostClientOver,
 } from "./ptyHostClient.ts";
+// The per-subscriber drop the PTY taps carry on their error channel — named in
+// `PtyAttachment.deltas`, so a consumer that narrows on it can spell the type.
+export type { SubscriberOverflow } from "./fanOut.ts";
 export {
+  type CommandRunSubscription,
   createPtyHost,
   // VALUE export (the per-terminal mirror-depth constant): a type-only re-export
   // would collapse it to nothing at runtime. The server imports this as the
   // scrollback it sends, so the same number governs every spawn path.
   DEFAULT_MIRROR_SCROLLBACK,
   type ForegroundSample,
+  type ForegroundSubscription,
+  type InventorySubscription,
   type PtyAttachment,
   type PtyHandle,
   type PtyHistoryChunk,
@@ -73,6 +79,7 @@ export {
   type PtyListEntry,
   type PtySpawnOpts,
   type PtySpawnResult,
+  type RetainedCommand,
   // The bounded attach-snapshot depth — paired with DEFAULT_MIRROR_SCROLLBACK in
   // the scrollback-backfill sizing invariant a consumer asserts at startup.
   SNAPSHOT_SCROLLBACK,
