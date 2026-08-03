@@ -82,10 +82,11 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  `err.message`) is one function rather than fifteen copies. */
   const toastFailure =
     (prefix: string) =>
-    <A, E>(self: Effect.Effect<A, E>): Effect.Effect<A | void, never> =>
+    <A, E>(self: Effect.Effect<A, E>): Effect.Effect<A | undefined, never> =>
       Effect.catch(self, (err) =>
         Effect.sync(() => {
           toast.error(`${prefix}: ${toError(err).message}`);
+          return undefined;
         }),
       );
 

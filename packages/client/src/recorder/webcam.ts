@@ -81,10 +81,11 @@ export function openWebcam(deviceId: string): Effect.Effect<void, unknown> {
  *  shared recovery both verbs below end in. */
 const toastUnlessDismissed = <A>(
   self: Effect.Effect<A, unknown>,
-): Effect.Effect<A | void, never> =>
+): Effect.Effect<A | undefined, never> =>
   Effect.catch(self, (err) =>
     Effect.sync(() => {
       if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+      return undefined;
     }),
   );
 

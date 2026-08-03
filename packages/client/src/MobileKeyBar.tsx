@@ -17,7 +17,6 @@
  *  terminal the user is typing into (soft-keyboard letters already do, via
  *  xterm's own onData). */
 
-import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import { controlByte, NAMED_KEY_BYTES } from "@kolu/terminal-protocol";
 import { type Component, For, Show } from "solid-js";

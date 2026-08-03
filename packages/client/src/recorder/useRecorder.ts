@@ -172,10 +172,11 @@ const refreshDevices: UiAction = Effect.tryPromise(() =>
  *  prompt. Shared by the two verbs that open a preview. */
 const toastUnlessDismissed = <A>(
   self: Effect.Effect<A, unknown>,
-): Effect.Effect<A | void, never> =>
+): Effect.Effect<A | undefined, never> =>
   Effect.catch(self, (err) =>
     Effect.sync(() => {
       if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
+      return undefined;
     }),
   );
 

@@ -50,15 +50,13 @@ import {
  *  transformation exactly keeps it honest: these middlewares change neither the
  *  error type nor the response type, and add exactly ONE requirement —
  *  `HttpServerRequest`, which the node handler provides per request. */
-export interface KoluHttpMiddleware {
-  <E, R>(
-    httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-  ): Effect.Effect<
-    HttpServerResponse.HttpServerResponse,
-    E,
-    R | HttpServerRequest.HttpServerRequest
-  >;
-}
+export type KoluHttpMiddleware = <E, R>(
+  httpApp: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) => Effect.Effect<
+  HttpServerResponse.HttpServerResponse,
+  E,
+  R | HttpServerRequest.HttpServerRequest
+>;
 
 /** A cause the ROUTER already has an answer for: `RouteNotFound` → 404,
  *  `RequestParseError` → 400, and friends all carry their own response through

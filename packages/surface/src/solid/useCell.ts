@@ -166,10 +166,6 @@ export function useCell<Name extends string, T, P = T>(
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
 
-function toError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
-}
-
 /** The cell's fenced stream: the member's own `get`, wrapped in the framework's
  *  per-subscription retry fence so a transport drop re-subscribes transparently and
  *  the next frame is a fresh snapshot. Disposing the cell (the last consumer of a

@@ -14,7 +14,7 @@
  */
 
 import type { DaemonBuild } from "@kolu/surface-daemon";
-import { Effect, Ref } from "effect";
+import { type Effect, Ref } from "effect";
 import type {
   ConnectorPolicy,
   ConvergencePolicy,

@@ -153,13 +153,14 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     hostId: "test",
     home: { dir, gatePath, socketPath },
     policy: opts.policy,
-    // Test probes are Cap-agnostic fixtures; cast into the endpoint Cap.
+    // Test probes are Cap-agnostic fixtures; the `any` return erases into the
+    // endpoint Cap (a zero-arg fn is assignable to the probe slot as-is).
     // biome-ignore lint/suspicious/noExplicitAny: test fixture Cap erase
-    probe: ((): any =>
+    probe: (): any =>
       Effect.tryPromise({
         try: () => opts.probe(),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      })) as any,
+      }),
     driver: {
       // A VALUE, not a thunk (see `DaemonDriver`): re-running the description IS
       // "spawn again", so `suspend` is what re-listens on each recycle.

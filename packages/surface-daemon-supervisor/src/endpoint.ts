@@ -1892,7 +1892,7 @@ export function createEndpoint<
       ): Effect.Effect<BindResult | undefined, Error> =>
         Effect.gen(function* () {
           switch (outcome) {
-            case "adopted":
+            case "adopted": {
               runHook(onAdopted, "onAdopted");
               // held was set in recoverGuarded; characterize that rendezvous (W5).
               // conn is the just-held connection.
@@ -1910,6 +1910,7 @@ export function createEndpoint<
                   heldConn,
                 ),
               };
+            }
             case "refused":
               return { kind: "refused-or-failed" };
             case "recycled":

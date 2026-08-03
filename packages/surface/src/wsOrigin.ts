@@ -35,17 +35,13 @@
  *     a `*_ALLOWED_ORIGINS` env var); it is passed in, never read here.
  *   - Otherwise → reject.
  *
- * The same policy guards the HTTP oRPC transport (`gateHttpRpcOrigin`). A
- * surface that mounts `/rpc/*` over `RPCHandler` (fetch) alongside `/rpc/ws`
- * exposes EVERY mutation over plain HTTP too, and a cross-site page does not
- * need to read the response to cause the side effect: a WebSocket upgrade is
- * not the only browser-reachable path. The oRPC RPC codec deserializes a
- * `multipart/form-data` body (a CORS-"simple" request — no preflight) whose
- * `data` field is `{"json":…}` straight into procedure input, and no-input
- * mutations (a `killAll`, a daemon `restart`) need no body at all. So the
- * Origin check has to run on BOTH transports or the WS gate is a side door
- * locked while the front door stands open. `gateHttpRpcOrigin` applies the
- * identical `isAllowedWsOrigin` decision to the HTTP request's headers.
+ * ONE transport, so ONE gate. A surface used to mount a second, HTTP arm
+ * (`/rpc/*` over oRPC's `RPCHandler`) that needed the identical check —
+ * a cross-site page does not have to read a response to cause the side effect,
+ * and that codec deserialized a CORS-"simple" `multipart/form-data` body
+ * straight into procedure input. Effect RPC speaks ndjson over the WebSocket
+ * alone, so that door no longer exists and the upgrade is the only place a
+ * browser Origin can arrive.
  */
 
 /** A pure same-origin / allowlist decision over the two request headers. */
@@ -160,54 +156,4 @@ export function gateWsOrigin(
 /** Collapse a possibly multi-valued node header to its first value. */
 function firstHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
-}
-
-/** The structural subset of a Fetch `Request` `gateHttpRpcOrigin` reads — just
- *  the `headers.get` accessor, so the caller can pass `c.req.raw` (Hono), a raw
- *  `Request`, or any `Headers`-bearing stand-in without a `node:http` shape. */
-export interface HttpRpcRequest {
-  headers: { get(name: string): string | null };
-}
-
-/** Caller-owned policy for `gateHttpRpcOrigin` — the same allowlist + reporter
- *  as the WebSocket gate, differing only in that the reject signal is an HTTP
- *  `Response`, not a destroyed socket. */
-export interface HttpRpcOriginPolicy {
-  /** Extra browser origins (beyond same-origin) allowed past the gate — the
-   *  reverse-proxy / tailscale-serve escape hatch, same value as the WS gate's
-   *  `allowedOrigins`. */
-  allowedOrigins: readonly string[];
-  /** Fired with the rejected `Origin` when a request is refused — wire it to
-   *  the consumer's logger so a blocked cross-site HTTP RPC call is observable,
-   *  symmetric with `gateWsOrigin`'s `onReject`. */
-  onReject?: (origin: string | undefined) => void;
-}
-
-/** Apply the CSWSH `Origin` gate to an HTTP oRPC request BEFORE it reaches
- *  `RPCHandler.handle`. Reads `Origin`/`Host`, decides via the SAME
- *  `isAllowedWsOrigin` used for `/rpc/ws`, and returns a `403` `Response` to
- *  REJECT (the HTTP analogue of `gateWsOrigin`'s socket `destroy()`), or
- *  `undefined` to PROCEED. The consumer's `/rpc/*` middleware returns the
- *  response when present, else falls through to `rpcHandler.handle`. A
- *  cross-site page cannot read this 403 (CORS), but — the whole point — the
- *  handler, and its side effect, are never reached. Non-browser clients (no
- *  `Origin`) and same host:port browser traffic pass, exactly as on the WS
- *  transport, so legitimate callers are unaffected. */
-export function gateHttpRpcOrigin(
-  req: HttpRpcRequest,
-  policy: HttpRpcOriginPolicy,
-): Response | undefined {
-  const origin = req.headers.get("origin") ?? undefined;
-  const host = req.headers.get("host") ?? undefined;
-  if (
-    isAllowedWsOrigin({ origin, host, allowedOrigins: policy.allowedOrigins })
-  ) {
-    return undefined;
-  }
-  // Build the 403 FIRST (the reject signal), then fire the observational
-  // `onReject` — a throwing reporter must never suppress the rejection the
-  // caller returns. Mirrors `gateWsOrigin`'s destroy-before-onReject invariant.
-  const rejected = new Response("cross-site Origin rejected", { status: 403 });
-  policy.onReject?.(origin);
-  return rejected;
 }
