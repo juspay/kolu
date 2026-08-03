@@ -1,18 +1,17 @@
 # B3.3 — the shared scaffold behind both adoption VM tests.
 #
 # There is ONE domain concept here: a NixOS-VM adoption probe — boot kolu, seed a
-# terminal over the oRPC API on the surviving daemon, do a server lifecycle event
+# terminal over kolu's RPC wire on the surviving daemon, do a server lifecycle event
 # (restart, or stop+start-a-new-build), then POLL a verify script until an outcome
 # holds, asserting via the result-file-as-root pattern. adopt.nix and skew.nix are
 # the SAME scaffold with two outcomes; the only differences are their seed/verify
 # predicates, the lifecycle steps between them, and (for skew) an extra user
 # service. Everything else — the survival VM node, the boot polls, the
-# machinectl+result-file run/assert helpers, the jq/curl bindings, and the
+# machinectl+result-file run/assert helpers, the jq + wire-call bindings, and the
 # "open a terminal over RPC and return its id" prologue — lives here ONCE.
-{ pkgs, home-manager, nixosModule, port, kavalTui }:
+{ pkgs, home-manager, nixosModule, port, kavalTui, koluRpc }:
 let
   jq = "${pkgs.jq}/bin/jq";
-  curl = "${pkgs.curl}/bin/curl";
 
   # Runtime-layout literals the DAEMONS actually create. These are NOT free
   # choices: each must equal what a running process writes, or the poll just
@@ -63,28 +62,53 @@ let
   # padiBinding.test.ts reads exactly this `<stateRoot>/config.json`).
   configFile = ".local/state/padi/config.json";
 
-  # Curl the raw `daemon.restart` RPC (packages/server/src/router.ts:56): it DRAINS
-  # the bound padi through the frozen control core — padi persists its session and
-  # exits, its kaval + PTYs survive, and kolu-server's reconnect loop re-spawns padi
-  # from the RUNNING binder's own closure. This is the ONLY no-kill way to make a
-  # freshly-built padi meet a surviving older kaval (the skew/currency probes need
-  # it — a plain binder swap merely ADOPTS the old padi, leaving its kaval untouched).
+  # ONE call on kolu-server's own wire, by TAG.
   #
-  # This is used inside a Python `machine.succeed("...")` / `wait_until_succeeds("...")`
-  # DOUBLE-quoted string in the testScript (unlike the seed/verify scripts, which run
-  # as alice via machinectl). The oRPC body MUST be the `{"json":...}` envelope, whose
-  # literal `"` would close that Python string early — so the payload's quotes are
-  # ESCAPED as `\"`. A nix `''` string passes `\"` through verbatim, Python reads it as
-  # an escaped quote (value: `-d '{"json":{}}'`), and the shell's OUTER single-quotes
-  # keep the `"` literal for curl. URL + header stay single-quoted (no `"` to escape).
-  # This RPC is unauthenticated loopback (packages/server/src/index.ts), so a root curl
-  # to 127.0.0.1 reaches alice's server.
-  daemonRestart = ''${curl} -fsS -X POST 'http://127.0.0.1:${port}/rpc/daemon/restart' -H 'content-type: application/json' -d '{\"json\":{}}' >/dev/null'';
+  # These probes used to reach in with `curl -X POST /rpc/<sibling>/<member>/<verb>`
+  # — oRPC's second, request/response HTTP arm. The Effect port DELETED that arm (see
+  # the note beside the ws upgrade in `packages/server/src/index.ts`): every call now
+  # rides the ONE ndjson socket at `/rpc/ws`, carrying flat, tag-keyed messages. So
+  # every POST here answered 404, and each site reported it as its own bounded-poll
+  # timeout — which is how a dead route read as "no live upstream link after 30s".
+  #
+  # A shell cannot speak that socket, so the probes call it through `kolu-rpc`
+  # (`packages/server/src/wireCall.ts`), which dials the PRODUCT'S OWN link
+  # (`websocketLink`, the one the browser dials) over the group the server actually
+  # serves. The payload is the same JSON the HTTP arm posted, minus oRPC's `{"json":
+  # …}` envelope; the answer prints as JSON on stdout, so the `jq` readers below are
+  # unchanged apart from losing their `.json` prefix.
+  #
+  # `python = true` is for the call sites INLINED into the testScript's Python
+  # DOUBLE-quoted `machine.succeed("…")` strings (unlike the seed/verify scripts,
+  # which run as alice via machinectl): a literal `"` would close that string early,
+  # so the payload's quotes are ESCAPED as `\"`. A nix `''` string passes `\"`
+  # through verbatim, Python reads it as an escaped quote, and the shell's OUTER
+  # single-quotes keep the `"` literal for the CLI. The RPC surface is
+  # unauthenticated loopback (packages/server/src/index.ts), so a root call to
+  # 127.0.0.1 reaches alice's server.
+  rpc = { tag, payload ? null, timeoutMs ? 30000, python ? false }:
+    let
+      escaped =
+        if python
+        then builtins.replaceStrings [ ''"'' ] [ ''\"'' ] payload
+        else payload;
+      quoted = if payload == null then "" else " '${escaped}'";
+    in
+    "${koluRpc} http://127.0.0.1:${port} ${tag}${quoted} --timeout-ms ${toString timeoutMs}";
+
+  # `daemon/restart` (packages/server/src/router.ts): it DRAINS the bound padi
+  # through the frozen control core — padi persists its session and exits, its kaval
+  # + PTYs survive, and kolu-server's reconnect loop re-spawns padi from the RUNNING
+  # binder's own closure. This is the ONLY no-kill way to make a freshly-built padi
+  # meet a surviving older kaval (the skew/currency probes need it — a plain binder
+  # swap merely ADOPTS the old padi, leaving its kaval untouched). A root procedure
+  # with NO payload, so there is nothing to quote and it needs no `python` escaping.
+  daemonRestart = rpc { tag = "daemon/restart"; };
 
   # "Open a terminal over the app's padiSurface lifecycle.create RPC and return
-  # its id" — the application-contract prologue both seed scripts share. The root
-  # `terminal.*` namespace moved onto `padiSurface` in W1.R (served at
-  # `/rpc/surface/padi/lifecycle/*`). Sets `id` on success; calls the
+  # its id" — the application-contract prologue every seed script shares. The root
+  # `terminal.*` namespace moved onto `padiSurface` in W1.R, served at the wire tag
+  # `surface/padi/lifecycle/create`. Sets `id` on success; calls the
   # caller-provided `fail` on any error (so each script keeps its own FAIL-tag and
   # result-file path).
   # RETRY the create until it lands. kolu-server opens its RPC port BEFORE the
@@ -93,20 +117,27 @@ let
   # `"lifecycle.create invoked with no live upstream link"` during that boot
   # window and expects the CLIENT to retry (the ratified fail-fast contract; see
   # reServeSurface.ts's `forwardProcedure`). The real browser client retries; this
-  # seed is a raw curl, so it must retry too or it races the link-up and reds
+  # seed is a one-shot caller, so it must retry too or it races the link-up and reds
   # spuriously. A failed create throws in `forwardProcedure` BEFORE any upstream
   # side effect, so retrying can't double-create — the first success is the only
   # terminal. Bounded so a genuinely-dead link still fails loudly.
+  #
+  # The LAST attempt's error is kept and quoted in the failure. Without it the poll
+  # can only report its own timeout, and every cause — a warming link, a rejected
+  # payload, a route that does not exist — reads as the one hypothesis the message
+  # happens to name. That is exactly how the retired HTTP arm's 404 spent a CI run
+  # claiming there was no live upstream link.
   openTerminal = ''
-    id=""
+    id=""; rpcerr="(no attempt made)"
     for _ in $(seq 1 30); do
-      id=$(${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/create" \
-             -H 'content-type: application/json' -d '{"json":{"mapKey":"local","input":{}}}' \
-           | ${jq} -r '.json.id') && [ -n "$id" ] && [ "$id" != null ] && break
-      id=""
+      out=$(${rpc { tag = "surface/padi/lifecycle/create"; payload = ''{"mapKey":"local","input":{}}''; }} 2>&1) \
+        && id=$(printf '%s' "$out" | ${jq} -r '.id') \
+        && [ -n "$id" ] && [ "$id" != null ] && break
+      rpcerr=$out; id=""
       sleep 1
     done
-    [ -n "$id" ] && [ "$id" != null ] || fail "lifecycle.create RPC errored (no live upstream link after 30s)"
+    [ -n "$id" ] && [ "$id" != null ] \
+      || fail "lifecycle.create never landed in 30 tries; last error: $(printf '%s' "$rpcerr" | tr '\n' ' ' | tail -c 400)"
   '';
 
   # The survival VM node: a NixOS guest with kolu (via home-manager), alice
@@ -170,7 +201,7 @@ let
     ${waitForListener}'';
 in
 {
-  inherit jq curl gateHelpers configFile openTerminal daemonRestart;
+  inherit jq gateHelpers configFile openTerminal daemonRestart rpc;
 
   # mkAdoptionTest: emit the nixosTest for one adoption outcome. Callers supply
   # their two distinguishing pieces of data:

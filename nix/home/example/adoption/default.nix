@@ -33,8 +33,14 @@ let
   # pty-host.sock` — to model the pre-W2.2 daemon a W2.2 upgrade must ADOPT, not leak.
   kavalBin = "${kolu.packages.${system}.kaval}/bin/kaval";
 
+  # The harness caller on kolu-server's own RPC wire — ONE call, by wire tag, over
+  # the `/rpc/ws` ndjson socket (packages/server/src/wireCall.ts). It replaces the
+  # `curl -X POST /rpc/...` reach-ins these probes used until the Effect port
+  # deleted oRPC's HTTP arm; lib.nix's `rpc` is the one place it is spelled.
+  koluRpc = "${kolu.packages.${system}.kolu-rpc}/bin/kolu-rpc";
+
   lib = import ./lib.nix {
-    inherit pkgs home-manager nixosModule port kavalTui;
+    inherit pkgs home-manager nixosModule port kavalTui koluRpc;
   };
 
   args = { inherit pkgs kolu system port kavalTui kavalBin lib; };

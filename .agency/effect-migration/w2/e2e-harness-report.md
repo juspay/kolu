@@ -767,3 +767,82 @@ against its fix reverted, failing with the production error verbatim.
   `surface{,-app,-remote,-daemon,-daemon-supervisor}`; `surface-map` is not in it,
   and the change there is private (`projectStatus`) with no signature moved. Nothing
   in these four commits alters an exported signature or a wire byte.
+
+---
+
+## 14. The NixOS adoption VM tests — the LAST caller of the deleted HTTP arm
+
+§1 ported the cucumber harness off `POST /rpc/surface/<sibling>/<member>/<verb>`.
+It did not port the OTHER harness that used it: the six NixOS VM checks under
+`nix/home/example/adoption`, which are the only place the adoption promise (PTYs
+survive a redeploy; a contract-skewed kaval recycles; a build-skewed one is adopted
+with a nudge; the pre-W2.2 port-keyed daemon is adopted, converged and bounded) is
+proven against real systemd. They reached into a running kolu with five `curl -X
+POST /rpc/...` calls, so on the Effect wire every one of them answered 404.
+
+CI (`ci::home-manager`, sha7 `6615af2`) reported it as
+`FAIL(currency-seed): lifecycle.create RPC errored (no live upstream link after
+30s)`, and the serial log shows why that read as a product bug rather than a dead
+route: padi came up fine at t=21s (`connection: connecting → connected`), and the
+seed kept polling a route that did not exist for another 21 seconds before quoting
+the ONE hypothesis its message happened to name. All six checks fail this way; the
+sibling five were cancelled when currency went red first.
+
+### The fix — `kolu-rpc`, one call on the product's own wire
+
+A shell cannot speak the ndjson socket, and hand-rolling its frames would be a
+second, drifting copy of the wire contract. So the VM harness gets the same answer
+§1 gave the cucumber harness: **dial the product's own transport.**
+
+- **`packages/server/src/wireCall.ts`** — `kolu-rpc <http-base> <wire-tag>
+  [payload-json] [--timeout-ms n]`. It dials `/rpc/ws` with `websocketLink` (the
+  link `packages/client/src/wire.ts` dials) over the group assembled from the SAME
+  three sources `surface.ts` merges into `servedGroup`, decodes the payload through
+  the member's own `payloadSchema`, dispatches, and prints the success encoded
+  through its `successSchema`. Failures print the `Cause` and exit non-zero.
+  It assembles the group rather than importing `servedGroup`, because that module
+  builds the `Conf` store at import and a one-shot caller must not touch the
+  server's on-disk state to place a call. An assembled group can fall BEHIND the
+  served one, so `wireCall.test.ts` pins the two tag sets EQUAL — a test may import
+  `surface.ts` (the unit lane points `KOLU_STATE_DIR` at a temp dir), and without
+  that pin a fourth source merged into `servedGroup` would leave `kolu-rpc`
+  answering "no member is served at tag" for a tag that IS served.
+- **`wireCallMain.ts`** — the two-line argv entry, split off so the seams
+  (`parseArgs`, `wsUrlFor`, `rpcFor`) are importable by a unit test.
+- **`default.nix`** — `kolu-rpc`, via the same `mkAgentTuiWrapper` that builds
+  `kaval-tui` / `padi-tui`. Deliberately NOT a product face: not in
+  `agentToolPackages` (so it is on no terminal's PATH), not a `kolu` subcommand,
+  and nothing in `index.ts`'s graph imports its entry.
+- **`nix/home/example/adoption/lib.nix`** — one `rpc { tag, payload, timeoutMs,
+  python }` builder is now the ONLY place a call is spelled; `python = true` keeps
+  the `\"`-escaping the two testScript-inlined calls need. All five sites move onto
+  it: `lifecycle/create` (lib), `daemon/restart` (lib → skew + currency),
+  `lifecycle/sendInput` (adopt, padi-upgrade), `session/restore` and
+  `lifecycle/recycleKaval` (upgrade). Payloads are byte-identical to the old bodies
+  minus oRPC's `{"json": …}` envelope, and the `jq` readers just lose their `.json`
+  prefix. **No assertion changed.**
+
+### The second defect, fixed with it
+
+`openTerminal`'s poll discarded each attempt's error and failed with a message that
+NAMED one hypothesis ("no live upstream link"). That is what turned a 404 into a
+misdiagnosis. It now keeps the last attempt's stderr and quotes it; the two
+`sendInput` sites do the same.
+
+### Gates
+
+| gate | result |
+| --- | --- |
+| the six adoption VM checks, locally, on the committed tree | **all green** (adopt, skew, currency, padi-upgrade, upgrade, upgrade-reboot) — plus the `vm-test` service smoke |
+| `kolu-server` typecheck + `test:unit` | exit 0 — **332** passed, 1 skipped file |
+| `wireCall.test.ts` (new, 12 cases) | the argv seam (including the trailing-positional form `adopt.nix` depends on), every tag the VM tree spells, and the caller's group ≡ `servedGroup` |
+| `packages/tests` governance — the `Effect.run*` edge allowlist | 27 edges in 21 files, `wireCall.ts` added with its argument |
+| `packages/server/src/seal.test.ts` arm (a) | `wireCall` + `wireCallMain` admitted as web-shell modules, with why |
+| biome (touched files) + `nixpkgs-fmt` (nix tree) | clean |
+
+### Note for whoever ports a harness next
+
+The seal test's file allowlist and the run-edge allowlist both fire on a new
+`packages/server/src` module — neither is reachable from a `nix build`, so run
+`packages/server`'s `test:unit` and `packages/tests`' `governance/check.ts` before
+assuming a VM-green change is CI-green.

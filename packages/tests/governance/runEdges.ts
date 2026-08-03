@@ -64,6 +64,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "one edge for the whole host-ports reading, because its caller is a reactor poll cell — every subscription the read opens stays inside the one fiber tree",
   },
   {
+    path: "packages/server/src/wireCall.ts",
+    sites: 1,
+    why: "`kolu-rpc`'s process edge — the one-shot harness caller places exactly one call and exits, and it runs the Exit (not the value) because a shell needs the CAUSE on stderr",
+  },
+  {
     path: "packages/surface-app/src/server.ts",
     sites: 2,
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",

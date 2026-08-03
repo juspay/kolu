@@ -147,6 +147,15 @@ const WEB_SHELL_FILES = [
   "state",
   "surface",
   "tls",
+  // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
+  // over `/rpc/ws`, printing the answer as JSON, so a shell (the NixOS adoption VM
+  // probes) can reach in now that the HTTP RPC arm is gone. Web-shell code by the
+  // seal's own test: it dials the shell's transport and runs no terminal domain —
+  // the terminal verbs it can NAME are padi's, reached the way any client reaches
+  // them, over the wire. `wireCallMain` is its argv entry (nix wraps it); nothing
+  // in `index.ts`'s graph imports either.
+  "wireCall",
+  "wireCallMain",
 ].sort();
 
 /** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —

@@ -784,6 +784,22 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
+  # kolu-rpc: the HARNESS caller on kolu-server's own wire — one call, by wire tag,
+  # over the `/rpc/ws` ndjson socket, printing the answer as JSON
+  # (`packages/server/src/wireCall.ts` owns the why). The NixOS adoption VM tests
+  # reach into a running kolu with it, in place of the `curl -X POST /rpc/...` HTTP
+  # arm the Effect port deleted; a shell cannot speak the socket, and hand-rolling
+  # its frames would be a second copy of the wire contract.
+  #
+  # NOT a product face: it is not on any terminal's PATH (`agentToolPackages`
+  # below), not a `kolu` subcommand, and nothing in kolu-server imports its entry.
+  # It rides `mkAgentTuiWrapper` because that helper is exactly "run a workspace TS
+  # entry from the built closure under tsx" — the same thing this needs.
+  kolu-rpc = mkAgentTuiWrapper {
+    name = "kolu-rpc";
+    entry = "packages/server/src/wireCallMain.ts";
+  };
+
   # The client CLIs a kolu TERMINAL must be able to run, named ONCE. Both arms
   # derive from this list — `koluAgentTools` (local) and `padi-agent` (remote) —
   # so adding a fourth tool cannot give local terminals something remote ones
@@ -934,5 +950,5 @@ let
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }
