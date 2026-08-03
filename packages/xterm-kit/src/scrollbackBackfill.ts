@@ -361,7 +361,30 @@ export type HistoryChunk =
    *  (F3). Only reachable when the controller sent an epoch (fail-open otherwise). */
   | { kind: "stale" };
 
-/** Drives scrollback backfill for one terminal: when the user scrolls near the
+/** ── WHY THIS CONTROLLER IS NOT AN EFFECT (the CLI/TUI wave's verdict)
+ *
+ *  It reads like the strongest Effect candidate in the kit: an `inFlight` mutex,
+ *  a `generation`/`lifecycleToken` invalidation protocol re-checked after EVERY
+ *  await boundary, and fire-and-forget scheduling. `Effect.Semaphore`, fiber
+ *  interruption (stale work would be CANCELLED rather than run to completion and
+ *  be discarded) and a `Scope` would each be a genuine improvement.
+ *
+ *  It stays Promise-shaped anyway, for a reason that is about the SEAM rather
+ *  than about this file: the `fetch` option is a declared Promise contract of the
+ *  CLIENT, and the client's own Effect wave ratified it as such — its single
+ *  named run edge exists partly to serve this callback, and says so at the call
+ *  site (`client/src/terminal/Terminal.tsx`). Flipping the seam here would
+ *  invalidate that decision from the other side of the boundary.
+ *
+ *  The rest of the kit is SolidJS lifecycle and imperative xterm/DOM calls —
+ *  rendering, not orchestration — where Effect would buy interruption over
+ *  `onCleanup`, which Solid already owns. So: nothing else in `@kolu/xterm-kit`
+ *  is a transition candidate, and this one is a deliberate, dated deferral
+ *  rather than an oversight. Taking it needs the client seam to move first, and
+ *  the four numbered prior-bug invariants below (F2/F3/F6/F10) plus the 1300
+ *  lines of behavioral tests are the net that would have to stay green.
+ *
+ *  Drives scrollback backfill for one terminal: when the user scrolls near the
  *  top of what's loaded, fetch the next older chunk and prepend it, until the
  *  mirror is exhausted. Owns the backfill cursor (an ABSOLUTE mirror-line index,
  *  seeded from the attach snapshot's `topLine`) and the races around it:
