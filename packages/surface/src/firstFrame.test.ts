@@ -1,10 +1,12 @@
-import { Effect, Stream } from "effect";
+import { Cause, Effect, Exit, Result, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   type CollectionItemFrame,
   firstFrameOfCollectionItem,
   firstFrameOrThrow,
+  firstFrameOrThrowEffect,
   firstFrameOrUndefined,
+  firstFrameOrUndefinedEffect,
 } from "./firstFrame";
 
 /** A stream that yields `items` then HOLDS OPEN (never ends) — models a
@@ -179,5 +181,58 @@ describe("firstFrameOrThrow / firstFrameOrUndefined take a Stream", () => {
     const pending = firstFrameOrThrow(Stream.never, "boom", ac.signal);
     ac.abort();
     await expect(pending).rejects.toThrow();
+  });
+});
+
+describe("the EFFECT one-shot readers", () => {
+  it("read the same snapshot frame, without a Promise edge", async () => {
+    expect(
+      await Effect.runPromise(
+        firstFrameOrThrowEffect(holdOpen([1, 2, 3]), "e"),
+      ),
+    ).toBe(1);
+    expect(
+      await Effect.runPromise(firstFrameOrUndefinedEffect(holdOpen([1, 2, 3]))),
+    ).toBe(1);
+  });
+
+  it("split on the SAME empty-stream policy — and the strict one FAILS, it does not throw", async () => {
+    expect(
+      await Effect.runPromise(firstFrameOrUndefinedEffect(Stream.empty)),
+    ).toBeUndefined();
+
+    // The distinction the Promise pair cannot express: an empty stream is a
+    // recoverable FAILURE in the error channel, not a thrown defect — so a caller
+    // may `Effect.catch` it (a benign "no value yet" at ITS layer) without
+    // catching genuine bugs alongside it.
+    const exit = await Effect.runPromiseExit(
+      firstFrameOrThrowEffect(Stream.empty, "boom: no snapshot"),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Result.isSuccess(Cause.findError(exit.cause))).toBe(true);
+      expect(Result.isSuccess(Cause.findDefect(exit.cause))).toBe(false);
+      expect(Cause.pretty(exit.cause)).toContain("boom: no snapshot");
+    }
+  });
+
+  it("are bounded by INTERRUPTION — no signal to thread, and none to forget", async () => {
+    // The plain reader's `signal` seam, expressed as what it always translated
+    // into. A read that would wait out a wedged link forever is torn down by the
+    // combinator that bounds it, and `Stream.runHead`'s own interruption of the
+    // rest is the unsubscribe.
+    const exit = await Effect.runPromiseExit(
+      Effect.timeout(firstFrameOrThrowEffect(Stream.never, "boom"), 20),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+
+  it("are what the Promise pair RUNS — same value, same failure message", async () => {
+    expect(await firstFrameOrUndefined(holdOpen([7]))).toBe(
+      await Effect.runPromise(firstFrameOrUndefinedEffect(holdOpen([7]))),
+    );
+    await expect(
+      firstFrameOrThrow(Stream.empty, "one message"),
+    ).rejects.toThrow("one message");
   });
 });

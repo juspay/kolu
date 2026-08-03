@@ -21,28 +21,35 @@
  * here, next to the `firstFrameOrThrow` footgun it guards, so no consumer has to
  * re-derive the get-vs-keys-absence race (or hit the hang).
  *
- * **Two faces, one contract, and the split is the interruption story.** The two
- * plain readers RESOLVE A PROMISE, because their consumers are the non-Effect
- * leaves locked decision 1 keeps plain-async (a TUI's one-shot read, a dial
- * handshake) — this is their sanctioned `Effect.runPromise` edge, held in one
- * place instead of once per CLI. {@link firstFrameOfCollectionItem} returns an
- * EFFECT, because both of its consumers compose it inside a larger program
- * (kolu-server folds a host's terminals concurrently; surface-mcp runs the whole
- * `resources/read` under the request's abort signal) and crossing a Promise edge
- * mid-program would detach the read from the interruption that bounds it.
- *
- * The single axis in the two plain readers is the snapshot contract; the only
- * thing that varies per consumer is the empty-stream POLICY — an empty stream
- * means "no snapshot ever arrived", which some callers treat as a benign "no
- * value yet" and others as a hard link/protocol failure. That policy is the
- * parameter, captured by two thin named exports over one shared core so the
- * contract assumption lives in one place:
+ * The single axis in the plain readers is the snapshot contract; the only thing
+ * that varies per consumer is the empty-stream POLICY — an empty stream means "no
+ * snapshot ever arrived", which some callers treat as a benign "no value yet" and
+ * others as a hard link/protocol failure. That policy is the parameter, captured
+ * by two thin named exports so the contract assumption lives in one place:
  *
  *   - `firstFrameOrUndefined` — empty stream ⇒ `undefined` (benign absence).
- *   - `firstFrameOrThrow`     — empty stream ⇒ throw (a missing snapshot is a
+ *   - `firstFrameOrThrow`     — empty stream ⇒ fail (a missing snapshot is a
  *                               failure; collapsing it to `undefined` would hide
  *                               a broken link — see `.agency/code-police.md` →
  *                               caught-error-must-not-collapse-to-empty).
+ *
+ * **Each policy in two shapes, and the split is the interruption story.**
+ * {@link firstFrameOrUndefinedEffect} / {@link firstFrameOrThrowEffect} are the
+ * EFFECT forms and the PRIMITIVE ones: a consumer that composes the read inside a
+ * larger program — a concurrent fold, a bounded wait, a CLI command that must die
+ * on SIGINT — needs the read to stay INSIDE the fiber tree that bounds it, because
+ * a Promise edge mid-program detaches it from that interruption. That is the same
+ * reason {@link firstFrameOfCollectionItem} has always been an Effect.
+ *
+ * {@link firstFrameOrUndefined} / {@link firstFrameOrThrow} RESOLVE A PROMISE, for
+ * the plain-async leaves locked decision 1 still keeps (a TUI's one-shot read, a
+ * dial handshake) — this is their sanctioned `Effect.runPromise` edge, held in one
+ * place instead of once per CLI, and they are literally that run applied to the
+ * Effect forms. Pass `signal` there when a non-Effect scaffold owns the
+ * cancellation; under the Effect forms there is no signal to pass, because
+ * cancellation is already interruption (D10/#18). When the last plain-async
+ * consumer crosses, the Promise pair and `runOneShot` are deleted together and the
+ * package's one-shot readers are Effects only.
  */
 
 import { Effect, Option, Stream } from "effect";
@@ -65,32 +72,55 @@ function runOneShot<A>(
   );
 }
 
-/** The first frame `stream` yields, or `undefined` if it ends empty. */
+/** The first frame `stream` yields, or `undefined` if it ends empty — as an
+ *  EFFECT, composable inside a caller's own program.
+ *
+ *  `Stream.runHead` takes the head and INTERRUPTS the rest, and interruption IS
+ *  the unsubscribe — so this one-shot read tears its own subscription down, and
+ *  interrupting the READ (a race lost, a scope closed, a SIGINT) tears it down
+ *  too. No `AbortSignal` to thread and none to forget. */
+export function firstFrameOrUndefinedEffect<T>(
+  stream: Stream.Stream<T, unknown>,
+): Effect.Effect<T | undefined, unknown> {
+  return Effect.map(Stream.runHead(stream), Option.getOrUndefined);
+}
+
+/** The first frame `stream` yields; FAILS with `onEmptyMessage` if the stream ends
+ *  without ever yielding a snapshot frame — as an EFFECT.
+ *
+ *  The empty case is a failure and not an `undefined`, because a member that
+ *  opened and closed without a snapshot is a dropped link, and collapsing it would
+ *  hide one (caught-error-must-not-collapse-to-empty). */
+export function firstFrameOrThrowEffect<T>(
+  stream: Stream.Stream<T, unknown>,
+  onEmptyMessage: string,
+): Effect.Effect<T, unknown> {
+  return Effect.flatMap(Stream.runHead(stream), (head) =>
+    Option.isSome(head)
+      ? Effect.succeed(head.value)
+      : Effect.fail(new Error(onEmptyMessage)),
+  );
+}
+
+/** The first frame `stream` yields, or `undefined` if it ends empty — the
+ *  plain-async leaf's shape, {@link firstFrameOrUndefinedEffect} run at this
+ *  package's one-shot Promise edge. */
 export function firstFrameOrUndefined<T>(
   stream: Stream.Stream<T, unknown>,
   signal?: AbortSignal,
 ): Promise<T | undefined> {
-  return runOneShot(
-    Effect.map(Stream.runHead(stream), Option.getOrUndefined),
-    signal,
-  );
+  return runOneShot(firstFrameOrUndefinedEffect(stream), signal);
 }
 
 /** The first frame `stream` yields; rejects with `onEmptyMessage` if the stream
- *  ends without ever yielding a snapshot frame. */
+ *  ends without ever yielding a snapshot frame — the plain-async leaf's shape,
+ *  {@link firstFrameOrThrowEffect} run at this package's one-shot Promise edge. */
 export function firstFrameOrThrow<T>(
   stream: Stream.Stream<T, unknown>,
   onEmptyMessage: string,
   signal?: AbortSignal,
 ): Promise<T> {
-  return runOneShot(
-    Effect.flatMap(Stream.runHead(stream), (head) =>
-      Option.isSome(head)
-        ? Effect.succeed(head.value)
-        : Effect.fail(new Error(onEmptyMessage)),
-    ),
-    signal,
-  );
+  return runOneShot(firstFrameOrThrowEffect(stream, onEmptyMessage), signal);
 }
 
 /** The outcome of a bounded one-shot collection-item read: the item's current
