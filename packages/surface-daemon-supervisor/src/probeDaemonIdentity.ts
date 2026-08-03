@@ -1,6 +1,5 @@
 /** Dial and assemble the frozen control-core identity probe. */
 
-import { setTimeout as delay } from "node:timers/promises";
 import {
   CONTROL_CORE_VERSION,
   type ControlCoreHello,
@@ -10,6 +9,7 @@ import {
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { composeSurfaceContracts } from "@kolu/surface/define";
 import { duplexWireLink } from "@kolu/surface/links/stdio";
+import { Deferred, Effect } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import { match } from "ts-pattern";
 import type { DrainableProbe, PlainProbe } from "./convergence/converge.ts";
@@ -19,7 +19,8 @@ import {
   frameExcerpt,
   UnspeakableProtocolError,
 } from "./convergence/unspeakable.ts";
-import { dialSocket } from "./dialSocket.ts";
+import { dialSocketEffect } from "./dialSocket.ts";
+import { runFace } from "./promiseFace.ts";
 
 const controlCoreContract = composeSurfaceContracts({
   control: controlCoreSurface,
@@ -90,56 +91,60 @@ function assertDrainCeiling(ms: number): void {
   }
 }
 
-/** Bound the frozen handshake without taking transport ownership from the
- * caller. The socket factory disposes on rejection; connector sessions do the
- * same in their admit boundary. */
-function withHelloDeadline(
-  hello: Promise<ControlCoreHello>,
-): Promise<ControlCoreHello> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(
-        new Error(
-          `control-core hello timed out after ${CONTROL_CORE_HELLO_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, CONTROL_CORE_HELLO_TIMEOUT_MS);
-    hello.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-/** Read and validate the frozen control-core hello on its one baked deadline.
+/** Read and validate the frozen control-core hello on its one baked deadline —
+ * a fiber timeout, so the deadline is cancelled by the answer rather than
+ * cleared by hand, and an interrupted probe takes its timer with it.
  * Transport ownership stays with the caller: this function neither catches nor
  * rewrites protocol errors (including a declared member failure) and never
  * disposes the connection. */
-export async function readControlCoreHello(
+export function readControlCoreHelloEffect(
+  client: ControlCoreProbeClient,
+): Effect.Effect<ControlCoreHello, Error> {
+  return Effect.tryPromise({
+    try: () => client.surface.control.core.hello(),
+    catch: (err) => err as Error,
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: CONTROL_CORE_HELLO_TIMEOUT_MS,
+      orElse: () =>
+        Effect.fail(
+          new Error(
+            `control-core hello timed out after ${CONTROL_CORE_HELLO_TIMEOUT_MS}ms`,
+          ),
+        ),
+    }),
+    Effect.flatMap((hello) => {
+      if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
+        return Effect.fail(
+          new Error(
+            `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
+          ),
+        );
+      }
+      const buildIsPresent = hello.buildId !== undefined;
+      const commitIsPresent = hello.commit !== undefined;
+      const buildHasValue = Boolean(hello.buildId);
+      const commitHasValue = Boolean(hello.commit);
+      if (
+        buildIsPresent !== commitIsPresent ||
+        buildHasValue !== commitHasValue
+      ) {
+        return Effect.fail(
+          new Error(
+            "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
+          ),
+        );
+      }
+      return Effect.succeed(hello);
+    }),
+  );
+}
+
+/** The Promise face of {@link readControlCoreHelloEffect} — see `promiseFace.ts`. */
+export function readControlCoreHello(
   client: ControlCoreProbeClient,
 ): Promise<ControlCoreHello> {
-  const hello = await withHelloDeadline(client.surface.control.core.hello());
-  if (hello.controlCoreVersion !== CONTROL_CORE_VERSION) {
-    throw new Error(
-      `unsupported control-core version ${hello.controlCoreVersion}; expected ${CONTROL_CORE_VERSION}`,
-    );
-  }
-  const buildIsPresent = hello.buildId !== undefined;
-  const commitIsPresent = hello.commit !== undefined;
-  const buildHasValue = Boolean(hello.buildId);
-  const commitHasValue = Boolean(hello.commit);
-  if (buildIsPresent !== commitIsPresent || buildHasValue !== commitHasValue) {
-    throw new Error(
-      "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
-    );
-  }
-  return hello;
+  return runFace(readControlCoreHelloEffect(client));
 }
 
 /**
@@ -147,43 +152,57 @@ export async function readControlCoreHello(
  * dialed client and stronger process-exit oracle; the socket factory below
  * delegates here after it acquires the transport.
  */
+export function probeDaemonIdentityFromEffect(
+  opts:
+    | ProbeDaemonIdentityFromOptions<"drainable">
+    | ProbeDaemonIdentityFromOptions<"not-drainable">,
+): Effect.Effect<DrainableProbe | PlainProbe, Error> {
+  return Effect.suspend(() => {
+    if (opts.capability === "drainable") {
+      assertDrainCeiling(opts.drainCeilingMs);
+    }
+    return readControlCoreHelloEffect(opts.client).pipe(
+      Effect.map((hello) => {
+        const base = {
+          identity: {
+            contractVersion: hello.surfaceVersion,
+            build: daemonBuild(hello.buildId ?? ""),
+          },
+          instanceKey: instanceKeyFromStartedAt(hello.startedAt),
+          dispose: opts.dispose,
+        };
+
+        return match(opts)
+          .with({ capability: "not-drainable" }, () => ({
+            ...base,
+            capability: "not-drainable" as const,
+          }))
+          .with({ capability: "drainable" }, (drainable) => ({
+            ...base,
+            capability: "drainable" as const,
+            fireDrain: () => drainable.client.surface.control.core.drain(),
+            awaitExit: drainable.awaitExit,
+            drainCeilingMs: drainable.drainCeilingMs,
+          }))
+          .exhaustive();
+      }),
+    );
+  });
+}
+
 export function probeDaemonIdentityFrom(
   opts: ProbeDaemonIdentityFromOptions<"drainable">,
 ): Promise<DrainableProbe>;
 export function probeDaemonIdentityFrom(
   opts: ProbeDaemonIdentityFromOptions<"not-drainable">,
 ): Promise<PlainProbe>;
-export async function probeDaemonIdentityFrom(
+/** The Promise face of {@link probeDaemonIdentityFromEffect} — see `promiseFace.ts`. */
+export function probeDaemonIdentityFrom(
   opts:
     | ProbeDaemonIdentityFromOptions<"drainable">
     | ProbeDaemonIdentityFromOptions<"not-drainable">,
 ): Promise<DrainableProbe | PlainProbe> {
-  if (opts.capability === "drainable") {
-    assertDrainCeiling(opts.drainCeilingMs);
-  }
-  const hello = await readControlCoreHello(opts.client);
-  const base = {
-    identity: {
-      contractVersion: hello.surfaceVersion,
-      build: daemonBuild(hello.buildId ?? ""),
-    },
-    instanceKey: instanceKeyFromStartedAt(hello.startedAt),
-    dispose: opts.dispose,
-  };
-
-  return match(opts)
-    .with({ capability: "not-drainable" }, () => ({
-      ...base,
-      capability: "not-drainable" as const,
-    }))
-    .with({ capability: "drainable" }, (drainable) => ({
-      ...base,
-      capability: "drainable" as const,
-      fireDrain: () => drainable.client.surface.control.core.drain(),
-      awaitExit: drainable.awaitExit,
-      drainCeilingMs: drainable.drainCeilingMs,
-    }))
-    .exhaustive();
+  return runFace(probeDaemonIdentityFromEffect(opts));
 }
 
 /** True only for an honest absent listener. */
@@ -203,12 +222,12 @@ export function isNoListenerError(err: unknown): boolean {
 type ControlCoreConnection = {
   client: ControlCoreProbeClient;
   dispose: () => void;
-  /** Resolves with the typed transport fact at an explicit first-frame decode
+  /** Succeeds with the typed transport fact at an explicit first-frame decode
    *  failure, or at {@link UNSPEAKABLE_SILENCE_MS} of total silence from a peer
-   *  that accepted the connection. Never rejects, never settles for a close, for
-   *  the frozen hello's own deadline, or for a member error — those stay
+   *  that accepted the connection. Never fails, and never completes for a close,
+   *  for the frozen hello's own deadline, or for a member error — those stay
    *  ordinary probe failures. */
-  unspeakable: Promise<UnspeakableProtocolError>;
+  unspeakable: Effect.Effect<UnspeakableProtocolError>;
 };
 
 /**
@@ -241,92 +260,110 @@ type ControlCoreConnection = {
  * first, and a real previous-release daemon does not: its oRPC `ServerPeer` sits
  * waiting for a client hello it can recognise, our ndjson frames never look like
  * one, and there is no first frame to fail decoding at all. That peer is every
- * bit as unspeakable, so the same `unspeakable` promise carries a second, equally
+ * bit as unspeakable, so the same `unspeakable` effect carries a second, equally
  * explicit trigger — {@link UNSPEAKABLE_SILENCE_MS} elapsed with **not one
  * inbound byte**. The two triggers are mutually exclusive by construction: the
  * first byte of any kind disarms the deadline, whether or not it decodes.
+ *
+ * The deadline is no longer an eagerly-armed `setTimeout`: `unspeakable` is a
+ * DESCRIPTION of the two triggers, and its sleep begins only when someone races
+ * against it (and is cancelled the moment they stop). That is why the `unref`
+ * this used to need is gone rather than merely unspelled — a deadline nobody is
+ * waiting on does not exist, so it cannot by itself keep a process alive.
  */
-async function openControlCore(
+function openControlCore(
   socketPath: string,
-): Promise<ControlCoreConnection> {
-  const socket = await dialSocket(socketPath);
+): Effect.Effect<ControlCoreConnection, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocketEffect(socketPath);
 
-  const parser = RpcSerialization.ndjson.makeUnsafe();
-  let framingSettled = false;
-  let raiseUnspeakable!: (err: UnspeakableProtocolError) => void;
-  const unspeakable = new Promise<UnspeakableProtocolError>((resolve) => {
-    raiseUnspeakable = resolve;
-  });
-  // Armed before the link is built (so the deadline covers the whole life of the
-  // connection, protocol handshake included) and disarmed by the first inbound
-  // byte. `unref` so a probe's deadline never by itself keeps a process alive.
-  const silenceDeadline = setTimeout(() => {
-    raiseUnspeakable(
-      new UnspeakableProtocolError({
-        socketPath,
-        evidence: {
-          trigger: "silence",
-          silentForMs: UNSPEAKABLE_SILENCE_MS,
-        },
-      }),
-    );
-  }, UNSPEAKABLE_SILENCE_MS);
-  silenceDeadline.unref();
-  const onData = (chunk: Buffer): void => {
-    // ANY byte, decodable or not, proves the peer is talking to us — the silence
-    // trigger is off the table for the rest of this connection.
-    clearTimeout(silenceDeadline);
-    if (framingSettled) return;
-    try {
-      // An empty result is a PARTIAL frame (no delimiter yet) — keep listening.
-      if (parser.decode(chunk).length > 0) framingSettled = true;
-    } catch (cause) {
-      framingSettled = true;
-      raiseUnspeakable(
-        new UnspeakableProtocolError({
-          socketPath,
-          evidence: {
-            trigger: "undecodable-frame",
-            frame: frameExcerpt(chunk),
-          },
-          cause,
+    const parser = RpcSerialization.ndjson.makeUnsafe();
+    let framingSettled = false;
+    // Two observations, each latched once by the node listener below: "the peer
+    // has said SOMETHING" (which disarms the silence trigger for the rest of
+    // this connection) and "the peer's first frame did not decode".
+    const spoke = Deferred.makeUnsafe<void>();
+    const framing = Deferred.makeUnsafe<UnspeakableProtocolError>();
+    const onData = (chunk: Buffer): void => {
+      // ANY byte, decodable or not, proves the peer is talking to us — the silence
+      // trigger is off the table for the rest of this connection.
+      Deferred.doneUnsafe(spoke, Effect.void);
+      if (framingSettled) return;
+      try {
+        // An empty result is a PARTIAL frame (no delimiter yet) — keep listening.
+        if (parser.decode(chunk).length > 0) framingSettled = true;
+      } catch (cause) {
+        framingSettled = true;
+        Deferred.doneUnsafe(
+          framing,
+          Effect.succeed(
+            new UnspeakableProtocolError({
+              socketPath,
+              evidence: {
+                trigger: "undecodable-frame",
+                frame: frameExcerpt(chunk),
+              },
+              cause,
+            }),
+          ),
+        );
+      }
+    };
+    // Kept attached for the life of the connection rather than removed once
+    // settled: removing the only `data` listener leaves the socket flowing with
+    // nobody reading, which would drop bytes the link still needs.
+    socket.on("data", onData);
+
+    const link = yield* Effect.tryPromise({
+      try: () =>
+        duplexWireLink({
+          group: controlCoreContract.group,
+          duplex: socket,
+          describe: `unix socket ${socketPath}`,
         }),
-      );
-    }
-  };
-  // Kept attached for the life of the connection rather than removed once
-  // settled: removing the only `data` listener leaves the socket flowing with
-  // nobody reading, which would drop bytes the link still needs.
-  socket.on("data", onData);
+      catch: (err) => err as Error,
+    });
+    const face = buildSurfaceFace(
+      controlCoreContract.siblings.control,
+      link.dispatch,
+    );
 
-  const link = await duplexWireLink({
-    group: controlCoreContract.group,
-    duplex: socket,
-    describe: `unix socket ${socketPath}`,
+    return {
+      // The sibling face's members ARE `{ core: { hello, drain } }`; nesting it
+      // under `control` restores the shape connector arms hand us from their own
+      // full app client, so both callers of `probeDaemonIdentityFrom` speak one
+      // vocabulary. The structural face carries no per-member types (D2/#16), so
+      // the assertion here is the same one the oRPC-era dial made.
+      client: { surface: { control: face.surface } } as ControlCoreProbeClient,
+      dispose: () => {
+        socket.off("data", onData);
+        // Fire-and-forget: `ConvergenceProbeBase.dispose` is synchronous (connector
+        // arms hand us their own sync disposer). A scope-close failure is a
+        // framework defect and surfaces as an unhandled rejection rather than
+        // being swallowed here.
+        void link.dispose();
+      },
+      unspeakable: Effect.raceFirst(
+        Deferred.await(framing),
+        // The silence trigger, disarmed by the first byte: whichever of the two
+        // arrives first wins, and a peer that spoke turns this arm into a wait
+        // that never completes.
+        Effect.raceFirst(
+          Effect.as(
+            Effect.sleep(UNSPEAKABLE_SILENCE_MS),
+            new UnspeakableProtocolError({
+              socketPath,
+              evidence: {
+                trigger: "silence",
+                silentForMs: UNSPEAKABLE_SILENCE_MS,
+              },
+            }),
+          ),
+          Effect.andThen(Deferred.await(spoke), Effect.never),
+        ),
+      ),
+    };
   });
-  const face = buildSurfaceFace(
-    controlCoreContract.siblings.control,
-    link.dispatch,
-  );
-
-  return {
-    // The sibling face's members ARE `{ core: { hello, drain } }`; nesting it
-    // under `control` restores the shape connector arms hand us from their own
-    // full app client, so both callers of `probeDaemonIdentityFrom` speak one
-    // vocabulary. The structural face carries no per-member types (D2/#16), so
-    // the assertion here is the same one the oRPC-era dial made.
-    client: { surface: { control: face.surface } } as ControlCoreProbeClient,
-    dispose: () => {
-      clearTimeout(silenceDeadline);
-      socket.off("data", onData);
-      // Fire-and-forget: `ConvergenceProbeBase.dispose` is synchronous (connector
-      // arms hand us their own sync disposer). A scope-close failure is a
-      // framework defect and surfaces as an unhandled rejection rather than
-      // being swallowed here.
-      void link.dispose();
-    },
-    unspeakable,
-  };
 }
 
 /**
@@ -336,29 +373,19 @@ async function openControlCore(
  * decode, or at {@link UNSPEAKABLE_SILENCE_MS} for a peer that never speaks — so
  * an unspeakable peer never costs a caller the 30 s hello deadline it would
  * otherwise sit out (the hello it will never answer).
+ *
+ * The loser is INTERRUPTED rather than abandoned, so the "the rejection would be
+ * unhandled whenever `work` settles first" guard the promise version needed has
+ * nothing left to guard.
  */
-function raceUnspeakable<T>(
-  work: Promise<T>,
+function raceUnspeakable<T, E>(
+  work: Effect.Effect<T, E>,
   conn: ControlCoreConnection,
-): Promise<T> {
-  const raised = conn.unspeakable.then((err): never => {
-    throw err;
-  });
-  // The loser of a race is never awaited; without this the rejection would be
-  // unhandled whenever `work` settles first.
-  raised.catch(() => {});
-  return Promise.race([work, raised]);
+): Effect.Effect<T, E | UnspeakableProtocolError> {
+  return Effect.raceFirst(work, Effect.flatMap(conn.unspeakable, Effect.fail));
 }
 
 const POLL_MS = 50;
-
-async function waitForPoll(signal: AbortSignal): Promise<void> {
-  try {
-    await delay(POLL_MS, undefined, { signal });
-  } catch (error) {
-    if (!signal.aborted) throw error;
-  }
-}
 
 /**
  * Local default exit oracle: the daemon is gone only after a fresh dial finds
@@ -373,42 +400,72 @@ async function waitForPoll(signal: AbortSignal): Promise<void> {
  * a silent peer ends it after {@link UNSPEAKABLE_SILENCE_MS}, so no pass can
  * exceed that bound and the oracle stays responsive inside the ceiling.
  */
-async function awaitHelloGone(
+/** What one pass of the oracle learned. `gone` is the ONE reading that ends the
+ *  wait, and only an honest absent listener earns it. */
+type ExitPass = "gone" | "still-serving";
+
+function helloGonePass(socketPath: string): Effect.Effect<ExitPass> {
+  return openControlCore(socketPath).pipe(
+    Effect.flatMap((connection) =>
+      raceUnspeakable(
+        Effect.tryPromise({
+          try: () => connection.client.surface.control.core.hello(),
+          catch: (err) => err as Error,
+        }),
+        connection,
+      ).pipe(
+        // A listener that cannot complete hello — including one whose framing we
+        // cannot decode at all — is not proof of process exit.
+        Effect.ignoreCause,
+        Effect.as<ExitPass>("still-serving"),
+        // Runs on a normal end AND on interruption — which is the whole of what
+        // the `abort` listener + `finally` pair used to do by hand.
+        Effect.ensuring(Effect.sync(() => connection.dispose())),
+      ),
+    ),
+    Effect.catch((err) =>
+      Effect.succeed<ExitPass>(
+        isNoListenerError(err) ? "gone" : "still-serving",
+      ),
+    ),
+  );
+}
+
+function awaitHelloGoneEffect(socketPath: string): Effect.Effect<void> {
+  return helloGonePass(socketPath).pipe(
+    Effect.tap((pass) =>
+      pass === "gone" ? Effect.void : Effect.sleep(POLL_MS),
+    ),
+    Effect.repeat({ until: (pass: ExitPass) => pass === "gone" }),
+    Effect.asVoid,
+  );
+}
+
+/** The plug's contract is a Promise that MUST NOT reject and stops on its
+ *  caller's {@link AbortSignal}. So the abort is raced as a SUCCESS rather than
+ *  handed to the runtime as an interrupt (which would reject) — and losing the
+ *  race interrupts the loop, releasing the open connection through the
+ *  `ensuring` above. */
+function awaitHelloGone(
   socketPath: string,
   signal: AbortSignal,
 ): Promise<void> {
-  while (!signal.aborted) {
-    let connection: ControlCoreConnection;
-    try {
-      connection = await openControlCore(socketPath);
-    } catch (err) {
-      if (signal.aborted) return;
-      if (isNoListenerError(err)) return;
-      await waitForPoll(signal);
-      continue;
-    }
+  return runFace(
+    Effect.raceFirst(awaitHelloGoneEffect(socketPath), untilAborted(signal)),
+  );
+}
 
+/** Completes when `signal` aborts (at once, if it already has). */
+function untilAborted(signal: AbortSignal): Effect.Effect<void> {
+  return Effect.callback<void>((resume) => {
     if (signal.aborted) {
-      connection.dispose();
+      resume(Effect.void);
       return;
     }
-    const abortAttempt = (): void => connection.dispose();
-    signal.addEventListener("abort", abortAttempt, { once: true });
-    try {
-      await raceUnspeakable(
-        connection.client.surface.control.core.hello(),
-        connection,
-      );
-    } catch {
-      if (signal.aborted) return;
-      // A listener that cannot complete hello — including one whose framing we
-      // cannot decode at all — is not proof of process exit.
-    } finally {
-      signal.removeEventListener("abort", abortAttempt);
-      connection.dispose();
-    }
-    await waitForPoll(signal);
-  }
+    const onAbort = (): void => resume(Effect.void);
+    signal.addEventListener("abort", onAbort, { once: true });
+    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
+  });
 }
 
 type DrainableFactoryOptions = {
@@ -436,37 +493,39 @@ export function probeDaemonIdentity(
   if (opts.capability === "drainable") {
     assertDrainCeiling(opts.drainCeilingMs);
   }
-  return async (socketPath) => {
-    let connection: ControlCoreConnection;
-    try {
-      connection = await openControlCore(socketPath);
-    } catch (err) {
-      if (isNoListenerError(err)) return null;
-      throw err;
-    }
-    try {
-      if (opts.capability === "drainable") {
-        return await raceUnspeakable(
-          probeDaemonIdentityFrom({
-            ...opts,
-            client: connection.client,
-            dispose: connection.dispose,
-            awaitExit: (signal) => awaitHelloGone(socketPath, signal),
-          }),
-          connection,
-        );
-      }
-      return await raceUnspeakable(
-        probeDaemonIdentityFrom({
-          ...opts,
-          client: connection.client,
-          dispose: connection.dispose,
-        }),
-        connection,
-      );
-    } catch (err) {
-      connection.dispose();
-      throw err;
-    }
-  };
+  return (socketPath) =>
+    runFace(
+      openControlCore(socketPath).pipe(
+        Effect.flatMap((connection) =>
+          raceUnspeakable(
+            probeDaemonIdentityFromEffect(
+              opts.capability === "drainable"
+                ? {
+                    ...opts,
+                    client: connection.client,
+                    dispose: connection.dispose,
+                    awaitExit: (signal) => awaitHelloGone(socketPath, signal),
+                  }
+                : {
+                    ...opts,
+                    client: connection.client,
+                    dispose: connection.dispose,
+                  },
+            ),
+            connection,
+          ).pipe(
+            // The probe OWNS the transport until it hands it to the caller: a
+            // failed assembly (or a classification that won the race) disposes
+            // it here; a successful one passes `dispose` out on the probe.
+            Effect.onError(() => Effect.sync(() => connection.dispose())),
+          ),
+        ),
+        // The ONE outcome that is not a failure: nothing is serving here.
+        Effect.catch((err) =>
+          isNoListenerError(err)
+            ? Effect.succeed(null)
+            : Effect.fail<Error>(err),
+        ),
+      ),
+    );
 }
