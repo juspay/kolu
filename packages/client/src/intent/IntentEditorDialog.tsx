@@ -6,6 +6,9 @@
  *  Clear nukes the whole intent; Esc cancels. Mirrors `SettingsPopover`'s
  *  modal-dialog scaffold via `<ModalDialog>` (Corvu under the hood). */
 
+import { runAction, type UiAction } from "../runAction";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import Dialog from "@corvu/dialog";
 import {
   type Component,
@@ -103,16 +106,22 @@ const IntentEditorDialog: Component<{
     props.onOpenChange(false);
   }
 
-  async function copy() {
-    const value = trimmed();
-    if (!value) return;
-    try {
-      await writeTextToClipboard(value);
-      toast.success("Copied intent to clipboard");
-    } catch (err) {
-      console.error("Failed to copy intent:", err);
-      toast.error(`Failed to copy intent: ${(err as Error).message}`);
-    }
+  function copy(): UiAction {
+    return Effect.suspend(() => {
+      const value = trimmed();
+      if (!value) return Effect.void;
+      return writeTextToClipboard(value).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => toast.success("Copied intent to clipboard")),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.error("Failed to copy intent:", err);
+            toast.error(`Failed to copy intent: ${toError(err).message}`);
+          }),
+        ),
+      );
+    });
   }
 
   const chrome = surface({ radius: "xl", portalled: true });
@@ -188,7 +197,7 @@ const IntentEditorDialog: Component<{
               data-testid="intent-editor-copy"
               class="inline-flex items-center gap-1.5 rounded-md border border-edge px-2.5 py-1.5 text-xs text-fg-2 hover:text-fg hover:bg-surface-2 disabled:opacity-40 disabled:cursor-not-allowed"
               disabled={!trimmed()}
-              onClick={copy}
+              onClick={() => runAction("copy intent", copy())}
             >
               <CopyIcon class="h-3 w-3" />
               <span>Copy</span>

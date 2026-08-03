@@ -62,9 +62,14 @@ import { refitOnTabVisible } from "../refitOnTabVisible";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import type { LineRef } from "../ui/lineRef";
-import { runAction } from "../runAction";
+import {
+  runAction,
+  runActionPromise,
+  runOwnedAction,
+  type UiAction,
+} from "../runAction";
 import { isTouch } from "../useMobile";
-import { activePadiRpc, activePadiStreams, preferences } from "../wire";
+import { activePadiEffect, activePadiStreams, preferences } from "../wire";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
@@ -215,36 +220,40 @@ const Terminal: Component<{
 
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
    *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
-  async function publishDimensions(size: TerminalGrid) {
+  function publishDimensions(size: TerminalGrid): UiAction {
     const { cols, rows } = size;
     // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
     // longer needs suppressing here: kaval excludes resize repaints from its
     // meaningful-output edge at the source, so the live dot (mirrored off padi's
     // `activity` set) never lights on a reveal/resize in the first place.
-    try {
-      await activePadiRpc.lifecycle.resize({
-        id: props.terminalId,
-        cols,
-        rows,
-      });
-    } catch (err) {
-      // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
-      // reply rather than logging server-side and resolving — so a REJECTION
-      // here means the grid claim did not land: the PTY kept its old size while
-      // this pane renders against the new one. That is a wrong-grid screen with
-      // no other symptom, so it must not collapse to a no-op
-      // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
-      // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
-      // and padi returns quietly by design, so nothing reaches here — and the
-      // tile tears down via terminalExit anyway. The extra guard below covers the
-      // same race one hop earlier (the arm is already gone locally). One STABLE
-      // toast id keeps a flurry of failed resizes to a single message.
-      if (activeArm(terminalStore.getMetadata(props.terminalId)) === undefined)
-        return;
-      toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {
-        id: `terminal-resize-failed-${props.terminalId}`,
-      });
-    }
+    return activePadiEffect.lifecycle
+      .resize({ id: props.terminalId, cols, rows })
+      .pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
+            // reply rather than logging server-side and resolving — so a FAILURE
+            // here means the grid claim did not land: the PTY kept its old size while
+            // this pane renders against the new one. That is a wrong-grid screen with
+            // no other symptom, so it must not collapse to a no-op
+            // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
+            // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
+            // and padi returns quietly by design, so nothing reaches here — and the
+            // tile tears down via terminalExit anyway. The extra guard below covers the
+            // same race one hop earlier (the arm is already gone locally). One STABLE
+            // toast id keeps a flurry of failed resizes to a single message.
+            if (
+              activeArm(terminalStore.getMetadata(props.terminalId)) ===
+              undefined
+            )
+              return;
+            toast.error(
+              `Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`,
+              { id: `terminal-resize-failed-${props.terminalId}` },
+            );
+          }),
+        ),
+      );
   }
 
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
@@ -428,19 +437,26 @@ const Terminal: Component<{
     // terminal's own scrollback. Seeded from the attach snapshot's `topLine`
     // (below); self-manages the near-top trigger and the reset/resize races.
     backfill = createBackfillController(term, {
+      // `@kolu/xterm-kit`'s `fetch` seam is Promise-shaped by contract (the kit
+      // is deliberately outside Effect), so this is a run edge — through the
+      // package's one named bridge, which rejects with the SQUASHED failure so
+      // the `_tag` narrowing in `isTerminalGone` below stays honest.
       fetch: (before, max, epoch) =>
-        activePadiRpc.screen.history({
-          id: props.terminalId,
-          before,
-          max,
-          // SPREAD, never `epoch` outright (#17): the field is
-          // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and a
-          // present-but-`undefined` one is REJECTED — where zod's `.optional()`
-          // took either. A snapshot that carried no `reflowEpoch` seeds this
-          // `undefined`, which is the ordinary first-attach case, so spelling it
-          // out would throw at the first backfill fetch.
-          ...(epoch !== undefined && { epoch }),
-        }),
+        runActionPromise(
+          activePadiEffect.screen.history({
+            id: props.terminalId,
+            before,
+            max,
+            // SPREAD, never `epoch` outright (#17): the field is
+            // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and
+            // a present-but-`undefined` one is REJECTED — where zod's
+            // `.optional()` took either. A snapshot that carried no
+            // `reflowEpoch` seeds this `undefined`, which is the ordinary
+            // first-attach case, so spelling it out would throw at the first
+            // backfill fetch.
+            ...(epoch !== undefined && { epoch }),
+          }),
+        ),
       // The killed-terminal teardown, recognised HERE because the error class is
       // kolu's, not the kit's: padi declares `TerminalNotFound` on
       // `screen.history`, and the kit asks this predicate about a `fetch`
@@ -511,7 +527,8 @@ const Terminal: Component<{
     // means "who states this pane's size" has a single answer.
     createEffect(
       on(h.grid, (measured) => {
-        if (measured) void publishDimensions(measured);
+        if (measured)
+          runOwnedAction("publish terminal grid", publishDimensions(measured));
       }),
     );
 
@@ -768,31 +785,47 @@ const Terminal: Component<{
     // a terminal that is no longer active, so `deliverScratchPaste` re-checks
     // liveness between the write and the send and throws otherwise — the caller's
     // catch turns that into a toast.error instead of a silent drop.
-    async function writeScratchAndPaste(name: string, base64: string) {
-      await deliverScratchPaste({
+    function writeScratchAndPaste(
+      name: string,
+      base64: string,
+    ): Effect.Effect<void, unknown> {
+      return deliverScratchPaste({
         terminalId: props.terminalId,
         name,
         base64,
-        scratchWrite: (args) => activePadiRpc.scratch.write(args),
+        scratchWrite: (args) => activePadiEffect.scratch.write(args),
         isActive: () =>
           activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
-        sendInput: (args) => activePadiRpc.lifecycle.sendInput(args),
+        sendInput: (args) => activePadiEffect.lifecycle.sendInput(args),
         wrapPath: wrapBracketedPaste,
       });
     }
 
-    async function uploadPastedImage(file: File) {
+    /** Read a dropped/pasted file and deliver it — the shared body behind the
+     *  two upload paths, which differ only in their size rule and their toast. */
+    function uploadFile(
+      file: File,
+      name: string,
+      failed: (message: string) => string,
+    ): UiAction {
+      return Effect.tryPromise(() => file.arrayBuffer()).pipe(
+        Effect.flatMap((buf) => writeScratchAndPaste(name, bufferToBase64(buf))),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(failed(errMsg(err)));
+          }),
+        ),
+      );
+    }
+
+    function uploadPastedImage(file: File): UiAction {
       const reason = sizeRejectionFor("clipboard image", file.size);
-      if (reason !== null) {
-        toast.error(reason);
-        return;
-      }
-      try {
-        const base64 = bufferToBase64(await file.arrayBuffer());
-        await writeScratchAndPaste("image.png", base64);
-      } catch (err) {
-        toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
-      }
+      if (reason !== null) return Effect.sync(() => toast.error(reason));
+      return uploadFile(
+        file,
+        "image.png",
+        (m) => `Failed to upload clipboard image: ${m}`,
+      );
     }
 
     makeEventListener(
@@ -812,7 +845,7 @@ const Terminal: Component<{
         // xterm's paste handler would paste the image as garbled text.
         e.stopPropagation();
         e.preventDefault();
-        void uploadPastedImage(file);
+        runAction("upload clipboard image", uploadPastedImage(file));
       },
       { capture: true },
     );
@@ -821,18 +854,14 @@ const Terminal: Component<{
     // the server, which saves them under the terminal's clipboard directory and
     // bracketed-pastes the path into the PTY — the same shape as Ctrl+V image
     // paste, just sourced from DataTransfer instead of ClipboardData.
-    async function uploadDroppedFile(file: File) {
+    function uploadDroppedFile(file: File): UiAction {
       const reason = rejectionFor(file.name, file.size);
-      if (reason !== null) {
-        toast.error(reason);
-        return;
-      }
-      try {
-        const base64 = bufferToBase64(await file.arrayBuffer());
-        await writeScratchAndPaste(file.name, base64);
-      } catch (err) {
-        toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
-      }
+      if (reason !== null) return Effect.sync(() => toast.error(reason));
+      return uploadFile(
+        file,
+        file.name,
+        (m) => `Failed to upload "${file.name}": ${m}`,
+      );
     }
 
     makeEventListener(h.container, "dragover", (e: DragEvent) => {
@@ -860,7 +889,7 @@ const Terminal: Component<{
       e.preventDefault();
       delete (h.container as HTMLElement).dataset.dropTarget;
       for (const file of files) {
-        void uploadDroppedFile(file);
+        runAction("upload dropped file", uploadDroppedFile(file));
       }
     });
   };
@@ -1000,10 +1029,17 @@ const Terminal: Component<{
         // desktop, where nothing is ever armed).
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
-          void activePadiRpc.lifecycle.sendInput({
-            id: props.terminalId,
-            data: applyStickyModifiers(data),
-          });
+          runAction(
+            "send input",
+            activePadiEffect.lifecycle
+              .sendInput({
+                id: props.terminalId,
+                data: applyStickyModifiers(data),
+              })
+              // A keystroke has no UI to report to — the terminal is the
+              // feedback — which is what the old bare `void` meant.
+              .pipe(Effect.ignore),
+          );
         }}
         onReady={onReady}
         onTap={onTap}

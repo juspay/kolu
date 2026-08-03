@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import { deliverScratchPaste } from "./pasteDelivery";
@@ -11,15 +12,19 @@ const base = {
 
 describe("deliverScratchPaste", () => {
   it("writes then bracketed-pastes the path when the terminal is still active", async () => {
-    const scratchWrite = vi.fn(async () => ({ path: "/scratch/image.png" }));
-    const sendInput = vi.fn(async () => {});
+    const scratchWrite = vi.fn(() =>
+      Effect.succeed({ path: "/scratch/image.png" }),
+    );
+    const sendInput = vi.fn(() => Effect.void);
 
-    await deliverScratchPaste({
-      ...base,
-      scratchWrite,
-      isActive: () => true,
-      sendInput,
-    });
+    await Effect.runPromise(
+      deliverScratchPaste({
+        ...base,
+        scratchWrite,
+        isActive: () => true,
+        sendInput,
+      }),
+    );
 
     expect(scratchWrite).toHaveBeenCalledOnce();
     expect(sendInput).toHaveBeenCalledWith({
@@ -28,21 +33,25 @@ describe("deliverScratchPaste", () => {
     });
   });
 
-  it("throws (and never sends) when the terminal dies between the write and the send", async () => {
+  it("fails (and never sends) when the terminal dies between the write and the send", async () => {
     // Proves Fix 2: sendInput quiet-drops on a non-active terminal, so without
     // this gate the write succeeds, sendInput silently no-ops, and the paste is
-    // lost with NO error. The throw is what the caller's catch turns into a
+    // lost with NO error. The failure is what the caller's recovery turns into a
     // toast.error.
-    const scratchWrite = vi.fn(async () => ({ path: "/scratch/image.png" }));
-    const sendInput = vi.fn(async () => {});
+    const scratchWrite = vi.fn(() =>
+      Effect.succeed({ path: "/scratch/image.png" }),
+    );
+    const sendInput = vi.fn(() => Effect.void);
 
     await expect(
-      deliverScratchPaste({
-        ...base,
-        scratchWrite,
-        isActive: () => false, // terminal no longer active after the write
-        sendInput,
-      }),
+      Effect.runPromise(
+        deliverScratchPaste({
+          ...base,
+          scratchWrite,
+          isActive: () => false, // terminal no longer active after the write
+          sendInput,
+        }),
+      ),
     ).rejects.toThrow(/no longer active/);
 
     expect(scratchWrite).toHaveBeenCalledOnce();

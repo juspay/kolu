@@ -3,6 +3,9 @@
  *  info. Content split into `<DiagnosticInfoContent/>` so a future
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
+import { runAction, type UiAction } from "./runAction";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import Dialog from "@corvu/dialog";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -219,14 +222,20 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     };
   });
 
-  async function copyJson() {
-    try {
-      await writeTextToClipboard(JSON.stringify(snapshot(), null, 2));
-      toast.success("Diagnostic info copied");
-    } catch (err) {
-      console.error("Failed to copy diagnostic info:", err);
-      toast.error(`Failed to copy diagnostic info: ${(err as Error).message}`);
-    }
+  function copyJson(): UiAction {
+    return Effect.suspend(() =>
+      writeTextToClipboard(JSON.stringify(snapshot(), null, 2)),
+    ).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => toast.success("Diagnostic info copied")),
+      ),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          console.error("Failed to copy diagnostic info:", err);
+          toast.error(`Failed to copy diagnostic info: ${toError(err).message}`);
+        }),
+      ),
+    );
   }
 
   const chrome = surface({ portalled: true });
@@ -250,7 +259,7 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           </DocLink>
           <button
             type="button"
-            onClick={copyJson}
+            onClick={() => runAction("copy diagnostic info", copyJson())}
             class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           >
             Copy JSON

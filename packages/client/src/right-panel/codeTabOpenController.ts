@@ -1,8 +1,10 @@
+import { Effect, type Fiber } from "effect";
 import type { CodeTabView } from "@kolu/padi/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, onCleanup } from "solid-js";
 import { match } from "ts-pattern";
+import { runOwnedAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 
 /** The complete owner of a Code-tab selection slot and open request. */
@@ -62,17 +64,20 @@ export interface CodeTabOpenSnapshot<Paths> {
 interface CodeTabOpenControllerOptions<Paths, Resolved> {
   snapshot: () => CodeTabOpenSnapshot<Paths>;
   resolve: (request: OpenInCodeTabRequest, paths: Paths) => Resolved | null;
-  /** Read the authoritative inventory for this request.
+  /** Read the authoritative inventory for this request — a DESCRIPTION, so this
+   *  controller cancels a superseded read by interrupting its fiber. It takes no
+   *  cancellation token because it no longer needs one: cancellation IS
+   *  interruption (D10/#18).
    *
-   *  It takes NO cancellation token: a padi procedure call carries no
-   *  `AbortSignal` under Effect (cancellation is fiber interruption, D10/#18), so
-   *  a promise of one would be a promise this controller cannot keep. Supersession
-   *  is unaffected — it is decided HERE, by `isCurrent`, which discards the answer
-   *  of any read that is no longer the live attempt. */
+   *  Interruption does not REPLACE the `isCurrent` gate below, and must not: it
+   *  is asynchronous, so a read already past its last suspension can still
+   *  answer after the interrupt is requested. The gate is what refuses that
+   *  answer. Two mechanisms, two jobs — stop the work, and refuse a stale
+   *  result. */
   readFresh: (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-  ) => Promise<Paths>;
+  ) => Effect.Effect<Paths, unknown>;
   onResolved: (
     request: OpenInCodeTabRequest,
     resolved: Resolved,
@@ -116,7 +121,15 @@ type OpenAttempt =
       kind: "refreshing";
       request: OpenInCodeTabRequest;
       includeIgnored: boolean;
-      controller: AbortController;
+      /** The read's own fiber — interrupting it IS the cancel. A mutable slot
+       *  because the attempt is recorded BEFORE the fork: `Effect.runFork` runs
+       *  on the calling stack until the effect suspends, so a read that answers
+       *  without suspending (an in-process double) would otherwise land against
+       *  an attempt this line had not yet stored, and be discarded as stale. */
+      fiber: { current: Fiber.Fiber<unknown, never> | null };
+      /** Latched by `retire`/`complete` BEFORE the interrupt, so a frame already
+       *  queued behind the interruption is still refused. */
+      retired: { value: boolean };
     }
   | { kind: "complete"; request: OpenInCodeTabRequest };
 
@@ -140,13 +153,23 @@ export function createCodeTabOpenController<Paths, Resolved>(
       .with({ kind: "refreshing" }, (refreshing) => refreshing)
       .otherwise(() => null);
 
+  /** Stop the live read: latch it retired FIRST, then interrupt. The order is
+   *  the point — the latch is synchronous and the interrupt is not, so the
+   *  window between them is exactly where a late frame would otherwise land. */
+  const stopRefreshing = (): void => {
+    const refreshing = refreshingAttempt();
+    if (refreshing === null) return;
+    refreshing.retired.value = true;
+    refreshing.fiber.current?.interruptUnsafe();
+  };
+
   const retire = (): void => {
-    refreshingAttempt()?.controller.abort();
+    stopRefreshing();
     attempt = { kind: "idle" };
   };
 
   const complete = (request: OpenInCodeTabRequest, apply: () => void): void => {
-    refreshingAttempt()?.controller.abort();
+    stopRefreshing();
     attempt = { kind: "complete", request };
     apply();
   };
@@ -154,15 +177,15 @@ export function createCodeTabOpenController<Paths, Resolved>(
   const isCurrent = (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-    controller: AbortController,
+    token: { value: boolean },
   ): boolean => {
     const refreshing = refreshingAttempt();
     if (
       refreshing === null ||
       refreshing.request !== request ||
       refreshing.includeIgnored !== includeIgnored ||
-      refreshing.controller !== controller ||
-      controller.signal.aborted
+      refreshing.retired !== token ||
+      token.value
     ) {
       return false;
     }
@@ -233,33 +256,44 @@ export function createCodeTabOpenController<Paths, Resolved>(
     if (refreshingAttempt() !== null) return;
 
     const includeIgnored = current.includeIgnored;
-    const controller = new AbortController();
-    attempt = {
-      kind: "refreshing",
-      request,
-      includeIgnored,
-      controller,
+    const retired = { value: false };
+    const fiber: { current: Fiber.Fiber<unknown, never> | null } = {
+      current: null,
     };
-    void options
-      .readFresh(request, includeIgnored)
-      .then((paths) => {
-        if (!isCurrent(request, includeIgnored, controller)) return;
-        const freshResolved = options.resolve(request, paths);
-        if (freshResolved === null) {
-          complete(request, () => options.onNotFound(request));
-        } else {
+    attempt = { kind: "refreshing", request, includeIgnored, fiber, retired };
+    // The whole read AND its landing live on one fiber, so interrupting it stops
+    // both. Recovered to a total program before the fork: the outcome is applied
+    // by `complete`, which is this controller's one landing verb.
+    fiber.current = runOwnedAction(
+      "open in code tab",
+      options.readFresh(request, includeIgnored).pipe(
+        Effect.map((paths) => () => {
+          const freshResolved = options.resolve(request, paths);
+          if (freshResolved === null) {
+            complete(request, () => options.onNotFound(request));
+            return;
+          }
           complete(request, () =>
             options.onResolved(request, freshResolved, "fresh"),
           );
-        }
-      })
-      .catch((raw: unknown) => {
-        // A superseded/aborted read no longer belongs to the latest user
-        // intent; its failure must not toast over the replacement request.
-        if (!isCurrent(request, includeIgnored, controller)) return;
-        const error = raw instanceof Error ? raw : new Error(String(raw));
-        complete(request, () => options.onError(request, error));
-      });
+        }),
+        Effect.catch((raw) =>
+          Effect.succeed(() => {
+            const error = raw instanceof Error ? raw : new Error(String(raw));
+            complete(request, () => options.onError(request, error));
+          }),
+        ),
+        Effect.tap((land) =>
+          Effect.sync(() => {
+            // A superseded read no longer belongs to the latest user intent; its
+            // answer — success OR failure — must not land over the replacement
+            // request. Checked HERE, after the read, because interruption alone
+            // cannot guarantee this frame never runs.
+            if (isCurrent(request, includeIgnored, retired)) land();
+          }),
+        ),
+      ),
+    );
   });
 
   onCleanup(retire);

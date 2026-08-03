@@ -4,6 +4,7 @@
  *  `pulse()`. Each frame is one pulse — the initial snapshot frame, an on-disk change, or
  *  the fresh frame a reconnect re-subscribe yields — so a single pump models any. */
 
+import { Effect } from "effect";
 import type { StreamingProcedure } from "@kolu/surface/solid";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
@@ -34,6 +35,23 @@ async function flush(ticks = 4): Promise<void> {
   for (let i = 0; i < ticks; i++) {
     await new Promise<void>((r) => setTimeout(r, 0));
   }
+}
+
+/** The `query` seam takes a DESCRIPTION now. These fixtures stay written as
+ *  plain async bodies — a throw is the readable way to state "this read fails" —
+ *  and `Effect.tryPromise` is what turns that throw into the error channel the
+ *  primitive reads, exactly as the real query's own failure arrives. */
+function asEffect<I, R>(
+  fn: (input: I) => Promise<R>,
+): (input: I) => Effect.Effect<R, unknown> {
+  return (input) =>
+    Effect.tryPromise({
+      try: () => fn(input),
+      // Pass the thrown value THROUGH: these fixtures state a failure by
+      // throwing the exact error the assertion reads, and `tryPromise`'s
+      // default wrap would hide it behind an `UnknownError`.
+      catch: (e) => e,
+    });
 }
 
 /** A fake pulse source. `pulse()` fires one frame (→ one requery); `failPulse(err)`
@@ -72,10 +90,10 @@ describe("createPolledQuery", () => {
             live,
             pulseProc,
             pulseInput: (i: { repoPath: string }) => ({ repoPath: i.repoPath }),
-            query: async () => {
+            query: asEffect(async () => {
               calls += 1;
               return "x";
-            },
+            }),
           });
           await flush();
           pulse(); // no subscription installed while idle — a no-op
@@ -101,10 +119,10 @@ describe("createPolledQuery", () => {
             live,
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
-            query: async (i) => {
+            query: asEffect(async (i) => {
               calls += 1;
               return `${i.repoPath}#${calls}`;
-            },
+            }),
           });
           await flush();
           pulse(); // initial snapshot frame
@@ -130,10 +148,10 @@ describe("createPolledQuery", () => {
             live,
             pulseProc,
             pulseInput: (i) => ({ repoPath: i.repoPath }),
-            query: async (i) => {
+            query: asEffect(async (i) => {
               calls += 1;
               return `${i.repoPath}#${calls}`;
-            },
+            }),
           });
           await flush();
           pulse(); // initial
@@ -166,10 +184,10 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
-          },
+          }),
         });
         await flush();
         pulse();
@@ -201,9 +219,9 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async () => {
+          query: asEffect(async () => {
             throw new Error("boom");
-          },
+          }),
           onError: (err) => seen.push(err.message),
         });
         await flush();
@@ -232,9 +250,9 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async () => {
+          query: asEffect(async () => {
             throw new Error("boom");
-          },
+          }),
           onError: (err) => seen.push(err.message),
         });
         await flush();
@@ -265,7 +283,7 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async () => "unused", // no frame fires; pending stays true until the pulse errors
+          query: asEffect(async () => "unused"), // no frame fires; pending stays true until the pulse errors
           onError: (err) => seen.push(err.message),
         });
         await flush();
@@ -299,11 +317,11 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async () => {
+          query: asEffect(async () => {
             calls += 1;
             if (calls === 1) return "content";
             throw new Error("NOT_FOUND: file gone");
-          },
+          }),
           onError: (err) => seen.push(err.message),
           swallowError: (err) => /NOT_FOUND/.test(err.message),
         });
@@ -349,10 +367,10 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
-          },
+          }),
         });
         await flush();
         pulse(); // initial snapshot → "A#1"
@@ -391,10 +409,10 @@ describe("createPolledQuery", () => {
           pulseProc,
           pulseHost: host,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
-          },
+          }),
         });
         await flush();
         pulse();
@@ -440,10 +458,10 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
-          },
+          }),
           active,
         });
         await flush();
@@ -506,10 +524,10 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             return `${i.repoPath}#${calls}`;
-          },
+          }),
           active,
         });
         await flush();
@@ -569,7 +587,7 @@ describe("createPolledQuery", () => {
           live,
           pulseProc,
           pulseInput: (i) => ({ repoPath: i.repoPath }),
-          query: async (i) => {
+          query: asEffect(async (i) => {
             calls += 1;
             if (calls === 1) return `${i.repoPath}#1`;
             // The 2nd query blocks until the test releases it — modelling an RPC
@@ -578,7 +596,7 @@ describe("createPolledQuery", () => {
               deferred.release = r;
             });
             return `${i.repoPath}#LATE`;
-          },
+          }),
           active,
         });
         await flush();

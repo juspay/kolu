@@ -114,17 +114,31 @@ export function runOwnedAction<A>(
   return fiber;
 }
 
-/** Run a total action and hand back its VALUE as a `Promise` — the edge for
- *  Solid's own async primitive.
+/** Run a program and hand back its VALUE as a `Promise` — the edge for the three
+ *  seams whose contract is a Promise and is not this package's to change:
+ *  Solid's own `createResource` fetcher, `@kolu/xterm-kit`'s backfill `fetch`
+ *  (the kit is deliberately outside Effect), and `@kolu/surface`'s
+ *  `pollOnChange`, whose `(signal) => Promise<T>` read seam is DELIBERATELY
+ *  Promise-shaped (locked decision 1; the surface wave's `connectPollNode`
+ *  records why) so that its non-Effect consumers keep working.
  *
- *  `createResource` is a Solid resource: it owns loading/error state, `Suspense`
- *  integration and refetch, and its fetcher contract is a Promise. Solid
- *  reactivity stays Solid (PLAN locked decision 1), so the resource keeps its
- *  primitive and the Effect is run HERE, at the one boundary, rather than
- *  reimplemented as a hand-rolled Effect resource.
+ *  Unlike {@link runAction} the action need NOT be total: those consumers own an
+ *  error path (a resource's error state, the kit's `isTerminalGone`/`onError`,
+ *  the poll's `swallowError`) and a rejection is how they are told.
+ *  `Effect.runPromise` rejects with the SQUASHED failure — the declared
+ *  tagged-error instance itself, `_tag` and data intact — which is what keeps
+ *  `_tag` narrowing honest at those consumers.
  *
- *  A defect rejects the promise, which is what `createResource`'s error state is
- *  for — so unlike {@link runAction} there is no separate loud path to add. */
-export function runActionPromise<A>(action: UiAction<A>): Promise<A> {
-  return Effect.runPromise(action);
+ *  `signal` is the mirror image of the bridge `connectPollNode` builds on the
+ *  server side: there an Effect's interruption drives an `AbortController`; here
+ *  a caller's `AbortSignal` drives the fiber's interruption, so a superseded
+ *  poll frame really does tear its in-flight read down instead of being awaited
+ *  by nobody. */
+export function runActionPromise<A, E>(
+  action: Effect.Effect<A, E>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return signal === undefined
+    ? Effect.runPromise(action)
+    : Effect.runPromise(action, { signal });
 }

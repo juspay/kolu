@@ -23,6 +23,7 @@
  *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
  *  requeries the matching ACTIVE instance. */
 
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
@@ -77,30 +78,35 @@ const bag = vi.hoisted(() => ({
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
-  // Bound procedures face (no `.surface` prefix now).
-  const activePadiRpc = {
+  // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
+  // the recorded side effects below run when the query is RUN — which is what
+  // the call-count assertions are really about.
+  const activePadiEffect = {
     git: {
-      getStatus: async (i: { repoPath: string; mode: string }) => {
-        bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
-        return {
-          files: [],
-          label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
-          n: bag.counts[i.mode],
-        };
-      },
-      getDiff: async () => ({ hunks: [] }),
+      getStatus: (i: { repoPath: string; mode: string }) =>
+        Effect.sync(() => {
+          bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
+          return {
+            files: [],
+            label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
+            n: bag.counts[i.mode],
+          };
+        }),
+      getDiff: () => Effect.succeed({ hunks: [] }),
     },
     fs: {
-      listAll: async () => {
-        bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
-        return { paths: ["src/app.ts"] };
-      },
-      listIgnored: async () => ({ paths: ["node_modules/"] }),
-      readFile: async () => ({ content: "", truncated: false }),
-      filePreviewTag: async (input: { repoPath: string; filePath: string }) => {
-        bag.previewTagInputs.push(input);
-        return "same-content-tag";
-      },
+      listAll: () =>
+        Effect.sync(() => {
+          bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
+          return { paths: ["src/app.ts"] };
+        }),
+      listIgnored: () => Effect.succeed({ paths: ["node_modules/"] }),
+      readFile: () => Effect.succeed({ content: "", truncated: false }),
+      filePreviewTag: (input: { repoPath: string; filePath: string }) =>
+        Effect.sync(() => {
+          bag.previewTagInputs.push(input);
+          return "same-content-tag";
+        }),
     },
   };
   // The un-enrolled change pulses ride the entry's STREAM face now
@@ -112,7 +118,7 @@ vi.mock("../wire", async () => {
   return {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
-    activePadiRpc,
+    activePadiEffect,
     activePadiStreams,
   };
 });

@@ -19,9 +19,10 @@
  *  Extracted from Terminal.tsx so the delivery gate is unit-testable without an
  *  xterm/DOM harness (Terminal.tsx cannot be imported under the node runner). */
 
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 
-export async function deliverScratchPaste(deps: {
+export function deliverScratchPaste(deps: {
   terminalId: TerminalId;
   name: string;
   base64: string;
@@ -29,21 +30,30 @@ export async function deliverScratchPaste(deps: {
     terminalId: TerminalId;
     name: string;
     data: string;
-  }) => Promise<{ path: string }>;
+  }) => Effect.Effect<{ path: string }, unknown>;
   /** Is the terminal still an ACTIVE (live-PTY) terminal — the client mirror of
    *  the server's `getActiveTerminal` gate. */
   isActive: () => boolean;
-  sendInput: (args: { id: TerminalId; data: string }) => Promise<void>;
+  sendInput: (args: {
+    id: TerminalId;
+    data: string;
+  }) => Effect.Effect<void, unknown>;
   /** Wrap the scratch path in the bracketed-paste markers. */
   wrapPath: (path: string) => string;
-}): Promise<void> {
-  const { path } = await deps.scratchWrite({
-    terminalId: deps.terminalId,
-    name: deps.name,
-    data: deps.base64,
+}): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const { path } = yield* deps.scratchWrite({
+      terminalId: deps.terminalId,
+      name: deps.name,
+      data: deps.base64,
+    });
+    // The liveness re-check sits BETWEEN the two calls, where it has to: the
+    // send is the step that quiet-drops, so the refusal has to be raised before
+    // it, not inferred from its (always successful) answer.
+    if (!deps.isActive())
+      return yield* Effect.fail(
+        new Error("terminal is no longer active — paste not delivered"),
+      );
+    yield* deps.sendInput({ id: deps.terminalId, data: deps.wrapPath(path) });
   });
-  if (!deps.isActive()) {
-    throw new Error("terminal is no longer active — paste not delivered");
-  }
-  await deps.sendInput({ id: deps.terminalId, data: deps.wrapPath(path) });
 }

@@ -14,6 +14,8 @@
  * Pierre lifecycle; this component is just data flow + chrome. */
 
 import Resizable from "@corvu/resizable";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -68,9 +70,10 @@ import SegmentedControl, {
   type SegmentedControlOption,
 } from "../ui/SegmentedControl";
 import { Z_HANDLE_INNER } from "../ui/stackLayers";
+import { runActionPromise } from "../runAction";
 import { requestDeepLinkNavigation } from "../useDeepLinks";
 import { isDesktop, isTouch } from "../useMobile";
-import { activeHost, activePadiRpc } from "../wire";
+import { activeHost, activePadiEffect } from "../wire";
 import BrowseDiffView from "./BrowseDiffView";
 import BrowseFileDispatcher from "./BrowseFileDispatcher";
 import {
@@ -504,12 +507,19 @@ const CodeTab: Component<{
   // both callbacks read, rather than two conditions each has to repeat and can
   // drift on. Not reactive: nothing renders from it.
   //
-  // The abort is CLIENT-SIDE ONLY, and now unavoidably so: a padi procedure
-  // call carries no cancellation token under Effect (D10/#18), and it never
-  // reached `servePadi` → `TerminalEndpointFs` → `listDirectory` anyway. So a
-  // superseded read still runs to completion on the host; what the abort buys is
-  // that its answer owns no outcome here — one bounded `readdir` per superseded
-  // expand is cheap.
+  // The controller is now the INTERRUPTION driver, not just a bookkeeping flag:
+  // `runActionPromise(effect, signal)` ties the read's fiber to it, so an abort
+  // really tears the in-flight read down here rather than merely disowning its
+  // answer. What it still cannot do is stop the host: a padi procedure carries
+  // no cancellation token over the wire (D10/#18), so a superseded read runs to
+  // completion there — one bounded `readdir` per superseded expand, which is
+  // cheap. The `.aborted` checks below stay for the reason `attachAttempts`
+  // states: interruption is asynchronous, so a frame already past its last
+  // suspension can still arrive, and the gate is what refuses it.
+  //
+  // `<FileTree>`'s lazy-load contract is a `Promise` (it is
+  // `@kolu/solid-pierre`'s, not ours), so this is a run edge — through the
+  // package's one named bridge.
   const inFlight = new Map<string, AbortController>();
 
   const loadLazyDirectory = (dirPath: string): Promise<void> => {
@@ -518,33 +528,47 @@ const CodeTab: Component<{
     inFlight.get(dirPath)?.abort();
     const ctl = new AbortController();
     inFlight.set(dirPath, ctl);
-    return activePadiRpc.fs
-      .listDirectory({ repoPath: p, dirPath })
-      .then((result) => {
-        if (ctl.signal.aborted) return;
-        // A fresh Map per write: the merge memo reads this by reference, and an
-        // in-place `set` would leave the tree painting the previous level.
-        setLoadedChildren((prev) => new Map(prev).set(dirPath, result.paths));
-      })
-      .catch((err: Error) => {
-        // A superseded read owns no outcome — neither the write nor the toast,
-        // since a failure that belongs to a repo the user has already left is
-        // not theirs to see.
-        if (ctl.signal.aborted) return;
-        toast.error(`Failed to list ${dirPath}: ${err.message}`);
-        // Re-throw so `<FileTree>` forgets the expansion it recorded: without
-        // that the folder stays open-and-empty for the rest of the mount with
-        // no way to refetch short of collapsing it by hand.
-        throw err;
-      })
-      .finally(() => {
-        // Retire this read's own entry. Guarded on identity so a newer read for
-        // the same directory — which replaced the entry and is still running —
-        // keeps its controller. Without this the map only ever shrank on a repo
-        // switch, so browsing many ignored folders in one repo accumulated a
-        // settled controller per directory for the life of the session.
-        if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
-      });
+    return runActionPromise(
+      activePadiEffect.fs.listDirectory({ repoPath: p, dirPath }).pipe(
+        Effect.tap((result) =>
+          Effect.sync(() => {
+            if (ctl.signal.aborted) return;
+            // A fresh Map per write: the merge memo reads this by reference, and
+            // an in-place `set` would leave the tree painting the previous level.
+            setLoadedChildren((prev) =>
+              new Map(prev).set(dirPath, result.paths),
+            );
+          }),
+        ),
+        Effect.tapError((err) =>
+          Effect.sync(() => {
+            // A superseded read owns no outcome — neither the write nor the
+            // toast, since a failure that belongs to a repo the user has already
+            // left is not theirs to see.
+            if (ctl.signal.aborted) return;
+            toast.error(`Failed to list ${dirPath}: ${toError(err).message}`);
+          }),
+        ),
+        // The failure PROPAGATES (this rejects the promise) so `<FileTree>`
+        // forgets the expansion it recorded: without that the folder stays
+        // open-and-empty for the rest of the mount with no way to refetch short
+        // of collapsing it by hand.
+        Effect.asVoid,
+        // `ensuring`, so this also runs when the fiber is INTERRUPTED — the case
+        // a `.finally` on a promise Effect had already stopped awaiting would
+        // have missed. Retire this read's own entry, guarded on identity so a
+        // newer read for the same directory keeps its controller. Without it the
+        // map only ever shrank on a repo switch, so browsing many ignored
+        // folders in one repo accumulated a settled entry per directory for the
+        // life of the session.
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (inFlight.get(dirPath) === ctl) inFlight.delete(dirPath);
+          }),
+        ),
+      ),
+      ctl.signal,
+    );
   };
 
   const finishOpenRequest = (

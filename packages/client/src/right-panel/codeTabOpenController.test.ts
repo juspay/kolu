@@ -1,3 +1,4 @@
+import { Deferred, Effect } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -22,6 +23,24 @@ const request = (terminalId: string): OpenInCodeTabRequest => ({
 
 const tick = () => Promise.resolve();
 
+/** The `readFresh` seam takes a DESCRIPTION now, so a fixture that must be
+ *  settled BY HAND parks on a `Deferred` instead of holding a `resolve`. The
+ *  plain-value fixtures stay written as async bodies — a throw is the readable
+ *  way to state "this read fails" — with `Effect.tryPromise` turning it into the
+ *  error channel the controller reads. */
+function asEffect<R>(
+  fn: (request: OpenInCodeTabRequest, includeIgnored: boolean) => Promise<R>,
+): (request: OpenInCodeTabRequest, includeIgnored: boolean) => Effect.Effect<R, unknown> {
+  return (request, includeIgnored) =>
+    Effect.tryPromise({
+      try: () => fn(request, includeIgnored),
+      // Pass the thrown value THROUGH: these fixtures state a failure by
+      // throwing the exact error the assertion reads, and `tryPromise`'s default
+      // wrap would hide it behind an `UnknownError`.
+      catch: (e) => e,
+    });
+}
+
 type Paths = readonly string[];
 type Snapshot = CodeTabOpenSnapshot<Paths>;
 
@@ -30,7 +49,7 @@ function createHarness(options?: {
   readFresh?: (
     request: OpenInCodeTabRequest,
     includeIgnored: boolean,
-  ) => Promise<Paths>;
+  ) => Effect.Effect<Paths, unknown>;
 }) {
   const req = request("t1");
   const [snapshot, setSnapshot] = createSignal<Snapshot>({
@@ -42,7 +61,7 @@ function createHarness(options?: {
     includeIgnored: false,
     ...options?.snapshot,
   });
-  const readFresh = vi.fn(options?.readFresh ?? (async () => []));
+  const readFresh = vi.fn(options?.readFresh ?? asEffect(async () => []));
   const onResolved = vi.fn();
   const onNotFound = vi.fn();
   const onError = vi.fn();
@@ -81,7 +100,7 @@ describe("createCodeTabOpenController", () => {
     );
     retained.dispose();
 
-    const fresh = createHarness({ readFresh: async () => ["new.ts"] });
+    const fresh = createHarness({ readFresh: asEffect(async () => ["new.ts"]) });
     await tick();
     await tick();
     expect(fresh.onResolved).toHaveBeenCalledWith(fresh.req, "new.ts", "fresh");
@@ -119,7 +138,7 @@ describe("createCodeTabOpenController", () => {
         inventoryScope: scope("t2"),
         paths: ["new.ts"],
       },
-      readFresh: async () => [],
+      readFresh: asEffect(async () => []),
     });
     await tick();
     await tick();
@@ -130,7 +149,7 @@ describe("createCodeTabOpenController", () => {
   });
 
   it("resolves a retained miss from the fresh inventory", async () => {
-    const h = createHarness({ readFresh: async () => ["new.ts"] });
+    const h = createHarness({ readFresh: asEffect(async () => ["new.ts"]) });
     await tick();
     await tick();
     expect(h.readFresh).toHaveBeenCalledOnce();
@@ -140,7 +159,7 @@ describe("createCodeTabOpenController", () => {
   });
 
   it("consumes a confirmed fresh miss as not found", async () => {
-    const h = createHarness({ readFresh: async () => [] });
+    const h = createHarness({ readFresh: asEffect(async () => []) });
     await tick();
     await tick();
     expect(h.onNotFound).toHaveBeenCalledOnce();
@@ -151,9 +170,9 @@ describe("createCodeTabOpenController", () => {
   it("consumes a current fresh-read error exactly once", async () => {
     const failure = new Error("fresh inventory failed");
     const h = createHarness({
-      readFresh: async () => {
+      readFresh: asEffect(async () => {
         throw failure;
-      },
+      }),
     });
     await tick();
     await tick();
@@ -183,7 +202,7 @@ describe("createCodeTabOpenController", () => {
       req.scope,
     );
     const onResolved = vi.fn();
-    let settle: (paths: readonly string[]) => void = () => {};
+    const gate = Deferred.makeUnsafe<readonly string[]>();
 
     const dispose = createRoot((dispose) => {
       createCodeTabOpenController<readonly string[], string>({
@@ -197,10 +216,7 @@ describe("createCodeTabOpenController", () => {
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
-        readFresh: () =>
-          new Promise((resolve) => {
-            settle = resolve;
-          }),
+        readFresh: () => Deferred.await(gate),
         onResolved,
         onNotFound: vi.fn(),
         onError: vi.fn(),
@@ -215,7 +231,7 @@ describe("createCodeTabOpenController", () => {
     // The retirement is asserted on the OUTCOME, not on an abort flag: the read
     // carries no cancellation token any more (a padi call takes none under
     // Effect, D10/#18), so what must hold is that a late answer owns nothing.
-    settle(["new.ts"]);
+    Deferred.doneUnsafe(gate, Effect.succeed(["new.ts"]));
     await tick();
     expect(onResolved).not.toHaveBeenCalled();
     dispose();
@@ -242,10 +258,16 @@ describe("createCodeTabOpenController", () => {
         }),
         resolve: (_request, paths) =>
           paths.includes("new.ts") ? "new.ts" : null,
-        readFresh: (_request, policy) =>
-          new Promise((resolve) => {
-            reads.push({ includeIgnored: policy, settle: resolve });
-          }),
+        readFresh: (_request, policy) => {
+          const gate = Deferred.makeUnsafe<readonly string[]>();
+          reads.push({
+            includeIgnored: policy,
+            settle: (paths) => {
+              Deferred.doneUnsafe(gate, Effect.succeed(paths));
+            },
+          });
+          return Deferred.await(gate);
+        },
         onResolved,
         onNotFound: vi.fn(),
         onError: vi.fn(),

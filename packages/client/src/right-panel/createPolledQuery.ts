@@ -44,6 +44,7 @@
  * `active` config field.
  */
 
+import type { Effect } from "effect";
 import { pollOnChange } from "@kolu/surface/poll-on-change";
 import {
   type StreamingProcedure,
@@ -60,6 +61,7 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore } from "solid-js/store";
+import { runActionPromise } from "../runAction";
 
 export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** The query input; `null` = idle (no pulse subscription, no query). */
@@ -84,9 +86,13 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   /** Derive the pulse key from the query input. Kept separate so the pulse
    *  subscribes to only the change signal it needs (a repo, or a repo+file). */
   pulseInput: (input: Input) => PulseInput;
-  /** (Re)invoke the padi procedure on each pulse frame. The `signal` aborts a
-   *  superseded in-flight read (input change / a newer pulse). */
-  query: (input: Input, signal: AbortSignal) => Promise<Result>;
+  /** (Re)invoke the padi procedure on each pulse frame — a DESCRIPTION, so a
+   *  superseded read is torn down by interrupting its fiber rather than by a
+   *  signal the caller had to remember to thread. `pollOnChange`'s own read seam
+   *  stays `(signal) => Promise<T>` (locked decision 1 — it has non-Effect
+   *  consumers), so the bridge is here, at one call site: the pulse's
+   *  `AbortSignal` drives the run's interruption. */
+  query: (input: Input) => Effect.Effect<Result, unknown>;
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
   /** Classify an error as a BENIGN TRANSIENT to swallow (no `error()`, no
@@ -262,7 +268,12 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
       pollOnChange<PulseInput, Pulse, Result>({
         pulse: pulseProc(),
         pulseInput: pulseInput(i),
-        query: (signal) => query(i, signal),
+        // THE bridge: the core hands a signal, the read is an Effect, and
+        // `runActionPromise` makes the one drive the other — a superseded frame
+        // really interrupts its in-flight read (running its finalizers) instead
+        // of leaving a promise nobody awaits. Mirror image of the surface side's
+        // `connectPollNode`, where an Effect's interruption drives a controller.
+        query: (signal) => runActionPromise(query(i), signal),
         onResult: (result) => {
           // A requery updates the value IN PLACE (reconciled — no blank), stamps the
           // shown key, and clears `pending`/`error` on a fresh landing.
