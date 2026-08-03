@@ -71,6 +71,7 @@ import {
   assembleRemotePreview,
   previewTailFromRawUrl,
   rawTargetFromContext,
+  remotePreviewReader,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
 import {
@@ -997,12 +998,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       // never a silent short body.
       try {
         r = await assembleRemotePreview(
-          (chunkRange) =>
-            client.surface.preview.read({
-              repoPath,
-              filePath: rawTail,
-              range: chunkRange,
-            }),
+          // The reader is built by `remotePreviewReader` rather than spelled
+          // inline — it owns the one `optionalKey` discipline this dial needs
+          // (#17), pinned beside the type it satisfies.
+          remotePreviewReader(
+            (input) => client.surface.preview.read(input),
+            repoPath,
+            rawTail,
+          ),
           range,
           ifRange,
         );

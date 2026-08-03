@@ -19,7 +19,9 @@ import path from "node:path";
 import type { HttpBindings } from "@hono/node-server";
 import { serve } from "@hono/node-server";
 import { previewFile } from "@kolu/padi/assembly";
+import { padiClientOver } from "@kolu/padi/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
+import { Effect, Stream } from "effect";
 import { Hono } from "hono";
 import {
   BINARY_PREVIEWABLE_EXTENSIONS,
@@ -35,9 +37,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   assembleRemotePreview,
   type PreviewRangeReader,
+  type PreviewReadResult,
   previewTailFromRawUrl,
   rawTargetFromContext,
   REMOTE_PREVIEW_CHUNK_BYTES,
+  remotePreviewReader,
 } from "./iframePreviewRoute.ts";
 
 describe("@kolu/serve-dir Content-Type covers kolu's binary-previewable classifier", () => {
@@ -632,5 +636,68 @@ describe("iframe-preview route over real @hono/node-server (raw target survives 
     );
     expect(res.status).toBe(400);
     expect(res.body).not.toContain("SECRET");
+  });
+});
+
+describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)", () => {
+  // `range` is `Schema.optionalKey` on padi's wire, and the client face DECODES
+  // every procedure input at the call site — so the shape this reader builds is
+  // judged inside kolu-server, before anything reaches padi. An `optionalKey`
+  // rejects a present-`undefined` key where zod's `.optional()` took either, and
+  // an unranged dial is ORDINARY here (the empty-file Content-Type re-read; any
+  // browser request with no `Range` header). Falsify by restoring `range: range`
+  // in `remotePreviewReader`: the first two cases then throw the production
+  // string, `Expected string, got undefined`.
+
+  /** The REAL padi client face over a recording dispatch — so the assertion runs
+   *  behind the same `Schema.decodeUnknownSync` production does, not a paraphrase. */
+  function recordingPadi(): {
+    read: (input: {
+      repoPath: string;
+      filePath: string;
+      range?: string;
+    }) => Promise<PreviewReadResult>;
+    inputs: unknown[];
+  } {
+    const inputs: unknown[] = [];
+    const client = padiClientOver({
+      unary: (_tag, payload) => {
+        inputs.push(payload);
+        return Effect.succeed({ status: 200, headers: {}, bodyBase64: "" });
+      },
+      stream: () => Stream.empty,
+    });
+    return { inputs, read: (input) => client.padi.surface.preview.read(input) };
+  }
+
+  it("OMITS the key on an unranged dial", async () => {
+    const { read, inputs } = recordingPadi();
+    await remotePreviewReader(read, "/repo", "a.ts")(undefined);
+    expect(inputs.at(-1)).toEqual({ repoPath: "/repo", filePath: "a.ts" });
+    expect(Object.hasOwn(inputs.at(-1) as object, "range")).toBe(false);
+  });
+
+  it("OMITS the key for the empty-file re-read the assembler performs", async () => {
+    // `assembleRemotePreview` probes with `bytes=0-0`, sees a 0-byte file, then
+    // re-dials UNRANGED for the real Content-Type — the exact sequence that broke.
+    const { read, inputs } = recordingPadi();
+    const reader = remotePreviewReader(read, "/repo", "empty.txt");
+    await reader("bytes=0-0");
+    await reader(undefined);
+    expect(inputs.map((i) => (i as { range?: string }).range)).toEqual([
+      "bytes=0-0",
+      undefined,
+    ]);
+    expect(Object.hasOwn(inputs[1] as object, "range")).toBe(false);
+  });
+
+  it("still sends a real Range verbatim", async () => {
+    const { read, inputs } = recordingPadi();
+    await remotePreviewReader(read, "/repo", "blob.png")("bytes=0-127");
+    expect(inputs.at(-1)).toEqual({
+      repoPath: "/repo",
+      filePath: "blob.png",
+      range: "bytes=0-127",
+    });
   });
 });

@@ -139,6 +139,36 @@ export type PreviewRangeReader = (
   range: string | undefined,
 ) => Promise<PreviewReadResult>;
 
+/** Bind a padi `preview.read` procedure to ONE terminal's `{repoPath, filePath}`,
+ *  producing the {@link PreviewRangeReader} the assembler dials.
+ *
+ *  This exists as a named function rather than an inline closure in the route
+ *  because of the ONE line inside it. `range` is `Schema.optionalKey` on padi's
+ *  wire and the client face DECODES the input at the call site, so an ABSENT key
+ *  is accepted and a present-but-`undefined` one is REJECTED — where zod's
+ *  `.optional()` took either (#17). An UNRANGED dial is not an edge case: the
+ *  assembler makes one for an empty file's Content-Type, and any browser request
+ *  without a `Range` header makes one too. Spelling the `undefined` therefore
+ *  turned an ordinary remote preview into the route's 503. Keeping the spread here,
+ *  beside the type that documents the optional argument, is what makes it testable
+ *  against the real face. */
+export function remotePreviewReader(
+  read: (input: {
+    repoPath: string;
+    filePath: string;
+    range?: string;
+  }) => Promise<PreviewReadResult>,
+  repoPath: string,
+  filePath: string,
+): PreviewRangeReader {
+  return (range) =>
+    read({
+      repoPath,
+      filePath,
+      ...(range !== undefined && { range }),
+    });
+}
+
 /** Parse a serve-dir 206 `Content-Range` (`bytes <start>-<end>/<total>`) in FULL —
  *  start, end AND total — so a chunk can be validated against the EXACT slice it
  *  was asked for, not merely its total size: a broken upstream that answered the
