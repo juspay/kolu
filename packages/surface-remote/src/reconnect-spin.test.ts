@@ -22,6 +22,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { implementSurface } from "@kolu/surface/server";
@@ -87,6 +88,9 @@ function flakyChild(liveMs: number) {
     handlers: runtime.handlers,
     transport: pair.server,
   });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — this fake child
+  // plays the part `serveOverStdio` plays for a real one.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
 
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;

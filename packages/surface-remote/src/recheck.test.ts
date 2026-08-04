@@ -21,6 +21,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface } from "@kolu/surface/server";
 import { Schema, Stream } from "effect";
@@ -83,6 +84,11 @@ function controllableChild() {
     handlers: runtime.handlers,
     transport: pair.server,
   });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — `serveOverStdio`
+  // does it itself when the process IS the agent; over an explicit loopback
+  // transport this fake child plays that part, exactly as a real `--stdio` front
+  // does once it has converged the daemon it fronts.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
 
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;

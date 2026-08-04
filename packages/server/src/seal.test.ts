@@ -421,11 +421,19 @@ function koluSurfaceBindings(file: string): string[] {
  *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
  *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
  *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
- *   - `/log` — padi's pino logger, so a server log line joins padi's stream.
+ *   - `/log` — padi's pino logger, so a server log line joins padi's stream;
+ *   - `/convergence-policy` — padi's own declaration of WHO IT IS and how a
+ *     supervisor of it converges (juspay/kolu#2101). It earned a door of its own
+ *     rather than riding `/assembly` precisely because of the rule above: it is
+ *     NARROWER. Two pure factories, no terminal domain, no state-root vocabulary
+ *     — and it must be shared, because `padi --stdio` now converges its own daemon
+ *     too, so this binder and padi's front cannot be allowed to hold two opinions
+ *     about padi's contract version or its drain semantics.
  *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
  *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
+  "@kolu/padi/convergence-policy",
   "@kolu/padi/dial",
   "@kolu/padi/surface",
   "@kolu/padi/log",

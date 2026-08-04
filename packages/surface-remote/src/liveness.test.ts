@@ -16,6 +16,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { Schema } from "effect";
@@ -54,6 +55,11 @@ function healthyChild() {
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
   void serveOverStdio({ group, handlers, transport: pair.server });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — `serveOverStdio`
+  // does it itself when the process is the agent; over an explicit loopback
+  // transport this fake child plays that part, exactly as a real `--stdio` front
+  // does after it converges.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
@@ -75,8 +81,16 @@ function healthyChild() {
 function wedgedChild() {
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = new PassThrough(); // requests buffer; nobody reads them
-  child.stdout = new PassThrough(); // open, but nothing is ever written back
+  const stdout = new PassThrough(); // open, but nothing is ever written back
+  child.stdout = stdout;
   child.stderr = new PassThrough();
+  // It GREETS, then wedges — which is the only wedge the watchdog still owns
+  // (juspay/kolu#2101). A peer that never speaks AT ALL no longer reaches the
+  // watchdog: the readiness gate catches it before a client exists, classifies it
+  // as a remote fault, and the session goes terminal instead of relying on a
+  // liveness probe to notice. What is left here — and what this pin measures — is
+  // a daemon that proved its epoch at boot and hung afterwards.
+  writeStdioReadiness(stdout, { verdict: "ready" });
   child.pid = 4321;
   const kill = vi.fn(() => {
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");

@@ -501,7 +501,8 @@ transport; see [How to choose a link](/surface/choose-a-link).
 | Link                                        | Import                            | Reaches                                                 |
 | ------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
 | `websocketLink({ group, url, … })`          | `@kolu/surface/links/websocket`   | a server over a WebSocket (the browser path)            |
-| `stdioLink({ group, read, write })`         | `@kolu/surface/links/stdio`       | a subprocess or ssh stdio pair                          |
+| `stdioLink({ group, read, write, readiness })` | `@kolu/surface/links/stdio`    | a subprocess or ssh stdio pair — **requires a readiness proof** |
+| `socketDuplexLink({ group, socket, describe })` | `@kolu/surface/links/stdio`   | an already-connected LOCAL unix socket (you own the dial, and its `close`) |
 | `unixSocketLink({ group, socketPath })`     | `@kolu/surface/links/unix-socket` | a daemon on the same machine (it dials)                 |
 | `directDispatch(served)`                    | `@kolu/surface/links/direct`      | the in-process handlers, no wire (the identity element) |
 
@@ -523,7 +524,51 @@ different surfaces.
 no dispatch. It is two cross-piped `PassThrough` ends you feed *into* one:
 `pair.client` to `stdioLink`, `pair.server` to `serveOverStdio`. The framing is
 the same ndjson the real stdio and socket legs carry, so a loopback round-trip is
-genuine end-to-end evidence without a subprocess.
+genuine end-to-end evidence without a subprocess. `greetLoopback(pair)` (same
+module) performs the readiness handshake below over that pair — the server half
+writes the banner, the client half reads it — and hands back the proof
+`stdioLink` needs.
+
+### The stdio readiness gate — `@kolu/surface/links/readiness`
+
+`stdioLink` takes a required `readiness: StdioReadinessProof`, and the only way
+to obtain one is to read a peer's `ready` banner off the very stream you are
+about to attach to. Building an RPC protocol starts Effect RPC's pinger; a peer
+from a **previous protocol epoch** accepts the pipe and then says nothing, so the
+pinger kills the link ~10s later with a transport error indistinguishable from an
+unreachable host — which a reconnecting consumer retries forever. The gate makes
+that blind attach unrepresentable rather than merely discouraged.
+
+| Export                                             | What it does                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `writeStdioReadiness(write, verdict)`              | write the one banner line; the FIRST thing a stdio server puts on the wire       |
+| `awaitStdioReadiness({ read, deadlineMs, describe })` | read it back and mint the proof; rejects `StdioReadinessError` otherwise       |
+| `isStdioReadinessProof(v)` / `isStdioReadinessError(v)` | narrow a proof (un-forgeable `WeakSet` brand) or a failure                   |
+| `StdioReadinessVerdict`                            | `{ verdict: "ready" }` or `{ verdict: "refused", detail, anomaly }`              |
+| `STDIO_READINESS_KEY` / `STDIO_READINESS_VERSION`  | the reserved banner key and its version                                          |
+
+The wire form is exactly one newline-terminated JSON line, before any RPC frame:
+`{"surfaceStdioGate":{"v":1,"verdict":"ready"}}`. `anomaly` on a refusal is
+**opaque to the framework** — the app that writes it owns its shape, and the app
+that reads it decodes it with its own schema.
+
+`awaitStdioReadiness` consumes exactly up to and including the first `\n` and
+**unshifts every remaining byte back onto the stream**, in paused mode, so a
+banner and a first frame arriving in one chunk cannot lose the frame. Its
+failures are classified — `refused` (the peer said no, and why), `undecodable`
+(the first line was not a banner, with a bounded excerpt), `silent` (the
+deadline passed), `closed` — never swallowed.
+
+`serveOverStdio` writes the `ready` banner itself when the process **is** the
+agent (no `transport` override). Over an explicit transport the caller plays the
+server and greets with `writeStdioReadiness` — which is also what a daemon front
+does, after it has converged the daemon it is about to relay to.
+
+`socketDuplexLink` deliberately takes **no** proof. It is a documented residual
+for a LOCAL unix rendezvous, where epoch safety is owed by the supervisor's
+converge-before-dial discipline rather than by a banner over a pipe that never
+leaves the box; its `Socket` parameter is what keeps the ssh/subprocess leg from
+being spelled through it.
 
 Matching serve-side entry points, all taking the same `{ group, handlers }` pair:
 `serveOverStdio` (`@kolu/surface/peer-server`), `serveOverUnixSocket`

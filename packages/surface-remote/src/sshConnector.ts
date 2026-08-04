@@ -33,6 +33,7 @@ import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
+  classifyClosed,
   ConnectError,
   type Connection,
   type Connector,
@@ -96,22 +97,6 @@ export type SshProv = "probing" | "provisioning";
  * and saying so terminally beats an eternal spinner.
  */
 const AGENT_READINESS_DEADLINE_MS = 180_000;
-
-/** One line naming HOW a child went away, for the pre-readiness death message.
- *  The loop does its own classification off `ClosedInfo`; this is the operator's
- *  half of the same fact. */
-function describeClosed(info: ClosedInfo): string {
-  switch (info.kind) {
-    case "exit":
-      return `exit code=${info.code ?? "null"} signal=${info.signal ?? "null"}`;
-    case "transport-failed":
-      return "ssh transport failed";
-    case "endpoint-down":
-      return "endpoint down";
-    case "spawn-error":
-      return `spawn error: ${info.message}`;
-  }
-}
 
 /** The owning dial context a deferred derivation resolver may consume. */
 export interface ResolveDrvPathContext extends AgentResolutionContext {
@@ -327,12 +312,17 @@ export function sshConnector<S extends SurfaceSpec>(
         describe: `${opts.binary} on ${opts.host}`,
       }),
       closed.then((info): never => {
-        // The child left before greeting. Re-throw the SAME shape the exit path
-        // already produces so the loop's existing classification decides — this
-        // gate must not invent a verdict for a host that simply is not there.
+        // The child left before greeting. Classify it with the LOOP'S OWN
+        // authority (`classifyClosed`), never a verdict invented here: a child
+        // that exits before it greets is the same fact as a child that exits
+        // before its first RPC — bounded `"remote"` — while an ssh transport
+        // failure stays the unbounded `"network"` a merely-unreachable host has
+        // always been. Restating that rule here is how the gate would quietly
+        // un-bound a broken agent or condemn a sleeping laptop.
+        const { reason, cause } = classifyClosed(info, false);
         throw new ConnectError(
-          `${opts.binary} on ${opts.host} exited before it announced readiness (${describeClosed(info)})`,
-          "network",
+          `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
+          cause,
         );
       }),
     ]).catch((err: unknown) => {

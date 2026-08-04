@@ -161,7 +161,30 @@ type ServeOpts = {
 };
 type SpawnSpec =
   | ({ kind: "serve"; hello: Hello } & ServeOpts)
-  | { kind: "reject"; cause: "remote" | "network"; reason: string };
+  | { kind: "reject"; cause: "remote" | "network"; reason: string }
+  /**
+   * POST-FIX: the ssh connector's readiness gate refused before it built any
+   * client (juspay/kolu#2101). The remote front converged, could not settle, and
+   * said so on the wire; `sshConnector` turns that banner into a `"remote"`
+   * `ConnectError` carrying the front's typed anomaly opaquely.
+   *
+   * The byte-level trigger is NOT expressible here — this file mocks
+   * `sshConnector` entirely, so there is no stream to put a banner on. What is
+   * modelled is the connector's OUTCOME, which is exactly the seam the binder
+   * owns: decode the anomaly, stand it up, count it `"remote"`.
+   */
+  | { kind: "gate-refused"; reason: string; anomaly: unknown }
+  /**
+   * PRE-FIX: the incident's own shape. The link is built with no epoch check, the
+   * previous-epoch daemon accepts it and answers nothing, and Effect RPC's pinger
+   * kills the transport ~10s later. The admit hook sees a hello that never
+   * returns, classifies the death `"network"`, and `"network"` is never counted
+   * and never terminal — the infinite loop, by construction.
+   *
+   * Used ONLY by the falsifier below, which asserts the loop; the arm above is
+   * what replaced it.
+   */
+  | { kind: "silent-peer" };
 
 interface SpawnHandle {
   /** How many times THIS spawn's `drain()` was invoked. */
@@ -186,19 +209,58 @@ interface Arm {
   enqueue: (spec: SpawnSpec) => void;
   /** The per-spawn handles, in dial order. */
   handles: SpawnHandle[];
+  /** How many dials the connector has served — the loop's own tempo, which is
+   *  what the pre-fix falsifier measures. */
+  dialCount: () => number;
 }
+
+/** How long a pre-fix blind attach survived before Effect RPC's pinger killed it:
+ *  two unanswered 5s pings. The measured number from the incident gist, used only
+ *  to give the falsifier the incident's real tempo. */
+const PINGER_KILL_MS = 10_000;
 
 function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
   const queue: SpawnSpec[] = [];
   const handles: SpawnHandle[] = [];
+  let dials = 0;
 
   hoisted.nextConnector = async (
     ctx: ConnectContext,
   ): Promise<Connection<unknown>> => {
+    dials += 1;
     const spec = queue.shift();
     if (spec === undefined)
       throw new ConnectError("no more spawns queued (test)", "network");
     if (spec.kind === "reject") throw new ConnectError(spec.reason, spec.cause);
+    if (spec.kind === "gate-refused") {
+      throw new ConnectError(spec.reason, "remote", false, spec.anomaly);
+    }
+    if (spec.kind === "silent-peer") {
+      // A connection that LOOKS fine — the pre-fix blind attach. Its control-core
+      // hello never answers (the peer speaks another epoch), and the transport
+      // dies shortly after, which is what the pinger did in production.
+      let killSilent!: (info: ClosedInfo) => void;
+      const silentClosed = new Promise<ClosedInfo>((r) => {
+        killSilent = r;
+      });
+      setTimeout(
+        () => killSilent({ kind: "transport-failed" }),
+        PINGER_KILL_MS,
+      );
+      const mute = () => new Promise<never>(() => {});
+      const silentHandlers: SurfaceHandlers = Object.assign(
+        Object.create(null) as SurfaceHandlers,
+        { "surface/control/core/hello": () => Effect.promise(mute) },
+      );
+      ctx.connecting();
+      return {
+        client: { surface: { control: { core: { hello: mute } } } },
+        dispatch: directDispatch({ handlers: silentHandlers }),
+        closed: silentClosed,
+        isAlive: mute,
+        teardown: () => killSilent({ kind: "transport-failed" }),
+      };
+    }
 
     const hello = spec.hello;
     const dies = spec.diesOnDrain ?? true;
@@ -305,7 +367,12 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
 
   const session = ensureRemotePadiBinding({ host: "rmt" }, deps);
   sessions.push(session);
-  return { session, enqueue: (s) => queue.push(s), handles };
+  return {
+    session,
+    enqueue: (s) => queue.push(s),
+    handles,
+    dialCount: () => dials,
+  };
 }
 
 /** The session hands back PADI's face, not the frozen control core's — the
@@ -500,6 +567,114 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const conv = session.convergence();
     expect(conv?.kind).toBe("link-failed");
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
+  });
+
+  // ── The epoch gate, at the binder seam (juspay/kolu#2101) ──────────────────
+  //
+  // These two are a matched pair and must be read together. The first pins what
+  // the fix DOES; the second pins what it replaced, so the first cannot silently
+  // stop testing anything. Both drive the same production scenario — a remote
+  // host whose padi speaks a previous protocol epoch — and they end in opposite
+  // places, which is the whole claim.
+
+  it("a gate REFUSAL counts as `remote`, goes terminal within the give-up budget, and stands up the typed epoch verdict", async () => {
+    // The front on that host converged, met a daemon it cannot decode, could not
+    // take it over, and refused on the wire. `sshConnector` never built a client,
+    // so no pinger ever ran; the refusal arrives as a `"remote"` ConnectError
+    // carrying the front's anomaly.
+    const anomaly = {
+      kind: "unconverged",
+      running: null,
+      expected: {
+        contractVersion: PADI_SURFACE_VERSION,
+        build: { kind: "off-nix" },
+      },
+      cause: {
+        kind: "unspeakable-protocol",
+        socketPath: "/run/user/1000/padi-abc/padi.sock",
+        gatePath: "/run/user/1000/padi-abc/padi.pid",
+        pid: 25494,
+      },
+      detail:
+        "the daemon at this rendezvous speaks a protocol epoch this supervisor cannot decode",
+    };
+    const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
+    // One more than the budget, so "it stopped at five" is a real observation and
+    // not the queue running dry.
+    for (let i = 0; i < 6; i++) {
+      enqueue({
+        kind: "gate-refused",
+        reason:
+          "padi on rmt: the peer refused to serve — this host's padi speaks a previous protocol epoch",
+        anomaly,
+      });
+    }
+
+    const p = session.pin();
+    p.catch(() => {});
+    await expect(p).rejects.toThrow(/previous protocol epoch/i);
+    // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
+    await flush(60_000);
+
+    // TERMINAL — the inverse of the incident. `"remote"` counts; five is the
+    // EXISTING budget, not a new one invented for this path.
+    expect(session.currentState().phase).toBe("failed");
+    expect(dialCount()).toBeLessThanOrEqual(5);
+    expect(session.currentClient()).toBeNull();
+
+    // The typed verdict is STANDING, decoded from the front's opaque payload with
+    // the wire schema — no string parsing anywhere on this path.
+    const conv = session.convergence();
+    expect(conv?.kind).toBe("unconverged");
+    expect(conv?.kind === "unconverged" && conv.cause).toMatchObject({
+      kind: "unspeakable-protocol",
+      pid: 25494,
+    });
+
+    // …and the host map gets its OWN cause, so the card says "previous protocol
+    // epoch" instead of the generic unconverged copy or an eternal spinner.
+    expect(session.entryFailedDetail()).toMatchObject({
+      cause: "previous-protocol-epoch",
+    });
+  });
+
+  it("FALSIFIER: the PRE-FIX blind attach never goes terminal — a silent peer loops forever (the incident's signature)", async () => {
+    // This is the give-up test INVERTED, and it is the reason the arm above is a
+    // real test rather than a tautology. Model the pre-fix path exactly: the link
+    // is attached with no epoch check, the previous-epoch daemon answers nothing,
+    // the pinger kills the transport ~10s later. The admit hook's catch hard-codes
+    // `"network"` for a dead handshake, `"network"` never counts toward
+    // MAX_CONSECUTIVE_FAILURES, and so the session redials forever.
+    //
+    // Every assertion below FAILS against the fixed path (which reaches `failed`
+    // within five dials) and PASSES against the incident — which is what the gist
+    // recorded: connecting → dead at :15, :25, :37, :51, :09, without end.
+    const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
+    // Far more than the give-up budget: if this path counted at all, it would be
+    // terminal long before the queue ran out.
+    for (let i = 0; i < 20; i++) enqueue({ kind: "silent-peer" });
+    const seenDownCauses = new Set<string>();
+    session.onState((s) => {
+      if (s.phase === "disconnected" || s.phase === "failed") {
+        seenDownCauses.add(down(s).cause);
+      }
+    });
+
+    const p = session.pin();
+    p.catch(() => {});
+    // TEN MINUTES of fake time — an order of magnitude past the give-up budget,
+    // and past the exponential backoff's 60s ceiling several times over.
+    await flush(600_000);
+
+    // Never terminal, however long it runs.
+    expect(session.currentState().phase).not.toBe("failed");
+    // And it really did keep dialing — past the budget that should have stopped it.
+    expect(dialCount()).toBeGreaterThan(5);
+    // Worst of all, every down frame it ever published said "network" — nothing
+    // here distinguishes a previous-epoch daemon from a box that is simply off,
+    // which is exactly what the incident log looked like.
+    expect(seenDownCauses).toEqual(new Set(["network"]));
+    expect(session.entryFailedDetail()).toBeNull();
   });
 
   it("P1: a fresh spawn under a STANDING link-failed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {

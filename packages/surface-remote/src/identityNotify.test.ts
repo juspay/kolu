@@ -20,6 +20,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { Schema } from "effect";
@@ -50,6 +51,11 @@ function healthyChild() {
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
   void serveOverStdio({ group, handlers, transport: pair.server });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — `serveOverStdio`
+  // does it itself when the process is the agent; over an explicit loopback
+  // transport this fake child plays that part, exactly as a real `--stdio` front
+  // does after it converges.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;

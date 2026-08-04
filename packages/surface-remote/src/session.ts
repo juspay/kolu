@@ -320,6 +320,66 @@ export type ClosedInfo =
   | { kind: "endpoint-down" }
   | { kind: "spawn-error"; message: string };
 
+/**
+ * Classify a link death into the loop's `(reason, cause)` — the SINGLE authority
+ * on what a `ClosedInfo` means, shared by the reconnect loop and by any connector
+ * that must answer the same question BEFORE it has a `Connection` to hand back.
+ *
+ * That second caller is why this is exported (juspay/kolu#2101): the ssh
+ * connector's readiness gate races the banner against the child's own exit, and
+ * when the exit wins there is no connection for `handleClosed` to classify. It
+ * must therefore reach the same verdict — a child that exits before it greets is
+ * exactly the child-exits-before-the-first-RPC case, which is BOUNDED (`"remote"`),
+ * not a network fault. Restating that rule at the connector is how the two would
+ * drift, and drifting here means either an unbounded retry loop or a host that is
+ * merely asleep going terminal.
+ *
+ * `wasConnected` distinguishes a LIVE link dropping (transport → retry forever)
+ * from a death before the session ever connected (the far end refusing to come
+ * up → bounded). A connector calling this pre-connection passes `false`.
+ */
+export function classifyClosed(
+  info: ClosedInfo,
+  wasConnected: boolean,
+): { reason: string; cause: "network" | "remote" } {
+  switch (info.kind) {
+    case "spawn-error":
+      // The transport couldn't even start — a local/config problem. Bounded.
+      return {
+        reason: `transport failed to spawn: ${info.message}`,
+        cause: "remote",
+      };
+    case "transport-failed":
+      // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
+      // or a dropped link — the connector classified it, so no magic literal
+      // lives here). Transport → retry forever.
+      return {
+        reason:
+          "ssh transport connection failed — host unreachable or link dropped",
+        cause: "network",
+      };
+    case "endpoint-down":
+      // A non-process endpoint link death (no child, so no exit code/signal). A
+      // dropped LIVE link retries as transport; a death BEFORE we ever connected
+      // is the endpoint refusing to come up — bounded.
+      return {
+        reason: "endpoint link down (no process exit)",
+        cause: wasConnected ? "network" : "remote",
+      };
+    case "exit":
+      // A live link that dropped is transport — retry forever. An exit BEFORE we
+      // ever connected means the transport ran the agent and IT exited (bad path,
+      // missing exe, startup crash) — bounded. (An ssh transport-255 arrives as
+      // `transport-failed` above, not here, so 255 is no longer magic-matched: a
+      // real agent that exits 255 is now honestly bounded, and a localhost 255 —
+      // which has no ssh transport — no longer misreads as a network fault.)
+      return {
+        reason: `agent exited (code=${info.code}, signal=${info.signal})`,
+        cause: wasConnected ? "network" : "remote",
+      };
+  }
+}
+
 /** A single live connection attempt, handed back by a connector once the transport
  *  is up (the `connecting` phase — client built, first RPC not yet seen). */
 export interface Connection<Client> {
@@ -1149,32 +1209,8 @@ export function makeSession<
       connectTimedOut = false;
       reason = `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`;
       cause = "remote";
-    } else if (info.kind === "spawn-error") {
-      // The transport couldn't even start — a local/config problem. Bounded.
-      reason = `transport failed to spawn: ${info.message}`;
-      cause = "remote";
-    } else if (info.kind === "transport-failed") {
-      // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
-      // or a dropped link — the connector classified it, so no magic literal
-      // lives here). Transport → retry forever.
-      reason =
-        "ssh transport connection failed — host unreachable or link dropped";
-      cause = "network";
-    } else if (info.kind === "endpoint-down") {
-      // A non-process endpoint link death (no child, so no exit code/signal). A
-      // dropped LIVE link retries as transport; a death BEFORE we ever connected
-      // is the endpoint refusing to come up — bounded.
-      reason = "endpoint link down (no process exit)";
-      cause = wasConnected ? "network" : "remote";
     } else {
-      reason = `agent exited (code=${info.code}, signal=${info.signal})`;
-      // A live link that dropped is transport — retry forever. An exit BEFORE we
-      // ever connected means the transport ran the agent and IT exited (bad path,
-      // missing exe, startup crash) — bounded. (An ssh transport-255 arrives as
-      // `transport-failed` above, not here, so 255 is no longer magic-matched: a
-      // real agent that exits 255 is now honestly bounded, and a localhost 255 —
-      // which has no ssh transport — no longer misreads as a network fault.)
-      cause = wasConnected ? "network" : "remote";
+      ({ reason, cause } = classifyClosed(info, wasConnected));
     }
     localProgress(reason);
     setDown("disconnected", reason, cause);

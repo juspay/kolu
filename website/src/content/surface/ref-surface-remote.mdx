@@ -23,7 +23,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | Export | Subpath | Role |
 | --- | --- | --- |
 | `makeSession(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient, Prov>`. Owns no transport — you supply `connectOnce` |
-| `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
+| `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, **await the agent's readiness banner**, then wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
 | `dialAgentOnce<S>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. Takes the same `surface` value. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
 | `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()` | `.` | the framework-owned wrapper handoff and its sole process-environment adapter; the reader returns the normalized exact source or throws `AgentSourceUnbakedError` |
 | `resolveBakedAgentDrv(host, packageName, opts)` | `.` | resolve from the wrapper-baked source inside a long-lived consumer's own dial/failure boundary, without exposing the environment handoff to that consumer |
@@ -31,7 +31,7 @@ shared pool; key your own map and `destroy()` them yourself.
 | `AgentDerivation` / `directAgentDerivation(drvPath, binaryCache)` | `.` | nominal provisioning source: use the validated constructor when the caller owns a direct `.drv`; `resolveAgentDrv` alone constructs the flake-backed arm, so a path cannot be paired with an unrelated installable. Every arm REQUIRES an `AgentBinaryCache` — a cache-blind provisioning path is unspellable |
 | `AgentBinaryCache` / `agentBinaryCache({ substituters, trustedPublicKeys })` | `.` | where provisioning may PREFETCH an agent's binaries from. NOMINAL, like `AgentDerivation`: the smart constructor is the only way to make one, and it rejects an empty or blank declaration — so "validated" is a fact the type carries, not a check each caller repeats |
 | `readBakedBinaryCache(flakeRef)` | `.` | **prefer this over hand-writing a declaration.** Reads and validates the baked source's `binary-cache.json` sidecar — written by `mkProvenAgentSource` from the agent flake's own `nixConfig` — so the TypeScript and the Nix cannot disagree about which cache the binaries are in. Returns `Result<AgentBinaryCache, AgentBinaryCacheUnbakedError>`, the same channel as `readBakedAgentSource`, so the two source-configuration faults chain: `readBakedAgentSource().andThen(readBakedBinaryCache)` |
-| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
+| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below. `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`): the app's own TYPED verdict for this failure, carried OPAQUELY from the connector that classified it to the binder that renders it, so a binder never has to string-parse `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down" |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
 `sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs? }`:
@@ -52,6 +52,28 @@ flake-backed arm that survives local garbage collection. **`localEnv: Record<str
 `localEnv`. Surface Remote reads the exact, minimal source flake baked by the
 Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
+
+<Aside type="caution" title="The agent must greet before the client attaches">
+  After the spawn, `sshConnector` awaits the agent's readiness banner
+  (`awaitStdioReadiness`, `@kolu/surface/links/readiness`) **raced against the
+  child's own exit**, and only then builds the link — the proof is what
+  `stdioLink` requires. Two consequences for a consumer:
+
+  1. **Your agent must greet.** `serveOverStdio` does it for you when the process
+     is the agent; a daemon FRONT (one that relays into a durable daemon) must
+     write the banner itself once it has settled that daemon.
+  2. **A gate failure is a `"remote"` fault, not a `"network"` one.** A refusal, a
+     deadline expiry, or an unrecognisable prelude counts toward the session's
+     give-up budget and goes terminal in a bounded number of attempts. A host that
+     is merely down still fails at spawn/exit *before* the banner and keeps its
+     existing `"network"` retry-forever classification, unchanged. A refusal's
+     opaque `anomaly` rides the `ConnectError`, so a binder can render a typed
+     verdict instead of a spinner.
+
+  The wait is bounded at 3 minutes, derived from the front's own convergence
+  ceilings (takeover reap 120s + 5s, socket-ready 30s, the probe's 8s silence
+  deadline, the front's 10s daemon wait) — not from any ping cadence.
+</Aside>
 
 <Aside type="caution" title="resolveDrvPath is deferred by contract">
   Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the

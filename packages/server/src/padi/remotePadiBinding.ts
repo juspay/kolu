@@ -56,10 +56,13 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
-import type { PadiConvergence } from "kolu-common/surface";
+import {
+  type PadiConvergence,
+  PadiConvergenceSchema,
+} from "kolu-common/surface";
 import {
   type EntryFailedCause,
   type HostKey,
@@ -95,6 +98,18 @@ type AdmitDrainPlugs = {
 
 function supersededAdmitError(): Error {
   return new Error("remote padi admit superseded");
+}
+
+/** True for the ONE standing verdict that means "we reached this host's daemon and
+ *  it is not of this protocol epoch" (juspay/kolu#2101). Read as a predicate rather
+ *  than spelled inline so the two places that must agree — the `failed` arm that
+ *  refuses to overwrite it, and `computeEntryFailedDetail`'s own split — cannot
+ *  drift into disagreeing about which anomaly is the epoch one. */
+function isEpochVerdict(convergence: PadiConvergence | null): boolean {
+  return (
+    convergence?.kind === "unconverged" &&
+    convergence.cause.kind === "unspeakable-protocol"
+  );
 }
 
 /** An `Effect<void>` that completes the moment `signal` aborts (immediately, if it
@@ -467,7 +482,14 @@ export function ensureRemotePadiBinding(
           expected: convergence.expected.contractVersion,
         };
       case "unconverged":
-        return { cause: "unconverged" };
+        // Split by CAUSE: an epoch failure and a drain that never took are both
+        // `unconverged` to the framework, but they are different situations for
+        // the operator and have different remedies. Rendering the generic card
+        // for the epoch case is what left the #2101 incident indistinguishable
+        // from an ordinary unreachable host.
+        return isEpochVerdict(convergence)
+          ? { cause: "previous-protocol-epoch" }
+          : { cause: "unconverged" };
       case "adopted-stale":
         // Canvas-live degraded bind — not an entry failure.
         return null;
@@ -526,7 +548,53 @@ export function ensureRemotePadiBinding(
   // the ceiling yields drain-not-taken (ssh link loss is deliberately
   // transport-failed on the session ClosedInfo).
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
-    const conn = await inner(ctx);
+    // The EPOCH GATE's verdict, decoded (juspay/kolu#2101). The ssh connector
+    // reads the remote front's readiness banner before it builds a client, and a
+    // refusal arrives here as a `"remote"` `ConnectError` carrying the front's
+    // own convergence anomaly — opaque to the framework, `PadiConvergence`-shaped
+    // to us, because the wire schema re-derives the framework union. Standing it
+    // up as `convergence` is what turns the eternal spinner into a typed card;
+    // `"remote"` counting is what makes the session terminal at the existing
+    // give-up budget rather than looping forever on `"network"`.
+    //
+    // Rethrown either way: the session owns the retry/give-up decision, and a
+    // caught error that stopped here would be exactly the collapse-to-empty this
+    // codebase forbids.
+    const conn = await inner(ctx).catch((err: unknown) => {
+      if (err instanceof ConnectError && err.anomaly !== null) {
+        const decoded = Schema.decodeUnknownExit(PadiConvergenceSchema)(
+          err.anomaly,
+        );
+        if (decoded._tag === "Success") {
+          convergence = decoded.value;
+          // ONE structured line naming the classification. The incident log had
+          // nothing that distinguished a previous-epoch daemon from a down host;
+          // this is that line. Typed fields, not a sentence to grep.
+          log.warn(
+            {
+              host,
+              verdict: "gate-refused",
+              convergenceKind: decoded.value.kind,
+              cause:
+                decoded.value.kind === "unconverged"
+                  ? decoded.value.cause
+                  : undefined,
+              reason: err.message,
+            },
+            `remote padi on ${host} refused at the readiness gate — ${err.message}`,
+          );
+        } else {
+          // The far end sent an anomaly we cannot decode. Say so loudly; do NOT
+          // fall back to a null convergence, which would render as a generic
+          // link failure and hide that the two sides disagree about the shape.
+          log.error(
+            { host, anomaly: err.anomaly },
+            `remote padi on ${host} refused at the readiness gate with an anomaly this kolu cannot decode`,
+          );
+        }
+      }
+      throw err;
+    });
     const processExit = conn.closed.then((info) => {
       if (info.kind !== "exit") {
         // Keep the oracle unsettled so awaitExit only resolves on ceiling abort.
@@ -742,13 +810,26 @@ export function ensureRemotePadiBinding(
   // handshake re-decides). Mirrors the pre-S9 hostUnsub.
   base.onState((s) => {
     if (s.phase === "failed") {
-      // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
-      // split) — a `failed` session always carries the real reason it gave up,
-      // so there is no invented fallback text left to write here.
-      convergence = {
-        kind: "link-failed",
-        detail: s.error,
-      };
+      // The EPOCH verdict outranks the generic give-up banner (juspay/kolu#2101).
+      // `link-failed` means "we could not reach it"; an `unspeakable-protocol`
+      // standing verdict means "we reached it and it is from another epoch" — a
+      // strictly more specific fact about the SAME give-up, which the gate stood
+      // up on the very dials that exhausted the budget. Overwriting it here would
+      // put the operator back in front of a "can't reach this host" card for a
+      // host that answered every time.
+      //
+      // Deliberately narrow: every OTHER standing anomaly (adopted-stale, a skew
+      // the admit refused) describes a bind that WAS working, so a later terminal
+      // link failure is genuinely newer news and still wins.
+      if (!isEpochVerdict(convergence)) {
+        // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
+        // split) — a `failed` session always carries the real reason it gave up,
+        // so there is no invented fallback text left to write here.
+        convergence = {
+          kind: "link-failed",
+          detail: s.error,
+        };
+      }
       activeCombined = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the

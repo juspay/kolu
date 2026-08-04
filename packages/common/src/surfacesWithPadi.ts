@@ -115,6 +115,16 @@ export type SkewVersionPair = typeof SkewVersionPairSchema.Type;
  *     this kolu build, rather than launch it through its wrapper).
  *   - `agent-drv-unavailable` — that source cannot resolve padi for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
+ *   - `previous-protocol-epoch` — the daemon on that host speaks a protocol epoch
+ *     this kolu cannot decode at all, and the takeover could not complete
+ *     (juspay/kolu#2101). A SEPARATE arm from `unconverged` even though the
+ *     framework anomaly is the same `unconverged` kind, because the operator's
+ *     situation is not the same one: nothing drained and nothing timed out — the
+ *     two ends cannot speak. Its remedy (get a current build onto that host) has
+ *     nothing to do with "retry from the host", so rendering the generic
+ *     unconverged card would send an operator down the wrong path. Produced by
+ *     `computeEntryFailedDetail` when the standing convergence is `unconverged`
+ *     with cause `unspeakable-protocol`.
  *   - `auth-required`         — the host refused kolu's ssh credentials. kolu
  *     connects strictly non-interactively (`BatchMode`), so a password /
  *     keyboard-interactive gate can never be answered — terminal until the
@@ -166,6 +176,10 @@ export const PadiEntryFailureSchema = Schema.Union([
   }),
   Schema.Struct({
     cause: Schema.Literal("unconverged"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("previous-protocol-epoch"),
     reason: Schema.String,
   }),
   Schema.Struct({

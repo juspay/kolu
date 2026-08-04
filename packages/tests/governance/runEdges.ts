@@ -86,6 +86,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`runScopedSync` — the kaval suite's one scoped-acquire read, synchronous ON PURPOSE: attach's publish-epoch coalescing is observable only when a burst of attaches shares a tick, so a Promise hop between two of them would erase the thing under test",
   },
   {
+    path: "packages/kaval/src/stdioBridge.ts",
+    sites: 1,
+    why: "the `kaval --stdio` front's converge-before-relay pre-step (juspay/kolu#2101): the convergence kit is Effect-native all the way down, but this is a CLI entry whose caller is `bin.ts`'s Promise `.catch` and whose continuation — `frontDaemonOverStdio` — is Promise-shaped by its own contract-blind contract, so there is no caller left to compose into; one crossing, at the boundary, before a single byte is relayed",
+  },
+  {
     path: "packages/kolu-cli/src/main.ts",
     sites: 1,
     why: "the product binary's process edge; `NodeRuntime.runMain` rather than a Promise because kolu-cli's exit-code map is LOCAL — every failure carries its own `Runtime.errorExitCode`, so the default teardown IS the map",
@@ -104,6 +109,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/padi/src/daemonBoot/daemonMain.ts",
     sites: 1,
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
+  },
+  {
+    path: "packages/padi/src/daemonBoot/stdioBridge.ts",
+    sites: 1,
+    why: "the `padi --stdio` front's converge-before-relay pre-step (juspay/kolu#2101) — the twin of kaval's row, for the same reason: a CLI entry whose caller is `bin.ts`'s Promise `.catch`, whose continuation `frontDaemonOverStdio` is Promise-shaped by contract, and which must run the full convergence BEFORE the relay engages (that ordering is the whole fix, so it cannot move inward)",
   },
   {
     path: "packages/padi/src/ports/sampler.ts",
@@ -276,19 +286,14 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the zero-transport test dispatcher: a unary call to a Promise, a fork for a stream subscription, that fiber's interrupt-on-stop, and a first-frame read — the Effect plumbing every handler unit test would otherwise repeat, held once and NOT exported from the package",
   },
   {
-    path: "packages/surface/src/links/stdio.ts",
-    sites: 1,
-    why: "constructing the stdio socket from a node `Duplex` — the link factory is a Promise-returning constructor its non-Effect callers await",
-  },
-  {
     path: "packages/surface/src/links/websocket.ts",
     sites: 1,
-    why: "same, for the browser leg's reconnecting WebSocket",
+    why: "constructing the browser leg's reconnecting WebSocket — the link factory is a Promise-returning constructor its non-Effect callers await",
   },
   {
     path: "packages/surface/src/links/wire.ts",
-    sites: 2,
-    why: "the link's own lifecycle: build the protocol layer into a link-scoped `Scope` at open, close that scope at `dispose()` — the link face is Promise-shaped by contract",
+    sites: 3,
+    why: "the link's own lifecycle: build the protocol layer into a link-scoped `Scope` at open, close that scope at `dispose()` — the link face is Promise-shaped by contract — plus `duplexWireLink`'s construction of the socket from a node `Duplex`, which moved here from `links/stdio.ts` at juspay/kolu#2101 so the raw attach has no export subpath (the stdio and unix-socket legs are its only callers)",
   },
   {
     path: "packages/surface/src/mirrorRemoteSurface.ts",

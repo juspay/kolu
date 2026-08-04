@@ -68,6 +68,19 @@ export const HOST_DOWN_COPY = {
       "completed, so its state is unsettled and can't be trusted. Retry from the " +
       "host, or switch back to your local host while it recovers.",
   },
+  // Deliberately NOT the `unconverged` copy: nothing drained and nothing timed
+  // out here — the two ends cannot speak at all, and the remedy is a build, not
+  // a retry. Sending an operator to "retry from the host" is what the generic
+  // card would have done, and this host will never recover by retrying.
+  "previous-protocol-epoch": {
+    title: "This host runs a kolu from before the protocol change",
+    body:
+      "The padi already running on this host speaks an older wire protocol — " +
+      "old enough that this kolu can't even ask it its version. Kolu tried to " +
+      "take it over and replace it with a current one, and couldn't. Update the " +
+      "host's kolu (or stop the padi running there so a fresh one can start), " +
+      "then reconnect. Retrying on its own won't help.",
+  },
   // The two ssh refusals: kolu is strictly non-interactive over ssh, so a
   // gate only a typed answer could pass (a password, a trust prompt) is a
   // terminal, operator-actionable fault — named here with its actual remedy,
