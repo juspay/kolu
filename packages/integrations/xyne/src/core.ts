@@ -33,10 +33,34 @@ export function encodeCwd(cwd: string): string {
 }
 
 /** Filename shape Xyne's runtime persists
- *  (`2026-08-04T01-27-11-247Z_<uuid>.jsonl`); captures the session id. The
- *  timestamp runs right up to the `_` separator, so the id is anchored on
- *  `_[0-9a-f-]{36}` — not a hyphen, which the timestamp itself is full of. */
-const TRANSCRIPT_RE = /_([0-9a-fA-F-]{36})\.jsonl$/;
+ *  (`2026-08-04T01-27-11-247Z_<uuid>.jsonl`); captures the timestamp and the
+ *  session id. The timestamp runs right up to the `_` separator, and the id
+ *  is anchored on `_[0-9a-f-]{36}` — not a hyphen, which the timestamp itself
+ *  is full of. */
+const TRANSCRIPT_RE =
+  /^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{3}Z)_([0-9a-fA-F-]{36})\.jsonl$/;
+
+/** Pick the newest transcript out of candidate filenames by their parsed
+ *  `(timestamp, id)` prefix — never by bytewise string order on the full
+ *  name. A string-max over names whose timestamp *happens* to zero-pad
+ *  chronologically is a sort that silently fails the first time the upstream
+ *  naming shifts (unpadded segment, locale date); an unmatched shape is
+ *  skipped, never ranked. */
+export function newestTranscript(
+  names: string[],
+): { name: string; id: string } | null {
+  let best: { name: string; ts: string; id: string } | null = null;
+  for (const name of names) {
+    const m = TRANSCRIPT_RE.exec(name);
+    if (!m) continue; // sidecars (_summary/_modified_files/_review_baseline)
+    const ts = m[1];
+    const id = m[2];
+    if (ts === undefined || id === undefined) continue;
+    if (best === null || ts > best.ts || (ts === best.ts && id > best.id))
+      best = { name, ts, id };
+  }
+  return best ? { name: best.name, id: best.id } : null;
+}
 
 // --- Transcript reads ---
 
@@ -194,17 +218,11 @@ export function resolveXyneSession(
     }
     return null;
   }
-  let best: { name: string; id: string } | null = null;
-  for (const name of names) {
-    const m = TRANSCRIPT_RE.exec(name);
-    const id = m?.[1];
-    if (!id) continue; // sidecars (_summary/_modified_files/_review_baseline)
-    if (best === null || name > best.name) best = { name, id };
-  }
-  if (!best) return null;
-  const transcriptPath = path.join(dir, best.name);
+  const newest = newestTranscript(names);
+  if (!newest) return null;
+  const transcriptPath = path.join(dir, newest.name);
   return {
-    id: best.id,
+    id: newest.id,
     cwd,
     transcriptPath,
     summaryPath: transcriptPath.replace(/\.jsonl$/, "_summary.json"),

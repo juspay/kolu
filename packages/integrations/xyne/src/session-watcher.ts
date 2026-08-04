@@ -86,7 +86,14 @@ export function createXyneWatcher(
     }),
   );
 
-  // The summary sidecar lands after the first summarized turn — it may not
+  // The summary sidecar carries the display title and lands AFTER the first
+  // summarized turn. Unlike grok (whose high-frequency events.jsonl re-reads
+  // summary.json on every turn boundary, so an edge-only watch suffices),
+  // xyne's transcript is its ONLY re-read trigger and is sparse — an
+  // edge-only watch on the sidecar would stale the title until the next
+  // user message. The sidecar gets its own append-robust floor for the
+  // same reason the transcript does: a summary rewrite whose edge the watch
+  // drops must not strand the badge.
   // exist at match time. Same append-robust receptacle as the transcript:
   // tolerates absence, fires on appearance, and its 1s floor also covers a
   // summary rewrite whose edge the watch drops (title freshness is the only

@@ -112,6 +112,25 @@ describe("resolveXyneSession", () => {
     writeSession({ id: ID_B, tsName: "2026-08-04T02-00-00-000Z", cwd: CWD });
     expect(resolveXyneSession(CWD)?.id).toBe(ID_B);
   });
+
+  it("ranks by parsed timestamp, not filename string order", () => {
+    // Regression for the lens-debate bytewise-`<` finding: an id whose
+    // leading hex sorts HIGH must not outrank a genuinely NEWER timestamp
+    // whose leading hex sorts low.
+    const OLDER_HIGH_ID = "ffffffff-ffff-7fff-bfff-ffffffffffff";
+    const NEWER_LOW_ID = "00000000-0000-7000-8000-0000000000ff";
+    writeSession({ id: OLDER_HIGH_ID, tsName: "2026-08-04T01-00-00-000Z", cwd: "/rank" });
+    writeSession({ id: NEWER_LOW_ID, tsName: "2026-08-04T03-00-00-000Z", cwd: "/rank" });
+    expect(resolveXyneSession("/rank")?.id).toBe(NEWER_LOW_ID);
+  });
+
+  it("resolves per-cwd independently (a newer session elsewhere doesn't bleed)", () => {
+    // Regression for the lens-debate F2 finding: resolution is per-cwd, so
+    // a newer transcript in a DIFFERENT cwd must not be picked.
+    writeSession({ id: ID_A, tsName: "2026-08-04T01-00-00-000Z", cwd: "/mine" });
+    writeSession({ id: ID_B, tsName: "2026-08-04T03-00-00-000Z", cwd: "/elsewhere" });
+    expect(resolveXyneSession("/mine")?.id).toBe(ID_A);
+  });
 });
 
 describe("deriveXyneInfo", () => {

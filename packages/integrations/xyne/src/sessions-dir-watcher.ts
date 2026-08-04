@@ -31,7 +31,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "kolu-shared";
 import { SESSIONS_DIR } from "./config.ts";
-import { xyneSessionsPresent } from "./core.ts";
+import { newestTranscript, xyneSessionsPresent } from "./core.ts";
 
 let installed = false;
 
@@ -55,8 +55,16 @@ const POLL_MS = 1000;
 function observeNewest(log?: Logger): string {
   try {
     if (!xyneSessionsPresent()) return "absent";
-    let best: string | null = null;
-    for (const cwdDir of fs.readdirSync(SESSIONS_DIR)) {
+    // Join per-cwd newest transcript identities. resolveSession picks the
+    // newest transcript per cwd, so the rewake identity must cover the same
+    // granularity: a flip in ANY cwd dir (new session, resumption append,
+    // deletion) changes this cwd's own newest — not just the tree-global
+    // newest — and must fire the floor. Each `cwdDir` contributes its own
+    // parsed-(ts,id) winner + size/mtime/ino. A global "one winner" identity
+    // strands resolution flips in every non-winner cwd dir for a full poll
+    // cycle or longer.
+    const perDir: string[] = [];
+    for (const cwdDir of fs.readdirSync(SESSIONS_DIR).sort()) {
       const sub = path.join(SESSIONS_DIR, cwdDir);
       let names: string[];
       try {
@@ -65,20 +73,20 @@ function observeNewest(log?: Logger): string {
       } catch {
         continue; // raced with an unlink — the next poll re-reads
       }
-      for (const name of names) {
-        if (!name.endsWith(".jsonl")) continue;
-        const p = path.join(sub, name);
-        if (best === null || p > best) best = p;
+      const winner = newestTranscript(names);
+      if (!winner) continue;
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(path.join(sub, winner.name));
+      } catch {
+        return "raced"; // unlinked between readdir and stat
       }
+      perDir.push(
+        `${cwdDir}/${winner.name}:${st.size}:${st.mtimeMs}:${st.ino}`,
+      );
     }
-    if (best === null) return "empty";
-    let st: fs.Stats;
-    try {
-      st = fs.statSync(best);
-    } catch {
-      return "raced"; // unlinked between readdir and stat
-    }
-    return `${best}:${st.size}:${st.mtimeMs}:${st.ino}`;
+    if (perDir.length === 0) return "empty";
+    return perDir.join("\n");
   } catch (err) {
     log?.error({ err, dir: SESSIONS_DIR }, "xyne: sessions observe failed");
     return "error";
