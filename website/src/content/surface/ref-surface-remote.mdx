@@ -97,6 +97,15 @@ every spawn, so no per-client state survives a reconnect. `onLinkDown` fires aft
 holders clear — the cue to drop any per-link local fold so the next spawn rebuilds
 from a fresh snapshot.
 
+A mirror that ends because the **link is still alive** (every subscription
+settled — a far end that closed its streams) is a third way the pump ends: no
+spawn is ever coming, so the wait for the next client would park forever serving
+nothing. Each mirror end therefore races that wait against the framework-reserved
+`system/live` round-trip on the client that just ended; a far end that still
+answers ends the pump (its `done` resolves) instead. A dead transport, or a probe
+that never answers, leaves the ordinary reconnect wait in charge — the session's
+own liveness watchdog owns the half-open case.
+
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
 across an upstream drop; a `delta` member (byte or liveness stream) **fails

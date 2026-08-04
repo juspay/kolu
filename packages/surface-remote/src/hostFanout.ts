@@ -28,13 +28,18 @@
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { Effect } from "effect";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import {
   mirrorRemoteSurface,
   type ProcedureForwarders,
   type SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { DestroyableSession, Session } from "./session";
+import {
+  type DestroyableSession,
+  type Session,
+  surfaceLiveProbe,
+} from "./session";
 import type { SshProv } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
@@ -157,6 +162,50 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
   log?: (line: string) => void;
 }
 
+/** The verdict on a link whose mirror just ended, raced against the wait for the
+ *  next spawn — see {@link probeEndedLink}. `answers` is the ONE outcome that
+ *  stops the pump; `silent` falls back to the ordinary next-spawn wait. */
+type EndedLinkVerdict = "answers" | "silent";
+
+/** Ask the far end whether the link whose mirror JUST ended is still there, over
+ *  the framework-reserved `system.live` round-trip — the SAME probe the session's
+ *  own liveness watchdog runs (`surfaceLiveProbe`), read by the SAME three-way
+ *  rule it applies:
+ *
+ *   - RESOLVES, or rejects with anything that is not a dead transport → the far
+ *     end ANSWERED. The link is live and its mirror is over, so no further frame
+ *     can arrive on it and no fresh spawn is coming: `"answers"`.
+ *   - rejects with a DEAD-TRANSPORT error → the ordinary link death; the session
+ *     is already redialing, so the pump must keep waiting: `"silent"`.
+ *   - a probe that THROWS SYNCHRONOUSLY made no round-trip at all (a miswired
+ *     client) — no liveness signal either way, so `"silent"`.
+ *   - a probe that NEVER settles is a silently half-open link, which is the
+ *     session liveness watchdog's job (it force-cycles within one probe cycle),
+ *     not this loop's — the promise simply never settles, so the next-spawn wait
+ *     it races against wins when that recovery lands.
+ *
+ *  Asking the far end is what makes the verdict race-free: the session's own
+ *  `phase` is NOT a usable substitute, because the RPC layer can fail every call
+ *  on a dead link BEFORE the transport's `closed` reaches `handleClosed` (the race
+ *  `dialAgentOnce` already names), leaving the session reading `connected` over a
+ *  corpse for that window. */
+async function probeEndedLink(
+  client: SurfaceClientLike,
+): Promise<EndedLinkVerdict> {
+  let probe: Promise<void>;
+  try {
+    probe = surfaceLiveProbe(client)();
+  } catch {
+    return "silent";
+  }
+  try {
+    await probe;
+    return "answers";
+  } catch (err) {
+    return isDeadTransportError(err) ? "silent" : "answers";
+  }
+}
+
 /**
  * Pin `session`, then loop: fetch the current client, mirror the WHOLE agent
  * surface into the caller's sink with one `mirrorRemoteSurface` call, block on
@@ -168,6 +217,15 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
  * so the loop blocks on `.done`. The `makeClientCursor` comparison on the
  * *promise* (not the awaited client) is what keeps the loop from busy-spinning
  * while a link is down — see there.
+ *
+ * A mirror USUALLY ends because the link died, and then the session's own
+ * reconnect machinery produces the next spawn the loop rides. But a mirror can
+ * also end with the link fully ALIVE — every subscription settled (a far end that
+ * closed its streams; a source with nothing to hold open) — and then no spawn is
+ * ever coming: the wait for the next client would park FOREVER with the live
+ * holders cleared, a pump silently serving nothing. So each mirror end races the
+ * next-spawn wait against {@link probeEndedLink}: an answering corpse-of-a-mirror
+ * ends the pump loudly instead.
  */
 export async function pumpRemoteSurface<S extends SurfaceSpec>(
   opts: PumpRemoteSurfaceOptions<S>,
@@ -187,10 +245,37 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   // connection subscription that used to need an outer try/finally teardown here.)
   const cursor = makeClientCursor(session);
   let seq = 0;
+  /** The client whose mirror ended on the PREVIOUS iteration, or `null` before the
+   *  first mirror. Only a mirror END can leave the loop waiting on a spawn that
+   *  will never come, so the liveness verdict is raced ONLY from the second wait
+   *  onward — the FIRST wait legitimately parks for as long as the opening dial
+   *  takes (an ssh provisioning campaign runs for minutes). */
+  let endedClient: SurfaceClientLike | null = null;
   while (!session.isDestroyed() && !opts.signal?.aborted) {
     let client: SurfaceClientLike;
     try {
-      client = await cursor.next(opts.signal);
+      const next = cursor.next(opts.signal);
+      if (endedClient === null) client = await next;
+      else {
+        const outcome = await Promise.race([
+          next.then((c) => ({ spawn: c })),
+          probeEndedLink(endedClient).then((v) => ({ verdict: v })),
+        ]);
+        if ("spawn" in outcome) client = outcome.spawn;
+        else if (outcome.verdict === "silent") client = await next;
+        else {
+          // The far end answered a link whose mirror is over: nothing more can
+          // arrive on it, and the session has no reason to redial. Abandon the
+          // next-spawn wait (swallowing its later rejection — nobody is left to
+          // read it) and stop, rather than park forever serving nothing.
+          next.catch(() => {});
+          log(
+            `pump: mirror ended for client #${seq} but the link still answers — ` +
+              "no further frames can arrive; exiting reconnect loop",
+          );
+          return;
+        }
+      }
     } catch (err) {
       // A supervision `close()` aborts `opts.signal` while the pump is WAITING
       // for a fresh client (the link is down, no spawn coming) — `cursor.next`
@@ -244,6 +329,10 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       // the fresh snapshot instead of painting a stale row across the reconnect.
       opts.onLinkDown?.();
     }
+    // Remember WHICH client's mirror ended: the next wait races its liveness
+    // verdict, so an ended mirror over a still-answering link stops the pump
+    // instead of parking it (see {@link probeEndedLink}).
+    endedClient = client;
     log(`pump: mirror ended for client #${seq} — awaiting next client`);
   }
   // The loop exits on EITHER the session's own destruction OR a supervision

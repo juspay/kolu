@@ -519,3 +519,67 @@ describe("pumpRemoteSurface — onLinkDown", () => {
     expect(linkDowns).toBe(1);
   });
 });
+
+describe("pumpRemoteSurface — a mirror that ends on a LIVE link", () => {
+  it("EXITS instead of parking forever when the far end still answers", async () => {
+    // The park-forever shape: a mirror ends with the link fully alive (every
+    // subscription settled — a far end that closed its streams), so the session
+    // never redials and the next-client wait has nothing to wake it. The pump used
+    // to sit there with its holders cleared, serving nothing, for the life of the
+    // process. It must now ask the far end and stop. This session is NEVER
+    // destroyed and NEVER changes state — the only way out is the liveness verdict.
+    let closeTicks!: () => void;
+    const ticksOpen = new Promise<void>((r) => {
+      closeTicks = r;
+    });
+    let liveProbes = 0;
+    const client = {
+      surface: {
+        ticks: {
+          get: () =>
+            Stream.concat(
+              Stream.make(1),
+              Stream.drain(Stream.fromEffect(Effect.promise(() => ticksOpen))),
+            ),
+        },
+        // The framework-reserved liveness round-trip every surface client carries.
+        // Answering it is what proves the link outlived its mirror.
+        system: {
+          live: () =>
+            Effect.sync(() => {
+              liveProbes += 1;
+              return {};
+            }),
+        },
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: structural fake client; the mirror reads `.surface` structurally.
+    } as any as SurfaceClientLike;
+
+    const session = fakePumpSession(client);
+    const liveClient: LiveSpawnHolder<SurfaceClientLike> = { current: null };
+
+    const pumping = pumpRemoteSurface({
+      source: pumpSurface,
+      session,
+      makeSink: () => ({
+        cells: {},
+        collections: {},
+        streams: { ticks: { input: {}, onFrame: () => {} } },
+        events: {},
+      }),
+      liveClient,
+    });
+
+    await vi.waitFor(() => expect(liveClient.current).toBe(client));
+    // End the mirror with the link untouched — no destroy, no state change.
+    closeTicks();
+
+    // Before the fix this never settles (the test times out); after it, the
+    // answered probe ends the loop.
+    await expect(pumping).resolves.toBeUndefined();
+    expect(liveProbes).toBe(1);
+    // The session is still exactly as it was — the pump stopped itself without
+    // touching the caller-owned session.
+    expect(session.isDestroyed()).toBe(false);
+  });
+});
