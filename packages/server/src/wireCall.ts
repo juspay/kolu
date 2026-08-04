@@ -19,7 +19,15 @@
  * Nothing about the server changes, and the harness cannot drift onto a route the
  * product does not have.
  *
- * ## Not a product face
+ * ## Not a product face — the quarantine invariant
+ *
+ * HARNESS-ONLY. `kolu-rpc` must stay reachable ONLY as a flake package output the
+ * VM tests name (`kolu.packages.<system>.kolu-rpc`). It must NOT enter the `kolu`
+ * app closure, `koluAgentTools` / `agentToolPackages` (a terminal's PATH),
+ * `padi-agent` (a remote host's closure), or `nix/home/module.nix`'s
+ * `home.packages` — a debug caller that can place any wire call is not something a
+ * user installs. Machine-checked by `wireCall.test.ts`'s "quarantine" block, which
+ * reads the nix sources; the packaging site in `default.nix` carries the same rule.
  *
  * This is a LEAF: nothing in kolu-server imports it, so `bootKoluWeb`'s module graph
  * is untouched, and it is not a `kolu` subcommand (the argv faces live in

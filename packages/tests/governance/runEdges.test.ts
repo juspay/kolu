@@ -11,9 +11,10 @@ import { test } from "node:test";
 import {
   blankNonCode,
   countRunCalls,
+  findRunAliases,
   hasBareRunImport,
-  type RunEdge,
   RUN_EDGE_ALLOWLIST,
+  type RunEdge,
   validateRunEdges,
 } from "./runEdges";
 
@@ -104,6 +105,49 @@ test("a bare named import of a run helper is caught, a namespaced one is not", (
   );
 });
 
+test("an aliased run function is caught — the dodge a call count cannot see", () => {
+  // `const run = Effect.runPromise; run(program)` makes a run call with no
+  // `Effect.run*(` text anywhere near it.
+  assert.deepEqual(findRunAliases("const run = Effect.runPromise;\nrun(p);"), [
+    "Effect.runPromise",
+  ]);
+  assert.deepEqual(findRunAliases("queue.push(NodeRuntime.runMain);"), [
+    "NodeRuntime.runMain",
+  ]);
+  assert.deepEqual(findRunAliases("void fetch(u).then(Effect.runPromise);"), [
+    "Effect.runPromise",
+  ]);
+});
+
+test("the destructured spelling of the same dodge is caught", () => {
+  assert.deepEqual(findRunAliases("const { runFork } = Effect;"), [
+    "{ runFork } = Effect",
+  ]);
+  assert.deepEqual(findRunAliases("const { runPromise: go } = Effect;"), [
+    "{ runPromise: go } = Effect",
+  ]);
+});
+
+test("an ordinary call is NOT an alias, whatever follows the name", () => {
+  assert.deepEqual(findRunAliases("Effect.runPromise(p);"), []);
+  // `runPromise` is a prefix of `runPromiseExit`; without a word boundary the
+  // scan would report this call as an alias of the shorter name.
+  assert.deepEqual(findRunAliases("await Effect.runPromiseExit(p);"), []);
+  assert.deepEqual(findRunAliases("Runtime.runSync(rt)(c);"), []);
+  assert.deepEqual(findRunAliases("Effect.runPromise (p);"), []);
+});
+
+test("an alias NAMED in prose or quoted in a message is not committing it", () => {
+  assert.deepEqual(
+    findRunAliases("// `const run = Effect.runFork` is banned"),
+    [],
+  );
+  assert.deepEqual(
+    findRunAliases('throw new Error("const r = Effect.runSync");'),
+    [],
+  );
+});
+
 const allowlist: readonly RunEdge[] = [
   { path: "packages/a/src/edge.ts", sites: 1, why: "the process edge" },
 ];
@@ -143,8 +187,14 @@ test("a row whose call site went away fails, so the list cannot rot", () => {
 test("every committed row carries a path, a positive count and a justification", () => {
   for (const entry of RUN_EDGE_ALLOWLIST) {
     assert.ok(
-      entry.path.startsWith("packages/") && entry.path.includes("/src/"),
+      entry.path.startsWith("packages/") && /\.tsx?$/.test(entry.path),
       `${entry.path} is not a package source path`,
+    );
+    // A `*.test.ts` is out of scope by design (the runner IS its edge), so a row
+    // for one would be a row that can never match.
+    assert.ok(
+      !/\.(test|test-d)\.tsx?$/.test(entry.path),
+      `${entry.path} is a test file, which this scan does not cover`,
     );
     assert.ok(entry.sites > 0, `${entry.path} claims no sites`);
     assert.ok(

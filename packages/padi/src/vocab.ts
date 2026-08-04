@@ -628,6 +628,11 @@ export const DaemonLifetimeInfoSchema = Schema.Union([
 // `undefined` — is REJECTED, which is what makes the field unspellable on the
 // arms that must not carry it. `daemonStatus.antiFields.test.ts` pins both
 // directions per arm so the guard cannot rot into a no-op.
+//
+// BETA-ASSUMPTION(beta.102): `Schema.optionalKey(Schema.Never)` accepts a MISSING key and rejects any PRESENT value.
+//   Both halves are decoder behavior, not type-level — a bump that accepts an
+//   explicit `undefined` makes the field spellable again and the arms stop
+//   being disjoint on the wire, with nothing in the types to say so.
 const NON_CONNECTED_ENDPOINT_STATES = ENDPOINT_STATES.filter(
   (state): state is Exclude<EndpointState, "connected" | "incompatible"> =>
     state !== "connected" && state !== "incompatible",

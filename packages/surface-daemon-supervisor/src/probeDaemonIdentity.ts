@@ -46,6 +46,11 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  *   this trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
+ * BETA-ASSUMPTION(beta.102): the RPC socket protocol pings every 5 s and kills the connection after two unanswered pings.
+ *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
+ *   — and the 8 s is derived from them, so a bump that moves either turns this
+ *   value from the generous middle into a floor breach or a dead trigger.
+ *
  * 8 s takes the generous end of that band — 3 s of headroom over a slow peer's
  * pong, 2 s of margin under the protocol's own execution. Both timers live in
  * THIS process's event loop and Node fires timers in deadline order, so the

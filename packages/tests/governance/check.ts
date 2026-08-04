@@ -9,6 +9,11 @@ import {
   validateAwaitedFaceCalls,
 } from "./awaitedFace";
 import {
+  collectBetaAssumptions,
+  validateBetaAssumptions,
+} from "./betaAssumptions";
+import { collectEffectPins, validateEffectPins } from "./effectPin";
+import {
   assertAppendOnly,
   census,
   readCurrentSuite,
@@ -19,6 +24,11 @@ import {
   validateLedger,
   type CoverageLedger,
 } from "./ledger";
+import {
+  collectOptionalTolerance,
+  OPTIONAL_TOLERANCE_ALLOWLIST,
+  validateOptionalTolerance,
+} from "./optionalTolerance";
 import {
   collectRunEdges,
   RUN_EDGE_ALLOWLIST,
@@ -178,6 +188,27 @@ const runEdgeSites = [...runEdges.values()].reduce((sum, n) => sum + n, 0);
 // dispatches. Neither tsc nor biome can see it.
 validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
 
+// The `Schema.optional` tolerance allowlist (B3) — the third scan of the same
+// family. `optionalKey` is the migration's law; the four fields that break it
+// sit on forwarding paths where absence cannot be produced at the source. With
+// `exactOptionalPropertyTypes` off (its blast radius is ~940 errors across 35
+// packages, and it would land on the vendored osfacts-client this repo cannot
+// edit), nothing else distinguishes a deliberate shim from a fifth accident.
+const optionalShims = collectOptionalTolerance(repoRoot);
+validateOptionalTolerance(optionalShims, OPTIONAL_TOLERANCE_ALLOWLIST);
+const optionalShimSites = [...optionalShims.values()].reduce(
+  (sum, n) => sum + n,
+  0,
+);
+
+// The Effect pin's agreement gate (A2), then the beta-behavior assumption
+// registry (C3) it feeds. The two share one fact — the catalog's version — so a
+// bump has exactly one place to move and exactly one set of sites to re-verify.
+const effectPins = collectEffectPins(repoRoot);
+const effectVersion = validateEffectPins(effectPins);
+const betaAssumptions = collectBetaAssumptions(repoRoot);
+validateBetaAssumptions(betaAssumptions, effectVersion);
+
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped`,
 );

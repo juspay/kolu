@@ -11,17 +11,44 @@
  *
  * So it is enforced the same way the reactor's signals-engine ban is: by
  * enumeration. Every `Effect.run*(` / `Runtime.run*(` / `NodeRuntime.run*(` call
- * site in production source under a package `src` tree is counted, and the result
- * must equal the committed list below — path AND count, so a second run added to
- * an already-listed file is a failure too.
+ * site in the scanned tree (see **Scope** below) is counted, and the result must
+ * equal the committed list — path AND count, so a second run added to an
+ * already-listed file is a failure too.
  *
  * **Adding a site is not the fix.** If a new call site is not a process/UI edge,
  * compose the effect into its caller instead. The list below is the argument for
  * each one that is; a new row must carry the same kind of argument.
  *
- * Out of scope, deliberately: tests (`*.test.ts`, `*.testlib.ts`) — a test IS a
- * process edge — and every `example` tree under `packages`, which exists to be
- * read as consumer code and has a `main()` of its own.
+ * **Scope: every `.ts`/`.tsx` file under `packages/`.** Production `src` trees,
+ * the `example` trees, the shared test libraries (`*.testlib.ts`) that live
+ * inside those `src` trees, and the e2e harness in `packages/tests` alike. An
+ * example is consumer code people COPY, and a testlib is a library compiled
+ * alongside production source, so a run in either is a run that has to be argued
+ * for — the rows below argue for each one.
+ *
+ * **Except `*.test.ts` / `*.test-d.ts`, and that exclusion is a claim.** A test
+ * file IS a process edge: the runner calls it from a Promise, so it must run the
+ * effect it is asserting about, and it may do so freely. There are ~600 such
+ * runs across ~95 files; enumerating them would budget the HARNESS rather than
+ * the product, and the list would rot on every new test. The discipline a test
+ * still owes is the twin scan's, not this one's — `awaitedFace.ts` covers test
+ * files precisely because a test that silently never dispatches is the bug that
+ * hides the others.
+ *
+ * **The dodges this scan closes.** Counting a NAMESPACED call is honest only if
+ * the namespace cannot be dropped, so two shapes fail outright rather than being
+ * counted: a bare named import (`import { runPromise } from "effect/Effect"`),
+ * and an UNCALLED reference (`const run = Effect.runPromise;`, `{ runFork } =
+ * Effect`, `then(Effect.runPromise)`). Aliasing a run function is itself
+ * bannable, which closes the alias dodge without needing dataflow.
+ *
+ * **Residual risk, stated so nobody mistakes this for a proof.** A namespace
+ * import under another name (`import * as E from "effect/Effect"; E.runPromise(x)`)
+ * reads as an ordinary call and is not seen; nor is a run reached through a
+ * re-export of this repo's own making, or through `unsafe`/`Fiber` APIs that run
+ * without a `run*` name. Each is an unusual import that review can see, and none
+ * has an instance today. This scan raises the cost of a dodge; it does not make
+ * one impossible.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -47,6 +74,16 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/kaval-tui/src/main.ts",
     sites: 1,
     why: "kaval-tui's process edge; a Promise rather than `NodeRuntime.runMain` because that turns SIGINT into fiber interruption, and an interrupted fiber cannot emit the `--json` frame + trailer a `wait` interrupted at 130 must still print",
+  },
+  {
+    path: "packages/kaval/src/contractCorpus.testlib.ts",
+    sites: 37,
+    why: "the pty-host contract corpus — one run per procedure and stream it asserts on, each inside a vitest `it` body, which IS the harness's Promise boundary; a `.testlib.ts` rather than a `.test.ts` only because vitest's `include` and default.nix's staleKey filter both key on the suffix, so it is scanned like the production tree it sits in and the count moves only when `CONTRACT_COVERAGE` does",
+  },
+  {
+    path: "packages/kaval/src/streamFrame.testlib.ts",
+    sites: 1,
+    why: "`runScopedSync` — the kaval suite's one scoped-acquire read, synchronous ON PURPOSE: attach's publish-epoch coalescing is observable only when a burst of attaches shares a tick, so a Promise hop between two of them would erase the thing under test",
   },
   {
     path: "packages/kolu-cli/src/main.ts",
@@ -79,6 +116,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the tap layer's one edge — the surrounding lifecycle (`TerminalLifecycle.abort`, the reconciler) is AbortController-shaped, and this is where a signal becomes fiber interruption",
   },
   {
+    path: "packages/server/bench/typingEchoLatency.ts",
+    sites: 1,
+    why: "the typing-echo latency bench's process edge — the probe is ONE program (a padi member call is a lazy Effect, and awaiting one dispatches nothing, which is how this bench rotted), so the dial, the keystroke loop and the attach subscription all compose into a single run here; it runs the EXIT so a failed measurement prints the wire's own Cause and exits non-zero for `bench/run.sh` instead of reporting numbers it never measured",
+  },
+  {
     path: "packages/server/src/index.ts",
     sites: 2,
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and building the composed HTTP layer into the node `request` callback kolu-server owns (owning the listener is what keeps the ws `upgrade` seam the only one) — a callback node hands no Effect context to",
@@ -109,6 +151,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "`kolu-rpc`'s process edge — the one-shot harness caller places exactly one call and exits, and it runs the Exit (not the value) because a shell needs the CAUSE on stderr",
   },
   {
+    path: "packages/surface-app/example/src/server/main.ts",
+    sites: 1,
+    why: "the example server's node `request` callback — the same boundary `packages/server/src/index.ts` carries, spelled out for a reader who will copy it",
+  },
+  {
     path: "packages/surface-app/src/server.ts",
     sites: 2,
     why: "the per-connection serve boundary: build the serving layer into a connection-scoped `Scope` when a socket opens, close that scope when it ends — a `ws` callback either side",
@@ -137,6 +184,91 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/surface-remote/src/session.ts",
     sites: 1,
     why: "THE session's probe edge — the three framework-reserved round-trips are Effects, and the dial/reconnect machinery that consumes them is Promise- and timer-shaped BY CONTRACT (the campaign's recorded residual), so the two meet here once instead of three times; the abort it takes becomes fiber interruption, which is strictly stronger than the signal these probes used to be handed",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-1/src/client/App.tsx",
+    sites: 1,
+    why: "part 1's DOM handler — a declared procedure is a description and a click is where the example runs it, which is the lesson that page of the tutorial exists to teach",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-1/src/inproc.ts",
+    sites: 1,
+    why: "the in-process demo's snapshot read: a `Promise<T>` face over `Stream.runHead`, because the plain async node script that calls it has no Effect to compose into",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-1/src/server/main.ts",
+    sites: 1,
+    why: "part 1's node `request` callback — a callback node hands no Effect context to, so the composed HTTP layer is built into it here",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-2/src/supervisor/main.ts",
+    sites: 1,
+    why: "the supervisor example's process edge: one run for `main`, with the failure written to stderr and mapped to a non-zero exit — the shape a reader's own `main` should copy",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-3/src/client/App.tsx",
+    sites: 1,
+    why: "part 3's DOM handler, on the ACTIVE host's face — switching hosts changes WHICH surface is called, not where it is run",
+  },
+  {
+    path: "packages/surface/example/fleet-top/part-3/src/server/main.ts",
+    sites: 1,
+    why: "part 3's node `request` callback, twin of part 1's",
+  },
+  {
+    path: "packages/surface/example/mini-ci/src/tui/main.ts",
+    sites: 2,
+    why: "the mini-CI TUI's two edges: draining the `nodes` stream until the pipeline settles (an async `main` awaits it) and a stdin keypress re-running a node — a Promise-shaped main on one side, a node callback on the other",
+  },
+  {
+    path: "packages/surface/example/mini-ci/src/tui/members.ts",
+    sites: 1,
+    why: "one fiber per subscribed member, because the TUI's subscribe face hands back a synchronous `() => void` stopper — the fiber handle IS the subscription",
+  },
+  {
+    path: "packages/surface/example/remote-process-monitor/src/client/App.tsx",
+    sites: 1,
+    why: "the monitor's kill button — a DOM handler running the `catchCause`-wrapped procedure, so a failed kill prints instead of vanishing",
+  },
+  {
+    path: "packages/surface/example/remote-process-monitor/src/server/main.ts",
+    sites: 1,
+    why: "the monitor server's node `request` callback",
+  },
+  {
+    path: "packages/surface/example/remote-process-monitor/src/server/serve.ts",
+    sites: 1,
+    why: "the bridge's kill forwarder: the parent's procedure body is an `Effect.promise` (an undeclared error channel must stay a loud defect), and the remote member it forwards to is Effect-native, so the two meet inside that one Promise",
+  },
+  {
+    path: "packages/surface/example/snippets/consume-cli.ts",
+    sites: 1,
+    why: "the CLI snippet's ONE process edge, and the whole point of the snippet: everything above is a value, and this is the only line that makes anything happen",
+  },
+  {
+    path: "packages/surface/example/snippets/consume-solid.ts",
+    sites: 1,
+    why: "the Solid snippet's UI edge, shown inline so a reader copying the four `.use()` lines above it sees WHERE the one run belongs",
+  },
+  {
+    path: "packages/surface/example/snippets/test-a-surface.ts",
+    sites: 3,
+    why: "the testing snippet's three harness edges — a first-frame read, a procedure call, and a `runForEach` drain to a terminal frame — which is what a reader comes to this snippet to copy; the procedure's run was MISSING until the alias scan caught it, and the page's own prose (\"a test is a process edge\") had been describing code that dispatched nothing",
+  },
+  {
+    path: "packages/surface/example/src/client/App.tsx",
+    sites: 3,
+    why: "the notes example's three UI edges — create, upsert, delete — each run in the DOM handler that asked for it and nowhere deeper, which is the rule the example is demonstrating",
+  },
+  {
+    path: "packages/surface/example/src/server/main.ts",
+    sites: 1,
+    why: "the notes example's node `request` callback",
+  },
+  {
+    path: "packages/surface/src/handlerDispatch.testlib.ts",
+    sites: 4,
+    why: "the zero-transport test dispatcher: a unary call to a Promise, a fork for a stream subscription, that fiber's interrupt-on-stop, and a first-frame read — the Effect plumbing every handler unit test would otherwise repeat, held once and NOT exported from the package",
   },
   {
     path: "packages/surface/src/links/stdio.ts",
@@ -183,20 +315,42 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     sites: 2,
     why: "the unix listener's per-peer boundary: serve each accepted connection in its own scope, release that scope on the socket's `close`/`error` — node `net` callbacks either side",
   },
+  {
+    path: "packages/tests/step_definitions/spawn_detection_steps.ts",
+    sites: 4,
+    why: "the cucumber steps' four boundaries — a scoped dial of the kaval daemon, the command-rooted spawn under test, and the kill + scope-close an `After` hook must complete before the world is torn down; a step body is a Promise the runner awaits, so there is no Effect above it to compose into",
+  },
+  {
+    path: "packages/tests/support/rpcWire.ts",
+    sites: 1,
+    why: "the e2e harness's ONE wire edge — every suite call funnels through it, and it runs the EXIT (not the value) with the caller's timeout as an AbortSignal, because the harness classifies on the `Cause`: a padi still warming up is retried, not failed",
+  },
 ];
 
-/** Directories under `packages/` whose `src/` is production code we police. The
- *  scan walks each package's own `src`, plus the `src` of every member of a
- *  grouping directory like `packages/integrations`; an `example` tree anywhere
- *  below is skipped (each has its own `main()`). */
-const SKIPPED_DIRS = new Set(["node_modules", "example", "dist", "examples"]);
+/** Directories with nothing to police — build output and vendored code. There is
+ *  no `example` entry: an example tree is consumer code people COPY, so a run
+ *  there is argued for on the list like any other. */
+const SKIPPED_DIRS = new Set(["node_modules", "dist", ".astro", ".vite"]);
 
 const RUN_CALL = /\b(?:Effect|Runtime|NodeRuntime)\.run[A-Z][A-Za-z]*\s*\(/g;
 
-/** A named import of a `run*` function straight off an effect module — the one
- *  way a call site could dodge {@link RUN_CALL}'s namespaced shape. */
+/** A named import of a `run*` function straight off an effect module — one way a
+ *  call site could dodge {@link RUN_CALL}'s namespaced shape. */
 const BARE_RUN_IMPORT =
   /import\s*\{[^}]*\brun[A-Z][A-Za-z]*\b[^}]*\}\s*from\s*["']effect[^"']*["']/;
+
+/** `Effect.runPromise` NOT followed by `(` — the alias dodge. `const run =
+ *  Effect.runFork; run(program)` makes a run call that {@link RUN_CALL} cannot
+ *  see, and so does handing the function to something else (`.then(Effect.runPromise)`).
+ *  The `\b` before the lookahead matters: without it `runPromise` would match
+ *  inside `runPromiseExit(` and report the call as an alias. */
+const UNCALLED_RUN_REFERENCE =
+  /\b(?:Effect|Runtime|NodeRuntime)\s*\.\s*run[A-Z][A-Za-z]*\b(?!\s*\()/g;
+
+/** `const { runPromise } = Effect` — the same dodge spelled as a destructure,
+ *  which leaves no `Namespace.run*` text for {@link UNCALLED_RUN_REFERENCE}. */
+const DESTRUCTURED_RUN =
+  /\{[^{}]*\brun[A-Z][A-Za-z]*\b[^{}]*\}\s*=\s*(?:Effect|Runtime|NodeRuntime)\b/g;
 
 /** Blank out comments, and optionally string/template literals, so a `run*` call
  *  NAMED in prose (there are several — the edges are documented where they live)
@@ -273,9 +427,26 @@ export function hasBareRunImport(source: string): boolean {
   return BARE_RUN_IMPORT.test(scan(source, true));
 }
 
-function isProductionSource(file: string): boolean {
+/** Every place `source` names a `run*` function WITHOUT calling it. Each is a
+ *  violation in its own right rather than a counted edge: an alias travels, so
+ *  there is no one file to hang a number on. Comments and string literals are
+ *  blanked, so naming the dodge in prose (this file does, twice) is not
+ *  committing it. */
+export function findRunAliases(source: string): string[] {
+  const code = blankNonCode(source);
+  return [
+    ...(code.match(UNCALLED_RUN_REFERENCE) ?? []),
+    ...(code.match(DESTRUCTURED_RUN) ?? []),
+  ].map((text) => text.replace(/\s+/g, " ").trim());
+}
+
+/** Files whose run calls are enumerated. `*.test.ts` / `*.test-d.ts` is out —
+ *  the runner calls a test from a Promise, so a test IS the edge (the header
+ *  states that exclusion and why it is the only one). `*.testlib.ts` is IN: it
+ *  ships inside a production `src` tree and is compiled with it. */
+function isScannedSource(file: string): boolean {
   if (!/\.(ts|tsx)$/.test(file)) return false;
-  return !/\.(test|testlib|test-d)\.(ts|tsx)$/.test(file);
+  return !/\.(test|test-d)\.(ts|tsx)$/.test(file);
 }
 
 function walk(dir: string, out: string[]): void {
@@ -283,51 +454,35 @@ function walk(dir: string, out: string[]): void {
     if (SKIPPED_DIRS.has(entry)) continue;
     const full = path.join(dir, entry);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (isProductionSource(entry)) out.push(full);
+    else if (isScannedSource(entry)) out.push(full);
   }
 }
 
-/** Every production source file under a package `src` tree, repo-relative and
- *  POSIX-separated. */
-export function productionSources(repoRoot: string): string[] {
-  const packagesDir = path.join(repoRoot, "packages");
-  const roots: string[] = [];
-  for (const pkg of readdirSync(packagesDir)) {
-    if (SKIPPED_DIRS.has(pkg)) continue;
-    const pkgDir = path.join(packagesDir, pkg);
-    if (!statSync(pkgDir).isDirectory()) continue;
-    const src = path.join(pkgDir, "src");
-    try {
-      if (statSync(src).isDirectory()) roots.push(src);
-    } catch {
-      // No `src/` of its own — a grouping directory (packages/integrations),
-      // whose members are scanned one level down.
-      for (const nested of readdirSync(pkgDir)) {
-        if (SKIPPED_DIRS.has(nested)) continue;
-        const nestedSrc = path.join(pkgDir, nested, "src");
-        try {
-          if (statSync(nestedSrc).isDirectory()) roots.push(nestedSrc);
-        } catch {
-          // Not a package either — nothing to scan.
-        }
-      }
-    }
-  }
+/** Every scanned source file under `packages/`, repo-relative and
+ *  POSIX-separated. The whole tree rather than each package's `src`, because
+ *  `packages/tests` has no `src` and an `example` tree lives beside one. */
+export function scannedSources(repoRoot: string): string[] {
   const files: string[] = [];
-  for (const root of roots) walk(root, files);
+  walk(path.join(repoRoot, "packages"), files);
   return files
     .map((f) => path.relative(repoRoot, f).split(path.sep).join("/"))
     .sort();
 }
 
-/** Path → number of run calls, for every production file that has at least one. */
+/** Path → number of run calls, for every scanned file that has at least one. */
 export function collectRunEdges(repoRoot: string): Map<string, number> {
   const found = new Map<string, number>();
-  for (const file of productionSources(repoRoot)) {
+  for (const file of scannedSources(repoRoot)) {
     const source = readFileSync(path.join(repoRoot, file), "utf8");
     if (hasBareRunImport(source)) {
       throw new Error(
         `${file} imports an Effect \`run*\` helper by bare name. Use the namespaced form (\`Effect.runPromise\`) so the run-edge allowlist can see it.`,
+      );
+    }
+    const aliases = findRunAliases(source);
+    if (aliases.length > 0) {
+      throw new Error(
+        `${file} names an Effect \`run*\` function without calling it (${aliases.join(", ")}). An alias can be invoked anywhere, so the allowlist could never see the edge — call it in place, or compose the effect into its caller.`,
       );
     }
     const count = countRunCalls(source);

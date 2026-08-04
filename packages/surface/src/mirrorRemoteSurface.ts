@@ -776,7 +776,13 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  failure would go nowhere and `done` would resolve on a broken local fold — the
  *  exact silent-collapse the sink contract exists to prevent. (This is the Effect
  *  successor of the old `rejectSink` + `Promise.race` channel, and it is here for
- *  the same reason: a pump runs concurrently with the loop that spawned it.) */
+ *  the same reason: a pump runs concurrently with the loop that spawned it.)
+ *
+ *  BETA-ASSUMPTION(beta.102): a failed `Effect.forkChild` child does NOT fail its parent fiber.
+ *  Propagation is behavior, not API. Were a bump to make a child failure reach
+ *  the parent, the `Deferred` race becomes a second, unordered path to the same
+ *  exit; were it to interrupt the parent mid-fold instead, `done` resolves on a
+ *  fold this code believes complete. */
 function mirrorCollection<K, V>(opts: {
   label: string;
   log: (line: string) => void;

@@ -791,8 +791,18 @@ let
   # arm the Effect port deleted; a shell cannot speak the socket, and hand-rolling
   # its frames would be a second copy of the wire contract.
   #
-  # NOT a product face: it is not on any terminal's PATH (`agentToolPackages`
-  # below), not a `kolu` subcommand, and nothing in kolu-server imports its entry.
+  # QUARANTINE — harness-only, and it must STAY that way. This attr may be named by
+  # exactly two things: this binding, and the flake `packages` export at the bottom of
+  # this file (which is how `nix/home/example/adoption/*.nix` reaches it). It must NOT
+  # be added to `agentToolPackages` / `koluAgentTools` (a terminal's PATH), to
+  # `padi-agent`'s `paths` (a remote host's closure), to `default` / `koluBin`, or to
+  # `nix/home/module.nix`'s `home.packages` — a caller that can place ANY wire call is
+  # a debug tool, not something a user installs. It is also not a `kolu` subcommand,
+  # and nothing in kolu-server imports its entry. The rule is machine-checked by the
+  # "quarantine" block in `packages/server/src/wireCall.test.ts`, which reads this file
+  # and rejects any occurrence outside those two sites; keep prose mentions of the name
+  # on their OWN comment lines, which is what that scanner skips.
+  #
   # It rides `mkAgentTuiWrapper` because that helper is exactly "run a workspace TS
   # entry from the built closure under tsx" — the same thing this needs.
   kolu-rpc = mkAgentTuiWrapper {

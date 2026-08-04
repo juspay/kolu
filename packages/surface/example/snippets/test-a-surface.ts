@@ -103,7 +103,9 @@ expect(load).toEqual(ZERO);
 // #endregion snapshot
 
 // #region procedure
-await kill({ pid: 4321 });
+// A procedure call is an `Effect` — a description. `await` on one yields the
+// description itself and dispatches NOTHING, so the run is what makes it happen.
+await Effect.runPromise(kill({ pid: 4321 }));
 
 const alive = await snapshot(
   keys(undefined),
@@ -123,6 +125,7 @@ await Effect.runPromise(
   ),
 );
 expect(frames[0]?.kind).toBe("snapshot");
+
 // #endregion stream
 
 export { client, frames, load };

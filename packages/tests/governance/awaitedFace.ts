@@ -19,30 +19,83 @@
  *
  * Biome is not type-aware and TypeScript does not error on a non-thenable
  * `await`, so the rule is enforced the same way the run-edge budget is: by
- * scanning. The pattern is deliberately NARROW — `await` applied DIRECTLY to a
- * face call, with nothing between the two but a plain reference path. The
- * legitimate spellings are untouched:
+ * scanning. TWO shapes are looked for.
  *
- *   - `await Effect.runPromise(client.surface.ns.verb(x))` — a call goes through
- *     a run, and a `(` intervenes, so it does not match;
+ * **1. The direct await** — `await` applied to a face call with nothing between
+ * the two but a reference path (`await client.entry(A).procedures.ns.verb(x)`).
+ * The legitimate spellings are untouched, and that is what lets the scan exist:
+ *
+ *   - `await Effect.runPromise(client.surface.ns.verb(x))` — the await lands on
+ *     a run, whose parens NEST, so the path grammar cannot swallow it;
  *   - `yield* client.surface.ns.verb(x)` — composition, no `await`;
  *   - `Stream.runHead(client.surface.cell.get(undefined))` — same.
  *
- * A `.surface`/`.procedures` property that is NOT a member face (a local object
- * that happens to use the name) would be a false positive. None exists today,
- * and the fix if one appears is to rename the local — the face's two names are
- * framework vocabulary, and shadowing them is its own hazard.
+ * **2. The await through a binding** — the two dodges the direct pattern misses,
+ * both of which type-check and both of which silently never dispatch:
+ *
+ *   - the ALIAS: `const verb = client.surface.ns.verb; await verb(x)`;
+ *   - the STORED DESCRIPTION: `const p = client.surface.ns.verb(x); await p`.
+ *
+ * A name bound to anything that STARTS as a face path is marked, and then any
+ * `await <that name>` in the same file is a hit. Banning the binding itself —
+ * the simpler rule — was rejected: three legitimate non-call face bindings exist
+ * today (`surfaceAppProbe`'s `identity?.info` narrowing, the map harness's
+ * per-member cast, a `.test-d.ts` type pin), each of which then CALLS or
+ * composes the value. Marking is precise where a ban would be merely loud, and a
+ * loud rule gets turned off.
+ *
+ * Destructuring is marked too, including `const { surface } = client` — the
+ * face's two names are framework vocabulary, so a local binding of either name
+ * is treated as the face wherever it came from.
+ *
+ * **Residual risk, stated so nobody mistakes this for a proof.** The marking is
+ * one hop and one file: `const a = c.surface.ns.verb; const b = a; await b(x)`
+ * escapes, so does an alias `export`ed and awaited in another module, and so
+ * does a face handed to a helper that awaits its own parameter. A `.surface`
+ * property that is NOT a member face would be a false positive; none exists
+ * today, and the fix is to rename the local rather than to soften the scan. This
+ * raises the cost of the dodge; a determined dodger still has room.
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { blankNonCode } from "./runEdges";
 
-/** `await <path>.surface.<ns>.<verb>(` — or `.procedures.`. The segment between
- *  `await` and the face name admits only a reference path (identifiers, dots),
- *  so any intervening CALL — `Effect.runPromise(`, `unwrap(` — fails to match. */
-const AWAITED_FACE_CALL =
-  /\bawait\s+[A-Za-z_$][A-Za-z0-9_$.]*\.(?:surface|procedures)\.[A-Za-z_$][A-Za-z0-9_$]*\.[A-Za-z_$][A-Za-z0-9_$]*\s*\(/g;
+const IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
+const FACE = "(?:surface|procedures)";
+/** `.` or `?.`, with whitespace either side — a face path may wrap a line. */
+const DOT = String.raw`\s*\??\.\s*`;
+/** A reference path. Admits a CALL segment with no nested parens, so
+ *  `client.entry(A).rpc` reads as one path — while `Effect.runPromise(c.surface
+ *  .ns.verb(x))`, whose parens nest, cannot be read as one and so is not one. */
+const REF = `${IDENT}(?:${DOT}${IDENT}|\\([^()]*\\))*`;
+
+/** `await <path>.surface.<ns>.<verb>(` — or `.procedures.`. */
+const AWAITED_FACE_CALL = new RegExp(
+  `\\bawait\\s+${REF}${DOT}${FACE}${DOT}${IDENT}${DOT}${IDENT}\\s*\\(`,
+  "g",
+);
+
+/** `const <name> = <path>.surface…` — the alias and the stored description
+ *  alike, since both begin with a face path and only the trailing `(x)` tells
+ *  them apart; neither may be awaited. */
+const FACE_BINDING = new RegExp(
+  `\\b(?:const|let|var)\\s+(${IDENT})\\s*=\\s*${REF}${DOT}${FACE}\\b`,
+  "g",
+);
+
+/** `const { verb } = <path>.surface.ns` — every name it binds is face-valued. */
+const FACE_DESTRUCTURE = new RegExp(
+  `\\b(?:const|let|var)\\s*\\{([^{}]*)\\}\\s*=\\s*${REF}${DOT}${FACE}\\b`,
+  "g",
+);
+
+/** Any destructure at all — inspected for a binding NAMED `surface` or
+ *  `procedures`, which is the face by its own framework name whatever the right
+ *  hand side is (`const { surface } = client`). */
+const ANY_DESTRUCTURE = /\b(?:const|let|var)\s*\{([^{}]*)\}\s*=/g;
+
+const AWAITED_NAME = new RegExp(`\\bawait\\s+(${IDENT})\\b`, "g");
 
 export interface AwaitedFaceHit {
   /** Repo-relative path, POSIX separators. */
@@ -53,6 +106,22 @@ export interface AwaitedFaceHit {
   readonly text: string;
 }
 
+/** The names a destructuring pattern binds: `{ a, b: c, ...rest }` → a, c, rest. */
+function boundNames(pattern: string): string[] {
+  const names: string[] = [];
+  for (const part of pattern.split(",")) {
+    const target = part.includes(":")
+      ? (part.split(":").pop() ?? "")
+      : part.replace("...", "");
+    const name = new RegExp(`^\\s*(${IDENT})`).exec(target)?.[1];
+    if (name !== undefined) names.push(name);
+  }
+  return names;
+}
+
+const lineOf = (code: string, index: number): number =>
+  code.slice(0, index).split("\n").length;
+
 /** Every `await`-on-a-face in `source`, with 1-based line numbers. Comments and
  *  string literals are blanked first (this ban is NAMED in prose in several
  *  files, including this one). */
@@ -60,11 +129,37 @@ export function findAwaitedFaceCalls(source: string): AwaitedFaceHit[] {
   const code = blankNonCode(source);
   const hits: AwaitedFaceHit[] = [];
   for (const match of code.matchAll(AWAITED_FACE_CALL)) {
-    const before = code.slice(0, match.index);
-    const line = before.split("\n").length;
-    hits.push({ path: "", line, text: match[0].trim() });
+    hits.push({
+      path: "",
+      line: lineOf(code, match.index),
+      text: match[0].replace(/\s+/g, " ").trim(),
+    });
   }
-  return hits;
+
+  /** Face-valued name → the line it was bound on, so a hit can cite it. */
+  const faceBound = new Map<string, number>();
+  const bind = (name: string, index: number): void => {
+    if (!faceBound.has(name)) faceBound.set(name, lineOf(code, index));
+  };
+  for (const match of code.matchAll(FACE_BINDING))
+    bind(match[1] ?? "", match.index);
+  for (const match of code.matchAll(FACE_DESTRUCTURE))
+    for (const name of boundNames(match[1] ?? "")) bind(name, match.index);
+  for (const match of code.matchAll(ANY_DESTRUCTURE))
+    for (const name of boundNames(match[1] ?? ""))
+      if (name === "surface" || name === "procedures") bind(name, match.index);
+
+  for (const match of code.matchAll(AWAITED_NAME)) {
+    const name = match[1] ?? "";
+    const boundAt = faceBound.get(name);
+    if (boundAt === undefined) continue;
+    hits.push({
+      path: "",
+      line: lineOf(code, match.index),
+      text: `await ${name} — \`${name}\` is bound to a member face at line ${boundAt}`,
+    });
+  }
+  return hits.sort((a, b) => a.line - b.line);
 }
 
 /** Directories with nothing to police. Deliberately SHORTER than the run-edge
@@ -109,8 +204,9 @@ export function validateAwaitedFaceCalls(
   if (hits.length === 0) return;
   const lines = hits.map((h) => `  ${h.path}:${h.line}  ${h.text}`);
   throw new Error(
-    "`await` applied to a member-face call — the call returns an `Effect`, not a " +
-      "Promise, so awaiting it yields the description and NEVER DISPATCHES:\n" +
+    "`await` applied to a member face — directly, or through a name bound to one. " +
+      "A member call returns an `Effect`, not a Promise, so awaiting it yields the " +
+      "description and NEVER DISPATCHES:\n" +
       `${lines.join("\n")}\n` +
       "Compose it (`yield*` inside an `Effect.gen`), or run it at a sanctioned " +
       "edge (`Effect.runPromise(...)`) if this really is a process/UI boundary.",
