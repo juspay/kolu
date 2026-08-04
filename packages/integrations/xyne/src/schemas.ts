@@ -14,8 +14,11 @@ export const XyneInfoSchema = z.object({
   kind: z.literal("xyne"),
   /** Xyne's JSONL transcript carries no live phase events (only persisted
    *  message history), so no busy/attention distinction is derivable —
-   *  permanently `waiting` so the tile can carry the Xyne badge + summary. */
-  state: z.enum(["waiting"]),
+   *  permanently `waiting` so the tile can carry the Xyne badge + summary.
+   *  A `literal` rather than a single-value enum: the value cannot expand
+   *  here without a deliberate schema change, and the terminal-vocab arm's
+   *  structural check still holds. */
+  state: z.literal("waiting"),
   /** Session UUID from the transcript's `{"type":"session"}` header entry
    *  (also the `<id>` in the transcript filename). */
   sessionId: z.string(),

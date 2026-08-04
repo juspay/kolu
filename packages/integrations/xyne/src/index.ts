@@ -30,9 +30,7 @@ export {
   type XyneInfo,
   XyneInfoSchema,
 } from "./schemas.ts";
-export {
-  type XyneWatcher,
-  createXyneWatcher,
-  DEBOUNCE_MS as XYNE_DEBOUNCE_MS,
-  DEBOUNCE_MAX_MS as XYNE_DEBOUNCE_MAX_MS,
-} from "./session-watcher.ts";
+// The per-session watcher stays module-internal — the adapter builds it
+// inside `createWatcher`, and its debounce constants are kolu-io's shared
+// COALESCE_* schedule, not xyne knobs. session-watcher.ts has no public
+// callers yet; export it when one appears.

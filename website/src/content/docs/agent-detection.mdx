@@ -1,6 +1,6 @@
 ---
 title: Agent Detection
-description: "How kolu reads the live state of Claude Code, Codex, Grok, and OpenCode from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
+description: "How kolu reads the session state of Claude Code, Codex, Grok, OpenCode, and Xyne from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
 order: 80
 section: Agents
 koluHero:
@@ -16,7 +16,8 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 kolu watches the **foreground process** of every terminal. When that process is a
 coding agent it recognizes — [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
 [Codex](https://github.com/openai/codex), [Grok Build](https://x.ai/news/grok-build-cli),
-or [OpenCode](https://github.com/anomalyco/opencode) — it reads that agent's own
+[OpenCode](https://github.com/anomalyco/opencode), or
+[Xyne](https://github.com/xynehq/xyne-cli) — it reads that agent's own
 on-disk session to derive whether it's thinking, running a tool, waiting on you,
 or done. That state paints the tile chrome, the dock row, and the minimap, so a
 glance across a workspace of twenty terminals tells you **who needs you**.
@@ -235,6 +236,32 @@ shows the running token count OpenCode pre-sums itself.
 
 - **Same-directory disambiguation** — most recently updated session wins.
 - **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
+
+## Xyne
+
+When the foreground process is `xyne`, kolu matches the terminal against the
+newest transcript under `~/.xyne/agent/sessions/<encoded-cwd>/` — Xyne writes
+one `<timestamp>_<uuid>.jsonl` transcript (plus a `<name>_summary.json`
+sidecar with the display title) per session, in a directory named after the
+transcript's original working directory with every non-alphanumeric character
+folded to `-`. That newest transcript is the same session `xyne --continue`
+would reopen, so it is the session identity kolu reports.
+
+**Xyne's state is always _waiting_.** The persisted transcript carries no live
+phase signal — no event stream, no pid map, no in-progress marker — so kolu
+never claims to know whether Xyne is mid-turn or idle, and the badge sits on
+the dim waiting dot for the session's whole life. The dock row and agent
+inspector still show the **session title** (from the sidecar) and the
+**last-used model** (from the transcript's newest `model_change` entry);
+**task progress** and **context tokens** stay null by the same honesty. A xyne
+badge that reads _waiting_ does not mean it's your turn — it's the floor every
+turn returns to.
+
+**Resume** uses `xyne --session <uuid>` (an exact conversation, including a
+cold-restored terminal from before the reboot — the UUID filename is the id
+upstream's flag takes) or `xyne --continue` (most recent). **Transcript
+export** is not yet supported for Xyne — its pi-format JSONL needs a kolu-side
+loader before the exporter can normalize it.
 
 ## Adding an agent
 

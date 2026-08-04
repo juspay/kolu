@@ -4,11 +4,14 @@ Kolu's integration with [Xyne CLI](https://github.com/xynehq/xyne-cli)
 (`xyne`). Two surfaces:
 
 - **Dock detection** — when `xyne` is foregrounded in a terminal (or named
-  by the OSC 633;E preexec hint), the adapter picks the newest transcript
-  under `~/.xyne/agent/sessions/<encoded-cwd>/` as the session identity and
+  by the OSC 633;E preexec hint — the command-name hint wins over the
+  foreground basename), the adapter picks the newest transcript under
+  `~/.xyne/agent/sessions/<encoded-cwd>/` as the session identity and
   watches it, so the tile/dock light up with the Xyne badge, the session
   title (from the `_summary.json` sidecar), and the last-used model (from
-  the transcript's newest `model_change` entry).
+  the transcript's newest `model_change` entry). Detection re-arms whenever
+  a new transcript appears in the sessions tree, so title/model follow the
+  newest session for the cwd. See also: [Agent Detection](https://kolu.dev/agent-detection), [troubleshooting](https://kolu.dev/troubleshooting).
 
   Xyne's persisted transcript carries no live phase events, so `state` is a
   permanent honest `waiting` — no busy/attention states are derivable until
