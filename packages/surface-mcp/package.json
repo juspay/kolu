@@ -18,7 +18,7 @@
   "dependencies": {
     "@kolu/surface": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "effect": "4.0.0-beta.102"
+    "effect": "4.0.0-beta.103"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

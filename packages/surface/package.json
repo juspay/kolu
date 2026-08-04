@@ -55,11 +55,11 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-beta.102",
-    "@effect/platform-node": "4.0.0-beta.102",
+    "@effect/platform-browser": "4.0.0-beta.103",
+    "@effect/platform-node": "4.0.0-beta.103",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
-    "effect": "4.0.0-beta.102",
+    "effect": "4.0.0-beta.103",
     "solid-js": "^1.9.0"
   }
 }

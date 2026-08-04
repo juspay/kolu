@@ -24,13 +24,13 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0-beta.102",
+    "@effect/platform-browser": "4.0.0-beta.103",
     "@kolu/surface": "workspace:*",
-    "effect": "4.0.0-beta.102",
+    "effect": "4.0.0-beta.103",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0-beta.102",
+    "@effect/platform-node": "4.0.0-beta.103",
     "@types/node": "^22.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
