@@ -68,6 +68,7 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import { samePortList } from "@kolu/terminal-vocab/schema";
 import { everyMsOr, source } from "@kolu/surface/reactor";
+import { Effect } from "effect";
 import type { Logger } from "pino";
 import { PortScanError, portScanSupported, scanSubtreePorts } from "./scan.ts";
 
@@ -194,7 +195,17 @@ export function createPortSampler(opts: {
   log: Logger;
   scan?: (rootPids: readonly number[]) => Promise<Map<number, PortInfo[]>>;
 }): PortSampler {
-  const scan = opts.scan ?? ((rootPids) => scanSubtreePorts(rootPids));
+  // THE reactor-poll Promise edge for this sampler, and its only run. The
+  // reactor's `read` dep is `() => Promise<T>` BY DESIGN — a poll source owns
+  // its own cadence and seed and is deliberately not Effect code (H1) — so the
+  // injectable `scan` seam is Promise-shaped to match the read it feeds, and
+  // `scanSubtreePorts` (Effect-native since the client went Effect-native) is
+  // run HERE, once, rather than at each of the three places the read uses it.
+  // `runPromise` rejects with the failure value itself, so the
+  // permanent-vs-transient `instanceof PortScanError` fold in the read below
+  // reads exactly what the old rejection handed it.
+  const scan =
+    opts.scan ?? ((rootPids) => Effect.runPromise(scanSubtreePorts(rootPids)));
   // The permanent refusal, asked BEFORE the cadence exists. Checking it inside the
   // read could not deliver the "say it once, then stop" contract: the first read on
   // a host with no terminals yet answers an empty map without reaching the platform

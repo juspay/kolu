@@ -351,7 +351,7 @@ export function buildPadiSurfaceDeps(deps: {
       processMemory: derived.cell(
         source({
           label: "processMemory",
-          read: samplePadiMemory,
+          read: pollRead(samplePadiMemory),
           install: everyMsOr(MEMORY_SAMPLE_INTERVAL_MS, onDaemonStatusChange),
         }),
       ),

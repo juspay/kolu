@@ -24,6 +24,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { Effect } from "effect";
+import { OsfactsSpawnError } from "osfacts-client";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
@@ -445,18 +446,19 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onBuildMismatch: { kind: "nudge-human" },
       },
       probe: () => fromAsync(async () => null),
-      readProcessIdentity: async (pid) => {
-        const id = testReadProcessIdentity(pid);
-        if (pid === survivorPid) {
-          // Defer so the rewrite sits between gate read and identity return.
-          await new Promise((r) => setTimeout(r, 5));
-          writeFileSync(
-            d.gatePath,
-            `${decoyPid}\t${testStartUnixUs(decoyPid)}\n`,
-          );
-        }
-        return id;
-      },
+      readProcessIdentity: (pid) =>
+        Effect.gen(function* () {
+          const id = testReadProcessIdentity(pid);
+          if (pid === survivorPid) {
+            // Defer so the rewrite sits between gate read and identity return.
+            yield* Effect.sleep(5);
+            writeFileSync(
+              d.gatePath,
+              `${decoyPid}\t${testStartUnixUs(decoyPid)}\n`,
+            );
+          }
+          return id;
+        }),
       driver: {
         spawn: fromAsync(async () => {
           expect(isHolderLive(survivorPid)).toBe(false);
@@ -496,7 +498,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
     }
   });
 
-  it("async readProcessIdentity rejection surfaces with connecting→dead (R3-5 / R4-2)", async () => {
+  it("a FAILING readProcessIdentity surfaces with connecting→dead (R3-5 / R4-2)", async () => {
     const d = await plantYesterdayDaemon(
       fixtureOptions({ gate: { kind: "current" }, withSocket: false }),
     );
@@ -508,7 +510,13 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
       `${survivorPid}\t${testStartUnixUs(survivorPid)}\n`,
     );
 
-    const boom = new Error("osfacts inject failed (R3-5)");
+    // A DECLARED failure of the seam's own error channel, not an ad-hoc Error:
+    // the point of the pin is that an osfacts read this endpoint has an answer
+    // for stays a typed failure all the way out — reported `dead`, then
+    // propagated — rather than becoming a defect that sails past the emit.
+    const boom = new OsfactsSpawnError({
+      message: "osfacts inject failed (R3-5)",
+    });
     const statuses: EndpointStatus<Identity>[] = [];
     const endpoint = createEndpointCore<string, Identity>({
       hostId: "local",
@@ -528,9 +536,7 @@ describeDaemon("recycle vs a foreign gate (upgrade-window)", () => {
         onBuildMismatch: { kind: "nudge-human" },
       },
       probe: () => fromAsync(async () => null),
-      readProcessIdentity: async () => {
-        throw boom;
-      },
+      readProcessIdentity: () => Effect.fail(boom),
       driver: {
         spawn: fromAsync(async () => {
           throw new Error("spawn must not run when identity rejects");

@@ -142,8 +142,12 @@ function connectTop(
   });
 }
 
+// Both OS-fact injects are Effects — `processIdentityAsync(bin)` and
+// `osfactsSocketHolders(bin)` from `osfacts-client`, bound to ONE resolved
+// binary path. The daemon half's SYNC `ReadProcessIdentity` is a different
+// inject for a different job (the gate claim); it does not fit here.
 export function bootSupervisor(
-  readProcessIdentity: import("@kolu/surface-daemon").ReadProcessIdentity,
+  readProcessIdentity: import("@kolu/surface-daemon-supervisor").ReadProcessIdentityAsync,
   readSocketHolders: import("@kolu/surface-daemon-supervisor").ReadSocketHolders,
 ): Effect.Effect<void, unknown> {
   // #region endpoint

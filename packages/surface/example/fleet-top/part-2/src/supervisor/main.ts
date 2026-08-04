@@ -79,7 +79,11 @@ const main = Effect.gen(function* () {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
-    // Async on a supervisor path, so the osfacts spawn never blocks the loop.
+    // The Effect twin on a supervisor path, so the osfacts spawn never blocks
+    // the loop — and so a supervisor that gave up mid-read KILLS the child
+    // rather than leaving it to run out its deadline. The daemon half uses the
+    // SYNC reader instead (`common/processIdentity.ts`), because its gate claim
+    // must not reorder against the boot side effects it guards.
     readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
     // The second OS-fact inject: who holds the rendezvous socket, for the
     // recovery that runs when the gate no longer names the daemon.

@@ -35,11 +35,15 @@ const ENTRY = resolve(SRC, "index.ts");
 // tool client's vocabulary (`SocketHolder` / `SocketOccupancy`, re-exported
 // from `socketHolder.ts`), because the fold that produces that answer lives
 // beside the parser there — one home for kolu and drishti both, rather than the
-// same three-way hand-written twice. Type-only today, and the guard counts type
-// imports too, which is why the entry stays. It is admissible for the same
-// reason the surface edge is — a zero-dependency, Node-builtins-only, un-scoped
-// leaf that both consumers already ship, not an app package. Emphatically still
-// NO kolu-* app package.
+// same three-way hand-written twice. It was type-only while the seam was
+// Promise-shaped; the client's spawning verbs return Effects now, so the seam
+// states `Effect.Effect<SocketOccupancy, OsfactsClientError>` and the edge is
+// RUNTIME — the error union's three tagged classes are values a consumer
+// branches on. (The guard counted type imports too, so the entry did not have
+// to move; what changed is what it admits.) It is admissible for the same
+// reason the surface edge is — a Node-builtins-only, un-scoped leaf whose one
+// runtime dependency is the `effect` this package already declares, not an app
+// package. Emphatically still NO kolu-* app package.
 // W2 admits the `effect` edge: the frozen control-core dial taps the peer's
 // FIRST FRAME through `RpcSerialization.ndjson` — Effect's own parser, the very
 // implementation the RPC protocol layer runs — so the D6/#3 "unspeakable

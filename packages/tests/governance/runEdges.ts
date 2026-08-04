@@ -106,6 +106,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "padi's daemon process edge; a Promise rather than `NodeRuntime.runMain` because the exit-code map lives in the spine's `daemonProcessMain`, which kaval rides too",
   },
   {
+    path: "packages/padi/src/ports/sampler.ts",
+    sites: 1,
+    why: "the port sampler's reactor-poll edge: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect — H1), and `scanSubtreePorts` is Effect-native now that osfacts-client returns Effects, so the two meet in the ONE default `scan` seam instead of at each use inside the read; it is a separate row from `servePadi.ts`'s because this sampler is driven OUTSIDE `derived.cell` (its samples re-enter each terminal's own producer through the sensor channel), so there is no padi surface cell to route it through",
+  },
+  {
     path: "packages/padi/src/servePadi.ts",
     sites: 1,
     why: "padi's ONE reactor-poll edge, named once for both poll cells: the reactor's `read` dep is `() => Promise<T>` by design (a poll source owns its own cadence and is deliberately non-Effect), and the host-inventory and memory samplers behind it are Effect-native, so this is where they meet — kolu-server carries the twin row for the same reason",

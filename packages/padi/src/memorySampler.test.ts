@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withOsfactsMemoryFixture } from "./memorySampler.testlib.ts";
 
@@ -25,7 +26,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`, "M\t4242\t20971520"] },
       async (fixture) => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
           kaval: { status: "ok", rssBytes: 20_971_520 },
         });
@@ -40,7 +41,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`] },
       async (fixture) => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
           kaval: { status: "absent" },
         });
@@ -53,7 +54,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`U\t${process.pid}\tmem\tEACCES`] },
       async () => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "error" },
           kaval: { status: "absent" },
         });
@@ -65,7 +66,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: ["E\tprocfs\tmem\tEIO"] },
       async () => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "error" },
           kaval: { status: "absent" },
         });
@@ -75,7 +76,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
 
   it("surfaces a missing requested padi fact through the typed error arm", async () => {
     await withOsfactsMemoryFixture({ rows: [] }, async () => {
-      await expect(samplePadiMemory()).resolves.toEqual({
+      await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
         padi: { status: "error" },
         kaval: { status: "absent" },
       });
@@ -85,7 +86,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
   it("surfaces an osfacts contract failure instead of retaining stale RSS", async () => {
     connectedKaval();
     await withOsfactsMemoryFixture({ rows: [], version: 999 }, async () => {
-      await expect(samplePadiMemory()).resolves.toEqual({
+      await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
         padi: { status: "error" },
         kaval: { status: "error" },
       });
@@ -97,7 +98,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`, "U\t4242\tmem\tESRCH"] },
       async () => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
           kaval: { status: "absent" },
         });
@@ -107,7 +108,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`, "U\t4242\tmem\tEACCES"] },
       async () => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
           kaval: { status: "error" },
         });
@@ -120,7 +121,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [`M\t${process.pid}\t10485760`] },
       async () => {
-        await expect(samplePadiMemory()).resolves.toEqual({
+        await expect(Effect.runPromise(samplePadiMemory)).resolves.toEqual({
           padi: { status: "ok", rssBytes: 10_485_760 },
           kaval: { status: "error" },
         });
@@ -136,7 +137,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
         paused: true,
       },
       async (fixture) => {
-        const sample = samplePadiMemory();
+        const sample = Effect.runPromise(samplePadiMemory);
         await vi.waitFor(() => expect(fixture.hasStarted()).toBe(true));
         endpoint.target = { pid: 4242, startedAt: 2_000 };
         fixture.release();
@@ -154,7 +155,7 @@ describe("samplePadiMemory — osfacts V2 RSS", () => {
     await withOsfactsMemoryFixture(
       { rows: [], version: 999, paused: true },
       async (fixture) => {
-        const sample = samplePadiMemory();
+        const sample = Effect.runPromise(samplePadiMemory);
         await vi.waitFor(() => expect(fixture.hasStarted()).toBe(true));
         endpoint.target = { pid: 4242, startedAt: 2_000 };
         fixture.release();

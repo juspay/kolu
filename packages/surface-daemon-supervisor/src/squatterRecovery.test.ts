@@ -267,7 +267,8 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
       // The OS answers `unattributed`, exactly as darwin's denied fd walk does.
-      readSocketHolders: async () => ({ kind: "unattributed", detail: blind }),
+      readSocketHolders: () =>
+        Effect.succeed({ kind: "unattributed" as const, detail: blind }),
       policy: {
         capability: "not-drainable",
         baked: {

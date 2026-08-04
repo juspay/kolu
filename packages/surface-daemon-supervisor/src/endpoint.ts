@@ -65,6 +65,7 @@ import {
   UnspeakablePeerError,
 } from "./convergence/unspeakable.ts";
 import { dialSocket } from "./dialSocket.ts";
+import type { OsfactsClientError } from "osfacts-client";
 import type { DaemonDriver } from "./driver.ts";
 import {
   registerEndpointPrivate,
@@ -91,26 +92,36 @@ import {
 export { ENDPOINT_STATES, type EndpointState };
 
 /**
- * Supervisor inject for start-qualified process identity. May be async so an
- * osfacts-backed reader does not block the serving event loop (prefer
+ * Supervisor inject for start-qualified process identity. Off the serving event
+ * loop, so an osfacts-backed reader never blocks it — prefer
  * `processIdentityAsync(bin)`, with `bin` resolved once at the composition
- * root). Lives here — beside {@link EndpointSpec} — not in
+ * root. Lives here — beside {@link EndpointSpec} — not in
  * `@kolu/surface-daemon` (daemon-binary half; stale-key boundary).
  * Canonical {@link ProcessIdentity} still comes from the daemon package.
  *
- * **PROMISE-SHAPED ON PURPOSE, and this is the one seam in the package that is.**
- * The reader that answers this ask — `processIdentityAsync`, beside
- * `osfactsSocketHolders` in `osfacts-client` — lives in a workspace OUTSIDE
- * `packages/` that declares no `effect` dependency, and is not scanned by the
- * run-edge governance. Making the ask Effect-shaped would push a dependency
- * add + lockfile + FOD cycle into a package this wave does not own, for a
- * reader whose whole job is to answer one question once. The endpoint lifts it
- * with `Effect.promise` at its single call site instead, so the Promise never
- * travels further than the line that consumes it.
+ * **An Effect, like every other seam on the spec.** This ask used to be
+ * Promise-shaped, and the reason written here was that its answering reader —
+ * `processIdentityAsync`, beside `osfactsSocketHolders` in `osfacts-client` —
+ * lived in a workspace outside `packages/` that declared no `effect`
+ * dependency. That is no longer true: `osfacts-client` takes `effect` as its
+ * one runtime dependency and its spawning verbs hand back Effects, so the
+ * lift this seam existed to contain has nothing left to contain. The endpoint
+ * `yield*`s the inject directly.
+ *
+ * The error channel is `osfacts-client`'s own union — the same choice, for the
+ * same reason, as {@link ReadSocketHolders}. It matters here beyond tidiness:
+ * a failed identity read is a failure this endpoint HAS an answer for (report
+ * `dead`, then propagate — R3-5), and a declared error channel is what keeps it
+ * a failure rather than a defect that sails past the emit and strands the UI at
+ * `connecting`. The old `Effect.tryPromise` argued for that by hand at the call
+ * site; the type states it now.
+ *
+ * `Async` stays in the name to keep it apart from `@kolu/surface-daemon`'s
+ * synchronous `ReadProcessIdentity`, which the sync gate-claim paths still use.
  */
 export type ReadProcessIdentityAsync = (
   pid: number,
-) => ProcessIdentity | undefined | Promise<ProcessIdentity | undefined>;
+) => Effect.Effect<ProcessIdentity | undefined, OsfactsClientError>;
 
 type ConnectedMetadata<M> = [M] extends [undefined]
   ? { metadata?: undefined }
@@ -429,12 +440,12 @@ export interface EndpointSpec<
   ) => Effect.Effect<ConvergenceProbe<Cap> | null, Error>;
   /**
    * Resolve a PID to its current start-qualified identity. Required — the
-   * endpoint never performs platform process traversal itself. May be async so
-   * an osfacts-backed reader does not block the serving event loop: prefer
+   * endpoint never performs platform process traversal itself. Off the serving
+   * event loop, so an osfacts-backed reader does not block it: prefer
    * `processIdentityAsync(bin)` over the sync twin, with `bin` resolved ONCE at
    * the composition root (`bakedOsFactsBin(…)`) rather than per call.
    *
-   * Promise-tolerant deliberately — see {@link ReadProcessIdentityAsync}.
+   * Effect-shaped — see {@link ReadProcessIdentityAsync}.
    */
   readProcessIdentity: ReadProcessIdentityAsync;
   /**
@@ -444,9 +455,7 @@ export interface EndpointSpec<
    * platform traversal itself, and the osfacts binary's path is baked under a
    * name only the composing program knows (`osfactsSocketHolders(bakedOsFactsBin(…))`).
    *
-   * Promise-shaped for the same reason, and with the same containment: it is
-   * answered by `osfacts-client`, which carries no `effect` dependency, and the
-   * endpoint lifts it at the call site rather than letting the Promise spread.
+   * Effect-shaped for the same reason — see {@link ReadSocketHolders}.
    */
   readSocketHolders: ReadSocketHolders;
   /** Spawns the daemon so it outlives us (the survivable-spawn driver). */
@@ -780,14 +789,6 @@ export function createEndpoint<
       catch: (err) => (err instanceof Error ? err : new Error(String(err))),
     });
 
-  const holdersOf = (
-    socketPath: string,
-  ): Effect.Effect<SocketOccupancy, Error> =>
-    Effect.tryPromise({
-      try: () => spec.readSocketHolders(socketPath),
-      catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-    });
-
   const liveServingHolderProbe = (rv: {
     gatePath: string;
     socketPath: string;
@@ -818,19 +819,14 @@ export function createEndpoint<
       }
 
       if (recorded.startUnixUs !== undefined) {
-        // `readProcessIdentity` may answer synchronously or with a Promise —
-        // see {@link ReadProcessIdentityAsync} for why that seam stays as it
-        // is. `Promise.resolve` normalizes both, and the lift ends here.
-        //
-        // `tryPromise`, NOT `promise`: an osfacts read that REJECTS is a
-        // failure this endpoint has an answer for (report `dead`, then
-        // propagate — R3-5), and `Effect.promise` would make it a defect that
-        // sails past `liveServingHolder`'s emit and strands the UI at
-        // `connecting`.
-        const current = yield* Effect.tryPromise({
-          try: () => Promise.resolve(spec.readProcessIdentity(recorded.pid)),
-          catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-        });
+        // Yielded, not lifted: `readProcessIdentity` is an Effect whose
+        // declared errors are `osfacts-client`'s three, so a read that FAILS
+        // stays a failure this endpoint has an answer for (report `dead`, then
+        // propagate — R3-5) instead of a defect that would sail past
+        // `liveServingHolder`'s emit and strand the UI at `connecting`. That
+        // used to be an `Effect.tryPromise`-not-`Effect.promise` argument in
+        // prose; it is the signature now.
+        const current = yield* spec.readProcessIdentity(recorded.pid);
         if (
           current === undefined ||
           !identitiesMatch(
@@ -1105,7 +1101,8 @@ export function createEndpoint<
         case "indeterminate":
           return yield* Effect.fail(new SocketProbeIndeterminateError(rv));
         case "serving": {
-          const reading = taken ?? (yield* holdersOf(rv.socketPath));
+          const reading =
+            taken ?? (yield* spec.readSocketHolders(rv.socketPath));
           // EVERY holder the OS named, ourselves included. This is a REFUSAL
           // message, not a kill decision, so excluding our own pid here would
           // only rob an operator of the one name the OS actually gave — the
@@ -1211,7 +1208,9 @@ export function createEndpoint<
         // flatten them. Only a NAMED holder set is actionable; `none` (nothing
         // holds it) and `unattributed` (something might, unnameably) both mean we
         // cannot pick a kill target, and both resolve through `freeOrFailLoud`.
-        const reading: SocketOccupancy = yield* holdersOf(rv.socketPath);
+        const reading: SocketOccupancy = yield* spec.readSocketHolders(
+          rv.socketPath,
+        );
         if (reading.kind === "unattributed") {
           // Accepting, and the OS would not name who holds it. NOT proof of
           // freedom — do not let the caller spawn onto it. Re-probe: only a
@@ -1408,7 +1407,9 @@ export function createEndpoint<
         // must still be a live holder of THIS socket right now. Flattening the
         // reading's unnamed arms to `[]` is lossless HERE: the question is "is this
         // specific pid among the holders", and `none` / `unattributed` both answer no.
-        const finalHolders = externalHolders(yield* holdersOf(rv.socketPath));
+        const finalHolders = externalHolders(
+          yield* spec.readSocketHolders(rv.socketPath),
+        );
         if (!finalHolders.some((h) => h.pid === reportedPid)) {
           spec.log.warn(
             {

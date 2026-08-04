@@ -71,11 +71,17 @@ export const testAcquireReadIdentity: ReadProcessIdentity = (pid) =>
  * carefully does not. Each consumer's suite passes its own.
  *
  * Resolution is lazy (per call, not per construction) so a suite that never
- * reaches a holder read is not blocked by an unbaked environment.
+ * reaches a holder read is not blocked by an unbaked environment. `suspend`
+ * rather than a bare call, because `bakedOsFactsBin` is on the client's SYNC
+ * island and THROWS: a function whose type says it returns an Effect must
+ * return one, so the throw becomes a defect on the fiber that runs it rather
+ * than an exception out of the expression that merely described the read.
  */
 export function testReadSocketHolders(envVar: string): ReadSocketHolders {
   return (socketPath) =>
-    osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath);
+    Effect.suspend(() =>
+      osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath),
+    );
 }
 
 /**
@@ -86,13 +92,21 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
  * inject from construction to first use, and it let a suite pass without ever
  * exercising the real injection. kolu's suites get it from
  * `./createEndpoint.kolu.testlib.ts`; a suite that never reaches a holder read
- * passes a one-line stub (`async () => ({ kind: "none" })`) and says so.
+ * passes a one-line stub (`() => Effect.succeed({ kind: "none" })`) and says so.
+ *
+ * The spec seam is Effect-shaped and {@link testReadProcessIdentity} is the
+ * SYNC reader (it is shared with `acquirePidGate` pins, whose claim path is
+ * synchronous on purpose), so it is lifted here — `Effect.sync`, not
+ * `Effect.succeed`, because the fake re-reads pid liveness on every call and a
+ * value computed once at construction would answer with a stale `isHolderLive`
+ * for the rest of the suite.
  */
 export function createEndpointForTest<C, I, M = undefined>(
   spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
 ) {
   return createEndpointCore({
     ...spec,
-    readProcessIdentity: testReadProcessIdentity,
+    readProcessIdentity: (pid) =>
+      Effect.sync(() => testReadProcessIdentity(pid)),
   });
 }
