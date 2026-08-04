@@ -7406,6 +7406,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "06c8798df62a27b985bf6f5f9b57a6a8cd198ed2"
+    },
+    {
+      "revisionId": "revision-5ff5cea3e93fef1e1167",
+      "scenarioKey": "scenario-b9ba4e0547586de5e32b",
+      "feature": "features/xyne.feature",
+      "scenario": "Tile chrome lights up with the Xyne badge",
+      "kind": "scenario",
+      "tags": ["@xyne-mock"],
+      "bodyHash": "7befbedb468f375044cc32075c4e5cbf3376ab0d75ccf74a057cf5335265b6e0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "ad299d85fd8f4802ca48b544f0c2e015e4b7795c"
     }
   ]
 }

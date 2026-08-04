@@ -12,10 +12,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
-import {
-  type XyneFixture,
-  writeXyneFixture,
-} from "../support/agent-mock-xyne.ts";
+import { writeXyneFixture } from "../support/agent-mock-xyne.ts";
 import {
   ACTIVE_TERMINAL,
   readBufferText,
@@ -27,14 +24,12 @@ import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 const getXyneDir = () => process.env.KOLU_XYNE_DIR;
 
 let mockCwd: string | null = null;
-let mockFixture: XyneFixture | null = null;
 
 function cleanup() {
   if (mockCwd && fs.existsSync(mockCwd)) {
     fs.rmSync(mockCwd, { recursive: true, force: true });
   }
   mockCwd = null;
-  mockFixture = null;
   const xyneDir = getXyneDir();
   if (xyneDir && fs.existsSync(xyneDir)) {
     fs.rmSync(xyneDir, { recursive: true, force: true });
@@ -78,7 +73,7 @@ When("a Xyne session is mocked", async function (this: KoluWorld) {
   // Write the session tree BEFORE the fake binary starts — the adapter's
   // resolve is read-on-demand, and the sessions-dir externalChanges rewake
   // covers any reconcile-window race.
-  mockFixture = writeXyneFixture({
+  writeXyneFixture({
     xyneDir,
     cwd: mockCwd,
     model: "juspay/kimi-k3",
