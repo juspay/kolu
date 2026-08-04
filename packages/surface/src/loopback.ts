@@ -70,7 +70,9 @@ export function createLoopbackPair(): LoopbackPair {
  * Call it BEFORE the client issues its first call. It cannot race the served
  * surface's own frames: a server writes nothing until it is asked something.
  */
-export function greetLoopback(pair: LoopbackPair): Promise<StdioReadinessProof> {
+export function greetLoopback(
+  pair: LoopbackPair,
+): Promise<StdioReadinessProof> {
   const proof = awaitStdioReadiness({
     read: pair.client.read,
     deadlineMs: 10_000,

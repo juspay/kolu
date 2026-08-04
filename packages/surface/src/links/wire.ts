@@ -26,7 +26,16 @@
 
 import type { Duplex } from "node:stream";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
-import { Cause, Effect, Exit, Layer, Result, Schedule, Scope, Stream } from "effect";
+import {
+  Cause,
+  Effect,
+  Exit,
+  Layer,
+  Result,
+  Schedule,
+  Scope,
+  Stream,
+} from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError";

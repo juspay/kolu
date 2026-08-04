@@ -50,10 +50,7 @@
 import type { Socket } from "node:net";
 import { Duplex, type Readable, type Writable } from "node:stream";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import {
-  isStdioReadinessProof,
-  type StdioReadinessProof,
-} from "./readiness";
+import { isStdioReadinessProof, type StdioReadinessProof } from "./readiness";
 import { duplexWireLink, type WireLink } from "./wire";
 
 /** A `Readable`/`Writable` pair the link reads and writes. For a subprocess

@@ -16,10 +16,7 @@
 
 import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import {
-  createLoopbackPair,
-  greetLoopback,
-} from "@kolu/surface/loopback";
+import { createLoopbackPair, greetLoopback } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { Effect, Option, Stream } from "effect";
 import { describe, expect, it } from "vitest";

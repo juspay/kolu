@@ -72,7 +72,10 @@ type FrontIdentity = PtyHostIdentity;
  *  the module doc), so demanding it would refuse daemons the relay could serve. */
 function connectControlCore(
   socketPath: string,
-): Effect.Effect<DaemonConnection<ControlCoreProbeClient, FrontIdentity>, Error> {
+): Effect.Effect<
+  DaemonConnection<ControlCoreProbeClient, FrontIdentity>,
+  Error
+> {
   return Effect.gen(function* () {
     const socket = yield* dialSocket(socketPath);
     // The socket is BOTH halves so its `close` stays observable to `onClose` —

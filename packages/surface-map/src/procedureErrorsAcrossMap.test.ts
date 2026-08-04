@@ -37,10 +37,7 @@ import {
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import {
-  createLoopbackPair,
-  greetLoopback,
-} from "@kolu/surface/loopback";
+import { createLoopbackPair, greetLoopback } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface } from "@kolu/surface/server";
 import { Cause, Effect, Exit, Schema, Stream } from "effect";

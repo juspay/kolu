@@ -32,10 +32,7 @@ import { createLoopbackPair, greetLoopback } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { implementSurface } from "../server";
 import { serveOverUnixSocket, type UnixSocketListener } from "../unix-socket";
-import {
-  awaitStdioReadiness,
-  writeStdioReadiness,
-} from "./readiness";
+import { awaitStdioReadiness, writeStdioReadiness } from "./readiness";
 import { stdioLink } from "./stdio";
 import { unixSocketLink } from "./unix-socket";
 
