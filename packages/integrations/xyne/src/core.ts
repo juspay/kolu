@@ -129,7 +129,7 @@ function lastModelChange(text: string): string | null {
   const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
-    if (!line || !line.includes("model_change")) continue;
+    if (!line?.includes("model_change")) continue;
     try {
       const entry: unknown = JSON.parse(line);
       if (!entry || typeof entry !== "object") continue;
