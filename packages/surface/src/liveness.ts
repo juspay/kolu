@@ -12,7 +12,7 @@
  * (laptop sleep, Wi-Fi roam, a NAT/proxy evicting an idle connection) fires
  * neither `close` nor `error`, so without a probe the link sits `OPEN` forever
  * and every stream hangs. `@kolu/surface-app`'s `createHeartbeat` (browser leg)
- * and `@kolu/surface-remote`'s HostSession watchdog (ssh leg) both default
+ * and `@kolu/surface-remote`'s `makeSession` watchdog (ssh leg) both default
  * their probe to `probeSurfaceLive` below, so the watchdog is on by construction
  * and there is no probe for an app to leave unwired.
  *

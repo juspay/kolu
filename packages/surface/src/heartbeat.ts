@@ -12,10 +12,13 @@
  * the transport, and it lives HERE once: both legs that need it consume it instead
  * of re-deriving it.
  *
- *   - the BROWSER leg (`@kolu/surface-app`'s partysocket `createHeartbeat`) passes
- *     `isLive: () => ws.readyState === ws.OPEN` and `onStale: () => ws.reconnect()`;
- *   - the SSH leg (`@kolu/surface-remote`'s HostSession) passes
- *     `isLive: () => this.connection === 'connected'` and `onStale: () => this.recheck()`.
+ *   - the BROWSER leg (`@kolu/surface-app/connect`'s wire-shaped `createHeartbeat`
+ *     wrapper) passes `isLive: () => wire.status() === "open"` and
+ *     `onStale: () => wire.forceReconnect()` — it severs the half-open socket and
+ *     the LINK's own retry schedule dials fresh;
+ *   - the SSH leg (`@kolu/surface-remote`'s `makeSession`) passes
+ *     `isLive: () => state.phase === "connected"` (plus a live connection handle)
+ *     and an `onStale` that force-cycles the link through `session.recheck()`.
  *
  * The two variation points the legs differ on — the "is the link live enough to
  * probe?" GATE and the "the link is lying, recover it" ACTION — are the two
@@ -23,7 +26,7 @@
  * single-settle, the skip-overlap, the late-fire-safe dispose, the
  * synchronous-throw branch) is shared.
  *
- * Framework-free: timers only, no SolidJS, no partysocket — so the ssh leg can
+ * Framework-free: timers only, no SolidJS, no socket library — so the ssh leg can
  * consume it without pulling in a browser transport. Lives in `@kolu/surface`
  * (which both legs already depend on) so the dependency arrow points OUT of both.
  */

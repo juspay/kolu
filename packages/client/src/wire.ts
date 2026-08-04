@@ -216,8 +216,12 @@ export const wire: WatchableWire = link.wire;
 // It is `forceReconnect()`, not the old partysocket `close()`/`reconnect()`
 // pair: under Effect the link owns its own retry schedule, so "close and stay
 // closed until told otherwise" no longer exists as a transport state. The
-// harness in `packages/tests/step_definitions/reconnect_steps.ts` must be
-// rewritten against this (W7 — the e2e lane).
+// harness in `packages/tests/step_definitions/reconnect_steps.ts` drives THIS
+// hook: it severs the live socket with `forceReconnect()` and PROVES the
+// severance happened — an `onStatus` recorder armed before the call must catch
+// the status leaving "open", so a drop that severed nothing fails the step
+// instead of passing unconditionally — then waits for the link's own re-dial to
+// bring the wire back to "open".
 (window as Window & { __koluWire?: WatchableWire }).__koluWire = wire;
 
 // kolu serves TWO sibling surfaces over one transport (kolu#1197) — plus the
