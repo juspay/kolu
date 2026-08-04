@@ -44,7 +44,7 @@ export async function exportTranscriptHtml(
   if (!agent) {
     throw new ORPCError("PRECONDITION_FAILED", {
       message:
-        "No active agent session in this terminal — start Claude Code, OpenCode, Codex, or Grok first",
+        "No active agent session in this terminal — start Claude Code, OpenCode, Codex, Grok, or Xyne first",
     });
   }
   const cwd = aw.cwd;
@@ -104,6 +104,10 @@ export async function exportTranscriptHtml(
         pr,
       }),
     )
+    // Xyne has no kolu transcript loader yet (its JSONL format is pi's, but
+    // the kolu-side loader is unwritten) — refuse honestly rather than emit
+    // a degraded export.
+    .with({ kind: "xyne" }, () => null)
     .exhaustive();
   if (!transcript) {
     throw new ORPCError("NOT_FOUND", {

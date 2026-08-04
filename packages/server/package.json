@@ -39,6 +39,7 @@
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",
+    "kolu-xyne": "workspace:*",
     "kolu-common": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",

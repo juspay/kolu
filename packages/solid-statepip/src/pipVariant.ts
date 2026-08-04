@@ -123,6 +123,13 @@ const GLYPH_OPENCODE = fillMark(
   "M22 24H2V0h20zM17 4.8H7v14.4h10z",
 );
 
+/** Xyne "X" monogram — xyne-cli ships no brand mark in simple-icons, so a
+ *  bold geometric X stands in; weight matched to the other filled marks. */
+const GLYPH_XYNE = fillMark(
+  "0 0 24 24",
+  "M5.04 3h4.05L12 9.27 14.91 3h4.05l-4.74 9L18.96 21h-4.05L12 14.73 9.09 21H5.04l4.74-9L5.04 3z",
+);
+
 /** Shell — filled `#` prompt.
  *
  *  Why not the alternatives:
@@ -156,6 +163,8 @@ export function agentGlyph(kind: AgentKind): PipGlyphDef {
       return GLYPH_OPENCODE;
     case "grok":
       return GLYPH_GROK;
+    case "xyne":
+      return GLYPH_XYNE;
     default:
       kind satisfies never;
       return GLYPH_SHELL;

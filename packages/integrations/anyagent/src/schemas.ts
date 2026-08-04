@@ -26,6 +26,7 @@ export const AgentKindSchema = z.enum([
   "codex",
   "opencode",
   "grok",
+  "xyne",
 ]);
 export type AgentKind = z.infer<typeof AgentKindSchema>;
 

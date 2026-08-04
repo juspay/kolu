@@ -64,10 +64,12 @@ see [Remote Access](/remote-access).
 Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
 ships next week works the moment you run it.
 
-Four agents get first-class state today: `claude`, `codex`, `opencode`, and
-`grok` (Grok Build). For these, kolu reads live agent state into the dock
+Five agents get first-class state today: `claude`, `codex`, `opencode`,
+`grok` (Grok Build), and `xyne`. For these, kolu reads live agent state into the dock
 (thinking · tools · waiting · **awaiting you** — including Grok's
-`ask_user_question` prompts). Claude, Codex, OpenCode, and Grok can also export
+`ask_user_question` prompts). Xyne's on-disk transcript carries no live phase,
+so a Xyne tile lights up with its badge and session title but stays in the
+plain waiting state. Claude, Codex, OpenCode, and Grok can also export
 the session as a self-contained HTML chat log or full transcript. Other agents
 still run in tiles; they just do not light up the dock.
 

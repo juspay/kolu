@@ -24,6 +24,7 @@
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",
+    "kolu-xyne": "workspace:*",
     "kolu-opencode": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.3.6"
