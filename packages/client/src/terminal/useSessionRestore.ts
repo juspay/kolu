@@ -132,6 +132,22 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // active terminal" (`{ id: null }`) stays distinct from "no restore answered"
     // (`null`) and does not fall back to that stale blob.
     const restored = latch.restoredActive;
+    // The answer and the collection deltas ride INDEPENDENTLY SCHEDULED client
+    // pipelines over the one socket, so the unary answer's continuation is
+    // reachable AHEAD of a delta the server emitted before it. Seeding while the
+    // answered id is absent from the list drops it in `hydrateFromTerminals` (not
+    // a member of `entries`), silently falls back to `topIds[0]`, and
+    // `markSeeded()` latches the WRONG tile for the rest of the session — no
+    // later delta can repair it. So return WITHOUT consuming the box: `existing`
+    // is a reactive read, the delta re-runs this effect, and the answered
+    // terminal is guaranteed to arrive (the host spawned it, and the standing
+    // collection subscription's snapshot-then-deltas discipline replays it even
+    // across a retry). An answered `{ id: null }` — the host holds no active
+    // terminal — names nothing to wait for and seeds immediately; so does the
+    // blob-fallback path (no answer box), whose ids are legitimately stale.
+    if (restored?.id != null && !existing.some((t) => t.id === restored.id)) {
+      return;
+    }
     latch.markSeeded();
     hydrateFromTerminals(
       joined,

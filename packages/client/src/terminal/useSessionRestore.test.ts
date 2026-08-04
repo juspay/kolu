@@ -630,6 +630,101 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
   });
 });
 
+describe("useSessionRestore — the seed WAITS for the answered tile to reach the list", () => {
+  // The residual channel of the same race. Server-side the restore's collection
+  // deltas are emitted BEFORE the answer, but client-side the unary answer's
+  // continuation and the collection-delta application are independently scheduled
+  // pipelines over one socket — under CPU contention the answer lands first. The
+  // old seed then read a list holding only the FIRST restored tile, consumed the
+  // answered id (naming the SECOND), failed the membership test in
+  // `hydrateFromTerminals`, fell back to `topIds[0]` and `markSeeded()` the wrong
+  // tile permanently — the 20 s e2e timeout on "the active canvas tile should
+  // match the saved-session second tile". Red when reverted: the seed runs on the
+  // partial list and activates `new-0`.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  it("does not seed while the answered id is absent, then seeds it once its delta lands", async () => {
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = {
+      terminals: [],
+      activeTerminalId: "old-1",
+      savedAt: 1,
+      resumableIds: [],
+    };
+    // The host answers with the SECOND tile's fresh id — the delta carrying it
+    // has not been applied on this client yet.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
+              [],
+            );
+            const [meta, setMeta] = createSignal<
+              Record<string, TerminalMetadata>
+            >({});
+            const setActiveSilently = vi.fn();
+            const store = {
+              listSub: Object.assign(() => list(), { pending: () => false }),
+              terminalIds: () =>
+                (list() ?? []).map((t) => t.id) as TerminalId[],
+              getMetadata: (id: TerminalId) => meta()[id],
+              setActiveSilently,
+              activeId: () => null,
+              reconcileLiveIds: () => {},
+            } as unknown as TerminalStore;
+
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(h.savedSession);
+
+            await Effect.runPromise(session.handleRestoreSession({}));
+
+            // (1) Only the FIRST restored tile's row + record have been applied.
+            // The answered id is not in the list, so the seed must NOT run — and
+            // must NOT consume the answer.
+            setMeta({ "new-0": activeMeta() });
+            setList([{ id: "new-0" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // (2) The second tile's delta lands. The seed runs ONCE, on the tile
+            // the host named.
+            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
+            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+
+            // Seeded is latched: a later session push re-seeds nothing.
+            setActiveSilently.mockClear();
+            h.pushSavedSession({
+              terminals: [],
+              activeTerminalId: "new-0",
+              savedAt: 2,
+              resumableIds: [],
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
 describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSeeded reset)", () => {
   // FIX 2: `viewSeeded` latches true on the first live load so a reconnect doesn't
   // re-pan/re-seed. But an in-session `recycleKaval` restore (no page reload)
