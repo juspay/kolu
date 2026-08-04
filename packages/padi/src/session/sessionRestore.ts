@@ -87,15 +87,20 @@ function respawnActive(
   // facts, through its distinct `restoreOnly` arm (an ordinary `createTerminal` can't
   // spell them). Base chrome rides `initial`; the three restore-only facts ride
   // `restoreOnly`.
+  // Every field of both seed shapes is a `Schema.optionalKey`, which accepts an
+  // ABSENT key and REJECTS a present `undefined` one (#17) — so an absent saved
+  // value is OMITTED here, never spelled as `undefined`. Same conditional-spread
+  // idiom `settleRestoreRespawns` uses for `parentId` below; the absence stays
+  // unspellable at the source rather than relying on a downstream truthiness read.
   const info = restoreSpawn(
     t.cwd,
     parentId,
     {
-      themeName: t.themeName,
-      canvasLayout: t.canvasLayout,
-      subPanel: t.subPanel,
-      rightPanel: t.rightPanel,
-      intent: t.intent,
+      ...(t.themeName === undefined ? {} : { themeName: t.themeName }),
+      ...(t.canvasLayout === undefined ? {} : { canvasLayout: t.canvasLayout }),
+      ...(t.subPanel === undefined ? {} : { subPanel: t.subPanel }),
+      ...(t.rightPanel === undefined ? {} : { rightPanel: t.rightPanel }),
+      ...(t.intent === undefined ? {} : { intent: t.intent }),
     },
     {
       // Carry the saved agent-resume facts ONLY when actually resuming, so the closing
@@ -108,18 +113,24 @@ function respawnActive(
       // `updateMemory` never fires to overwrite the seed) — the exact target would persist
       // and a later WAKE would resume the very agent the user declined. So drop both,
       // leaving the bare shell's target at `none`.
-      lastAgentCommand: resume ? t.lastAgentCommand : undefined,
-      restoreTarget: resume ? t.restoreTarget : undefined,
+      ...(resume && t.lastAgentCommand !== undefined
+        ? { lastAgentCommand: t.lastAgentCommand }
+        : {}),
+      ...(resume && t.restoreTarget !== undefined
+        ? { restoreTarget: t.restoreTarget }
+        : {}),
       // Preserve the saved recency across the restart (RISK Q6) — without this the fold
       // reseeds the restored terminal to a fresh (never-active) recency and the dock's
       // recency ranking permanently collapses after a `session.restore`. The parked record
       // already copied this off the saved active record at park time; here it rides the
       // fresh spawn. (Distinct from the client-facing `lifecycle.create`, which drops it so
-      // a genuinely fresh terminal gets padi's clock.) `?? undefined` bridges `AgentMemory`'s
-      // honest `null` (never-active) onto this input's `undefined` absence form — both fall
-      // through to the SAME `seedMemory()` default, so the bridge can't lose the never-active
-      // fact, only its spelling.
-      lastActivityAt: t.lastActivityAt ?? undefined,
+      // a genuinely fresh terminal gets padi's clock.) `AgentMemory`'s honest `null`
+      // (never-active) bridges onto this input's ABSENCE — omitting the key falls through
+      // to the SAME `seedMemory()` default, so the bridge can't lose the never-active fact,
+      // only its spelling.
+      ...(t.lastActivityAt === null
+        ? {}
+        : { lastActivityAt: t.lastActivityAt }),
     },
   );
   // Auto-launch the resume form of the previously captured agent command, if the
