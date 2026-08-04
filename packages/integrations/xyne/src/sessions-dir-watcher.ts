@@ -1,23 +1,30 @@
 /**
- * Process-wide subscription on the per-cwd session directories — the
- * external-change signal that can make `resolveSession` flip without a
- * title event (Xyne's runtime writes the transcript + summary on its own
- * schedule; nothing here is title-driven).
+ * Process-wide subscription on the sessions tree — the external-change
+ * signal that can make `resolveSession` flip without a title event (Xyne's
+ * runtime writes the transcript + summary on its own schedule; this is not
+ * tied to title).
  *
- * Why a dir watcher and not a title event: Xyne creates a NEW transcript
- * file per session inside `sessions/<encoded-cwd>/` — no long-lived pid
- * map like Grok's `active_sessions.json`. The newest transcript in the cwd
- * dir IS the session identity; this watcher is the rewake that lands it.
+ * Xyne creates a NEW transcript per session inside
+ * `agent/sessions/<encoded-cwd>/` — no long-lived pid map like Grok's
+ * `active_sessions.json`. The newest transcript for the cwd IS the session
+ * identity; this watcher is the rewake that lands it.
+ *
+ * Per-cwd transcripts are timestamp-named, so no fixed filename can be
+ * named ahead of time — instead of the filename-filtered
+ * `createDirFilenameWatcher` the other agents use, this installs a single
+ * recursive `fs.watch` on `agent/sessions` filtered to `.jsonl` events,
+ * backed by a 1s `statSync` poll floor on the subtree's newest transcript
+ * (the same hand-rolled, sync-baseline recipe `subscribeFileAppends` uses
+ * for single files — `fs.watchFile`'s async baseline was rejected for
+ * exactly this guarantee shape, juspay/kolu#1754). The consumer's derive
+ * (`deriveXyneInfo` + `agentInfoEqual`) gates repeated wake-ups the same
+ * way the codex WAL fan-out does.
  *
  * Lazy: the orchestrator only calls `install` the first time any terminal
  * reports `isPresent`. One shared watcher for the process — install is
  * once; a second call is a no-op (same contract as codex WAL / grok).
- *
- * Pure observer: never creates `~/.xyne`. When the sessions tree does not
- * exist yet (a first-ever Xyne launch on a fresh home), it watches the
- * nearest existing ancestor for the tree appearing and then attaches the
- * real dir watcher — so padi's once-install latch stays valid and the
- * external-change signal is never permanently lost.
+ * Pure observer: never creates `~/.xyne`; an absent sessions tree simply
+ * reports no edge and the poll floor observes absence.
  */
 
 import fs from "node:fs";
@@ -28,18 +35,65 @@ import { xyneSessionsPresent } from "./core.ts";
 
 let installed = false;
 
+/** Poll cadence for the dropped-edge floor — matches the dir-filename
+ *  watcher's recovery bound. A module constant, not a caller knob. */
+const POLL_MS = 1000;
+
+/** Coarse identity of the sessions tree — the value the poll floor
+ *  diffs to wake the adapter. Joins:
+ *
+ *   1. the newest `<cwd>/<file>.jsonl` path — catches a brand-new cwd
+ *      dir and a new session inside an old one (both flip `resolveSession`),
+ *   2. that file's size+mtime+ino — catches appends to the CURRENT
+ *      newest, so a turn landing between polls is not stranded.
+ *
+ *  Sidecar writes are invisible BY DESIGN: they cannot flip a
+ *  resolution (only the summary-bearing session's own watcher derives
+ *  from them). The identity is intentionally coarse — the adapter
+ *  re-reads and derives on every wake, so any flip is enough; the
+ *  transcript+sidecar pair gives no finer identity on disk. */
+function observeNewest(log?: Logger): string {
+  try {
+    if (!xyneSessionsPresent()) return "absent";
+    let best: string | null = null;
+    for (const cwdDir of fs.readdirSync(SESSIONS_DIR)) {
+      const sub = path.join(SESSIONS_DIR, cwdDir);
+      let names: string[];
+      try {
+        if (!fs.statSync(sub).isDirectory()) continue;
+        names = fs.readdirSync(sub);
+      } catch {
+        continue; // raced with an unlink — the next poll re-reads
+      }
+      for (const name of names) {
+        if (!name.endsWith(".jsonl")) continue;
+        const p = path.join(sub, name);
+        if (best === null || p > best) best = p;
+      }
+    }
+    if (best === null) return "empty";
+    let st: fs.Stats;
+    try {
+      st = fs.statSync(best);
+    } catch {
+      return "raced"; // unlinked between readdir and stat
+    }
+    return `${best}:${st.size}:${st.mtimeMs}:${st.ino}`;
+  } catch (err) {
+    log?.error({ err, dir: SESSIONS_DIR }, "xyne: sessions observe failed");
+    return "error";
+  }
+}
+
 export function subscribeSessionDirs(
   onChange: () => void,
   onError: (err: unknown) => void,
   log?: Logger,
 ): void {
   if (installed) return;
-  // Latch immediately: install is total from here, so a second `install`
-  // call (a later terminal reporting `isPresent`) correctly no-ops even
-  // while the bootstrap below is still waiting for the tree to appear.
   installed = true;
 
-  const fire = (): void => {
+  const emit = (): void => {
     try {
       onChange();
     } catch (err) {
@@ -47,51 +101,41 @@ export function subscribeSessionDirs(
     }
   };
 
-  watchSessionsDir(SESSIONS_DIR, fire, log);
-  log?.info({ dir: SESSIONS_DIR }, "xyne: sessions watcher installed");
-}
-
-/** Watch `dir` for transcript writes, falling back to the nearest existing
- *  ancestor for the dir's appearance when it does not exist yet
- *  (first-ever launch on a fresh home). An `fs.watch` on a watched dir
- *  dies with it, so the fallback must re-poll the root until it lands —
- *  same promote-on-appearance dance the grok / codex watchers use. */
-function watchSessionsDir(dir: string, fire: () => void, log?: Logger): void {
-  if (xyneSessionsPresent()) {
-    try {
-      // Non-recursive on purpose: a new transcript is a file-create inside
-      // `sessions/<encoded-cwd>/`, and a summary/title update is a write
-      // inside the same two levels. A recursive watch (darwin's FSEvents
-      // default) would drag in every subdir Xyne adds later.
-      fs.watch(dir, { recursive: true }, () => fire());
-      return;
-    } catch (err) {
-      log?.error({ err, dir }, "xyne: sessions dir not watchable");
-      return;
+  // Floor — a 1s statSync poll on the subtree's newest-transcript identity.
+  // Baseline captured synchronously at subscribe: an edge/coalesce drop
+  // self-heals within POLL_MS. This is the SAME poll identity the
+  // subscribeFileAppends recipe uses; the per-cwd timestamps sort under
+  // one tree so the newest-transcript identity covers every re-resolution
+  // the adapter can make. Self-rescheduling so slow stats never stack;
+  // unref'd so it never holds the process alive.
+  let observed = observeNewest(log);
+  const poll = (): void => {
+    const cur = observeNewest(log);
+    if (cur !== "error" && cur !== observed) {
+      observed = cur;
+      emit();
     }
-  }
-  // Tree absent — watch the nearest existing ancestor and re-arm when a
-  // path component below `dir` appears. Cheapest correct bootstrap: poll
-  // the ancestor dir; when the root finally exists, promote to the real
-  // watch above. Never mkdir.
-  let ancestor = path.dirname(dir);
-  while (!fs.existsSync(ancestor) && ancestor !== path.dirname(ancestor)) {
-    ancestor = path.dirname(ancestor);
-  }
+    setTimeout(poll, POLL_MS).unref();
+  };
+  setTimeout(poll, POLL_MS).unref();
+
+  // Edge fast path — a recursive watch on the tree. Kept OFF the critical
+  // path: the floor above already recovers within POLL_MS, this only
+  // shortens the common case. A recursive fs.watch is Linux-inotify and
+  // macOS-FSEvents only; on any platform where it throws/dies, the floor
+  // keeps detection exact.
   try {
-    const w = fs.watch(ancestor, () => {
-      if (!xyneSessionsPresent()) return;
-      w.close();
-      watchSessionsDir(dir, fire, log);
+    fs.watch(SESSIONS_DIR, { recursive: true }, (_evt, filename) => {
+      if (filename === null || filename.endsWith(".jsonl")) emit();
+    }).on("error", (err: unknown) => {
+      log?.error({ err, dir: SESSIONS_DIR }, "xyne: sessions watch failed");
     });
-    void w;
   } catch (err) {
-    // No ancestor to watch (a truly empty home): give up loudly — detection
-    // becomes title-event-only for this process, which the honest `state`
-    // already absorbs.
-    log?.error(
-      { err, dir: ancestor },
-      "xyne: no watchable ancestor for sessions",
-    );
+    // Watch failure (e.g. absent tree) is absorbed: the poll floor still
+    // recovers the appearance. Logged at error so a truly broken watcher
+    // is visible, never silent.
+    log?.error({ err, dir: SESSIONS_DIR }, "xyne: sessions dir not watchable");
   }
+
+  log?.info({ dir: SESSIONS_DIR }, "xyne: sessions watcher installed");
 }

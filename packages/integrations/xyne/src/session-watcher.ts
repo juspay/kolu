@@ -9,7 +9,6 @@
  * session watchers).
  */
 
-import fs from "node:fs";
 import path from "node:path";
 import { agentInfoEqual } from "anyagent";
 import {
@@ -88,35 +87,18 @@ export function createXyneWatcher(
   );
 
   // The summary sidecar lands after the first summarized turn — it may not
-  // exist at match time. Edge-watch it directly; when absent, bootstrap on
-  // the parent session dir and re-derive when the basename appears
-  // (title freshness is the only thing this watch drives — the state and
-  // session identity already ride the transcript).
-  try {
-    const w = fs.watch(session.summaryPath, () => schedule());
-    cleanups.push(() => w.close());
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      log?.error(
-        { err, path: session.summaryPath },
-        "xyne: failed to watch summary sidecar",
-      );
-    } else {
-      const dir = path.dirname(session.summaryPath);
-      const base = path.basename(session.summaryPath);
-      try {
-        const w = fs.watch(dir, (_evt, filename) => {
-          if (filename === base || filename === null) schedule();
-        });
-        cleanups.push(() => w.close());
-      } catch (err2) {
-        log?.debug(
-          { err: err2, path: session.summaryPath },
-          "xyne: summary path not watchable yet",
-        );
-      }
-    }
-  }
+  // exist at match time. Same append-robust receptacle as the transcript:
+  // tolerates absence, fires on appearance, and its 1s floor also covers a
+  // summary rewrite whose edge the watch drops (title freshness is the only
+  // thing this subscription drives — the state and identity ride the
+  // transcript above).
+  cleanups.push(
+    subscribeFileAppends(session.summaryPath, schedule, {
+      intervalMs: DEFAULT_APPEND_POLL_MS,
+      log,
+      label: "xyne: summary",
+    }),
+  );
 
   // Standard grep-able watcher-lifecycle line so operator watcher-count
   // correlation sees this per-session watcher come up.
