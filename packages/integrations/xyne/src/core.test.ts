@@ -191,14 +191,14 @@ describe("readLatestModel", () => {
     });
     fs.appendFileSync(
       transcriptPath,
-      JSON.stringify({
+      `${JSON.stringify({
         type: "model_change",
         id: "later",
         parentId: null,
         timestamp: "2026-08-04T03:05:00.000Z",
         provider: "openai",
         modelId: "gpt-5",
-      }) + "\n",
+      })}\n`,
     );
     expect(readLatestModel(transcriptPath)).toBe("openai/gpt-5");
   });
