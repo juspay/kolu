@@ -87,12 +87,17 @@ The measurement is a small, reusable script — not a one-off — so W2.2 re-run
 **identical** method (bench + this note shipped in <PrLink pr={1660} />):
 
 - **`packages/server/bench/typingEchoLatency.ts`** — the client probe. It dials
-  `ws://host:port/rpc/ws` with Node's global `WebSocket`, wraps it in
-  `@kolu/surface`'s `websocketLink`, then for each terminal: `lifecycle.create({})`
-  a bare shell, subscribe to `terminalAttach` (skipping the first frame, which is
-  the scrollback snapshot), and ping single keystrokes **serially** — send one,
+  `ws://host:port/rpc/ws` through `@kolu/surface`'s `websocketLink` — the same link
+  the browser dials, which owns the dial and the reconnect — over the padi host
+  map's own wire group. padi is a keyed map, so every member call is folded into the
+  map's `{ mapKey, input }` envelope for the local host key, exactly as the e2e
+  harness does. Then, for each terminal: `lifecycle.create({})` a bare shell,
+  subscribe to `terminalAttach`, and ping single keystrokes **serially** — send one,
   wait for its echo, record, repeat. Serial by design: only one keystroke is ever
-  in flight, so an echo can never be attributed to the wrong key.
+  in flight, so an echo can never be attributed to the wrong key. Attach frames are
+  a discriminated union, and only a `delta` frame can carry an echo: a `snapshot`
+  (the stream's opening scrollback seed, and any mid-stream overflow re-attach) is
+  never matched against.
 - **`packages/server/bench/run.sh`** — the orchestrator. Boots a **private,
   isolated** kolu (its own kaval via a throwaway `$XDG_RUNTIME_DIR` +
   `KOLU_KAVAL_SOCKET`, its own state dir, a throwaway `$HOME`, an OS-assigned free
@@ -100,8 +105,12 @@ The measurement is a small, reusable script — not a one-off — so W2.2 re-run
   private socket means kolu's always-recycle can only ever reap *its own* kaval —
   it can never touch a production daemon.
 
-Both live under `packages/server/` because the probe imports `@kolu/surface` and
-`ws`, which that package already depends on — no new dependency, no lockfile churn.
+Both live under `packages/server/` because the probe speaks kolu-server's own wire:
+everything it imports (`@kolu/surface`, `@kolu/surface-app`, `@kolu/padi`,
+`kolu-common`) is already that package's, bar the map envelope's `fold` from
+`@kolu/surface-map`, which it carries as a dev dependency. Nothing is hand-rolled —
+re-spelling the ndjson protocol or the map envelope would be a second copy of the
+wire contract, free to drift.
 
 ## Re-running it
 

@@ -49,6 +49,7 @@
   "devDependencies": {
     "@babel/parser": "^7.29.2",
     "@kolu/daemon-test-gate": "workspace:*",
+    "@kolu/surface-map": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "cleye": "^2.3.0",

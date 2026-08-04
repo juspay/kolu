@@ -386,7 +386,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       const deadline = Date.now() + 5000;
       while (!seen && Date.now() < deadline) {
         const n = await iter.next();
-        if (typeof n.value === "string" && n.value.includes(ch)) seen = true;
+        // Contract 3.0 frames are a snapshot/delta union; the echo can only
+        // arrive in a delta (a mid-stream snapshot is a re-attach, not output).
+        if (n.value?.kind === "delta" && n.value.data.includes(ch)) seen = true;
       }
       const ms = Number(process.hrtime.bigint() - t0) / 1e6;
       if (i >= WARMUP && seen) latencies.push(ms);
