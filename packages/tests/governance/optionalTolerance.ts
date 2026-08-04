@@ -21,10 +21,18 @@
  * campaign hit were each found by an e2e failure or a daemon crash — never by a
  * gate.
  *
- * Turning `exactOptionalPropertyTypes` on was measured rather than assumed:
- * ~940 errors across 35 packages (252 distinct sites), including the vendored
- * `osfacts-client` this repo cannot edit (it is grafted from an npins pin). So
- * the rule is enforced the way the run-edge budget is: by enumeration. Every
+ * Turning `exactOptionalPropertyTypes` on is measured rather than assumed, and
+ * the measurement was RE-TAKEN when the grafted `osfacts-client` went
+ * Effect-native: **922 errors across 36 of kolu's own packages — 249 distinct
+ * files, 490 distinct errors** once the same file reported by several packages
+ * is counted once. The earlier reading rested partly on an argument that no
+ * longer holds — that the flag would land on a vendored client this repo could
+ * not edit. osfacts is ours, it lives in juspay/osfacts, and its own tsconfig
+ * turns the flag ON upstream; the grafted client contributes ZERO of the 922.
+ * The decision is unchanged, and now it stands on the number alone: the blast
+ * radius is kolu's own code, in the hundreds, and every one of those sites is a
+ * separate judgement about whether a key should be absent or present-undefined.
+ * So the rule is enforced the way the run-edge budget is: by enumeration. Every
  * `.optional(` call under `packages/` is counted, and the result must equal the
  * list below — path AND count, so a second one added to an already-listed file
  * is a failure too.

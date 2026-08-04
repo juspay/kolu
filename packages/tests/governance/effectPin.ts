@@ -8,16 +8,27 @@
  *    member resolves through;
  * 2. root `pnpm.overrides` (`package.json`) — what collapses transitive
  *    resolution to one copy;
- * 3. the LITERAL specs in the `@kolu/surface*` manifests.
+ * 3. the LITERAL specs in the manifests that must resolve OUTSIDE this
+ *    workspace — the `@kolu/surface*` package roots, and the grafted
+ *    `osfacts-client`.
  *
- * **Why (3) exists at all.** `catalog:` is workspace-local. drishti and odu
- * vendor the `packages/surface*` DIRECTORIES from a content-addressed pin and
- * install their `dependencies` from their own workspace, where kolu's catalog
- * does not exist — so a `catalog:` spec there is unresolvable for the consumer
- * that matters most. Those manifests spell the version literally, and the rest
- * of the workspace must not: a literal anywhere else is a fourth place to forget.
- * The gate enforces BOTH directions — a vendored manifest owes a literal equal
- * to the catalog's, every other manifest owes exactly `catalog:`.
+ * **Why (3) exists at all.** `catalog:` is workspace-local, and two kinds of
+ * manifest here are read somewhere kolu's catalog does not exist:
+ *
+ *   - **vendored OUT.** drishti and odu vendor the `packages/surface*`
+ *     DIRECTORIES from a content-addressed pin and install their `dependencies`
+ *     from their own workspace, so a `catalog:` spec there is unresolvable for
+ *     the consumer that matters most.
+ *   - **grafted IN.** `osfacts-client` is juspay/osfacts' `client-ts/`, copied
+ *     into the tree from the npins pin (`nix/workspace.nix`, and the justfile's
+ *     working-tree twin). Its manifest is authored in THAT repo's workspace,
+ *     which has no kolu catalog to resolve against either — so it owes a
+ *     literal for the mirror-image reason.
+ *
+ * The rest of the workspace must not spell one: a literal anywhere else is a
+ * fourth place to forget. The gate enforces BOTH directions — a manifest that
+ * owes a literal owes one equal to the catalog's, every other manifest owes
+ * exactly `catalog:`.
  *
  * **Why the sites are DISCOVERED, not listed.** A hardcoded list of the nine
  * files is the enumeration-without-a-counter problem the finding named: a tenth
@@ -52,14 +63,32 @@ export function isEffectFamily(pkg: string): boolean {
   return pkg === "effect" || pkg.startsWith("@effect/");
 }
 
-/** The manifests whose version must be spelled LITERALLY: the `@kolu/surface*`
- *  package roots, which external consumers vendor as directories. `example`
- *  trees below them are not vendored and are excluded by the `[^/]*`. */
+/** The `@kolu/surface*` package roots, which external consumers vendor as
+ *  directories. `example` trees below them are not vendored and are excluded by
+ *  the `[^/]*`. */
 const VENDORED_MANIFEST = /^packages\/surface[^/]*\/package\.json$/;
 
 /** True for a manifest an external consumer installs outside kolu's workspace. */
 export function isVendoredManifest(relPath: string): boolean {
   return VENDORED_MANIFEST.test(relPath);
+}
+
+/** The manifest grafted in from the `osfacts` pin — juspay/osfacts'
+ *  `client-ts/package.json`, which is authored and installed in THAT repo's
+ *  workspace. Not `startsWith`: only the graft ROOT is the manifest we mean. */
+export function isGraftedManifest(relPath: string): boolean {
+  return relPath === "osfacts-client/package.json";
+}
+
+/** Why a manifest owes a LITERAL version rather than `catalog:` — the phrase the
+ *  gate's message uses, so a failure explains itself instead of naming a rule.
+ *  `null` for the ordinary workspace member, which owes `catalog:`. */
+export function literalReason(relPath: string): string | null {
+  if (isVendoredManifest(relPath))
+    return "a vendored @kolu/surface* manifest; `catalog:` is workspace-local and does not resolve for drishti/odu";
+  if (isGraftedManifest(relPath))
+    return "the manifest grafted from the `osfacts` pin; it is authored in juspay/osfacts' own workspace, where kolu's catalog does not exist";
+  return null;
 }
 
 const DEP_SECTIONS = [
@@ -120,9 +149,12 @@ export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
   return out;
 }
 
-/** Trees whose manifests kolu does not own or does not ship. `osfacts-client` is
- *  grafted in from another repo's pin (nix/workspace.nix) and is not committed
- *  here, so its manifest is not ours to police. */
+/** Trees with no manifest of kolu's to police — build output, VCS and tool
+ *  state. `osfacts-client` is deliberately NOT here any more: it is grafted from
+ *  the `osfacts` pin rather than committed, but the client now DECLARES an
+ *  effect dependency, and a graft whose Effect disagreed with this workspace's
+ *  would put two copies in one process — exactly the split this gate exists to
+ *  refuse. Not ours to author is not the same as not ours to check. */
 const SKIPPED = new Set([
   "node_modules",
   "dist",
@@ -130,7 +162,6 @@ const SKIPPED = new Set([
   ".direnv",
   ".logs",
   "apm_modules",
-  "osfacts-client",
 ]);
 
 function walkManifests(dir: string, out: string[]): void {
@@ -228,20 +259,27 @@ export function validateEffectPins(pins: readonly EffectPin[]): string {
       );
       continue;
     }
-    if (isVendoredManifest(pin.path)) {
+    const reason = literalReason(pin.path);
+    if (reason !== null) {
       if (pin.spec === version) {
-        vendoredLiterals += 1;
+        if (isVendoredManifest(pin.path)) vendoredLiterals += 1;
       } else {
         problems.push(
-          `  ${describe(pin)} — a vendored @kolu/surface* manifest must spell the literal ${version}; \`catalog:\` is workspace-local and does not resolve for drishti/odu.`,
+          `  ${describe(pin)} — must spell the literal ${version}: it is ${reason}.`,
         );
       }
     } else if (pin.spec !== CATALOG_REF) {
       problems.push(
-        `  ${describe(pin)} — must be \`${CATALOG_REF}\`; only the vendored @kolu/surface* manifests spell a literal version.`,
+        `  ${describe(pin)} — must be \`${CATALOG_REF}\`; only the manifests read outside this workspace spell a literal version.`,
       );
     }
   }
+  // Only the VENDORED literals are required to exist: those files are committed
+  // here, so their disappearance is a kolu edit and a real regression. The
+  // grafted manifest is a copy of another repo's file that a bare checkout has
+  // not materialised yet, and osfacts is free to stop depending on Effect — so
+  // it is policed WHEN PRESENT rather than demanded. (A graft that failed to
+  // happen at all fails the `pnpm install` this gate runs after, loudly.)
   if (vendoredLiterals === 0) {
     problems.push(
       "  no vendored @kolu/surface* manifest spells a literal version — the external-consumer pins have vanished.",

@@ -21,6 +21,9 @@ import { describe, expect, it } from "vitest";
 import {
   backfillSavedSession,
   DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
+  type PadiProcessMemory,
+  PadiProcessMemorySchema,
   PersistedSnapshotSchema,
   SavedSessionSchema,
   SavedTerminalSchema,
@@ -198,6 +201,72 @@ describe("PersistedSnapshot — the restore-relevant projection, in bytes", () =
         Schema.encodeUnknownSync(PersistedSnapshotSchema)(decoded),
       ),
     ).toBe('{"cwd":"/repo","git":null,"pr":{"kind":"absent"}}');
+  });
+});
+
+describe("PadiProcessMemory — the processMemory cell's wire bytes", () => {
+  // The gap this fills: `ProcessRss` has a byte fixture in `@kolu/terminal-vocab`
+  // and `PortInfo` has one beside it, but the STRUCT that carries two of them
+  // over padi's `processMemory` cell had none — so key order and the shape of
+  // each arm rested on decode equality, which is blind to both. It matters here
+  // because `samplePadiMemory` is the only writer and it now composes the arms
+  // from an Effect fold rather than an async try/catch: the fold is free to
+  // reorder or widen a field without any decode test noticing.
+  const encode = (value: PadiProcessMemory): string =>
+    JSON.stringify(Schema.encodeUnknownSync(PadiProcessMemorySchema)(value));
+
+  it("keeps padi BEFORE kaval, each an independent three-way arm", () => {
+    expect(
+      encode({
+        padi: { status: "ok", rssBytes: 10_485_760 },
+        kaval: { status: "absent" },
+      }),
+    ).toBe(
+      '{"padi":{"status":"ok","rssBytes":10485760},"kaval":{"status":"absent"}}',
+    );
+  });
+
+  it("the three arms of each side survive the round trip byte-for-byte", () => {
+    // A raced-away kaval beside a readable padi, and the whole-read failure —
+    // the two arms `samplePadiMemory`'s fold must never collapse into each other.
+    expect(
+      encode({
+        padi: { status: "ok", rssBytes: 1 },
+        kaval: { status: "error" },
+      }),
+    ).toBe('{"padi":{"status":"ok","rssBytes":1},"kaval":{"status":"error"}}');
+    expect(
+      encode({ padi: { status: "error" }, kaval: { status: "error" } }),
+    ).toBe('{"padi":{"status":"error"},"kaval":{"status":"error"}}');
+    expect(encode(DEFAULT_PADI_PROCESS_MEMORY)).toBe(
+      '{"padi":{"status":"absent"},"kaval":{"status":"absent"}}',
+    );
+  });
+
+  it("an `ok` arm without rssBytes is REJECTED — the number is the whole fact", () => {
+    expect(
+      accepts(PadiProcessMemorySchema, {
+        padi: { status: "ok" },
+        kaval: { status: "absent" },
+      }),
+    ).toBe(false);
+  });
+
+  it("a stale rssBytes on a NON-ok arm never reaches the wire", () => {
+    // The read is tolerant, as everywhere else here: the extra key decodes
+    // rather than failing the frame. What must not happen is the number
+    // SURVIVING — an `absent` that still carried an rssBytes would let a
+    // consumer read a dead process's last RSS as current. The bytes are where
+    // that is visible; decode equality is not.
+    const encoded = Schema.encodeUnknownSync(PadiProcessMemorySchema)(
+      Schema.decodeUnknownSync(PadiProcessMemorySchema)({
+        padi: { status: "absent", rssBytes: 1 },
+        kaval: { status: "error", rssBytes: 2 },
+      }),
+    );
+    expect(JSON.stringify(encoded)).toBe(
+      '{"padi":{"status":"absent"},"kaval":{"status":"error"}}',
+    );
   });
 });
 

@@ -191,9 +191,10 @@ validateAwaitedFaceCalls(collectAwaitedFaceCalls(repoRoot));
 // The `Schema.optional` tolerance allowlist (B3) — the third scan of the same
 // family. `optionalKey` is the migration's law; the four fields that break it
 // sit on forwarding paths where absence cannot be produced at the source. With
-// `exactOptionalPropertyTypes` off (its blast radius is ~940 errors across 35
-// packages, and it would land on the vendored osfacts-client this repo cannot
-// edit), nothing else distinguishes a deliberate shim from a fifth accident.
+// `exactOptionalPropertyTypes` off — re-measured after the osfacts client went
+// Effect-native: 922 errors across 36 of kolu's OWN packages (249 files), none
+// of them in the graft, which turns the flag on upstream — nothing else
+// distinguishes a deliberate shim from a fifth accident.
 const optionalShims = collectOptionalTolerance(repoRoot);
 validateOptionalTolerance(optionalShims, OPTIONAL_TOLERANCE_ALLOWLIST);
 const optionalShimSites = [...optionalShims.values()].reduce(

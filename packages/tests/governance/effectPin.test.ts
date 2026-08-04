@@ -13,7 +13,9 @@ import {
   catalogPins,
   type EffectPin,
   isEffectFamily,
+  isGraftedManifest,
   isVendoredManifest,
+  literalReason,
   manifestPins,
   overridePins,
   validateEffectPins,
@@ -39,6 +41,13 @@ const overrides = (...pkgs: string[]): EffectPin[] =>
 
 const vendored: EffectPin = {
   path: "packages/surface/package.json",
+  where: "dependencies",
+  pkg: "effect",
+  spec: V,
+};
+
+const grafted: EffectPin = {
+  path: "osfacts-client/package.json",
   where: "dependencies",
   pkg: "effect",
   spec: V,
@@ -174,8 +183,52 @@ test("a vendored manifest that switched to `catalog:` fails — it does not reso
         ...overrides("effect"),
         { ...vendored, spec: "catalog:" },
       ]),
-    /vendored @kolu\/surface\* manifest must spell the literal/,
+    /must spell the literal 4\.0\.0-beta\.102: it is a vendored @kolu\/surface\* manifest/,
   );
+});
+
+test("only the graft ROOT is grafted — a path merely under it is not", () => {
+  assert.ok(isGraftedManifest("osfacts-client/package.json"));
+  assert.ok(!isGraftedManifest("osfacts-client/example/package.json"));
+  assert.ok(!isGraftedManifest("packages/padi/package.json"));
+});
+
+test("each literal-owing manifest gives its OWN reason, and a member gives none", () => {
+  // The two reasons are mirror images and must not be conflated: one manifest
+  // is vendored OUT of this workspace, the other is grafted IN from another.
+  assert.match(
+    literalReason("packages/surface/package.json") ?? "",
+    /drishti\/odu/,
+  );
+  assert.match(
+    literalReason("osfacts-client/package.json") ?? "",
+    /juspay\/osfacts' own workspace/,
+  );
+  assert.equal(literalReason("packages/padi/package.json"), null);
+});
+
+test("the grafted osfacts-client manifest is policed, not skipped", () => {
+  // It used to be excluded outright — the client was zero-dependency, so there
+  // was nothing to disagree about. It declares `effect` now, and a graft on a
+  // different Effect than this workspace would put two copies in one process.
+  assert.equal(validateEffectPins(agreeing(grafted)), V);
+  assert.throws(
+    () => validateEffectPins(agreeing({ ...grafted, spec: "4.0.0-beta.101" })),
+    /osfacts-client\/package\.json.*must spell the literal 4\.0\.0-beta\.102/s,
+  );
+});
+
+test("the grafted manifest owes a LITERAL — `catalog:` does not resolve in osfacts' workspace", () => {
+  assert.throws(
+    () => validateEffectPins(agreeing({ ...grafted, spec: "catalog:" })),
+    /osfacts-client\/package\.json.*grafted from the `osfacts` pin/s,
+  );
+});
+
+test("an ABSENT graft still passes — the vendored literals are the required ones", () => {
+  // A bare checkout has not materialised `osfacts-client/` yet, and osfacts is
+  // free to stop depending on Effect. Neither is a version split.
+  assert.equal(validateEffectPins(agreeing()), V);
 });
 
 test("a stale literal in a vendored manifest fails against the catalog", () => {
