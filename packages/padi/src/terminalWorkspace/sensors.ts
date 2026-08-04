@@ -1042,11 +1042,16 @@ export function startSensors(
       log,
       commandRooted,
     );
-  const stopClaude = startAgent(claudeCodeAdapter);
-  const stopCodex = startAgent(codexAdapter);
-  const stopOpenCode = startAgent(opencodeAdapter);
-  const stopGrok = startAgent(grokAdapter);
-  const stopXyne = startAgent(xyneAdapter);
+  // The heterogeneous `AgentAdapter<unknown, any>[]` (matches anyagent's own
+  // heterogeneous-rows shape — see the adapters table in terminal-vocab).
+  const AGENTS: AgentAdapter<unknown, any>[] = [
+    claudeCodeAdapter,
+    codexAdapter,
+    opencodeAdapter,
+    grokAdapter,
+    xyneAdapter,
+  ];
+  const agentStops = AGENTS.map(startAgent);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   return () => {
@@ -1054,11 +1059,7 @@ export function startSensors(
     stopAgentCommand();
     stopGit();
     stopPr();
-    stopClaude();
-    stopCodex();
-    stopOpenCode();
-    stopGrok();
-    stopXyne();
+    for (const stop of agentStops) stop();
     stopProcess();
     stopPorts();
   };
