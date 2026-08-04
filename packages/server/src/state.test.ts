@@ -147,6 +147,55 @@ describe("migratePreferences_1_34_0", () => {
   });
 });
 
+describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
+  /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
+   *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
+   *  `viewerMode` seed), so these three ARE the whole walk a pre-1.30 file
+   *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
+   *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
+   *  1.34.0 an `attentionAlerts` the user never chose. */
+  const walkLadder = (blob: Record<string, unknown>) =>
+    migratePreferences_1_34_0(
+      migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+    );
+
+  /** The literal shape a pre-1.30 install carries on disk: the retired
+   *  `shuffleTheme` boolean, the pre-1.32 `rightPanel.collapsed` beside the
+   *  geometry, and — when the user touched it — the pre-1.34 `activityAlerts`. */
+  const pre_1_30 = (alerts?: boolean): Record<string, unknown> => ({
+    seenTips: ["shuffle"],
+    startupTips: true,
+    shuffleTheme: false,
+    scrollLock: true,
+    ...(alerts !== undefined && { activityAlerts: alerts }),
+    colorScheme: "dark",
+    terminalRenderer: "auto",
+    rightPanel: { collapsed: true, size: 0.25, codeTabTreeSize: 0.35 },
+  });
+
+  it("an OFF activityAlerts survives the full walk (the defaults spread must not outrank it)", () => {
+    const migrated = walkLadder(pre_1_30(false));
+    expect(migrated.attentionAlerts).toBe(false);
+    expect(DEFAULT_PREFERENCES.attentionAlerts).toBe(true); // guards the above from a default flip
+    expect(migrated).not.toHaveProperty("activityAlerts");
+    // The other two carry-forwards still land, so the fix did not cost them.
+    expect(migrated.newTerminalTheme).toBe("inherit");
+    expect(migrated.newTerminalCollapsed).toBe(true);
+  });
+
+  it("an ON activityAlerts survives the full walk too", () => {
+    const migrated = walkLadder(pre_1_30(true));
+    expect(migrated.attentionAlerts).toBe(true);
+    expect(migrated).not.toHaveProperty("activityAlerts");
+  });
+
+  it("a blob that never set activityAlerts lands on the default", () => {
+    const migrated = walkLadder(pre_1_30());
+    expect(migrated.attentionAlerts).toBe(DEFAULT_PREFERENCES.attentionAlerts);
+    expect(migrated).not.toHaveProperty("activityAlerts");
+  });
+});
+
 describe("backfillRemoteUrl", () => {
   it("backfills remoteUrl: null on an already-migrated git record missing the field", () => {
     // The common shape: a session saved between the 1.18 migration and 1.25

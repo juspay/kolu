@@ -169,7 +169,7 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     expect(JSON.stringify(migrated)).toBe(
       `{"seenTips":["shuffle"],"startupTips":true,"newTerminalTheme":"inherit",` +
         `"newTerminalCollapsed":true,"shuffleBehavior":"auto","scrollLock":true,` +
-        `"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",` +
+        `"attentionAlerts":false,"colorScheme":"dark","terminalRenderer":"auto",` +
         `"rightPanel":{"size":0.25,"codeTabTreeSize":0.35}}`,
     );
     // …and it DECODES. This is the assertion a drifted zod→Schema mapping breaks:
@@ -177,19 +177,16 @@ describe("the migration ladder over legacy on-disk blobs", () => {
     // (#1237's EVENT_ITERATOR_VALIDATION_FAILED).
     expect(accepts(PreferencesSchema, migrated)).toBe(true);
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(migrated);
-    // The 1.30 split and the 1.32 carry-forward both survive the walk.
+    // All three carry-forwards survive the walk.
     expect(decoded.newTerminalTheme).toBe("inherit");
     expect(decoded.newTerminalCollapsed).toBe(true);
-    // PRE-EXISTING ladder behaviour, recorded rather than blessed: the 1.32 step
-    // spreads today's `DEFAULT_PREFERENCES`, which already carries
-    // `attentionAlerts: true`, so by the time the 1.34 rename runs the record
-    // LOOKS already-migrated and drops the legacy `activityAlerts: false` instead
-    // of carrying it forward. A pre-1.30 install therefore re-enables alerts on
-    // upgrade. That is the shipped zod-era behaviour, byte-for-byte — this
-    // migration must not change it, and a deliberate fix is its own change with
-    // its own ladder step. (The rename itself, walked WITHOUT the 1.32 step, does
-    // carry the OFF value — pinned in `state.test.ts`.)
-    expect(decoded.attentionAlerts).toBe(true);
+    // The cross-rung one, and the only assertion here whose bytes moved off the
+    // shipped zod-era fixture: the 1.32 step spreads today's
+    // `DEFAULT_PREFERENCES`, which carries `attentionAlerts: true`, so the 1.34
+    // rename is handed a new key the user never chose. It must still take its
+    // answer from the legacy `activityAlerts: false` — a pre-1.30 install that
+    // silenced alerts must not have them re-enabled by an upgrade.
+    expect(decoded.attentionAlerts).toBe(false);
   });
 
   it("a 1.32-era blob (pre-rename alerts) migrates to decodable bytes", () => {

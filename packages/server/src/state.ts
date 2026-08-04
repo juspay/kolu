@@ -110,33 +110,40 @@ export function migratePreferences_1_32_0(
  *  (terminology standardization on "attention"; same boolean meaning, same
  *  `true` default). CARRY the old value forward: a user who turned alerts OFF
  *  keeps them off rather than silently reverting to the default on upgrade.
- *  Keyed off the PRESENCE of the old key and only when the new key is absent, so
- *  a record already carrying `attentionAlerts` (a fresh ≥1.34 install) is
- *  returned untouched. The legacy `activityAlerts` key is dropped so the blob
- *  matches the schema exactly.
+ *  The legacy `activityAlerts` key is dropped so the blob matches the schema
+ *  exactly.
+ *
+ *  Keyed off the PRESENCE of the legacy key, which ALWAYS wins over an
+ *  `attentionAlerts` already sitting on the record — the same legacy-field-wins
+ *  rule `migratePreferences_1_30_0` states, and for the same reason. A pre-1.34
+ *  blob reaches this step having walked every spread-`DEFAULT_PREFERENCES` rung
+ *  below it (1.3.0, 1.4.0, 1.6.0, 1.7.0, 1.10.0, 1.32.0), each of which injects
+ *  TODAY's `attentionAlerts: true` into whatever it touches — so the new key's
+ *  mere presence proves nothing about user intent, while the legacy key's
+ *  presence does. A record carrying a genuinely user-chosen `attentionAlerts`
+ *  has by definition already run this step, and this step drops
+ *  `activityAlerts`, so the legacy key can never reappear to outrank it.
  *
  *  Exported so `state.test.ts` can exercise the conversion directly without
  *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
 export function migratePreferences_1_34_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Already migrated (a fresh ≥1.34 record) — just drop any stray legacy key.
-  if ("attentionAlerts" in current) {
-    const { activityAlerts: _drop, ...rest } = current;
-    return rest;
-  }
   const { activityAlerts, ...rest } = current;
-  // ALWAYS produce a boolean `attentionAlerts` — carry the legacy value forward
-  // when present, else the default. A blob that never explicitly set
+  // Overwriting an existing `attentionAlerts` through the spread keeps that
+  // key's original position, so a record that only ever had the default
+  // injected changes one VALUE on disk rather than being reordered.
+  if (typeof activityAlerts === "boolean")
+    return { ...rest, attentionAlerts: activityAlerts };
+  // Already migrated (a fresh ≥1.34 record), or default-injected by an earlier
+  // rung with no legacy key left to correct it — either way the value stands.
+  if (typeof rest.attentionAlerts === "boolean") return rest;
+  // ALWAYS produce a boolean `attentionAlerts`. A blob that never explicitly set
   // `activityAlerts` (relied on the old default) must NOT migrate to a MISSING
   // `attentionAlerts`: `confStore` reads the raw object with no schema-default
   // back-fill, so an absent key surfaces as `undefined` on the client and
   // silently disables ALL attention alerts.
-  const attentionAlerts =
-    typeof activityAlerts === "boolean"
-      ? activityAlerts
-      : DEFAULT_PREFERENCES.attentionAlerts;
-  return { ...rest, attentionAlerts };
+  return { ...rest, attentionAlerts: DEFAULT_PREFERENCES.attentionAlerts };
 }
 
 /** What conf stores to disk — survives server restart. Internal: each domain module
@@ -651,6 +658,12 @@ export const store = new Conf<PersistedState>({
     // on "attention"; same boolean, same `true` default). Carry the old value
     // forward so a user who turned alerts off keeps them off — see
     // `migratePreferences_1_34_0` for the rename (legacy-key-wins, drop-old).
+    // NO new rung repairs a store that already walked this ladder while the
+    // legacy key lost to a spread-injected default: that store now reads
+    // `attentionAlerts: true` with no `activityAlerts` left, which is
+    // byte-identical to a genuine `true`. The loss is undetectable, so it is
+    // uncorrectable — only a blob still sitting BELOW 1.34.0 can be migrated
+    // right, and this rung now does.
     "1.34.0": (store: Conf<PersistedState>) => {
       store.set(
         "preferences",
