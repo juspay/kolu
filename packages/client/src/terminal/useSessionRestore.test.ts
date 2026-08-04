@@ -111,19 +111,22 @@ vi.mock("./useSubPanel", () => ({
     setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));
-const toastSpy = vi.hoisted(() => ({ success: vi.fn() }));
+const toastSpy = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,
     success: toastSpy.success,
-    error: () => {},
+    error: toastSpy.error,
     warning: () => {},
   }),
 }));
 vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
-import { useSessionRestore } from "./useSessionRestore";
+import {
+  ANSWERED_TILE_DEADLINE_MS,
+  useSessionRestore,
+} from "./useSessionRestore";
 import type { TerminalStore } from "./useTerminalStore";
 
 // Wire the saved-session cell's reactivity now that `solid-js` has loaded (the
@@ -718,6 +721,154 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
           } catch (err) {
             dispose();
             reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — that wait is BOUNDED (the answered tile never arrives)", () => {
+  // The wait above defers on a reactive read, so a row that NEVER arrives defers
+  // FOREVER: the old bug was the wrong tile, the unbounded wait's failure mode is
+  // NO tile. Only a STALE answer can reach that state (the healthy path's delta is
+  // already in-process when the answer's continuation runs; a reconnect replays a
+  // fresh snapshot which either holds the id or proves it gone), so the deadline
+  // seeds conservatively from the blob-fallback path and reports the anomaly.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  /** The three reactive inputs the deadline arbitrates, plus the seed spy. */
+  function deferringHarness() {
+    const [list, setList] = createSignal<TerminalInfo[] | undefined>([]);
+    const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
+    const setActiveSilently = vi.fn();
+    const store = {
+      listSub: Object.assign(() => list(), { pending: () => false }),
+      terminalIds: () => (list() ?? []).map((t) => t.id) as TerminalId[],
+      getMetadata: (id: TerminalId) => meta()[id],
+      setActiveSilently,
+      activeId: () => null,
+      reconcileLiveIds: () => {},
+    } as unknown as TerminalStore;
+    /** Deliver a restored tile's row AND its composed record together. */
+    const deliver = (...ids: string[]) => {
+      setMeta(Object.fromEntries(ids.map((id) => [id, activeMeta()])));
+      setList(ids.map((id) => ({ id })) as TerminalInfo[]);
+    };
+    return { store, deliver, setActiveSilently };
+  }
+
+  /** The saved blob the restore consumed — its `activeTerminalId` names a
+   *  PRE-restore id, so the fallback path can only land on `topIds[0]`. */
+  const consumedBlob = {
+    terminals: [],
+    activeTerminalId: "old-1",
+    savedAt: 1,
+    resumableIds: [],
+  };
+
+  beforeEach(() => {
+    toastSpy.error.mockClear();
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = consumedBlob;
+    // The host answers with a tile whose collection row this client must wait for.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+  });
+
+  it("seeds via the blob fallback and reports, once the deadline passes with the answered id still absent", async () => {
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, deliver, setActiveSilently } = deferringHarness();
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+
+            // Real timers through the restore call itself — the deadline is armed
+            // only once the seed defers, which is strictly after this resolves.
+            await Effect.runPromise(session.handleRestoreSession({}));
+            vi.useFakeTimers();
+
+            // Only the FIRST restored tile ever lands. `new-1` is stale: the host
+            // that answered no longer holds it.
+            deliver("new-0");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // The wait holds for the whole deadline — this is the existing
+            // behavior, and the window a healthy delta lands in.
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS - 1);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            // The deadline fires: EXACTLY one seed, down the blob-fallback path —
+            // the consumed blob's `old-1` is in no live set, so `topIds[0]`.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-0");
+            expect(toastSpy.error).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error.mock.calls[0]?.[0]).toContain("new-1");
+
+            // Seeded is latched: a late arrival of the answered id changes nothing
+            // (the box was consumed, so it cannot gate or seed a second time).
+            deliver("new-0", "new-1");
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error).toHaveBeenCalledTimes(1);
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          } finally {
+            vi.useRealTimers();
+          }
+        })();
+      });
+    });
+  });
+
+  it("an arrival a tick before the deadline seeds the answered tile and DISARMS the timer", async () => {
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, deliver, setActiveSilently } = deferringHarness();
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+
+            await Effect.runPromise(session.handleRestoreSession({}));
+            vi.useFakeTimers();
+
+            deliver("new-0");
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS - 1);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // The delta lands with one millisecond to spare — the ordinary path.
+            deliver("new-0", "new-1");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            // No LATE fire: the seed disarmed the timer, so the deadline's instant
+            // (and every instant after) reports nothing and re-seeds nothing.
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS * 2);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          } finally {
+            vi.useRealTimers();
           }
         })();
       });

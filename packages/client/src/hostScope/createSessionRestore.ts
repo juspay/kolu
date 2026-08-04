@@ -74,6 +74,14 @@ export interface HostRestoreLatch {
   /** Record `session.restore`'s answer. Read once by the next view seed, which
    *  clears it — a consumed answer must never seed a LATER hydration. */
   reportRestoredActive(id: string | null): void;
+  /** Drop an answer the seed could NOT use: the answered terminal never reached
+   *  this host's `terminals` collection, so the seed's wait for it is over. The
+   *  box is cleared WITHOUT advancing the phase — the next hydration seeds from
+   *  the persisted marker instead of gating forever on an id the host no longer
+   *  holds. Distinct from `markSeeded`, which spends an answer the seed actually
+   *  consumed; both leave `restoredActive` null, so "the answer seeds exactly one
+   *  hydration" still holds. */
+  expireRestoredActive(): void;
 }
 
 export function createSessionRestore(): HostRestoreLatch {
@@ -101,6 +109,9 @@ export function createSessionRestore(): HostRestoreLatch {
     },
     reportRestoredActive(id: string | null) {
       restoredActive = { id };
+    },
+    expireRestoredActive() {
+      restoredActive = null;
     },
   };
 }

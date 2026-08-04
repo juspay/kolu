@@ -4,7 +4,7 @@ import type { SavedSession, TerminalMetadata } from "@kolu/padi/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { toast } from "solid-sonner";
 import { deepLinkFocusIntent } from "../deepLinkFocusIntent";
 import { activeScope } from "../hostScope/hostScopes";
@@ -26,6 +26,17 @@ import { containingTileOf, descendantsByRoot } from "./terminalTree";
  *  the terminal-list row — just `{ id }`, derived from the collection's keys. */
 type HydrationEntry = { t: { id: TerminalId }; m: TerminalMetadata };
 
+/** How long the view seed waits for the answered tile's collection row before
+ *  seeding without it. Two orders of magnitude above the only wait the healthy
+ *  path can incur (one event-loop drain of an already-in-process delta — see the
+ *  deadline's argument at {@link useSessionRestore}'s hydration effect) and an
+ *  order of magnitude above a fence re-subscribe's snapshot replay
+ *  (`STREAM_RETRY_DELAY_MS` = 1 s + one round trip), so firing means the answer
+ *  is STALE, never that the wait was merely slow. Short enough that the only
+ *  state it can strand — a restored canvas with no seeded tile — is not a
+ *  session-long dead end. */
+export const ANSWERED_TILE_DEADLINE_MS = 10_000;
+
 export function useSessionRestore(deps: { store: TerminalStore }) {
   const { store } = deps;
   const subPanel = useSubPanel();
@@ -38,6 +49,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  resolves (success or failure). The restore card stays mounted
    *  while this is true so the click target doesn't detach mid-flight. */
   const [isRestoring, setIsRestoring] = createSignal(false);
+
+  // ── The answered tile's arrival deadline ────────────────────────────────────
+  // The seed below defers while the answered id is absent from the collection.
+  // The deadline bounds that wait. ONE timer, owned: `armedFor` is the ANSWER BOX
+  // it belongs to (a fresh object per `reportRestoredActive`), so the deltas that
+  // re-run the effect find it already armed and never restart it — the wait is
+  // 10 s from the answer, not 10 s from the last delta. Disarmed the moment the
+  // seed proceeds (arrival or expiry) and on owner disposal, so no timer outlives
+  // the hook.
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let deadlineArmedFor: object | null = null;
+  /** Bumped when a deadline fires. `restoredActive` is a NON-reactive gate, so
+   *  consuming the box cannot re-run the hydration effect by itself; this is the
+   *  reactive nudge that does, read by the effect ONLY on the runs that defer. */
+  const [expirations, noteExpiration] = createSignal(0);
+  function disarmDeadline() {
+    if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+    deadlineTimer = undefined;
+    deadlineArmedFor = null;
+  }
+  onCleanup(disarmDeadline);
 
   // Hydrate from server state. ONE named `HydrationPhase` (pending → decided →
   // seeded, `hostScope/createSessionRestore`) tracks TWO once-only steps:
@@ -146,8 +178,42 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
     // terminal — names nothing to wait for and seeds immediately; so does the
     // blob-fallback path (no answer box), whose ids are legitimately stale.
     if (restored?.id != null && !existing.some((t) => t.id === restored.id)) {
+      // Tracked ONLY on the runs that defer — the deadline's expiry consumes the
+      // box non-reactively, so this read is what turns that into a re-run.
+      expirations();
+      // The wait is BOUNDED, and on an unbroken link the bound is unreachable.
+      // The server emits the collection delta BEFORE the answer; the socket is
+      // FIFO and the client's demuxer must read EVERY frame to route it, so by
+      // the time the answer's continuation runs the delta is already in-process
+      // in the collection pipeline — its application is scheduler-bounded (an
+      // event-loop drain), never network-bounded. A broken link cannot extend
+      // that either: the per-subscription fence re-subscribes and replays a FRESH
+      // snapshot of the server's CURRENT registry, which either holds the id (it
+      // arrives, the seed proceeds) or does not — and a post-reconnect snapshot
+      // lacking the id is precisely a STALE answer (the daemon no longer holds
+      // that terminal, e.g. a padi recycle inside the window), which no amount of
+      // waiting cures. So the deadline converts the stale-answer hang — the only
+      // reachable non-arrival — into a conservative seed plus a loud report, and
+      // fires on nothing else.
+      if (deadlineArmedFor !== restored) {
+        disarmDeadline();
+        deadlineArmedFor = restored;
+        const answered = restored.id;
+        deadlineTimer = setTimeout(() => {
+          disarmDeadline();
+          // Consume the box so it cannot gate a second time: the next run of this
+          // effect falls through to the blob-fallback path (`fromServer
+          // ?.activeTerminalId ?? null`, then `topIds[0]`).
+          latch.expireRestoredActive();
+          toast.error(
+            `Restore reported terminal ${answered} as active, but it never appeared on this host — seeding the view without it`,
+          );
+          noteExpiration((n) => n + 1);
+        }, ANSWERED_TILE_DEADLINE_MS);
+      }
       return;
     }
+    disarmDeadline();
     latch.markSeeded();
     hydrateFromTerminals(
       joined,
