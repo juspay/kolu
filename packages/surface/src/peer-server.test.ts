@@ -13,7 +13,7 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
 import { stdioLink } from "./links/stdio";
-import { createLoopbackPair } from "./loopback";
+import { createLoopbackPair, greetLoopback } from "./loopback";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
@@ -137,10 +137,12 @@ describe("serveOverStdio — settled-result contract", () => {
     });
     expect(firstSeen).toBe(false);
 
+    const readiness = await greetLoopback(pair);
     const link = await stdioLink({
       group: surface.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness,
     });
     await expect(
       Effect.runPromise(link.dispatch.unary("surface/sys/ping", undefined)),
@@ -176,10 +178,12 @@ describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", (
       },
     });
 
+    const readiness = await greetLoopback(pair);
     const link = await stdioLink({
       group: surface.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness,
     });
     // The call's own fate is not what is pinned here (the transport dies under
     // it); the observable is the serve's verdict plus the handler count.

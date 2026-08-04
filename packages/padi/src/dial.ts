@@ -34,7 +34,7 @@ import {
 } from "@kolu/surface/define";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import type { SurfaceDispatch } from "@kolu/surface/link";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import type { SurfaceClientOf, SurfaceReadFace } from "@kolu/surface/project";
 import {
   type DaemonConnection,
@@ -354,12 +354,18 @@ export function dialPadiHello(
     const socket = yield* dialSocket(socketPath);
     // ONE link over the WHOLE daemon group, then both sibling faces over its one
     // dispatch — the flat-tag successor of the combined-contract client.
-    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract, so it is
+    // LIFTED. The socket is BOTH halves so its `close` stays observable (see the
+    // docstring). No readiness proof, deliberately: this is the LOCAL-rendezvous
+    // residual `socketDuplexLink` names (juspay/kolu#2101) — padi's epoch safety
+    // on this path is owed by the converge-before-dial discipline that governs
+    // every caller (the binder's `converge(ep)`, the front's own pre-step),
+    // never by a banner over a pipe that never leaves this box.
     const link = yield* Effect.promise(() =>
-      stdioLink({
+      socketDuplexLink({
         group: padiDaemonGroup,
-        read: socket,
-        write: socket,
+        socket,
+        describe: `unix socket ${socketPath}`,
       }),
     );
     const client = padiClientOver(link.dispatch);

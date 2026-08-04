@@ -20,7 +20,7 @@ import {
   buildSurfaceFace,
   type StreamingProcedure,
 } from "@kolu/surface/client";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import type { SurfaceFace } from "@kolu/surface/client";
 import type { DaemonConnection } from "@kolu/surface-daemon-supervisor";
 import { dialSocket } from "@kolu/surface-daemon-supervisor";
@@ -67,12 +67,15 @@ export function connectTop(
 ): Effect.Effect<DaemonConnection<TopClient, TopIdentity>, Error> {
   return Effect.gen(function* () {
     const socket = yield* dialSocket(socketPath);
-    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract, so it is
+    // LIFTED. No readiness proof: a connected LOCAL unix socket is the residual
+    // that constructor names — this rendezvous never leaves the box, and the
+    // supervisor converges it before anything dials it.
     const link = yield* Effect.promise(() =>
-      stdioLink({
+      socketDuplexLink({
         group: surface.group,
-        read: socket,
-        write: socket,
+        socket,
+        describe: `unix socket ${socketPath}`,
       }),
     );
     const client = buildSurfaceFace(surface, link.dispatch);

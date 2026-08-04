@@ -8,7 +8,7 @@ import {
 } from "@kolu/surface-daemon";
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { composeSurfaceContracts } from "@kolu/surface/define";
-import { duplexWireLink } from "@kolu/surface/links/stdio";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import { Deferred, Effect } from "effect";
 import { RpcSerialization } from "effect/unstable/rpc";
 import { match } from "ts-pattern";
@@ -249,9 +249,18 @@ type ControlCoreConnection = {
  * identical — `dialSocket` rejects with the raw socket error (`ECONNREFUSED` /
  * `ENOENT`, the "nothing is serving here" verdict every probe in the tree reads)
  * exactly as `unixSocketLink`'s eager dial does, and the link itself is
- * `duplexWireLink`, the shared body `unixSocketLink` and `stdioLink` are BOTH
+ * `socketDuplexLink`, the same shared body `unixSocketLink` and `stdioLink` are
  * built from — so the bytes on this wire are the same bytes either leg writes
  * (`@kolu/surface`'s byte-splice proof).
+ *
+ * This is the ONE place `socketDuplexLink`'s missing readiness proof is not
+ * merely owed elsewhere but *impossible*: this probe IS the epoch authority
+ * (juspay/kolu#2101). It attaches precisely in order to find out whether the peer
+ * speaks this epoch, and it can do so safely because it never lets the protocol
+ * layer alone answer that question — the byte tap below and
+ * {@link UNSPEAKABLE_SILENCE_MS} classify the peer directly, on a throwaway
+ * connection nobody's session depends on. Demanding a proof here would be
+ * circular: the proof is what this observation ultimately produces.
  *
  * **The tap.** `RpcSerialization.ndjson` is Effect's OWN parser — the very
  * implementation the protocol layer runs — so "decodable here" means exactly
@@ -326,9 +335,9 @@ function openControlCore(
 
     const link = yield* Effect.tryPromise({
       try: () =>
-        duplexWireLink({
+        socketDuplexLink({
           group: controlCoreContract.group,
-          duplex: socket,
+          socket,
           describe: `unix socket ${socketPath}`,
         }),
       catch: (err) => err as Error,

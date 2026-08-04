@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
 import { SurfaceStdioTransportClosed } from "./errors";
 import { stdioLink } from "./links/stdio";
-import { createLoopbackPair } from "./loopback";
+import { createLoopbackPair, greetLoopback } from "./loopback";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
@@ -79,10 +79,12 @@ async function buildWiredClient() {
     handlers: runtime.handlers,
     transport: pair.server,
   });
+  const readiness = await greetLoopback(pair);
   const link = await stdioLink({
     group: daemonSurface.group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
   return {
     link,

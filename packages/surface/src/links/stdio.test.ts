@@ -17,10 +17,28 @@ import { describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
 import { SurfaceStdioTransportClosed } from "../errors";
 import { isHalfOpenDispatch } from "../link";
-import { createLoopbackPair } from "../loopback";
+import { createLoopbackPair, greetLoopback } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { implementSurface } from "../server";
+import {
+  awaitStdioReadiness,
+  type StdioReadinessProof,
+  writeStdioReadiness,
+} from "./readiness";
 import { stdioLink } from "./stdio";
+
+/** Greet a bare PassThrough with itself — the minimal honest gate for a test
+ *  that never runs a server: the banner really is written and really is read,
+ *  it just has no daemon behind it (juspay/kolu#2101). */
+function greetSelf(read: PassThrough): Promise<StdioReadinessProof> {
+  const proof = awaitStdioReadiness({
+    read,
+    deadlineMs: 10_000,
+    describe: "stdio",
+  });
+  writeStdioReadiness(read, { verdict: "ready" });
+  return proof;
+}
 
 const surface = defineSurface({
   procedures: {
@@ -73,10 +91,12 @@ async function wired(onFinalize?: () => void) {
     handlers: runtime.handlers,
     transport: pair.server,
   });
+  const readiness = await greetLoopback(pair);
   const link = await stdioLink({
     group: surface.group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
   return {
     link,
@@ -157,15 +177,18 @@ describe("stdio link over loopback", () => {
       handlers: runtime.handlers,
       transport: pair.server,
     });
-    // A stray non-ndjson line on the wire from the server side — a pino log
-    // line that escaped to stdout. What we forbid is the link WEDGING: the
-    // call must settle, either way.
+    // The gate first (a real agent greets before it can corrupt anything), THEN
+    // the corruption: a stray non-ndjson line on the wire from the server side —
+    // a pino log line that escaped to stdout. What we forbid is the link
+    // WEDGING: the call must settle, either way.
+    const readiness = await greetLoopback(pair);
     pair.server.write.write("«this looks like a pino log line»\n");
 
     const link = await stdioLink({
       group: surface.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness,
     });
     const winner = await Promise.race([
       Effect.runPromise(link.dispatch.unary("surface/math/add", { a: 1, b: 1 }))
@@ -241,7 +264,12 @@ describe("stdio link over loopback", () => {
     // error rather than pass: the green run is genuine evidence.
     const read = new PassThrough(); // inbound — never fed; the link stays open
     const write = new PassThrough(); // outbound — isolated
-    const link = await stdioLink({ group: surface.group, read, write });
+    const link = await stdioLink({
+      group: surface.group,
+      read,
+      write,
+      readiness: await greetSelf(read),
+    });
 
     write.destroy(new Error("EPIPE: write to a broken pipe"));
     await new Promise((r) => setImmediate(r));
@@ -260,7 +288,12 @@ describe("stdio link over loopback", () => {
     const read = new PassThrough();
     const write = new PassThrough();
     write.destroy(); // silent: no 'error' event ever fires
-    const link = await stdioLink({ group: surface.group, read, write });
+    const link = await stdioLink({
+      group: surface.group,
+      read,
+      write,
+      readiness: await greetSelf(read),
+    });
 
     const failure = await Effect.runPromise(
       Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
@@ -276,6 +309,16 @@ describe("stdio link over loopback", () => {
       Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
     );
     expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+    // Close the CLIENT's write half too, exactly as `done()` does — that is what
+    // a real parent dropping a link does, and it is what delivers EOF to the
+    // agent's stdin. Ending only the server half used to be enough here purely
+    // by accident: an un-greeted client stream sat in flowing mode, so the
+    // disposed link still drained the server→client PassThrough to EOF. A
+    // greeted stream is PAUSED (the readiness read leaves it that way, which is
+    // exactly what keeps the first frame from being lost), so nothing drains it
+    // after dispose. The pin here is the failed call above; the teardown is
+    // teardown, and this is the honest spelling of it.
+    pair.client.write.end();
     pair.server.write.end();
     await serving;
   });

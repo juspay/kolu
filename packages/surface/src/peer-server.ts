@@ -71,6 +71,7 @@ import { Effect, Exit, Layer, Scope, Stdio, Stream } from "effect";
 import { type PlatformError, systemError } from "effect/PlatformError";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { writeStdioReadiness } from "./links/readiness";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
 /** Transport override for `serveOverStdio`. Default is `process.stdin` for
@@ -236,6 +237,21 @@ export function serveOverStdio(
     // reach the original.
     (console as unknown as { logToStderr: typeof origLog }).logToStderr =
       origLog;
+    // GREET, before a single frame (juspay/kolu#2101). A `--stdio` agent's
+    // stdout IS the wire, and the parent on the far end of that wire cannot
+    // build an RPC client — and with it Effect RPC's pinger — until it has read
+    // a `ready` banner of this protocol epoch off it. Writing it here, at the
+    // top of the serve, is what makes every direct stdio agent greet BY
+    // CONSTRUCTION rather than by each agent remembering to.
+    //
+    // Keyed on the SAME construction-time discriminant that decides who owns
+    // stdout and who owns the process lifetime — not a second, separately
+    // spellable knob. With an explicit `transport` the caller owns both ends of
+    // an in-process/loopback composition, which is not an epoch-crossing
+    // rendezvous; if such a caller does want the gate (a test exercising the
+    // real discipline), it writes the banner itself with `writeStdioReadiness`,
+    // which is exactly what a daemon FRONT does after it converges.
+    writeStdioReadiness(transport.write, { verdict: "ready" });
   }
 
   let settleEnd: (end: ServeOverStdioEnd) => void = () => {};

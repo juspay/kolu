@@ -28,10 +28,14 @@ import { PassThrough } from "node:stream";
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
-import { createLoopbackPair } from "../loopback";
+import { createLoopbackPair, greetLoopback } from "../loopback";
 import { serveOverStdio } from "../peer-server";
 import { implementSurface } from "../server";
 import { serveOverUnixSocket, type UnixSocketListener } from "../unix-socket";
+import {
+  awaitStdioReadiness,
+  writeStdioReadiness,
+} from "./readiness";
 import { stdioLink } from "./stdio";
 import { unixSocketLink } from "./unix-socket";
 
@@ -140,10 +144,17 @@ describe("stdio ⇄ unix-socket byte splice (#10)", () => {
     pair.server.read.pipe(recorder(outbound)).pipe(socket);
     socket.pipe(recorder(inbound)).pipe(pair.server.write);
 
+    // The front greets before it splices (juspay/kolu#2101) — the same order a
+    // real `padi --stdio` uses: it owns its stdout until `relay()` begins, so
+    // the banner is written by the FRONT, never by the socket-served daemon
+    // behind it. It therefore does not appear in either recorder: the captures
+    // below still see only spliced frames, which is what this file pins.
+    const readiness = await greetLoopback(pair);
     const link = await stdioLink({
       group: surface.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness,
     });
 
     expect(
@@ -224,10 +235,19 @@ describe("stdio ⇄ unix-socket byte splice (#10)", () => {
       ...buildServed(),
       transport: { read: clientToServer, write: serverToClient },
     });
+    // Greet on the server→client direction, which is NOT the recorded one:
+    // `stdioBytes` captures client→server, so the comparison below is still
+    // frame-for-frame between the two legs.
+    writeStdioReadiness(serverToClient, { verdict: "ready" });
     const stdioClient = await stdioLink({
       group: surface.group,
       read: serverToClient,
       write: clientToServer,
+      readiness: await awaitStdioReadiness({
+        read: serverToClient,
+        deadlineMs: 10_000,
+        describe: "stdio leg",
+      }),
     });
     expect(
       await Effect.runPromise(

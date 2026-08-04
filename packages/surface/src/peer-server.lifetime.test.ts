@@ -33,6 +33,7 @@ import {
 } from "@kolu/daemon-test-gate";
 import { Effect, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { awaitStdioReadiness } from "./links/readiness";
 import { stdioLink } from "./links/stdio";
 import { createLoopbackPair } from "./loopback";
 import { serveOverStdio } from "./peer-server";
@@ -164,10 +165,19 @@ describeDaemon(
       // then kill the parent's read side only: the agent's next push EPIPEs
       // while its stdin never sees EOF — clean teardown from the write
       // direction, which must exit 0 exactly like the EOF leg.
+      // The REAL gate over a REAL child: the fixture calls `serveOverStdio`
+      // with no transport override, so the process IS the agent and greets
+      // before its first frame. Nothing here fabricates a proof.
+      const readiness = await awaitStdioReadiness({
+        read: child.stdout,
+        deadlineMs: 10_000,
+        describe: "lifetime fixture agent",
+      });
       const link = await stdioLink({
         group: lifetimeSurface.group,
         read: child.stdout,
         write: child.stdin,
+        readiness,
       });
       const first = await Effect.runPromise(
         Stream.runHead(

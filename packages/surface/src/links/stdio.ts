@@ -23,34 +23,38 @@
  * in-flight calls with `SurfaceStdioTransportClosed` rather than wedging them —
  * pinned in `procedureErrors.test.ts`.
  *
+ * ## No pinger before a proven epoch (juspay/kolu#2101)
+ *
+ * {@link stdioLink} REQUIRES a `StdioReadinessProof`. Building the protocol
+ * layer starts Effect RPC's pinger, and a peer from a previous protocol epoch
+ * accepts the pipe and then stays mute — so the pinger kills the link ~10s later
+ * with a generic transport error that reads exactly like an unreachable host,
+ * and the consumer retries forever. The proof is minted only by
+ * `awaitStdioReadiness` reading the peer's own banner, so the blind attach that
+ * caused that incident is not a discipline to remember: it does not typecheck,
+ * and a forged proof does not construct. See `./readiness.ts`.
+ *
+ * The escape hatch for LOCAL rendezvous is {@link socketDuplexLink}, named and
+ * argued for below — not an option on this function.
+ *
  * ## No reconnect, by construction
  *
  * A stdio link is bound to ONE stream pair: when the child exits, the pipe is
  * gone for good and re-dialling the same fds is meaningless. So the protocol's
- * retry schedule halts immediately (see {@link neverReconnect}) and every call —
- * in flight or issued afterwards — fails with `SurfaceStdioTransportClosed`.
- * Callers that need reconnect build a NEW link over a fresh pair (surface-remote's
- * `HostSession` is the canonical consumer).
+ * retry schedule halts immediately (see `neverReconnect` in `./wire.ts`) and
+ * every call — in flight or issued afterwards — fails with
+ * `SurfaceStdioTransportClosed`. Callers that need reconnect build a NEW link
+ * over a fresh pair (surface-remote's session loop is the canonical consumer).
  */
 
+import type { Socket } from "node:net";
 import { Duplex, type Readable, type Writable } from "node:stream";
-import * as NodeSocket from "@effect/platform-node/NodeSocket";
-import { Cause, Effect, Layer, Schedule } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
-import { Socket } from "effect/unstable/socket";
-import { SurfaceStdioTransportClosed } from "../errors";
-import { openWireLink, type WireLink } from "./wire";
-
-/** The retry schedule for a link bound to one stream pair: halt on the first
- *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
- *  so the only honest schedule is "never". */
-const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
-  Schedule.fromStepWithMetadata(
-    Effect.succeed((meta: Schedule.InputMetadata<Socket.SocketError>) =>
-      Cause.done(meta.attempt),
-    ),
-  );
+import {
+  isStdioReadinessProof,
+  type StdioReadinessProof,
+} from "./readiness";
+import { duplexWireLink, type WireLink } from "./wire";
 
 /** A `Readable`/`Writable` pair the link reads and writes. For a subprocess
  *  parent these are `child.stdout` / `child.stdin`; for a loopback test they are
@@ -62,70 +66,87 @@ export interface StdioLinkOptions {
   readonly read: Readable;
   /** Stream the link writes outbound frames to (the child's stdin). */
   readonly write: Writable;
-}
-
-/** Build a wire link over an already-open Node `Duplex` — the ONE place the
- *  stdio and unix-socket legs share, so their framing, their retry schedule and
- *  their error vocabulary cannot drift (which is the whole basis of the
- *  byte-splice guarantee, review #10).
- *
- *  `describe` names the transport in the `SurfaceStdioTransportClosed` reason,
- *  because that string is what an operator reads when a daemon vanishes. */
-export async function duplexWireLink(opts: {
-  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
-  readonly duplex: Duplex;
-  readonly describe: string;
-}): Promise<WireLink> {
-  // A destroyed pipe emits 'error' on the stream, and an 'error' with no
-  // listener is a hard process crash — not a rejection a consumer can catch.
-  // Effect's socket attaches its own listeners only WHILE running, so this
-  // permanent one covers the windows either side (an EPIPE felled a
-  // consumer's coordinator on teardown before the oRPC-era link grew the same
-  // guard). The transport death itself is handled by the socket run failing.
-  opts.duplex.on("error", () => {});
-
-  const socket = await Effect.runPromise(
-    NodeSocket.fromDuplex(
-      Effect.acquireRelease(Effect.succeed(opts.duplex), (duplex) =>
-        Effect.sync(() => {
-          if (!duplex.destroyed) duplex.destroy();
-        }),
-      ),
-    ),
-  );
-
-  const protocol = Layer.effect(RpcClient.Protocol)(
-    RpcClient.makeProtocolSocket({ retryPolicy: neverReconnect }),
-  ).pipe(
-    Layer.provide([
-      Layer.succeed(Socket.Socket)(socket),
-      RpcSerialization.layerNdjson,
-    ]),
-  );
-
-  return openWireLink({
-    group: opts.group,
-    protocol,
-    transportError: (failure) =>
-      new SurfaceStdioTransportClosed({
-        reason:
-          failure.kind === "disposed"
-            ? `${opts.describe} link disposed; request not sent`
-            : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
-      }),
-  });
+  /** Evidence that the peer on `read` greeted with a `ready` banner of THIS
+   *  protocol epoch — obtained by awaiting `awaitStdioReadiness({ read, … })` on
+   *  the SAME stream, BEFORE this call.
+   *
+   *  Required, and un-forgeable (a module-private `WeakSet` brand): it is what
+   *  makes "attach an RPC client, and therefore a pinger, to a peer of unknown
+   *  epoch" unrepresentable rather than merely discouraged. */
+  readonly readiness: StdioReadinessProof;
 }
 
 /** Open a link over a child process's stdio pair. Async — the protocol layer
  *  and its fibers are built before the first call can be issued. Returns the
- *  branded dispatch plus the `dispose` that severs the pipe. */
+ *  branded dispatch plus the `dispose` that severs the pipe.
+ *
+ *  Throws (rather than returning a link) when `readiness` is not a proof this
+ *  package minted — the same fail-fast refusal `createLiveSignal` makes for an
+ *  unbranded dispatch, and for the same reason: the alternative is a link whose
+ *  safety property is a comment. */
 export function stdioLink(opts: StdioLinkOptions): Promise<WireLink> {
+  if (!isStdioReadinessProof(opts.readiness)) {
+    throw new Error(
+      "stdioLink: `readiness` was not minted by `awaitStdioReadiness` (it carries " +
+        "no readiness brand), so nothing has proven that the peer on this stream " +
+        "speaks THIS protocol epoch. Attaching anyway starts Effect RPC's pinger " +
+        "against a possibly previous-epoch peer, which answers nothing, dies at the " +
+        "ping timeout, and reports a generic transport error indistinguishable from " +
+        "an unreachable host — the juspay/kolu#2101 infinite connect loop. Await " +
+        "`awaitStdioReadiness({ read, deadlineMs, describe })` on this same `read` " +
+        "first and pass the proof it returns. For a LOCAL unix-socket rendezvous, " +
+        "whose epoch safety is owed by converge-before-dial, use `socketDuplexLink`.",
+    );
+  }
   // `Duplex.from({ readable, writable })` is Node's own composition of a read
-  // half and a write half into the single Duplex `NodeSocket.fromDuplex`
-  // wants — the existing source of truth, rather than a hand-rolled adapter.
+  // half and a write half into the single Duplex `duplexWireLink` wants — the
+  // existing source of truth, rather than a hand-rolled adapter.
   return duplexWireLink({
     group: opts.group,
     duplex: Duplex.from({ readable: opts.read, writable: opts.write }),
-    describe: "stdio",
+    describe: opts.readiness.describe,
+  });
+}
+
+/**
+ * Open a link over an already-connected LOCAL unix `Socket` — used as both the
+ * read and the write half, which is what makes the socket's own `close` event
+ * observable to the caller (`unixSocketLink` hides it, and the supervisor's
+ * endpoint needs it).
+ *
+ * ## A named residual, not a back door (the #1580 idiom)
+ *
+ * This constructor takes no readiness proof, and that is a deliberate,
+ * argued-for exception rather than an oversight:
+ *
+ *  - **It is local-rendezvous only.** A connected `node:net` unix `Socket` is a
+ *    path on THIS box. Nothing about it crosses ssh, and the type says so — a
+ *    child's `stdout` is a `Readable`, not a `Socket`, so the ssh/subprocess leg
+ *    cannot be spelled through here without a deliberate forgery.
+ *  - **Its epoch safety is owed elsewhere, and is discharged.** Every caller
+ *    dials a rendezvous the supervisor has already converged (or IS the probe
+ *    that converges it): kolu's padi/kaval dials run behind
+ *    `converge`/`convergeAdmit`, and `probeDaemonIdentity`'s raw byte tap is the
+ *    epoch authority itself — it must attach BEFORE any proof exists, because
+ *    producing that verdict is its whole job. A readiness proof there would be
+ *    circular.
+ *  - **It cannot be used to dodge the gate silently.** The gate's dodge
+ *    resistance is that `duplexWireLink` is package-internal (see `./wire.ts`):
+ *    the only two public doors are this one, which demands a `Socket`, and
+ *    `stdioLink`, which demands a proof.
+ */
+export function socketDuplexLink(opts: {
+  /** The served surface's flat `RpcGroup` (`surface.group`). */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** The connected unix socket, read and write halves in one object. */
+  readonly socket: Socket;
+  /** How the transport is named in `SurfaceStdioTransportClosed` — what an
+   *  operator reads when the daemon vanishes (e.g. `unix socket /run/padi.sock`). */
+  readonly describe: string;
+}): Promise<WireLink> {
+  return duplexWireLink({
+    group: opts.group,
+    duplex: opts.socket,
+    describe: opts.describe,
   });
 }

@@ -19,7 +19,7 @@
 import type { Socket } from "node:net";
 import { buildSurfaceFace } from "@kolu/surface/client";
 import { isContractVersionCompatible } from "@kolu/surface/define";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   type ControlCoreProbeClient,
@@ -245,19 +245,30 @@ function judgeKavalHandshake(
 /** Open ONE link over the whole kaval daemon group and build both faces over its
  *  single dispatch. `dispose()` is ASYNC and is the ONLY thing that frees the
  *  link's protocol fibers — destroying the socket alone leaks one per dial. */
-function openKavalFaces(socket: Socket): Effect.Effect<{
+function openKavalFaces(
+  socket: Socket,
+  socketPath: string,
+): Effect.Effect<{
   faces: KavalFaces;
   dispatch: SurfaceDispatch;
   dispose: () => Promise<void>;
 }> {
   return Effect.map(
-    // `stdioLink` is a Promise-shaped constructor by contract (the link face is
-    // Promise-shaped for its non-Effect callers), so it is LIFTED here, not run.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract (the link
+    // face is Promise-shaped for its non-Effect callers), so it is LIFTED here,
+    // not run. The socket is BOTH halves so its `close` event stays observable
+    // to the endpoint's `onClose` — which is why this is not `unixSocketLink`.
+    //
+    // No readiness proof, deliberately: this is the LOCAL-rendezvous residual
+    // `socketDuplexLink` names (juspay/kolu#2101). kaval's epoch safety on this
+    // path is owed by converge-before-dial — padi's own boot converges kaval
+    // with the full supervisor kit (`ensureLocalEndpoint`) before anything dials
+    // it — not by a banner over a pipe that never leaves this box.
     Effect.promise(() =>
-      stdioLink({
+      socketDuplexLink({
         group: kavalDaemonGroup,
-        read: socket,
-        write: socket,
+        socket,
+        describe: `unix socket ${socketPath}`,
       }),
     ),
     (link) => {
@@ -293,7 +304,10 @@ export function connectKaval(
 ): Effect.Effect<KavalConnection, Error> {
   return Effect.gen(function* () {
     const socket = yield* dialSocket(socketPath);
-    const { faces, dispatch, dispose } = yield* openKavalFaces(socket);
+    const { faces, dispatch, dispose } = yield* openKavalFaces(
+      socket,
+      socketPath,
+    );
 
     // The handshake's ONE failure boundary: any rejection releases the link and
     // the socket before it propagates. `onError` (not `catch`) so an INTERRUPTED

@@ -430,6 +430,19 @@ export class ConnectError extends Error {
      *  number of attempts — the retry counter alone can't, because the pre-connected
      *  backstop resets it first. Default `false` (a normal bounded `"remote"` fault). */
     readonly terminal: boolean = false,
+    /** The app's own TYPED verdict for this failure, carried OPAQUELY (#2101).
+     *
+     *  The framework neither reads nor validates it — it only moves it from the
+     *  connector that classified the fault to the binder that renders it. The ssh
+     *  connector's epoch gate puts the remote front's encoded convergence anomaly
+     *  here; kolu-server decodes it with its own schema and stands it up as the
+     *  host's convergence verdict.
+     *
+     *  This exists so a binder never has to STRING-PARSE `message` to tell "this
+     *  daemon speaks a previous protocol epoch" from "this host is down" — the
+     *  exact ambiguity the #2101 incident log had nothing to break. `null` for
+     *  every fault with no structured evidence, which is most of them. */
+    readonly anomaly: unknown = null,
   ) {
     super(message);
     this.name = "ConnectError";

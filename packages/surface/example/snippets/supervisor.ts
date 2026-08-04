@@ -14,7 +14,7 @@ import {
   type SurfaceFace,
 } from "@kolu/surface/client";
 import { composeSurfaceContracts } from "@kolu/surface/define";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import {
   type ConvergenceIdentity,
   controlCoreSurface,
@@ -103,14 +103,17 @@ function connectTop(
   return Effect.gen(function* () {
     const socket = yield* dialSocket(socketPath);
     // A connected unix socket IS a Duplex, and the framing is the same ndjson
-    // `serveOverUnixSocket` serves — so the stdio link carries it verbatim.
-    // `stdioLink` is a Promise-shaped constructor by contract, so it is LIFTED
-    // here rather than run.
+    // `serveOverUnixSocket` serves — so this link carries it verbatim.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract, so it is
+    // LIFTED here rather than run. It takes no readiness proof (unlike
+    // `stdioLink`, the subprocess/ssh leg): a LOCAL unix rendezvous is the
+    // residual that constructor documents — the supervisor converges the daemon
+    // before anything dials it.
     const link = yield* Effect.promise(() =>
-      stdioLink({
+      socketDuplexLink({
         group: daemonSurfaces.group,
-        read: socket,
-        write: socket,
+        socket,
+        describe: `unix socket ${socketPath}`,
       }),
     );
     // The `app` SIBLING's own face: the sibling `Surface` value already carries

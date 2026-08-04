@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
@@ -288,10 +289,20 @@ function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
 async function stdioClient(front: PadiStdioFront): Promise<Conn> {
   if (!front.child.stdout || !front.child.stdin)
     throw new Error("stdio front child has no piped stdio");
+  // The REAL gate over the REAL front (juspay/kolu#2101): `runPadiStdioBridge`
+  // converges the durable padi FIRST and only then greets, so a proof here is
+  // evidence that convergence succeeded on the far side — not merely that a
+  // process started.
+  const readiness = await awaitStdioReadiness({
+    read: front.child.stdout,
+    deadlineMs: 60_000,
+    describe: `padi --stdio front (${front.stateRoot})`,
+  });
   const link = await stdioLink({
     group: padiDaemonGroup,
     read: front.child.stdout,
     write: front.child.stdin,
+    readiness,
   });
   return {
     client: padiClientOver(link.dispatch),

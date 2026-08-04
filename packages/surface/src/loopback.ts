@@ -29,6 +29,11 @@
  */
 
 import { PassThrough } from "node:stream";
+import {
+  awaitStdioReadiness,
+  type StdioReadinessProof,
+  writeStdioReadiness,
+} from "./links/readiness";
 
 /** Result of `createLoopbackPair()` — two stdio "ends" that talk to each
  *  other. */
@@ -47,4 +52,30 @@ export function createLoopbackPair(): LoopbackPair {
     client: { read: serverToClient, write: clientToServer },
     server: { read: clientToServer, write: serverToClient },
   };
+}
+
+/**
+ * Greet from the SERVER half and read the greeting on the CLIENT half — the
+ * in-process dual of a `--stdio` agent's boot banner, and the way a loopback
+ * composition obtains the `StdioReadinessProof` {@link
+ * import("./links/stdio").stdioLink} requires (juspay/kolu#2101).
+ *
+ * This is not a shortcut around the gate: it performs the real protocol — a
+ * banner is written on the wire and read back off it — which is precisely what
+ * makes a loopback round-trip honest evidence about the ssh leg. `serveOverStdio`
+ * writes that banner itself when the PROCESS is the agent (it owns stdout then);
+ * over an explicit loopback transport the caller plays the server, so the caller
+ * greets, exactly as a daemon front does after it converges.
+ *
+ * Call it BEFORE the client issues its first call. It cannot race the served
+ * surface's own frames: a server writes nothing until it is asked something.
+ */
+export function greetLoopback(pair: LoopbackPair): Promise<StdioReadinessProof> {
+  const proof = awaitStdioReadiness({
+    read: pair.client.read,
+    deadlineMs: 10_000,
+    describe: "loopback",
+  });
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
+  return proof;
 }

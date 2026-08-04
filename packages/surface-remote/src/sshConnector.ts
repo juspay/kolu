@@ -19,6 +19,10 @@ import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import {
+  awaitStdioReadiness,
+  isStdioReadinessError,
+} from "@kolu/surface/links/readiness";
+import {
   buildAgentCommand,
   forEachLine,
   isLocalHost,
@@ -60,6 +64,54 @@ export type AgentClient = SurfaceFace;
  *  A session opens at `"probing"` and advances once to `"provisioning"` before
  *  the first potentially long Nix operation or mandatory root commit. */
 export type SshProv = "probing" | "provisioning";
+
+/**
+ * How long a freshly-spawned `--stdio` agent has to announce readiness before
+ * the dial gives up on it (juspay/kolu#2101).
+ *
+ * **This is a BUDGET, and it has a terminal verdict** — the review's definition
+ * of done for any new wait. Expiry raises a `"remote"` `ConnectError`, which
+ * counts toward the session's existing `MAX_CONSECUTIVE_FAILURES`, so a host
+ * that never greets reaches `failed` in five attempts. There is no path here
+ * that waits forever and none that silently degrades to "assume ready".
+ *
+ * **The number is derived from OUR ceilings, not from Effect's ping cadence** —
+ * which is the whole point of gating *before* the protocol layer exists, and why
+ * this needs no `BETA-ASSUMPTION` marker. A daemon-owning front (`padi --stdio`,
+ * `kaval --stdio`) does its full convergence BEFORE it greets, so the worst
+ * honest case is the sum of that convergence's own bounds:
+ *
+ *   - `REAP_TERM_CEILING_MS` 120_000 + `REAP_KILL_CEILING_MS` 5_000 = 125_000ms
+ *     — a cross-epoch TAKEOVER: SIGTERM, wait, SIGKILL, wait.
+ *   -  30_000ms — the endpoint's `socketReadyMs`: the replacement daemon binding
+ *     its socket.
+ *   -   8_000ms — `UNSPEAKABLE_SILENCE_MS`: the probe's silence deadline, the
+ *     longest a single classification pass can take before it decides.
+ *   -  10_000ms — `frontDaemonOverStdio`'s `DEFAULT_DAEMON_WAIT_MS`: the front
+ *     polling for the daemon's socket after it spawns one.
+ *
+ * = 173_000ms worst case, rounded up to 180_000 for the ssh round-trips and
+ * process-start latency that sit between them. Anything slower than three
+ * minutes is not a slow takeover, it is a host that is not going to converge —
+ * and saying so terminally beats an eternal spinner.
+ */
+const AGENT_READINESS_DEADLINE_MS = 180_000;
+
+/** One line naming HOW a child went away, for the pre-readiness death message.
+ *  The loop does its own classification off `ClosedInfo`; this is the operator's
+ *  half of the same fact. */
+function describeClosed(info: ClosedInfo): string {
+  switch (info.kind) {
+    case "exit":
+      return `exit code=${info.code ?? "null"} signal=${info.signal ?? "null"}`;
+    case "transport-failed":
+      return "ssh transport failed";
+    case "endpoint-down":
+      return "endpoint down";
+    case "spawn-error":
+      return `spawn error: ${info.message}`;
+  }
+}
 
 /** The owning dial context a deferred derivation resolver may consume. */
 export interface ResolveDrvPathContext extends AgentResolutionContext {
@@ -249,6 +301,59 @@ export function sshConnector<S extends SurfaceSpec>(
       }
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
+    // ── The epoch gate: read the agent's readiness banner BEFORE attaching ────
+    //
+    // juspay/kolu#2101. Everything below this point builds an `RpcClient`, and
+    // building one starts Effect RPC's pinger. A remote daemon from a PREVIOUS
+    // protocol epoch accepts the splice and then says nothing — it is waiting
+    // for a greeting in a protocol we no longer speak — so the pinger kills the
+    // link ~10s later with `SocketOpenError: timeout waiting for "open"`, the
+    // session classifies that as `"network"`, and `"network"` retries forever.
+    // That is the incident: every remote host wedged in a permanent loop, with a
+    // log line indistinguishable from an unreachable box.
+    //
+    // So the banner is read FIRST, and the proof it mints is the only way to
+    // construct the link at all (see `@kolu/surface/links/readiness`).
+    //
+    // Raced against the child's own death, because both are real outcomes and
+    // the wait must not outlive the process it is waiting on: a genuinely-down
+    // host fails at ssh spawn / exit 255 BEFORE any banner, and that arm keeps
+    // its existing `closed` classification untouched (`"network"`, retry
+    // forever) — nothing changes for a host that is merely off.
+    const readiness = await Promise.race([
+      awaitStdioReadiness({
+        read: child.stdout,
+        deadlineMs: AGENT_READINESS_DEADLINE_MS,
+        describe: `${opts.binary} on ${opts.host}`,
+      }),
+      closed.then((info): never => {
+        // The child left before greeting. Re-throw the SAME shape the exit path
+        // already produces so the loop's existing classification decides — this
+        // gate must not invent a verdict for a host that simply is not there.
+        throw new ConnectError(
+          `${opts.binary} on ${opts.host} exited before it announced readiness (${describeClosed(info)})`,
+          "network",
+        );
+      }),
+    ]).catch((err: unknown) => {
+      // A gate REFUSAL / expiry / undecodable prelude is a REMOTE fault, not a
+      // network one: the host answered, and what it said (or failed to say) is
+      // about the daemon there, not the wire in between. `"remote"` is what
+      // counts toward `MAX_CONSECUTIVE_FAILURES`, so the session reaches a
+      // terminal `failed` in a bounded number of attempts through the EXISTING
+      // budget — no new budget invented, and no retry-forever left standing.
+      // The app's typed anomaly rides along verbatim so the binder can render a
+      // real verdict instead of string-parsing this message.
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* best-effort — a child already exiting is fine */
+      }
+      if (isStdioReadinessError(err)) {
+        throw new ConnectError(err.message, "remote", false, err.anomaly);
+      }
+      throw err;
+    });
     // The wire link is ASYNC now (building the protocol layer and its fibers is
     // an effect) and owns a `Scope` holding those fibers — so `teardown` must
     // dispose it, not just kill the child, or every dial leaks a protocol fiber.
@@ -256,6 +361,7 @@ export function sshConnector<S extends SurfaceSpec>(
       group: opts.surface.group,
       read: child.stdout,
       write: child.stdin,
+      readiness,
     });
     const client = buildSurfaceFace(opts.surface, link.dispatch);
 

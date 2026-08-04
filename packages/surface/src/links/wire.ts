@@ -24,12 +24,25 @@
  *   the dispatch is erased, exactly as `SurfaceDispatch` declares.
  */
 
-import { Cause, Effect, Exit, Layer, Result, Scope, Stream } from "effect";
+import type { Duplex } from "node:stream";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import { Cause, Effect, Exit, Layer, Result, Schedule, Scope, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient } from "effect/unstable/rpc";
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { Socket } from "effect/unstable/socket";
+import { SurfaceStdioTransportClosed } from "../errors";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
+
+/** The retry schedule for a link bound to one stream pair: halt on the first
+ *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
+ *  so the only honest schedule is "never". */
+const neverReconnect: Schedule.Schedule<number, Socket.SocketError> =
+  Schedule.fromStepWithMetadata(
+    Effect.succeed((meta: Schedule.InputMetadata<Socket.SocketError>) =>
+      Cause.done(meta.attempt),
+    ),
+  );
 
 /** What every wire link factory returns: the dispatch the face binds against,
  *  plus the release of the scope the link opened. `dispose` is idempotent and
@@ -165,4 +178,67 @@ export async function openWireLink(opts: {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     },
   };
+}
+
+/** Build a wire link over an already-open Node `Duplex` — the ONE place the
+ *  stdio and unix-socket legs share, so their framing, their retry schedule and
+ *  their error vocabulary cannot drift (which is the whole basis of the
+ *  byte-splice guarantee, review #10).
+ *
+ *  `describe` names the transport in the `SurfaceStdioTransportClosed` reason,
+ *  because that string is what an operator reads when a daemon vanishes.
+ *
+ *  **Package-internal, and that is load-bearing** (juspay/kolu#2101). This is
+ *  the raw attach: it builds the protocol layer — and with it Effect RPC's
+ *  pinger — over whatever duplex it is handed, with no proof that the far end is
+ *  of this protocol epoch. Every PUBLIC way to reach it must therefore carry its
+ *  own epoch argument: `stdioLink` demands a `StdioReadinessProof`,
+ *  `socketDuplexLink` is a documented local-rendezvous residual, and
+ *  `unixSocketLink` is the same rendezvous by another spelling. Exporting this
+ *  body through a subpath would restore the blind attach the gate abolishes,
+ *  which is why it moved out of `./stdio` (an exported subpath) and into this
+ *  file (which is not one). */
+export async function duplexWireLink(opts: {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly duplex: Duplex;
+  readonly describe: string;
+}): Promise<WireLink> {
+  // A destroyed pipe emits 'error' on the stream, and an 'error' with no
+  // listener is a hard process crash — not a rejection a consumer can catch.
+  // Effect's socket attaches its own listeners only WHILE running, so this
+  // permanent one covers the windows either side (an EPIPE felled a
+  // consumer's coordinator on teardown before the oRPC-era link grew the same
+  // guard). The transport death itself is handled by the socket run failing.
+  opts.duplex.on("error", () => {});
+
+  const socket = await Effect.runPromise(
+    NodeSocket.fromDuplex(
+      Effect.acquireRelease(Effect.succeed(opts.duplex), (duplex) =>
+        Effect.sync(() => {
+          if (!duplex.destroyed) duplex.destroy();
+        }),
+      ),
+    ),
+  );
+
+  const protocol = Layer.effect(RpcClient.Protocol)(
+    RpcClient.makeProtocolSocket({ retryPolicy: neverReconnect }),
+  ).pipe(
+    Layer.provide([
+      Layer.succeed(Socket.Socket)(socket),
+      RpcSerialization.layerNdjson,
+    ]),
+  );
+
+  return openWireLink({
+    group: opts.group,
+    protocol,
+    transportError: (failure) =>
+      new SurfaceStdioTransportClosed({
+        reason:
+          failure.kind === "disposed"
+            ? `${opts.describe} link disposed; request not sent`
+            : `${opts.describe} transport closed (${failure.error.message}); the peer process exited or its stream ended`,
+      }),
+  });
 }

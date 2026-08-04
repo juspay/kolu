@@ -21,8 +21,7 @@
 
 import { createConnection, type Socket } from "node:net";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { duplexWireLink } from "./stdio";
-import type { WireLink } from "./wire";
+import { duplexWireLink, type WireLink } from "./wire";
 
 export interface UnixSocketLinkOptions {
   /** The served surface's flat `RpcGroup` (`surface.group`). */

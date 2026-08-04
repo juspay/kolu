@@ -36,6 +36,7 @@
     "./solid/HostStatusPip": "./src/solid/HostStatusPip.tsx",
     "./links/websocket": "./src/links/websocket.ts",
     "./links/stdio": "./src/links/stdio.ts",
+    "./links/readiness": "./src/links/readiness.ts",
     "./links/direct": "./src/links/direct.ts",
     "./links/unix-socket": "./src/links/unix-socket.ts",
     "./peer-server": "./src/peer-server.ts",
