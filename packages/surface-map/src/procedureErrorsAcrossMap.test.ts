@@ -37,7 +37,10 @@ import {
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import { createLoopbackPair } from "@kolu/surface/loopback";
+import {
+  createLoopbackPair,
+  greetLoopback,
+} from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface } from "@kolu/surface/server";
 import { Cause, Effect, Exit, Schema, Stream } from "effect";
@@ -100,10 +103,12 @@ async function serveLeafOverWire() {
   });
   const pair = createLoopbackPair();
   const serving = serveOverStdio({ group, handlers, transport: pair.server });
+  const readiness = await greetLoopback(pair);
   const link = await stdioLink({
     group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
   return {
     dispatch: link.dispatch,
@@ -145,6 +150,7 @@ describe("a declared error crosses the map's keyed forward typed (the incident h
       group: served.group,
       read: outerPair.client.read,
       write: outerPair.client.write,
+      readiness: await greetLoopback(outerPair),
     });
 
     reg.addSession(A, leaf.dispatch, connected(0));
@@ -207,6 +213,7 @@ describe("a declared error crosses the map's keyed forward typed (the incident h
       group: served.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness: await greetLoopback(pair),
     });
 
     // A never-a-member key: a one-shot call cannot end gracefully, so it REJECTS
@@ -318,6 +325,7 @@ describe("a DEAD entry link's transport death crosses the map hop typed (not fla
       group: served.group,
       read: pair.client.read,
       write: pair.client.write,
+      readiness: await greetLoopback(pair),
     });
     reg.addSession(A, deadLink(error()), connected(0));
     await settle();

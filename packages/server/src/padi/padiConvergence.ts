@@ -9,21 +9,27 @@
  * enact it.
  *
  * What this file owns:
- *   - {@link padiConvergencePolicy} — padi's declared policy (drainable; baked identity;
- *     drain-newer-else-refuse on contract skew; drain-and-replace on build mismatch;
- *     Cap-gated drainBudget). ONE object for BOTH arms.
  *   - {@link drainViaControlCore} — the endpoint arm's drain, built on the framework's
  *     {@link drainAndAwaitExit}.
+ *
+ * What it no longer owns, and RE-EXPORTS instead: `padiConvergencePolicy` /
+ * `padiConvergencePolicyForBinding`. Those moved to `@kolu/padi/convergence-policy`
+ * (juspay/kolu#2101) the moment padi grew a SECOND supervisor — `padi --stdio`
+ * converges its own durable daemon before it relays — because a policy two
+ * supervisors must agree on cannot live inside one of them. Every import path
+ * here is unchanged; only the source of truth moved.
  *
  * Framework anomalies ride the wire AS-IS ({@link PadiConvergence} re-derives the
  * framework union shape + app-only `link-failed`). There is no converter.
  */
 
-import type { PadiDaemonClient } from "@kolu/padi/dial";
-import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import {
-  type ConvergencePolicy,
-  daemonBuild,
+  MAX_BUILD_DRAINS_PER_INSTANCE,
+  padiConvergencePolicy,
+  padiConvergencePolicyForBinding,
+} from "@kolu/padi/convergence-policy";
+import type { PadiDaemonClient } from "@kolu/padi/dial";
+import {
   drainAndAwaitExit,
   drainRejectionSuffix,
 } from "@kolu/surface-daemon-supervisor";
@@ -33,55 +39,18 @@ import { Effect } from "effect";
 // (`./padiConvergence`) keeps working; the implementation lives in the supervisor.
 export { drainAndAwaitExit };
 
+// padi's own declaration of who it is and how it converges, re-exported so both
+// binding arms keep importing it from here while the source of truth sits beside
+// the daemon it describes (`@kolu/padi/convergence-policy`).
+export {
+  MAX_BUILD_DRAINS_PER_INSTANCE,
+  padiConvergencePolicy,
+  padiConvergencePolicyForBinding,
+};
+
 /** How long `drainViaControlCore` waits for the socket to CLOSE after the drain RPC
  *  rejects, before treating the rejection as a real failure. */
 export const PADI_DRAIN_TEARDOWN_CEILING_MS = 2000;
-
-type PadiConvergencePolicyInputs = {
-  contractVersion: string;
-  binderBuildId: string;
-  maxBuildDrainsPerInstance: number;
-};
-
-/** Internal policy factory shared by the local and remote binding arms. The
- * remote arm supplies values from its test dependency seam; production still
- * reaches this only with baked constants. */
-export function padiConvergencePolicyForBinding(
-  inputs: PadiConvergencePolicyInputs,
-) {
-  return {
-    capability: "drainable",
-    baked: {
-      contractVersion: inputs.contractVersion,
-      build: daemonBuild(inputs.binderBuildId),
-    },
-    onContractSkew: { kind: "drain-newer-else-refuse" },
-    onBuildMismatch: { kind: "drain-and-replace" },
-    drainBudget: {
-      maxAttempts: inputs.maxBuildDrainsPerInstance,
-      onGiveUp: "adopt-stale",
-    },
-  } as const satisfies ConvergencePolicy<"drainable">;
-}
-
-/**
- * padi's full convergence policy for a given binder build id. Drainable; budget
- * survives adopts; `onGiveUp: "adopt-stale"` so a flapping link rides the resident
- * with a standing anomaly rather than going dark. Cap-gates make `drainBudget`
- * unspellable on a not-drainable policy (kaval never constructs one).
- */
-export function padiConvergencePolicy(
-  binderBuildId: string,
-): ConvergencePolicy<"drainable"> {
-  return padiConvergencePolicyForBinding({
-    contractVersion: PADI_SURFACE_VERSION,
-    binderBuildId,
-    // Shared by local + ssh arms. Local used to be a once-per-boot boolean (≡ 1);
-    // remote used 3. Unified at 3 so a same-instance flap still terminates, and the
-    // budget's cross-supervisor memory survives adopts on both arms.
-    maxBuildDrainsPerInstance: 3,
-  });
-}
 
 /** The minimal connection shape the drain plumbing needs. */
 export type DrainableConn = {

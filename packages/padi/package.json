@@ -15,6 +15,7 @@
     "./resumable": "./src/session/resumable.ts",
     "./assembly": "./src/assembly.ts",
     "./dial": "./src/dial.ts",
+    "./convergence-policy": "./src/convergencePolicy.ts",
     "./daemonMain": "./src/daemonBoot/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",

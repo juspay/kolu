@@ -20,6 +20,7 @@
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
+    "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/xterm-kit": "workspace:*",
     "@xterm/addon-serialize": "^0.14.0",

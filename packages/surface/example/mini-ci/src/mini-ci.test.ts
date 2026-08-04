@@ -16,7 +16,10 @@
 
 import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import { createLoopbackPair } from "@kolu/surface/loopback";
+import {
+  createLoopbackPair,
+  greetLoopback,
+} from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { Effect, Option, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -66,10 +69,15 @@ async function harness(spec: PipelineSpec): Promise<Harness> {
     handlers: runner.runtime.handlers,
     transport: pair.server,
   });
+  // The in-process dual of a `--stdio` agent greeting at boot: the loopback
+  // SERVER plays the agent, so it writes the banner the client reads back
+  // (juspay/kolu#2101).
+  const readiness = await greetLoopback(pair);
   const link = await stdioLink({
     group: surface.group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
   const client = buildSurfaceFace(surface, link.dispatch);
   const stoppers: Array<() => void> = [];

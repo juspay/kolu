@@ -17,10 +17,8 @@
  */
 
 import {
-  type ConvergencePolicy,
   converge,
   createEndpoint,
-  daemonBuild,
   destructiveRecycleSteps,
   type Endpoint,
   type EndpointStatus,
@@ -38,9 +36,8 @@ import {
   processIdentityAsync,
 } from "osfacts-client";
 import {
-  currentPtyHostIdentity,
   DEFAULT_MIRROR_SCROLLBACK,
-  PTY_HOST_CONTRACT_VERSION,
+  kavalConvergencePolicy,
   type PtyHostClient,
   type PtyHostIdentity,
   ptyHostClientOver,
@@ -71,29 +68,11 @@ import { localKavalDriver } from "./localDriver.ts";
 
 type Identity = PtyHostIdentity;
 
-/**
- * kaval's declaration into the shared daemon-convergence kit (`converge`). kaval is
- * NON-DRAINABLE — recycling it kills its PTYs (no graceful drain verb), so:
- *   - `onContractSkew: recycle` — a wire-incompatible survivor can't serve the new
- *     supervisor, so kill + respawn (its PTYs die, unavoidable at a wire break).
- *   - `onBuildMismatch: nudge-human` — a same-contract build change is NOT auto-acted on
- *     (draining/recycling would cost live PTYs); the kit reports the mismatch as an
- *     outcome and takes no supervisor action. kaval's "update available" nudge stays a
- *     human decision.
- * Being non-drainable, kaval CANNOT spell a drain policy or a `drainBudget` (Pin 1 —
- * a compile error). No inert fence is constructed.
- */
-function kavalConvergencePolicy(): ConvergencePolicy<"not-drainable"> {
-  return {
-    capability: "not-drainable",
-    baked: {
-      contractVersion: PTY_HOST_CONTRACT_VERSION,
-      build: daemonBuild(currentPtyHostIdentity().staleKey),
-    },
-    onContractSkew: { kind: "recycle" },
-    onBuildMismatch: { kind: "nudge-human" },
-  };
-}
+// kaval's declaration into the shared daemon-convergence kit now lives in kaval
+// itself (`kavalConvergencePolicy`, imported above): juspay/kolu#2101 gave kaval a
+// SECOND supervisor — its own `--stdio` front converges before it relays — and a
+// policy two supervisors must agree on cannot live inside one of them. The
+// rationale for its two arms travelled with it.
 
 /** The kolu app version stamped as `TERM_PROGRAM_VERSION` on every spawned PTY.
  *  INJECTED at boot by {@link setSpawnServerVersion} rather than read from a

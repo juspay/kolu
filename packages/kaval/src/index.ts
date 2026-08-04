@@ -160,3 +160,9 @@ export {
 // The production-safe runtime spawn leash (juspay/kolu#1334 A8, F5) the REAL kolu
 // daemon-spawn funnels (localKavalDriver / localPadiDriver) wrap their spawn with.
 export { assertDaemonSpawnAllowed } from "./daemonSpawnGate.ts";
+// kaval's own convergence DECLARATION — who kaval is and what a supervisor
+// should do about a resident that isn't. It moved here from padi's ptyHost when
+// kaval grew a SECOND supervisor (`kaval --stdio` converges before it relays,
+// juspay/kolu#2101): a policy two supervisors must agree on cannot live inside
+// one of them.
+export { kavalConvergencePolicy } from "./convergencePolicy.ts";

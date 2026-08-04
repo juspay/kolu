@@ -650,6 +650,9 @@ importers:
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol

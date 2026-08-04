@@ -41,6 +41,7 @@ import {
 } from "@kolu/padi/dial";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiDaemonGroup } from "@kolu/padi/surface";
+import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -359,10 +360,19 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     if (child.stdout === null || child.stdin === null) {
       throw new Error("padi --stdio child has no stdio pipes");
     }
+    // The REAL gate over the REAL front (juspay/kolu#2101): `padi --stdio`
+    // converges its durable daemon and only then greets, so this proof is
+    // evidence the far side settled — exactly what the `--host` arm now awaits.
+    const readiness = await awaitStdioReadiness({
+      read: child.stdout,
+      deadlineMs: 60_000,
+      describe: "padi --stdio child",
+    });
     const link = await stdioLink({
       group: padiDaemonGroup,
       read: child.stdout,
       write: child.stdin,
+      readiness,
     });
     // The link owns protocol fibers now — releasing it is the ONLY thing that
     // frees them, so it is a cleanup, not something the child's death covers.

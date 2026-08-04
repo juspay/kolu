@@ -224,6 +224,18 @@ let
         # sanctioned signal. (padi's leaves are only the framework tier — its
         # staleness response is a cheap auto-drain, so over-firing is harmless.)
         "@kolu/surface-daemon"
+        # `@kolu/surface-daemon-supervisor` — the SUPERVISOR half of that same
+        # spine, an edge kaval grew at juspay/kolu#2101 when `kaval --stdio`
+        # started converging its own daemon before relaying. Excluded for exactly
+        # the #L3 reason above, and one more: this package runs in the SUPERVISING
+        # process, never inside the kaval daemon, so by construction a change here
+        # cannot change what a kaval restart would load — which is the only
+        # question the staleKey exists to answer. Keying kaval's PTY-costing nudge
+        # on it would fire on every convergence-kit refactor for no kaval delta at
+        # all. (kaval's OWN convergence declaration — `convergencePolicy.ts` — is
+        # in kaval/src and IS hashed; that is the part a supervisor must not
+        # disagree with us about.)
+        "@kolu/surface-daemon-supervisor"
         # `@kolu/surface` — the framework "electricity", a stable drishti-gated
         # volatility boundary, excluded for the same contract-shaped reason as
         # the spine it underlies.

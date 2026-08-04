@@ -30,11 +30,25 @@ import {
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
 } from "@kolu/surface-daemon";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
+import { Effect } from "effect";
 import {
   padiSocketPath,
   padiStderrLogPath,
   resolvePadiStateRoot,
 } from "../stateRoot.ts";
+import { convergeStdioFront } from "./convergeFront.ts";
+
+/** Raised when the pre-step refused: the front has already written its `refused`
+ *  banner and must exit non-zero WITHOUT relaying. Distinct from a converge that
+ *  threw, which reaches `bin.ts`'s one error channel as itself. */
+export class PadiStdioFrontRefused extends Error {
+  readonly isPadiStdioFrontRefused = true as const;
+  constructor(detail: string) {
+    super(`refusing to relay — ${detail}`);
+    this.name = "PadiStdioFrontRefused";
+  }
+}
 
 export interface RunPadiStdioBridgeOptions {
   /** The value of `--state-root`, threaded straight from `bin.ts`'s argv parse,
@@ -67,6 +81,34 @@ export async function runPadiStdioBridge(
 ): Promise<void> {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
   const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
+
+  // ── Converge BEFORE relaying (juspay/kolu#2101) ───────────────────────────
+  //
+  // The full supervisor kit, run HERE on the box where the gate file, the pid
+  // table and the signals live — the parity the remote arm shipped without. Only
+  // once a padi of this epoch demonstrably holds the rendezvous does the front
+  // greet and splice; a front that cannot converge says so on the wire and exits.
+  //
+  // THE PROCESS EDGE (governance: `packages/tests/governance/runEdges.ts`): the
+  // convergence kit is Effect-native all the way down and this is a CLI entry
+  // whose caller is `bin.ts`'s Promise `.catch`. There is nothing left to compose
+  // into — the relay below is Promise-shaped by `frontDaemonOverStdio`'s own
+  // contract — so the crossing happens once, named, at the boundary.
+  const verdict = await Effect.runPromise(
+    convergeStdioFront({ stateRoot, socketOverride: opts.socketOverride }),
+  );
+  // The banner is the FIRST thing on stdout either way. Written before the relay
+  // takes stdout over, which is what makes it compatible with the byte-splice
+  // guarantee: the front owns its stdout until `relay()` begins.
+  writeStdioReadiness(process.stdout, verdict);
+  if (verdict.verdict === "refused") {
+    // Rejecting (rather than writing stderr and exiting here) keeps `bin.ts`'s
+    // ONE error channel the only place a `--stdio` front dies: it prints the
+    // `padi --stdio:` line and exits non-zero. The structured evidence already
+    // went to stderr from the converge itself.
+    throw new PadiStdioFrontRefused(verdict.detail);
+  }
+
   return frontDaemonOverStdio({
     socketPath,
     // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any

@@ -30,6 +30,10 @@
 import { PassThrough } from "node:stream";
 import { defineSurface, surfaceTag } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
+import {
+  awaitStdioReadiness,
+  writeStdioReadiness,
+} from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
@@ -147,10 +151,19 @@ async function serveMapOverWire(served: {
     handlers: served.handlers,
     transport: { read: c2s, write: s2c },
   });
+  // Greet on the server→client direction, which is NOT the recorded one: the
+  // byte assertions below capture client→server, so the gate leaves them
+  // untouched (juspay/kolu#2101).
+  writeStdioReadiness(s2c, { verdict: "ready" });
   const link = await stdioLink({
     group: served.group,
     read: s2c,
     write: c2s,
+    readiness: await awaitStdioReadiness({
+      read: s2c,
+      deadlineMs: 10_000,
+      describe: "map stdio leg",
+    }),
   });
   return {
     link,
