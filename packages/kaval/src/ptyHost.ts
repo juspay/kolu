@@ -37,7 +37,7 @@ import {
 import { Effect, type Scope, Stream } from "effect";
 import * as pty from "node-pty";
 import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
-import type { PtyGrid } from "./ptyHostSurface.ts";
+import { type PtyGrid, PtyNotFound } from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -456,8 +456,13 @@ export interface PtyHost {
   /** Succeeds with the exit code when the child exits; immediately for an
    *  already-exited PTY (the tombstone keeps the real code). Interrupting the
    *  waiting fiber deregisters the waiter, so a long-lived host doesn't retain
-   *  one per abandoned subscription (e.g. one per kolu-server restart). */
-  exit(id: PtyId): Effect.Effect<number>;
+   *  one per abandoned subscription (e.g. one per kolu-server restart).
+   *
+   *  FAILS with {@link PtyNotFound} for an id this host has no entry and no
+   *  tombstone for — never spawned, or exited far enough back to be evicted past
+   *  {@link MAX_EXIT_TOMBSTONES}. "I don't know this PTY's exit code" is not an
+   *  exit code, so it is not spelled as one. */
+  exit(id: PtyId): Effect.Effect<number, PtyNotFound>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
   /** Resize the PTY grid + the headless mirror. Returns TRUE when the entry
@@ -683,9 +688,20 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   // Host-global meaningful-output edges — every PTY's resize-excluded output bursts.
   const activityFanOut = new FanOut<PtyActivityEdge>();
 
+  /** The entry, or the host's DECLARED "no such PTY" — never an anonymous
+   *  `Error`.
+   *
+   *  The serving layer checks liveness once (`requirePtySync`, which raises this
+   *  same class) and this function checks it again one Effect step later, so a
+   *  PTY that exits in the gap surfaces HERE. A consumer recognises a healthy
+   *  exit structurally, by `_tag` (padi's re-open loop is the one that matters:
+   *  tag ⇒ "the PTY is gone, end cleanly"; anything else ⇒ "the chain broke,
+   *  raise a failure"). An untagged `Error` therefore turned a normal exit into a
+   *  spurious loud failure — the producer is the honest place to fix that, not a
+   *  classify-at-the-catch downstream. */
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
-    if (!entry) throw new Error(`pty-host: no PTY with id ${id}`);
+    if (!entry) throw new PtyNotFound({ id });
     return entry;
   }
 
@@ -1169,7 +1185,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     });
   }
 
-  function exit(id: PtyId): Effect.Effect<number> {
+  function exit(id: PtyId): Effect.Effect<number, PtyNotFound> {
     return Effect.suspend(() => {
       const entry = entries.get(id);
       if (entry) {
@@ -1186,10 +1202,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       }
       const cached = exitCodes.get(id);
       if (cached !== undefined) return Effect.succeed(cached);
-      // Unknown id — never spawned, or exited long enough ago to be evicted
-      // from the tombstone. Defensive: the in-process caller registers its
-      // waiter while the PTY is live, so this path isn't hit in practice.
-      return Effect.succeed(0);
+      // Unknown id — never spawned, or exited long enough ago to be evicted from
+      // the tombstone. The host does not KNOW this PTY's exit code, and the one
+      // answer it must never give is `0`: a fabricated SUCCESS that a consumer
+      // reports to the user as "the command finished fine". So it fails with the
+      // host's declared "no such PTY" and the caller decides — `terminate` reads
+      // it as "already gone, nothing to wait for", the `exit` stream member as a
+      // defect (see `inProcessPtyHost`).
+      return Effect.fail(new PtyNotFound({ id }));
     });
   }
 

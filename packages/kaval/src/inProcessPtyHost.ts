@@ -165,7 +165,16 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
   const terminate = (ids: readonly PtyId[]): Effect.Effect<void> =>
     Effect.gen(function* () {
       const armed = yield* Effect.forEach(ids, (id) =>
-        Effect.forkChild(host.exit(id), { startImmediately: true }),
+        Effect.forkChild(
+          // An id this host has no entry and no tombstone for has NOTHING to
+          // wait for — it is already in the state this function exists to reach.
+          // That is a local reading of a declared refusal, not a swallowed
+          // error: the arming below is a wait, and a wait for something already
+          // done is a no-op. (Reachable: a client that outlived a pty-host
+          // restart can kill an id this host never spawned.)
+          Effect.catchTag(host.exit(id), "PtyNotFound", () => Effect.void),
+          { startImmediately: true },
+        ),
       );
       for (const id of ids) host.kill(id, "SIGKILL");
       yield* Effect.forEach(armed, Fiber.join, {
@@ -338,14 +347,21 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // kaval-tui fetches the exit tombstone AFTER the PTY is gone.
       exit: {
         source: (input) =>
-          // `host.exit` cannot fail — it succeeds with the child's code, or with
-          // the tombstone's for an already-dead id — so there is no rejection to
-          // classify here. Interrupting the subscribing fiber deregisters the
-          // waiter and yields nothing, which is the kill-silence `local.ts`
-          // relies on; the try/catch that had to tell an abort apart from a
-          // transport error is gone with the AbortSignal that made it necessary.
+          // `host.exit` succeeds with the child's code, or with the tombstone's
+          // for an already-dead id — the two answers this member exists to
+          // deliver — and FAILS only for an id it has never heard of (never
+          // spawned, or evicted past the tombstone cap). That failure is
+          // `PtyNotFound`, which a `StreamSpec` has no error channel to declare
+          // (kaval's stated asymmetry), so it crosses as a DEFECT — the same
+          // honest disposition `requirePtySync` gets on the other stream
+          // members, and the loud one: the alternative is telling a user their
+          // command exited 0 when the host has no idea what it exited.
+          // Interrupting the subscribing fiber deregisters the waiter and yields
+          // nothing, which is the kill-silence `local.ts` relies on.
           Stream.fromEffect(
-            Effect.map(host.exit(input.id), (exitCode) => ({ exitCode })),
+            Effect.map(Effect.orDie(host.exit(input.id)), (exitCode) => ({
+              exitCode,
+            })),
           ),
       },
       // Host-global membership feed — a snapshot of every live PTY first

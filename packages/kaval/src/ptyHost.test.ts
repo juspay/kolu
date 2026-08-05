@@ -282,6 +282,49 @@ describeDaemon("createPtyHost", () => {
     expect(await Effect.runPromise(host.exit(id))).toBe(5);
   });
 
+  it("exit for an id the tombstone no longer holds FAILS instead of fabricating 0 (K7)", async () => {
+    // Past the tombstone cap (or never spawned at all) the host does not KNOW
+    // the exit code. Answering `0` would be the caught-error→default shape this
+    // repo bans in its most damaging spelling: a fabricated SUCCESS code that a
+    // consumer reports to the user as "the command succeeded".
+    host = createPtyHost({ log: silentLog });
+    await expect(
+      Effect.runPromise(host.exit("00000000-0000-0000-0000-000000000000")),
+    ).rejects.toMatchObject({ _tag: "PtyNotFound" });
+  });
+
+  it("a PTY gone between the two liveness checks throws the TAGGED PtyNotFound (K6)", async () => {
+    // The attach path checks liveness TWICE: the surface's `requirePtySync`
+    // (typed `PtyNotFound`) and then, one Effect step later, `attach`'s own
+    // `requireEntry`. A PTY that exits in the gap is a HEALTHY exit, and the
+    // consumer (`padi`'s re-open loop) recognises it structurally by `_tag` — so
+    // an untagged `Error` there turns a clean end into a spurious loud failure.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "exit 0"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // Check one passes — the PTY is live.
+    expect(host.has(id)).toBe(true);
+    // …and the exit lands in the gap.
+    await Effect.runPromise(host.exit(id));
+    await waitFor(() => !host.has(id));
+    // Check two must speak the SAME vocabulary. `handle` is `requireEntry`'s
+    // synchronous caller; `attach` is the one the gap is reachable through.
+    let thrown: unknown;
+    try {
+      host.handle(id);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({ _tag: "PtyNotFound", id });
+    await expect(
+      Effect.runPromise(Effect.scoped(host.attach(id))),
+    ).rejects.toMatchObject({ _tag: "PtyNotFound" });
+  });
+
   it("publishes cwd on OSC 7", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
