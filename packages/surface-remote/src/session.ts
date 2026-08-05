@@ -272,6 +272,38 @@ export interface Session<
   /** Force a fresh link probe (wake / network change) — force-cycles even a
    *  seemingly-`connected` link whose socket may have gone stale across a sleep. */
   recheck(): void;
+  /** A SCHEDULED reconnect fires NOW; every other state is a no-op (H2,
+   *  juspay/kolu#2101). The signal a consumer sends when the world plausibly
+   *  changed under a down session — kolu-server fires it on every websocket
+   *  client accept, because a waking laptop's first observable act is its
+   *  browser reconnecting, and the alternative is up to a full capped backoff
+   *  (60s) of dead remote panes.
+   *
+   *  Deliberately NARROWER than {@link recheck} on every axis, which is why it
+   *  is its own verb rather than a second caller of that one. It fires the SAME
+   *  attempt the backoff had already scheduled — same attempt number, same
+   *  position in the give-up budget — where `recheck()` zeroes
+   *  `consecutiveFailures` (refilling the bounded `"remote"` budget, so a
+   *  permanently-broken host nudged often enough would never reach its terminal
+   *  verdict) and stamps a fresh campaign. Three no-op arms, each for its own
+   *  reason:
+   *
+   *   - **a live link** (`connecting`/`connected`, or a standing admit refuse):
+   *     there is no scheduled reconnect to fast-forward, and a client connecting
+   *     is no evidence THIS link is stale. Cycling it is `recheck()`'s job and
+   *     costs a real reconnect; a nudge must be free.
+   *   - **a dial in flight**: the probe this would ask for is already running.
+   *     This no-op IS the coalescing — an N-client wake storm collapses to the
+   *     one dial already underway, with no lock or debounce of its own.
+   *   - **`failed`** (terminal): the budget is spent and the verdict stands.
+   *     Reviving it is `reconnect()`'s job — the user's explicit re-arm — never
+   *     an ambient wake signal.
+   *
+   *  NO NEW UNBOUNDEDNESS: `nudge()` only fast-forwards an ALREADY-armed timer,
+   *  so it cannot create an attempt the existing schedule would not have made —
+   *  it only makes that attempt happen sooner. The attempt count, the backoff
+   *  progression, and the terminal give-up are all untouched. */
+  nudge(): void;
   /** The bound server's identity off its reserved `system.identity` — a TOTAL,
    *  null-free {@link SurfaceIdentity} sum. `disconnected` before the first successful
    *  connect / between dials; `anonymous`/`identified` once connected (never
@@ -1734,6 +1766,32 @@ export function makeSession<
       // analog of `cyclingForRecheck` — a recheck during an in-flight dial no longer
       // silently no-ops (the documented bug this fixes).
       dialAbort?.abort();
+      clientPromise = null;
+      launchAttempt();
+    },
+    nudge() {
+      if (destroyed || refCount === 0) return;
+      // The ONE actionable arm: a reconnect backoff is armed and waiting. That is
+      // exactly `pendingTimer !== null` WHILE `disconnected` — `pendingTimer` is a
+      // shared slot (backoff in `disconnected`, connect watchdog in `connecting`),
+      // so the phase is what tells the two apart. Every other state falls through
+      // to the no-op the docblock argues for: a live/connecting link, an in-flight
+      // dial (no timer armed — this no-op IS the wake-storm coalescing), a
+      // standing admit refuse (down but deliberately not scheduled), and terminal
+      // `failed`.
+      if (pendingTimer === null) return;
+      if (stateCell.current().phase !== "disconnected") return;
+      // Narrate BEFORE the dial so the journal reads nudge → probing, and say the
+      // budget did not move — the whole point of not spelling this `recheck()`.
+      // `consecutiveFailures` is the attempt this backoff was already waiting to
+      // make; firing it early does not renumber it.
+      localProgress(
+        `nudged — firing the scheduled retry now instead of waiting out the backoff ` +
+          `(attempt ${consecutiveFailures}, give-up budget unchanged)`,
+      );
+      // The `recheck()` backoff arm MINUS its campaign stamp and its budget reset:
+      // cancel the wait, drop the stale (rejected) client handle, dial now.
+      clearTimer();
       clientPromise = null;
       launchAttempt();
     },

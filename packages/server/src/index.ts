@@ -1138,6 +1138,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // stale tab is closed and never dispatched or enrolled.
     acceptor.accept(ws, url, () => {
       connLog.info({ total: wss.clients.size }, "connected");
+      // H2 (juspay/kolu#2101): a waking laptop's FIRST observable act is its browser
+      // reconnecting — so that signal fast-forwards every down host's already-scheduled
+      // probe instead of leaving it to a wait of up to the 60s backoff cap. No phase
+      // filter here: the filter IS the verb (`nudge()` no-ops on a live link, an
+      // in-flight dial, and a terminal `failed`, and never refills the give-up budget —
+      // unlike `recheck()`), so a wake storm across N tabs coalesces to one dial per host.
+      for (const h of pool.hosts()) pool.getSession(h)?.nudge();
       // DISPATCH — the third and last step of the seam's gate → enrol → dispatch
       // order. `serveSurfaceSocket` stands up an Effect `RpcServer` for THIS socket
       // over the SHARED handler record: one Layer-composed serving stack per
