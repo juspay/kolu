@@ -82,12 +82,31 @@
 # asking "is this in the cache yet?" would be asking before the answer can be
 # yes — a check that goes red for a reason unrelated to the change under
 # review. It runs in `nix-cache.yml` AFTER that job's own `attic push`, where
-# the answer is a real verdict about work the same job just did, and it runs by
-# hand against any published build:
+# the answer is a real verdict about work the same job just did.
 #
-#     git checkout v1.2.3 && bash ci/agent-substitutable
+# IT TAKES A FLAKE REF, BECAUSE CI IS NOT WHAT SHIPS
+# ---------------------------------------------------
+# A green run here proves something about a COMMIT. An operator deploys an
+# ARTIFACT, and the two are not the same event. Deploy #2 of the Effect campaign
+# (juspay/kolu#2101, G7) deployed `beb2f7418` at 21:20:43; the nix-cache run for
+# that very sha was created at 21:25:38 and finished at 21:35:00. The deploy
+# beat its own warm job by fifteen minutes, so remotes source-realised while a
+# gate that could only speak afterwards went green. `nix flake update` costs
+# seconds; a two-platform matrix build costs tens of minutes. The operator will
+# always be able to outrun CI.
 #
-# to answer "is the shipped release's agent path warm?" without deploying it.
+# So the question is parameterised by the thing being deployed, not fixed to the
+# checkout:
+#
+#     bash ci/agent-substitutable github:juspay/kolu/effect   # before switching
+#     bash ci/agent-substitutable path:/home/me/code/kolu     # a local tree
+#     bash ci/agent-substitutable                             # cwd (CI's use)
+#
+# Every input is then read from the RESOLVED agent source rather than from the
+# working directory — the package inventory, the cache list, and the sidecar's
+# own name all travel inside the tree a remote resolves against. The script
+# therefore describes the artifact it was pointed at, and has no opinion about
+# where it was run from.
 #
 # Bash 3.2 compatible (GitHub's macos-latest `/bin/bash`) — no `mapfile`, no
 # namerefs. See `ci/flake-build`'s `nix_args` comment for the history there.
@@ -99,15 +118,25 @@ die() {
   exit 1
 }
 
-[ -f nix/agent-packages.json ] || die "run from the repository root (no nix/agent-packages.json here)"
+flake="${1:-.}"
+case "$flake" in
+  -h | --help)
+    echo "usage: ci/agent-substitutable [FLAKE]   (default: .)"
+    exit 2
+    ;;
+esac
+[ $# -le 1 ] || die "one FLAKE argument at most (got $#)"
 
 # The exact tree a remote resolves against — a store path, so this is the same
 # flake ref the shipped wrappers bake, not a re-derivation of it.
-agent_flake_ref="$(nix build .#agent-flake-source --no-link --print-out-paths --accept-flake-config)"
+agent_flake_ref="$(nix build "${flake}#agent-flake-source" --no-link --print-out-paths --accept-flake-config)"
 
-cache_file="$(jq -r '.binaryCacheFile' packages/surface-remote/agent-env.json)"
+env_json="${agent_flake_ref}/packages/surface-remote/agent-env.json"
+[ -f "$env_json" ] || die "the baked agent source has no packages/surface-remote/agent-env.json"
+
+cache_file="$(jq -r '.binaryCacheFile' "$env_json")"
 [ -n "$cache_file" ] && [ "$cache_file" != "null" ] \
-  || die "packages/surface-remote/agent-env.json declares no binaryCacheFile"
+  || die "${env_json} declares no binaryCacheFile"
 
 cache_json="${agent_flake_ref}/${cache_file}"
 [ -f "$cache_json" ] || die "the baked agent source has no ${cache_file} — provisioning would refuse it"
@@ -128,12 +157,14 @@ while IFS= read -r url; do
   esac
 done <<< "$substituters"
 
-packages="$(jq -r '.expose[]' nix/agent-packages.json)"
-[ -n "$packages" ] || die "nix/agent-packages.json exposes no agent packages"
+packages_json="${agent_flake_ref}/nix/agent-packages.json"
+[ -f "$packages_json" ] || die "the baked agent source has no nix/agent-packages.json"
+packages="$(jq -r '.expose[]' "$packages_json")"
+[ -n "$packages" ] || die "${packages_json} exposes no agent packages"
 
 system="$(nix eval --impure --raw --expr builtins.currentSystem)"
 
-echo "ci/agent-substitutable: ${system} · source ${agent_flake_ref}"
+echo "ci/agent-substitutable: ${flake} · ${system} · source ${agent_flake_ref}"
 echo "caches:"
 # shellcheck disable=SC2086  # word-splitting one-per-line is the intent
 printf '  %s\n' $substituters
@@ -175,10 +206,19 @@ Every host provisioned from this build will find no agent closure in any
 declared cache and COMPILE the daemon from source over ssh instead (see
 'no declared cache had the agent closure' in packages/surface-remote/src/nixCopy.ts).
 
-Either the cache push for this commit has not run/succeeded, or it built a
+Either the cache push for this rev has not run/succeeded YET, or it built a
 different tree than this one. Check the nix-cache workflow run for THIS sha —
 note it must check out the branch head, not a merge ref, or it warms a closure
 no one deploys.
+
+If you are about to DEPLOY this artifact, do not wait on CI: run
+
+    ci/agent-preflight ${flake}
+
+on the deploy host. That realises the agent closure into the binder's own
+store, which is what provisioning ships from — it makes remote source-realise
+impossible regardless of what any cache holds, and it is the only thing that
+works for a rev CI has not warmed yet or a local tree it will never see.
 EOF
   exit 1
 fi

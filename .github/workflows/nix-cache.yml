@@ -192,6 +192,11 @@ jobs:
       # narinfo cache cannot answer on the server's behalf (that false-red this
       # step once). Rationale and scope live in the script's header.
       #
+      # NOTE THE BOUNDARY: green here is a receipt about a COMMIT, and it lands
+      # tens of minutes after that commit becomes deployable. It does not, and
+      # cannot, cover the artifact an operator ships — see `ci/agent-preflight`,
+      # which is the deploy-host half of this.
+      #
       # Placed HERE and not in `ci/mod.just` on purpose: the odu lanes run
       # concurrently with this job on the same commit, so an odu node would be
       # asking before the answer could be yes. After our own `attic push`, in
