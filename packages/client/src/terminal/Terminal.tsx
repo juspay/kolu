@@ -69,7 +69,13 @@ import {
 } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { activePadiRpc, activePadiStreams, preferences } from "../wire";
+import {
+  activeHost,
+  activePadiRpc,
+  activePadiStreams,
+  padiMap,
+  preferences,
+} from "../wire";
 import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import {
   createFileRefLinkProvider,
@@ -79,6 +85,7 @@ import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
+import { publishGridAction } from "./publishGrid";
 import {
   consumeReattachingStream,
   StaleSnapshotGrid,
@@ -230,41 +237,30 @@ const Terminal: Component<{
   };
 
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
-   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
+   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through.
+   *
+   *  The POLICY (including H1's not-connected suppression and its convergence
+   *  argument) lives in `publishGrid.ts`; this binds the three real facts. A PTY
+   *  resize makes the shell REPAINT (SIGWINCH) — but that repaint no longer
+   *  needs suppressing here: kaval excludes resize repaints from its
+   *  meaningful-output edge at the source, so the live dot (mirrored off padi's
+   *  `activity` set) never lights on a reveal/resize in the first place. */
   function publishDimensions(size: TerminalGrid): UiAction {
-    const { cols, rows } = size;
-    // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
-    // longer needs suppressing here: kaval excludes resize repaints from its
-    // meaningful-output edge at the source, so the live dot (mirrored off padi's
-    // `activity` set) never lights on a reveal/resize in the first place.
-    return activePadiRpc.lifecycle
-      .resize({ id: props.terminalId, cols, rows })
-      .pipe(
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
-            // reply rather than logging server-side and resolving — so a FAILURE
-            // here means the grid claim did not land: the PTY kept its old size while
-            // this pane renders against the new one. That is a wrong-grid screen with
-            // no other symptom, so it must not collapse to a no-op
-            // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
-            // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
-            // and padi returns quietly by design, so nothing reaches here — and the
-            // tile tears down via terminalExit anyway. The extra guard below covers the
-            // same race one hop earlier (the arm is already gone locally). One STABLE
-            // toast id keeps a flurry of failed resizes to a single message.
-            if (
-              activeArm(terminalStore.getMetadata(props.terminalId)) ===
-              undefined
-            )
-              return;
-            toast.error(
-              `Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`,
-              { id: `terminal-resize-failed-${props.terminalId}` },
-            );
-          }),
-        ),
-      );
+    return publishGridAction(size, {
+      terminalId: props.terminalId,
+      // A terminal is bound to the ACTIVE host (there is no host prop — that IS
+      // the existing mapping), and `padiMap.entry` is the pure, owner-free point
+      // lens (`wire.ts`), so this is the same fact that paints the host pip.
+      hostState: () => padiMap.entry(activeHost()).state().kind,
+      ptyLive: () =>
+        activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+      resize: (grid) =>
+        activePadiRpc.lifecycle.resize({
+          id: props.terminalId,
+          cols: grid.cols,
+          rows: grid.rows,
+        }),
+    });
   }
 
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
