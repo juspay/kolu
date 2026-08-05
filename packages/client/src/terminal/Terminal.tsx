@@ -868,7 +868,11 @@ const Terminal: Component<{
           }
         },
         resetIfLive,
-        "Terminal attach",
+        // Names the PANE, not just the surface: this label prefixes every line
+        // the loop logs AND keys the verdict's toast id, so an un-labelled one
+        // would collapse a canvas of separately-wedged panes into a single
+        // message naming none of them (kolu#2101 K1/K3-client).
+        `Terminal attach ${props.terminalId}`,
         {
           // The tile's OWN exit fact, for classifying a CLEAN stream end
           // (kolu#2101): a clean end is a real PTY exit only if this tile knows
