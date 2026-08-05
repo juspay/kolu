@@ -23,8 +23,8 @@
  * spawns, writes, kills, or reaps — no path here touches a daemon's lifecycle.
  */
 
-import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { buildSurfaceFace } from "@kolu/surface/client";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import {
   type ControlCoreProbeClient,
   isNoListenerError,
@@ -33,9 +33,9 @@ import {
 import { Effect } from "effect";
 import {
   discoverKavalDaemons,
+  type KavalDaemon,
   kavalControlSurface,
   kavalDaemonGroup,
-  type KavalDaemon,
   ptyHostClientOver,
 } from "kaval";
 import {
@@ -134,8 +134,33 @@ export function assemblePadiInventory(
   }));
 }
 
-/** How long each kaval status read may take before the sampler fails loudly. */
-const PROBE_TIMEOUT_MS = 1500;
+/** Cadence of padi's host-inventory readout. Coarser than the 5s memory tick — the
+ *  daemon set changes rarely (only on a spawn/adopt/leak), and each tick dials every
+ *  kaval, so a 10s poll is plenty live without chattering. */
+export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
+
+/** How long each kaval status read may take before the scan fails loudly.
+ *
+ *  DERIVED, not picked: half the poll cadence, the ceiling a per-tick read can
+ *  have. A probe is three bounded reads over a fresh per-tick link, so a budget
+ *  past half the interval would let one tick's probe still be running when the
+ *  next fires — the poll's non-overlap guard would coalesce them, but a cell that
+ *  spends its life in the coalescing path is one that never samples on time.
+ *
+ *  Sitting AT the ceiling rather than under it is the deliberate half: the load
+ *  this probe is measured against is the one that broke it. `terminal.list` scales
+ *  with the live terminal count, the fused edge fires at kaval-connect — which IS
+ *  peak, a post-takeover restore stampede — and the old 1500ms was a foreseeable
+ *  casualty of exactly that (juspay/kolu#2101 G4: 24 terminals restoring, several
+ *  agents resuming, one probe over 1500ms). A kaval that cannot answer three
+ *  read-only verbs within HALF ITS POLL INTERVAL is not busy, it is wedged — and a
+ *  wedged kaval SHOULD fail the scan loudly rather than be waited on forever.
+ *
+ *  What a timeout costs is now bounded by design: since #2101 G1 a failed poll read
+ *  — the T+0 seed included — is cell-local (logged, cadence held, retried next
+ *  tick), so the worst case is one stale inventory tick, not a dead cell and a
+ *  half-dead daemon. */
+const PROBE_TIMEOUT_MS = HOST_INVENTORY_SAMPLE_INTERVAL_MS / 2;
 
 /**
  * READ-ONLY status probe of one kaval socket: dial it, read frozen
@@ -149,6 +174,12 @@ const PROBE_TIMEOUT_MS = 1500;
  * dispatch — the flat-tag successor of the combined-contract client. `dispose()` is
  * ASYNC and is the ONLY thing that frees the link's protocol fibers, so a scan that
  * skipped it would leak one per probed kaval per 10s tick.
+ *
+ * The LOUD contract is deliberate and unchanged by #2101: a scan REJECTS rather than
+ * fabricating null rows for a peer that answered wrongly or not at all (honesty
+ * #1034). What changed is who absorbs that rejection — the derived poll CELL does
+ * (stale value or spec default, logged, retried next tick), instead of the surface
+ * runtime dying of it.
  */
 export function probeKavalStatus(
   socket: string,
@@ -269,11 +300,6 @@ export function enumerateHostDaemons(
   });
 }
 
-/** Cadence of padi's host-inventory readout. Coarser than the 5s memory tick — the
- *  daemon set changes rarely (only on a spawn/adopt/leak), and each tick dials every
- *  kaval, so a 10s poll is plenty live without chattering. */
-export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
-
 /** Resolve the kaval THIS padi holds — its live endpoint's `socketPath` (the
  *  authoritative address padi actually adopted/spawned) and whether that address is the
  *  pre-padi LEGACY one (an adopted `kaval-<port>/`) rather than padi's digest address.
@@ -349,7 +375,12 @@ export function samplePadiHostInventory(
     // the module global set at boot phase "identity" (`setPadiServeSocketPath`), which
     // runs BEFORE the surface is served, so it is always present by the time the
     // derived cell's poll connect fires — an absent value is a boot-order defect, so
-    // fail loud rather than mislabel the self-padi row.
+    // fail loud rather than mislabel the self-padi row. (The boot LAYER GRAPH proves
+    // that ordering — `PadiIdentity` is a dependency of the serve phase — so this
+    // throw is unreachable by construction. Since #2101 a throw from a poll read is
+    // cell-local either way: it would log every tick and serve the spec default, not
+    // kill padi. That is the framework's floor, not a licence — a deterministic
+    // precondition belongs at the builder, and this one is already proved there.)
     const padiSocket = getPadiServeSocketPath();
     if (!padiSocket) {
       throw new Error(
