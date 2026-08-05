@@ -273,6 +273,26 @@ describe("websocketLink — the WatchableWire (#4)", () => {
     await link.dispose();
   });
 
+  it("counts open EDGES as the epoch a call binds to", async () => {
+    const h = harness();
+    const link = await h.link;
+    expect(link.diagnostics.epoch()).toBe(0);
+
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.diagnostics.epoch(), { timeout: 3_000 })
+      .toBe(1);
+
+    first.close(1006, "server went away");
+    const second = await nthSocket(h.dialled, 2);
+    second.open();
+    await expect
+      .poll(() => link.diagnostics.epoch(), { timeout: 3_000 })
+      .toBe(2);
+    await link.dispose();
+  });
+
   it("stops notifying after unsubscribe", async () => {
     const h = harness();
     const link = await h.link;
@@ -284,6 +304,112 @@ describe("websocketLink — the WatchableWire (#4)", () => {
     ws.open();
     ws.close(STALE_PROCESS_CLOSE_CODE);
     expect(seen).toEqual([]);
+    await link.dispose();
+  });
+});
+
+/**
+ * The DIAL HISTORY (kolu#2101 J1) — the ring buffer a client-side diagnostic
+ * reads so a wire incident can be proved from the browser alone.
+ *
+ * Its reason for existing is one row: `"ended-without-open"`. A dial that fails
+ * before its socket opens is swallowed by `retryTransientErrors` — no broadcast,
+ * no status value of its own, nothing in the SERVER's log either (the server
+ * never saw a connection). Diagnosing the field incident took server-log
+ * archaeology plus screenshot forensics precisely because the client held no
+ * record that those attempts happened.
+ */
+describe("websocketLink — the dial history (J1)", () => {
+  it("records a swallowed pre-open failure as ended-without-open — the class nothing else can see", async () => {
+    // Two dials whose URL thunk throws (the `SocketOpenError` shape), then one
+    // that connects.
+    const h = harness({ urlThrowsFirst: 2 });
+    const link = await h.link;
+    const ws = await nthSocket(h.dialled, 1); // the THIRD evaluation dialled
+    ws.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    const history = link.diagnostics.dialHistory();
+    expect(history).toHaveLength(3);
+    for (const attempt of history.slice(0, 2)) {
+      expect(attempt.classification).toBe("ended-without-open");
+      // Never opened, and no close event ever carried a code.
+      expect(attempt.openedAt).toBe(undefined);
+      expect(attempt.closeCode).toBe(undefined);
+      expect(attempt.endedAt).toBeGreaterThanOrEqual(attempt.startedAt);
+    }
+    const current = history[2];
+    expect(current?.classification).toBe("in-flight");
+    expect(current?.openedAt).toBeGreaterThanOrEqual(current?.startedAt ?? 0);
+    expect(current?.endedAt).toBe(undefined);
+    await link.dispose();
+  });
+
+  it("records an ordinary cycle as opened-then-closed, with the close code", async () => {
+    const h = harness();
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    first.close(1006, "server went away");
+    const second = await nthSocket(h.dialled, 2);
+    second.open();
+    await expect
+      .poll(() => link.diagnostics.epoch(), { timeout: 3_000 })
+      .toBe(2);
+
+    const history = link.diagnostics.dialHistory();
+    expect(history).toHaveLength(2);
+    expect(history[0]?.classification).toBe("opened-then-closed");
+    expect(history[0]?.closeCode).toBe(1006);
+    expect(history[0]?.openedAt).toBeGreaterThanOrEqual(
+      history[0]?.startedAt ?? 0,
+    );
+    expect(history[1]?.classification).toBe("in-flight");
+    await link.dispose();
+  });
+
+  it("records a TERMINAL close as terminal — the wire will never dial again", async () => {
+    const h = harness();
+    const link = await h.link;
+    const ws = await nthSocket(h.dialled, 1);
+    ws.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    ws.close(STALE_PROCESS_CLOSE_CODE, "stale server process");
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("retired");
+
+    const history = link.diagnostics.dialHistory();
+    expect(history).toHaveLength(1);
+    expect(history[0]?.classification).toBe("terminal");
+    expect(history[0]?.closeCode).toBe(STALE_PROCESS_CLOSE_CODE);
+    await link.dispose();
+  });
+
+  it("hands out a SNAPSHOT — a reader cannot mutate the link's own record", async () => {
+    const h = harness();
+    const link = await h.link;
+    const ws = await nthSocket(h.dialled, 1);
+    ws.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    const [attempt] = link.diagnostics.dialHistory() as unknown as {
+      classification: string;
+    }[];
+    if (attempt === undefined) throw new Error("no dial recorded");
+    attempt.classification = "tampered";
+    expect(link.diagnostics.dialHistory()[0]?.classification).toBe("in-flight");
     await link.dispose();
   });
 });

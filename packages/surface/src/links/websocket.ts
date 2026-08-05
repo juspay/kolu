@@ -26,18 +26,37 @@
  *     action; a websocket can sit `open` at the OS level with no bytes flowing,
  *     which is why the dispatch is branded half-open at the seam and why the
  *     watchdog — not the socket — is the source of truth for liveness.
+ *  4. **The re-dial EPOCH, and the calls a re-dial orphaned** (kolu#2101 J1).
+ *     Effect RPC registers a call's entry exactly ONCE and never re-sends it
+ *     across a re-dial, and an answer can only travel the socket its request
+ *     went out on. So every in-flight call belongs to ONE socket — and when the
+ *     protocol ends that socket's run WITHOUT broadcasting (the swallowed
+ *     `SocketOpenError` arm of `retryTransientErrors`, law 2 of
+ *     `socketRedialLaws.test.ts`), those calls are orphaned with no failure to
+ *     retry on: they park forever over a wire that reports `open`. The dispatch
+ *     returned below therefore FAILS them itself on the next open edge — see
+ *     {@link WebsocketLink.diagnostics} and the epoch wrap.
  *
  * There is NO partysocket: reconnect is Effect's socket retry, driven by the
  * schedule below.
  */
 
-import { Cause, Duration, Effect, Layer, Schedule } from "effect";
+import { Cause, Duration, Effect, Layer, Schedule, Stream } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcClient } from "effect/unstable/rpc";
+import {
+  RpcClientDefect,
+  RpcClientError,
+} from "effect/unstable/rpc/RpcClientError";
 import { Socket } from "effect/unstable/socket";
 import { SurfaceTransportRetired } from "../errors";
 import { rpcSerializationLayer } from "../frameLimit";
-import type { WireStatus, WireTransport } from "../link";
+import {
+  brandHalfOpenDispatch,
+  type SurfaceDispatch,
+  type WireStatus,
+  type WireTransport,
+} from "../link";
 import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
@@ -80,10 +99,70 @@ export interface WebsocketLinkOptions {
   readonly connect?: (url: string) => WebSocket;
 }
 
+/** How many dial attempts the link remembers (kolu#2101 J1). Twenty covers a
+ *  whole wake-window flap — a handful of failed dials and the one that stuck —
+ *  and is small enough that a tab left open for a week cannot grow it. */
+const DIAL_HISTORY_LIMIT = 20;
+
+/** How one dial attempt ended, as the link itself observed it.
+ *
+ *  `"ended-without-open"` is the one the field was blind to: a dial that failed
+ *  BEFORE its socket opened is swallowed by `retryTransientErrors` (law 2 of
+ *  `socketRedialLaws.test.ts`) — no broadcast, no status value of its own, no
+ *  console line, nothing in the server's log either, because the server never
+ *  saw a connection. It is recorded here so a client-side diagnostic can say it
+ *  happened.
+ *
+ *  `"in-flight"` is the attempt currently dialing or connected; it has no
+ *  verdict yet, and saying so is more honest than leaving the field absent. */
+export type DialClassification =
+  | "in-flight"
+  | "opened-then-closed"
+  | "ended-without-open"
+  | "terminal";
+
+/** One dial attempt, timestamped with `Date.now()` (wall clock: these values
+ *  are read beside a SERVER log, so they must be comparable to one). */
+export interface DialAttempt {
+  /** When the acquire ran — before the URL thunk was even evaluated, so a
+   *  throwing thunk still leaves a record. */
+  readonly startedAt: number;
+  /** When the PROTOCOL reported the connection usable (`onConnect`), not when
+   *  the raw socket fired `open` — the difference is the poisoned-send window
+   *  documented below. Absent ⇒ this dial never opened. */
+  readonly openedAt?: number;
+  /** When the attempt's run ended (`onDisconnect`, which fires on EVERY attempt
+   *  end — including the swallowed ones). Absent ⇒ still in flight. */
+  readonly endedAt?: number;
+  /** The close code, when a `close` event carried one. Absent for a dial that
+   *  failed before any socket existed (a throwing URL thunk) and for one whose
+   *  run ended without a close (a ping timeout). */
+  readonly closeCode?: number;
+  readonly classification: DialClassification;
+}
+
+/** What the link knows about its own dialing, for a client-side diagnostic
+ *  snapshot (kolu#2101 J1/J2).
+ *
+ *  Deliberately NOT part of {@link WatchableWire}: that interface is implemented
+ *  by hand in tests and by consumers (`fakeWire`), and widening it would break
+ *  every such implementation for a fact only a real link can produce. This rides
+ *  on the FACTORY-BUILT link object instead, where it is additive. */
+export interface WireDiagnostics {
+  /** The last {@link DIAL_HISTORY_LIMIT} dial attempts, oldest first. The final
+   *  entry is the current one while a dial is in flight or connected. */
+  readonly dialHistory: () => readonly DialAttempt[];
+  /** How many times this wire has reached `open` — the epoch a call binds to.
+   *  A call bound to an epoch the wire has passed was orphaned by a re-dial. */
+  readonly epoch: () => number;
+}
+
 /** A {@link WireTransport} (the `{ dispatch, wire }` pair `createLiveSignal`
  *  takes as ONE value, so the watchdog cannot probe a different socket than it
- *  reconnects) plus the link's own `dispose`. */
-export interface WebsocketLink extends WireLink, WireTransport {}
+ *  reconnects) plus the link's own `dispose` and its dial {@link WireDiagnostics}. */
+export interface WebsocketLink extends WireLink, WireTransport {
+  readonly diagnostics: WireDiagnostics;
+}
 
 /** Open a websocket link to `url()`, returning the branded dispatch, the
  *  watchable wire, and the `dispose` that closes the socket for good. */
@@ -104,10 +183,54 @@ export async function websocketLink(
 
   let status: WireStatus = "connecting";
   const watchers = new Set<(s: WireStatus) => void>();
+
+  // The re-dial EPOCH: how many times this wire has reached `open`. It counts
+  // OPEN EDGES off the same funnel every consumer reads, so "the wire completed
+  // a re-dial cycle" and "the status said so" can never disagree. `epochWatchers`
+  // are the framework's own (one per in-flight call), NOT consumer callbacks —
+  // they are notified after `watchers`, so a consumer that issues a call from its
+  // own `open` handler has already bound to the NEW epoch by the time the
+  // supersession sweep runs, and cannot fail its own fresh call.
+  let epoch = 0;
+  const epochWatchers = new Set<(epoch: number) => void>();
+
   const setStatus = (next: WireStatus): void => {
     if (next === status) return;
     status = next;
+    if (next === "open") epoch += 1;
     for (const watcher of watchers) watcher(next);
+    if (next === "open") {
+      for (const watcher of [...epochWatchers]) watcher(epoch);
+    }
+  };
+
+  // ── The dial history (kolu#2101 J1) ─────────────────────────────────────
+  // A ring buffer of the last DIAL_HISTORY_LIMIT attempts. Built mutably and
+  // handed out as `readonly DialAttempt[]`, because an attempt is written in
+  // three places at three moments: the acquire (started), `onConnect` (opened),
+  // the socket's own `close` listener (the code) and `onDisconnect` (ended).
+  type OpenDialAttempt = {
+    -readonly [K in keyof DialAttempt]: DialAttempt[K];
+  };
+  const dialHistory: OpenDialAttempt[] = [];
+  let dial: OpenDialAttempt | undefined;
+  const beginDial = (): void => {
+    dial = { startedAt: Date.now(), classification: "in-flight" };
+    dialHistory.push(dial);
+    if (dialHistory.length > DIAL_HISTORY_LIMIT) dialHistory.shift();
+  };
+  /** Called from `onDisconnect`, which Effect RPC runs with `Effect.ensuring`
+   *  on EVERY attempt end — including the ones whose failure it then swallows,
+   *  which is precisely what makes `"ended-without-open"` recordable at all. */
+  const endDial = (retiredNow: boolean): void => {
+    if (dial === undefined) return;
+    dial.endedAt = Date.now();
+    dial.classification = retiredNow
+      ? "terminal"
+      : dial.openedAt === undefined
+        ? "ended-without-open"
+        : "opened-then-closed";
+    dial = undefined;
   };
 
   // Set by the close classifier, read by the retry schedule AND by the error
@@ -141,6 +264,10 @@ export async function websocketLink(
         // than minting a surface error nobody downstream would match on.
         Effect.try({
           try: () => {
+            // BEFORE the thunk: a thunk that throws is still a dial that
+            // happened, and `"ended-without-open"` is exactly the class the
+            // field could not see.
+            beginDial();
             setStatus("connecting");
             const ws = connect(opts.url());
             currentSocket = ws;
@@ -148,12 +275,16 @@ export async function websocketLink(
             // the close CODE is only on this event, and this listener is registered
             // before Effect's, so `retired` is already decided by the time the
             // protocol reports the disconnect. It does NOT publish the status: that
-            // is the protocol's job (see `connectionHooks` below).
+            // is the protocol's job (see `connectionHooks` below). It is also the
+            // only place the dial history can learn a close code, for the same
+            // reason: nothing downstream carries it.
             ws.addEventListener(
               "close",
               (event: Event) => {
                 const code = (event as CloseEvent).code;
-                if (typeof code === "number" && opts.isTerminalClose(code)) {
+                if (typeof code !== "number") return;
+                if (dial !== undefined) dial.closeCode = code;
+                if (opts.isTerminalClose(code)) {
                   retired = true;
                   retiredCode = code;
                 }
@@ -196,15 +327,33 @@ export async function websocketLink(
   // (including a CLEAN 1000 close, which the protocol turns into a failure), so the
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
+  //
+  // BETA-ASSUMPTION(beta.103): `onDisconnect` runs on EVERY attempt end, including
+  // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
+  // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
+  // that returns early for a `SocketOpenError`. Two things below rest on it and on
+  // nothing else: the EPOCH (a swallowed attempt must still close its status, or the
+  // next open would not read as an edge and an orphaned call would never be failed)
+  // and the DIAL HISTORY's `"ended-without-open"` row (a dial nothing else in the
+  // system records — not the client, not the server's log). If a bump moved the hook
+  // inside the swallow, both would go silent on exactly the shape they exist for.
+  // MEASURED by `socketRedialLaws.test.ts` — law 2's status pin and law 3.
   const connectionHooks = Layer.succeed(RpcClient.ConnectionHooks)(
     RpcClient.ConnectionHooks.of({
-      onConnect: Effect.sync(() => setStatus("open")),
+      onConnect: Effect.sync(() => {
+        // Stamped BEFORE the status publish, so an epoch watcher (or a consumer
+        // reading `diagnostics` off the `open` edge) never sees an open wire
+        // whose current dial claims it never opened.
+        if (dial !== undefined) dial.openedAt = Date.now();
+        setStatus("open");
+      }),
       // `retired` is TERMINAL and is raised INSTEAD of `closed`: the schedule below
       // will not re-dial, so a watchdog that saw `closed` would sit waiting for a
       // reconnect that can never come.
-      onDisconnect: Effect.sync(() =>
-        setStatus(retired ? "retired" : "closed"),
-      ),
+      onDisconnect: Effect.sync(() => {
+        endDial(retired);
+        setStatus(retired ? "retired" : "closed");
+      }),
     }),
   );
 
@@ -246,9 +395,120 @@ export async function websocketLink(
             failure.error,
   });
 
+  // ── The epoch wrap: a re-dial cycle FAILS what it orphaned (kolu#2101 J1) ──
+  //
+  // Why this is needed at all, and why it belongs HERE:
+  //
+  //  - Effect RPC sends a call's entry EXACTLY ONCE (`RpcClient.js`'s
+  //    `Effect.forkIn(scope)` write, at registration) and never re-sends it on a
+  //    reconnect, and an answer can only arrive on the socket its request went
+  //    out on. So a call is bound to ONE socket by construction.
+  //  - When that socket's run ends with a `SocketOpenError` — a pre-open dial
+  //    failure, or the ping timeout on an ESTABLISHED socket — the
+  //    `retryTransientErrors: true` above (set deliberately, so a socket that
+  //    never opened does not flap every consumer) makes the protocol return
+  //    early from its `tapCause` WITHOUT broadcasting `ClientProtocolError`,
+  //    which is the only thing that fails registered entries. Nothing fails. The
+  //    protocol re-dials underneath and the orphaned call parks FOREVER over a
+  //    wire that reports `open`. That is the production incident this exists to
+  //    kill: a woken tab whose subscriptions were all parked while the socket,
+  //    the watchdog and the header dot were all healthy.
+  //  - The LINK is the altitude: it is the one closure that owns both the status
+  //    funnel and the dispatch it hands out, so every consumer — fenced or not,
+  //    stream or unary — is covered without threading a wire reference through
+  //    the ~15 call sites the fence has.
+  //
+  // The rule: a call records the epoch it BINDS to at start. `open` ⇒ the
+  // current epoch (its request goes out on this socket). Anything else ⇒ the
+  // NEXT one: the write parks in `Socket.fromWebSocket`'s latch and flushes on
+  // the next open, so the call belongs to that socket and must NOT be failed by
+  // its arrival. When the wire reaches an epoch PAST the binding one, the call
+  // is orphaned and fails — the honest signal `fenceStream` already retries on,
+  // and the honest signal an unfenced caller needs instead of a dead promise.
+  //
+  // This coalesces with law 1 (a live socket CLOSING, which DOES broadcast)
+  // structurally rather than by bookkeeping: such a call has already failed and
+  // its watcher is deregistered before the reopen edge, and the fence's
+  // re-subscribe binds to the current/next epoch. One re-drive, never two.
+  const bindingEpoch = (): number => (status === "open" ? epoch : epoch + 1);
+
+  /** The failure a superseded call carries. `RpcClientError` is not decoration:
+   *  the per-subscription fence matches transport failures STRUCTURALLY on
+   *  `_tag === "RpcClientError"` (`client.ts`'s `isTransportError`), and this IS
+   *  a transport failure — the transport that was carrying the call is gone. The
+   *  message states the whole derivation, because it is what a consumer sees in
+   *  a console when an unfenced call finally fails instead of hanging. */
+  const orphanedByRedial = (bound: number, now: number): RpcClientError =>
+    new RpcClientError({
+      reason: new RpcClientDefect({
+        message:
+          `the wire re-dialled beneath this call: it was bound to socket epoch ${bound}, the wire is now at epoch ${now}. ` +
+          "Effect RPC registers an entry exactly once and never re-sends it across a re-dial, and an answer can only " +
+          "travel the socket its request went out on — so this call could only park forever. Failing it is the honest " +
+          "signal: the per-subscription retry fence re-subscribes on the new socket.",
+        cause: new Error(
+          `websocketLink: re-dial cycle superseded epoch ${bound} (wire now at ${now})`,
+        ),
+      }),
+    });
+
+  /** Never succeeds; fails the moment the wire opens past `bound`. */
+  const supersededByRedial = (
+    bound: number,
+  ): Effect.Effect<never, RpcClientError> =>
+    Effect.callback<never, RpcClientError>((resume) => {
+      // The registration is asynchronous relative to `bindingEpoch()`, so a
+      // re-dial can complete in between. Read the epoch again rather than assume.
+      if (epoch > bound) {
+        resume(Effect.fail(orphanedByRedial(bound, epoch)));
+        return;
+      }
+      const watcher = (next: number): void => {
+        if (next <= bound) return;
+        epochWatchers.delete(watcher);
+        resume(Effect.fail(orphanedByRedial(bound, next)));
+      };
+      epochWatchers.add(watcher);
+      return Effect.sync(() => {
+        epochWatchers.delete(watcher);
+      });
+    });
+
+  // Re-branded: `brandHalfOpenDispatch` is by IDENTITY, and this is a new object.
+  // A wire dispatch that lost the brand would be accepted by `surfaceClient`
+  // without a watchdog — the green-dot-over-a-dead-link lie (#1564).
+  const dispatch: SurfaceDispatch = brandHalfOpenDispatch({
+    unary: (tag: string, payload: unknown) =>
+      // `Effect.suspend` so the epoch is bound when the call RUNS, not when the
+      // Effect value is built (a call value can be held and run much later).
+      Effect.suspend(() =>
+        Effect.raceFirst(
+          link.dispatch.unary(tag, payload),
+          supersededByRedial(bindingEpoch()),
+        ),
+      ),
+    stream: (tag: string, payload: unknown) =>
+      // `interruptWhen`, not `haltWhen`: an orphaned subscription is parked ON a
+      // pull that will never complete, and `haltWhen` waits for the current pull.
+      // The guard's FAILURE becomes the stream's failure, which is what the fence
+      // retries on. It cannot fire synchronously with the subscribe (the epoch is
+      // read in the same tick it is compared against), so `SurfaceDispatch`'s
+      // no-synchronous-end invariant still holds.
+      Stream.suspend(() =>
+        Stream.interruptWhen(
+          link.dispatch.stream(tag, payload),
+          supersededByRedial(bindingEpoch()),
+        ),
+      ),
+  });
+
   return {
-    dispatch: link.dispatch,
+    dispatch,
     dispose: link.dispose,
+    diagnostics: {
+      dialHistory: () => dialHistory.map((attempt) => ({ ...attempt })),
+      epoch: () => epoch,
+    },
     wire: {
       status: () => status,
       onStatus: (cb) => {

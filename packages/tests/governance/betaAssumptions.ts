@@ -89,6 +89,18 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/padi/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
+  // The websocket link's re-dial EPOCH and its DIAL HISTORY (juspay/kolu#2101 J1).
+  // Both rest on one measured behavior: Effect RPC runs `onDisconnect` on every
+  // attempt end via `Effect.ensuring`, OUTSIDE the `tapCause` that swallows a
+  // `SocketOpenError` — so an attempt nobody is told about still ends its status.
+  // The epoch counts open EDGES off that funnel and fails every call a re-dial
+  // orphaned (the production park); the dial history's `"ended-without-open"`
+  // row is the only record anywhere that a swallowed dial happened. A bump that
+  // moved the hook inside the swallow would silence both, with nothing failing
+  // and nothing logged — the exact blind spot this round closed. Same law file
+  // as the reattachingStream row above, deliberately: ONE measurement, two
+  // consumers, so a re-verification cannot fix one and forget the other.
+  "packages/surface/src/links/websocket.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
   // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,
   // one per Atom behavior the bridge's correctness rests on: no implicit batching
