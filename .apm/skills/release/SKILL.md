@@ -6,37 +6,16 @@ argument-hint: "[X.Y.Z]"
 
 # Release
 
-Cut a kolu release. kolu ships only as a Nix flake, so a release is a **tag on `master`** — master stays the channel; the tag is a changelog anchor + a pin. The version is an editorial call (it's an app, not a library — `.0` is a milestone, a `.N` bump is a normal release). Its **single source of truth is `packages/server/package.json`** (`version`); the server reads it at runtime and Nix reads the same file for the artifact version, so there is nothing else to bump. Use valid semver, `X.Y.Z` (e.g. `1.0.0`), and tag `v${version}` (e.g. `v1.0.0`).
+A kolu release is a **tag on `master`** (kolu ships only as a Nix flake; master stays the channel). Version's single source of truth: `packages/server/package.json`. Do these in order — **nothing is committed, tagged, or pushed before the human approves.**
 
-Do the **what** below in order; figure out the **how** yourself. Use **`AskUserQuestion`** whenever a choice is genuinely the user's. **Phases §1–§3 are read-only — nothing is committed, tagged, or pushed before the go/no-go in §3.** Only §4 onward mutates the tree.
-
-## 1. Settle the inputs
-- **Version** — from the argument, else ask (valid semver `X.Y.Z`, e.g. `1.0.0`). Show the `feat`/`fix` history since the last tag so the major/minor call is informed. Verify it parses as semver and differs from the last tag.
-- **Date** — default today; confirm.
-
-## 2. Preflight (refuse if any fails) — read-only
-- On `master`, clean working tree, synced with `origin/master`.
-- Latest CI on `HEAD` is green (the base the release commit will build on).
-
-## 3. Confirm — the go/no-go — read-only
-- Show the plan: the exact notes about to publish (the current `unreleased.mdx` body), the version bump (`packages/server/package.json` → `${version}`), and the tag (`v${version}`).
-- **`AskUserQuestion`** to proceed. `No` leaves the tree untouched — nothing has been written yet.
-
-## 4. Apply the release commit
-- **Promote the changelog** — write `website/src/content/changelog/<X-Y-Z>.mdx` with `{ version, date }` frontmatter from the current `unreleased.mdx` body. **Open it with a summary paragraph** — one paragraph, above the first `###`, saying what this release gives the reader (the build fails without it). Read the promoted entries and name the two or three things that make the version what it is, in the reader's terms; use inline **bold** and `code` the way the entries do. It is editorial, not a count — never a restatement of the section list. **Normalize first**: `merge=union` lets concurrent PRs each add the same product-area `###` heading, so consolidate duplicate product-area headings in first-seen order and merge their `<Change kind="…">` bullets before stamping. Never regroup by `kind`; Added / Changed / Fixed / Heads-up belong on each entry and one product area intentionally mixes them. Then reset `unreleased.mdx` to an empty open section (just the `version: Unreleased` frontmatter).
-- **Set the version** — set `packages/server/package.json` `version` to `${version}` (the single source — Nix and the runtime both read it; nothing else to bump).
-- **Commit + push** — commit (`release ${version}`) and push `master`. **Do not tag yet.**
-
-## 5. Wait for CI on the release commit
-- Wait for CI/status checks to go green on the exact release commit you just pushed. **Never tag a commit CI hasn't passed** — that's why the tag is created *after* this gate, not on the pre-release `HEAD`.
-- If CI fails, fix forward (or revert) on `master`; do not tag.
-
-## 6. Tag & publish
-- Annotated tag `v${version}` on the green release commit; push the tag.
-- `gh release create v${version}` — notes point at `kolu.dev/changelog#v<X-Y-Z>`.
-
-## 7. Verify & report
-- Tag is on `master`; the GitHub release is live; `kolu.dev/changelog` shows the release (Pages redeploys on the `website/**` change).
-- Report the tag URL, the release URL, and the pin: `nix run github:juspay/kolu/v${version}`.
+1. **Settle inputs** — version from the argument, else ask (valid semver `X.Y.Z`, differs from the last tag; show the `feat`/`fix` history since the last tag to inform the call — it's an editorial choice, kolu is an app, not a library). Date: default today, confirm.
+2. **Preflight** (refuse if any fails) — on `master`, clean tree, synced with `origin/master`, latest CI green on `HEAD`.
+3. **Fix the changelog — its own approved commit** — audit every entry in `unreleased.mdx` against `.apm/instructions/changelog.instructions.md` and fix violations **in place, uncommitted**. Show the human the diff and **`AskUserQuestion`** to approve; iterate until approved, then commit (`changelog: reconcile for ${version}`). A separate commit is the point: promotion renames the file, so folding fixes into it would bury the one diff the human can actually review.
+4. **Stage the promotion — uncommitted** — promote the fixed `unreleased.mdx` body to `website/src/content/changelog/<X-Y-Z>.mdx` with `{ version, date }` frontmatter — consolidate duplicate product-area `###` headings (first-seen order, merge their bullets — never regroup by `kind`), and open with one editorial summary paragraph (the `summary` frontmatter field; the build fails without it). Reset `unreleased.mdx` to an empty open section. Set the version in `packages/server/package.json`.
+5. **Approval gate** — show the human the staged (uncommitted) diff — the promoted changelog as it will actually publish, the version bump, and the tag `v${version}` — and **`AskUserQuestion`** to proceed. Iterate until approved; `No` discards the staged changes, leaving only the approved changelog commit.
+6. **Commit + push** — commit (`release ${version}`) and push `master` (both commits). **Do not tag yet.**
+7. **CI gate** — wait for CI to go green on the exact release commit. On failure, open a PR with the fix, let the human merge it, and tag the resulting green commit instead; **never tag a commit CI hasn't passed**.
+8. **Tag & publish** — annotated tag `v${version}` on the green release commit; push it; `gh release create v${version}` with notes pointing at `kolu.dev/changelog#v<X-Y-Z>`.
+9. **Verify & report** — tag on `master`, GitHub release live, `kolu.dev/changelog` shows the release. Report the tag URL, the release URL, and the pin: `nix run github:juspay/kolu/v${version}`.
 
 ARGUMENTS: $ARGUMENTS
