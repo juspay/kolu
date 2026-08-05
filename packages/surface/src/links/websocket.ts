@@ -33,7 +33,8 @@
 
 import { Cause, Duration, Effect, Layer, Schedule } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { RpcClient } from "effect/unstable/rpc";
+import { rpcSerializationLayer } from "../frameLimit";
 import { Socket } from "effect/unstable/socket";
 import { SurfaceTransportRetired } from "../errors";
 import type { WireStatus, WireTransport } from "../link";
@@ -196,7 +197,7 @@ export async function websocketLink(
   ).pipe(
     Layer.provide([
       Layer.succeed(Socket.Socket)(socket),
-      RpcSerialization.layerNdjson,
+      rpcSerializationLayer,
       connectionHooks,
     ]),
   );

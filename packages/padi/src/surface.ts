@@ -68,18 +68,13 @@ import {
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
-import type { ClientErrorPolicy } from "./clientPolicy.ts";
-import {
-  DEFAULT_NEW_TERMINAL_POLICY,
-  newTerminalPolicyEqual,
-  NewTerminalPolicySchema,
-} from "./newTerminalPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/schema";
+import { Effect, Schema } from "effect";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -95,7 +90,11 @@ import {
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
 } from "kolu-git/schemas";
-import { Effect, Schema } from "effect";
+import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+} from "./chromeVocab.ts";
+import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsGitReadErrorSchema,
   KavalContractSkew,
@@ -108,20 +107,21 @@ import {
   WorktreeCreateErrorSchema,
 } from "./errors.ts";
 import {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  NewTerminalPolicySchema,
+  newTerminalPolicyEqual,
+} from "./newTerminalPolicy.ts";
+import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
 } from "./transcript/transcriptSchema.ts";
 import {
-  CanvasLayoutSchema,
-  RightPanelPerTerminalStateSchema,
-} from "./chromeVocab.ts";
-import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
-  DaemonStatusSchema,
-  DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
+  DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -139,16 +139,15 @@ import {
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
-// The DECLARED error vocabulary (PLAN D4) rides the same entry: the classes are
-// both the wire schema this surface declares and the value a client narrows on,
-// so a consumer reaches them where it reaches the members that raise them.
-export * from "./errors.ts";
-export * from "./vocab.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
 // re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
+// The DECLARED error vocabulary (PLAN D4) rides the same entry: the classes are
+// both the wire schema this surface declares and the value a client narrows on,
+// so a consumer reaches them where it reaches the members that raise them.
+export * from "./errors.ts";
 // The RESOLVED new-terminal theme policy the binding kolu-server pushes — declared
 // here for the same seal reason as the client-error policy above, and re-exported
 // by `kolu-common/surface` for `koluSurface` and the client. See
@@ -156,9 +155,10 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
-  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
+  newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
+export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -778,6 +778,31 @@ export const EndpointGridSchema = Schema.Struct({
  *  state whenever it is present and differs from the terminal's current grid;
  *  the policy is last-attach-wins.
  *
+ *  **The multi-client contract, stated (kolu#2101 G8e).** Last-attach-wins is
+ *  the WHOLE policy — there is no follow-the-viewer, no smallest-wins, no
+ *  ownership. Two viewers on one terminal therefore ping-pong its width, and a
+ *  production recording shows exactly that: content re-wrapping 136 → ~65 → 136
+ *  mid-session as a desktop and a resumed iOS tab alternately assert. The
+ *  consequences each side sees, so nobody has to re-derive them:
+ *    - The asserting client gets a snapshot serialized at ITS grid. Correct.
+ *    - Every OTHER attached client keeps its own xterm dimensions and receives
+ *      the reflowed bytes, so it renders N columns of content inside its own
+ *      2N-column pane until something makes it re-attach.
+ *    - A client that re-measures mid-request refuses the stale answer and
+ *      reopens at its current grid (`client/src/terminal/reattachingStream.ts`'s
+ *      `StaleSnapshotGrid`), so contention costs a repaint — never the attach
+ *      loop, which is the property kolu#2101 G8 restored and pins.
+ *
+ *  **What is NOT settled: telling the viewer.** A client cannot currently DETECT
+ *  that another viewer holds the terminal at a different size. It knows its own
+ *  grid and the grid it asked at; nothing on this wire carries the pty's CURRENT
+ *  grid, and the tempting proxy — a `reflowEpoch` bump — is not one, because the
+ *  epoch also bumps on a RIS re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an
+ *  indicator driven by it would light on every `clear`. Closing that gap is an
+ *  ADDITIVE minor on this contract (the pty's current grid on the snapshot frame,
+ *  or on the terminal record) plus a pane affordance; until it lands, the
+ *  re-wrap is silent by construction, and no code should pretend otherwise.
+ *
  *  The fusion is the point. The snapshot is bytes laid out for a specific
  *  cols×rows — cursor moves and wraps only mean anything at the width they were
  *  serialized for. Carrying the grid on the attach REQUEST means the resize and
@@ -906,13 +931,29 @@ export const PadiScreenHistoryOutputSchema = Schema.Union([
 
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
  *  (the write half the paste/upload procedures build on). Returns the on-disk
- *  path so the caller can bracketed-paste it into the PTY. */
+ *  path so the caller can bracketed-paste it into the PTY.
+ *
+ *  CHUNKED. A whole file used to ride one call, which made the request frame
+ *  scale with the dropped file: a 26 MB drop became a ~35 MB frame, and the
+ *  ndjson decoder answers an oversized frame by CLOSING THE SOCKET (1009),
+ *  taking every other subscription on that tab's multiplexed wire with it. So
+ *  the file arrives as a sequence of `UPLOAD_CHUNK_BYTES`-bounded calls: the
+ *  first omits `appendTo` and creates the file, each subsequent one passes back
+ *  the path it was given and appends. No single frame scales with user data. */
 export const PadiScratchWriteInputSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
   /** Filename as dropped; sanitized to its safe basename before writing. */
   name: Schema.String.check(Schema.isMinLength(1)),
-  /** Base64-encoded file bytes. */
+  /** Base64-encoded file bytes — ONE CHUNK, not necessarily the whole file.
+   *  Chunk boundaries are 4-character-aligned so each chunk decodes on its own
+   *  (see `chunkBase64`). */
   data: Schema.String,
+  /** Absent on the FIRST chunk: create a fresh (collision-suffixed) file.
+   *  Present on every subsequent chunk: the path the first call returned,
+   *  appended to. The server re-derives the terminal's scratch dir and REFUSES
+   *  a path outside it, so this carries no authority the caller did not already
+   *  have — it is a continuation token that happens to be readable. */
+  appendTo: Schema.optionalKey(Schema.String),
 });
 export const PadiScratchWriteOutputSchema = Schema.Struct({
   /** The on-disk path the bytes landed at, inside the terminal's scratch dir. */

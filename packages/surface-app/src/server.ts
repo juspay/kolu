@@ -20,6 +20,7 @@
 
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
+import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
 import {
   type CellConnector,
   type SurfaceHandlers,
@@ -35,7 +36,7 @@ import {
   HttpStaticServer,
 } from "effect/unstable/http";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
 import { Socket, SocketServer } from "effect/unstable/socket";
 import {
   ASSET_MISS_CACHE_CONTROL,
@@ -1029,7 +1030,7 @@ export function serveSurfaceSocket<Svc = never>(opts: {
   const buffered = bufferedSocketView(opts.socket);
   const base = surfaceRpcServerLayer(opts.group, opts.handlers).pipe(
     Layer.provide(RpcServer.layerProtocolSocketServer),
-    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(rpcSerializationLayer),
     Layer.provide(oneConnectionSocketServer(buffered.view)),
   );
   const serving =

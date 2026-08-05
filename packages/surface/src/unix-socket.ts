@@ -25,7 +25,8 @@ import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
+import { rpcSerializationLayer } from "./frameLimit";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
 // There is no `log` seam any more: the per-connection runtime events it
@@ -274,7 +275,7 @@ function servingLayer(
 ): Layer.Layer<never, unknown> {
   return surfaceRpcServerLayer(group, handlers).pipe(
     Layer.provide(RpcServer.layerProtocolSocketServer),
-    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(rpcSerializationLayer),
     Layer.provide(oneConnectionSocketServer(socket, socketPath)),
   );
 }

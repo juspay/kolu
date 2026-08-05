@@ -13,6 +13,8 @@
  * renders different bytes than it did pre-migration.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { inMemoryStore } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Exit, Schema } from "effect";
@@ -48,6 +50,7 @@ import {
   unregisterTerminal,
 } from "./terminal-registry.ts";
 import { MAX_UPLOAD_BYTES } from "./upload.ts";
+import { cleanupTerminalScratch } from "./terminalScratch.ts";
 import {
   type AuthoredActiveTerminal,
   AuthoredParkedSchema,
@@ -322,7 +325,12 @@ describe("padi terminals collection backing == the deleted client reader-join", 
  *  A procedure handler returns an `Effect` now (S2), so the gate's refusal is a
  *  typed FAILURE rather than a throw. */
 type ScratchWriteFn = (args: {
-  input: { terminalId: string; name: string; data: string };
+  input: {
+    terminalId: string;
+    name: string;
+    data: string;
+    appendTo?: string;
+  };
 }) => Effect.Effect<{ path: string }, unknown>;
 
 function scratchWrite(): ScratchWriteFn {
@@ -424,6 +432,133 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
         }),
       ),
     ).resolves.toBe("TerminalNotFound");
+  });
+});
+
+/**
+ * The chunked upload's server half (juspay/kolu#2101 G9a/G9c).
+ *
+ * The gate that mattered before chunking was "is this ONE payload too big".
+ * Once a file arrives in pieces, that question is worthless on its own: an
+ * unlimited file is an unlimited number of individually-legal chunks. So the
+ * cap has to be re-asked against the accumulated total, and these pin that it
+ * is — plus that the client-supplied continuation path buys no authority.
+ */
+describe("padi scratch.write chunked continuation (G9a)", () => {
+  const b64 = (s: string) => Buffer.from(s).toString("base64");
+
+  afterEach(() => {
+    cleanupTerminalScratch(ACTIVE_ID);
+  });
+
+  it("appends chunks into one file and returns a stable path", async () => {
+    seed();
+    const write = scratchWrite();
+    const first = (await runHandler(
+      write({
+        input: { terminalId: ACTIVE_ID, name: "n.md", data: b64("ab") },
+      }),
+    )) as { path: string };
+    const second = (await runHandler(
+      write({
+        input: {
+          terminalId: ACTIVE_ID,
+          name: "n.md",
+          data: b64("cd"),
+          appendTo: first.path,
+        },
+      }),
+    )) as { path: string };
+    expect(second.path).toBe(first.path);
+    expect(readFileSync(second.path, "utf8")).toBe("abcd");
+  });
+
+  it("refuses a continuation whose path escapes the terminal's scratch dir", async () => {
+    seed();
+    const write = scratchWrite();
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "n.md",
+            data: b64("x"),
+            appendTo: "/etc/passwd",
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+  });
+
+  it("refuses a continuation to a file that was never created", async () => {
+    seed();
+    const write = scratchWrite();
+    const anchor = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "a.md", data: b64("x") } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "a.md",
+            data: b64("y"),
+            appendTo: `${dirname(anchor.path)}/never-created.md`,
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+  });
+
+  it("still needs an ACTIVE terminal for every chunk, not just the first", async () => {
+    // A terminal that dies mid-upload must stop taking bytes. The liveness gate
+    // runs before the append branch, so this holds for continuations too.
+    seed();
+    const write = scratchWrite();
+    const first = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "n.md", data: b64("a") } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: SLEEPING_ID,
+            name: "n.md",
+            data: b64("b"),
+            appendTo: first.path,
+          },
+        }),
+      ),
+    ).resolves.toBe("TerminalNotFound");
+  });
+
+  it("enforces the size cap on the ACCUMULATED total, not the chunk", async () => {
+    // THE property chunking could have quietly destroyed. Each chunk here is
+    // individually legal; together they exceed MAX_UPLOAD_BYTES, and the gate
+    // must refuse on the total. Without the post-append `rejectionFor` on the
+    // real on-disk size, this passes silently and the 50 MB cap means nothing.
+    seed();
+    const write = scratchWrite();
+    // Two-thirds of the cap each: legal alone, over the cap together.
+    const half = "A".repeat(Math.ceil((((MAX_UPLOAD_BYTES * 2) / 3) * 4) / 3));
+    const first = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "big.txt", data: half } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "big.txt",
+            data: half,
+            appendTo: first.path,
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+    // And the over-cap file is REMOVED rather than left truncated on disk,
+    // where an agent could read a partial upload as a whole one.
+    expect(existsSync(first.path)).toBe(false);
   });
 });
 

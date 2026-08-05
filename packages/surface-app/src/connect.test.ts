@@ -24,6 +24,7 @@ import {
   isStaleProcessClose,
 } from "./connect";
 import { FakeWebSocket, fakeWire } from "./fakeSocket.testlib";
+import { FRAME_TOO_LARGE_CLOSE_CODE } from "@kolu/surface/frame-limit";
 import { STALE_PROCESS_CLOSE_CODE } from "./index";
 import { DEFAULT_SERVER_HEARTBEAT_INTERVAL_MS } from "./server";
 
@@ -96,6 +97,18 @@ describe("isStaleProcessClose — surface-app's close-code vocabulary", () => {
     for (const code of [1000, 1001, 1006, 1011, 4000, 4002]) {
       expect(isStaleProcessClose(code)).toBe(false);
     }
+  });
+
+  it("leaves the frame-cap close (1009) retriable — juspay/kolu#2101 G9c(ii)", () => {
+    // Effect's ndjson decoder answers an oversized inbound frame by closing the
+    // socket with 1009, which takes every subscription on the tab's multiplexed
+    // wire with it. That close is inside Effect and we cannot stop it, so the
+    // contract we hold is that it stays RECOVERABLE: classifying 1009 terminal
+    // would halt the retry schedule and strand the tab with no subscriptions
+    // and no way back short of a reload — turning a bad frame into a dead tab.
+    // Reconnect re-subscribes, and the per-subscription retry fence restores
+    // what the close dropped.
+    expect(isStaleProcessClose(FRAME_TOO_LARGE_CLOSE_CODE)).toBe(false);
   });
 });
 

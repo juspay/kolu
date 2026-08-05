@@ -17,6 +17,7 @@
  * `setPadiActivityFeedStore`, see `./confStores.ts`); the wire members live here.
  */
 
+import { rmSync } from "node:fs";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
 import { derived, everyMsOr, source } from "@kolu/surface/reactor";
 import {
@@ -101,7 +102,7 @@ import {
 } from "./memorySampler.ts";
 import { composePadiTerminal } from "./terminalEndpoint/metadata.ts";
 import { resolveTerminalEndpoint } from "./terminalEndpoint/resolve.ts";
-import { saveTerminalFile } from "./terminalScratch.ts";
+import { appendTerminalFile, saveTerminalFile } from "./terminalScratch.ts";
 import {
   createTerminal,
   killAllTerminals,
@@ -830,11 +831,46 @@ export function buildPadiSurfaceDeps(deps: {
           handle(() => {
             requireActiveTerminal(input.terminalId);
             const bytes = base64DecodedLength(input.data);
-            const reason = rejectionFor(input.name, bytes);
-            if (reason !== null) throw new ScratchWriteRejected({ reason });
-            return {
-              path: saveTerminalFile(input.terminalId, input.name, input.data),
-            };
+            // FIRST chunk (or a whole small file): the extension allowlist is
+            // checked here, once, before anything touches disk.
+            if (input.appendTo === undefined) {
+              const reason = rejectionFor(input.name, bytes);
+              if (reason !== null) throw new ScratchWriteRejected({ reason });
+              return {
+                path: saveTerminalFile(
+                  input.terminalId,
+                  input.name,
+                  input.data,
+                ),
+              };
+            }
+            // CONTINUATION. The size gate has to run on the file's total size
+            // AFTER the append, never on the chunk: a per-chunk check would let
+            // an unlimited file through as an unlimited number of legal chunks,
+            // which is the whole cap defeated by arithmetic. `appendTerminalFile`
+            // returns the on-disk total for exactly this reason, and it is the
+            // real size — measured from the filesystem, not accumulated from
+            // numbers the client supplied.
+            let appended: { path: string; totalBytes: number };
+            try {
+              appended = appendTerminalFile(
+                input.terminalId,
+                input.appendTo,
+                input.data,
+              );
+            } catch (cause) {
+              throw new ScratchWriteRejected({
+                reason: `Upload chunk refused: ${cause instanceof Error ? cause.message : String(cause)}`,
+              });
+            }
+            const reason = rejectionFor(input.name, appended.totalBytes);
+            if (reason !== null) {
+              // Over the cap mid-stream: drop what landed rather than leaving a
+              // half file the agent might read as whole.
+              rmSync(appended.path, { force: true });
+              throw new ScratchWriteRejected({ reason });
+            }
+            return { path: appended.path };
           }),
       },
 

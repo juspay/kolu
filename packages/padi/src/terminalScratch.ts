@@ -7,8 +7,16 @@
  * file. `cleanupTerminalScratch` wipes the dir on terminal exit.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { basename, join, parse } from "node:path";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, join, parse, sep } from "node:path";
 import { koluScratchDir } from "./koluRoot.ts";
 
 function dirFor(terminalId: string): string {
@@ -77,6 +85,41 @@ export function saveTerminalFile(
   const path = uniquePath(dir, sanitizeUploadName(name));
   writeFileSync(path, Buffer.from(base64Data, "base64"), { mode: 0o600 });
   return path;
+}
+
+/** Append base64-encoded data to a file ALREADY inside `terminalId`'s scratch
+ *  directory — the continuation of a chunked upload. Returns the path, and the
+ *  file's total size on disk after the append, so the caller can re-run the
+ *  size policy against the accumulated total rather than the one chunk.
+ *
+ *  `path` arrives from the client (it is the path a previous `write` returned),
+ *  so it is validated, not trusted: it must resolve INSIDE this terminal's own
+ *  scratch dir and must already exist. That containment check is what stops a
+ *  crafted `appendTo` from turning an upload into an arbitrary-file append —
+ *  `..`, an absolute path elsewhere, and another terminal's dir are all
+ *  refused. `realpathSync` resolves symlinks BEFORE the comparison, so a
+ *  symlink planted inside the scratch dir cannot point the append out of it.
+ *
+ *  Throws on any violation; the caller turns that into a typed refusal. */
+export function appendTerminalFile(
+  terminalId: string,
+  path: string,
+  base64Data: string,
+): { path: string; totalBytes: number } {
+  const dir = realpathSync(dirFor(terminalId));
+  // Resolve the target's own real path. It must already exist — an append is
+  // only ever a CONTINUATION, never the thing that creates the file, so a
+  // missing target is a protocol violation rather than a first chunk.
+  if (!existsSync(path)) {
+    throw new Error("scratch append target does not exist");
+  }
+  const real = realpathSync(path);
+  // `sep`-terminated prefix: `/scratch/t1` must not match `/scratch/t10`.
+  if (!real.startsWith(dir + sep)) {
+    throw new Error("scratch append target is outside the terminal's dir");
+  }
+  appendFileSync(real, Buffer.from(base64Data, "base64"), { mode: 0o600 });
+  return { path: real, totalBytes: statSync(real).size };
 }
 
 /** Remove a terminal's scratch directory. Safe to call when the dir

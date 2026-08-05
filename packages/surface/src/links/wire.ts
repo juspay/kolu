@@ -37,7 +37,8 @@ import {
   Stream,
 } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
+import { RpcClient } from "effect/unstable/rpc";
+import { rpcSerializationLayer } from "../frameLimit";
 import { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { Socket } from "effect/unstable/socket";
 import { SurfaceStdioTransportClosed } from "../errors";
@@ -235,7 +236,7 @@ export async function duplexWireLink(opts: {
   ).pipe(
     Layer.provide([
       Layer.succeed(Socket.Socket)(socket),
-      RpcSerialization.layerNdjson,
+      rpcSerializationLayer,
     ]),
   );
 

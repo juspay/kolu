@@ -18,6 +18,7 @@ import {
   type SavedSession,
   SavedSessionSchema,
 } from "@kolu/padi/surface";
+import { RPC_MAX_FRAME_BYTES } from "@kolu/surface/frame-limit";
 import { toError } from "@kolu/surface/run-stream";
 import { Cause, Effect, Result, Schema } from "effect";
 import { toast } from "solid-sonner";
@@ -49,6 +50,24 @@ export function exportSession(session: SavedSession | null): void {
   toast.success(`Exported ${session.terminals.length} terminals`);
 }
 
+/** The largest session export `session.import` will carry (juspay/kolu#2101
+ *  G9a sweep).
+ *
+ *  `session.import` is the only client→server member besides `scratch.write`
+ *  whose payload is user-authored, and that direction is the dangerous one: an
+ *  oversized frame client→server does not fail the call, it closes the socket
+ *  (1009) and takes every subscription on the tab with it. A session file is
+ *  realistically tens of KB — a few hundred terminals of short strings — but
+ *  the file comes off the user's disk and nothing stopped a hand-crafted one
+ *  from being megabytes.
+ *
+ *  Unlike an upload, chunking this is wrong: the session decodes as ONE value,
+ *  so half of it is not a smaller session. A cap with an honest message is the
+ *  right shape. Set at a quarter of the wire's frame budget, which is ~4 MiB —
+ *  two orders of magnitude above any real export, so it can only ever fire on
+ *  something already broken, and it fires here rather than on the socket. */
+const MAX_SESSION_IMPORT_BYTES = RPC_MAX_FRAME_BYTES / 4;
+
 /** Parse + validate JSON text as a `SavedSession`, throwing an `Error` with
  *  a user-facing message on malformed input. Pure — no DOM, no toasts — so
  *  the validation path is unit-testable.
@@ -70,6 +89,16 @@ export function exportSession(session: SavedSession | null): void {
  *  because a strip pass here would be dead code pretending to hold a line the
  *  input shape already holds. */
 export function parseSavedSession(text: string): SavedSession {
+  // Measured BEFORE `JSON.parse` — parsing a huge string is the cost we are
+  // avoiding, and the size we care about is the one that would ride the wire.
+  // `text.length` is UTF-16 code units, which is exactly what the ndjson
+  // decoder counts, so the two measure the same thing.
+  if (text.length > MAX_SESSION_IMPORT_BYTES) {
+    const mb = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    throw new Error(
+      `that session file is ${mb(text.length)} MB; the limit is ${mb(MAX_SESSION_IMPORT_BYTES)} MB. A real kolu export is a few hundred KB at most, so this one is very likely not a session export.`,
+    );
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);

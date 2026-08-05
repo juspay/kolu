@@ -837,6 +837,41 @@ with `isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reas
 are deliberately tight; the relay re-raises genuine application errors UNCHANGED,
 so neither tag is ever an app error.
 
+### The wire's frame cap (`@kolu/surface/frame-limit`)
+
+Every link's ndjson serialization is built here, from one owned constant, rather
+than from Effect's default. The default and this value are the same 16 MiB — the
+point of passing it explicitly is that a future Effect bump cannot move kolu's
+wire silently.
+
+| Export | Type | Meaning |
+| --- | --- | --- |
+| `RPC_MAX_FRAME_BYTES` | `number` | 16 MiB. The largest single ndjson frame the decoder will buffer. |
+| `rpcSerializationLayer` | `Layer<RpcSerialization>` | The ndjson layer carrying that cap. Use instead of `RpcSerialization.layerNdjson` at every client and server leg. |
+| `exceedsFrameLimit(bytes)` | `(number) → boolean` | Mirrors Effect's own predicate, boundary included: a frame of exactly `RPC_MAX_FRAME_BYTES` passes. |
+| `FRAME_TOO_LARGE_CLOSE_CODE` | `number` | `1009`. |
+| `isFrameTooLargeClose(code)` | `(number) → boolean` | Classifies the frame-cap close distinctly. |
+
+**An oversized frame is not a failed call — it is a closed socket.** Effect's
+server-side decode answers a frame over the cap with `CloseEvent(1009)`, which
+takes every subscription on that multiplexed connection with it. (The client leg
+is asymmetric: an oversized frame arriving server→client surfaces as a broadcast
+`ClientProtocolError`, so the socket survives and the retry fence recovers.)
+
+Two consequences a member author owns:
+
+- **No member's payload may scale with user data.** Chunk it into bounded calls
+  (`scratch.write`'s `appendTo` continuation is the worked example) or cap it
+  with a typed refusal. The cap is a backstop, not a budget.
+- **Refuse client-side, before send.** A frame that would bust the limit must be
+  rejected with an honest message rather than handed to the transport to die on.
+- `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
+  halting the retry schedule on it would strand the tab with no subscriptions.
+
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.103)` marker
+(governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
+must re-measure them before it can land.
+
 ## Cross-cutting invariants
 
 - **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry fence re-runs the source on each reconnect and a delta-first frame would silently lose state.

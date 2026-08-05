@@ -78,6 +78,7 @@ export function findBetaAssumptions(source: string): BetaAssumption[] {
 export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/padi/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
+  "packages/surface/src/frameLimit.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
 ];
 

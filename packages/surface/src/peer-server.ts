@@ -13,7 +13,7 @@
  *
  * ## Serialization
  *
- * ndjson (`RpcSerialization.layerNdjson`) — the same frames the socket legs
+ * ndjson (`rpcSerializationLayer`) — the same frames the socket legs
  * emit, which is what lets a daemon splice bytes between a stdio leg and a
  * unix-socket leg without understanding them (review #10, pinned by
  * `byteSplice.test.ts`). The base64+newline codec is deleted with the peer
@@ -70,7 +70,8 @@ import * as NodeStream from "@effect/platform-node/NodeStream";
 import { Effect, Exit, Layer, Scope, Stdio, Stream } from "effect";
 import { type PlatformError, systemError } from "effect/PlatformError";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
+import { rpcSerializationLayer } from "./frameLimit";
 import { writeStdioReadiness } from "./links/readiness";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
@@ -329,7 +330,7 @@ export function serveOverStdio(
   const scope = Scope.makeUnsafe();
   const layer = surfaceRpcServerLayer(opts.group, opts.handlers).pipe(
     Layer.provide(RpcServer.layerProtocolStdio),
-    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(rpcSerializationLayer),
     Layer.provide(stdioLayer(transport, firstBytes)),
   );
 
