@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+# Set the branch's required status checks to the COMPLETE gate: odu's canonical
+# DAG contexts PLUS the GitHub Actions contexts that guard the Attic cache warm.
+#
+#     ci/protect --dry-run            # print the complete required set
+#     ci/protect                      # apply it to the default branch
+#     ci/protect --branch some-branch # …to another branch
+#
+# WHY THE APPEND LIVES HERE AND NOT IN A ONE-OFF `gh` CALL
+# -------------------------------------------------------
+# `odu protect` REPLACES `required_status_checks.contexts` with the list its
+# canonical DAG produces. It has no extra-context flag, so anything added
+# out-of-band survives exactly until the next person runs protect — which is
+# the routine way this repo edits the gate. A context enrolled by hand is
+# therefore not enrolled; it is scheduled for silent removal. Putting the
+# append INSIDE the protect path makes "re-running protect drops it" unspellable.
+#
+# WHY THESE CONTEXTS ARE WORTH GATING ON
+# --------------------------------------
+# `.github/workflows/nix-cache.yml` is what pushes this repo's closures to
+# https://cache.nixos.asia/oss. When it is green-but-not-required, a red or
+# never-run cache push blocks nothing — and a deploy off that commit finds no
+# agent closure in the cache and COMPILES the daemon on the remote host over
+# ssh. That is not hypothetical: it happened (juspay/kolu#2101, G7) while the
+# workflow sat there, unrequired, doing its job badly and nobody's merge caring.
+# The cache warm is deploy-critical, so it belongs in the required set.
+#
+# THE CONTEXT NAMES ARE DERIVED FROM THE WORKFLOW, NEVER SPELLED HERE
+# -------------------------------------------------------------------
+# A check-run's name — which IS the branch-protection context string — is
+# `<job-id> (<matrix value>)` for a single-dimension matrix job with no `name:`
+# override. So the workflow file is the source of truth and this script parses
+# it: one job, one matrix dimension, one flow sequence of values. A hardcoded
+# `build-and-push (ubuntu-latest)` here would be a second source of truth that
+# goes stale the day the job or the matrix is renamed — and it would go stale
+# SILENTLY, by requiring a context nothing posts (which blocks every merge) or
+# by dropping one nothing gates (which restores the incident above).
+#
+# Every departure from that shape is a HARD failure naming the workflow file.
+# There is no partial extraction and no empty list: this script would rather
+# refuse to touch branch protection than set a gate it cannot justify.
+#
+# `yq` is not in this repo's dev shell (`nix develop`), so the parse is awk —
+# deliberately, rather than as a fallback. A yq branch that never executes here
+# is an untested parser, and an untested parser guarding a merge gate is worse
+# than no parser at all.
+#
+# NOT RUN BY THE DAG. This is coordinator-side, like the `ci::protect` recipe
+# that calls it: it edits GitHub's branch protection, which no CI node may do.
+#
+# No `mapfile`, no namerefs — same discipline as `ci/agent-substitutable`, so
+# the scripts in this directory read alike (that one runs on GitHub's bash 3.2;
+# this one only ever runs on the machine driving CI).
+
+set -euo pipefail
+
+die() {
+  echo "ci/protect: $*" >&2
+  exit 1
+}
+
+here="$(cd "$(dirname "$0")" && pwd)"
+root="$(cd "${here}/.." && pwd)"
+workflow="${root}/.github/workflows/nix-cache.yml"
+
+case "${1:-}" in
+  -h | --help)
+    echo "usage: ci/protect [--dry-run] [--branch B] [odu protect args…]"
+    exit 2
+    ;;
+esac
+
+# ── the derivation ───────────────────────────────────────────────────────────
+# Emits one `<job> (<value>)` per line, or exits non-zero having said exactly
+# which structural expectation the workflow no longer meets.
+gha_contexts() {
+  awk '
+    function bail(msg) { print msg > "/dev/stderr"; exit 3 }
+
+    # Full-line comments and blanks carry no structure.
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+
+    {
+      line = $0
+      sub(/[[:space:]]+$/, "", line)
+      match(line, /^ */)
+      indent = RLENGTH
+      key = line
+      sub(/^ +/, "", key)
+    }
+
+    # Top level: we care about the `jobs:` mapping and nothing else.
+    indent == 0 {
+      in_jobs = (key == "jobs:")
+      in_strategy = 0
+      in_matrix = 0
+      next
+    }
+    !in_jobs { next }
+
+    # A job id. More than one and the `<job> (<value>)` derivation below would
+    # describe only a slice of the contexts this workflow posts.
+    indent == 2 {
+      njobs++
+      job = key
+      sub(/:.*$/, "", job)
+      in_strategy = 0
+      in_matrix = 0
+      next
+    }
+
+    # Job-level keys. A `name:` here renames every check-run, so the derivation
+    # would be wrong in a way GitHub reports as "expected, never posted".
+    indent == 4 {
+      if (key ~ /^name:/) named = 1
+      in_strategy = (key == "strategy:")
+      in_matrix = 0
+      next
+    }
+
+    indent == 6 && in_strategy {
+      in_matrix = (key == "matrix:")
+      next
+    }
+
+    # A matrix dimension. Two of them and the check-run name becomes
+    # `<job> (<a>, <b>)`, which this parse does not (and should not guess how to)
+    # construct.
+    indent == 8 && in_matrix {
+      nmatrix++
+      mkey = key
+      sub(/:.*$/, "", mkey)
+      mval = key
+      sub(/^[^:]*:[[:space:]]*/, "", mval)
+      dimension = mkey
+      values = mval
+      next
+    }
+
+    END {
+      if (njobs == 0) bail("no `jobs:` mapping with a job under it")
+      if (njobs != 1) bail("expected exactly 1 job, found " njobs)
+      if (named) bail("job `" job "` sets its own `name:`, which renames every check-run")
+      if (nmatrix != 1) bail("expected exactly 1 matrix dimension under job `" job "`, found " nmatrix)
+      if (values !~ /^\[.*\]$/) bail("matrix `" dimension ":` is not an inline [a, b] sequence")
+      if (job !~ /^[A-Za-z0-9_.-]+$/) bail("job id `" job "` is not a plain identifier")
+
+      gsub(/^\[|\]$/, "", values)
+      n = split(values, v, ",")
+      emitted = 0
+      for (i = 1; i <= n; i++) {
+        item = v[i]
+        gsub(/^[[:space:]]*["'"'"']?|["'"'"']?[[:space:]]*$/, "", item)
+        if (item == "") bail("matrix `" dimension ":` has an empty entry")
+        if (item ~ /[()]/) bail("matrix value `" item "` cannot appear in a check-run name")
+        print job " (" item ")"
+        emitted++
+      }
+      # A one-platform cache gate is the single-platform-subset bug the
+      # `--platform` pinning below exists to prevent, in the other half of the
+      # required set.
+      if (emitted < 2) bail("matrix `" dimension ":` yields " emitted " context(s), expected at least 2")
+    }
+  ' "$1"
+}
+
+[ -f "$workflow" ] || die "no ${workflow} — the cache-warm contexts are derived from it, and it is gone"
+
+contexts=""
+contexts="$(gha_contexts "$workflow")" || die "cannot derive the cache-warm contexts from ${workflow} (see above).
+A check-run's name is '<job-id> (<matrix value>)'; this script requires that
+workflow to hold exactly one job with exactly one inline matrix dimension.
+Fix the workflow or teach this parse the new shape — do NOT let protect run
+without these contexts: an unrequired cache push is how a deploy ends up
+compiling the daemon over ssh (juspay/kolu#2101, G7)."
+
+# Derived BEFORE odu touches anything: odu protect replaces the required list,
+# so a parse that dies after it would leave the branch gated on the DAG alone —
+# exactly the state this script exists to prevent.
+
+# ── argument reading (pass-through, never consumed) ───────────────────────────
+dry_run=""
+branch=""
+prev=""
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry_run=1 ;;
+    --branch=*) branch="${arg#--branch=}" ;;
+  esac
+  [ "$prev" = "--branch" ] && branch="$arg"
+  prev="$arg"
+done
+
+# ── odu's half: the canonical DAG contexts ───────────────────────────────────
+# Both platforms are pinned here, not left to the caller, so the required list
+# can never be a single-platform subset (see the ci skill's green-gate).
+nix run "${root}/ci#odu" -- protect --platform x86_64-linux --platform aarch64-darwin "$@"
+
+if [ -n "$dry_run" ]; then
+  # odu printed the DAG contexts one per line; ours complete the set. Together
+  # this is the authoritative "what must be green" list.
+  printf '%s\n' "$contexts"
+  exit 0
+fi
+
+# ── our half: append, then ASK whether it took ───────────────────────────────
+command -v gh > /dev/null || die "gh is required to enrol the cache-warm contexts"
+
+repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+[ -n "$repo" ] || die "could not resolve owner/repo via gh"
+
+if [ -z "$branch" ]; then
+  branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)"
+  [ -n "$branch" ] || die "could not resolve ${repo}'s default branch via gh"
+fi
+
+echo "ci/protect: enrolling the ${workflow##*/} contexts on ${repo}@${branch}:"
+# An ARRAY, not a string: every one of these names contains a space
+# (`build-and-push (ubuntu-latest)`), so an unquoted word-split would post two
+# mangled contexts instead of one real one — and the read-back below would then
+# fail on a branch whose gate had already been replaced.
+gh_args=()
+while IFS= read -r context; do
+  [ -z "$context" ] && continue
+  echo "  + ${context}"
+  gh_args+=(-f "contexts[]=${context}")
+done <<< "$contexts"
+
+gh api -X POST "repos/${repo}/branches/${branch}/protection/required_status_checks/contexts" \
+  "${gh_args[@]}" > /dev/null \
+  || die "could not append the cache-warm contexts to ${repo}@${branch}"
+
+# The POST is an instruction; this is the verdict. Same discipline as
+# nix-cache.yml's own verify step — read the state back rather than trusting a
+# 200.
+required="$(gh api "repos/${repo}/branches/${branch}/protection/required_status_checks" -q '.contexts[]')"
+while IFS= read -r context; do
+  [ -z "$context" ] && continue
+  printf '%s\n' "$required" | grep -qxF "$context" \
+    || die "'${context}' is NOT in ${repo}@${branch}'s required contexts after the append.
+The branch is now gated on the odu DAG alone, and a cold cache would merge
+green. Re-run this script; if it fails again, the token or the ruleset — not
+this repo — is refusing the write."
+done <<< "$contexts"
+
+echo "ci/protect: ${repo}@${branch} requires the odu DAG contexts + $(printf '%s\n' "$contexts" | wc -l | tr -d ' ') cache-warm contexts"
