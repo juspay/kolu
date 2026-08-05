@@ -94,6 +94,20 @@ that structured route absence as an older build and reports the existing
 update nudge. Only an honest missing listener becomes a null probe; other probe
 failures stay loud.
 
+A survivor from before the **Effect-4 protocol epoch** can't be asked anything at
+all — version negotiation lives inside the protocol that was replaced, so the
+peer either speaks first in a framing nothing here can decode or waits forever
+for a hello nobody sends any more. The supervisor names that third fact
+(`unspeakable-protocol`) at the transport instead of guessing a version, and acts
+on it only after corroborating that it owns the gate at this rendezvous and has
+verified the pid the gate names. The dispositions differ by daemon: a pre-epoch
+**kaval** is recycled (it cannot drain), a pre-epoch **padi** is **taken over** —
+stopped by signal, the in-process shutdown a drain verb would have asked for, and
+replaced by a daemon of this epoch that seeds from the same state-root on disk. A
+socket squatter that is not provably ours still takes the untouched
+foreign/probe-failed path, so nothing here puts a signal near a process padi
+hasn't proven is its own.
+
 ## W3.1 — the remote binding: padiSurface over ssh
 
 kolu-server can bind a padi **one ssh hop away** — the whole canvas becomes a
@@ -123,7 +137,13 @@ remote host — reusing the local arm's seam, not a parallel one:
   source's matching padi `.drv`. Because padi's wrapper bakes `KOLU_KAVAL_BIN`
   (kaval rides INSIDE padi's closure), provisioning that ONE drv ships both —
   `provisionAgent` evaluates, transfers, realises, and roots it through Nix, and
-  `ssh <host> padi --stdio` runs it.
+  `ssh <host> padi --stdio` runs it. A deploy of the home-manager module carries
+  and GC-roots that closure in the generation itself
+  (**`services.kolu.agentPackages`**, required with no default — the set is read
+  from `nix/agent-packages.json`, never hand-listed), so the first remote dial
+  ships bytes it already holds rather than consulting a binary cache or compiling
+  a daemon over ssh. A host that already has the output short-circuits to a warm
+  GC-root refresh.
 - **Convergence needs nothing new.** adopt-or-spawn + re-adopt fall out of the
   reconnecting Surface Remote session + `frontDaemonOverStdio` (kill the remote
   padi → the reconnect respawns it; restart kolu-server → it re-adopts the
@@ -166,10 +186,10 @@ generations) or `ssh <host> cat ~/.local/state/padi/padi.stderr.log` for a detac
 
 ## The export map
 
-- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` Zod contract,
-  the per-member **forwarding-policy** annotations (`value` = hold-open vs
-  `delta` = fail-through), and the padi control types (version · drain ·
-  clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
+- **`@kolu/padi/surface`** — BROWSER-SAFE. The current `padiSurface` Effect
+  Schema contract, the per-member **forwarding-policy** annotations (`value` =
+  hold-open vs `delta` = fail-through), and the padi control types (version ·
+  drain · clock.now). Its read-only `processMemory` cell carries padi and kaval RSS as
   the honest `ok | absent | error` three-way: one osfacts snapshot samples the
   endpoint-owned process target and rejects a result from a superseded kaval
   generation. The browser-safe entry imports no `node:` runtime.

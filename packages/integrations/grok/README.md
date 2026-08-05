@@ -12,7 +12,7 @@
 
 ## What it knows nothing about
 
-- **oRPC / the server** — it hands back plain `GrokInfo` values; the padi endpoint bridges them.
+- **The RPC wire / the server** — it hands back plain `GrokInfo` values; the padi endpoint bridges them.
 - **The client / UI** — icons and labels live in `packages/client`; this package renders nothing.
 - **Mutating `~/.grok`** — it is a **pure observer**. It never `mkdir`s Grok's tree; watchers wait for Grok to create its own paths and re-arm on appearance.
 - **SQLite / a WAL** — unlike Codex, Grok stores plain JSON/JSONL, so there is no DB subscription; watchers are `fs.watch` over the JSON files.

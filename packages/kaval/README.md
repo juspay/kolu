@@ -22,7 +22,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
                        │        ▼                     ▼                          │
                        │   data Channel    cwd / title / commandRun Channels     │
                        └──────────┬───────────────────┬─────────────────────────┘
-                        attach()  │      subscribe*()  │   exitPromise / foregroundPid
+                        attach()  │      subscribe*()  │      exit / foregroundPid
                                   ▼                    ▼
                           late-join clients     metadata consumers
 ```
@@ -32,11 +32,11 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | Tap            | Source                          | API                       |
 | -------------- | ------------------------------- | ------------------------- |
 | screen output  | `node-pty` `onData`             | `attach` (bounded snapshot+deltas) · `getHistory` (older chunks) |
-| meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges; contract 5.3+) |
+| meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
 | command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun` / `getLastCommand` |
-| exit           | child exit code                 | `exitPromise`             |
+| exit           | child exit code                 | `exit` (fails `PtyNotFound`) |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 
 ## Three load-bearing properties
@@ -63,13 +63,13 @@ repaints. The bad state is still *expressible* by omitting `resizeTo` — which
 only a caller with no grid of its own (a CLI dumping the screen) may do, and
 which reads the PTY at its current size.
 
-**Race-free attach.** `attach()` calls `subscribe()` then `serialize()` as two
-back-to-back *synchronous* statements. Because the PTY publishes data only from
-the headless write *callback* (a later task, after the byte is parsed into the
-mirror), nothing can interleave between the two — every byte lands in exactly
-one of `snapshot` / `deltas`, with no gap and no overlap. This is what lets a
-late-joining client reconstruct the screen and then stream live output without
-losing or double-painting a single chunk.
+**Race-free attach.** `attach()` subscribes and serializes in ONE *synchronous*
+step (`subscribeWith` — the two halves are not separately spellable). Because the
+PTY publishes data only from the headless write *callback* (a later task, after
+the byte is parsed into the mirror), nothing can interleave between them — every
+byte lands in exactly one of `snapshot` / `deltas`, with no gap and no overlap.
+This is what lets a late-joining client reconstruct the screen and then stream
+live output without losing or double-painting a single chunk.
 
 The attach snapshot is **bounded** — the recent screenful (`SNAPSHOT_SCROLLBACK`),
 not the whole `DEFAULT_MIRROR_SCROLLBACK`-deep mirror — so a cold or cross-host
@@ -83,13 +83,15 @@ chunk can neither duplicate nor skip a row regardless of in-flight output. The
 eviction origin the cursor rides on is tracked off the mirror's `onTrim`.
 
 **Cheap under a reconnect storm.** A client that drops and reconnects
-re-`attach()`es every terminal at once, aborting the in-flight attaches and
+re-`attach()`es every terminal at once, interrupting the in-flight attaches and
 re-issuing them. Two defenses keep that burst from serializing the mirror N times
-over: an attach whose `signal` is already aborted returns an empty snapshot and
-does **no** `serialize()` (its subscriber is already gone), and the serialized
-snapshot is **memoized per publish-epoch** — a burst of attaches to one PTY
-between two output bytes shares a single `serialize()`, the memo cleared the
-instant new data parses into the mirror.
+over: an attach on an ALREADY-interrupted fiber never runs at all — no
+`serialize()`, and no `resizeTo` write to the shared PTY, for a subscriber that
+has gone (under the retired `AbortSignal` face this needed an explicit
+already-aborted fast path; under interruption it is structural) — and the
+serialized snapshot is **memoized per publish-epoch**, so a burst of attaches to
+one PTY between two output bytes shares a single `serialize()`, the memo cleared
+the instant new data parses into the mirror.
 
 The publish-epoch is the *only* grain that coalesces the storm: its attaches
 arrive across many event-loop turns (one per re-issued wire message), so a
@@ -104,14 +106,17 @@ to the mirror's existing per-terminal footprint, not a new unbounded retention.
 **Drop-slow-subscriber.** Each subscriber buffers independently up to
 `maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
 browser tab on the chatty `data` stream — is **dropped** rather than pinning
-server memory without bound. The drop emits a typed `overflow` control frame as
-the attach stream's last frame (contract 4.0), distinct from a PTY exit, so the
-client re-attaches for a fresh snapshot instead of mistaking the drop for a dead
+server memory without bound. In process the `deltas` stream **fails** with
+`SubscriberOverflow` on its error channel — a drop is told apart from a graceful
+end by the channel it arrives on, not by a flag — and the served wire carries
+that as a typed `overflow` control frame, distinct from a PTY exit, so the client
+re-attaches for a fresh snapshot instead of mistaking the drop for a dead
 terminal and freezing its scrollback.
 
 ## Usage
 
 ```ts
+import { Effect, Stream } from "effect";
 import { createPtyHost } from "kaval";
 
 const host = createPtyHost({ log });
@@ -127,19 +132,25 @@ const { id, pid } = host.spawn({
 
 // Late-join client: snapshot first, then live deltas. `resizeTo` RESIZES the
 // shared PTY (SIGWINCH + mirror reflow) and the snapshot comes back laid out
-// for it — omit it if you have no grid of your own.
-const { snapshot, deltas } = host.attach(id, signal, {
-  resizeTo: { cols: 120, rows: 40 },
-});
-if (snapshot) send(snapshot);
-for await (const chunk of deltas) send(chunk);
+// for it — omit it if you have no grid of your own. `attach` is a SCOPED
+// effect: the delta subscription is released when the scope closes, so there is
+// no `AbortSignal` to thread and none to forget.
+Effect.scoped(
+  Effect.gen(function* () {
+    const { snapshot, deltas } = yield* host.attach(id, {
+      resizeTo: { cols: 120, rows: 40 },
+    });
+    if (snapshot) send(snapshot);
+    yield* Stream.runForEach(deltas, (chunk) => Effect.sync(() => send(chunk)));
+  }),
+);
 
-// Metadata taps.
-for await (const cwd of host.subscribeCwd(id, signal)) onCwd(cwd);
+// Metadata taps are Streams.
+Stream.runForEach(host.subscribeCwd(id), (cwd) => Effect.sync(() => onCwd(cwd)));
 
 host.write(id, "ls\n");
 host.resize(id, 120, 40);
-host.kill(id); // exitPromise(id) still resolves
+host.kill(id); // host.exit(id) still succeeds with the real code
 ```
 
 ## Scope
@@ -162,10 +173,14 @@ The pty-host wire is now contract **7.0** — the Effect-4 protocol epoch. No
 payload shape moved (every member encodes byte-for-byte as it did under zod,
 pinned by literal-JSON fixtures in `ptyHostSurface.test.ts`); the FRAMING did,
 from oRPC's base64+newline peer protocol to Effect RPC ndjson. That is a declared
-flag day: a 6.x peer cannot be asked its version at all, because its first frame
-is undecodable, so cross-epoch peers are observed as an *unspeakable protocol* at
-the transport rather than as a version skew. The constant still bumps because it
-remains the **in-epoch** skew mechanism — see its note in `ptyHostSurface.ts`.
+flag day: a 6.x peer cannot be asked its version at all, because version
+negotiation happens *inside* the protocol that was replaced, so cross-epoch peers
+are observed as an *unspeakable protocol* at the transport rather than as a
+version skew. A kaval survivor from the previous epoch is therefore **recycled**
+— the same disposition an in-epoch contract skew already gets, because kaval is
+not drainable — once the supervisor has corroborated it owns the gate and
+verified the pid it names. The constant still bumps because it remains the
+**in-epoch** skew mechanism — see its note in `ptyHostSurface.ts`.
 
 ### Compose the daemon wire
 
