@@ -508,11 +508,13 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     kavalGate,
     "previous kaval",
   );
-  // Previous binary still writes one-field gates; the current reader must
-  // yield the pid under the pid-first law (the #2011 rollback/forward window).
+  // The current reader must yield the pid under the pid-first law (the #2011
+  // rollback/forward window): the pid is the FIRST tab-separated field, and a
+  // reader never depends on what follows. Assert the law, not one release's
+  // exact bytes — v2.0.0 wrote a bare pid, v2.2.0 writes `pid\tstartUnixUs`,
+  // and this harness tracks whatever the latest release tag is.
   const previousGateBody = readFileSync(kavalGate, "utf8").trim();
-  expect(previousGateBody.includes("\t")).toBe(false);
-  expect(previousGateBody).toBe(String(oldPid));
+  expect(previousGateBody.split("\t")[0]).toBe(String(oldPid));
 
   // 2) The premise the recycle rests on, measured rather than assumed: this
   //    build's convergence probe cannot obtain an identity from a previous-EPOCH
