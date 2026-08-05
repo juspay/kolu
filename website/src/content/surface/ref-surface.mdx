@@ -553,6 +553,53 @@ out of live state) fails that dial as an ordinary `SocketOpenError`, so the
 reconnect schedule backs off and asks again. It does not kill the link — a link
 that stopped dialling would sit `connecting` forever with nothing logged.
 
+### A re-dial cycle fails what it orphaned
+
+`websocketLink` counts its own **open edges** — the wire *epoch* — and every call
+it dispatches records the epoch it binds to: the current one if the wire is `open`
+(the request goes out on this socket), otherwise the next one (the write parks in
+the socket's latch and flushes when that socket opens). **When the wire reaches an
+epoch past a call's binding epoch, the link fails that call** with an
+`RpcClientError` naming the cycle — streams and unaries alike.
+
+This is not belt-and-braces; it is the only cover for a whole class. Effect RPC
+registers a call's entry **once** and never re-sends it across a re-dial, and an
+answer can only travel the socket its request went out on. When a run ends with a
+`SocketOpenError` — a pre-open dial failure, or the ping timeout on a socket that
+died silently — `retryTransientErrors: true` swallows it without broadcasting, so
+**nothing fails**: the protocol re-dials underneath and every call that socket
+carried parks forever over a wire that reports `open`. That is a laptop waking to
+a tab full of stale state with a green dot. Failing those calls turns the class
+back into the ordinary transport failure the [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
+already re-subscribes on; an unfenced caller gets a rejected promise instead of a
+dead one.
+
+A call that has *already* failed (a live socket closing does broadcast) is
+unaffected: its guard goes with the attempt, and the fence's re-subscribe binds to
+the new epoch — one re-drive, never two. A stream begun while the wire is down is
+likewise not failed by the open it was waiting for.
+
+### `websocketLink().diagnostics`
+
+The link also hands back what a client-side diagnostic needs to prove a wire
+incident without the server's log:
+
+| Member | Answers |
+| --- | --- |
+| `dialHistory()` | the last 20 dial attempts, oldest first — `startedAt`, `openedAt?`, `endedAt?`, `closeCode?` and a `classification` |
+| `epoch()` | how many times this wire has reached `open` |
+
+`classification` is `"in-flight"` (dialing or connected), `"opened-then-closed"`,
+`"terminal"` (the close classifier retired the wire), or **`"ended-without-open"`**
+— a dial that failed before its socket opened. That last row is the reason the
+field exists: such an attempt is swallowed, publishes no status of its own, and
+never reaches the server at all, so before this nothing anywhere recorded that it
+happened. Timestamps are `Date.now()`, so they sit beside a server log.
+
+It rides on the returned link object rather than on `WatchableWire` deliberately:
+`WatchableWire` is implemented by hand in tests and consumers, and widening it
+would break every such implementation for a fact only a real link can produce.
+
 `directDispatch(served)` is shaped differently on purpose: it takes the **served
 surface itself** (anything carrying `handlers` — a `SurfaceRuntime`, a
 `ServedSurface`, a `serveSurfaceMap` result) and calls its handlers in-process.
@@ -696,6 +743,12 @@ retried inside itself could not tell one subscriber's supersession from
 another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
 `STREAM_RETRY_DELAY_MS`, re-running the whole stream — so the next frame a
 consumer sees is the member's fresh snapshot.
+
+The fence retries **failures**, so it only covers what fails. A wire link is
+responsible for making a re-dial produce one: `websocketLink` fails every call an
+open edge superseded ([above](#a-re-dial-cycle-fails-what-it-orphaned)), which is
+what turns a swallowed re-dial — a subscription that would otherwise park forever
+with no failure anywhere — into an ordinary retry through this schedule.
 
 | Export | Purpose |
 | --- | --- |
