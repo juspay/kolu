@@ -600,6 +600,11 @@ It rides on the returned link object rather than on `WatchableWire` deliberately
 `WatchableWire` is implemented by hand in tests and consumers, and widening it
 would break every such implementation for a fact only a real link can produce.
 
+The shapes are exported from `@kolu/surface/links/websocket`: `WebsocketLink`
+(the returned link — a `WireLink` and a `WireTransport`, plus `diagnostics`),
+`WireDiagnostics` (`{ dialHistory, epoch }`), `DialAttempt` (one record) and
+`DialClassification` (the four verdicts above).
+
 `directDispatch(served)` is shaped differently on purpose: it takes the **served
 surface itself** (anything carrying `handlers` — a `SurfaceRuntime`, a
 `ServedSurface`, a `serveSurfaceMap` result) and calls its handlers in-process.
@@ -760,6 +765,7 @@ with no failure anywhere — into an ordinary retry through this schedule.
 | `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
 | `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
 | `fenceStream(stream, { label?, onRetry? })` | apply the fence to a raw stream |
+| `StreamFenceOptions` | that options bag — `label` (the name the [liveness registry](#per-subscription-liveness) records) and `onRetry` |
 | `unenrolledStreamCall(procedure, input, { label?, onRetry? })` | call a streaming member with the fence applied and **no** `health()` enrolment |
 
 `onRetry` fires once per retryable failure, between the failed attempt's last
@@ -797,6 +803,9 @@ perfectly fine. Only a frame timestamp says otherwise.
 | --- | --- |
 | `subscriptionLiveness()` | every subscription this runtime holds, plus the last 20 it finished with, in subscribe order |
 | `resetSubscriptionLiveness()` | drop every record — **tests only** |
+| `SubscriptionLiveness` | one record's shape — what a diagnostic reads |
+| `registerSubscription(label?)` | mint a record and its writer. Framework-internal: `fenceStream` is the only caller, which is what makes registration total — a consumer labels its subscription and never calls this |
+| `SubscriptionProbe` | that writer — `frame()` · `retry(error)` · `finish(exit)` |
 | `UNLABELED_SUBSCRIPTION` · `ENDED_RETENTION` | the `"(unlabeled)"` fallback label, and how many ended records are kept |
 
 Each record carries `label`, `subscribedAt`, `lastFrameAt?`, `framesReceived`,
