@@ -26,7 +26,7 @@
  * bump the pin, re-run this file, re-stamp.
  */
 
-import { Effect, Fiber, Schema, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { fenceStream } from "../client";
 import { defineSurface } from "../define";
@@ -36,11 +36,6 @@ const surface = defineSurface({
   streams: { ticks: { inputSchema: Schema.Void, outputSchema: Schema.String } },
 });
 const TICKS_TAG = "surface/ticks/get";
-
-/** kolu's own force-reconnect close code (`websocketLink`'s
- *  `FORCE_RECONNECT_CLOSE_CODE`) — an ORDINARY closure, on purpose: the
- *  watchdog is recovering the link, so the schedule must re-dial. */
-const FORCE_RECONNECT_CLOSE_CODE = 1000;
 
 /** Enough of the `WebSocket` API for `Socket.fromWebSocket`. Nothing answers:
  *  no law here is about a response, only about which failures reach a
@@ -58,6 +53,8 @@ class FakeWebSocket extends EventTarget {
     this.readyState = 1;
     this.dispatchEvent(new Event("open"));
   }
+  // 1000 is `websocketLink`'s FORCE_RECONNECT_CLOSE_CODE — an ORDINARY closure,
+  // on purpose: the watchdog is recovering the link, so the schedule must re-dial.
   close(code = 1000, reason = ""): void {
     if (this.readyState === 3) return;
     this.readyState = 3;
