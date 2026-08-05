@@ -65,7 +65,7 @@ import {
   UnspeakablePeerError,
   UnspeakableProtocolError,
 } from "./convergence/unspeakable.ts";
-import { fromAsync } from "./createEndpoint.testlib.ts";
+import { fromAsync, testStartUnixUs } from "./createEndpoint.testlib.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 import type { EndpointStatus } from "./endpoint.ts";
 import { probeDaemonIdentity } from "./probeDaemonIdentity.ts";
@@ -197,8 +197,36 @@ describe("unspeakable-protocol — corroboration", () => {
   });
 });
 
+/**
+ * BOTH gate shapes a previous release can leave behind, because the
+ * corroboration reads them down two different branches and only one of them was
+ * ever exercised here.
+ *
+ * A one-field gate is the older releases' shape (v2.0.0 wrote `${pid}\n`);
+ * start time is unknown, so the holder is verified by `kill(0)` plus a serving
+ * socket. A two-field gate is the pid-first writer's shape every release since
+ * (`${pid}\t${startUnixUs}\n`); start time IS known, so the holder is verified
+ * by the identity law instead — the branch a takeover against a modern previous
+ * release actually takes, and the one that had no test until an upgrade-window
+ * e2e met a real v2.2.0 padi.
+ */
+const GATE_SHAPES = [
+  {
+    label: "one-field gate (older releases' shape)",
+    bytes: (pid: number) => `${pid}\n`,
+  },
+  {
+    label: "two-field gate (the pid-first writer's shape)",
+    bytes: (pid: number) => `${pid}\t${testStartUnixUs(pid)}\n`,
+  },
+] as const;
+
 describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () => {
-  it("stops the verified gate holder and spawns this build's daemon in its place", async () => {
+  it.each(
+    GATE_SHAPES,
+  )("stops the verified gate holder and spawns this build's daemon in its place — $label", async ({
+    bytes,
+  }) => {
     // A REAL child process holds the gate, because this disposition really does
     // stop it — the one arm that cannot be proven against a fake pid. This is
     // the arm that used to REFUSE: padi's ordered `drain-newer-else-refuse`
@@ -220,6 +248,10 @@ describeDaemon("unspeakable-protocol — the TAKEOVER disposition (padi)", () =>
     }
     const survivorPid = survivor.process.pid;
     const survivorServer = survivor.listener.server;
+    // The fixture plants the one-field shape; this rewrites the SAME holder's
+    // gate in the shape under test, so the two arms differ in nothing but the
+    // bytes the corroboration has to read.
+    writeFileSync(survivor.gatePath, bytes(survivorPid), { mode: 0o600 });
 
     let spawned = 0;
     const statuses: EndpointStatus<{ v: string }>[] = [];

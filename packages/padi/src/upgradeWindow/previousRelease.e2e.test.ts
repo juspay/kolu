@@ -99,11 +99,16 @@ import {
 import { daemonBuild } from "@kolu/surface-daemon";
 import {
   converge,
+  createEndpoint,
   outcomeAnomaly,
   probeDaemonIdentity,
 } from "@kolu/surface-daemon-supervisor";
-import { createEndpointForKoluTest } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import {
+  bakedOsFactsBin,
+  osfactsSocketHolders,
+  processIdentityAsync,
+} from "osfacts-client";
 import { Schema } from "effect";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
@@ -991,14 +996,31 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
     );
 
     // 3) THE TAKEOVER — the binder's own values, over the framework's own verb.
+    //
+    // The OS-fact injects are the PRODUCTION ones (`bakedOsFactsBin` +
+    // `processIdentityAsync` / `osfactsSocketHolders`, exactly as
+    // `convergeFront`/`padiBinding` compose them), NOT the suite helpers': the
+    // gate here was written by a REAL previous-release padi, so it carries a
+    // REAL start instant, and the corroboration that guards the takeover
+    // compares that instant against whatever this endpoint's identity reader
+    // says. `createEndpointForKoluTest`'s reader is the unit-test fake
+    // (`pid * 1000`), which disagrees with every genuine gate — against a
+    // v2.0.0 previous release that never showed, because a one-field gate
+    // (`pid\n`) never reaches the identity comparison at all; against v2.2.0's
+    // two-field gate (`pid\tstartUnixUs\n`) it turned a provably-ours daemon
+    // into "no gate of ours names a verified holder" and refused the upgrade.
+    // A harness that fakes the OS here is not testing the takeover.
+    const osfactsBin = bakedOsFactsBin("KOLU_OSFACTS_BIN");
     let spawns = 0;
-    const ep = createEndpointForKoluTest<
+    const ep = createEndpoint<
       PadiDaemonClient,
       PadiHelloIdentity,
       PadiConnectionMetadata
     >({
       hostId: "padi",
       home,
+      readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
+      readSocketHolders: osfactsSocketHolders(osfactsBin),
       policy: {
         capability: "drainable",
         baked: {
