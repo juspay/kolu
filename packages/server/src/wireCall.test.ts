@@ -188,7 +188,7 @@ describe("kolu-rpc's quarantine (harness-only, never a shipped closure)", () => 
 
     expect(
       violations,
-      "`kolu-rpc` is a harness-only debug caller — it must not enter the kolu app closure, `agentToolPackages`/`koluAgentTools` (a terminal's PATH), `padi-agent` (a remote host's closure), or `nix/home/module.nix`'s `home.packages`. Remove the reference, or move the consumer under `nix/home/example/adoption/`.",
+      "`kolu-rpc` is a harness-only debug caller — it must not enter the kolu app closure, `agentToolPackages`/`koluAgentTools` (a terminal's PATH), `padi-agent` (a remote host's closure), or either carrier in `nix/home/module.nix`: `home.packages` (a deploy's PATH) and `services.kolu.agentPackages` (the agent closures a deploy's generation carries and can ship to a remote — I1, juspay/kolu#2101). Remove the reference, or move the consumer under `nix/home/example/adoption/`.",
     ).toEqual([]);
   });
 });
