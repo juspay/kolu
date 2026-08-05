@@ -88,6 +88,7 @@ import { deliverScratchPaste } from "./pasteDelivery";
 import { createGridPublisher } from "./publishGrid";
 import {
   consumeReattachingStream,
+  REATTACH_BACKOFF_MS,
   StaleSnapshotGrid,
 } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
@@ -155,6 +156,10 @@ const Terminal: Component<{
    *  pane is gone — so "am I torn down" stays a synchronous fact, exactly as the
    *  `signal.aborted` it replaces was. */
   let attachTornDown = false;
+  /** The pending {@link REATTACH_BACKOFF_MS} pause of a stale-grid reopen — the
+   *  fourth reopen lane (kolu#2101 K5). Held so teardown can cancel it, the same
+   *  way interrupting `attachFiber` cancels the loop's own sleeping backoff. */
+  let staleGridReopenTimer: ReturnType<typeof setTimeout> | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -299,6 +304,8 @@ const Terminal: Component<{
       attachTornDown = true;
       attachFiber?.interruptUnsafe();
       attachFiber = null;
+      if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
+      staleGridReopenTimer = null;
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -637,16 +644,41 @@ const Terminal: Component<{
         return !requestedGrid || !current || sameGrid(requestedGrid, current);
       };
 
-      /** End this loop and start exactly one replacement. Guarded by
-       *  `attemptLive()` at every call site, so several superseded callbacks
-       *  reaching here produce ONE successor, not a cascade. */
+      /** End this loop and start exactly one replacement — the FOURTH reopen
+       *  lane, named in `reattachingStream.ts`'s module-header taxonomy along
+       *  with the other three (kolu#2101 K5).
+       *
+       *  It cannot go through the loop's own error channel and that is why it
+       *  exists: the second grid check runs in an xterm WRITE CALLBACK, not in
+       *  the iterator, so there is no return value the loop would read. Routing
+       *  it through the loop proper would mean plumbing a refusal back out of a
+       *  callback the loop has no handle on — surgery, not a cheap re-route — so
+       *  what it takes instead is the loop's DISCIPLINE: the same
+       *  {@link REATTACH_BACKOFF_MS} pause, in the same order the loop uses
+       *  (reset now, re-subscribe after the pause), rather than reopening
+       *  instantly and letting one lane jump the queue. Its episode accounting
+       *  needs no special case: it fires only after a snapshot has actually been
+       *  WRITTEN, and a delivered frame refills both budgets, so the fresh loop
+       *  legitimately starts a fresh episode instead of escaping an old one's.
+       *
+       *  Guarded by `attemptLive()` at every call site, so several superseded
+       *  callbacks reaching here produce ONE successor, not a cascade. */
       const reopenForStaleGrid = () => {
         // Latch first, interrupt second — the window between them is exactly
         // where a late frame of this attempt would otherwise land.
         superseded = true;
         attachFiber?.interruptUnsafe();
         resetForFreshSnapshot();
-        openAttachStream();
+        // The pause is a timer rather than a sleeping fiber because there is no
+        // fiber left to sleep in — this attempt's was just interrupted. It is
+        // cancelled by the component teardown, which is the same lifetime the
+        // interrupt above respects.
+        if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
+        staleGridReopenTimer = setTimeout(() => {
+          staleGridReopenTimer = null;
+          if (attachTornDown) return;
+          openAttachStream();
+        }, REATTACH_BACKOFF_MS);
       };
 
       const consume = consumeReattachingStream(
