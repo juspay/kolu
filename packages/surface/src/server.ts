@@ -105,6 +105,11 @@ import type {
   Stream as StreamDescriptor,
 } from "./index";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
+// Type-only: the compute-cell carrier is the return of `derived.cell(($) => …)`,
+// used purely to type the cell deps slot. `import type` is fully erased under
+// this repo's `isolatedModules` + esbuild bundling, so it pulls NO engine value
+// into `server.ts`'s runtime graph (the leaf rationale above stands).
+import type { DerivedComputeCell, PollDerivedCell } from "./reactor";
 // The derived-cell brands live in their own import-free leaf so the boot walk
 // can spot a reactor `derived.cell(...)` dep — and its compute-fn variant —
 // WITHOUT importing `reactor.ts` (which imports the signals engine). The walk
@@ -121,11 +126,6 @@ import {
   type SiblingSource,
   type SiblingSourcesRuntime,
 } from "./reactorBrand";
-// Type-only: the compute-cell carrier is the return of `derived.cell(($) => …)`,
-// used purely to type the cell deps slot. `import type` is fully erased under
-// this repo's `isolatedModules` + esbuild bundling, so it pulls NO engine value
-// into `server.ts`'s runtime graph (the leaf rationale above stands).
-import type { DerivedComputeCell, PollDerivedCell } from "./reactor";
 
 /** This server process's start time (ms epoch), captured once when the serve path
  *  module loads — which, for a daemon that imports it at boot, is the process
@@ -296,7 +296,14 @@ export interface Channel<T> {
  *     signal's own abort reason is reporting expected end-of-life, not a fault —
  *     the exact rule {@link isAbortReason} names and `iterateUntilAborted`
  *     applies at the AsyncIterable layer. Applied here, it becomes a clean
- *     end-of-stream. Anything else propagates. */
+ *     end-of-stream. Anything else propagates.
+ *
+ *  The kolu#2101 review asked whether this swallow manufactured the frozen panes:
+ *  it did not, and it stays. The signal is the STREAM'S OWN, aborted only by its
+ *  scope closing (`streamFromAbortableSource`), so the swallow is scoped to an
+ *  end the consumer already caused — it can never convert a producer's death into
+ *  a clean end. Classifying an unexpected end belongs where the domain knows what
+ *  "unexpected" means; padi's `reattachingDeltas` now does exactly that. */
 function pullOnly<T>(
   iterator: AsyncIterator<T>,
   signal: AbortSignal,
@@ -1893,6 +1900,10 @@ function startOwnedSource(
 
 /** Wire a set of owned sources into the `done` / `close` supervision contract.
  *
+ *  WHICH failures reach `done` — and which are deliberately cell-local — is
+ *  audited as a table in ONE home: {@link SurfaceRuntimeHandle.done}. Read it
+ *  before adding a fault path here; a serving site's fatal disposition rests on it.
+ *
  *  - `done` rejects the instant ANY source faults before `close` (an owned
  *    fault reaches `done` rather than floating as an unhandled rejection), and
  *    resolves once a clean `close` has torn everything down.
@@ -2038,9 +2049,38 @@ export interface SurfaceRuntimeHandle<Ctx> {
   readonly handlers: SurfaceHandlers;
   /** The typed cells/collections/events mutation ctx (domain writes). */
   readonly ctx: Ctx;
-  /** Rejects on an owned runtime fault; resolves on a clean {@link close}. A
-   *  serving site MUST observe this and route it into its existing failure
-   *  policy. */
+  /** Rejects on an owned runtime fault; resolves on a clean {@link close}.
+   *
+   *  **A rejection means STRUCTURAL WIRING DEATH — a serving site MUST treat it as
+   *  fatal** (log the full error, then exit through its shutdown path so a
+   *  supervisor respawns it). That is not a policy choice a consumer gets to soften:
+   *  the audit below is what makes it safe, because every fallible *periodic* thing
+   *  was moved OFF this channel. A "log and keep serving" observer produces exactly
+   *  the zombie the #2101 deploy-#2 incident diagnosed — process alive, gate held,
+   *  socket answering, `done` already settled so every FUTURE fault is unobservable.
+   *
+   *  **The audit — every path that can settle `done`** (juspay/kolu#2101 G1; the
+   *  single home for this table, referenced from {@link superviseSurface}). Owned
+   *  sources are exactly the derived members' connectors (a derived cell's, a
+   *  derived collection's); nothing else is supervised here.
+   *
+   *  | Path | Settles `done`? | Class |
+   *  | --- | --- | --- |
+   *  | Builder wiring throws — one-shot guard (`connect()` twice / after dispose), a builder body throw | REJECTS | runtime-fatal (structural) |
+   *  | A push source's `install` (the subscription) throws | REJECTS | runtime-fatal (structural) |
+   *  | A poll source's cadence `install(tick)` throws | REJECTS | runtime-fatal (structural) |
+   *  | A scope FINALIZER throws during `close()` | REJECTS (aggregated) | runtime-fatal (structural teardown) |
+   *  | Poll **T+0 seed** read or publish fails | no — since #2101 | cell-local: logged, cadence held, retried next tick |
+   *  | Poll **later tick** read or publish fails | no | cell-local: log-skip-continue, holds last value |
+   *  | `scan` step throws | no | cell-local: stop-hold, `stopped` latches |
+   *  | `computed` / compute-cell recompute throws (later read) | no | cell-local: logged, holds last, heals |
+   *  | Our own interruption (`close()`) | resolves | clean end-of-life |
+   *  | Clean `close()` with no teardown fault | resolves | clean end-of-life |
+   *
+   *  Not on this channel at all: an EAGER SEED throw (a non-poll derived cell's
+   *  `store.get()` pull, a compute cell's bind/seed) — it throws synchronously out of
+   *  `implementSurface` before any source starts, so it is a boot crash the caller
+   *  sees on its own stack, never a `done` rejection. */
   readonly done: Promise<void>;
   /** Release every owned source — interrupt each cell connector, which runs its
    *  scope's finalizers. Idempotent. */
@@ -2626,8 +2666,10 @@ function walkSurface<const S extends SurfaceSpec>(
     // the deferred `starts` pass (handing it the surface's per-key publishers + the
     // spec's value `equals`, defaulting to "always changed" so an equals-less
     // collection re-publishes every present key). Same lifecycle as a derived
-    // cell's connector — a fault reaches the runtime's `done` (a poll reconciler's
-    // first-read rejection included), and `close` disposes the node + subscription.
+    // cell's connector — a WIRING fault reaches the runtime's `done` (a poll
+    // reconciler's first-read rejection does NOT: it is cell-local since #2101, see
+    // the audit on `SurfaceRuntimeHandle.done`), and `close` disposes the node +
+    // subscription.
     //
     // Note what is NOT here any more: the hand-rolled microtask deferral and the
     // same-turn-close guard it needed. Both existed because a SYNCHRONOUS connect

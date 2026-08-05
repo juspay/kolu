@@ -1,9 +1,10 @@
-import { PtyNotFound } from "kaval";
 import type { PtyHostDataMsg } from "kaval";
+import { PtyNotFound } from "kaval";
 import { describe, expect, it } from "vitest";
 import type { TerminalAttachFrame } from "../endpoint.ts";
 import {
   type OpenedAttach,
+  PLAIN_END_REOPEN_ATTEMPTS,
   reattachingDeltas,
   TERMINAL_RESET,
 } from "./reattachingDeltas.ts";
@@ -40,16 +41,111 @@ const data = (out: TerminalAttachFrame[]) => out.map((f) => f.data);
 const topLines = (out: TerminalAttachFrame[]) =>
   out.map((f) => (f.kind === "snapshot" ? f.topLine : undefined));
 
+/** The PTY is gone — what kaval answers a re-open for a departed terminal, and
+ *  therefore what makes a plain end a REAL exit. */
+const ptyGone = (): Promise<OpenedAttach> =>
+  Promise.reject(new PtyNotFound({ id: "gone" }));
+
 describe("reattachingDeltas", () => {
-  it("yields the delta frames and ends on a graceful stream end", async () => {
+  it("yields the delta frames and ends when the re-open finds the PTY gone", async () => {
+    // A plain end is now a QUESTION: the loop asks kaval, kaval says the PTY is
+    // gone, and THAT is what ends the stream — the exit, confirmed.
     const initial = framesIter([delta("a"), delta("b")]);
+    let asked = 0;
     const open = (): Promise<OpenedAttach> => {
-      throw new Error("must not re-attach on a graceful end");
+      asked++;
+      return ptyGone();
     };
     const out = await collect(reattachingDeltas(open, initial));
     expect(data(out)).toEqual(["a", "b"]);
     // Plain deltas carry no re-seed.
     expect(out.every((f) => f.kind === "delta")).toBe(true);
+    expect(asked).toBe(1);
+  });
+
+  it("ends on a plain end that OUR OWN abort caused — no re-open", async () => {
+    // The consumer's teardown aborts the signal, which is what ends the kaval
+    // iterator (`local.ts` bridges the abort onto `iter.return()`). Re-opening
+    // there would resurrect a subscription the caller already released.
+    const controller = new AbortController();
+    controller.abort();
+    const initial = framesIter([delta("a")]);
+    const open = (): Promise<OpenedAttach> => {
+      throw new Error("must not re-attach after the consumer aborted");
+    };
+    const out = await collect(
+      reattachingDeltas(open, initial, controller.signal),
+    );
+    expect(data(out)).toEqual(["a"]);
+  });
+
+  // ── The manufactured clean end (kolu#2101, deploy #2) ────────────────────
+  //
+  // A plain end (no `overflow` frame) while the PTY is ALIVE used to `return` —
+  // a graceful end the client's failure-only retry layers could not act on, so
+  // the tile sat blank with a live title and no verdict. kaval closes an attach
+  // fan-out in exactly one place (the PTY's own exit teardown), so such an end
+  // never came from a healthy host: it was manufactured by the chain, and the
+  // repair is to ask again.
+
+  it("plain end while the PTY is ALIVE → re-opens and keeps the frames flowing", async () => {
+    const initial = framesIter([delta("before")]); // ends plainly, no overflow
+    let opened = 0;
+    const open = (): Promise<OpenedAttach> => {
+      opened++;
+      // The PTY answers: still here, here is a fresh snapshot.
+      return Promise.resolve({
+        snapshot: "FRESH",
+        topLine: 7,
+        iter: framesIter([delta("after")]),
+      });
+    };
+    // The second leg also ends plainly; the PTY has exited by then.
+    const out = await collect(
+      reattachingDeltas(() => (opened === 0 ? open() : ptyGone()), initial),
+    );
+    expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
+    expect(topLines(out)).toEqual([undefined, 7, undefined]);
+  });
+
+  it("throws LOUD once the plain-end re-open budget is exhausted", async () => {
+    // A chain that keeps handing back attachments that end immediately and
+    // deliver nothing. Ending cleanly here is the frozen pane; throwing hands
+    // the tile to the client's failure machinery, which rebuilds the chain.
+    const initial = framesIter([]);
+    let opened = 0;
+    const open = (): Promise<OpenedAttach> => {
+      opened++;
+      return Promise.resolve({
+        snapshot: "EMPTY",
+        topLine: 0,
+        iter: framesIter([]),
+      });
+    };
+    await expect(collect(reattachingDeltas(open, initial))).rejects.toThrow(
+      /ended with no overflow frame and no PTY exit/,
+    );
+    expect(opened).toBe(PLAIN_END_REOPEN_ATTEMPTS);
+  });
+
+  it("a leg that DELIVERED frames refills the plain-end budget", async () => {
+    // Odd-but-flowing is working: every leg ends plainly, but each one carries a
+    // frame, so the loop never exhausts its budget. It runs well past
+    // PLAIN_END_REOPEN_ATTEMPTS legs and then ends on the real exit.
+    const legs = 6;
+    let opened = 0;
+    const open = (): Promise<OpenedAttach> => {
+      if (opened++ >= legs) return ptyGone();
+      return Promise.resolve({
+        snapshot: `S${opened}`,
+        topLine: opened,
+        iter: framesIter([delta(`d${opened}`)]),
+      });
+    };
+    const out = await collect(
+      reattachingDeltas(open, framesIter([delta("0")])),
+    );
+    expect(out.filter((f) => f.kind === "delta").length).toBe(legs + 1);
   });
 
   it("re-attaches on an `overflow` frame, prefixing a reset + re-seeding topLine", async () => {
@@ -58,7 +154,9 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([delta("before"), overflow]);
     let opened = 0;
     const open = (): Promise<OpenedAttach> => {
-      opened++;
+      // The second leg ends plainly too, and the loop asks again — by then the
+      // PTY has exited, which is what ends the stream.
+      if (opened++ > 0) return ptyGone();
       return Promise.resolve({
         snapshot: "FRESH",
         topLine: 42,
@@ -70,19 +168,25 @@ describe("reattachingDeltas", () => {
     // snapshot replaces the screen AND re-seeds the backfill cursor; then deltas.
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
     expect(topLines(out)).toEqual([undefined, 42, undefined]);
-    expect(opened).toBe(1);
+    // Two asks: the overflow re-attach, then the liveness question the second
+    // leg's plain end raises — answered "the PTY is gone", which ends the stream.
+    expect(opened).toBe(2);
   });
 
   it("re-attaches repeatedly across successive drops", async () => {
     const initial = framesIter([overflow]);
     const legs: PtyHostDataMsg[][] = [[delta("one"), overflow], [delta("two")]];
     let leg = 0;
-    const open = (): Promise<OpenedAttach> =>
-      Promise.resolve({
+    const open = (): Promise<OpenedAttach> => {
+      // Past the scripted legs the PTY is gone — the plain end of the last leg
+      // is a question, and this is the answer that ends the stream.
+      if (leg >= legs.length) return ptyGone();
+      return Promise.resolve({
         snapshot: `S${leg}`,
         topLine: leg * 10,
         iter: framesIter(legs[leg++] as PtyHostDataMsg[]),
       });
+    };
     const out = await collect(reattachingDeltas(open, initial));
     expect(data(out)).toEqual([
       `${TERMINAL_RESET}S0`,

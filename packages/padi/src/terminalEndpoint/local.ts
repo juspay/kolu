@@ -22,6 +22,7 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
+import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentIdentity,
@@ -35,24 +36,23 @@ import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
-import type { WireSchema } from "@kolu/surface/define";
+import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
+  EndpointGrid,
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  EndpointGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
-import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   createPortSampler,
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
-import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -1528,13 +1528,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const initial = await open(resizeTo);
     // The deltas survive a slow-subscriber drop: on kaval's `overflow` frame the
     // loop re-attaches for a fresh snapshot instead of ending (which would freeze
-    // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
+    // the client's scrollback as if the PTY had exited). Since kolu#2101 it also
+    // survives a PLAIN end for a still-live PTY, re-opening to ask kaval whether
+    // the PTY is actually gone. See `reattachingDeltas`.
     return {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
       // Re-attaches carry NO resize (see above) — `open()` with no argument.
-      deltas: reattachingDeltas(() => open(), initial.iter),
+      // `signal` rides along so the loop can tell OUR teardown (the abort that
+      // ends the kaval iterator through the `iter.return()` bridge above) from an
+      // end the chain manufactured: the first is graceful, the second is a
+      // question to re-open on.
+      deltas: reattachingDeltas(() => open(), initial.iter, signal),
     };
   }
 }
