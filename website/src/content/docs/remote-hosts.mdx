@@ -239,6 +239,7 @@ The causes it distinguishes:
 | --- | --- |
 | **Another kolu owns this host** | a different kolu supervisor already holds this host's padi |
 | **This host runs an older kolu** | the remote padi speaks an older contract and refused to bind |
+| **This host runs a kolu from before the protocol change** | the padi there speaks a protocol epoch this kolu can't query; kolu tried to take it over and couldn't. Update that machine's kolu (or stop the padi there), then reconnect — retrying alone won't help |
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |

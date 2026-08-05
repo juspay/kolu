@@ -58,7 +58,10 @@ carrying, so a pane cannot be left waiting on an answer that can no longer come;
 repaint queued while the window was in the background runs the instant you return;
 and when a flooding terminal outruns its view, it re-attaches and repaints from a
 fresh snapshot rather than freezing. You should never need a keypress or a reload
-to see output that already happened.
+to see output that already happened. And a pane whose feed keeps coming back
+**empty** — reopened, but never delivering anything — says so rather than sitting
+there blank: a message names the pane and tells you kolu is still retrying, and
+it keeps retrying at a gentle cadence until output reaches the pane again.
 
 A terminal's screen is drawn for one specific width and height, so a pane waits
 until it has actually been measured before it asks for anything, and asks for the

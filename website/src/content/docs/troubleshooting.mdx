@@ -85,6 +85,15 @@ nix --refresh run github:juspay/kolu
 The `--refresh` flag busts Nix's flake cache so you pull the latest commit; it is
 the same command from [Quickstart](/quickstart).
 
+A release that **changes the protocol** the long-lived daemons speak is a **flag
+day**, and kolu handles it for you: the daemons still running from before are
+restarted or taken over on their own — on your machine and on each remote host,
+over ssh — with nothing to run by hand. Live shells end when that happens; your
+[session](/sessions) is restored from disk and agents resume on their prior
+conversation. A remote machine kolu cannot settle this way shows **"This host
+runs a kolu from before the protocol change"** instead of connecting: update
+kolu on that machine (or stop its padi), then reconnect.
+
 ## I closed the welcome. How do I get it back?
 
 Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
