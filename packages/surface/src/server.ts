@@ -92,6 +92,7 @@ import {
 export { composeSurfaceContracts };
 
 import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
+import { containThrow } from "./containThrow";
 import {
   type BakedIdentity,
   IDENTITY_NAMESPACE,
@@ -538,7 +539,14 @@ export function cellHandlers<Name extends string, T, P = T>(
     // `CellSpec.equals` / `CellHandlerDeps.equals`. Default is "always
     // publish" — see `CellSpec.equals` for the rationale.
     if (deps.equals?.(deps.store.get(), next)) return;
-    deps.onWrite?.(next);
+    // `onWrite` is a FIRE-AND-FORGET side effect, so a throw from it must not
+    // abort the write it is a side effect of (juspay/kolu#2101 G6). Unbracketed it
+    // did exactly that: the store write and the publish below never ran — a
+    // half-applied write — and the throw unwound into the writer, which is very
+    // often a reactor rebuild inside the batch drain, costing every OTHER member
+    // its notifications for that frame. Contained and loud; the write completes.
+    const hook = deps.onWrite;
+    if (hook) containThrow("a cell onWrite hook", () => hook(next));
     deps.store.set(next);
     deps.bus.publish(next);
   }
@@ -1178,7 +1186,17 @@ export function inMemoryChannel<T>(
   };
   return {
     publish: (value) => {
-      for (const sub of subscribers) sub.push(value);
+      // PER-SUBSCRIBER ISOLATION (juspay/kolu#2101 G6). This fan-out is
+      // synchronous on the WRITER's stack — and that writer is very often a
+      // reactor rebuild inside `Atom.batch`'s drain. One subscriber that throws
+      // (an `onOverflow` hook, a publisher's `onIdle` eviction callback, a
+      // waiter's resolve) would otherwise starve every subscriber after it in
+      // this set AND unwind into the drain, which severs the graph's edges and
+      // freezes every derivation in the process — silently, until a restart.
+      // A throwing subscriber is therefore logged loud and SKIPPED; its siblings
+      // still receive the frame and the writer's stack stays clean.
+      for (const sub of subscribers)
+        containThrow("an in-memory channel subscriber", () => sub.push(value));
     },
     subscribe,
     consume: buildConsume(subscribe),
@@ -2408,7 +2426,15 @@ function walkSurface<const S extends SurfaceSpec>(
     // only the explicit `force` caller opts out, per write.
     function ctxApply(next: unknown, opts?: CellCtxSetOpts): void {
       if (!opts?.force && equalsFn?.(store.get(), next)) return;
-      onWriteFn?.(next);
+      // Contained for the same reason as `applyAndPublish`'s twin above, and this
+      // is the path that MATTERS most: a derived cell's graph publish comes
+      // through here, on the reactor's batch-drain stack. A throwing `onWrite`
+      // here used to half-apply the write AND unwind into the drain
+      // (juspay/kolu#2101 G6).
+      if (onWriteFn) {
+        const hook = onWriteFn;
+        containThrow("a cell onWrite hook", () => hook(next));
+      }
       store.set(next);
       bus.publish(next);
     }

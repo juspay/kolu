@@ -80,6 +80,16 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
+  // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,
+  // one per Atom behavior the bridge's correctness rests on: no implicit batching
+  // (plus the stampede regime), rebuild-on-the-writer's-stack (and what a throwing
+  // callback therefore costs), and a dual-edge write keeping its dependency. Each
+  // marker names the law in `reactorEngineLaws.test.ts` that MEASURES it, so a
+  // bump's re-verification is "run that law", not "read the code and hope".
+  // beta.103's notes rewrote precisely this module and nothing re-measured it —
+  // a production freeze was then diagnosed without being able to rule it in or
+  // out, which is the gap this row closes.
+  "packages/surface/src/reactor.ts",
 ];
 
 const SKIPPED = new Set(["node_modules", "dist", ".astro"]);

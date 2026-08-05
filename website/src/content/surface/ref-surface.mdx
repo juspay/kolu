@@ -222,6 +222,23 @@ Persistence and pub/sub are supplied as dependencies.
 
   An eager-seed throw (a non-poll derived cell's pull, a compute cell's bind) is
   not on this channel at all: it throws out of `implementSurface` as a boot crash.
+
+  The CONSUME-side twin of this audit — every fiber `mirrorRemoteSurface`
+  (`@kolu/surface/mirror`) starts, how it dies, and who is told — lives in that
+  file's header docblock. Neither audit may grow a MUTE row. `mirrorRemoteSurface`
+  takes `{ signal?, onFault? }`: `onFault` is a structured `MirrorFault`
+  (`{ label, err, scope: "member" | "key" }`) that a serving consumer wires at
+  ERROR level. A `member` fault also REJECTS the mirror's `done` (that member is
+  never re-subscribed, so the mirror is dead); a `key` fault is key-local and
+  never reaches `done`, making `onFault` its only notice.
+
+- **Nothing you hand the engine may throw.** Every callback the reactive engine
+  runs — an `effect` body, a source listener, a cell's `onWrite`, a channel
+  subscriber — executes inside the batch drain on the writer's stack. The
+  framework brackets each one: a throw is logged loudly and CONTAINED, siblings
+  still run, and the write completes. This is deliberate (`containThrow`): the
+  alternative is not a crash but a silent global freeze, since an exception
+  mid-drain costs every remaining subscriber that frame.
 - **`close()`** — releases every owned source. Each connector runs as a FIBER in
   its own scope, so `close()` **interrupts** each one and awaits its exit — and a
   fiber's exit already includes its scope's finalizers, which is why "abort, then

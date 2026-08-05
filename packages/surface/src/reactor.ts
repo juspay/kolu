@@ -41,6 +41,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { Effect, Result, type Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { containThrow } from "./containThrow";
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
   DERIVED_CELL_BRAND,
@@ -72,6 +73,10 @@ export type Disposer = () => void | Promise<void>;
 // preact-shaped engine are load-bearing and are neutralised here, once, so no
 // call site can get them wrong:
 //
+// BETA-ASSUMPTION(beta.103): Atom does not batch implicitly, and one batch of N
+//      writes across a family recomputes each derivation exactly once on coherent
+//      inputs — measured by reactorEngineLaws.test.ts > "STAMPEDE: 24 writes
+//      across a family in one batch" and the two glitch-freedom laws beside it.
 //   1. **Atom does not batch implicitly.** A preact setter opens an implicit
 //      batch; `AtomRegistry.set` does not, and an unbatched write to a diamond
 //      whose apex has a subscriber recomputes that apex ONCE PER LEG — a
@@ -79,12 +84,36 @@ export type Disposer = () => void | Promise<void>;
 //      through {@link signal}'s setter, which wraps itself in `Atom.batch`.
 //      `batch` is depth-counted, so nesting inside the public `batch()` (or
 //      inside a source `emit`) costs nothing.
+// BETA-ASSUMPTION(beta.103): Atom rebuilds a stale subscribed node on the WRITER's
+//      stack, so a throwing callback escapes the batch and costs that frame its
+//      remaining notifications (it does NOT permanently sever the graph) —
+//      measured by reactorEngineLaws.test.ts > "SEVERED EDGE, MEASURED".
 //   2. **Atom rebuilds a stale node on the WRITER's stack** when it has active
 //      subscribers, so a throwing derivation would escape into `ctx.cells.x.set`
 //      instead of the subscriber that owns the log-skip-continue policy. So a
 //      derivation's node value is a {@link Result} — the read never throws — and
 //      the throw is re-raised at the READ faces (`.value`/`.peek()`), which is
 //      exactly where the bridge's error policy already lives.
+//
+// THE THIRD RULE, and the one a production freeze bought (juspay/kolu#2101 G6):
+//
+//   3. **NOTHING kolu passes into the engine may throw.** Every callback the
+//      engine runs — an `effect` body, a source listener in a batched `emit`, the
+//      publish a rebuild drives — runs INSIDE `Atom.batch`'s drain, on the
+//      writer's stack. Atom's drain severs a level's dependent edges BEFORE
+//      rebuilding them, so an exception mid-drain leaves nodes orphaned: the
+//      rebuild that would have re-established the edges never runs, and every
+//      FUTURE write to that level finds no dependents and returns silently. The
+//      graph does not crash; it goes quiet, for the life of the process, with no
+//      log line. That is the shape of the incident: all hosts frozen at once,
+//      writes accepted, derived values stale, mute, cured only by a restart.
+//
+//      So every such callback is bracketed by {@link containOnEngineStack}: the
+//      throw is LOGGED LOUDLY and contained, siblings still run, and the drain
+//      completes. This is `disableFatalDefects`' ruling — one member's fault is
+//      not the frame's — applied at the in-process layer. The trade is deliberate
+//      and stated: a contained throw is a loud log rather than a crash, because
+//      the alternative here is not a crash, it is a silent global freeze.
 //
 // Nodes that CARRY STATE are `Atom.keepAlive`: an idle Atom node is removed and
 // its value silently resets to the atom's initial, which for a `scan` level or a
@@ -199,6 +228,11 @@ function signal<T>(initial: T): MutableLevel<T> {
       Atom.batch(() => {
         GRAPH.set(atom, next);
       });
+      // BETA-ASSUMPTION(beta.103): a derivation that WRITES an atom it READ keeps
+      // its dependency on that atom, so the NEXT bump still recomputes and
+      // notifies it — the repair below is what makes that true, and beta.103
+      // rewrote exactly this path (invalidatedDuringBuild + disposeLifetime +
+      // rebuild-in-drain). Measured by reactorEngineLaws.test.ts > "DUAL EDGE".
       // THE DUAL EDGE. A derivation is allowed to write a level it just READ —
       // padi's finish-quiet generation does exactly that: `project()` depends on
       // the generation, then bumps it when the membership sync it performs
@@ -242,12 +276,24 @@ function derive<T>(compute: () => T): ReadonlyLevel<T> {
  *  level faces (which apply the error policy), never off the notification. */
 const ignoreValue = (): void => {};
 
+/** Seam-note rule 3, applied to the ENGINE's stack. The implementation is the
+ *  leaf {@link containThrow} — shared with `server.ts`'s publish fan-out, which
+ *  is the same rule on the writer's stack and cannot import this module (it would
+ *  drag the engine across a boundary the bridge keeps deliberately). */
+const containOnEngineStack = (what: string, body: () => void): void =>
+  containThrow(what, body);
+
 /** ≙ `effect` — run `body` now and after every change to whatever it read;
  *  returns the disposer. A disposed effect runs nothing on a later change. */
 function effect(body: () => void): () => void {
   const node = Atom.readable<null>((get) =>
     withTracking(get, () => {
-      body();
+      // The STRUCTURAL backstop for seam-note rule 3: an effect body runs inside
+      // the drain, so its throw is the severed-edge freeze. Every body already
+      // carries its own labeled policy (see `connectPublishEffect`); this makes
+      // "no kolu callback throws into the engine" true BY CONSTRUCTION rather than
+      // by every future author remembering it.
+      containOnEngineStack("an effect body", body);
       return null;
     }),
   );
@@ -452,8 +498,13 @@ export function source<T>(
       if (gen !== generation) return; // stale tap from a torn-down install — fenced
       batch(() => {
         level.value = frame;
-        // Snapshot listeners so a step that (dis)connects mid-fan-out is safe.
-        for (const onEmit of [...listeners]) onEmit(frame);
+        // Snapshot listeners so a step that (dis)connects mid-fan-out is safe, and
+        // isolate each one: this fan-out is INSIDE the batch, so one throwing
+        // listener would both starve its siblings of the frame and escape mid-drain
+        // (seam-note rule 3). A `scan` step already holds its own stop-hold policy;
+        // this is the floor under every other listener.
+        for (const onEmit of [...listeners])
+          containOnEngineStack("a source listener", () => onEmit(frame));
       });
     };
 
@@ -1107,7 +1158,20 @@ function connectPublishEffect<T>(
       );
       return;
     }
-    set(next);
+    // The PUBLISH is bracketed too, not just the read. `set` is the member's whole
+    // wire fan-out — equals → onWrite → store.set → bus.publish, synchronous to
+    // every subscriber — and it runs inside the batch drain on the writer's stack.
+    // An unbracketed throw from any one subscriber therefore severed the graph and
+    // froze every derivation in the process (juspay/kolu#2101 G6). Same channel and
+    // same disposition as the read above: loud, cell-labeled, last value held.
+    try {
+      set(next);
+    } catch (err) {
+      console.error(
+        `reactor: ${label} publish threw — holding last published value (CONTAINED: a throw here would sever the graph mid-drain)`,
+        err,
+      );
+    }
   });
 }
 
@@ -1670,7 +1734,14 @@ export function reactiveFamily<K, S>(
   // pull-face listeners directly and synchronously. A listener throw is contained (a
   // sibling still fires) and rethrown out-of-band.
   const fire = (): void => {
-    version.value++;
+    // The version bump is a graph WRITE: it opens a batch and can rebuild
+    // dependents on this stack. Bracketed so a throw down there cannot skip the
+    // direct fan-out below — the membership edge would be silently lost for that
+    // frame, which is the freeze shape one level up (seam-note rule 3). The bump
+    // is contained; the listeners still fire.
+    containOnEngineStack("a reactiveFamily version bump", () => {
+      version.value++;
+    });
     for (const l of [...listeners]) {
       try {
         l();
