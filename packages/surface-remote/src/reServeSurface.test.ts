@@ -28,6 +28,50 @@ import type { AgentClient, SshProv } from "./sshConnector";
 
 const delay = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** Poll `check` until it holds — the convergence gate that replaces "sleep and
+ *  hope" wherever a test waits for the MIRROR to have folded something.
+ *
+ *  A fixed `delay(15)` before a mirrored read is a bet that the pump's bind, the
+ *  upstream subscribe, and the fold all get scheduled inside 15ms. On a loaded
+ *  box — the 4-8 core CI container running the whole suite in parallel — that bet
+ *  loses, and the read honestly returns the collection's EMPTY pre-fold state:
+ *  the `expected [] to deeply equal ['a','b']` flake. Waiting for the CONDITION
+ *  cannot lose that race; it is bounded by a deadline rather than by a guess at
+ *  how fast the box is.
+ *
+ *  This is not the mirror being wrong: serving `[]` before anything has been
+ *  folded is the honest snapshot-then-delta contract (and the frame that follows
+ *  carries the keys). It is the TEST that was asserting on a moment rather than
+ *  on a state. */
+async function waitUntil(
+  check: () => boolean | Promise<boolean>,
+  what: string,
+  deadlineMs = 5_000,
+): Promise<void> {
+  const until = Date.now() + deadlineMs;
+  for (;;) {
+    if (await check()) return;
+    if (Date.now() > until) {
+      throw new Error(`waitUntil: ${what} did not hold within ${deadlineMs}ms`);
+    }
+    await delay(1);
+  }
+}
+
+/** The re-serve is BOUND and has folded its first upstream snapshot — the honest
+ *  successor of `await delay(15) // let the pump bind + mirror the first spawn`.
+ *  Reads the mirrored cell, because every test that used that sleep was waiting
+ *  for exactly this. */
+async function mirrored(
+  downstream: ReturnType<typeof downstreamFace>,
+  counterValue: number,
+): Promise<void> {
+  await waitUntil(async () => {
+    const [v] = await take(downstream.surface.counter.get(), 1);
+    return v === counterValue;
+  }, `the mirror to fold the upstream counter (${counterValue})`);
+}
+
 /** Run a UNARY member call. A member call is an `Effect`, and a `vitest`
  *  assertion is a promise-shaped process edge, so this is where the two meet —
  *  once, so each `expect(...).rejects` below reads as it always did. The
@@ -73,6 +117,32 @@ function drain<T>(stream: Stream.Stream<T, unknown>) {
   });
   return {
     frames,
+    /** Wait until `n` frames have ARRIVED — see {@link waitUntil} for why a sleep
+     *  here is a bet the loaded CI box loses. Settles early if the stream fails or
+     *  ends, so the assertion below shows the real diff instead of a timeout. */
+    waitFrames: async (n: number, deadlineMs = 5_000): Promise<void> => {
+      const until = Date.now() + deadlineMs;
+      while (frames.length < n && error === null && !ended) {
+        if (Date.now() > until) {
+          throw new Error(
+            `waitFrames: only ${frames.length}/${n} frames arrived within ${deadlineMs}ms (error=${String(error)}, ended=${ended})`,
+          );
+        }
+        await delay(1);
+      }
+    },
+    /** Wait until the stream has FAILED or ended — the error-assertion twin. */
+    waitSettled: async (deadlineMs = 5_000): Promise<void> => {
+      const until = Date.now() + deadlineMs;
+      while (error === null && !ended) {
+        if (Date.now() > until) {
+          throw new Error(
+            `waitSettled: the stream neither failed nor ended within ${deadlineMs}ms`,
+          );
+        }
+        await delay(1);
+      }
+    },
     stop: () => {
       stopped = true;
       fiber.interruptUnsafe();
@@ -84,6 +154,27 @@ function drain<T>(stream: Stream.Stream<T, unknown>) {
       return ended;
     },
   };
+}
+
+/** Wait until the relay has actually OPENED an upstream keyed stream, then hand
+ *  it back.
+ *
+ *  The `upstream.attachStreams.get(id)?.push(…)` idiom is a trap: the relay opens
+ *  that upstream leg asynchronously, so before it exists the optional chain makes
+ *  the push a SILENT NO-OP and the downstream assertion later reads `[]`. That is
+ *  the `expected [] to deeply equal ['snapshot','live']` flake — a dropped
+ *  stimulus, not a dropped frame. */
+async function upstreamStream<T>(
+  streams: Map<string, Controllable<T>>,
+  key: string,
+): Promise<Controllable<T>> {
+  await waitUntil(
+    () => streams.has(key),
+    `the relay to open the upstream stream for "${key}"`,
+  );
+  const c = streams.get(key);
+  if (!c) throw new Error(`upstreamStream: "${key}" vanished after opening`);
+  return c;
 }
 
 // ── The toy surface + its forwarding policy ────────────────────────────────
@@ -401,11 +492,18 @@ async function teardown(
 describe("reServeSurface — end-to-end over a toy surface", () => {
   it("re-serves the cell, collection, and procedure downstream", async () => {
     const { session, upstream, done, downstream } = setup(7, { a: 1, b: 2 });
-    await delay(15); // let the pump bind + mirror the first spawn
+    await mirrored(downstream, 7); // bound + first snapshot folded
 
     // Cell (value) — the mirrored snapshot.
     expect(await take(downstream.surface.counter.get(), 1)).toEqual([7]);
-    // Collection (value) — keys + a per-key value, folded from the upstream.
+    // Collection (value) — keys + a per-key value, folded from the upstream. The
+    // KEYS fold is a separate subscription from the cell's, so it needs its own
+    // convergence gate: `mirrored` proves the pump bound, not that every member
+    // has folded.
+    await waitUntil(async () => {
+      const [ks = []] = await take(downstream.surface.items.keys({}), 1);
+      return ks.length === 2;
+    }, "the mirror to fold the upstream collection keys");
     const [keys = []] = await take(downstream.surface.items.keys({}), 1);
     expect([...keys].sort()).toEqual(["a", "b"]);
     expect(await take(downstream.surface.items.get({ key: "a" }), 1)).toEqual([
@@ -425,7 +523,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("reports a procedure's missing upstream link as a loud upstream-unavailable failure", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     upstream.kill();
     await delay(15);
@@ -456,18 +554,20 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("kills the middle hop on a DELTA member → the downstream stream terminates (no splice)", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     const sub = drain(downstream.surface.attach.get({ id: "t1" }));
-    await delay(); // the relay opens the upstream attach stream
-    upstream.attachStreams.get("t1")?.push("snapshot");
-    upstream.attachStreams.get("t1")?.push("live");
-    await delay();
+    // Wait for the relay to OPEN the upstream attach leg — pushing before it
+    // exists is a silent no-op (see `upstreamStream`).
+    const attach = await upstreamStream(upstream.attachStreams, "t1");
+    attach.push("snapshot");
+    attach.push("live");
+    await sub.waitFrames(2);
     expect(sub.frames).toEqual(["snapshot", "live"]);
 
     // Kill the middle hop's upstream leg mid-stream.
     upstream.kill();
-    await delay(15);
+    await sub.waitSettled();
     expect(sub.error).toBeTruthy(); // the downstream ended — the client re-subscribes
     expect(sub.frames).toEqual(["snapshot", "live"]); // never a spliced snapshot
     sub.stop();
@@ -477,10 +577,10 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("holds a VALUE cell open across the drop and REPLAYS after rebind", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     const sub = drain(downstream.surface.counter.get());
-    await delay();
+    await sub.waitFrames(1);
     expect(sub.frames).toEqual([1]); // snapshot from the first spawn
 
     // Kill the middle hop, then rebind to a fresh spawn serving counter = 2. The
@@ -489,7 +589,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     upstream.kill();
     const upstream2 = makeUpstream(2);
     session.setClient(upstream2.client);
-    await delay(30);
+    await sub.waitFrames(2);
     expect(sub.frames).toEqual([1, 2]);
 
     sub.stop();
@@ -504,10 +604,10 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     // could not tell "rebound and confirmed" from "stale". The re-serve's rebind
     // epoch forces ONE republish past the gate, so the equal value crosses once.
     const { session, upstream, done, downstream } = setup(1, {}, "same");
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     const sub = drain(downstream.surface.label.get());
-    await delay();
+    await sub.waitFrames(1);
     expect(sub.frames).toEqual(["same"]); // snapshot from the first spawn
 
     // Kill the middle hop, then rebind to a fresh spawn serving the SAME "same".
@@ -516,13 +616,13 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     upstream.kill();
     const upstream2 = makeUpstream(2, {}, "same");
     session.setClient(upstream2.client);
-    await delay(30);
+    await sub.waitFrames(2);
     expect(sub.frames).toEqual(["same", "same"]);
 
     // Steady state still dedups: a further EQUAL agent write does NOT republish
     // (only the rebind epoch's first fold forces; later folds keep the gate).
     await call(downstream.surface.label.set("same"));
-    await delay(20);
+    await sub.waitFrames(2);
     expect(sub.frames).toEqual(["same", "same"]);
 
     sub.stop();
@@ -601,12 +701,11 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("holds a VALUE stream (pulse) open across a rebind", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     const sub = drain(downstream.surface.pulses.get({ repo: "r" }));
-    await delay();
-    upstream.pulseStreams.get("r")?.push(1);
-    await delay();
+    (await upstreamStream(upstream.pulseStreams, "r")).push(1);
+    await sub.waitFrames(1);
     expect(sub.frames).toEqual([1]);
 
     // Blip + rebind: the value stream holds open and keeps yielding on the next
@@ -614,9 +713,10 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     upstream.kill();
     const upstream2 = makeUpstream(1);
     session.setClient(upstream2.client);
-    await delay(30);
-    upstream2.pulseStreams.get("r")?.push(2);
-    await delay(10);
+    // Wait for the REBIND to have opened the new spawn's leg, rather than for
+    // 30ms and hoping.
+    (await upstreamStream(upstream2.pulseStreams, "r")).push(2);
+    await sub.waitFrames(2);
     expect(sub.frames).toEqual([1, 2]);
 
     sub.stop();
@@ -669,10 +769,22 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("reconciles a collection across a reconnect — a departed-while-down key is pruned (no stale row, no flash)", async () => {
     const { session, upstream, done, downstream } = setup(1, { a: 10, b: 20 });
-    await delay(15);
+    await mirrored(downstream, 1);
 
+    // Gate on the keys fold BEFORE opening the held subscription. The
+    // no-empty-flash invariant below is about what happens ACROSS THE RECONNECT,
+    // so the subscription must start from the converged state — open it earlier
+    // and its own first frame is the honest pre-fold `[]`, which is a snapshot,
+    // not a flash.
+    await waitUntil(async () => {
+      const [ks = []] = await take(downstream.surface.items.keys({}), 1);
+      return ks.length === 2;
+    }, "the mirror to fold the upstream collection keys");
     const sub = drain(downstream.surface.items.keys({}));
-    await delay();
+    await waitUntil(
+      () => sub.frames.length > 0,
+      "the held keys subscription's first frame",
+    );
     expect([...(sub.frames.at(-1) ?? [])].sort()).toEqual(["a", "b"]);
 
     // Kill the middle hop, then rebind to an upstream serving only {a} — b departed
@@ -680,7 +792,11 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
     upstream.kill();
     const upstream2 = makeUpstream(1, { a: 10 });
     session.setClient(upstream2.client);
-    await delay(40);
+    // Wait for the RECONCILE (the respawn's snapshot pruning `b`), not 40ms.
+    await waitUntil(
+      () => (sub.frames.at(-1) ?? []).length === 1,
+      "the respawn's snapshot to prune the departed key",
+    );
 
     // The held keys subscription reconciled to {a}: b was pruned (no stale ghost
     // row) and no frame ever dropped `a` (no empty flash).
@@ -693,7 +809,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("forwards a downstream cell WRITE to the agent, which echoes back through the fold", async () => {
     const { session, upstream, done, downstream } = setup(5);
-    await delay(15);
+    await mirrored(downstream, 5); // bound + first snapshot folded
 
     // A read folds from the agent…
     expect(await take(downstream.surface.counter.get(), 1)).toEqual([5]);
@@ -713,7 +829,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("a forward with no live upstream link fails loud (fail-fast), never a silent no-op", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     // Kill the link so `liveClient.current` is null, then write: the forward must
     // fail loudly (like the procedure forward), not swallow into a local no-op.
@@ -729,7 +845,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("rejects stale cell and procedure forwards once the session is down", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     // Session state changes synchronously when the transport dies; the mirror
     // can clear its cached client/procedure holders a turn later. A forward in
@@ -818,7 +934,7 @@ describe("reServeSurface — end-to-end over a toy surface", () => {
 
   it("h3 dedup edge: a write EQUAL to the current mirror value still forwards to the agent", async () => {
     const { session, upstream, done, downstream } = setup(1);
-    await delay(15);
+    await mirrored(downstream, 1); // bound + first snapshot folded
 
     // First write establishes the mirror at "x" (the agent echoes it back).
     await call(downstream.surface.label.set("x"));

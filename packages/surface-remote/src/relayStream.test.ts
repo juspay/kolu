@@ -69,6 +69,44 @@ function drain<T>(stream: Stream.Stream<T, unknown>) {
   });
   return {
     frames,
+    /** Wait until `n` frames have ARRIVED — the convergence gate that replaces
+     *  "sleep and hope".
+     *
+     *  A fixed `delay()` before a frame assertion is a bet that the producer's
+     *  fibers get scheduled inside that window. On a loaded box (the 4-8 core CI
+     *  container running the whole suite in parallel) that bet loses, and the
+     *  assertion reads the empty array it started with — the `expected [] to
+     *  deeply equal [...]` flake cluster. Waiting for the frames themselves
+     *  cannot lose that race: it is bounded by the DEADLINE, not by a guess at
+     *  how fast the box is.
+     *
+     *  Settles early — and lets the assertion below produce the real diff — if
+     *  the stream ends or fails first, rather than stalling until the deadline. */
+    waitFrames: async (n: number, deadlineMs = 5_000): Promise<void> => {
+      const until = Date.now() + deadlineMs;
+      while (frames.length < n && error === null && !ended) {
+        if (Date.now() > until) {
+          throw new Error(
+            `waitFrames: only ${frames.length}/${n} frames arrived within ${deadlineMs}ms (error=${String(error)}, ended=${ended})`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    },
+    /** Wait until the stream has FAILED (or ended) — the error-assertion twin of
+     *  {@link waitFrames}, so `expect(run.error)` never reads a null the producer
+     *  simply had not reached yet. */
+    waitSettled: async (deadlineMs = 5_000): Promise<void> => {
+      const until = Date.now() + deadlineMs;
+      while (error === null && !ended) {
+        if (Date.now() > until) {
+          throw new Error(
+            `waitSettled: the stream neither failed nor ended within ${deadlineMs}ms`,
+          );
+        }
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    },
     stop: () => {
       stopped = true;
       fiber.interruptUnsafe();
@@ -113,7 +151,7 @@ describe("relayFailThroughStream (delta)", () => {
 
     up1.push("snapshot");
     up1.push("live-1");
-    await delay();
+    await run.waitFrames(2);
     expect(run.frames).toEqual(["snapshot", "live-1"]);
 
     // Kill the middle hop: this spawn's upstream link dies mid-stream…
@@ -125,7 +163,7 @@ describe("relayFailThroughStream (delta)", () => {
     holder.current = { surface: { s: { get: () => up2.stream } } };
     holder.onChange?.();
     up2.push("spliced-should-never-appear");
-    await delay();
+    await run.waitSettled();
 
     // The downstream ends with the NAMED RETRYABLE transport end (SR5), NOT a raw
     // re-fail — so it crosses the wire against the shared schema and the browser
@@ -200,7 +238,7 @@ describe("relayFailThroughStream (delta)", () => {
       selectByte,
     );
     const run = drain(relay({ id: "t" }));
-    await delay();
+    await run.waitSettled();
     expect(run.error).toBeInstanceOf(Error);
     expect(run.error).not.toBeInstanceOf(RelayTransportLostError);
     expect((run.error as Error).message).toMatch(
@@ -222,7 +260,7 @@ describe("relayFailThroughStream (delta)", () => {
     const run = drain(relay({ id: "t1" }));
     up.push("a");
     up.end(); // PTY exit, say — a genuine end, not a link death
-    await delay();
+    await run.waitSettled();
     expect(run.ended).toBe(true);
     expect(run.error).toBeNull();
     expect(run.frames).toEqual(["a"]);
@@ -304,14 +342,14 @@ describe("relayFailThroughStream (delta)", () => {
     );
     const run = drain(relay({ id: "t1" }));
     up.push("only");
-    await delay();
+    await run.waitFrames(1);
     expect(run.frames).toEqual(["only"]);
     run.stop();
     await delay();
     // A frame pushed after the teardown, and a failure racing it, both go nowhere.
     up.push("after-stop");
     up.fail(new Error("racing the teardown"));
-    await delay(10);
+    await run.waitFrames(1);
     expect(run.frames).toEqual(["only"]);
     expect(run.error).toBeNull();
     expect(run.ended).toBe(false);
@@ -349,7 +387,7 @@ describe("relayHoldOpenStream (value)", () => {
     const run = drain(relay({ repo: "r" }));
 
     up1.push(1);
-    await delay();
+    await run.waitFrames(1);
     expect(run.frames).toEqual([1]);
 
     // Upstream link BLIPS — a transport death FAILS this spawn's stream (a link
@@ -365,7 +403,7 @@ describe("relayHoldOpenStream (value)", () => {
     holder.current = { surface: { s: { get: () => up2.stream } } };
     holder.onChange?.();
     up2.push(2);
-    await delay();
+    await run.waitFrames(2);
     expect(run.frames).toEqual([1, 2]); // held open across the drop, replayed after rebind
 
     // The ONLY exit is the downstream tearing down.
@@ -386,7 +424,7 @@ describe("relayHoldOpenStream (value)", () => {
 
     up.push(7);
     up.end(); // one-shot / per-input clean end, link stays live
-    await delay();
+    await run.waitFrames(1);
 
     expect(run.frames).toEqual([7]);
     expect(run.ended).toBe(true); // surfaced the end; never left parked
@@ -404,10 +442,10 @@ describe("relayHoldOpenStream (value)", () => {
       lead: { frame: 0 },
     });
     const run = drain(relay({ repo: "r" }));
-    await delay();
+    await run.waitFrames(1);
     expect(run.frames).toEqual([0]); // lead led the stream before any upstream frame
     up.push(1);
-    await delay();
+    await run.waitFrames(2);
     expect(run.frames).toEqual([0, 1]);
 
     // …and again on the REBIND after a blip: the lead is per-bind, so a consumer
@@ -416,7 +454,7 @@ describe("relayHoldOpenStream (value)", () => {
     const up2 = controllable<number>();
     holder.current = { surface: { s: { get: () => up2.stream } } };
     holder.onChange?.();
-    await delay();
+    await run.waitFrames(3);
     expect(run.frames).toEqual([0, 1, 0]);
     run.stop();
   });
@@ -432,7 +470,7 @@ describe("relayHoldOpenStream (value)", () => {
     holder.current = { surface: { s: { get: () => up.stream } } };
     holder.onChange?.();
     up.push(7);
-    await delay();
+    await run.waitFrames(1);
     expect(run.frames).toEqual([7]);
     run.stop();
   });
