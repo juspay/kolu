@@ -33,12 +33,16 @@ non-survivable detached spawn. A NixOS VM has *real* systemd, so the production
 | `skew.nix` | **Contract-skew negative** path → check `adoption-skew`. |
 | `currency.nix` | **Build-skew** path (B3.4) → check `adoption-currency`. |
 | `upgrade.nix` | **W2.2 upgrade-migration** path → TWO checks. `adoption-upgrade`: a legacy PORT-keyed kaval (`kaval-<port>`) is ADOPTED — not leaked — when the digest-keyed W2.2 padi first boots (ARM 1), and a Restart-kaval recycle CONVERGES the daemon under `kaval-<digest>` (ARM 2). `adoption-upgrade-reboot`: from that adopted state, a HOST REBOOT proves the legacy residue is BOUNDED (ARM 3) — kaval is mortal (its process + its `$XDG_RUNTIME_DIR`-tmpfs gate die), so padi spawns DIGEST-keyed and the saved session (on the persistent state-root) takes the degraded-restore path. Its flow INVERTS the others' — it stands up the legacy daemon + a matching pre-W2.2 `config.json` BEFORE kolu starts. |
-| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the five checks. |
+| `padi-upgrade.nix` | **padi build-skew convergence** (#1670) → check `adoption-padi-upgrade`. A redeploy that changes padi's *build* but not its wire contract used to leave the freshly-booted binder ADOPTING the old-build padi forever. Asserts the binder drains the survivor at boot **on its own** (padi gate pid CHANGES, kaval gate UNCHANGED, session warm) — no manual drain, unlike `currency.nix`. |
+| `offline-provision.nix` | **I1 offline remote provisioning** (juspay/kolu#2101) → check `offline-provision`. The only **two-node** member: a binder plus a bare sshd+nix remote, both with `nix.settings.substituters` forced empty (asserted, not inherited). A `hosts/add` dial must SHIP the agent closure out of the deployed generation's own store and converge — with neither incident string from `packages/surface-remote/src/nixCopy.ts` in the journal. Falsified by reverting the module's agent attachment: the same fixture then narrates `no local copy of the agent to ship`. |
+| `default.nix` | Aggregator — pins the `port` + `kavalTui` + `kavalBin` once, imports `lib.nix`, returns the seven checks. |
 
-`../flake.nix` spreads all five into `checks.x86_64-linux`, so they ride
-the Linux arm of `ci::home-manager` (see [Running](#running)).
+`../flake.nix` spreads all seven into `checks.x86_64-linux` — alongside the
+service `vm-test` and the VM-free `agent-closure-containment` proof it also
+defines — so they ride the Linux arm of `ci::home-manager` (see
+[Running](#running)).
 
-## The two paths
+## The paths
 
 ### `adoption-adopt` — the running padi is adopted (positive)
 
@@ -90,6 +94,29 @@ it is read via `journalctl --user` broadly, not `-u kolu`.
 > 56e0431a9 — earlier in the cutover padi carried no expected-kaval id, so this
 > assertion had been briefly deferred.
 
+### `offline-provision` — a connect ships, it never fetches or compiles (I1)
+
+The one check here with **two nodes**. `machine` is the deployed generation;
+`agenthost` is a bare NixOS box with sshd, nix and a writable store. Both force
+`nix.settings.substituters = []`, and the script reads the *effective* value back
+before it dials — a VM test is offline anyway, and inheriting a property is not
+the same as asserting it.
+
+After introducing the two boxes over ssh at runtime (a home-manager-managed
+private key would be a world-readable store symlink, which ssh refuses), the test
+calls `hosts/add` and asserts three things: the journal says **`agent closure
+shipped`**, a terminal really opens on the remote host's own map key, and
+**neither** incident string from `packages/surface-remote/src/nixCopy.ts`
+(`no declared cache had the agent closure …` / `no local copy of the agent to
+ship …`) ever appears.
+
+That works because a NixOS VM registers each node's nix db from its **system
+closure**: post-fix `padi-agent` is in the generation, so the binder's
+`nix-store --check-validity` says valid and `stageAgentClosure` ships; pre-fix the
+bits sit unregistered on the shared host store, which is exactly production's
+"not valid locally". Evaluation is scaffolded identically on both arms — I1
+guarantees the closure, not the drv resolution, which stays lazy per F6.
+
 ## Running
 
 Linux-only (NixOS VM tests). A **KVM-capable** host runs them in ~seconds; a
@@ -114,6 +141,11 @@ and all adoption VM tests build and run on the Linux lane after `ci::nix`.
 > cost is inherent — there is no cheaper way to produce a genuinely skewed wire.
 > `adoption-currency` is the *cheap* skew: `kavalBuildIdOverride` only rewrites the
 > wrapper's `--set`, so `koluNew` shares the `kolu` closure.
+>
+> `offline-provision` is slow for a different reason: it boots **two** VMs and
+> genuinely transfers the agent closure between their stores over ssh. That
+> transfer *is* the thing under test, so it cannot be shortened — but it is a
+> copy, never a build, which is the whole point.
 
 ## Why the scaffold looks the way it does
 

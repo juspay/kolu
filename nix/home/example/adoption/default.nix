@@ -55,6 +55,12 @@ in
   adoption-skew = import ./skew.nix args;
   adoption-currency = import ./currency.nix args;
   adoption-padi-upgrade = import ./padi-upgrade.nix args;
+  # I1 (juspay/kolu#2101) — the only TWO-node member of this family: a binder
+  # plus a bare ssh/nix remote, dialled with substitution forced off, proving a
+  # connect ships the agent closure out of the deployed generation instead of
+  # fetching or compiling it. Named for what it asserts rather than for the
+  # adoption stem, because it is not an adoption outcome.
+  offline-provision = import ./offline-provision.nix args;
 }
   # The W2.2 UPGRADE-migration path (TWO checks — `adoption-upgrade` for adopt+converge,
   # `adoption-upgrade-reboot` for the reboot bound): a pre-W2.2 port-keyed kaval
