@@ -88,9 +88,12 @@ export function publishGridAction(
           // same race one hop earlier (the arm is already gone locally). One STABLE
           // toast id keeps a flurry of failed resizes to a single message.
           if (!deps.ptyLive()) return;
-          toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {
-            id: `terminal-resize-failed-${deps.terminalId}`,
-          });
+          toast.error(
+            `Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`,
+            {
+              id: `terminal-resize-failed-${deps.terminalId}`,
+            },
+          );
         }),
       ),
       Effect.asVoid,

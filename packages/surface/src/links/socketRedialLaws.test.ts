@@ -126,7 +126,9 @@ describe("re-dial law 1 — a CLOSE fails registered entries, so the fence re-dr
     const link = await h.link;
     const first = await nthSocket(h.dialled, 1);
     first.open();
-    await expect.poll(() => link.wire.status(), { timeout: 5_000 }).toBe("open");
+    await expect
+      .poll(() => link.wire.status(), { timeout: 5_000 })
+      .toBe("open");
 
     const onRetry = vi.fn();
     const failures: unknown[] = [];

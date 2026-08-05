@@ -572,9 +572,13 @@ describe("consumeReattachingStream", () => {
   /** Let every fiber woken by an `adjust` run to its next suspension. `adjust`
    *  yields once per wakeup, which is not enough for a wake that has to travel
    *  stream → handler → race → retry schedule. */
-  const drain = Effect.forEach([1, 2, 3, 4, 5, 6, 7, 8], () => Effect.yieldNow, {
-    discard: true,
-  });
+  const drain = Effect.forEach(
+    [1, 2, 3, 4, 5, 6, 7, 8],
+    () => Effect.yieldNow,
+    {
+      discard: true,
+    },
+  );
 
   /** Drive the loop under a virtual clock. `body` receives the running fiber
    *  and moves time; whatever it returns comes back to the test. */
