@@ -299,27 +299,7 @@ export async function* reattachingDeltas(
         // A refilled budget is the unbounded lane. Count it, and once the
         // cadence says "oscillating" rather than "recovering", SAY SO — this is
         // the loop's only report, and without it the churn is invisible.
-        const now = Date.now();
-        while (refills.length > 0 && now - (refills[0] as number) > OSCILLATION_WINDOW_MS) {
-          refills.shift();
-        }
-        refills.push(now);
-        if (
-          refills.length >= OSCILLATION_CYCLES &&
-          now - reportedAt >= OSCILLATION_LOG_INTERVAL_MS
-        ) {
-          reportedAt = now;
-          log.warn(
-            {
-              id: ctx.id,
-              cycles: refills.length,
-              windowMs: OSCILLATION_WINDOW_MS,
-              spanMs: now - (refills[0] as number),
-              pauseMs: REATTACH_PAUSE_MS,
-            },
-            "attach: the kaval attach stream is oscillating — each leg delivers a frame and then ends plainly, which refills the re-open budget by design, so this loop will not stop on its own; the chain between padi and the pty-host is dropping attachments",
-          );
-        }
+        noteRefill();
       }
       if (++barrenReopens > PLAIN_END_REOPEN_ATTEMPTS) {
         // LOUD, deliberately: the client's failure machinery re-subscribes the

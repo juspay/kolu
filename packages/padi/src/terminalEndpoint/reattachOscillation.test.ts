@@ -56,15 +56,14 @@ const ctx = { id: "t-osc" as TerminalId };
 function oneFrameThenEnd(n: number): AsyncIterator<PtyHostDataMsg> {
   let sent = false;
   return {
-    next: () =>
-      Promise.resolve(
-        sent
-          ? { done: true, value: undefined }
-          : ((sent = true), {
-              done: false,
-              value: { kind: "delta", data: `d${n}` } as PtyHostDataMsg,
-            }),
-      ),
+    next: () => {
+      if (sent) return Promise.resolve({ done: true, value: undefined });
+      sent = true;
+      return Promise.resolve({
+        done: false,
+        value: { kind: "delta", data: `d${n}` } as PtyHostDataMsg,
+      });
+    },
   };
 }
 

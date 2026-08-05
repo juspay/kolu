@@ -107,7 +107,11 @@ describe("reattachingDeltas", () => {
     };
     // The second leg also ends plainly; the PTY has exited by then.
     const out = await collect(
-      reattachingDeltas(() => (opened === 0 ? open() : ptyGone()), initial, ctx),
+      reattachingDeltas(
+        () => (opened === 0 ? open() : ptyGone()),
+        initial,
+        ctx,
+      ),
     );
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
     expect(topLines(out)).toEqual([undefined, 7, undefined]);
@@ -127,9 +131,9 @@ describe("reattachingDeltas", () => {
         iter: framesIter([]),
       });
     };
-    await expect(collect(reattachingDeltas(open, initial, ctx))).rejects.toThrow(
-      /ended with no overflow frame and no PTY exit/,
-    );
+    await expect(
+      collect(reattachingDeltas(open, initial, ctx)),
+    ).rejects.toThrow(/ended with no overflow frame and no PTY exit/);
     expect(opened).toBe(PLAIN_END_REOPEN_ATTEMPTS);
   });
 
@@ -217,9 +221,9 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new Error("transport exploded"));
-    await expect(collect(reattachingDeltas(open, initial, ctx))).rejects.toThrow(
-      "transport exploded",
-    );
+    await expect(
+      collect(reattachingDeltas(open, initial, ctx)),
+    ).rejects.toThrow("transport exploded");
   });
 
   it("recognises a REHYDRATED PtyNotFound — the tag, not the constructor", async () => {
