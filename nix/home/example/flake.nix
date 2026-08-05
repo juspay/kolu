@@ -56,19 +56,35 @@
 
         home-manager.users.alice = koluHmModule;
       };
-    in
-    {
-      nixosConfigurations.example = nixpkgs.lib.nixosSystem {
+
+      # Bound in the `let` (not inline under `nixosConfigurations`) because the
+      # I1 containment check asks a question ABOUT this exact generation —
+      # `agent-containment.nix` takes its `system.build.toplevel` as the root
+      # whose closure must carry every exposed agent. One definition, so the
+      # check can never end up interrogating a different system than the one
+      # `nixosConfigurations.example` deploys.
+      exampleSystem = nixpkgs.lib.nixosSystem {
         system = linuxSystem;
         modules = [
           home-manager.nixosModules.home-manager
           nixosModule
         ];
       };
+    in
+    {
+      nixosConfigurations.example = exampleSystem;
 
       # Linux checks — all run on the x86_64-linux lane (NixOS VM tests are
       # Linux-only): the kolu-service smoke (vm-test) + B3.3 adoption.
       checks.${linuxSystem} = {
+        # I1 (juspay/kolu#2101): the deployed generation must CARRY every agent
+        # closure a remote connect can provision — cheap, always-on, no VM.
+        agent-closure-containment = import ./agent-containment.nix {
+          pkgs = linuxPkgs;
+          inherit kolu;
+          generation = exampleSystem.config.system.build.toplevel;
+        };
+
         # vm-test boots the config and verifies kolu listens on its port.
         vm-test = linuxPkgs.testers.nixosTest {
           name = "kolu-service";
