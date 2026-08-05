@@ -92,13 +92,16 @@ export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
  *  Single-sourced here so the trigger sites, `DaemonExit`, and the resolve
  *  type can't drift on the union. `anchor-gone` is the self-reap: the daemon's
  *  {@link DaemonSpec.anchor} directory stopped existing, so its reason to exist
- *  is gone. */
+ *  is gone. `runtime-fault` is the ONE unhappy reason — the served surface
+ *  runtime's `done` rejected ({@link DaemonSpec.faultSignal}) — and the only one
+ *  {@link daemonExitCode} scores non-zero. */
 export type DaemonShutdownReason =
   | "signal"
   | "abort"
   | "idle"
   | "pid-gone"
-  | "anchor-gone";
+  | "anchor-gone"
+  | "runtime-fault";
 
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
@@ -171,12 +174,19 @@ export function daemonLifetimeFromEnv(
  *  and `shutdown` are success (a second launch yielding to the live daemon must
  *  exit 0, not look like a crash); `serve-failed` is the one real error. A new
  *  `DaemonExit` variant fails this switch's exhaustiveness check, forcing the
- *  classification update here at the type's home. */
+ *  classification update here at the type's home.
+ *
+ *  The ONE shutdown that is NOT success is `runtime-fault`: the daemon tore down
+ *  ORDERLY (that is why it is a `shutdown` at all — socket closed, gate released,
+ *  last rites run) but it did so because its surface runtime died structurally.
+ *  A supervisor must be able to tell that from a graceful stop, and the exit code
+ *  is the only channel it reads (juspay/kolu#2101 G2). */
 export function daemonExitCode(exit: DaemonExit): number {
   switch (exit.kind) {
     case "already-running":
-    case "shutdown":
       return 0;
+    case "shutdown":
+      return exit.reason === "runtime-fault" ? 1 : 0;
     case "serve-failed":
       return 1;
   }
@@ -267,6 +277,22 @@ export interface DaemonSpec {
    *  down without a real OS signal). Aborting it ends the daemon via
    *  `reason: "abort"`. */
   signal?: AbortSignal;
+  /** The OWNED-FAULT stop signal — a SECOND abort arm, separate from
+   *  {@link DaemonSpec.signal} because the two mean opposite things: `signal` is
+   *  a graceful stop (exit 0), this is the served surface runtime's `done`
+   *  rejecting, i.e. structural wiring death (`reason: "runtime-fault"`, exit
+   *  NON-ZERO — see {@link daemonExitCode}).
+   *
+   *  Routing the fault through the SAME shutdown machinery rather than a bare
+   *  `process.exit` is the point: the socket closes, the gate is released, and
+   *  the daemon's own last rites run before the process ends, so the supervisor's
+   *  respawn finds a clean rendezvous instead of a stale socket + held gate.
+   *  {@link armRuntimeFaultExit} builds the observer that aborts this.
+   *
+   *  Omit it and a runtime fault has nowhere to go — which is exactly the zombie
+   *  the #2101 deploy-#2 incident produced (process alive, gate held, socket
+   *  answering, runtime dead). */
+  faultSignal?: AbortSignal;
   /** Fired once, after the gate is held and the socket is listening — the boot
    *  log's hook and the readiness point a test awaits before connecting. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
@@ -369,6 +395,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
       anchor,
       anchorPollMs: spec.anchorPollMs,
       external: signal,
+      fault: spec.faultSignal,
       log,
     });
 
@@ -428,6 +455,9 @@ function waitForShutdown(opts: {
   anchor: () => string | undefined;
   anchorPollMs: number | undefined;
   external?: AbortSignal;
+  /** The owned-runtime-fault arm ({@link DaemonSpec.faultSignal}) — same
+   *  abort mechanics as `external`, different reason, non-zero exit code. */
+  fault?: AbortSignal;
   log: Logger;
 }): {
   shutdown: Promise<DaemonShutdownReason>;
@@ -439,7 +469,7 @@ function waitForShutdown(opts: {
    *  meet the kernel's default disposition (observed as exit 143). */
   alreadyOver: boolean;
 } {
-  const { lifetime, anchor, anchorPollMs, external, log } = opts;
+  const { lifetime, anchor, anchorPollMs, external, fault, log } = opts;
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
   // (0, negative, fractional, out of range) would be silently reclassified — a
@@ -487,15 +517,31 @@ function waitForShutdown(opts: {
       });
     }
 
-    if (external) {
-      if (external.aborted) {
-        finish("abort");
-        return;
+    // The two abort arms, armed identically and differing only in the reason they
+    // resolve (and so in the process's exit code). An ALREADY-aborted arm resolves
+    // at arm time — that is what `alreadyOver` reports, so the caller skips the
+    // readiness announcement; a runtime that faulted during boot (before the
+    // daemon ever listened) takes exactly that path rather than announcing a
+    // daemon whose runtime is already dead.
+    const abortArm = (
+      arm: AbortSignal | undefined,
+      reason: DaemonShutdownReason,
+    ): boolean => {
+      if (!arm) return false;
+      if (arm.aborted) {
+        finish(reason);
+        return true;
       }
-      const handler = (): void => finish("abort");
-      external.addEventListener("abort", handler, { once: true });
-      cleanups.push(() => external.removeEventListener("abort", handler));
-    }
+      const handler = (): void => finish(reason);
+      arm.addEventListener("abort", handler, { once: true });
+      cleanups.push(() => arm.removeEventListener("abort", handler));
+      return false;
+    };
+    // Fault FIRST: if both are already aborted, the fault is the truer story (a
+    // graceful stop that raced a dying runtime is still a dying runtime), and the
+    // exit code must say so.
+    if (abortArm(fault, "runtime-fault")) return;
+    if (abortArm(external, "abort")) return;
 
     // The ANCHOR trigger — armed under EVERY lifetime, like the signal +
     // external-abort triggers above (it is an independent axis, not a

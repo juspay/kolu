@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DAEMON_BIND_PID_ENV,
   type DaemonSpec,
+  daemonExitCode,
   daemonLifetimeFromEnv,
   daemonMain as daemonMainCore,
   lifetimeInfo,
@@ -174,6 +175,66 @@ describeDaemon("daemonMain", () => {
     expect(await exitP).toEqual({ kind: "shutdown", reason: "abort" });
     expect(liveHolder(home.gatePath)).toBeUndefined(); // gate released
     expect(existsSync(home.socketPath)).toBe(false); // socket removed
+  });
+
+  it("a RUNTIME FAULT ends the tenure through the same teardown — reason `runtime-fault`, exit non-zero (#2101 G2)", async () => {
+    // The fault arm exists so an owned surface-runtime death is a CRASH the
+    // supervisor can see, not a zombie: the socket closes, the gate releases, and
+    // the exit code says "that was not a graceful stop". Pre-#2101 there was no
+    // arm at all — the daemon simply kept serving with a dead runtime behind it.
+    const { home } = paths();
+    const fault = new AbortController();
+    let ready!: () => void;
+    const readyP = new Promise<void>((r) => {
+      ready = r;
+    });
+
+    const exitP = daemonMain({
+      home,
+      ...noSurface,
+      anchor: unanchored,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      faultSignal: fault.signal,
+      onReady: () => ready(),
+    });
+
+    await readyP;
+    expect(liveHolder(home.gatePath)).toBe(process.pid);
+    fault.abort(); // what `armRuntimeFaultExit` does when `done` rejects
+
+    const exit = await exitP;
+    expect(exit).toEqual({ kind: "shutdown", reason: "runtime-fault" });
+    // The orderly half — a respawn finds a clean rendezvous, not a stale socket
+    // and a gate held by a dead pid.
+    expect(liveHolder(home.gatePath)).toBeUndefined();
+    expect(existsSync(home.socketPath)).toBe(false);
+    // …and the loud half: the ONE shutdown reason that is not success.
+    expect(daemonExitCode(exit)).toBe(1);
+  });
+
+  it("a runtime fault ALREADY faulted at arm time never announces readiness (a daemon whose runtime died mid-boot)", async () => {
+    const { home } = paths();
+    const fault = new AbortController();
+    fault.abort();
+    let announced = false;
+
+    const exit = await daemonMain({
+      home,
+      ...noSurface,
+      anchor: unanchored,
+      lifetime: { kind: "forever" },
+      log: silentLog,
+      faultSignal: fault.signal,
+      onReady: () => {
+        announced = true;
+      },
+    });
+
+    expect(exit).toEqual({ kind: "shutdown", reason: "runtime-fault" });
+    expect(announced).toBe(false);
+    expect(liveHolder(home.gatePath)).toBeUndefined();
+    expect(existsSync(home.socketPath)).toBe(false);
   });
 
   it("shuts down on continuous idleness (idleTimeout)", async () => {
@@ -542,5 +603,29 @@ describe("daemonLifetimeFromEnv", () => {
       vi.stubEnv(DAEMON_BIND_PID_ENV, bad);
       expect(() => daemonLifetimeFromEnv(forever)).toThrow(DAEMON_BIND_PID_ENV);
     }
+  });
+});
+
+describe("daemonExitCode", () => {
+  it("scores `runtime-fault` — and ONLY it — a failure among the shutdowns (#2101 G2)", () => {
+    // A supervisor's only channel for "that was a crash, not a stop" is the exit
+    // code, and every other shutdown reason IS a legitimate stop.
+    expect(daemonExitCode({ kind: "shutdown", reason: "runtime-fault" })).toBe(
+      1,
+    );
+    for (const reason of [
+      "signal",
+      "abort",
+      "idle",
+      "pid-gone",
+      "anchor-gone",
+    ] as const) {
+      expect(daemonExitCode({ kind: "shutdown", reason })).toBe(0);
+    }
+    // The pre-existing classification is untouched.
+    expect(daemonExitCode({ kind: "already-running", pid: 1 })).toBe(0);
+    expect(
+      daemonExitCode({ kind: "serve-failed", detail: "dir-not-private" }),
+    ).toBe(1);
   });
 });

@@ -19,41 +19,31 @@
  */
 
 import { dirname } from "node:path";
-import {
-  claimPidGate,
-  type DaemonExit,
-  type DaemonBuildIdentity,
-  type DaemonLifetimeInfo,
-  daemonLifetimeFromEnv,
-  daemonMain,
-  type GateAcquisition,
-  lifetimeInfo,
-  type Logger,
-  type ProcessIdentity,
-} from "@kolu/surface-daemon";
-import { processIdentityFromEnv } from "osfacts-client";
-
 import { buildCommit } from "@kolu/surface/identity";
-import { Context, Effect, Layer } from "effect";
 import {
   implementSurfacesOnPublisher,
   publisherChannel,
   type SurfaceHandlers,
 } from "@kolu/surface/server";
+import {
+  armRuntimeFaultExit,
+  claimPidGate,
+  type DaemonBuildIdentity,
+  type DaemonExit,
+  type DaemonLifetimeInfo,
+  daemonLifetimeFromEnv,
+  daemonMain,
+  type GateAcquisition,
+  type Logger,
+  lifetimeInfo,
+  type ProcessIdentity,
+  resolveDaemonHome,
+} from "@kolu/surface-daemon";
+import { Context, Effect, Layer } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
 import { configureNixShellEnv } from "kolu-pty";
-import {
-  captureFinalSession,
-  initAutosaveGate,
-} from "../session/autosaveGate.ts";
-import { currentPadiBuildIdentity } from "./buildId.ts";
-import {
-  setPadiActivityFeedStore,
-  setPadiLastPairedDaemonStore,
-  setPadiSessionStore,
-} from "../session/confStores.ts";
-import { buildControlCoreDeps } from "./controlCore.ts";
-import { importLegacyConfigOnce } from "../session/importLegacy.ts";
+import { processIdentityFromEnv } from "osfacts-client";
 import {
   ensureKoluRoot,
   setDaemonProcessId,
@@ -73,21 +63,29 @@ import {
 import { publisher } from "../publisher.ts";
 import { buildPadiSurfaceDeps } from "../servePadi.ts";
 import {
+  captureFinalSession,
+  initAutosaveGate,
+} from "../session/autosaveGate.ts";
+import {
+  setPadiActivityFeedStore,
+  setPadiLastPairedDaemonStore,
+  setPadiSessionStore,
+} from "../session/confStores.ts";
+import { importLegacyConfigOnce } from "../session/importLegacy.ts";
+import {
   saveSession,
   setSavedSessionFromSnapshot,
 } from "../session/session.ts";
+import {
+  NewerPadiStateProjectVersionError,
+  openPadiStateStores,
+} from "../session/stateStore.ts";
 import {
   padiKavalHome,
   padiRuntimeHome,
   resolvePadiStateRoot,
   writeStateRootManifest,
 } from "../stateRoot.ts";
-import { resolveDaemonHome } from "@kolu/surface-daemon";
-import { KAVAL_NS_PREFIX, PTY_HOST_SOCK_FILE } from "kaval";
-import {
-  NewerPadiStateProjectVersionError,
-  openPadiStateStores,
-} from "../session/stateStore.ts";
 import { PADI_SURFACE_VERSION, padiDaemonSurfaces } from "../surface.ts";
 import { hasParkedTerminals } from "../terminal-registry.ts";
 import { startInventoryReconciler } from "../terminalEndpoint/inventoryReconcile.ts";
@@ -98,6 +96,8 @@ import {
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
 import { LOCAL_LOCATION } from "../vocab.ts";
+import { currentPadiBuildIdentity } from "./buildId.ts";
+import { buildControlCoreDeps } from "./controlCore.ts";
 
 /** Padi's immutable process boot facts, captured together exactly once. Every
  * serving projection receives this same whole value, so repeated ambient env
@@ -215,6 +215,10 @@ class PadiSurfaces extends Context.Service<
   {
     readonly group: RpcGroup.RpcGroup<Rpc.Any>;
     readonly handlers: SurfaceHandlers;
+    /** The owned-fault stop signal for this served runtime — armed at serve time
+     *  (so a fault during the LATER boot phases can never float unobserved) and
+     *  consumed by `daemonMain` below as its `faultSignal` arm. */
+    readonly faultSignal: AbortSignal;
   }
 >()("padi/boot/PadiSurfaces") {}
 
@@ -326,6 +330,10 @@ function serveDaemonSurfaces(params: {
   group: RpcGroup.RpcGroup<Rpc.Any>;
   handlers: SurfaceHandlers;
   close: () => Promise<void>;
+  /** Aborted when the served runtime's `done` rejects — handed to the spine as
+   *  `DaemonSpec.faultSignal` so the fault ends the tenure through the normal
+   *  teardown, non-zero. */
+  faultSignal: AbortSignal;
 } {
   const { stateRoot, onDrain, log, lifetime, boot } = params;
   const localEndpoint = resolveTerminalEndpoint(LOCAL_LOCATION);
@@ -380,24 +388,42 @@ function serveDaemonSurfaces(params: {
   );
   // Wire the late-bound ctx so every padi domain writer publishes deltas.
   setPadiSurfaceCtx(runtime.ctx.padi);
-  // Observe the surface runtime's `done` and route it into padi's EXISTING
-  // fault disposition — the loud-not-fatal unhandled-rejection boundary #1792
-  // installed (log + optional health sink, never a process kill). An owned
-  // surface fault becomes a diagnosable log line, not a dead workspace daemon;
-  // the disposition is unchanged (a fault does not exit), only its route (owned
-  // `done` instead of a floated rejection reaching the process boundary).
-  runtime.done.catch((err) =>
-    log.error(
-      { err: err instanceof Error ? err.message : String(err) },
-      "padi surface runtime faulted",
-    ),
-  );
+  // Observe the surface runtime's `done` and treat a rejection as FATAL — the
+  // #2101 G2 reversal of the log-and-continue disposition #1792 gave it.
+  //
+  // What changed under it: after G1 a poll cell's read failure (the T+0 seed
+  // included) is cell-local, so `done` no longer carries transient I/O — a
+  // rejection now means structural wiring death, and the audit table on
+  // `SurfaceRuntimeHandle.done` is the proof. Under the old disposition a single
+  // 1500ms kaval probe timeout mid-restore-stampede left this daemon a zombie:
+  // alive, gate held, socket answering, its `hostInventory` cell dead for the
+  // process's life, and `done` already settled so every future fault was
+  // unobservable too.
+  //
+  // The exit rides the SHUTDOWN MACHINERY (`armRuntimeFaultExit` → the spine's
+  // `faultSignal` arm), never a bare `process.exit`: the session is captured, the
+  // socket closes and the gate releases before the process ends, so the binder's
+  // respawn + session-restore recovers in seconds instead of needing an operator.
+  // The #1792 boundary stays exactly as it is, for UNOWNED floats — see
+  // `unhandledRejectionBoundary.ts` and `@kolu/surface-daemon`'s `runtimeFault.ts`
+  // for the owned-vs-float line.
+  const faultSignal = armRuntimeFaultExit({
+    done: runtime.done,
+    log,
+    subject: "padi surface runtime",
+    // padi's last rites: persist the live layout through the AutosaveGate's
+    // shutdown edge — the SAME receptacle the control-core drain and the SIGTERM
+    // edge write through — so the respawned padi restores the workspace it died
+    // holding.
+    lastRites: () => captureFinalSession("surface runtime fault"),
+  });
   return {
     // The flat tag map + the handlers bound to it, forwarded verbatim to the
     // spine — a tag carries its own route now, so there is nothing to re-wrap.
     group: runtime.group,
     handlers: runtime.handlers,
     close: runtime.close,
+    faultSignal,
   };
 }
 
@@ -407,8 +433,9 @@ function serveDaemonSurfaces(params: {
  *  That last part is what the old `try { … } finally { await served.close() }`
  *  spelled by hand: once the daemon stops serving — or a later boot step fails —
  *  the runtime's owned sources are released deterministically rather than left to
- *  process death. Idempotent, and the loud-not-fatal `done` disposition is
- *  unchanged (close resolves cleanly and never faults `done`). */
+ *  process death. Idempotent, and orthogonal to the now-FATAL `done` disposition
+ *  (#2101 G2): a clean close RESOLVES `done`, so releasing here can never trip the
+ *  fault arm. */
 const surfacesLayer = (params: {
   stateRoot: string;
   onDrain: () => void;
@@ -653,6 +680,11 @@ function padiDaemonProgram(
         // daemon. `forever` in production; `boundToPid` under a harness/smoke run (padi
         // forwards the same var into its kaval).
         lifetime,
+        // The OWNED-FAULT arm: the served runtime's `done` rejecting ends this
+        // tenure as `reason: "runtime-fault"` — the same orderly teardown a drain
+        // gets (socket closed, gate released), scored NON-ZERO so the supervisor
+        // reads a crash. Armed at serve time, above.
+        faultSignal: served.faultSignal,
         // padi's ANCHOR is its state-root — the identity it resolved as its very
         // first act (#1334), known directly, no manifest indirection (unlike its
         // kaval, which must read the root back off the manifest padi writes).
@@ -681,9 +713,11 @@ function padiDaemonProgram(
     // for an ORDERLY stop, and the takeover load-bears on it not happening: the
     // successor seeds from exactly this blob.
     //
-    // ONLY the `signal` reason. The other four are already answered:
+    // ONLY the `signal` reason. The other five are already answered:
     //   - `abort`       — the control-core drain already captured (`onDrain`), and
     //                     an external test/parent abort rides the same path;
+    //   - `runtime-fault` — captured by the fault arm's last rites before it
+    //                     triggered this shutdown (`armRuntimeFaultExit` above);
     //   - `anchor-gone` — the state-root is DELETED; the place a session would
     //                     persist to is exactly what is gone (#2010);
     //   - `pid-gone`    — the harness that bound this padi's lifetime is gone, and

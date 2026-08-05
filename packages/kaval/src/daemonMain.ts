@@ -16,17 +16,18 @@
 
 import { startHeapDiagnostics } from "@kolu/heap-diag";
 import {
+  armRuntimeFaultExit,
   type DaemonExit,
   daemonLifetimeFromEnv,
   daemonMain,
-  lifetimeInfo,
   type Logger,
+  lifetimeInfo,
   type ProcessIdentity,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
 import { processIdentityFromEnv } from "osfacts-client";
-import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
+import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
   KAVAL_NS_PREFIX,
   PTY_HOST_SOCK_FILE,
@@ -96,16 +97,21 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     stateRoot: home.dir,
   });
   const { terminalCount } = ptyHost;
-  // Observe the surface runtime's `done`: the ptyHost surface declares no cell
-  // connectors, so this is inert today (nothing faults) — wired so any future
-  // owned fault reaches kaval's log instead of floating, without changing today's
-  // behavior (fail-fast disposition unchanged; a fault does not kill the daemon).
-  daemonSurface.done.catch((err) =>
-    log.error(
-      { err: err instanceof Error ? err.message : String(err) },
-      "pty-host surface runtime faulted",
-    ),
-  );
+  // Observe the surface runtime's `done` and treat a rejection as FATAL (#2101 G2,
+  // the same ruling padi took): after G1 the only failures left on this channel are
+  // structural wiring deaths, which do not heal by waiting. kaval's declared policy
+  // is RECYCLE — its padi adopt-or-spawns a replacement and the PTYs are re-attached
+  // — so dying loudly is strictly better than serving half a runtime. The ptyHost
+  // surface declares no cell connectors, so nothing faults today; this is the arm
+  // that keeps the FUTURE first fault from being a zombie instead of a restart.
+  const faultSignal = armRuntimeFaultExit({
+    done: daemonSurface.done,
+    log,
+    subject: "kaval pty-host surface runtime",
+    // No last rites: kaval owns no durable session (padi does), and its live PTYs
+    // are reaped by `daemonSurface.close()` in the `.finally` below — which the
+    // fault path reaches like any other shutdown, because it IS one.
+  });
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
   // heap curve with the live-terminal count (the leak's independent variable)
@@ -154,6 +160,10 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     anchorPollMs: opts.stateRootPollMs,
     log,
     signal: opts.signal,
+    // The owned-fault arm — ends the tenure as `reason: "runtime-fault"` (non-zero
+    // exit) through the same teardown a signal gets, rather than leaving a kaval
+    // that answers RPCs with a dead runtime behind them.
+    faultSignal,
     onReady: opts.onReady,
   }).finally(() => {
     // Own the surface runtime's shutdown deterministically: once the daemon has
