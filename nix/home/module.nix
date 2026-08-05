@@ -122,7 +122,15 @@ in
     };
 
     agentPackages = lib.mkOption {
-      type = lib.types.listOf lib.types.package;
+      # `nonEmptyListOf`, NOT `listOf` — the difference is the whole point.
+      # `listOf` carries an `emptyValue` (nixpkgs lib/types.nix), so an option
+      # of that type with no `default` is not required at all: an omitting
+      # consumer silently evaluates to `[ ]`. Measured on a bare-module
+      # `homeManagerConfiguration` that set only `package`, and it evaluated
+      # green. `nonEmptyListOf` drops `emptyValue`, so omission throws — and it
+      # additionally rejects an EXPLICIT `[ ]`, which is the same defect spelled
+      # out loud.
+      type = lib.types.nonEmptyListOf lib.types.package;
       example = lib.literalExpression ''[ kolu.packages.''${system}.padi-agent ]'';
       description = ''
         Every agent closure this deployment can provision onto a remote host;
