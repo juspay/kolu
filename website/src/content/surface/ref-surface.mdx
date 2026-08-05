@@ -547,6 +547,12 @@ and response fibers) and is idempotent. `websocketLink` additionally returns the
 `wire` half, so it satisfies `WireTransport` and can be handed whole to
 `createLiveSignal`.
 
+`websocketLink`'s `url` thunk is re-evaluated on every (re)dial, and it is allowed
+to **throw**: a thunk that cannot answer yet (kolu's reads the server's process id
+out of live state) fails that dial as an ordinary `SocketOpenError`, so the
+reconnect schedule backs off and asks again. It does not kill the link — a link
+that stopped dialling would sit `connecting` forever with nothing logged.
+
 `directDispatch(served)` is shaped differently on purpose: it takes the **served
 surface itself** (anything carrying `handlers` — a `SurfaceRuntime`, a
 `ServedSurface`, a `serveSurfaceMap` result) and calls its handlers in-process.
@@ -706,6 +712,14 @@ consumer sees is the member's fresh snapshot.
 `onRetry` fires once per retryable failure, between the failed attempt's last
 frame and the next attempt's first — the place to clear a view the fresh snapshot
 will replace.
+
+A throw from `onRetry` is **contained and logged**, never propagated: the hook
+runs on the fence's own stack, where unwinding would end the stream immediately
+after telling you to clear your view — leaving a cleared view with no stream left
+to refill it (and, through `rawStream`, a `health()` entry stuck `pending`
+forever). Containment is what makes "fired ⇒ a re-subscribe follows" true even
+when the hook is broken. Clean up defensively anyway: the log names your hook,
+not framework code.
 
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 

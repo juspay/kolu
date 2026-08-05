@@ -281,6 +281,93 @@ describe("the per-subscription onRetry tap (#8)", () => {
     expect(subscribes()).toBe(2);
   });
 
+  it("a THROWING onRetry does not cost the re-subscribe — the promise holds", async () => {
+    // kolu#2101 G8c. `onRetry` is CONSUMER code (kolu's terminal resets an
+    // xterm; `surfaceClient`'s health hook flips `pending` back on and then
+    // calls the caller's own hook under it), and consumer code throws — a
+    // disposed xterm, a store read on an unmounted owner. Run bare in
+    // `Effect.sync` that throw is a DEFECT, and `Stream.retry` retries FAILURES
+    // only: the stream would die HERE, immediately after telling the consumer to
+    // clear its view — the exact "cleared view and no new stream" state the
+    // fence's own comment promises cannot happen.
+    const { dispatch, subscribes } = scriptedDispatch([
+      () =>
+        Stream.concat(
+          Stream.make({ n: 1 }),
+          Stream.fail(new FakeTransportDrop()),
+        ),
+      () => Stream.concat(Stream.make({ n: 2 }), Stream.never),
+    ]);
+    const order: string[] = [];
+    const stop = runStreamScoped(
+      unenrolledStreamCall(
+        (input: undefined) => dispatch.stream(CELL_GET, input),
+        undefined,
+        {
+          onRetry: () => {
+            order.push("retry");
+            throw new Error("xterm: terminal has been disposed");
+          },
+        },
+      ),
+      {
+        onFrame: (frame) => order.push(`frame:${(frame as { n: number }).n}`),
+        onEnd: () => order.push("end"),
+        onFailure: (err) => order.push(`fail:${err.message}`),
+      },
+    );
+    await waitPastRetry();
+    stop();
+    // The fresh snapshot still arrives, and the stream is still alive.
+    expect(order).toEqual(["frame:1", "retry", "frame:2"]);
+    expect(subscribes()).toBe(2);
+  });
+
+  it("a consumer's throwing onRetry does not STRAND health at pending (#4)", async () => {
+    // The same defect one layer up, where it is most visible: the health hook
+    // sets `pending = true` BEFORE calling the consumer's hook, so a throw there
+    // used to leave the subscription pending forever with no stream left to
+    // deliver the frame that clears it — a permanently "connecting" dot over a
+    // healthy server.
+    const { dispatch } = scriptedDispatch([
+      () =>
+        Stream.concat(
+          Stream.make({ n: 1 }),
+          Stream.fail(new FakeTransportDrop()),
+        ),
+      () => Stream.concat(Stream.make({ n: 2 }), Stream.never),
+    ]);
+
+    const outcome = await new Promise<{ pending: boolean; frames: unknown[] }>(
+      (resolve) => {
+        createRoot(async (dispose) => {
+          const client = surfaceClient(surface, dispatch);
+          const frames: unknown[] = [];
+          // `rawStream` is the site: it OWNS the health signals, sets
+          // `pending = true` for the reconnect gap, and then calls the caller's
+          // hook — under the same `Effect.sync` the fence runs.
+          const health = client.rawStream(
+            "conn-raw",
+            (input: undefined) => dispatch.stream(CELL_GET, input),
+            undefined,
+            {
+              onItem: (item) => frames.push(item),
+              onRetry: () => {
+                throw new Error("consumer onRetry exploded");
+              },
+            },
+          );
+          await waitPastRetry();
+          resolve({ pending: health.pending(), frames });
+          dispose();
+        });
+      },
+    );
+
+    expect(outcome.frames).toEqual([{ n: 1 }, { n: 2 }]); // the reconnect delivered
+    expect(outcome.pending).toBe(false); // …and cleared the pending latch
+  });
+
   it("does NOT fire for a failure the fence refuses to retry", async () => {
     const { dispatch } = scriptedDispatch([
       () => Stream.fail(new Denied({ why: "nope" })),

@@ -28,15 +28,33 @@
  * frame's.
  */
 
+/** The consequence the two ORIGINAL stacks share. Named, so the parameter below
+ *  has an honest default rather than a sentence that happens to be true of the
+ *  first callers. */
+const GRAPH_STAKE =
+  "siblings and future writes keep flowing; unwinding here severs the reactive graph mid-drain and freezes every derivation in the process";
+
 /** Run `body`, containing and LOUDLY logging a throw. `what` names the callback
  *  so the log identifies the member rather than framework code. Never rethrows —
- *  rethrowing is the failure mode this exists to prevent. */
-export function containThrow(what: string, body: () => void): void {
+ *  rethrowing is the failure mode this exists to prevent.
+ *
+ *  `preserves` states what containment BUYS at this call site, and it is a
+ *  parameter for a reason discovered in kolu#2101 G8c: a third stack now uses
+ *  this rule — the retry/re-dial stack, where unwinding costs a re-subscribe
+ *  rather than the graph — and a log line that recited the graph's stake there
+ *  would be a message claiming something untrue, which is the exact defect class
+ *  that round exists to remove. It defaults to {@link GRAPH_STAKE}, which is what
+ *  the engine and writer call sites mean. */
+export function containThrow(
+  what: string,
+  body: () => void,
+  preserves: string = GRAPH_STAKE,
+): void {
   try {
     body();
   } catch (err) {
     console.error(
-      `surface: ${what} threw where the stack must not unwind — CONTAINED (siblings and future writes keep flowing; unwinding here severs the reactive graph mid-drain and freezes every derivation in the process)`,
+      `surface: ${what} threw where the stack must not unwind — CONTAINED (${preserves})`,
       err,
     );
   }

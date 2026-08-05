@@ -34,6 +34,7 @@ import { Effect, Schedule, Schema, Stream } from "effect";
 // never IMPORTS the class it recognises.
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import { CLOCK_NOW_NAMESPACE, CLOCK_NOW_VERB } from "./clockNow";
+import { containThrow } from "./containThrow";
 import {
   type CellSpec,
   type CollectionSpec,
@@ -151,7 +152,26 @@ export function fenceStream<A>(
           // the re-subscribe. Guarded on the same predicate the schedule uses, so
           // "fired ⇒ a re-subscribe follows" holds — a consumer that clears its
           // buffer here is never left with a cleared view and no new stream.
-          shouldRetryStreamError(error) ? Effect.sync(onRetry) : Effect.void,
+          //
+          // CONTAINED, because that promise has to be true of a hook the
+          // framework does not own (kolu#2101 G8c). `onRetry` is consumer code —
+          // `surfaceClient`'s health hook flips `pending` back on and calls the
+          // caller's own `onRetry` under it; kolu's terminal resets an xterm.
+          // Run bare in `Effect.sync`, a throw from any of that is a DEFECT, and
+          // `Stream.retry` retries FAILURES only: the stream would die HERE,
+          // immediately after telling the consumer to clear its view, leaving
+          // exactly the cleared-view-and-no-new-stream state this comment
+          // promises cannot happen — and, through the health hook, a `pending`
+          // that never clears because no frame is ever coming to clear it.
+          shouldRetryStreamError(error)
+            ? Effect.sync(() =>
+                containThrow(
+                  "a subscription's onRetry hook",
+                  onRetry,
+                  "the re-subscribe below still happens, so a consumer that just cleared its view gets the fresh snapshot it was promised",
+                ),
+              )
+            : Effect.void,
         );
   return Stream.retry(tapped, STREAM_RETRY);
 }

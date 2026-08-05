@@ -34,9 +34,9 @@
 import { Cause, Duration, Effect, Layer, Schedule } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { RpcClient } from "effect/unstable/rpc";
-import { rpcSerializationLayer } from "../frameLimit";
 import { Socket } from "effect/unstable/socket";
 import { SurfaceTransportRetired } from "../errors";
+import { rpcSerializationLayer } from "../frameLimit";
 import type { WireStatus, WireTransport } from "../link";
 import { openWireLink, type WireLink } from "./wire";
 
@@ -123,27 +123,49 @@ export async function websocketLink(
   const socket = await Effect.runPromise(
     Socket.fromWebSocket(
       Effect.acquireRelease(
-        Effect.sync(() => {
-          setStatus("connecting");
-          const ws = connect(opts.url());
-          currentSocket = ws;
-          // The socket's own `close` is where the terminal-close CLASSIFIER runs —
-          // the close CODE is only on this event, and this listener is registered
-          // before Effect's, so `retired` is already decided by the time the
-          // protocol reports the disconnect. It does NOT publish the status: that
-          // is the protocol's job (see `connectionHooks` below).
-          ws.addEventListener(
-            "close",
-            (event: Event) => {
-              const code = (event as CloseEvent).code;
-              if (typeof code === "number" && opts.isTerminalClose(code)) {
-                retired = true;
-                retiredCode = code;
-              }
-            },
-            { once: true },
-          );
-          return ws;
+        // `Effect.try`, not `Effect.sync` (kolu#2101 G8c). Both callbacks in here
+        // are the CALLER's: `opts.url()` is a thunk an app re-evaluates per dial
+        // (kolu's carries the server's pid, read out of live state), and
+        // `connect` is a platform constructor that throws on a malformed URL.
+        // Run bare, either throw is a DEFECT — and a defect is not what the
+        // reconnect schedule retries, so the re-dial promised at the top of this
+        // file ("the run is retried, so calling `opts.url()` inside the acquire
+        // is precisely re-evaluated on every dial") would stop dead at the first
+        // one, leaving a link that reports `connecting` forever and never dials
+        // again. As a FAILURE it is an ordinary dial failure: the schedule backs
+        // off and re-evaluates the thunk, and a retired wire still halts.
+        //
+        // `SocketOpenError` is the framework's OWN word for "the dial did not
+        // happen", and `fromWebSocket` already types its acquire on
+        // `SocketError` — so this classifies into the existing vocabulary rather
+        // than minting a surface error nobody downstream would match on.
+        Effect.try({
+          try: () => {
+            setStatus("connecting");
+            const ws = connect(opts.url());
+            currentSocket = ws;
+            // The socket's own `close` is where the terminal-close CLASSIFIER runs —
+            // the close CODE is only on this event, and this listener is registered
+            // before Effect's, so `retired` is already decided by the time the
+            // protocol reports the disconnect. It does NOT publish the status: that
+            // is the protocol's job (see `connectionHooks` below).
+            ws.addEventListener(
+              "close",
+              (event: Event) => {
+                const code = (event as CloseEvent).code;
+                if (typeof code === "number" && opts.isTerminalClose(code)) {
+                  retired = true;
+                  retiredCode = code;
+                }
+              },
+              { once: true },
+            );
+            return ws;
+          },
+          catch: (cause) =>
+            new Socket.SocketError({
+              reason: new Socket.SocketOpenError({ kind: "Unknown", cause }),
+            }),
         }),
         (ws) =>
           Effect.sync(() => {

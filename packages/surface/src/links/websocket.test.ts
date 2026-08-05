@@ -71,15 +71,25 @@ class FakeWebSocket extends EventTarget {
   }
 }
 
-function harness(opts?: { isTerminalClose?: (code: number) => boolean }) {
+function harness(opts?: {
+  isTerminalClose?: (code: number) => boolean;
+  /** Make the first N evaluations of the URL thunk THROW — a consumer thunk that
+   *  cannot answer yet (kolu's reads the server pid out of live state). */
+  urlThrowsFirst?: number;
+}) {
   const dialled: FakeWebSocket[] = [];
   const urls: string[] = [];
   let pid = 1;
+  let throwsLeft = opts?.urlThrowsFirst ?? 0;
   const link = websocketLink({
     group: surface.group,
     // The pid ECHO: each dial re-reads the current server process id, so a
     // reconnect never re-presents a stale one.
     url: () => {
+      if (throwsLeft > 0) {
+        throwsLeft -= 1;
+        throw new Error("no server pid yet");
+      }
       const url = `ws://localhost/rpc?pid=${pid}`;
       urls.push(url);
       return url;
@@ -196,6 +206,22 @@ describe("websocketLink — the URL thunk (#6c)", () => {
 
     const second = await nthSocket(h.dialled, 2);
     expect(second.url).toBe("ws://localhost/rpc?pid=2");
+    await link.dispose();
+  });
+
+  it("a THROWING url thunk fails the dial and re-dials — it does not kill the link", async () => {
+    // kolu#2101 G8c. The thunk is CONSUMER code, re-evaluated per dial, and it
+    // can legitimately not be answerable yet (kolu's reads the server pid out of
+    // live state). Run bare in `Effect.sync` a throw is a DEFECT, which the
+    // reconnect schedule does not retry: the link would sit `connecting`
+    // forever, never dialling again, with nothing logged. Classified as a
+    // `SocketOpenError` it is an ordinary dial failure — back off, re-evaluate,
+    // connect.
+    const h = harness({ urlThrowsFirst: 1 });
+    const link = await h.link;
+    const ws = await nthSocket(h.dialled, 1); // the SECOND evaluation dialled
+    ws.open();
+    expect(ws.url).toBe("ws://localhost/rpc?pid=1");
     await link.dispose();
   });
 });
