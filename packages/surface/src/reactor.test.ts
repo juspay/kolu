@@ -10,15 +10,15 @@
  * `reactorEngineLaws.test.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Schema, Scope, Stream } from "effect";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineSurface } from "./define";
 import {
   batch,
   computed,
-  derived,
   type DerivedCell,
   type DerivedComputeCell,
+  derived,
   everyMsOr,
   scan,
   source,
@@ -49,6 +49,23 @@ function recordingCtx<T>(
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
+/** What `runtime.done` has done by the time the queue drains: `"pending"` is the
+ *  load-bearing answer — the #2101 ruling is that a poll read's failure leaves the
+ *  runtime's fault channel UNSETTLED, so every future genuine fault is still
+ *  observable. Racing against a real timer tick is the only honest way to say
+ *  "still pending" about a promise. */
+async function doneState(
+  done: Promise<void>,
+): Promise<"pending" | "resolved" | { rejected: unknown }> {
+  return Promise.race([
+    done.then(
+      () => "resolved" as const,
+      (rejected: unknown) => ({ rejected }),
+    ),
+    new Promise<"pending">((r) => setTimeout(() => r("pending"), 0)),
+  ]);
+}
+
 /** Run a derived member's SCOPED connector exactly as `implementSurface` does —
  *  fork it into a scope of its own — and expose the two things a test asks about.
  *
@@ -56,8 +73,9 @@ const flush = (): Promise<void> =>
  *  connector has already resolved by the time this returns, because Effect runs a
  *  `sync` acquire on THIS stack — which is the publish-ordering invariant the
  *  bridge rests on, asserted directly in "installs on the caller's stack". A POLL
- *  connector suspends until its T+0 seed lands, and a seed failure rejects here
- *  the way it faults the runtime's `done`.
+ *  connector suspends until its T+0 seed lands; a seed FAILURE does not reject here
+ *  (it is cell-local since #2101) — only the poll's own WIRING failing does, the way
+ *  it faults the runtime's `done`.
  *
  *  `release()` is the runtime's `close()`: interrupt, then close the scope, then
  *  await both — so a test observes teardown having actually finished. */
@@ -97,11 +115,14 @@ function takeFrames<T>(
   handlers: SurfaceHandlers,
   tag: string,
   n: number,
+  /** The member's input, for a KEYED member (an event's subscription key).
+   *  Omitted — the common case here — means the input-less `undefined`. */
+  input?: unknown,
 ): Promise<T[]> {
   const handler = handlers[tag];
   if (!handler) throw new Error(`no handler bound at ""`);
   return Effect.runPromise(
-    Stream.runCollect(Stream.take(handler(undefined) as Stream.Stream<T>, n)),
+    Stream.runCollect(Stream.take(handler(input) as Stream.Stream<T>, n)),
   ) as Promise<T[]>;
 }
 
@@ -1032,18 +1053,55 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     expect(typeof src).toBe("object");
   });
 
-  it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
-    const src = source<number>({
-      label: "test source",
-      read: () => Promise.reject(new Error("sensor down")),
-      install: () => () => {},
-    });
-    const dc = derived.cell(src);
-    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
-    await expect(openConnector(dc.connect(ctx)).settled).rejects.toThrow(
-      "sensor down",
-    );
-    expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+  it("a failed T+0 SEED is CELL-LOCAL: connect SUCCEEDS, cadence held, next tick converges", async () => {
+    // The #2101 ruling: a poll read's failure is cell-local at EVERY tick, T+0
+    // included. Pre-fix this rejected the connector (and so faulted `runtime.done`)
+    // AND rolled the cadence back — the cell was then dead for the process's life.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "boom" | "ok" = "boom";
+      let tick!: () => void;
+      let installed = 0;
+      let uninstalled = 0;
+      const src = source<number>({
+        label: "test source",
+        read: () =>
+          mode === "boom"
+            ? Promise.reject(new Error("sensor down"))
+            : Promise.resolve(5),
+        install: (t) => {
+          installed++;
+          tick = t;
+          return () => {
+            uninstalled++;
+          };
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+      // The connector SETTLES CLEANLY — the seed failure never reaches `done`.
+      await openConnector(dc.connect(ctx)).settled;
+      expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+      // Loud, and the log NAMES the cell.
+      expect(spy).toHaveBeenCalledOnce();
+      expect(String(spy.mock.calls[0]?.[0])).toContain(
+        '"test source" SEED threw',
+      );
+      // The cadence is HELD (installed, not rolled back) — that is what makes the
+      // retry below possible at all.
+      expect(installed).toBe(1);
+      expect(uninstalled).toBe(0);
+
+      // The next tick converges: the cell heals without a restart.
+      mode = "ok";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]);
+      dc.dispose();
+      expect(uninstalled).toBe(1); // and the held cadence still tears down cleanly
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a LATER read that throws is log-skip-continue (holds the last value)", async () => {
@@ -1258,38 +1316,53 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     dc.dispose();
   });
 
-  it("a throwing seed PUBLISHER tears down the cadence before connect rejects — no leak (F8)", async () => {
-    // Install-before-seed puts the cadence into the seed's publication lifetime, so a
-    // publisher throw (a cell write hook / a collection reconcile publisher) at
-    // `set(seed)` — the SAME fault class as a read failure — must roll the cadence
-    // back immediately, not leave it polling a failed publisher until an external
-    // dispose.
-    let installed = 0;
-    let uninstalled = 0;
-    const src = source<number>({
-      label: "test source",
-      read: () => Promise.resolve(1),
-      install: (t) => {
-        installed++;
-        void t;
-        return () => {
-          uninstalled++;
-        };
-      },
-    });
-    const dc = derived.cell(src);
-    // A cell whose seed publish THROWS.
-    const throwingCell = {
-      set: () => {
-        throw new Error("publisher boom");
-      },
-    };
-    await expect(
-      openConnector(dc.connect(throwingCell)).settled,
-    ).rejects.toThrow("publisher boom");
-    // Cadence rolled back at once — no dispose() call, no leaked interval.
-    expect(installed).toBe(1);
-    expect(uninstalled).toBe(1);
+  it("a throwing seed PUBLISHER is cell-local too — connect succeeds, cadence held, later publish lands (F8)", async () => {
+    // A publisher throw (a cell write hook / a collection reconcile publisher) at
+    // `set(seed)` is the SAME fault class as a seed read failure — and since #2101
+    // that class is cell-local at T+0 exactly as it already was at tick N>0. The
+    // cadence is HELD (the retry path), and `dispose()` is what tears it down.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let installed = 0;
+      let uninstalled = 0;
+      let tick!: () => void;
+      const src = source<number>({
+        label: "test source",
+        read: () => Promise.resolve(1),
+        install: (t) => {
+          installed++;
+          tick = t;
+          return () => {
+            uninstalled++;
+          };
+        },
+      });
+      const dc = derived.cell(src);
+      // A cell whose SEED publish throws; later publishes succeed.
+      const published: number[] = [];
+      let boom = true;
+      const throwingCell = {
+        set: (v: number) => {
+          if (boom) throw new Error("publisher boom");
+          published.push(v);
+        },
+      };
+      await openConnector(dc.connect(throwingCell)).settled;
+      expect(published).toEqual([]);
+      expect(spy).toHaveBeenCalledOnce();
+      // Held, not rolled back — no leak either: `dispose()` below is the one owner.
+      expect(installed).toBe(1);
+      expect(uninstalled).toBe(0);
+
+      boom = false;
+      tick();
+      await flush();
+      expect(published).toEqual([1]); // the poll was never wedged by the failed seed
+      dc.dispose();
+      expect(uninstalled).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("close during a LATER in-flight read: no failure log, no late publish (interruption is silent)", async () => {
@@ -1395,7 +1468,6 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     const { ctx, done } = implementSurface(surface, {
       cells: { temp: derived.cell(src) },
     });
-    void done;
     // The seed read resolves on a microtask; before it lands the cell serves the
     // spec DEFAULT (behavior-neutral with the hand-rolled sampler), never undefined.
     await flush();
@@ -1405,6 +1477,83 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     tick();
     await flush();
     expect(ctx.cells.temp.get()).toBe(200);
+    // The fault channel is UNSETTLED throughout a healthy poll's life — `done`
+    // settles on a fault or a `close()`, and neither happened.
+    expect(await doneState(done)).toBe("pending");
+  });
+
+  it("THE STAMPEDE SHAPE: a failing poll read leaves `runtime.done` UNSETTLED and a sibling stream flowing", async () => {
+    // The reactor-level statement of the #2101 incident: one poll cell's read
+    // fails at T+0 (a probe timing out under load) while a stream member is being
+    // consumed. Pre-fix, `done` REJECTED here — which is what the daemon's
+    // log-and-continue observer turned into a zombie. The bystander assertions are
+    // the reviewer's mandated shape: every live stream keeps flowing.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "stampede" | "recovered" = "stampede";
+      let tick!: () => void;
+      const src = source({
+        label: "hostInventory",
+        read: () =>
+          mode === "stampede"
+            ? Promise.reject(new Error("timed out after 1500ms"))
+            : Promise.resolve(7),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const surface = defineSurface({
+        cells: {
+          inventory: {
+            schema: Schema.Number,
+            default: -1,
+            equals: (a: number, b: number) => a === b,
+            verbs: ["get"],
+          },
+        },
+        events: {
+          attach: {
+            inputSchema: Schema.String,
+            outputSchema: Schema.String,
+          },
+        },
+      });
+      const { ctx, handlers, done } = implementSurface(surface, {
+        cells: { inventory: derived.cell(src) },
+        events: { attach: {} },
+      });
+      // A live "attach stream" being consumed across the fault.
+      const frames = takeFrames<string>(
+        handlers,
+        "surface/attach/get",
+        2,
+        "t1",
+      );
+      await flush();
+      ctx.events.attach.publish("t1", "before");
+
+      await flush(); // the seed read rejects here
+      // The runtime is ALIVE: `done` unsettled, so a future genuine fault is still
+      // observable — the property the incident destroyed.
+      expect(await doneState(done)).toBe("pending");
+      // The cell serves its spec DEFAULT (never a fabricated reading), loudly.
+      expect(ctx.cells.inventory.get()).toBe(-1);
+      expect(spy).toHaveBeenCalledOnce();
+
+      // The bystander stream kept flowing straight through the fault.
+      ctx.events.attach.publish("t1", "after");
+      expect(await frames).toEqual(["before", "after"]);
+
+      // And the cell converges on the next tick — no restart, no manual repair.
+      mode = "recovered";
+      tick();
+      await flush();
+      expect(ctx.cells.inventory.get()).toBe(7);
+      expect(await doneState(done)).toBe("pending");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

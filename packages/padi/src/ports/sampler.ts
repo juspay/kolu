@@ -61,13 +61,13 @@
  *    with a throw in it did.
  */
 
+import { everyMsOr, source } from "@kolu/surface/reactor";
 import type {
   PortInfo,
   TerminalId,
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { samePortList } from "@kolu/terminal-vocab/schema";
-import { everyMsOr, source } from "@kolu/surface/reactor";
 import { Effect } from "effect";
 import type { Logger } from "pino";
 import { PortScanError, portScanSupported, scanSubtreePorts } from "./scan.ts";
@@ -247,13 +247,20 @@ export function createPortSampler(opts: {
    *  nudge at the minimum gap: there is no measurement yet to bound anything by. */
   let lastPassMs = 0;
 
+  /** The sampler's teardown latch — the poll connector's abort signal, and the one
+   *  thing `dispose()` does. Declared HERE, above the read, because the read's
+   *  permanent-failure arm is a caller of it: the stop decision belongs to the pass
+   *  that learned the platform can't be read. */
+  const abort = new AbortController();
+
   const node = source<
     ReadonlyMap<TerminalId, { rootPid: number; ports: TerminalPorts }>
   >({
     label: "terminalPorts",
     // TOTAL by the poll source's contract: a transient failure logs and re-serves
-    // the last map, so it can never tear the cadence down. Only a genuinely
-    // permanent failure is allowed to propagate out of here.
+    // the last map. A genuinely PERMANENT failure stops the sampler explicitly (it
+    // aborts the connector below) — the framework will not stop it for us, at any
+    // tick, and that symmetry is deliberate (#2101 G1).
     read: async () => {
       const targets = opts.targets();
       // No terminals, no OS work at all — not even a `/proc` readdir. The interval
@@ -302,13 +309,30 @@ export function createPortSampler(opts: {
         last = next;
         return last;
       } catch (err) {
-        // The PERMANENT arm propagates: a platform this scan cannot read will not
-        // become readable in five seconds, so retrying it is a caught error
-        // degrading into an error loop instead of surfacing. It faults the seed
-        // (the `.catch` below stops the sampler and says so, once) rather than
-        // logging forever with the cadence dutifully re-arming.
-        if (err instanceof PortScanError && err.kind === "unsupported-platform")
+        // The PERMANENT arm STOPS THE SAMPLER, here, at the pass that learned the
+        // truth: a platform this scan cannot read will not become readable in five
+        // seconds, so retrying it is a caught error degrading into an error loop
+        // instead of surfacing. Say it once, at fatal, abort the cadence, and let
+        // the throw unwind — post-abort the poll treats it as an OWNED close, so
+        // nothing further is logged and no tick re-arms.
+        //
+        // The stop is DECIDED HERE rather than by a seed rejection reaching the
+        // `.catch` below, and that is the point (juspay/kolu#2101 G1): a poll read's
+        // failure is cell-local at every tick, so "propagate and let the connector
+        // die" would have worked only on the T+0 pass and looped forever on any
+        // later one. A permanent verdict is this module's to act on, at whichever
+        // pass produces it.
+        if (
+          err instanceof PortScanError &&
+          err.kind === "unsupported-platform"
+        ) {
+          opts.log.fatal(
+            { err },
+            "port sampler stopped — this host's listening ports cannot be read",
+          );
+          abort.abort();
           throw err;
+        }
         // Everything else is THIS pass failing to see (an EACCES on a requested
         // subtree, an lsof that timed out) and must not publish an empty set. A
         // terminal we hold no sample for stays `unknown` on the wire — a real state
@@ -342,7 +366,6 @@ export function createPortSampler(opts: {
   // surface — each terminal's set re-enters its own producer through the sensor
   // channel, so the fan-out below IS the publisher. `connectPoll` is public on
   // `PollSource` for exactly this, and its abort signal is the sampler's teardown.
-  const abort = new AbortController();
   const sampler: PortSampler = {
     nudge: () => edge?.fire(),
     dispose: () => abort.abort(),
@@ -371,13 +394,15 @@ export function createPortSampler(opts: {
       }
     }, abort.signal)
     .catch((err: unknown) => {
-      // The seed read's first failure propagates by design, and after this module's
-      // total `read` the only way through is the PERMANENT arm. Say so once, at
-      // fatal, and stop — never a five-second error loop, and never a sampler that
-      // looks armed while it can never answer.
+      // A poll read's failure never lands here any more (#2101 G1: cell-local at
+      // every tick, including T+0) — the permanent arm above already logged and
+      // stopped, and its post-abort throw is swallowed as an owned close. What CAN
+      // land here is the connector's own WIRING failing: an `install` that threw.
+      // That is structural, so say it once at fatal and leave the sampler stopped
+      // rather than pretending it is armed.
       opts.log.fatal(
         { err },
-        "port sampler stopped — this host's listening ports cannot be read",
+        "port sampler could not arm its cadence — this host's listening ports will not be read",
       );
       sampler.dispose();
     });

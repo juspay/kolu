@@ -202,9 +202,26 @@ Persistence and pub/sub are supplied as dependencies.
   member's **decoded** payload.
 - **`ctx`** — the typed cells/collections/events mutation map.
 - **`done`** — a `Promise<void>` that **rejects on an owned runtime fault** (a
-  cell connector failing, or one of its finalizers) and resolves after a clean
-  `close()`. A serving site MUST observe it and route it into its existing
-  failure policy.
+  cell connector's WIRING failing, or one of its finalizers) and resolves after a
+  clean `close()`. A serving site MUST observe it and treat a rejection as
+  **fatal** — log it whole, then exit through its shutdown path so a supervisor
+  respawns. That is safe because every fallible *periodic* thing is deliberately
+  off this channel:
+
+  | Path | Settles `done`? | Class |
+  | --- | --- | --- |
+  | Builder wiring throws (one-shot guard, builder body) | rejects | runtime-fatal |
+  | A push source's `install` throws | rejects | runtime-fatal |
+  | A poll source's cadence `install(tick)` throws | rejects | runtime-fatal |
+  | A scope finalizer throws during `close()` | rejects (aggregated) | runtime-fatal |
+  | Poll **T+0 seed** read/publish fails | no | cell-local — logged, cadence held, retried |
+  | Poll **later tick** read/publish fails | no | cell-local — log-skip-continue |
+  | `scan` step throws | no | cell-local — stop-hold |
+  | `computed` recompute throws (later read) | no | cell-local — holds last, heals |
+  | Interruption (`close()`), clean close | resolves | end-of-life |
+
+  An eager-seed throw (a non-poll derived cell's pull, a compute cell's bind) is
+  not on this channel at all: it throws out of `implementSurface` as a boot crash.
 - **`close()`** — releases every owned source. Each connector runs as a FIBER in
   its own scope, so `close()` **interrupts** each one and awaits its exit — and a
   fiber's exit already includes its scope's finalizers, which is why "abort, then
@@ -306,7 +323,7 @@ is depending on it) and `.peek()` (untracked).
 | Export                      | Signature                                           | Role                                                                                                                                                                                                             |
 | --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>`                | an external PUSH input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
-| `source({read, install})`   | `({read, install}) → PollSource<T>`                 | an external POLL input read on a caller-owned cadence (`install(tick)` schedules re-reads). Published via `derived.cell` / `derived.collection`, the bridge owns the policy: a T+0 seed read whose **first failure propagates** (no fabricated default), a non-overlap (`inFlight`) guard, and later-read **log-skip-continue** (holds the last value) |
+| `source({read, install})`   | `({read, install}) → PollSource<T>`                 | an external POLL input read on a caller-owned cadence (`install(tick)` schedules re-reads). Published via `derived.cell` / `derived.collection`, the bridge owns the policy: a read failure is **cell-local at every tick, T+0 included** — logged loudly, nothing published (no fabricated default), the cadence HELD and retried on the next tick or edge — plus a non-overlap (`inFlight`) guard. It never faults `runtime.done`: connectors and builders do that, periodic reads do not, so a poll read is never the right home for a deterministic boot defect. A consumer that must STOP on a permanent verdict (padi's port sampler on an unreadable platform) owns that decision itself, at whichever tick produces it |
 | `everyMs(ms)`               | `(number) → (tick: () => void) => SourceCleanup`    | the cadence half of a poll `source` — the fixed-interval `install` closure, `source({ read, install: everyMs(5_000) })`. The interval is `unref`'d (a live sampler never keeps the event loop alive) and the returned cleanup clears it — the one home for the unref'd-interval hygiene every interval-driven poll source would otherwise re-spell |
 | `everyMsOr(ms, subscribe)`  | `(number, (tick) => () => void) → (tick: () => void) => SourceCleanup` | the interval+edge cadence fuse: `everyMs`'s interval PLUS an edge `subscribe(tick)` (any change source — a reconnect/state feed, a config-changed hook), for a poll whose value can move faster than its coarse interval. Re-reads on the tick AND the instant `subscribe` fires; both the interval and the subscription tear down on cleanup — the one home for the fuse, previously re-spelled as app-local twins |
 | `source({ read, install, label })` | `PollSourceOptions<T> → PollSource<T>` | the poll source. `label` names it in a loop-guard error — diagnostics only (there is no field that can silence the guard), and REQUIRED, because "name your poll sources" as a convention is a rule held by memory: the next fused cell is added by someone who has not read it, and the guard then fires anonymously on exactly the source nobody expected to loop. **The guard**: each read runs inside an `AsyncLocalStorage` context keyed to its source, so a change edge firing UNDER that context was caused by the read it is about to re-trigger; three consecutive self-caused ticks crash naming the source. A read that ANNOUNCES on the edge that triggers it is an unbounded cycle the reactor executes forever — it froze a production kolu (HTTP dead, `SIGTERM` ignored). Timer, I/O and other cells microtask bursts carry a different context and can never count, however fast or value-equal |
@@ -339,7 +356,7 @@ Guarantees a `derived.cell` rides:
 - **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire. `equals` lives on the member's spec.
 - **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists. A compute cell's node is built after every sibling mirror exists, then eager-pulled.
 - **Compute error policy: log-skip-continue.** A throw in a `derived.cell(($) => …)` recompute is logged and the last published value HELD; the next successful recompute heals it (contrast `scan`'s stop-hold, which carries state).
-- **The publish is synchronous with the writer.** A derived cell's `connect` is a `CellConnector` whose acquire subscribes the node on the runtime's own stack, and the graph notifies synchronously — so a graph write and an event published in the same tick reach a consumer in publish order. Teardown is the scope's: `close()` interrupts the connector, which disposes the subscription and the backing node. A POLL-source cell suspends inside the connector for its T+0 seed, and interruption becomes the `AbortSignal` its Promise-shaped `read` sees.
+- **The publish is synchronous with the writer.** A derived cell's `connect` is a `CellConnector` whose acquire subscribes the node on the runtime's own stack, and the graph notifies synchronously — so a graph write and an event published in the same tick reach a consumer in publish order. Teardown is the scope's: `close()` interrupts the connector, which disposes the subscription and the backing node. A POLL-source cell suspends inside the connector for its T+0 seed (a FAILED seed is cell-local — the cell keeps serving its spec default and the cadence retries), and interruption becomes the `AbortSignal` its Promise-shaped `read` sees.
 
 `scan` carries the **stop-hold error law**: a step that throws stops the
 derivation (its source subscription is disposed), holds the last value (never a

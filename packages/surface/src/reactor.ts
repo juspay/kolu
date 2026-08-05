@@ -38,16 +38,16 @@
  * every frame. This is a permanent boundary, not a phase gap.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Effect, Result, type Scope } from "effect";
 import { Atom, AtomRegistry } from "effect/unstable/reactivity";
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { SiblingRead, SurfaceSpec } from "./define";
 import {
   DERIVED_CELL_BRAND,
   DERIVED_COLLECTION_BRAND,
-  type DerivedCollectionBranded,
   DERIVED_COMPUTE_BRAND,
   DERIVED_POLL_BRAND,
+  type DerivedCollectionBranded,
   type SiblingSourcesRuntime,
 } from "./reactorBrand";
 import type { CellConnector, CellStore } from "./server";
@@ -338,12 +338,15 @@ const POLL_SOURCE_BRAND: unique symbol = Symbol.for(
  *  store seeds the spec default; each read publishes a `T`). */
 export interface PollSource<T> extends GraphNode<T | undefined> {
   readonly [POLL_SOURCE_BRAND]: true;
-  /** Do the T+0 seed read — its **first failure PROPAGATES** (the rejected
-   *  promise faults the runtime's `done`, never a fabricated default) — publish it
-   *  via `set`, then install the caller's tick cadence. Each later tick re-reads
-   *  under a non-overlap (`inFlight`) guard and, on a read throw, LOG-SKIP-CONTINUEs
-   *  (holds the last published value), never tearing down a long-lived poll.
+  /** Install the caller's tick cadence, do the T+0 seed read, and publish it via
+   *  `set`. Each later tick re-reads under a non-overlap (`inFlight`) guard.
    *  Returns the loop's disposer.
+   *
+   *  **A read's failure is CELL-LOCAL at every tick, T+0 included** (the #2101
+   *  ruling): it is logged loudly, NOTHING is published (never a fabricated value —
+   *  an UNSEEDED cell holds its spec default, a seeded one its last value), the cadence
+   *  is HELD, and the next tick (or change edge) retries. It never faults the
+   *  runtime's `done` — connectors and builders do that; periodic reads do not.
    *
    *  DELIBERATELY Promise + `AbortSignal`-shaped, not an `Effect`. `derived.cell`'s
    *  connect seam is the usual driver and bridges it into a scoped connector — but
@@ -362,8 +365,11 @@ export interface PollSource<T> extends GraphNode<T | undefined> {
 /** The poll argument shape of `source(...)`: an async `read` plus an `install`
  *  that owns the cadence (a `setInterval`, an `onState` force-resample, …). */
 export interface PollSourceOptions<T> {
-  /** The async poll read. The T+0 call is the seed (first failure propagates); a
-   *  later call that throws is logged and skipped (the loop holds its last value).
+  /** The async poll read. The T+0 call is the seed; EVERY call that throws — seed
+   *  or later tick — is logged and skipped, and the loop holds what it has (the spec
+   *  default before the first successful read, the last read after it). A poll read
+   *  can therefore never kill the runtime: reserve a throw that SHOULD be fatal for
+   *  the connector/builder, not for here.
    *  Receives the poll connector's `AbortSignal` (aborted when the runtime's
    *  `close()` interrupts the connector), which a cooperative read should honour so
    *  a slow read never strands a closing runtime; ignoring it is fine when the read
@@ -755,8 +761,11 @@ function pollSource<T>({
         // Suppress our own cancellation (a `close()` aborted this read); log a GENUINE
         // later-tick failure (read OR publish) and hold the last published value.
         if (isOwnedAbort()) return;
+        // Same channel, same disposition as the SEED's failure (see `connectPoll`) —
+        // and the `label` names the failing cell, so an operator reading the log line
+        // does not have to guess which poll went stale.
         console.error(
-          "reactor: poll source tick threw — holding last published value",
+          `reactor: poll source "${label}" tick threw — holding last published value`,
           err,
         );
       })
@@ -807,22 +816,29 @@ function pollSource<T>({
       // own publish; they coalesce into the single post-seed trailing read.
       inFlight = true;
       uninstall = install(() => tickRead(set)) ?? undefined;
-      // The whole seed TRANSACTION is guarded — the T+0 read AND its publication:
-      // `install` ran above, so the cadence must be rolled back on EVERY non-success
-      // exit, not just a read rejection. A read failure PROPAGATES (mirror-never-
-      // fabricate: no default stands in for an unread poll); a publisher throw at
-      // `set(seed)` (a cell write hook / a collection reconcile publisher) is the SAME
-      // fault class — connect must reject with the cadence already torn down, never
-      // leave it polling a failed publisher with the disposer never adopted.
+      // The whole seed TRANSACTION is guarded — the T+0 read AND its publication —
+      // and its failure is CELL-LOCAL, byte-for-byte the later tick's disposition:
+      // log loud, publish nothing, HOLD the cadence, retry on the next tick or
+      // change edge. `install` ran above, which is exactly what makes that retry
+      // already armed at the moment the seed fails.
       try {
         // The signal rides the read so a cooperative reader unblocks a `close()`
         // waiting on a slow seed.
-        // ⚠ POLL-READ AUTHORS: a `read` that THROWS here tears down this cadence
-        // PERMANENTLY (the seed failure propagates + rolls back the install), so under
-        // a caller whose `runtime.done` handler is non-fatal (logs, no restart) the cell
-        // then serves its spec DEFAULT for the process's life — no retry. Keep a poll
-        // `read` TOTAL (catch transient errors → best-effort/last value); reserve a throw
-        // for a DETERMINISTIC boot defect that genuinely SHOULD be fatal.
+        // ⚠ POLL-READ AUTHORS: a poll read's failure is ALWAYS cell-local —
+        // stale-with-error, retried next tick — at T+0 no differently than at T+10s.
+        // It NEVER faults the caller's `runtime.done`. So a DETERMINISTIC boot defect
+        // has no business in a poll `read`: its home is the connector/builder (the
+        // `install` above, the builder's own wiring), which still faults `done`. A
+        // poll `read` should still be TOTAL where it can be (catch transient errors →
+        // best-effort/last value); this is the framework's floor under one that isn't.
+        //
+        // WHY the floor exists (juspay/kolu#2101, deploy #2): a T+0 throw used to
+        // PROPAGATE and roll the cadence back, so the same transient error was fatal
+        // at boot and benign a second later — blast radius as a function of TIMING.
+        // One 1500ms kaval probe timeout during a restore stampede then half-killed
+        // padi: its `hostInventory` cell dead for the process's life (no cadence left
+        // to retry), `runtime.done` already settled so every FUTURE fault was
+        // unobservable, and the daemon still holding its gate + socket.
         const seed = await READ_CONTEXT.run(identity, () => read(signal));
         inFlight = false;
         // Disposed mid-seed (the runtime closed before the first read landed): tear the
@@ -842,13 +858,33 @@ function pollSource<T>({
         return teardownLoop;
       } catch (err) {
         inFlight = false;
-        // Roll back the cadence installed above, whichever way the transaction ended.
-        teardownLoop();
         // An OWNED abort (a `close()` cancelling the seed) is a CLEAN close, not a
-        // fault — never fault `done`; hand back a no-op disposer. A GENUINE seed read
-        // OR publisher failure still propagates (first-failure-propagates).
-        if (isOwnedAbort()) return () => {};
-        throw err;
+        // fault: roll the cadence back — nothing is left to retry for — and hand back
+        // a no-op disposer.
+        if (isOwnedAbort()) {
+          teardownLoop();
+          return () => {};
+        }
+        // A GENUINE seed failure — the read's OR the publisher's (`set(seed)`: a cell
+        // write hook, a collection reconcile publisher) — is one fault class and it is
+        // CELL-LOCAL. Nothing is published: the member's serving store already holds
+        // the spec DEFAULT (the boot walk seeds a poll cell from it — DERIVED_POLL_BRAND),
+        // and inventing a value here would be the mirror-never-fabricate violation.
+        // The cadence STAYS installed, so the cell converges the instant a later read
+        // lands, and the disposer is adopted normally (no leak: `close()` still tears
+        // the cadence down).
+        console.error(
+          `reactor: poll source "${label}" SEED threw — cell-local, serving the spec default until a later tick lands`,
+          err,
+        );
+        // A change edge that fired during the failed seed latched `dirty` — take that
+        // retry NOW rather than waiting a whole cadence (padi's kaval-connect fused
+        // edge is exactly this).
+        if (dirty) {
+          dirty = false;
+          tickRead(set);
+        }
+        return teardownLoop;
       }
     },
     dispose: () => {
@@ -967,8 +1003,8 @@ export interface DerivedCell<T> {
    *  runtime's `close()`) releases the subscription and the backing node.
    *
    *  A POLL-source cell suspends inside the effect until its T+0 seed read lands
-   *  (a failure propagates to the runtime's `done`); interruption becomes the
-   *  abort its Promise-shaped `read` sees. */
+   *  (a failed seed is CELL-LOCAL — logged, cadence held, retried; it does NOT
+   *  fault `done`); interruption becomes the abort its Promise-shaped `read` sees. */
   readonly connect: CellConnector<T>;
   /** Tear down the connect effect and the backing node, for a caller that owns
    *  its OWN teardown point (a test, a standalone driver serving no runtime).
@@ -1112,8 +1148,12 @@ const POLL_CONNECTOR_CLOSED = new Error(
  *  - `Effect.tryPromise` hands the FIBER's interruption signal in, and that
  *    signal aborts the controller — so `close()` becomes a real abort on an
  *    in-flight cooperative read rather than a promise nobody is left awaiting;
- *  - the seed's failure is the effect's failure (it reaches the runtime's
- *    `done`), and the loop's disposer becomes a scope finalizer.
+ *  - the loop's disposer becomes a scope finalizer. What does NOT ride this bridge
+ *    is the seed's FAILURE: `connectPoll` absorbs it (cell-local — logged, cadence
+ *    held, retried next tick), so this effect fails only if the poll's own WIRING
+ *    does — an `install` that throws, or the builder's one-shot guard. That is the
+ *    #2101 line: connectors and builders fault `runtime.done`; periodic reads never
+ *    do.
  *
  *  If the builder was torn down while the seed was in flight (`isTorn()`),
  *  dispose the just-installed loop rather than joining it to a torn-down node. */
@@ -1235,10 +1275,11 @@ function graphNodeCell<T>(node: GraphNode<T>): DerivedCell<T> {
         connected = true;
         if (poll) {
           // A poll source SUSPENDS inside the connector (see `connectPollNode`):
-          // the T+0 seed read faults the runtime's `done` on failure — a boot
-          // crash, never a fabricated default — and the fiber's interruption
-          // becomes the abort a `close()` during the seed cooperatively cancels
-          // the read with (no late publish).
+          // the T+0 seed read publishes the first value, and a FAILED seed is
+          // cell-local (logged, cadence held, retried next tick — the cell keeps
+          // serving its spec default meanwhile, never a fabricated one). The
+          // fiber's interruption becomes the abort a `close()` during the seed
+          // cooperatively cancels the read with (no late publish).
           return connectPollNode(
             poll,
             (next) => cell.set(next),
@@ -1477,8 +1518,10 @@ function derivedCollection<K, V>(
         if (poll) {
           // Suspends (see `connectPollNode`): the seed read gives the first whole
           // map (reconciled against the empty baseline ⇒ every key upserted),
-          // then each tick's map reconciles. A first-read failure faults the
-          // runtime's `done`; interruption cancels a seed a `close()` races.
+          // then each tick's map reconciles. A first-read failure is CELL-LOCAL
+          // (logged, cadence held, retried — the collection stays empty until a
+          // read lands, never faulting `runtime.done`); interruption cancels a
+          // seed a `close()` races.
           return connectPollNode(
             poll,
             (nextMap) => reconcile(nextMap, pub),
