@@ -41,13 +41,13 @@ import {
   createBackfillController,
 } from "@kolu/xterm-kit/backfill";
 import { cellAtPoint, readBufferBytes } from "@kolu/xterm-kit/internals";
-import { Effect, type Fiber } from "effect";
 import {
   sameGrid,
   type TerminalGrid,
   Xterm,
   type XtermHandle,
 } from "@kolu/xterm-kit/solid";
+import { Effect, type Fiber } from "effect";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
@@ -59,33 +59,33 @@ import {
 import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
-import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
-import type { LineRef } from "../ui/lineRef";
+import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import {
   runAction,
   runActionPromise,
   runOwnedAction,
   type UiAction,
 } from "../runAction";
+import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import { activePadiRpc, activePadiStreams, preferences } from "../wire";
+import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
 import { consumeReattachingStream } from "./reattachingStream";
-import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,
@@ -555,6 +555,15 @@ const Terminal: Component<{
     // `unenrolledStreamCall` (`@kolu/surface/client`) — the bare, un-enrolled
     // call — rather than `padi.rawStream`'s structural health enrolment, and the
     // `unenrolled-` name makes that a visible decision at the call site.
+    //
+    // The carve-out STAYS after kolu#2101, and it is not what let the frozen
+    // panes go unreported: it decides which indicator a re-attach lights (the
+    // GLOBAL connection dot — not this one), never whether a dead attach is
+    // noticed at all. That fact is this loop's own, and it now has a verdict —
+    // an unexpected clean end re-attaches and, if the chain keeps manufacturing
+    // ends, dies through the run edge (console + toast). Enrolling here instead
+    // would flicker the fleet's health on every ordinary overflow re-attach and
+    // still not answer "is THIS pane alive".
     function openAttachStream() {
       // ALL of this attempt's state lives here, in its closure — never in a
       // binding a successor could overwrite. `attempt` decides whether this
@@ -782,6 +791,25 @@ const Terminal: Component<{
         },
         resetIfLive,
         "Terminal attach",
+        {
+          // The tile's OWN exit fact, for classifying a CLEAN stream end
+          // (kolu#2101): a clean end is a real PTY exit only if this tile knows
+          // the PTY is gone — otherwise it is a manufactured end and the loop
+          // re-attaches once instead of waiting forever for an exit event that
+          // is never coming.
+          //
+          // `activeArm` is the same local liveness fact the resize toast and the
+          // scratch paste already read (the metadata arm, `state === "active"`),
+          // reused rather than re-derived. RESOLVED metadata that is not active
+          // is the positive "it exited" answer; ABSENT metadata is UNKNOWN and
+          // deliberately reads as still-live — a wrong "live" costs one attach
+          // RPC that padi answers `TerminalNotFound` (which ends the loop), a
+          // wrong "exited" costs the blank pane this change exists to kill.
+          hasExited: () => {
+            const meta = terminalStore.getMetadata(props.terminalId);
+            return meta !== undefined && activeArm(meta) === undefined;
+          },
+        },
       );
       // One fiber per attempt. Interrupting it ends this consumer AND any
       // backoff it is sleeping through, so a superseded attempt cannot keep
