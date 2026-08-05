@@ -1137,11 +1137,12 @@ function graphOwnedStore<T>(get: () => T): CellStore<T> {
 /** The connect seam's publish effect, shared by both `derived.cell` forms: an
  *  engine effect that pushes each recompute of `read` through the member's write
  *  gate (`set`). It carries the stateless-compute error policy in ONE home — a
- *  throw is LOGGED and the last published value HELD (the effect returns without
- *  setting), healing on the next good recompute, so no bridge effect body escapes
- *  synchronously into the writer's stack. `label` names the member kind in the
- *  log. (A SEED throw stays a boot crash — it happens at the eager `store.get()`
- *  pull, before this effect is wired.) */
+ *  throwing RECOMPUTE is LOGGED and the last published value HELD (the effect
+ *  returns without setting), healing on the next good recompute; a throwing
+ *  PUBLISH goes through {@link containOnEngineStack}, so no bridge effect body
+ *  escapes synchronously into the writer's stack. `label` names the member kind
+ *  in both logs. (A SEED throw stays a boot crash — it happens at the eager
+ *  `store.get()` pull, before this effect is wired.) */
 function connectPublishEffect<T>(
   read: () => T,
   set: (next: T) => void,
@@ -1158,20 +1159,13 @@ function connectPublishEffect<T>(
       );
       return;
     }
-    // The PUBLISH is bracketed too, not just the read. `set` is the member's whole
+    // The PUBLISH is contained too, not just the read. `set` is the member's whole
     // wire fan-out — equals → onWrite → store.set → bus.publish, synchronous to
     // every subscriber — and it runs inside the batch drain on the writer's stack.
     // An unbracketed throw from any one subscriber therefore severed the graph and
-    // froze every derivation in the process (juspay/kolu#2101 G6). Same channel and
-    // same disposition as the read above: loud, cell-labeled, last value held.
-    try {
-      set(next);
-    } catch (err) {
-      console.error(
-        `reactor: ${label} publish threw — holding last published value (CONTAINED: a throw here would sever the graph mid-drain)`,
-        err,
-      );
-    }
+    // froze every derivation in the process (juspay/kolu#2101 G6). That is the
+    // shared rule, so it is the shared implementation.
+    containOnEngineStack(`${label} publish`, () => set(next));
   });
 }
 
