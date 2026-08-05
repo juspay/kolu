@@ -70,7 +70,7 @@ export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
  *  is a perf knob, not a correctness one. */
 export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
- *  `exitPromise(id)` resolves with the real code rather than a fabricated
+ *  `exit(id)` succeeds with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
 const MAX_EXIT_TOMBSTONES = 1024;
 
@@ -677,7 +677,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
   // Bounded tombstone of exit codes for PTYs that have exited and been torn
-  // down — lets exitPromise() honour its "already-exited" contract with the
+  // down — lets exit() honour its "already-exited" contract with the
   // real code instead of a fabricated 0.
   const exitCodes = new Map<PtyId, number>();
   // Host-global membership feed — one fan-out for the whole host (not per-PTY,

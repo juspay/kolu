@@ -256,7 +256,7 @@ describeDaemon("createPtyHost", () => {
     expect(joinedScreen()).toContain(url);
   });
 
-  it("resolves exitPromise with the child's exit code", async () => {
+  it("exit() succeeds with the child's exit code", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
