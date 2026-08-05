@@ -73,7 +73,7 @@ export interface UseCollectionResult<K, T> {
 }
 
 export function useCollection<Name extends string, K, T, I>(
-  _coll: Collection<Name, K, T>,
+  collDescriptor: Collection<Name, K, T>,
   options: UseCollectionOptions<K, T, I>,
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
@@ -83,7 +83,12 @@ export function useCollection<Name extends string, K, T, I>(
   // → server stream closes. No manual teardown.
   const perKey = mapArray(keys, (key) => {
     const sub = createSubscription(
-      unenrolledStreamCall(options.valueSource, options.keyToInput(key)),
+      unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
+        // The `client.health()` per-key spelling (`<key>[<id>]`), reused rather
+        // than re-spelled, so the liveness registry and the health fact name one
+        // subscription one way (kolu#2101 J2).
+        label: `${collDescriptor.name}[${String(key)}]`,
+      }),
       { onError: options.onError },
     );
     // Enrol this per-key sub into the client health registry (when wired). Runs

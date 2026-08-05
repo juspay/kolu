@@ -759,12 +759,22 @@ with no failure anywhere — into an ordinary retry through this schedule.
 | `isTransportError(err)` | positive test for Effect RPC's `RpcClientError` — matched structurally on `_tag`, so it survives a second `effect` copy or a relay hop |
 | `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
 | `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
-| `fenceStream(stream, { onRetry? })` | apply the fence to a raw stream |
-| `unenrolledStreamCall(procedure, input, { onRetry? })` | call a streaming member with the fence applied and **no** `health()` enrolment |
+| `fenceStream(stream, { label?, onRetry? })` | apply the fence to a raw stream |
+| `unenrolledStreamCall(procedure, input, { label?, onRetry? })` | call a streaming member with the fence applied and **no** `health()` enrolment |
 
 `onRetry` fires once per retryable failure, between the failed attempt's last
 frame and the next attempt's first — the place to clear a view the fresh snapshot
 will replace.
+
+`label` names the subscription in the [liveness registry](#per-subscription-liveness)
+below. It is optional and additive; an unlabelled subscription still registers,
+as `"(unlabeled)"`, so a gap in coverage shows up in a diagnostic rather than
+hiding a stream from it. Spell it in the `client.health()` vocabulary — a cell or
+stream is its bare key, a collection's keys-stream is `"<key>.keys"`, a per-key
+value sub is `"<key>[<id>]"` — which is what the framework's own enrolment sites
+pass, so the two records name one subscription one way. A raw call site adds
+whatever scope makes it identifiable (kolu appends the host key or the terminal
+id: the same member is legitimately opened once per host and once per pane).
 
 A throw from `onRetry` is **contained and logged**, never propagated: the hook
 runs on the fence's own stack, where unwinding would end the stream immediately
@@ -773,6 +783,41 @@ to refill it (and, through `rawStream`, a `health()` entry stuck `pending`
 forever). Containment is what makes "fired ⇒ a re-subscribe follows" true even
 when the hook is broken. Clean up defensively anyway: the log names your hook,
 not framework code.
+
+### Per-subscription liveness (`@kolu/surface/subscriptions`)
+
+Every fenced subscription funnels through `fenceStream`, so the fence is also
+where the framework records what each one has actually received. That record is
+the only thing that can tell a **parked** subscription from a healthy one: a
+parked stream is not `pending` (its first frame landed, long ago) and not
+erroring (nothing failed — that is the disease), so `client.health()` reads it as
+perfectly fine. Only a frame timestamp says otherwise.
+
+| Export | Purpose |
+| --- | --- |
+| `subscriptionLiveness()` | every subscription this runtime holds, plus the last 20 it finished with, in subscribe order |
+| `resetSubscriptionLiveness()` | drop every record — **tests only** |
+| `UNLABELED_SUBSCRIPTION` · `ENDED_RETENTION` | the `"(unlabeled)"` fallback label, and how many ended records are kept |
+
+Each record carries `label`, `subscribedAt`, `lastFrameAt?`, `framesReceived`,
+`retries`, `state` (`live` / `ended` / `failed`), `endedAt?` and `lastError?`.
+Timestamps are `Date.now()`, like the dial history's, so the two read side by
+side and beside a server log. The registry is **module-scoped**: the question it
+answers spans every client in a runtime (a root surface, a control plane, one
+keyed-map client per host, plus the deliberately un-enrolled raw streams that
+belong to no client), which is a different scope from the per-client health fact.
+It is bounded — live records are bounded by the subscriptions you hold, ended
+ones by `ENDED_RETENTION`.
+
+A re-subscribe updates the SAME record (`retries` climbs) rather than minting a
+second, and a record is minted when a fenced stream **runs**, never when its lazy
+value is built.
+
+The verdict itself — *is this subscription parked?* — is not stored: it is a
+comparison between a record's `lastFrameAt` and the wire's current open-since
+(`diagnostics.dialHistory()`), both of which move on their own, so a consumer
+computes it at the moment it reports. kolu's Diagnostic Info block is the worked
+example.
 
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 

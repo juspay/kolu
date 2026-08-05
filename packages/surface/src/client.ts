@@ -50,6 +50,7 @@ import { isSurfaceRelayTransportLost, type SurfaceError } from "./errors";
 import { IDENTITY_NAMESPACE, IDENTITY_VERB } from "./identity";
 import type { SurfaceDispatch } from "./link";
 import { LIVENESS_NAMESPACE, LIVENESS_VERB } from "./liveness";
+import { registerSubscription } from "./subscriptions";
 
 /** The `_tag` every Effect RPC transport failure carries
  *  (`effect/unstable/rpc/RpcClientError`). Matched STRUCTURALLY rather than with
@@ -115,6 +116,22 @@ export const STREAM_RETRY: Schedule.Schedule<number, unknown> = Schedule.while(
 
 /** Per-subscription options for {@link fenceStream}. */
 export interface StreamFenceOptions {
+  /** What this subscription is CALLED in the liveness registry
+   *  (`./subscriptions`) — the name a copy-pasted diagnostic snapshot uses to
+   *  say which subscription is parked (kolu#2101 J2). Optional and additive; an
+   *  unlabelled subscription still registers, under `"(unlabeled)"`
+   *  (`UNLABELED_SUBSCRIPTION`), so a coverage gap is visible in the snapshot
+   *  instead of being invisible.
+   *
+   *  Spell it in the `client.health()` vocabulary (`solid/health.ts`), which the
+   *  framework's own enrolment sites already use and which this reuses rather
+   *  than inventing a second one: a cell/stream is its bare key (`"preferences"`),
+   *  a collection's keys-stream is `"<key>.keys"`, a per-key value sub is
+   *  `"<key>[<id>]"`, a batched deltas stream is `"<key>.deltas"`. A raw
+   *  un-enrolled call at an app call site adds whatever scope makes it
+   *  identifiable (kolu: the host key, the terminal id) — two hosts legitimately
+   *  hold subscriptions of the same member name. */
+  readonly label?: string;
   /** Run BEFORE each re-subscribe (review #8). The consumer clears any derived
    *  state the fresh snapshot will replace — xterm's attach clears the buffer,
    *  padi's watch disarms its idle timer. It fires once per RETRYABLE failure, so
@@ -144,36 +161,52 @@ export function fenceStream<A>(
   opts?: StreamFenceOptions,
 ): Stream.Stream<A, unknown> {
   const onRetry = opts?.onRetry;
-  const tapped =
-    onRetry === undefined
-      ? stream
-      : Stream.tapError(stream, (error) =>
-          // Tap INSIDE the retry so it runs once per attempt, before the delay and
-          // the re-subscribe. Guarded on the same predicate the schedule uses, so
-          // "fired ⇒ a re-subscribe follows" holds — a consumer that clears its
-          // buffer here is never left with a cleared view and no new stream.
-          //
-          // CONTAINED, because that promise has to be true of a hook the
-          // framework does not own (kolu#2101 G8c). `onRetry` is consumer code —
-          // `surfaceClient`'s health hook flips `pending` back on and calls the
-          // caller's own `onRetry` under it; kolu's terminal resets an xterm.
-          // Run bare in `Effect.sync`, a throw from any of that is a DEFECT, and
-          // `Stream.retry` retries FAILURES only: the stream would die HERE,
-          // immediately after telling the consumer to clear its view, leaving
-          // exactly the cleared-view-and-no-new-stream state this comment
-          // promises cannot happen — and, through the health hook, a `pending`
-          // that never clears because no frame is ever coming to clear it.
-          shouldRetryStreamError(error)
-            ? Effect.sync(() =>
-                containThrow(
-                  "a subscription's onRetry hook",
-                  onRetry,
-                  "the re-subscribe below still happens, so a consumer that just cleared its view gets the fresh snapshot it was promised",
-                ),
-              )
-            : Effect.void,
-        );
-  return Stream.retry(tapped, STREAM_RETRY);
+  // `Stream.suspend` so the registry record is minted when this subscription
+  // RUNS, not when its value is built — a fenced stream is a lazy description a
+  // consumer may hold for a long time before (or without) running it, and a
+  // record for a subscription that never opened would be a lie in the snapshot.
+  // One record per RUN, outside the retry, so a re-subscribe updates the
+  // existing record's `retries` rather than minting a second one.
+  return Stream.suspend(() => {
+    const probe = registerSubscription(opts?.label);
+    const tapped = Stream.tapError(stream, (error) => {
+      // Tap INSIDE the retry so it runs once per attempt, before the delay and
+      // the re-subscribe. Guarded on the same predicate the schedule uses, so
+      // "fired ⇒ a re-subscribe follows" holds — a consumer that clears its
+      // buffer here is never left with a cleared view and no new stream. It is
+      // also exactly the definition of the registry's `retries`.
+      if (!shouldRetryStreamError(error)) return Effect.void;
+      probe.retry(error);
+      // CONTAINED, because that promise has to be true of a hook the
+      // framework does not own (kolu#2101 G8c). `onRetry` is consumer code —
+      // `surfaceClient`'s health hook flips `pending` back on and calls the
+      // caller's own `onRetry` under it; kolu's terminal resets an xterm.
+      // Run bare in `Effect.sync`, a throw from any of that is a DEFECT, and
+      // `Stream.retry` retries FAILURES only: the stream would die HERE,
+      // immediately after telling the consumer to clear its view, leaving
+      // exactly the cleared-view-and-no-new-stream state this comment
+      // promises cannot happen — and, through the health hook, a `pending`
+      // that never clears because no frame is ever coming to clear it.
+      return onRetry === undefined
+        ? Effect.void
+        : Effect.sync(() =>
+            containThrow(
+              "a subscription's onRetry hook",
+              onRetry,
+              "the re-subscribe below still happens, so a consumer that just cleared its view gets the fresh snapshot it was promised",
+            ),
+          );
+    });
+    // The frame tap sits OUTSIDE the retry, so it counts what the CONSUMER
+    // received across every attempt — which is the fact "this subscription last
+    // heard from the server at T" is about. `onExit` records the end for the
+    // same reason the tap is outside: an interrupt (the consumer's owner
+    // disposing) is an ordinary end, and only the outer position sees it.
+    return Stream.retry(tapped, STREAM_RETRY).pipe(
+      Stream.tap(() => Effect.sync(probe.frame)),
+      Stream.onExit((exit) => Effect.sync(() => probe.finish(exit))),
+    );
+  });
 }
 
 /** A CLIENT-side STREAMING member ref: the ENCODED input in, a lazy `Stream` out.

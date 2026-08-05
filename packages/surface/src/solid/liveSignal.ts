@@ -280,6 +280,9 @@ export function createLiveSignal(
     timeoutMs: opts.timeoutMs,
     onStaleReport: opts.onStale ?? warnStale,
     onProbeError: warnProbeThrew,
+    // Pass-through observability (kolu#2101 J2): the app records the last probe
+    // verdict for its diagnostic snapshot. Undefined when the app wants none.
+    onProbeSettled: opts.onProbeSettled,
   });
   // Latency optimization (browser only): a wake event — window focus on app-switch
   // return, or a tab becoming visible — means the runtime may have just resumed, so

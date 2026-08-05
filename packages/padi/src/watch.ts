@@ -429,6 +429,8 @@ export async function awaitOutputSettled(
             (input: { id: string }) => client.surface.terminalAttach.get(input),
             { id: opts.id },
             {
+              // Named per PTY for the liveness registry (kolu#2101 J2).
+              label: `terminalAttach[${opts.id}] (padi watch)`,
               // DISARM on resubscribe: a STREAM_RETRY reconnect (retryDelay
               // ~1000ms) can exceed idleMs (e.g. 800), so an idle window armed
               // by the LAST pre-drop frame would otherwise fire a FALSE `met`
@@ -468,6 +470,7 @@ export async function awaitOutputSettled(
           const stream = unenrolledStreamCall(
             (input: { id: string }) => client.surface.terminalExit.get(input),
             { id: opts.id },
+            { label: `terminalExit[${opts.id}] (padi watch)` },
           );
           for await (const _msg of iterateUntilAborted(stream, ctx.signal)) {
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });

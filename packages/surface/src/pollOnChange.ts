@@ -77,7 +77,12 @@ export function pollOnChange<PulseInput, Pulse, Result>(
   // reports — so the old `!opts.signal.aborted` guards on the terminal callbacks
   // are gone: teardown silence is the edge's rule, held in one place.
   const stopPulse = runStreamScoped<Pulse>(
-    unenrolledStreamCall(opts.pulse, opts.pulseInput),
+    // Labelled for the liveness registry (kolu#2101 J2) — a poller whose pulse
+    // parked looks exactly like one whose upstream is simply quiet, and the
+    // registry's frame timestamps are the only thing that tells them apart.
+    unenrolledStreamCall(opts.pulse, opts.pulseInput, {
+      label: "pollOnChange.pulse",
+    }),
     {
       onFrame: runQuery,
       // Normal completion — the pulse ended on its own. Abort any in-flight requery

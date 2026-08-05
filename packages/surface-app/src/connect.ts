@@ -184,6 +184,10 @@ export interface HeartbeatOptions {
    *  from an async rejection). Defaults to a `console.error` so the heartbeat
    *  going inert is never silent; pass your own logger. */
   onProbeError?: (error: unknown) => void;
+  /** Observe every DEFINITIVE probe verdict (alive or stale) with the wall clock
+   *  it settled at — additive observability, never policy. See
+   *  `HeartbeatTuning.onProbeSettled` (`@kolu/surface/heartbeat`). */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
 }
 
 const warnStale = () =>
@@ -238,6 +242,9 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     // a warn so a silent half-open recovery is never invisible.
     onStaleReport: opts.onStale ?? warnStale,
     onProbeError: opts.onProbeError ?? warnProbeThrew,
+    // Pass-through, undefined when the consumer wants none: a tuning field this
+    // wrapper dropped would be a knob that silently does nothing.
+    onProbeSettled: opts.onProbeSettled,
   });
 }
 

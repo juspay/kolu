@@ -658,7 +658,7 @@ function openReadinessLeg<S extends SurfaceSpec>(
   let standing!: ReadOnlyUseCellResult<unknown>;
   const dispose = createRoot((disposeRoot) => {
     const s = useCell(
-      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+      // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
       (surface.descriptors.cells as any)[key],
       // Route a spec-declared `client.onError` policy for a read-only `liveWhen` cell
       // through its ONE standing subscription — the sub a read-only `.use()` shares, so
@@ -838,7 +838,7 @@ function bindCell<S extends SurfaceSpec>(
           `cell:${key}`,
           (onComplete) =>
             useCell(
-              // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+              // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
               (surface.descriptors.cells as any)[key],
               // `onError: policyOnError` threads the spec-declared policy into the SHARED
               // slot's ONE subscription (once per slot, never once per consumer).
@@ -904,7 +904,7 @@ function bindCell<S extends SurfaceSpec>(
         `cell:${key}:${stableOptsKey(keyOpts)}`,
         (onComplete) =>
           useCell(
-            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+            // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
             (surface.descriptors.cells as any)[key],
             // `onError: policyOnError` routes the spec-declared policy through the shared
             // subscription's ONE `useCell` funnel — covering BOTH the subscription drop
@@ -1148,7 +1148,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
         // runs inside a Solid owner so each per-key sub disposes with the component.
         if (opts?.keys) {
           const view = useCollection(
-            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+            // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
             (surface.descriptors.collections as any)[key],
             {
               keys: opts.keys,
@@ -1250,7 +1250,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
           return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
               useCollectionDeltas(
-                // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
                 (surface.descriptors.collections as any)[key],
                 {
                   source: unenrolledStreamCall(
@@ -1259,6 +1259,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                       CollectionDeltasMsg<unknown, unknown>
                     >,
                     undefined,
+                    { label: `${key}.deltas` },
                   ),
                   onError: dispatchError,
                   onComplete,
@@ -1271,6 +1272,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                   unenrolledStreamCall(
                     ns.keys as StreamingProcedure<undefined, unknown[]>,
                     undefined,
+                    { label: `${key}.keys` },
                   ),
                   { onError: dispatchError, onComplete },
                 );
@@ -1280,7 +1282,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
                 registry.enroll(`${key}.keys`, keysSub);
                 const keys = createMemo<unknown[]>(() => keysSub() ?? []);
                 return useCollection(
-                  // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                  // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
                   (surface.descriptors.collections as any)[key],
                   {
                     keys,
@@ -1330,7 +1332,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     streams[key] = {
       use: (inputFn, streamOpts) => {
         const sub = useStream(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+          // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
           (surface.descriptors.streams as any)[key],
           inputFn,
           ns.get as StreamingProcedure<unknown, unknown>,
@@ -1356,7 +1358,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     events[key] = {
       use: (inputFn, handler, eventOpts) =>
         useEvent(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+          // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
           (surface.descriptors.events as any)[key],
           inputFn,
           ns.get as StreamingProcedure<unknown, unknown>,
@@ -1411,6 +1413,9 @@ export function buildSurfaceClient<const S extends SurfaceSpec>(
     onCleanup(
       runStreamScoped<O>(
         unenrolledStreamCall(procedure, input, {
+          // The caller's enrolment name IS the label — one name for the health
+          // fact and the liveness registry (kolu#2101 J2).
+          label: name,
           onRetry: () => {
             // A reconnect: back to pending, drop the stale error, and let the
             // caller clear any derived view before the fresh snapshot lands.

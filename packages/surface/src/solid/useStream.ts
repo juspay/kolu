@@ -25,14 +25,18 @@ import {
 import type { Subscription } from "./createSubscription";
 
 export function useStream<Name extends string, I, T>(
-  _stream: Stream<Name, I, T>,
+  streamDescriptor: Stream<Name, I, T>,
   inputFn: () => I | null,
   source: StreamingProcedure<I, T>,
   options?: ReactiveSubscriptionOptions,
 ): Subscription<T> {
   return createReactiveSubscription(
     inputFn,
-    (input) => unenrolledStreamCall(source, input),
+    // Labelled with the member's own key — the `client.health()` spelling, so
+    // the liveness registry and the health fact name one subscription one way
+    // (kolu#2101 J2).
+    (input) =>
+      unenrolledStreamCall(source, input, { label: streamDescriptor.name }),
     options,
   );
 }

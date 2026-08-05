@@ -101,6 +101,18 @@ export interface HeartbeatTuning {
   timeoutMs?: number;
   /** Report a forced reconnect (a missed probe). Defaults to a `console.warn`. */
   onStale?: () => void;
+  /** Observe every DEFINITIVE probe verdict — `ok` true when the peer answered
+   *  (or answered with an error: the round-trip completed), false when the probe
+   *  timed out and the link was declared half-open. `atMs` is the wall clock at
+   *  the settle, so it is comparable to a server log.
+   *
+   *  Additive observability (kolu#2101 J2), never policy: it runs AFTER the
+   *  recovery and its report, and a throw from it is contained. A VOIDED probe
+   *  (a suspension re-probe, a wake) is deliberately not reported — it is not a
+   *  verdict, and a diagnostic that counted it as one would read a healthy
+   *  resumed tab as a flapping link. kolu records the last verdict into its
+   *  copy-pasteable diagnostic snapshot; a consumer that wants none passes none. */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
 }
 
 /** Options for {@link createHeartbeat}. */
@@ -135,6 +147,10 @@ export interface HeartbeatOptions {
   /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
    *  from an async rejection). Optional. */
   onProbeError?: (error: unknown) => void;
+  /** Observe every DEFINITIVE probe verdict — see
+   *  {@link HeartbeatTuning.onProbeSettled}. Optional; run guarded, LAST, so it
+   *  can never defeat the recovery or its report. */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
   /** The wall + monotonic clock pair the suspension check reads, gathered into ONE
    *  both-or-neither container (matching the repo's `deps` test-seam convention —
    *  renderRecovery / scrollLock) so the illegal half-injected state (a fake wall
@@ -287,6 +303,14 @@ export function createHeartbeat(opts: HeartbeatOptions): {
         // surface it rather than swallow (same fail-loud posture as above).
         console.error("heartbeat: onStaleReport reporter threw", error);
       }
+    }
+    // LAST, and only for a DEFINITIVE verdict (`abandon` never reaches here), so
+    // an observer sees exactly the alive/stale decisions the watchdog made —
+    // never a voided window. Guarded for the same reason as the two above.
+    try {
+      opts.onProbeSettled?.(!stale, now());
+    } catch (error) {
+      console.error("heartbeat: onProbeSettled observer threw", error);
     }
   };
   // Abandon the current probe WITHOUT a verdict — used by a suspension-void and by

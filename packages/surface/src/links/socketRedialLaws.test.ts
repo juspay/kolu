@@ -49,6 +49,10 @@ import { defineSurface } from "../define";
 import { rpcSerializationLayer } from "../frameLimit";
 import type { WireStatus } from "../link";
 import { implementSurface, surfaceRpcServerLayer } from "../server";
+import {
+  resetSubscriptionLiveness,
+  subscriptionLiveness,
+} from "../subscriptions";
 import { websocketLink } from "./websocket";
 
 const surface = defineSurface({
@@ -494,9 +498,17 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     const onRetry = vi.fn();
     const failures: unknown[] = [];
     const items: string[] = [];
+    // LABELLED (kolu#2101 J2): the liveness registry is what a client-side
+    // diagnostic reads to NAME a parked subscription, and this drive is the real
+    // field shape — so the registry's own numbers are asserted below off it,
+    // never off a script.
+    resetSubscriptionLiveness();
     const fiber = Effect.runFork(
       Stream.runForEach(
-        fenceStream(link.dispatch.stream(TICKS_TAG, undefined), { onRetry }),
+        fenceStream(link.dispatch.stream(TICKS_TAG, undefined), {
+          onRetry,
+          label: "ticks",
+        }),
         (item) => Effect.sync(() => items.push(String(item))),
       ).pipe(
         Effect.tapError((e) => Effect.sync(() => failures.push(e))),
@@ -545,6 +557,20 @@ describe("re-dial law 3 — the epoch fails what a re-dial orphaned", () => {
     expect(
       h.serverWrites().filter((write) => write.at > secondOpenedAt),
     ).toEqual([]);
+
+    // ── The registry's view of the same drive (kolu#2101 J2) ───────────────
+    // What a copy-pasted client diagnostic says about this subscription AFTER
+    // the re-drive. The park's signature is a `lastFrameAt` OLDER than the wire's
+    // current open-since; post-J1 the re-drive stamps a fresher one, and that
+    // comparison — the parked verdict, computed at snapshot time — is what lets
+    // the snapshot prove (or clear) the incident from the client alone.
+    const ticks = subscriptionLiveness().find((r) => r.label === "ticks");
+    expect(ticks?.state).toBe("live");
+    expect(ticks?.framesReceived).toBe(2);
+    expect(ticks?.retries).toBe(1);
+    expect(ticks?.subscribedAt).toBeLessThan(secondOpenedAt);
+    // NOT parked: the last frame landed after the CURRENT socket opened.
+    expect(ticks?.lastFrameAt ?? 0).toBeGreaterThanOrEqual(secondOpenedAt);
 
     fiber.interruptUnsafe();
     await link.dispose();

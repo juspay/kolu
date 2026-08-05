@@ -161,7 +161,7 @@ sleep, Wi-Fi roam, NAT idle-eviction).
 | Option | Effect |
 | --- | --- |
 | `livenessProbe` | the watchdog's round-trip — pass `() => probeSurfaceLive(client.rpc)` so it asks the one reserved question, not an app-nominated verb. `probe` answers *which* process; this answers *is it answering at all* |
-| `heartbeat: false` | opt out of the default-on watchdog (only when you wire your own `createHeartbeat`); an object tunes `intervalMs` / `timeoutMs` / `onStale` |
+| `heartbeat: false` | opt out of the default-on watchdog (only when you wire your own `createHeartbeat`); an object tunes `intervalMs` / `timeoutMs` / `onStale`, and observes every definitive verdict with `onProbeSettled(ok, atMs)` |
 | `onProbeError` | surface a failed identity probe instead of silently holding the prior state |
 | `onProcessId` | publish each observed id to echo back as the next reconnect's `pid` |
 

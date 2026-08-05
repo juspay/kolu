@@ -41,7 +41,7 @@ export interface UseEventOptions {
  *  input value changes, the previous subscription tears down and a fresh
  *  one starts (the same reactive-input model `useStream` uses). */
 export function useEvent<Name extends string, I, T>(
-  _event: Event<Name, I, T>,
+  eventDescriptor: Event<Name, I, T>,
   inputFn: () => I | null,
   source: StreamingProcedure<I, T>,
   handler: (occurrence: T) => void,
@@ -57,13 +57,16 @@ export function useEvent<Name extends string, I, T>(
   }
 
   function start(input: I): void {
-    stopActive = runStreamScoped<T>(unenrolledStreamCall(source, input), {
-      onFrame: handler,
-      // An event stream's typed end is ordinary (the occurrence source is
-      // finished); there is nothing to render, so nothing to report.
-      onEnd: () => {},
-      onFailure: options.onError,
-    });
+    stopActive = runStreamScoped<T>(
+      unenrolledStreamCall(source, input, { label: eventDescriptor.name }),
+      {
+        onFrame: handler,
+        // An event stream's typed end is ordinary (the occurrence source is
+        // finished); there is nothing to render, so nothing to report.
+        onEnd: () => {},
+        onFailure: options.onError,
+      },
+    );
   }
 
   // Single cleanup path: external signal OR `onCleanup`. Never both — avoids dual

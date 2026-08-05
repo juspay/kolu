@@ -30,6 +30,7 @@
     "./reactor": "./src/reactor.ts",
     "./viewer-identity": "./src/viewerIdentity.ts",
     "./server": "./src/server.ts",
+    "./subscriptions": "./src/subscriptions.ts",
     "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",

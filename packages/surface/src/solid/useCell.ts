@@ -166,26 +166,40 @@ export function useCell<Name extends string, T, P = T>(
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
 
-/** The cell's fenced stream: the member's own `get`, wrapped in the framework's
+/** The cell's own key is the subscription's LABEL in the liveness registry
+ *  (`../subscriptions`) — the same spelling `client.health()` enrols it under, so
+ *  the two records name one subscription one way. It is the first runtime read of
+ *  the descriptor these hooks used to take purely as a type discriminator; a
+ *  descriptor is always present (`surfaceClient` passes the spec's own), and an
+ *  absent one throwing here is the honest fail-fast rather than a subscription
+ *  that quietly reports as `(unlabeled)`.
+ *
+ *  The cell's fenced stream: the member's own `get`, wrapped in the framework's
  *  per-subscription retry fence so a transport drop re-subscribes transparently and
  *  the next frame is a fresh snapshot. Disposing the cell (the last consumer of a
  *  shared dedup slot leaving) interrupts the subscription's fiber, which tears the
  *  wire stream down through the stream's own finalizers. */
-function cellStream<T>(source: StreamingProcedure<undefined, T>) {
-  return unenrolledStreamCall(source, undefined);
+function cellStream<T>(
+  source: StreamingProcedure<undefined, T>,
+  label: string | undefined,
+) {
+  return unenrolledStreamCall(source, undefined, { label });
 }
 
 function useCellServer<Name extends string, T, P>(
-  _cell: Cell<Name, T>,
+  cellDescriptor: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
   // No wrapping `createRoot`: the subscription runs under the CALLER's owner — the
   // keyed-cache slot when the surface client shares it, else the consumer's own
   // owner — so it aborts when that owner disposes instead of leaking app-lifetime.
-  const sub = createSubscription(cellStream(options.source), {
-    onError: options.onError,
-    onComplete: options.onComplete,
-  });
+  const sub = createSubscription(
+    cellStream(options.source, cellDescriptor.name),
+    {
+      onError: options.onError,
+      onComplete: options.onComplete,
+    },
+  );
 
   /** Suspended, so a cell with no mutate verb fails when the write is RUN rather
    *  than throwing at the moment a handler merely builds it. */
@@ -210,7 +224,7 @@ function useCellServer<Name extends string, T, P>(
 }
 
 function useCellLocal<Name extends string, T extends object, P>(
-  _cell: Cell<Name, T>,
+  cellDescriptor: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
 ): UseCellLocalResult<T, P> {
   const [store, setStore] = createStore<T>(options.initial);
@@ -224,10 +238,13 @@ function useCellLocal<Name extends string, T extends object, P>(
   // No wrapping `createRoot`: the subscription + its seed effect run under the
   // CALLER's owner (the keyed-cache slot when shared, else the consumer's own owner),
   // so they dispose with that owner instead of leaking app-lifetime.
-  const sub = createSubscription(cellStream(options.source), {
-    onError: options.onError,
-    onComplete: options.onComplete,
-  });
+  const sub = createSubscription(
+    cellStream(options.source, cellDescriptor.name),
+    {
+      onError: options.onError,
+      onComplete: options.onComplete,
+    },
+  );
   createEffect(
     on(
       () => sub(),
