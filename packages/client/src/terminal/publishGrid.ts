@@ -50,17 +50,25 @@ function errMsg(err: unknown): string {
  *  silence the same refusal from a host the client believes is UP — which is a
  *  real fault and must stay loud (test (b)).
  *
- *  **Why SUPPRESS rather than defer, and why that converges.** Every
- *  (re-)attach RESTATES the grid: `Terminal.tsx`'s `streamFn` thunk re-reads
- *  `h.grid()` into the attach's own `resizeTo` on each open, and the
- *  post-convergence re-attach is exactly such an open. So a publish dropped here
- *  is republished by the re-attach that follows reconvergence — a stale grid
- *  cannot stick, and there is no queue to drain, no timer to arm, and nothing
- *  unbounded added. A DEFERRED publish would instead replay a grid measured
- *  before the wake against a PTY the re-attach has already sized correctly. */
+ *  **Why SUPPRESS rather than defer, and why that needs a latch (kolu#2101
+ *  K4).** The original argument was that every (re-)attach RESTATES the grid —
+ *  `Terminal.tsx`'s `streamFn` thunk re-reads `h.grid()` into the attach's own
+ *  `resizeTo` on each open, and the post-convergence re-attach is exactly such
+ *  an open. True, but only when a re-attach HAPPENS. The grid effect fires once
+ *  per grid CHANGE, nothing re-observes the host returning to `connected`, and
+ *  an attach that produces no frame, no failure and no end across the outage
+ *  window never re-opens at all. Then the drop is permanent: the pane renders
+ *  132×43 over a PTY that stayed 80×24, with no symptom but wrong output and no
+ *  cure but another manual resize. So the suppressed grid is LATCHED and
+ *  restated once on the flip back to `connected` — see
+ *  {@link createGridPublisher}. Still not a deferred publish: the latch holds
+ *  the LAST measurement and is superseded by any publish that goes through
+ *  normally, so it can never replay a grid the pane has already moved past. */
 export function publishGridAction(
   size: TerminalGrid,
   deps: PublishGridDeps,
+  /** Told when the publish is dropped, so the caller can latch it. */
+  onSuppressed?: (size: TerminalGrid) => void,
 ): UiAction<void> {
   const { cols, rows } = size;
   return Effect.suspend(() => {
@@ -69,8 +77,9 @@ export function publishGridAction(
     const host = deps.hostState();
     if (host !== "connected") {
       console.info(
-        `terminal ${deps.terminalId}: host entry is "${host}", not connected — suppressing the ${cols}×${rows} grid publish (the post-convergence re-attach restates it)`,
+        `terminal ${deps.terminalId}: host entry is "${host}", not connected — suppressing the ${cols}×${rows} grid publish (restated on the flip back to connected)`,
       );
+      onSuppressed?.(size);
       return Effect.void;
     }
     return deps.resize(size).pipe(
@@ -99,4 +108,63 @@ export function publishGridAction(
       Effect.asVoid,
     );
   });
+}
+
+/** One pane's grid publisher — {@link publishGridAction} plus the LATCH that
+ *  makes its suppression converge (kolu#2101 K4).
+ *
+ *  A factory rather than a module-level map because the latch's lifetime is the
+ *  tile's: `Terminal.tsx` builds one inside `onReady`, so it is collected with
+ *  the pane and two tiles cannot share a latch by accident.
+ *
+ *  **What the latch holds, and why it cannot go stale.** Exactly one grid: the
+ *  LAST measurement a not-connected window dropped. Every later measurement
+ *  overwrites it (an outage that spans three re-fits must restate the pane's
+ *  final size, never replay the first two onto a shared PTY), and any publish
+ *  that goes through normally CLEARS it (the pane's size is on the wire, so
+ *  there is nothing left owed). It is therefore never a queue and never a
+ *  deferred write of an old fact — it is one bit of "this pane still owes the
+ *  PTY its size", carrying the answer.
+ *
+ *  **Idempotent by the latch, not by the caller.** {@link republishSuppressed}
+ *  is written to be run on every tick of the host-state signal: with nothing
+ *  owed it is `Effect.void`, and a successful restatement clears the latch, so
+ *  the second and third call after a flip cost nothing. The caller does not have
+ *  to detect an EDGE, which is the part that would otherwise be easy to get
+ *  wrong (a tile that mounts while the host is already connected has no edge to
+ *  observe). */
+export interface GridPublisher {
+  /** Publish a measured grid — or latch it, if the host is not connected. */
+  publish: (size: TerminalGrid) => UiAction<void>;
+  /** Restate the latched grid, if any. Safe to run on every host-state tick. */
+  republishSuppressed: () => UiAction<void>;
+}
+
+export function createGridPublisher(deps: PublishGridDeps): GridPublisher {
+  /** The last grid a not-connected window dropped, still owed to the PTY. */
+  let owed: TerminalGrid | null = null;
+
+  const publish = (size: TerminalGrid): UiAction<void> =>
+    Effect.suspend(() => {
+      // This measurement supersedes whatever was owed — either it lands, and
+      // nothing is owed, or it is suppressed and the callback below re-latches
+      // it. Clearing FIRST is what keeps the latch one grid rather than a queue.
+      owed = null;
+      return publishGridAction(size, deps, (dropped) => {
+        owed = dropped;
+      });
+    });
+
+  const republishSuppressed = (): UiAction<void> =>
+    Effect.suspend(() => {
+      const pending = owed;
+      if (!pending) return Effect.void;
+      if (deps.hostState() !== "connected") return Effect.void;
+      console.info(
+        `terminal ${deps.terminalId}: host entry is connected again — restating the suppressed ${pending.cols}×${pending.rows} grid`,
+      );
+      return publish(pending);
+    });
+
+  return { publish, republishSuppressed };
 }

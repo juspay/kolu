@@ -85,7 +85,7 @@ import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
-import { publishGridAction } from "./publishGrid";
+import { createGridPublisher } from "./publishGrid";
 import {
   consumeReattachingStream,
   StaleSnapshotGrid,
@@ -236,31 +236,39 @@ const Terminal: Component<{
     return false;
   };
 
+  /** The host entry's state KIND for this pane's host — the same fact that
+   *  paints the host pip. A terminal is bound to the ACTIVE host (there is no
+   *  host prop; that IS the existing mapping), and `padiMap.entry` is the pure,
+   *  owner-free point lens (`wire.ts`). */
+  const hostEntryKind = () => padiMap.entry(activeHost()).state().kind;
+
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
    *  `XtermHandle.grid` — the one door a measured grid leaves the kit through.
    *
-   *  The POLICY (including H1's not-connected suppression and its convergence
-   *  argument) lives in `publishGrid.ts`; this binds the three real facts. A PTY
-   *  resize makes the shell REPAINT (SIGWINCH) — but that repaint no longer
-   *  needs suppressing here: kaval excludes resize repaints from its
+   *  The POLICY (H1's not-connected suppression, K4's latch, and the convergence
+   *  argument for both) lives in `publishGrid.ts`; this binds the three real
+   *  facts. A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint
+   *  no longer needs suppressing here: kaval excludes resize repaints from its
    *  meaningful-output edge at the source, so the live dot (mirrored off padi's
-   *  `activity` set) never lights on a reveal/resize in the first place. */
+   *  `activity` set) never lights on a reveal/resize in the first place.
+   *
+   *  ONE publisher per tile, built at component scope so the suppression latch
+   *  lives exactly as long as the pane does. */
+  const gridPublisher = createGridPublisher({
+    terminalId: props.terminalId,
+    hostState: hostEntryKind,
+    ptyLive: () =>
+      activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+    resize: (grid) =>
+      activePadiRpc.lifecycle.resize({
+        id: props.terminalId,
+        cols: grid.cols,
+        rows: grid.rows,
+      }),
+  });
+
   function publishDimensions(size: TerminalGrid): UiAction {
-    return publishGridAction(size, {
-      terminalId: props.terminalId,
-      // A terminal is bound to the ACTIVE host (there is no host prop — that IS
-      // the existing mapping), and `padiMap.entry` is the pure, owner-free point
-      // lens (`wire.ts`), so this is the same fact that paints the host pip.
-      hostState: () => padiMap.entry(activeHost()).state().kind,
-      ptyLive: () =>
-        activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
-      resize: (grid) =>
-        activePadiRpc.lifecycle.resize({
-          id: props.terminalId,
-          cols: grid.cols,
-          rows: grid.rows,
-        }),
-    });
+    return gridPublisher.publish(size);
   }
 
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
@@ -537,6 +545,27 @@ const Terminal: Component<{
       on(h.grid, (measured) => {
         if (measured)
           runOwnedAction("publish terminal grid", publishDimensions(measured));
+      }),
+    );
+
+    // …and the OTHER thing that can owe the PTY a size: a grid change that
+    // happened while this pane's host was not connected (kolu#2101 K4). The
+    // effect above fires per GRID CHANGE, so nothing re-observes the host coming
+    // back — and if the open attach stays silent through the outage there is no
+    // re-attach to restate it either, leaving the PTY at its old size with no
+    // symptom but wrong output. This watches the host entry instead, and leans
+    // on the latch for idempotence: with nothing owed the action is
+    // `Effect.void`, and a restatement that lands clears the latch, so the
+    // effect's re-runs (and a tile that mounts while the host is already up)
+    // cost nothing. Reachable on the LOCAL host too — `daemon.restart` drains
+    // it out of `connected`.
+    createEffect(
+      on(hostEntryKind, (kind) => {
+        if (kind === "connected")
+          runOwnedAction(
+            "publish terminal grid",
+            gridPublisher.republishSuppressed(),
+          );
       }),
     );
 
