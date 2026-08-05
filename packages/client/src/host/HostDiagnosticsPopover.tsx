@@ -11,8 +11,9 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createReactiveSubscription } from "@kolu/surface/solid";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
+import type { KoluBuildInfo, TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -115,6 +116,10 @@ export const HostDiagnosticsPopover: Component<{
   const [confirmRemove, setConfirmRemove] = createSignal(false);
   // Local: machine hostname when known (same as the tab label); remotes: target.
   const { hostname } = useServerIdentity();
+  // The same server-build source the Diagnostic Info dialog copies from, so both
+  // entry points to `CopyDiagnosticsButton` produce the identical block — without
+  // it this one printed `server commit: unknown`.
+  const pwa = useSurfaceApp<KoluBuildInfo>();
   const label = () =>
     isLocal() ? (hostname() ?? hostLabel(props.host)) : hostLabel(props.host);
 
@@ -426,7 +431,10 @@ export const HostDiagnosticsPopover: Component<{
               a parked subscription is a fact about the whole wire, and a block
               that showed only this host's would hide the one that matters. */}
           <div class="my-2 border-t border-edge/60" />
-          <CopyDiagnosticsButton class="flex w-full items-center justify-between gap-4 py-0.5 text-left text-[11px] text-fg-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer">
+          <CopyDiagnosticsButton
+            serverBuild={pwa.server()}
+            class="flex w-full items-center justify-between gap-4 py-0.5 text-left text-[11px] text-fg-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+          >
             copy diagnostics
           </CopyDiagnosticsButton>
 
