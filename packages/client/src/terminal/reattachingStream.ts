@@ -105,14 +105,38 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  every quiet pane in the canvas. What this bounds is the one thing that has no
  *  legitimate silent form — an attach that has OPENED and owes a snapshot.
  *
+ *  **TWO mechanisms, DISJOINT classes — this deadline is the belt, not the
+ *  only strap** (kolu#2101 J1). There are two ways an opened attach can go
+ *  silent, and they are now covered by different things:
+ *
+ *   - **The wire RE-DIALLED underneath it.** `@kolu/surface`'s `websocketLink`
+ *     now counts open EDGES (the wire epoch) and FAILS, itself, every call an
+ *     edge superseded — so this class arrives as an ordinary transport failure
+ *     the framework fence retries, on the first reopen, with no clock involved.
+ *     The deadline no longer owns it, and no per-stream deadline could have:
+ *     the class covers every subscription in the tab, not just this one.
+ *   - **The wire never moved and the UPSTREAM stalled.** A relay that holds the
+ *     stream open while its own source says nothing (padi re-binding, kaval
+ *     mid-adopt) produces no re-dial, no epoch edge, and no failure anywhere.
+ *     Nothing but silence distinguishes it from a healthy idle stream, so a
+ *     deadline on the FIRST frame — the one thing an opened attach always owes —
+ *     is the only signal left. That is this constant's job, and it is why it
+ *     stays.
+ *
+ *  The two can race (a wake that re-dials while a relay is also stalled) and the
+ *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
+ *  budget below bounds the second one either way.
+ *
  *  BETA-ASSUMPTION(beta.103): an in-flight stream survives a `SocketOpenError`
  *  re-dial UNFAILED — `RpcClient.makeProtocolSocket`'s `retryTransientErrors`
  *  arm returns early from its `tapCause` without broadcasting
  *  `ClientProtocolError`, which is the only thing that fails registered entries,
  *  so an opened stream can hang with no failure signal while the protocol
- *  silently re-dials underneath it. That is why a deadline is needed at all
- *  rather than a failure to retry on. MEASURED by
- *  `packages/surface/src/links/socketRedialLaws.test.ts`. */
+ *  silently re-dials underneath it. The framework's epoch fix rests on the SAME
+ *  measured behavior (it exists because nothing fails), so a bump that made the
+ *  re-dial fail its entries would make BOTH the epoch wrap and this deadline's
+ *  first bullet redundant — re-measure before re-stamping. MEASURED by
+ *  `packages/surface/src/links/socketRedialLaws.test.ts` (laws 2 and 3). */
 const FIRST_FRAME_DEADLINE_MS = 10_000;
 
 /** How many re-attaches a SILENT open may buy in one attach loop.
@@ -268,14 +292,18 @@ export interface AttachTileFacts {
  *  a reopen that could not come. The channel now rides in the RETURN TYPE, where
  *  it cannot be silently flipped again.
  *
- *  **A SILENT open (kolu#2101 H3).** The three cases above all rest on an EVENT
- *  — a failure, an end, a refused frame. The wake-window residue had none: after
- *  a laptop woke, a pane sat blank while its host's own logs showed nothing at
- *  all, because an opened subscription can be left parked with no failure signal
- *  (the protocol swallows a `SocketOpenError` re-dial rather than failing
- *  registered entries — see {@link FIRST_FRAME_DEADLINE_MS}'s BETA-ASSUMPTION,
- *  and the relay hold-open shape has the same property). So an attempt that
- *  opens and delivers no first frame within the deadline fails into channel 2 and
+ *  **A SILENT open (kolu#2101 H3, narrowed by J1).** The three cases above all
+ *  rest on an EVENT — a failure, an end, a refused frame. The wake-window
+ *  residue had none: a pane sat blank while its host's own logs showed nothing
+ *  at all. Two different causes produce that rendering, and only one of them is
+ *  still this module's to catch. A wire that RE-DIALLED underneath the
+ *  subscription is now failed by `@kolu/surface`'s epoch wrap on the reopen edge
+ *  — the whole class, every subscription in the tab, no clock. What is left here
+ *  is the UPSTREAM STALL: a relay holding the stream open over a source that
+ *  says nothing, where no re-dial ever happens and silence is genuinely the only
+ *  signal. So the deadline stays as the belt for that class (see
+ *  {@link FIRST_FRAME_DEADLINE_MS} for the two-mechanism statement): an attempt
+ *  that opens and delivers no first frame within it fails into channel 2 and
  *  re-attaches once; a second silent open in the same loop dies through the run
  *  edge. Only the FIRST frame is bounded — an idle terminal legitimately says
  *  nothing for hours, and an inter-frame deadline would blank every quiet pane.
