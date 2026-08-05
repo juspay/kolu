@@ -11,10 +11,13 @@
  *     `Effect.retry` retries FAILURES ONLY, so a defect skips every recovery path
  *     here and reaches `runAction`'s edge, which reports it (console + a
  *     "failed unexpectedly" toast) and ends the attach with no successor. That is
- *     the right answer for a breach of an invariant nothing can repair — the
- *     thunk's `attach opened without a measured grid` assert, or a chain that has
- *     manufactured a second clean end in a row. Retrying one of those would run
- *     `onReattach` every 300ms, blanking the user's pane three times a second.
+ *     the right answer for a breach of an invariant nothing can repair, and the
+ *     ONLY thing left in this channel is that: the thunk's `attach opened without
+ *     a measured grid` assert, and a throw out of `onItem`. What used to sit here
+ *     too — a chain manufacturing clean ends, a chain delivering no frames — has
+ *     moved to the verdict (channel 2 plus {@link FRUITLESS_CYCLE_VERDICT}'s
+ *     loudness), because those describe a chain that might still recover and
+ *     dying on them executed healthy panes (kolu#2101 K1).
  *  2. **TYPED FAILURE — a recoverable condition, retried through `onReattach`.**
  *     Spelled as a value in the error channel: a stream failure (a mid-chain padi
  *     death), a frame the consumer REFUSES ({@link StaleSnapshotGrid}), the
@@ -26,9 +29,11 @@
  *     is not a new unbounded thing: every member of this channel is driven by an
  *     external cause that stops (a resize settles, a re-bound padi comes back),
  *     each attempt re-reads live inputs so it makes progress rather than repeating
- *     itself, and the conditions that CANNOT self-heal are excluded by
- *     construction — a gone terminal ends the loop (below), a manufactured end is
- *     budgeted (above), and a silent open is budgeted the same way.
+ *     itself, and a gone terminal ends the loop outright (below). What it is NOT
+ *     is silent: a run of cycles that delivers nothing crosses
+ *     {@link FRUITLESS_CYCLE_VERDICT}, or spends one of the two budgets, and the
+ *     loop then SAYS SO once and drops to {@link DEMOTED_RETRY_MS} — the full
+ *     unboundedness argument is on that constant.
  *  3. **CLEAN END — classified, never trusted.** A completed stream means "the PTY
  *     exited" only when the tile's own facts agree; otherwise it is channel 2 with
  *     a budget. See {@link AttachTileFacts} and {@link CLEAN_END_REATTACH_BUDGET}.
@@ -40,18 +45,55 @@
  *     So silence itself is given a deadline —
  *     {@link FIRST_FRAME_DEADLINE_MS} — and its expiry enters channel 2.
  *
+ * **THE REOPEN LANES, all four, and where each is governed.** This module's whole
+ * point is that a reopen lane is governed, so every lane is named here:
+ *
+ *  - **The framework fence** (`unenrolledStreamCall`'s `STREAM_RETRY`). Owns the
+ *    TRANSPORT class end to end, including — since kolu#2101 J1 — a wire re-dial:
+ *    `@kolu/surface`'s `websocketLink` counts open EDGES and FAILS every call an
+ *    edge superseded, so an orphaned subscription arrives as an ordinary
+ *    `RpcClientError` on the first reopen, with no clock anywhere. It never
+ *    reaches this module's budgets, and {@link FIRST_FRAME_DEADLINE_MS} is not
+ *    what covers it.
+ *  - **This loop's channel-2 retry** (the three members above plus the deadline).
+ *    Governed by the budgets, the fruitless-cycle counter, and one loudness
+ *    policy — {@link FRUITLESS_CYCLE_VERDICT}.
+ *  - **The stale-grid reopen** (`Terminal.tsx`'s `reopenForStaleGrid`, the
+ *    xterm-write-callback arm). It exists because the second grid check runs in
+ *    a write callback, not in the iterator, so there is no return value the loop
+ *    would read and no error channel to enter — the attempt is superseded and a
+ *    successor opened explicitly instead. It is grid-correctness-driven and
+ *    RTT-rate-limited by nature (one reopen per snapshot that actually landed),
+ *    and since kolu#2101 K5 it takes the SAME {@link REATTACH_BACKOFF_MS} as
+ *    every other reopen, so no lane jumps the queue. Its episode accounting
+ *    needs no special case: it fires only after a snapshot has been WRITTEN, and
+ *    a delivered frame refills both budgets ({@link FIRST_FRAME_DEADLINE_MS}),
+ *    so its fresh loop legitimately starts a fresh episode rather than escaping
+ *    an old one's accounting.
+ *  - **The tile remount** (`h.onceMeasured`). One per mounted pane; not a retry.
+ *
  * The rule that keeps this honest: **no message may claim a re-attach unless one
  * follows.** A comment or a toast that promises recovery on a path that dies is
  * the bug, not a documentation slip — it is what let both incidents pass review.
+ * Its companion, since kolu#2101 K1: **no verdict may EXECUTE a pane whose chain
+ * might still recover.** A verdict is loud PERSISTENCE — said once, then a slow
+ * retry — never an `Effect.die` that leaves a tile with no road back.
  */
 
-import { Effect, Schedule, Stream } from "effect";
+import { Duration, Effect, Schedule, Stream } from "effect";
+import { toast } from "solid-sonner";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 
 /** How long to wait before re-subscribing after an abnormal end. Bounds the loop
  *  if a re-subscribe keeps failing (e.g. the terminal is genuinely gone — the
- *  tile then unmounts, interrupting the fiber and ending the loop). */
-const REATTACH_BACKOFF_MS = 300;
+ *  tile then unmounts, interrupting the fiber and ending the loop).
+ *
+ *  EXPORTED for the one reopen lane that lives outside this file —
+ *  `Terminal.tsx`'s `reopenForStaleGrid` (kolu#2101 K5). It reopens from an
+ *  xterm write callback where the loop's own error channel is unreachable, and
+ *  it takes this same spacing so the module header's four-lane list has one
+ *  backoff, not two. */
+export const REATTACH_BACKOFF_MS = 300;
 
 /** How long a CLEAN end waits for the tile's own exit facts to land before it
  *  calls that end unexpected.
@@ -66,7 +108,7 @@ const REATTACH_BACKOFF_MS = 300;
  *  unmounts the tile inside it, interrupting this fiber before any RPC is sent. */
 const EXIT_SETTLE_MS = REATTACH_BACKOFF_MS;
 
-/** How many re-attaches a CLEAN end may buy in one attach loop.
+/** How many re-attaches a CLEAN end may buy in one EPISODE.
  *
  *  One. A clean end for a tile whose PTY is still live is a manufactured end —
  *  the deploy-#2 frozen-pane class (kolu#2101), where a stampede ended kaval-side
@@ -74,12 +116,19 @@ const EXIT_SETTLE_MS = REATTACH_BACKOFF_MS;
  *  retries FAILURES only, read the result as "the PTY exited". Re-attaching once
  *  is the whole of the client's part in that: the server (`reattachingDeltas`)
  *  owns the real repair, and a SECOND clean end in a row means the chain is
- *  manufacturing ends faster than either layer can absorb — a defect to surface,
- *  not to storm against. So the budget is spent, never refilled, per attach loop:
- *  no clock, no reset rule, nothing unbounded. Exhausting it DIES (a defect, not
- *  a failure — `Effect.retry` retries failures, and this must not be retried), so
- *  the run edge reports it (console + toast) instead of leaving the pane blank
- *  and silent, which is the exact rendering this whole change exists to kill.
+ *  manufacturing ends faster than either layer can absorb — something to say out
+ *  loud, not to storm against.
+ *
+ *  **PER EPISODE, not per loop, and no longer fatal (kolu#2101 K1).** Two
+ *  changes, one reason: neither counter may ever be the thing that permanently
+ *  ends a pane. (i) An attempt that DELIVERS a first frame refills this counter
+ *  and the silent-open one — a pane that painted proved the chain end to end, so
+ *  a later stumble starts a fresh episode rather than inheriting an old one's
+ *  spend; the max-two-then-loud property is per episode, and an episode costs a
+ *  real frame to open. (ii) Exhausting it no longer `Effect.die`s. It says the
+ *  verdict once, loudly, and DEMOTES the loop to {@link DEMOTED_RETRY_MS} —
+ *  see {@link FRUITLESS_CYCLE_VERDICT} for the one loudness policy all three
+ *  triggers share, and why the demoted loop is not a new unbounded thing.
  *
  *  A FAILING end keeps its own, deliberately unbounded, retry (below): a
  *  mid-chain padi death heals when kolu-server re-binds, and that loop is what
@@ -87,18 +136,53 @@ const EXIT_SETTLE_MS = REATTACH_BACKOFF_MS;
 const CLEAN_END_REATTACH_BUDGET = 1;
 
 /** How long an attach attempt has to deliver its FIRST frame before the silence
- *  itself is the verdict (kolu#2101 H3 — the blank-pane residue).
+ *  itself is the verdict (kolu#2101 H3 — the blank-pane residue; re-derived at
+ *  K1 after the first derivation was found to execute healthy panes).
  *
- *  **The derivation.** The honest arrival window for a first frame is one fence
- *  retry cycle plus a snapshot round trip: `STREAM_RETRY_DELAY_MS` (1s,
- *  `@kolu/surface`'s `client.ts`) + the request/serialize/answer hop. Ten
- *  seconds is ~10× that — the same margin the sibling claim
- *  `ANSWERED_TILE_DEADLINE_MS` (`useSessionRestore.ts`) takes off the same base,
- *  and deliberately chosen so firing means the chain is DEAD, never that the
- *  wait was merely slow. It is also deliberately UNDER the heartbeat's ~25s
- *  worst-case half-open detection, so a genuinely dead wire meets this
- *  re-attach before (or as) the watchdog cycles the socket; both roads end in
- *  the same retry channel, so racing them is harmless.
+ *  **What this deadline actually costs, measured (K1).** The re-attach it
+ *  triggers is DESTRUCTIVE, not a free second opinion. `Effect.raceFirst`
+ *  interrupts the loser, and interrupting the consume runs the stream's own
+ *  finalizers — which IS the unsubscribe (D10/#18) — so the snapshot the host
+ *  was midway through serializing is abandoned and the successor starts from
+ *  zero. There is no in-flight request left for the re-attach to race. It
+ *  follows that this constant is a hard CEILING on legitimate first-frame
+ *  latency: a chain whose honest first frame takes longer than it converges
+ *  NEVER, because every attempt is torn down at exactly the same mark. Pinned by
+ *  `reattachingStream.test.ts`'s "the deadline is a CEILING" case, and the
+ *  reason the number below is not simply "when we get bored".
+ *
+ *  **The derivation.** The shipped 10s came off TRANSPORT margins only — one
+ *  fence retry (`STREAM_RETRY_DELAY_MS`, 1s) plus "a hop" — which is the LOCAL
+ *  shape. The remote shape is bigger and partly unboundable:
+ *
+ *   - **hops**: browser → kolu-server → ssh → padi → kaval, four legs, one of
+ *     them a wide-area ssh tunnel whose RTT is the user's network, not ours;
+ *   - **padi's own re-open ladder**: 150 + 300 + 600 = 1_050ms of deliberate
+ *     backoff (`terminalEndpoint/reattachingDeltas.ts`) right after a
+ *     reconvergence, before padi has even asked kaval;
+ *   - **snapshot serialization**, which scales with SCROLLBACK and which this
+ *     module therefore CANNOT bound at all. It is the honest hole in every
+ *     derivation here: a pane with a large buffer on a loaded host is slow for a
+ *     reason that has nothing to do with the chain being dead.
+ *
+ *  So the deadline is placed ABOVE the cheap structural repairs rather than
+ *  under them, and 45s is where that lands: the heartbeat's worst-case half-open
+ *  detection is one interval + one timeout = 15s + 10s = 25s
+ *  (`@kolu/surface`'s `heartbeat.ts`), plus one fence retry (1s), plus padi's
+ *  ladder (1.05s) ≈ 27s before anything upstream has genuinely run out of
+ *  excuses — and the remaining ~18s is the room the unboundable serialization
+ *  term gets. Under 25s the deadline PREEMPTS the watchdog it depends on: it
+ *  would tear the stream down while the socket cycle that actually repairs a
+ *  half-open wire (and J1's epoch wrap, which then fails the orphan into the
+ *  retry channel with no clock at all) is still in flight. That inversion — the
+ *  belt firing before the braces — is what shipped at 10s.
+ *
+ *  **The bound this buys.** A genuine park is REPAIRED at 45s (the first
+ *  re-attach) and SAID OUT LOUD at 90.3s (the second silent open, plus one
+ *  backoff). Slower than the old 20.3s — deliberately, because the old number's
+ *  speed was bought by executing panes that were merely slow, and because the
+ *  class this deadline still owns has shrunk: J1's epoch wrap now takes the
+ *  re-dial class instantly, on the reopen edge, with no clock.
  *
  *  **FIRST frame only — never between frames.** An idle terminal emits nothing
  *  for hours and that is the healthy case: an inter-frame deadline would kill
@@ -107,14 +191,17 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *
  *  **TWO mechanisms, DISJOINT classes — this deadline is the belt, not the
  *  only strap** (kolu#2101 J1). There are two ways an opened attach can go
- *  silent, and they are now covered by different things:
+ *  silent, and they are covered by different things:
  *
  *   - **The wire RE-DIALLED underneath it.** `@kolu/surface`'s `websocketLink`
- *     now counts open EDGES (the wire epoch) and FAILS, itself, every call an
- *     edge superseded — so this class arrives as an ordinary transport failure
- *     the framework fence retries, on the first reopen, with no clock involved.
- *     The deadline no longer owns it, and no per-stream deadline could have:
- *     the class covers every subscription in the tab, not just this one.
+ *     counts open EDGES (the wire epoch) and FAILS, itself, every call an edge
+ *     superseded — so this class arrives as an ordinary transport failure the
+ *     framework fence retries, on the first reopen, with no clock involved. The
+ *     deadline does not own it, and no per-stream deadline could have: the class
+ *     covers every subscription in the tab, not just this one. It reaches this
+ *     module (if at all) as a channel-2 failure that spends NEITHER budget —
+ *     asserted, because the budgets are now the only thing between a pane and a
+ *     loud verdict.
  *   - **The wire never moved and the UPSTREAM stalled.** A relay that holds the
  *     stream open while its own source says nothing (padi re-binding, kaval
  *     mid-adopt) produces no re-dial, no epoch edge, and no failure anywhere.
@@ -137,19 +224,87 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  re-dial fail its entries would make BOTH the epoch wrap and this deadline's
  *  first bullet redundant — re-measure before re-stamping. MEASURED by
  *  `packages/surface/src/links/socketRedialLaws.test.ts` (laws 2 and 3). */
-const FIRST_FRAME_DEADLINE_MS = 10_000;
+const FIRST_FRAME_DEADLINE_MS = 45_000;
 
-/** How many re-attaches a SILENT open may buy in one attach loop.
+/** How many re-attaches a SILENT open may buy in one EPISODE.
  *
  *  One, mirroring {@link CLEAN_END_REATTACH_BUDGET} and for the same reason: the
- *  first silent open is a recoverable condition (a parked subscription on a wire
- *  the protocol re-dialled underneath), and re-opening is the whole of the
- *  client's repair. A SECOND silent open in the same loop means the chain is
- *  delivering no frames at all, which re-opening cannot fix — so it DIES (a
- *  defect, not a failure, so `Effect.retry` never sees it) and the run edge
- *  reports it: console + toast, rather than a pane that re-blanks itself every
- *  ten seconds forever. Spent, never refilled, per attach loop. */
+ *  first silent open is a recoverable condition, and re-opening is the whole of
+ *  the client's repair. A SECOND silent open in the same episode means the chain
+ *  is delivering no frames at all, which re-opening is not going to fix on the
+ *  next try either — so the loop SAYS SO (once, loudly) and slows down.
+ *
+ *  Refilled by any attempt that delivers a first frame, and never fatal — see
+ *  {@link CLEAN_END_REATTACH_BUDGET} for both rules and
+ *  {@link FRUITLESS_CYCLE_VERDICT} for the shared loudness policy. */
 const FIRST_FRAME_REATTACH_BUDGET = 1;
+
+/** How many consecutive re-attach cycles may produce NO first frame before the
+ *  loop says so out loud (kolu#2101 K3-client).
+ *
+ *  **The lane this closes.** The 300ms macro-retry is unbounded BY DESIGN and
+ *  stays that way — every member of channel 2 is driven by an external cause
+ *  that stops, and punishing a genuine transient with a ceiling is how panes die
+ *  for no reason. What it lacked was a VOICE: a persistently wedged chain
+ *  churned to console forever and the user saw a blank pane with nothing said.
+ *  Measured pre-fix over ten virtual minutes of a sustained mid-chain wedge:
+ *  2001 re-opens, 2001 `console.warn` lines, ZERO `console.error`, zero toasts.
+ *
+ *  **Why a count and where 200 comes from.** The cheapest possible fruitless
+ *  cycle is an attach that fails instantly plus one {@link REATTACH_BACKOFF_MS},
+ *  so 200 cycles is a floor of 60s of UNBROKEN fruitlessness. That is ~4× the
+ *  ~15s host-reconvergence window the H1 lid-close field test measured — the one
+ *  legitimately fruitless stretch a healthy install produces — so a wake never
+ *  trips it, while a one-or-two-cycle blip (padi's re-open ladder, a server-side
+ *  budget exhaustion) is two orders of magnitude short. The counter is
+ *  CONSECUTIVE: any delivered frame resets it, so the shape it detects is "this
+ *  chain has produced nothing at all for a minute", never "this chain has been
+ *  busy for a long time".
+ *
+ *  **Two triggers, one policy, because there are two fruitless SHAPES.** This
+ *  counter catches the FAST one (churn: fail, back off, fail). The budgets above
+ *  catch the SLOW one (silence: one attempt costs a whole
+ *  {@link FIRST_FRAME_DEADLINE_MS}, so 200 cycles would be hours). Both land in
+ *  the same verdict, said ONCE per episode: `console.error` for the operator and
+ *  one toast for the user, then the loop DEMOTES to
+ *  {@link DEMOTED_RETRY_MS}.
+ *
+ *  **Deliberately NOT the same N as the server's** (`reattachingDeltas`'
+ *  one-frame-oscillation log, kolu#2101 K3-server). That counter watches a lane
+ *  where every cycle DELIVERS a frame — the chain demonstrably works and is
+ *  merely flapping — so it can afford to be patient and it only writes a log.
+ *  This one watches a lane where every cycle delivers NOTHING, which is a pane
+ *  the user is staring at; it is the tighter, louder of the two on purpose. */
+const FRUITLESS_CYCLE_VERDICT = 200;
+
+/** The re-attach spacing after a verdict — the loud-persistence cadence.
+ *
+ *  30s, and the floor is not arbitrary: it is above the heartbeat's ~25s
+ *  worst-case half-open cycle (`@kolu/surface`'s `heartbeat.ts`), so a demoted
+ *  loop never issues more than one attach per watchdog cycle. The repair that
+ *  would actually heal a wedged chain — the socket cycle, J1's epoch wrap
+ *  failing the orphans into this same retry channel, kolu-server re-binding padi
+ *  — gets a full cycle to land between attempts instead of racing them.
+ *
+ *  **The unboundedness argument (mandated, kolu#2101 K1).** The demoted loop has
+ *  no ceiling, and that is deliberate; here is why it cannot become a storm or a
+ *  zombie. It is idle-cheap: two RPC opens a minute for one pane, versus 200 in
+ *  the same minute before demotion, and each open re-reads live inputs so it
+ *  makes progress rather than repeating itself. It is rate-limited in the one
+ *  channel that could flood — the verdict is said once per episode, and an
+ *  episode can only be re-opened by a real delivered frame, so the log and the
+ *  toast cost a success each. It TERMINATES on every outcome that is genuinely
+ *  terminal: a gone terminal answers the declared `TerminalNotFound` and ends
+ *  the loop outright; an unmounted tile interrupts the fiber, cancelling even a
+ *  sleeping backoff. And it HEALS on every outcome that is recoverable, because
+ *  each of them lands in this same channel — J1's re-drive, the heartbeat's
+ *  socket cycle, padi re-binding, the host reconverging. What is left, the only
+ *  state in which this loop spins for hours, is a live PTY behind a chain that
+ *  is permanently wedged but never closes: exactly the state the verdict exists
+ *  to put a human in front of. The alternative shipped and was worse — an
+ *  `Effect.die` that left the tile with no road back at all, not even a slow
+ *  one, and no signpost saying so. */
+const DEMOTED_RETRY_MS = 30_000;
 
 /** A clean stream end for a tile that has NOT been told its PTY exited. Raised
  *  into the loop's own error channel so it travels the EXISTING abnormal-end path
@@ -292,21 +447,35 @@ export interface AttachTileFacts {
  *  a reopen that could not come. The channel now rides in the RETURN TYPE, where
  *  it cannot be silently flipped again.
  *
- *  **A SILENT open (kolu#2101 H3, narrowed by J1).** The three cases above all
- *  rest on an EVENT — a failure, an end, a refused frame. The wake-window
- *  residue had none: a pane sat blank while its host's own logs showed nothing
- *  at all. Two different causes produce that rendering, and only one of them is
- *  still this module's to catch. A wire that RE-DIALLED underneath the
- *  subscription is now failed by `@kolu/surface`'s epoch wrap on the reopen edge
- *  — the whole class, every subscription in the tab, no clock. What is left here
- *  is the UPSTREAM STALL: a relay holding the stream open over a source that
- *  says nothing, where no re-dial ever happens and silence is genuinely the only
- *  signal. So the deadline stays as the belt for that class (see
- *  {@link FIRST_FRAME_DEADLINE_MS} for the two-mechanism statement): an attempt
- *  that opens and delivers no first frame within it fails into channel 2 and
- *  re-attaches once; a second silent open in the same loop dies through the run
- *  edge. Only the FIRST frame is bounded — an idle terminal legitimately says
- *  nothing for hours, and an inter-frame deadline would blank every quiet pane.
+ *  **A SILENT open (kolu#2101 H3, narrowed by J1, re-derived at K1).** The three
+ *  cases above all rest on an EVENT — a failure, an end, a refused frame. The
+ *  wake-window residue had none: a pane sat blank while its host's own logs
+ *  showed nothing at all. Two different causes produce that rendering, and only
+ *  one of them is still this module's to catch. A wire that RE-DIALLED
+ *  underneath the subscription is failed by `@kolu/surface`'s epoch wrap on the
+ *  reopen edge — the whole class, every subscription in the tab, no clock, and
+ *  it arrives here (if at all) as a plain channel-2 failure that spends no
+ *  budget. What is left is the UPSTREAM STALL: a relay holding the stream open
+ *  over a source that says nothing, where no re-dial ever happens and silence is
+ *  genuinely the only signal. So the deadline stays as the belt for that class
+ *  (see {@link FIRST_FRAME_DEADLINE_MS} for the two-mechanism statement and the
+ *  45s derivation): an attempt that opens and delivers no first frame within it
+ *  fails into channel 2 and re-attaches once; a second silent open in the same
+ *  EPISODE says the verdict out loud and slows the loop down, rather than ending
+ *  the pane. Only the FIRST frame is bounded — an idle terminal legitimately
+ *  says nothing for hours, and an inter-frame deadline would blank every quiet
+ *  pane.
+ *
+ *  **The verdict, and what it is not (kolu#2101 K1/K3-client).** Two budgets and
+ *  a fruitless-cycle counter converge on ONE policy: say it once (a
+ *  `console.error` for the operator, one toast for the user), then keep
+ *  re-attaching at {@link DEMOTED_RETRY_MS}. It is deliberately not an
+ *  `Effect.die`: an executed tile has no road back — visibility toggles do not
+ *  remount it, only a sleep/wake cycle does, and nothing beside the dead pane
+ *  says so — so a false positive there is permanent, while a false positive on
+ *  the verdict costs one toast. Both budgets REFILL on a delivered frame,
+ *  because a pane that painted has proved the whole chain and the next stumble
+ *  is a new episode, not a continuation of an old one's accounting.
  *
  *  `streamFn` is re-entered per attempt (`Stream.suspend` under `retry`), so each
  *  re-attach picks up whatever the caller reads at open time (Terminal.tsx
@@ -339,13 +508,64 @@ export function consumeReattachingStream<T>(
   label: string,
   tile: AttachTileFacts,
 ): Effect.Effect<void, unknown> {
-  /** Spent, never refilled — see {@link CLEAN_END_REATTACH_BUDGET}. Lives in the
-   *  closure rather than the schedule because `Stream.suspend` re-enters the
-   *  stream, not this function. */
+  /** Spent per EPISODE, refilled by a delivered frame — see
+   *  {@link CLEAN_END_REATTACH_BUDGET}. Lives in the closure rather than the
+   *  schedule because `Stream.suspend` re-enters the stream, not this function. */
   let cleanEndReattaches = 0;
 
   /** The same, for the silent-open arm — see {@link FIRST_FRAME_REATTACH_BUDGET}. */
   let silentOpenReattaches = 0;
+
+  /** Consecutive channel-2 cycles that produced no frame at all — see
+   *  {@link FRUITLESS_CYCLE_VERDICT}. */
+  let fruitlessCycles = 0;
+
+  /** Has THIS attempt delivered a frame? Reset at the top of every attempt.
+   *  Read by the deadline watcher, by the refill, and by the fruitless counter,
+   *  which is why it is one fact and not three. */
+  let attemptSawFrame = false;
+
+  /** Is the loop retrying at {@link DEMOTED_RETRY_MS} rather than
+   *  {@link REATTACH_BACKOFF_MS}? Set by a verdict, lifted by a frame. */
+  let demoted = false;
+
+  /** Has this EPISODE already said its verdict? One line and one toast per
+   *  episode, and an episode costs a delivered frame to re-open — see the
+   *  rate-limit leg of {@link DEMOTED_RETRY_MS}'s unboundedness argument. */
+  let verdictSpoken = false;
+
+  /** The loop's ONE loudness policy: say it once, then slow down — never die.
+   *
+   *  Three triggers reach here (the two budgets and the fruitless counter) and
+   *  they deliberately share one voice, because from the user's chair they are
+   *  one condition: this pane is not receiving anything. The toast carries a
+   *  STABLE per-label id so a canvas of wedged panes cannot become a wall of
+   *  toasts, and so a re-verdict updates in place rather than stacking. */
+  const verdict = (reason: string) =>
+    Effect.sync(() => {
+      demoted = true;
+      if (verdictSpoken) return;
+      verdictSpoken = true;
+      console.error(
+        `${label}: ${reason} — kolu keeps re-attaching, now every ${DEMOTED_RETRY_MS / 1_000}s instead of every ${REATTACH_BACKOFF_MS}ms`,
+      );
+      toast.error(
+        `${label}: no output is reaching this pane. kolu is still retrying in the background.`,
+        { id: `attach-stalled:${label}` },
+      );
+    });
+
+  /** A frame ARRIVED: the chain is proven end to end, so this episode is over
+   *  and the next stumble starts a fresh one. Both budgets refill, the fruitless
+   *  run resets, the demotion lifts, and the verdict re-arms — see
+   *  {@link CLEAN_END_REATTACH_BUDGET}. */
+  const startFreshEpisode = () => {
+    cleanEndReattaches = 0;
+    silentOpenReattaches = 0;
+    fruitlessCycles = 0;
+    demoted = false;
+    verdictSpoken = false;
+  };
 
   /** Classify the end of ONE attempt that completed without failing. */
   const classifyCleanEnd = Effect.suspend(() => {
@@ -357,34 +577,37 @@ export function consumeReattachingStream<T>(
       Effect.flatMap(() =>
         Effect.suspend(() => {
           if (tile.hasExited()) return Effect.void;
-          if (cleanEndReattaches >= CLEAN_END_REATTACH_BUDGET) {
-            return Effect.die(
-              new Error(
-                `${label}: the attach stream ended cleanly ${cleanEndReattaches + 1} times with the terminal still live — the chain is manufacturing stream ends`,
-              ),
-            );
-          }
+          // Budget spent: SAY it, then re-attach anyway at the demoted cadence.
+          // It used to `Effect.die` here, which executed the tile — the pane had
+          // no road back at all and nothing near it said so (kolu#2101 K1).
+          const said =
+            cleanEndReattaches >= CLEAN_END_REATTACH_BUDGET
+              ? verdict(
+                  `the attach stream ended cleanly ${cleanEndReattaches + 1} times with the terminal still live — the chain is manufacturing stream ends`,
+                )
+              : Effect.void;
           cleanEndReattaches++;
-          return Effect.fail(new AttachEndedWhileLive(label));
+          return Effect.flatMap(said, () =>
+            Effect.fail(new AttachEndedWhileLive(label)),
+          );
         }),
       ),
     );
   });
 
   /** Classify an attempt that has been open for {@link FIRST_FRAME_DEADLINE_MS}
-   *  without a single frame. Same shape as {@link classifyCleanEnd}: budget,
-   *  then a typed failure; budget spent, then a defect. */
+   *  without a single frame. Same shape as {@link classifyCleanEnd}: a typed
+   *  failure either way, plus the shared verdict once the budget is out. */
   const silentOpenVerdict = Effect.suspend(() => {
-    if (silentOpenReattaches >= FIRST_FRAME_REATTACH_BUDGET) {
-      return Effect.die(
-        new Error(
-          `${label}: the attach stream opened silent twice — the chain is delivering no frames (no first frame within ${FIRST_FRAME_DEADLINE_MS}ms, ${silentOpenReattaches + 1} attempts running)`,
-        ),
-      );
-    }
+    const said =
+      silentOpenReattaches >= FIRST_FRAME_REATTACH_BUDGET
+        ? verdict(
+            `the attach stream opened silent ${silentOpenReattaches + 1} times — the chain is delivering no frames (no first frame within ${FIRST_FRAME_DEADLINE_MS}ms)`,
+          )
+        : Effect.void;
     silentOpenReattaches++;
-    return Effect.fail(
-      new AttachFirstFrameDeadline(label, FIRST_FRAME_DEADLINE_MS),
+    return Effect.flatMap(said, () =>
+      Effect.fail(new AttachFirstFrameDeadline(label, FIRST_FRAME_DEADLINE_MS)),
     );
   });
 
@@ -399,7 +622,7 @@ export function consumeReattachingStream<T>(
    *  parks on `Effect.never` until `raceFirst` interrupts it when the consume
    *  settles; unset, and the silence is the verdict. */
   const oneAttempt = Effect.suspend(() => {
-    let sawFrame = false;
+    attemptSawFrame = false;
     const consume = Stream.runForEach(Stream.suspend(streamFn), (item) =>
       // `Effect.suspend`, not `Effect.sync`: the handler's REFUSAL has to land in
       // the error channel, and a value returned out of `Effect.sync` would just be
@@ -407,14 +630,22 @@ export function consumeReattachingStream<T>(
       // throw still escapes as a defect, which is channel 1 and stays that way.
       Effect.suspend(() => {
         // A REFUSED frame still counts as a frame: the chain delivered, and the
-        // refusal has its own (channel 2) road.
-        sawFrame = true;
+        // refusal has its own (channel 2) road. Which is also why a refusal
+        // refills the budgets — a stale-grid ping-pong is a WRAPPING artifact
+        // over a working chain, and must never walk a pane into a verdict meant
+        // for a chain that delivers nothing.
+        if (!attemptSawFrame) {
+          attemptSawFrame = true;
+          startFreshEpisode();
+        }
         const refused = onItem(item);
         return refused ? Effect.fail(refused) : Effect.void;
       }),
     );
     const firstFrameWatch = Effect.sleep(FIRST_FRAME_DEADLINE_MS).pipe(
-      Effect.flatMap(() => (sawFrame ? Effect.never : silentOpenVerdict)),
+      Effect.flatMap(() =>
+        attemptSawFrame ? Effect.never : silentOpenVerdict,
+      ),
     );
     return Effect.raceFirst(consume, firstFrameWatch);
   });
@@ -429,6 +660,21 @@ export function consumeReattachingStream<T>(
             console.info(`${label}: the terminal is gone — attach loop ended`);
           })
         : Effect.fail(err),
+    ),
+    // The FRUITLESS run, counted before anything is reported: this attempt
+    // failed into channel 2 having delivered nothing at all. Consecutive, so a
+    // single frame anywhere resets it (that reset lives in the frame handler,
+    // with the refill). See {@link FRUITLESS_CYCLE_VERDICT}.
+    Effect.tapError(() =>
+      Effect.suspend(() => {
+        if (attemptSawFrame) return Effect.void;
+        fruitlessCycles++;
+        return fruitlessCycles >= FRUITLESS_CYCLE_VERDICT
+          ? verdict(
+              `${fruitlessCycles} consecutive re-attach cycles have produced no first frame`,
+            )
+          : Effect.void;
+      }),
     ),
     Effect.tapError((err) =>
       Effect.sync(() => {
@@ -467,6 +713,19 @@ export function consumeReattachingStream<T>(
         }
       }),
     ),
-    Effect.retry(Schedule.spaced(REATTACH_BACKOFF_MS)),
+    // The spacing is READ at each recurrence, not baked in: a verdict demotes
+    // the loop to {@link DEMOTED_RETRY_MS} and a delivered frame lifts it back
+    // to {@link REATTACH_BACKOFF_MS}. `modifyDelay` is the seam for that — the
+    // schedule stays one infinite `spaced`, so nothing about interruption
+    // (an unmount landing in the sleep) changes.
+    Effect.retry(
+      Schedule.spaced(REATTACH_BACKOFF_MS).pipe(
+        Schedule.modifyDelay(() =>
+          Effect.sync(() =>
+            Duration.millis(demoted ? DEMOTED_RETRY_MS : REATTACH_BACKOFF_MS),
+          ),
+        ),
+      ),
+    ),
   );
 }
