@@ -79,7 +79,10 @@ import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
-import { consumeReattachingStream } from "./reattachingStream";
+import {
+  consumeReattachingStream,
+  StaleSnapshotGrid,
+} from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
@@ -633,19 +636,22 @@ const Terminal: Component<{
           // recorded here even if the pane has resized since.
           // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
           // thunk and picks up a fresh grid — which is why the frame handler's
-          // response to a stale answer is to fail the attempt and let that outer
-          // loop reopen, rather than to paint and correct afterwards.
+          // response to a stale answer is to REFUSE the frame (returning a
+          // `StaleSnapshotGrid`, channel 2) and let that outer loop reopen,
+          // rather than to paint and correct afterwards.
           //
           // Absent is unreachable — `onceMeasured` opens the stream only once a
           // grid exists, and a measured grid is never un-measured.
           //
-          // A throw here is a DEFECT, and that is what makes it fail loud: the
-          // re-attach loop retries FAILURES, so a defect is not retried — it
-          // reaches the run edge, which reports it (console + toast) and ends the
-          // attach. Retrying it would instead run `resetForFreshSnapshot` every
-          // 300ms, blanking the user's pane three times a second. The old shape
-          // had to abort the stream by hand to get this; now it is what the two
-          // channels already mean.
+          // So a throw here is a DEFECT (channel 1 in `reattachingStream`'s
+          // header) and that is what makes it fail loud: the re-attach loop
+          // retries FAILURES, so a defect is not retried — it reaches the run
+          // edge, which reports it (console + toast) and ends the attach.
+          // Retrying it would instead run `resetForFreshSnapshot` every 300ms,
+          // blanking the user's pane three times a second. This is the ONE throw
+          // on the attach path that means it: the unreachable-by-construction
+          // breach, with no repair to attempt. Every recoverable condition on
+          // this path is a returned value, never a throw.
           const measured = h.grid();
           if (!measured) {
             throw new Error(
@@ -677,28 +683,40 @@ const Terminal: Component<{
           // REFUSE a snapshot that answers a grid this pane no longer has.
           //
           // A snapshot is bytes laid out for the grid it was serialized at, and
-          // two paths can make that grid stale between the ask and the answer: a
-          // resize while the request is in flight, and a STREAM_RETRY, which
-          // re-subscribes by replaying the ORIGINAL captured input. Painting it
-          // anyway and correcting the PTY afterwards does NOT undo the damage —
-          // a later SIGWINCH repaints a full-screen app, but nothing rebuilds
-          // scrollback that has already been wrapped at the wrong width. That is
-          // this bug, reachable again by a different route, so the answer is to
-          // not paint at all: throwing here fails the attempt, and
-          // `consumeReattachingStream` resets the screen and reopens through the
-          // thunk above, which reads the CURRENT grid. Its 300ms backoff bounds
-          // the loop, and a pane that has stopped resizing converges on its first
-          // reopen.
+          // THREE paths can make that grid stale between the ask and the answer:
+          // a resize while the request is in flight (a reload's one-column
+          // layout settle is the common one), a STREAM_RETRY, which re-subscribes
+          // by replaying the ORIGINAL captured input, and another client
+          // attaching at its own size — `resizeTo` is last-attach-wins on a
+          // SHARED pty (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`),
+          // so a phone joining this terminal resizes it under this pane. Painting
+          // the answer anyway and correcting the PTY afterwards does NOT undo the
+          // damage — a later SIGWINCH repaints a full-screen app, but nothing
+          // rebuilds scrollback that has already been wrapped at the wrong width.
+          //
+          // So: do not paint at all. RETURNING the refusal fails the attempt in
+          // the recoverable channel, and `consumeReattachingStream` resets the
+          // screen and reopens through the thunk above, which reads the CURRENT
+          // grid. Its 300ms backoff bounds the loop, and a pane that has stopped
+          // resizing converges on its first reopen.
+          //
+          // It is a RETURN and not a throw because that promise has to be true.
+          // Spelled as a throw, this refusal was a defect the failure-only retry
+          // never saw: the loop died, the pane went permanently blank over a live
+          // agent, and the toast said "reopening" (kolu#2101 deploy #2 incident
+          // #3 — three panes at once on a 66→65 column settle, and again from a
+          // phone attaching mid-session). The channel is now in the type.
           //
           // This is the FIRST of two checks — the cheap guard that stops the
           // common case before a single byte is written or any backfill state is
           // touched. Receipt is not when the bytes LAND, so the write callback
           // re-checks; the why is stated in full there.
           if (frame.kind === "snapshot" && !answersCurrentGrid()) {
-            const current = h.grid();
-            throw new Error(
-              `terminal ${props.terminalId}: snapshot answered ${requestedGrid?.cols}x${requestedGrid?.rows}, pane is now ${current?.cols}x${current?.rows} — reopening`,
-            );
+            return new StaleSnapshotGrid({
+              terminalId: props.terminalId,
+              requested: requestedGrid,
+              current: h.grid(),
+            });
           }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
           // MID-STREAM overflow re-attach). Consume it as one indivisible act:
@@ -774,10 +792,13 @@ const Terminal: Component<{
               // seed computed from those bytes must not be committed (it would
               // anchor backfill to a layout the buffer no longer has) and the
               // screen must be repainted from a snapshot for the grid it now is.
-              // The frame handler's throw is unavailable here — this runs in an
-              // xterm callback, not the iterator — so the attempt is aborted and
-              // reopened explicitly instead. The first stale callback installs
-              // the one replacement; the rest are superseded by the guard above.
+              // The frame handler's REFUSAL channel is unavailable here — this
+              // runs in an xterm callback, not the iterator, so there is no
+              // return value the loop will read — and the attempt is aborted and
+              // reopened explicitly instead. Same repair, same promise (a reopen
+              // really does follow), reached by the one route this callsite has.
+              // The first stale callback installs the one replacement; the rest
+              // are superseded by the guard above.
               if (commitSeed && !answersCurrentGrid()) {
                 reopenForStaleGrid();
                 return;

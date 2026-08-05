@@ -1,6 +1,9 @@
 import { Effect, Exit, Fiber, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { consumeReattachingStream } from "./reattachingStream";
+import {
+  consumeReattachingStream,
+  StaleSnapshotGrid,
+} from "./reattachingStream";
 
 /** Emit each of `items`, then either END cleanly or FAIL with `failWith`. */
 function streamThat<T>(
@@ -46,7 +49,15 @@ describe("consumeReattachingStream", () => {
       .mockReturnValueOnce(streamThat(["stale"], new Error("padi died")))
       .mockReturnValueOnce(streamThat(["fresh-snapshot", "live"]));
 
-    start(streamFn, (item) => items.push(item), onReattach, "test", tile());
+    start(
+      streamFn,
+      (item) => {
+        items.push(item);
+      },
+      onReattach,
+      "test",
+      tile(),
+    );
 
     // Drain the loop, waiting past the real-timer 300ms backoff that sits
     // between the failed first attempt and the re-subscribe.
@@ -67,7 +78,15 @@ describe("consumeReattachingStream", () => {
       .fn<() => Stream.Stream<string, unknown>>()
       .mockReturnValue(streamThat(["a", "b"]));
 
-    start(streamFn, (item) => items.push(item), onReattach, "test", tile(true));
+    start(
+      streamFn,
+      (item) => {
+        items.push(item);
+      },
+      onReattach,
+      "test",
+      tile(true),
+    );
 
     for (let i = 0; i < 10; i++) await flush();
 
@@ -98,7 +117,15 @@ describe("consumeReattachingStream", () => {
         Stream.concat(streamThat(["fresh-snapshot", "live"]), Stream.never),
       );
 
-    start(streamFn, (item) => items.push(item), onReattach, "test", tile());
+    start(
+      streamFn,
+      (item) => {
+        items.push(item);
+      },
+      onReattach,
+      "test",
+      tile(),
+    );
 
     // Past the exit-settle window AND the re-subscribe backoff (300 + 300).
     await new Promise((r) => setTimeout(r, 800));
@@ -172,6 +199,280 @@ describe("consumeReattachingStream", () => {
     expect(onReattach).toHaveBeenCalledTimes(1);
   });
 
+  // ── The stale-grid refusal (kolu#2101, deploy #2 incident #3) ───────────
+  //
+  // A snapshot answers the grid the attempt ASKED at. If the pane has resized
+  // since, painting it wraps scrollback at the wrong width — damage no later
+  // repaint undoes — so the handler refuses the frame. That refusal is a
+  // RECOVERABLE race with a documented repair (reset, reopen at the current
+  // grid). Spelled as a `throw` it was a DEFECT the failure-only retry never
+  // saw: the loop died, the pane went permanently blank over a live agent, and
+  // the toast said "reopening". These pin the channel, not the wording.
+
+  /** One pane driven the way `Terminal.tsx` drives it: the thunk captures the
+   *  grid it opens at, the frame handler refuses a snapshot that answers any
+   *  other grid, and `onReattach` is the screen reset. `perturb` runs at open
+   *  time and models a grid that moves WHILE the request is in flight (a
+   *  reload's column settle, another client's resize landing on the shared pty). */
+  function pane(opts: {
+    startAt: number;
+    perturbTo?: number[];
+    onOpen?: (cols: number) => void;
+  }) {
+    let paneCols = opts.startAt;
+    let requestedCols = 0;
+    const perturbations = [...(opts.perturbTo ?? [])];
+    const refusals: string[] = [];
+    const painted: string[] = [];
+    const onReattach = vi.fn();
+    const streamFn = vi.fn<() => Stream.Stream<string, unknown>>(() => {
+      requestedCols = paneCols; // the thunk reads the CURRENT grid, every open
+      opts.onOpen?.(requestedCols);
+      const settle = perturbations.shift();
+      if (settle !== undefined) paneCols = settle; // …and it moves in flight
+      return Stream.concat(
+        streamThat([`snapshot@${requestedCols}`]),
+        Stream.never, // a healthy attach stays open
+      );
+    });
+    const onItem = (item: string): StaleSnapshotGrid | undefined => {
+      if (item.startsWith("snapshot@") && requestedCols !== paneCols) {
+        refusals.push(item);
+        return new StaleSnapshotGrid({
+          terminalId: "t1",
+          requested: { cols: requestedCols, rows: 24 },
+          current: { cols: paneCols, rows: 24 },
+        });
+      }
+      painted.push(item);
+      return undefined;
+    };
+    return {
+      streamFn,
+      onItem,
+      onReattach,
+      refusals,
+      painted,
+      cols: () => paneCols,
+      resizeTo: (cols: number) => {
+        paneCols = cols;
+      },
+    };
+  }
+
+  it("resize between the request and the answer → resets, reopens ONCE, converges", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const p = pane({ startAt: 66, perturbTo: [65] }); // the 66→65 column settle
+
+    const fiber = start(p.streamFn, p.onItem, p.onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 500)); // past one 300ms backoff
+    expect(p.refusals).toEqual(["snapshot@66"]); // the stale answer, refused
+    expect(p.painted).toEqual(["snapshot@65"]); // the fresh one, at the new grid
+    expect(p.onReattach).toHaveBeenCalledTimes(1); // reset once, before reopening
+    expect(p.streamFn).toHaveBeenCalledTimes(2); // reopened exactly once
+
+    // And the loop is ALIVE — the incident's whole cost was that it was not.
+    expect(fiber.pollUnsafe()).toBe(undefined);
+    fiber.interruptUnsafe();
+  });
+
+  it("the reload storm: N panes each shifting one column all converge", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Three panes, the shape of the production report: a hard reload, every
+    // pane's layout settling one column narrower at once.
+    const panes = [66, 100, 132].map((startAt) =>
+      pane({ startAt, perturbTo: [startAt - 1] }),
+    );
+    const fibers = panes.map((p) =>
+      start(p.streamFn, p.onItem, p.onReattach, "test", tile()),
+    );
+
+    await new Promise((r) => setTimeout(r, 500));
+
+    for (const [i, p] of panes.entries()) {
+      expect(p.painted).toEqual([`snapshot@${[65, 99, 131][i]}`]);
+      expect(p.streamFn).toHaveBeenCalledTimes(2);
+      expect(fibers[i]?.pollUnsafe()).toBe(undefined); // none died
+    }
+    for (const f of fibers) f.interruptUnsafe();
+  });
+
+  it("a THROW from the frame handler still DIES loud — not retried", async () => {
+    // The negative pin. Refusing a frame is recoverable and returns; a breach of
+    // an invariant nothing can repair still throws, and must still skip every
+    // recovery path (channel 1). Same rule as the thunk's measured-grid assert.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["boom"]), Stream.never));
+
+    const fiber = Effect.runFork(
+      consumeReattachingStream(
+        streamFn,
+        () => {
+          throw new Error("attach opened without a measured grid");
+        },
+        onReattach,
+        "test",
+        tile(),
+      ),
+    );
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(1); // never retried
+    expect(onReattach).not.toHaveBeenCalled(); // and never reset the screen
+  });
+
+  it("a THROW from the thunk still DIES loud — not retried", async () => {
+    const onReattach = vi.fn();
+    const streamFn = vi.fn<() => Stream.Stream<string, unknown>>(() => {
+      throw new Error("terminal t1: attach opened without a measured grid");
+    });
+
+    const fiber = Effect.runFork(
+      consumeReattachingStream(
+        streamFn,
+        () => undefined,
+        onReattach,
+        "t",
+        tile(),
+      ),
+    );
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(onReattach).not.toHaveBeenCalled();
+  });
+
+  it("a throwing onReattach does NOT cost the re-attach — the promise holds", async () => {
+    // `onReattach` is the caller's screen reset (`xterm.reset()` on a terminal
+    // that may already be disposed). Run bare it is a DEFECT, so the loop would
+    // die having just WIPED the pane — blank pane, live agent, the exact
+    // rendering this module exists to kill — while the comment one line above it
+    // promises "fired ⇒ a re-subscribe follows". Contained, the promise holds.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn(() => {
+      throw new Error("xterm: terminal has been disposed");
+    });
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat<string>([], new Error("padi died")))
+      .mockReturnValue(Stream.concat(streamThat(["fresh"]), Stream.never));
+
+    const fiber = start(streamFn, () => undefined, onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 500));
+    expect(streamFn).toHaveBeenCalledTimes(2); // re-subscribed anyway
+    expect(err).toHaveBeenCalledTimes(1); // and said so, loudly
+    expect(fiber.pollUnsafe()).toBe(undefined); // still alive
+    fiber.interruptUnsafe();
+  });
+
+  // ── Multi-client grid contention (kolu#2101 G8d/G8e) ────────────────────
+  //
+  // `resizeTo` is a WRITE to a SHARED pty and the policy is LAST-ATTACH-WINS
+  // (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`). Two clients on one
+  // terminal therefore ping-pong its width — the production recording shows
+  // content re-wrapping 136 → ~65 → 136 with neither viewer told why. The policy
+  // is not what this test can change; what it pins is that the contention is a
+  // WRAPPING artifact and never a LIFECYCLE one: every refusal converges, and no
+  // pane loses its attach loop no matter how many times the other side asserts.
+
+  it("two clients ping-ponging the shared grid: both converge, neither loop dies", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    /** The shared pty, last-attach-wins — the stated policy, executed. */
+    let ptyCols = 136;
+    const attachAsserts: number[] = [];
+    const assertGrid = (cols: number) => {
+      attachAsserts.push(cols);
+      ptyCols = cols;
+    };
+
+    // The desktop holds a live attach at 136; its own layout settles twice
+    // (136 → 132 → 130) while the phone resumes alongside it — the iOS unlock
+    // re-attach, asserting 65 on the shared pty each time.
+    const desktop = pane({
+      startAt: 136,
+      perturbTo: [132, 130],
+      onOpen: assertGrid,
+    });
+    const phone = pane({ startAt: 65, onOpen: assertGrid });
+
+    const dFiber = start(
+      desktop.streamFn,
+      desktop.onItem,
+      desktop.onReattach,
+      "desktop",
+      tile(),
+    );
+    const pFiber = start(
+      phone.streamFn,
+      phone.onItem,
+      phone.onReattach,
+      "phone",
+      tile(),
+    );
+
+    await new Promise((r) => setTimeout(r, 1000)); // several backoff windows
+
+    // The desktop refused every stale answer and re-attached each time, ending
+    // painted at the grid its pane actually has.
+    expect(desktop.refusals).toEqual(["snapshot@136", "snapshot@132"]);
+    expect(desktop.painted).toEqual(["snapshot@130"]);
+    expect(desktop.streamFn).toHaveBeenCalledTimes(3);
+    // The phone was never perturbed, so it painted first time and never reopened.
+    expect(phone.painted).toEqual(["snapshot@65"]);
+    expect(phone.streamFn).toHaveBeenCalledTimes(1);
+    // Neither loop died — the property the incident broke.
+    expect(dFiber.pollUnsafe()).toBe(undefined);
+    expect(pFiber.pollUnsafe()).toBe(undefined);
+    // The ping-pong itself: both sizes asserted on ONE shared pty, and the pty
+    // carries the LAST assertion — the stated last-attach-wins policy, executed.
+    expect(new Set(attachAsserts)).toEqual(new Set([136, 132, 130, 65]));
+    expect(ptyCols).toBe(attachAsserts[attachAsserts.length - 1]);
+
+    dFiber.interruptUnsafe();
+    pFiber.interruptUnsafe();
+  });
+
+  it("a FOREIGN resize alone is invisible to this pane — today's gap, pinned", async () => {
+    // The honest negative pin, and the reason the affordance needs a wire fact.
+    // The refusal compares what THIS attempt asked for against what THIS pane
+    // now measures. A foreign client's `resizeTo` moves the SHARED pty and
+    // touches neither, so this pane paints a snapshot serialized at the other
+    // viewer's width into its own unchanged grid — the production recording's
+    // 136-col pane rendering ~65 cols of content, with nothing said to either
+    // viewer. Nothing here is wrong about the LOOP (the point of the test above);
+    // what is missing is a fact. Flip this test when the pty's current grid
+    // reaches the client — see `PadiTerminalAttachInputSchema`'s policy note.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let ptyCols = 136;
+    const desktop = pane({ startAt: 136, onOpen: (c) => (ptyCols = c) });
+
+    const fiber = start(
+      desktop.streamFn,
+      desktop.onItem,
+      desktop.onReattach,
+      "desktop",
+      tile(),
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    ptyCols = 65; // the phone attaches: last-attach-wins, silently
+
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ptyCols).toBe(65); // the pty really is 65 now
+    expect(desktop.cols()).toBe(136); // the pane really is still 136
+    expect(desktop.refusals).toEqual([]); // …and nothing refused,
+    expect(desktop.painted).toEqual(["snapshot@136"]); // nothing re-attached,
+    expect(desktop.onReattach).not.toHaveBeenCalled(); // nothing told the user.
+    fiber.interruptUnsafe();
+  });
+
   // The successor of the old "expected cleanup error" case. There is no such
   // error to classify any more: teardown is a fiber INTERRUPT, and an
   // interruption is not a failure — so an unmount can no longer be mistaken for
@@ -187,7 +488,9 @@ describe("consumeReattachingStream", () => {
 
     const fiber = start(
       streamFn,
-      (item) => items.push(item),
+      (item) => {
+        items.push(item);
+      },
       onReattach,
       "test",
       tile(),

@@ -1,3 +1,41 @@
+/**
+ * The terminal attach loop, and THE statement of its channel taxonomy.
+ *
+ * Three ways an attach attempt can stop, three different meanings. Getting one
+ * into the wrong channel is not a style slip — it is how a documented-recoverable
+ * race became a dead pane in production twice (kolu#2101, deploy #2), so the
+ * mapping is written here, once, and every site below points at it:
+ *
+ *  1. **DEFECT — an impossible state, dies loud, never retried.** Spelled as a
+ *     `throw` (from `streamFn`, or from `onItem`) or an explicit `Effect.die`.
+ *     `Effect.retry` retries FAILURES ONLY, so a defect skips every recovery path
+ *     here and reaches `runAction`'s edge, which reports it (console + a
+ *     "failed unexpectedly" toast) and ends the attach with no successor. That is
+ *     the right answer for a breach of an invariant nothing can repair — the
+ *     thunk's `attach opened without a measured grid` assert, or a chain that has
+ *     manufactured a second clean end in a row. Retrying one of those would run
+ *     `onReattach` every 300ms, blanking the user's pane three times a second.
+ *  2. **TYPED FAILURE — a recoverable condition, retried through `onReattach`.**
+ *     Spelled as a value in the error channel: a stream failure (a mid-chain padi
+ *     death), a frame the consumer REFUSES ({@link StaleSnapshotGrid}), or the
+ *     first unexpected clean end. All three take the SAME road — reset the screen,
+ *     wait {@link REATTACH_BACKOFF_MS}, re-subscribe through a freshly-entered
+ *     `streamFn` that reads the CURRENT grid. The retry is unbounded here and that
+ *     is not a new unbounded thing: every member of this channel is driven by an
+ *     external cause that stops (a resize settles, a re-bound padi comes back),
+ *     each attempt re-reads live inputs so it makes progress rather than repeating
+ *     itself, and the two conditions that CANNOT self-heal are excluded by
+ *     construction — a gone terminal ends the loop (below) and a manufactured end
+ *     is budgeted (above).
+ *  3. **CLEAN END — classified, never trusted.** A completed stream means "the PTY
+ *     exited" only when the tile's own facts agree; otherwise it is channel 2 with
+ *     a budget. See {@link AttachTileFacts} and {@link CLEAN_END_REATTACH_BUDGET}.
+ *
+ * The rule that keeps this honest: **no message may claim a re-attach unless one
+ * follows.** A comment or a toast that promises recovery on a path that dies is
+ * the bug, not a documentation slip — it is what let both incidents pass review.
+ */
+
 import { Effect, Schedule, Stream } from "effect";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 
@@ -49,6 +87,51 @@ class AttachEndedWhileLive extends Error {
       `${label}: the attach stream ended cleanly while the terminal is still live — re-attaching`,
     );
     this.name = "AttachEndedWhileLive";
+  }
+}
+
+/** Just the two numbers this module needs off a terminal grid — structural, so
+ *  the loop does not take a dependency on the kit's `TerminalGrid` to render a
+ *  message about one. */
+interface Grid {
+  cols: number;
+  rows: number;
+}
+
+/** The consumer REFUSES this frame: the snapshot answers a grid the pane no
+ *  longer has, so painting it would wrap scrollback at the wrong width — damage
+ *  a later repaint cannot undo.
+ *
+ *  A RETURNED value, not a throw, and that is the whole point (kolu#2101 G8). The
+ *  refusal is a recoverable race — a resize between the request and the answer,
+ *  a `STREAM_RETRY` replaying the original captured grid, another client
+ *  attaching at its own size — whose documented repair has always been "reset and
+ *  reopen at the current grid". While it was spelled as a `throw` inside the
+ *  handler that this loop runs, it was a DEFECT (channel 1): the retry never
+ *  fired, the pane died with a `failed unexpectedly` toast whose text still said
+ *  "reopening", and the agent underneath kept running into a screen nobody would
+ *  ever see again. Returning it puts the channel in the TYPE — the compiler now
+ *  routes it, so the two channels cannot be conflated again by an edit that does
+ *  not mention them. Anything the handler still THROWS stays a defect, unchanged
+ *  and deliberate.
+ *
+ *  Carries both grids because the message is the only forensic record a user's
+ *  screenshot preserves. */
+export class StaleSnapshotGrid extends Error {
+  constructor(args: {
+    terminalId: string;
+    /** The grid this attempt ASKED at. Absent only before the first request. */
+    requested: Grid | null | undefined;
+    /** The grid the pane has NOW. Absent when the pane has been disposed and
+     *  released its measurement. */
+    current: Grid | null | undefined;
+  }) {
+    const at = (g: Grid | null | undefined) =>
+      g ? `${g.cols}x${g.rows}` : "unmeasured";
+    super(
+      `terminal ${args.terminalId}: snapshot answered ${at(args.requested)}, pane is now ${at(args.current)} — refusing it and re-attaching at the current grid`,
+    );
+    this.name = "StaleSnapshotGrid";
   }
 }
 
@@ -110,6 +193,18 @@ export interface AttachTileFacts {
  *  `TerminalNotFound`), so a `PtyNotFound` surfacing on this wire would mean
  *  padi's registry and kaval's table disagree — a real fault that must be loud.
  *
+ *  **A REFUSED frame (kolu#2101, deploy #2 incident #3).** `onItem` may hand back
+ *  a {@link StaleSnapshotGrid} instead of consuming its frame — the snapshot
+ *  answers a grid the pane no longer has. That is channel 2: it fails the
+ *  attempt, so the screen is reset and the stream reopened through a
+ *  freshly-entered `streamFn` that reads the CURRENT grid, and a pane that has
+ *  stopped resizing converges on its first reopen. It reached production as
+ *  channel 1 instead — a `throw` inside the handler this loop ran under
+ *  `Effect.sync` — which the retry (failures only) never saw: three panes died at
+ *  once after a reload, on a one-column layout settle, with a toast that promised
+ *  a reopen that could not come. The channel now rides in the RETURN TYPE, where
+ *  it cannot be silently flipped again.
+ *
  *  `streamFn` is re-entered per attempt (`Stream.suspend` under `retry`), so each
  *  re-attach picks up whatever the caller reads at open time (Terminal.tsx
  *  re-reads the live grid there).
@@ -123,15 +218,20 @@ export interface AttachTileFacts {
  *  retry schedule is interruptible. There is no signal to thread and none to
  *  forget.
  *
- *  A THROW from `streamFn` is a DEFECT, not a failure, so `Effect.retry` does not
- *  retry it — it propagates to the run edge, which reports it loudly and stops
- *  the loop. That is deliberate and is what the caller's grid assertion relies
- *  on: retrying an impossible-state breach every 300ms would wipe the user's
- *  screen three times a second (each retry runs `onReattach`) instead of
- *  surfacing the bug. */
+ *  A THROW — from `streamFn` OR from `onItem` — is a DEFECT, not a failure, so
+ *  `Effect.retry` does not retry it (channel 1 in the module header). It
+ *  propagates to the run edge, which reports it loudly and stops the loop. That is
+ *  deliberate and is what the caller's measured-grid assertion relies on:
+ *  retrying an impossible-state breach every 300ms would wipe the user's screen
+ *  three times a second (each retry runs `onReattach`) instead of surfacing the
+ *  bug. A condition that SHOULD recover says so by returning
+ *  {@link StaleSnapshotGrid}, never by throwing. */
 export function consumeReattachingStream<T>(
   streamFn: () => Stream.Stream<T, unknown>,
-  onItem: (item: T) => void,
+  /** Consume the frame — or REFUSE it by returning a {@link StaleSnapshotGrid},
+   *  which fails the attempt into the re-attach path. A throw here remains a
+   *  defect (channel 1). */
+  onItem: (item: T) => StaleSnapshotGrid | undefined,
   onReattach: () => void,
   label: string,
   tile: AttachTileFacts,
@@ -166,7 +266,14 @@ export function consumeReattachingStream<T>(
   });
 
   return Stream.runForEach(Stream.suspend(streamFn), (item) =>
-    Effect.sync(() => onItem(item)),
+    // `Effect.suspend`, not `Effect.sync`: the handler's REFUSAL has to land in
+    // the error channel, and a value returned out of `Effect.sync` would just be
+    // a success the loop ignores — the exact conflation this shape replaces. A
+    // throw still escapes as a defect, which is channel 1 and stays that way.
+    Effect.suspend(() => {
+      const refused = onItem(item);
+      return refused ? Effect.fail(refused) : Effect.void;
+    }),
   ).pipe(
     Effect.flatMap(() => classifyCleanEnd),
     // The typed "this terminal is gone" verdict ENDS the loop — placed INSIDE the
@@ -181,14 +288,38 @@ export function consumeReattachingStream<T>(
     Effect.tapError((err) =>
       Effect.sync(() => {
         // Fresh reset FIRST so the reopened stream's snapshot repaints cleanly.
-        // Inside the retry, so it fires once per abnormal end and never after a
+        // Inside the retry, so it fires once per channel-2 end and never after a
         // graceful one — the same "fired ⇒ a re-subscribe follows" rule the
-        // framework fence holds for `onRetry`.
-        console.warn(
-          `${label}: re-attaching after a mid-chain stream end`,
-          err,
-        );
-        onReattach();
+        // framework fence holds for `onRetry`. Which is also why this line says
+        // "re-attaching" and nothing else does: reaching it MEANS the retry
+        // below is about to re-subscribe. The cause rides in `err` rather than
+        // in prose, because all three channel-2 members land here — a mid-chain
+        // death, a refused frame, an unexpected clean end.
+        console.warn(`${label}: re-attaching`, err);
+        // CONTAINED, and this is the one place containment is right. `onReattach`
+        // is the caller's screen hygiene (xterm reset, scroll-lock drop, backfill
+        // reset) and it CAN throw — `terminal.reset()` on a terminal xterm has
+        // already disposed is the reachable case. A throw here is a defect, and a
+        // defect skips the retry (channel 1): the loop would die having just
+        // WIPED the pane, which is the blank-pane-over-a-live-agent rendering
+        // this module exists to kill, and it would break the promise stated three
+        // lines up. So the failed reset is reported loudly and the re-attach goes
+        // ahead — the fresh snapshot repaints from scratch anyway, so a reset
+        // that did not happen costs at worst one double-painted frame, against a
+        // dead pane for certain. Nothing is collapsed to an empty state: the
+        // error is surfaced with its cause. The framework's own `containThrow`
+        // says the same thing one layer down, but it is not exported to
+        // consumers, and adding an export is a gated @kolu/surface change
+        // (`.claude/rules/surface.md`) — see this round's sweep report, which
+        // records the same defect on `fenceStream`'s `onRetry`.
+        try {
+          onReattach();
+        } catch (resetErr) {
+          console.error(
+            `${label}: the pre-re-attach reset threw — re-attaching anyway`,
+            resetErr,
+          );
+        }
       }),
     ),
     Effect.retry(Schedule.spaced(REATTACH_BACKOFF_MS)),
