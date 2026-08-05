@@ -58,16 +58,32 @@ export type KoluHttpMiddleware = <E, R>(
   R | HttpServerRequest.HttpServerRequest
 >;
 
-/** A cause the ROUTER already has an answer for: `RouteNotFound` → 404,
- *  `RequestParseError` → 400, and friends all carry their own response through
- *  Effect's `Respondable` protocol. Logging those as unhandled faults would turn
- *  every 404 into an error line and swap a 404 for a 500 — so they pass straight
- *  through to the machinery that knows their status. */
+/** A cause the ROUTER already has an answer for, in either of the two shapes
+ *  Effect's `Respondable` protocol uses:
+ *
+ *  - an `HttpServerError` — `RouteNotFound` → 404, `RequestParseError` → 400 and
+ *    friends carry their own status;
+ *  - an `HttpServerResponse` ITSELF, which is respondable and is how a handler
+ *    delivers a fully-formed response through the FAILURE channel.
+ *
+ *  Both pass straight through to the machinery that knows what to do with them.
+ *  Logging either as an unhandled fault would turn a 404 into an error line and,
+ *  worse, swap a real response for a 500.
+ *
+ *  The second arm is not hypothetical: `GET /` (the SPA shell) intermittently
+ *  arrived here as a Fail carrying its own `HttpServerResponse` — the index.html
+ *  file stream, fully formed — and this middleware answered 500, so the browser
+ *  got an error page for a request the server had successfully prepared. It is
+ *  load-dependent, which is why it hid: never reproduced on an idle box, and
+ *  reproduced under CPU saturation inside the adoption VM test, where each 500
+ *  also cost the boot poll a retry cycle against its 180s budget. */
 const routerAnswered = (cause: Cause.Cause<unknown>): boolean =>
   cause.reasons.length > 0 &&
   cause.reasons.every(
     (reason) =>
-      reason._tag === "Fail" && HttpServerError.isHttpServerError(reason.error),
+      reason._tag === "Fail" &&
+      (HttpServerError.isHttpServerError(reason.error) ||
+        HttpServerResponse.isHttpServerResponse(reason.error)),
   );
 
 /** Log every uncaught route fault through pino, then answer a 500. */

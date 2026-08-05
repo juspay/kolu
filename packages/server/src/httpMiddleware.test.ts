@@ -124,6 +124,32 @@ describe("routeErrorLogging", () => {
     expect(HttpServerError.isHttpServerError(failure)).toBe(true);
     expect(log.error).not.toHaveBeenCalled();
   });
+
+  it("re-raises a RESPONSE delivered through the failure channel — never a 500 over a real answer", async () => {
+    // The second `Respondable` shape: a handler may FAIL with a fully-formed
+    // `HttpServerResponse`, which the machinery downstream then sends. Treating
+    // that as an unhandled fault replaces a real answer with `500 internal
+    // server error`.
+    //
+    // Found in production shape, not in theory: `GET /` — the SPA shell, an
+    // index.html file stream — arrived here exactly this way under load, and the
+    // browser got an error page for a request the server had already prepared.
+    // Pre-fix this test fails with `status 500` and a logged "unhandled error
+    // serving request".
+    const log = { error: vi.fn() };
+    const shell = HttpServerResponse.text("<!doctype html>", {
+      headers: { "content-type": "text/html" },
+    });
+
+    const failure = await Effect.runPromise(
+      withRequest(Effect.flip(routeErrorLogging(log)(Effect.fail(shell)))),
+    );
+
+    // Re-raised verbatim, so the response the handler built is the one that goes
+    // out — identity, not a copy.
+    expect(failure).toBe(shell);
+    expect(log.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("requestLogging", () => {

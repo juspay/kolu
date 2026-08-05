@@ -184,13 +184,47 @@ let
     ''machine.succeed("machinectl -q shell alice@.host /run/current-system/sw/bin/systemctl --user ${args} </dev/null")'';
 
   # Poll until kolu's HTTP listener binds. systemd reports kolu "active" before
-  # the port is open; 180s headroom for hosts without KVM (qemu TCG inflates node
-  # startup ~10x).
+  # the port is open.
+  #
+  # THE BUDGET. 180s was derived for a host without KVM (qemu TCG inflates node
+  # startup ~10x) on an OTHERWISE IDLE machine — and CI is neither. Measured on a
+  # 16-core box against this very check: 41s idle, 166s with 48 spinning
+  # processes competing for cores (4x). A CI runner is a smaller box running the
+  # whole pipeline in parallel, so it sits past the far end of that range, which
+  # is exactly where the budget was blowing. 360s keeps the ~2x margin over the
+  # measured contended case that 180s was meant to have over the idle one.
+  #
+  # Raising it costs a healthy run NOTHING: `wait_until_succeeds` returns the
+  # moment curl succeeds, so this number only ever bounds the FAILING case — and
+  # in that case the dump below is what makes the extra wait worth having.
+  #
+  # ON TIMEOUT, DUMP ALICE'S USER JOURNAL. kolu and padi run as `systemd --user`
+  # units, whose journal is NOT forwarded to the VM console — so when this poll
+  # blew its budget in CI the whole failure was one line ("timed out") over a
+  # console that had said nothing since boot, and the run was undiagnosable after
+  # the fact. The processes had plenty to say; nobody was reading it. `_UID=1000`
+  # is alice's whole user journal read as root, which is the only side whose exit
+  # status the driver sees (see the `machinectl` note above).
+  #
+  # This never changes a passing run, and turns the next failing one into
+  # evidence.
   waitForListener = ''
-    machine.wait_until_succeeds(
-        "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
-        timeout=180,
-    )
+    try:
+        machine.wait_until_succeeds(
+            "curl --fail --silent http://127.0.0.1:${port}/ > /dev/null",
+            timeout=360,
+        )
+    except Exception:
+        machine.log("kolu's HTTP listener never bound — dumping alice's user journal")
+        _, journal = machine.execute(
+            "journalctl _UID=1000 --no-pager --lines=400 2>&1 || true"
+        )
+        machine.log(journal)
+        _, units = machine.execute(
+            "systemctl --user --machine=alice@.host list-units --all --no-pager 2>&1 || true"
+        )
+        machine.log(units)
+        raise
   '';
 
   # The shared boot-poll prologue: multi-user, then alice's user session, then
