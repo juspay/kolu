@@ -146,6 +146,11 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
             unenrolledStreamCall(
               entry.collections.terminals.unenrolledKeys,
               undefined,
+              // Scoped by host, and named for the consumer: the fleet index and
+              // the per-host wire open the SAME member for different reasons,
+              // and a table that merged them would report one park as two
+              // (kolu#2101 J2).
+              { label: `terminals.keys[${encHost}] (fleet)` },
             ),
           {
             onError: (err) =>

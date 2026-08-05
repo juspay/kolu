@@ -22,6 +22,7 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { hostMarks } from "../attention/attentionMarks";
 import { activePadiTerminal } from "@kolu/padi/surface";
 import type { KoluForward } from "kolu-common/surface";
@@ -127,6 +128,11 @@ export const HostDiagnosticsPopover: Component<{
       unenrolledStreamCall(
         padiMap.entry(host).collections.terminals.unenrolledKeys,
         undefined,
+        // Scoped by HOST: the same member name is opened once per host, and a
+        // liveness table that could not tell them apart would name the wrong
+        // one as parked (kolu#2101 J2). The `<key>[<id>]` spelling is the
+        // framework's own (`client.health()`), reused rather than reinvented.
+        { label: `terminals.keys[${encodeHostKey(host)}] (popover)` },
       ),
     {
       onError: (err) =>
@@ -413,6 +419,16 @@ export const HostDiagnosticsPopover: Component<{
               </div>
             </Show>
           </Show>
+
+          {/* The tab-wide diagnostic snapshot, reachable from the host you are
+              looking at (kolu#2101 J2). The same builder the Diagnostic Info
+              dialog copies — a per-host ENTRY POINT, not a per-host snapshot:
+              a parked subscription is a fact about the whole wire, and a block
+              that showed only this host's would hide the one that matters. */}
+          <div class="my-2 border-t border-edge/60" />
+          <CopyDiagnosticsButton class="flex w-full items-center justify-between gap-4 py-0.5 text-left text-[11px] text-fg-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer">
+            copy diagnostics
+          </CopyDiagnosticsButton>
 
           <span class="sr-only">{glance().title}</span>
         </div>

@@ -722,6 +722,12 @@ const Terminal: Component<{
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
+              // Names the PANE, in the framework's `<key>[<id>]` spelling and
+              // with the same terminal id the attach loop's log lines carry — a
+              // canvas of panes attaches the same member N times, and a
+              // liveness table that could not tell them apart would name none
+              // of them (kolu#2101 J2).
+              label: `terminalAttach[${props.terminalId}]`,
               // The attempt's lifetime IS its fiber — interrupting it tears the
               // subscription down through the stream's own finalizers, so there
               // is no signal to thread into the call (D10/#18). The reset hook

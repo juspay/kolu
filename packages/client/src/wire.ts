@@ -35,6 +35,7 @@
 
 import type { UnaryEffect } from "@kolu/surface/client";
 import type { WatchableWire } from "@kolu/surface/link";
+import type { WireDiagnostics } from "@kolu/surface/links/websocket";
 import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
@@ -76,6 +77,7 @@ import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
 import { rootProcedures } from "./rpc/rootProcedures.ts";
 import { runAction } from "./runAction.ts";
+import { recordProbeSettled } from "./wireProbes.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -194,6 +196,12 @@ const conn = await connectSurfaces({
   // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
   // route them through the ONE interpreter (design §A/m4).
   onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),
+  // TUNING only in the observability sense (kolu#2101 J2) — the cadence stays the
+  // framework's. The watchdog's verdicts were reported to a `console.warn` and to
+  // nothing else, so "the wire answered a probe 4s ago" — the fact that separates
+  // a genuinely live wire from one merely reporting `open` — could not be copied
+  // into a bug report. Recorded in a leaf module the diagnostic snapshot reads.
+  heartbeat: { onProbeSettled: recordProbeSettled },
 });
 const { link, echo } = conn;
 
@@ -208,6 +216,16 @@ export const rememberServerProcessId = echo.remember;
  *  raw socket is no longer reachable: the link owns the dial, the retry
  *  schedule and the terminal-close classifier (PLAN D5). */
 export const wire: WatchableWire = link.wire;
+
+/** What the LINK knows about its own dialing — the last 20 attempts with their
+ *  timestamps, close codes and outcomes, plus the re-dial EPOCH (kolu#2101 J1).
+ *
+ *  Deliberately NOT part of {@link wire}: `WatchableWire` is hand-implemented by
+ *  tests and consumers, and only a factory-built link can produce this. It is the
+ *  one place the swallowed dial — `"ended-without-open"`, invisible to the client,
+ *  to the console AND to the server's log, because the server never saw a
+ *  connection — leaves a trace, which is why the diagnostic snapshot reads it. */
+export const wireDiagnostics: WireDiagnostics = link.diagnostics;
 
 // Expose for e2e tests: the reconnect regression test (#410) drives the wire
 // directly. Same pattern as __xterm on the terminal container — harmless in
