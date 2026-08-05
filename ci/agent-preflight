@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Deploy-host pre-flight: realise the remote-agent closure for the artifact you
-# are about to deploy, so no remote host ever compiles a daemon over ssh.
+# Deploy-host pre-flight FOR THE ARTIFACT SHAPES THAT BYPASS THE HOME-MANAGER
+# MODULE: realise the remote-agent closure for the artifact you are about to
+# run, so no remote host ever compiles a daemon over ssh.
 #
 # Run it on the machine that will run kolu-server, against the same flake ref
 # your deploy pins, BEFORE (or right after) switching:
@@ -9,14 +10,30 @@
 #     ci/agent-preflight path:/home/me/code/kolu     # a local / dirty tree
 #     ci/agent-preflight                             # cwd
 #
-# WHY A DEPLOY HAS TO DO THIS AT ALL
-# ----------------------------------
+# WHO STILL NEEDS THIS — AND WHO NO LONGER DOES
+# ---------------------------------------------
 # `padi-agent` is NOT in `.#default`'s closure — measured, it appears zero times
 # in it. That is by construction: `padi-agent` CONTAINS `default`, so it cannot
-# also be contained by it. A deploy therefore installs the kolu server plus the
-# baked agent SOURCE, and never the built agent CLOSURE. The binder only learns
-# that closure's store path later, at dial time, by evaluating the baked source
-# — and then has to get the bits from somewhere.
+# also be contained by it. So a `nix run github:juspay/kolu`, a `nix profile
+# install .#default`, or a dev checkout installs the kolu server plus the baked
+# agent SOURCE, and never the built agent CLOSURE. The binder only learns that
+# closure's store path later, at dial time, by evaluating the baked source —
+# and then has to get the bits from somewhere.
+#
+# A `services.kolu` DEPLOY (nix/home/module.nix) is no longer one of those
+# shapes. The deployed artifact there is not `.#default` but the home-manager
+# GENERATION, which may reference `default` AND `padi-agent` without any cycle —
+# and does, via `services.kolu.agentPackages` (defaulted from
+# `nix/agent-packages.json`'s `expose`) anchored on the service definition as
+# `KOLU_BAKED_AGENT_CLOSURES`. The generation therefore CARRIES and GC-roots
+# every closure it can provision, by construction, on every host that switches
+# to it. `nix/home/example/`'s `agent-closure-containment` check is the proof,
+# and it fails the build if that ever stops holding (I1, juspay/kolu#2101).
+#
+# So the one narrative both this script and `ci/agent-substitutable` now tell:
+# **a module deploy carries every provisionable agent closure by construction;
+# these scripts cover the flows OUTSIDE the module.** For those flows the old
+# story is unchanged and still bites.
 #
 # `@kolu/surface-remote` tries, in order (packages/surface-remote/src/nixCopy.ts):
 #   1. prefetch  `nix copy --from <declared cache>` into the BINDER's store
@@ -26,7 +43,9 @@
 # anything else) made locally valid. When the cache misses AND the binder's
 # store is empty, step 3 is asked to produce the path from nothing and the host
 # says `error: path '…' is required, but there is no substituter` — then
-# compiles. That is the production incident, twice (juspay/kolu#2101 F5a, G7).
+# compiles. That is the production incident, twice (juspay/kolu#2101 F5a, G7) —
+# and it is exactly the state a module generation can no longer be in, because
+# step 1's question is already answered before the first dial.
 #
 # WHY CI CANNOT COVER THIS, HONESTLY STATED
 # -----------------------------------------

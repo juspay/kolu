@@ -4,6 +4,20 @@
 # declares — i.e. that the closure a `--host` dial needs is in the cache before
 # any host asks for it.
 #
+# WHAT THE CACHE IS FOR, NOW THAT THE MODULE CARRIES THE CLOSURE
+# --------------------------------------------------------------
+# A `services.kolu` deploy (nix/home/module.nix) no longer depends on this being
+# green: its generation CARRIES every exposed agent closure and GC-roots it
+# (`services.kolu.agentPackages` → `KOLU_BAKED_AGENT_CLOSURES`, proved by
+# `nix/home/example/`'s `agent-closure-containment` check — I1,
+# juspay/kolu#2101). The cache's job is the flows OUTSIDE that module — a
+# `nix run github:juspay/kolu`, a raw `nix profile install .#default`, a dev
+# checkout, a CI or deploy host that must not compile — where the binder's store
+# genuinely starts empty and the prefetch is the only thing between a first dial
+# and a source realise on the target. Same narrative as `ci/agent-preflight`:
+# **the module deploy is guaranteed by construction; these scripts cover
+# everything else.**
+#
 # WHY THIS EXISTS
 # ---------------
 # `@kolu/surface-remote` provisions a host by resolving
@@ -86,6 +100,11 @@
 #
 # IT TAKES A FLAKE REF, BECAUSE CI IS NOT WHAT SHIPS
 # ---------------------------------------------------
+# (For a `services.kolu` module deploy this gap is now CLOSED by construction —
+# the generation ships the closures, so the artifact needs no receipt from a
+# gate that speaks about a commit. What follows is about the artifact shapes
+# that do not go through the module.)
+#
 # A green run here proves something about a COMMIT. An operator deploys an
 # ARTIFACT, and the two are not the same event. Deploy #2 of the Effect campaign
 # (juspay/kolu#2101, G7) deployed `beb2f7418` at 21:20:43; the nix-cache run for
@@ -211,14 +230,22 @@ different tree than this one. Check the nix-cache workflow run for THIS sha —
 note it must check out the branch head, not a merge ref, or it warms a closure
 no one deploys.
 
-If you are about to DEPLOY this artifact, do not wait on CI: run
+If you are about to switch a \`services.kolu\` home-manager DEPLOY to this
+artifact, this is not your problem: the generation carries every exposed agent
+closure and GC-roots it, so its remotes cannot source-realise whatever the
+cache holds (I1, juspay/kolu#2101 — see nix/home/module.nix's
+\`agentPackages\`). Nothing to run.
+
+If you are about to run this artifact any OTHER way — \`nix run\`, a raw
+\`nix profile install .#default\`, a dev checkout — do not wait on CI: run
 
     ci/agent-preflight ${flake}
 
-on the deploy host. That realises the agent closure into the binder's own
-store, which is what provisioning ships from — it makes remote source-realise
-impossible regardless of what any cache holds, and it is the only thing that
-works for a rev CI has not warmed yet or a local tree it will never see.
+on the machine that will run kolu-server. That realises the agent closure into
+the binder's own store, which is what provisioning ships from — it makes remote
+source-realise impossible regardless of what any cache holds, and it is the
+only thing that works for a rev CI has not warmed yet or a local tree it will
+never see.
 EOF
   exit 1
 fi
