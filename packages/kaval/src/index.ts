@@ -59,7 +59,12 @@ export {
 } from "./ptyHostClient.ts";
 // The per-subscriber drop the PTY taps carry on their error channel — named in
 // `PtyAttachment.deltas`, so a consumer that narrows on it can spell the type.
-export type { SubscriberOverflow } from "./fanOut.ts";
+// `FanOut` itself is a VALUE export: it is the primitive that owns "is this
+// subscription still attached?", and `subscriberCount` is the only honest
+// observable of a LEAKED attach subscription. padi's re-open loop is the code
+// that can leak one (kolu#2101 K2), so its proof runs against the real fan-out
+// rather than a re-implementation of it — which needs the class nameable there.
+export { FanOut, type SubscriberOverflow } from "./fanOut.ts";
 export {
   type CommandRunSubscription,
   createPtyHost,

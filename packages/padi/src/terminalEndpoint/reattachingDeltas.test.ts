@@ -1,3 +1,4 @@
+import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
 import { describe, expect, it } from "vitest";
@@ -41,6 +42,10 @@ const data = (out: TerminalAttachFrame[]) => out.map((f) => f.data);
 const topLines = (out: TerminalAttachFrame[]) =>
   out.map((f) => (f.kind === "snapshot" ? f.topLine : undefined));
 
+/** The loop's context: which terminal is being streamed (the label on the
+ *  oscillation report) plus, where a test needs one, the consumer's teardown. */
+const ctx = { id: "t-1" as TerminalId };
+
 /** The PTY is gone — what kaval answers a re-open for a departed terminal, and
  *  therefore what makes a plain end a REAL exit. */
 const ptyGone = (): Promise<OpenedAttach> =>
@@ -56,7 +61,7 @@ describe("reattachingDeltas", () => {
       asked++;
       return ptyGone();
     };
-    const out = await collect(reattachingDeltas(open, initial));
+    const out = await collect(reattachingDeltas(open, initial, ctx));
     expect(data(out)).toEqual(["a", "b"]);
     // Plain deltas carry no re-seed.
     expect(out.every((f) => f.kind === "delta")).toBe(true);
@@ -74,7 +79,7 @@ describe("reattachingDeltas", () => {
       throw new Error("must not re-attach after the consumer aborted");
     };
     const out = await collect(
-      reattachingDeltas(open, initial, controller.signal),
+      reattachingDeltas(open, initial, { ...ctx, signal: controller.signal }),
     );
     expect(data(out)).toEqual(["a"]);
   });
@@ -102,7 +107,7 @@ describe("reattachingDeltas", () => {
     };
     // The second leg also ends plainly; the PTY has exited by then.
     const out = await collect(
-      reattachingDeltas(() => (opened === 0 ? open() : ptyGone()), initial),
+      reattachingDeltas(() => (opened === 0 ? open() : ptyGone()), initial, ctx),
     );
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
     expect(topLines(out)).toEqual([undefined, 7, undefined]);
@@ -122,7 +127,7 @@ describe("reattachingDeltas", () => {
         iter: framesIter([]),
       });
     };
-    await expect(collect(reattachingDeltas(open, initial))).rejects.toThrow(
+    await expect(collect(reattachingDeltas(open, initial, ctx))).rejects.toThrow(
       /ended with no overflow frame and no PTY exit/,
     );
     expect(opened).toBe(PLAIN_END_REOPEN_ATTEMPTS);
@@ -143,7 +148,7 @@ describe("reattachingDeltas", () => {
       });
     };
     const out = await collect(
-      reattachingDeltas(open, framesIter([delta("0")])),
+      reattachingDeltas(open, framesIter([delta("0")]), ctx),
     );
     expect(out.filter((f) => f.kind === "delta").length).toBe(legs + 1);
   });
@@ -163,7 +168,7 @@ describe("reattachingDeltas", () => {
         iter: framesIter([delta("after")]),
       });
     };
-    const out = await collect(reattachingDeltas(open, initial));
+    const out = await collect(reattachingDeltas(open, initial, ctx));
     // The dropped subscriber's delta is delivered; then the reset-prefixed fresh
     // snapshot replaces the screen AND re-seeds the backfill cursor; then deltas.
     expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
@@ -187,7 +192,7 @@ describe("reattachingDeltas", () => {
         iter: framesIter(legs[leg++] as PtyHostDataMsg[]),
       });
     };
-    const out = await collect(reattachingDeltas(open, initial));
+    const out = await collect(reattachingDeltas(open, initial, ctx));
     expect(data(out)).toEqual([
       `${TERMINAL_RESET}S0`,
       "one",
@@ -203,7 +208,7 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new PtyNotFound({ id: "gone" }));
-    expect(data(await collect(reattachingDeltas(open, initial)))).toEqual([
+    expect(data(await collect(reattachingDeltas(open, initial, ctx)))).toEqual([
       "x",
     ]);
   });
@@ -212,7 +217,7 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject(new Error("transport exploded"));
-    await expect(collect(reattachingDeltas(open, initial))).rejects.toThrow(
+    await expect(collect(reattachingDeltas(open, initial, ctx))).rejects.toThrow(
       "transport exploded",
     );
   });
@@ -227,7 +232,7 @@ describe("reattachingDeltas", () => {
     const initial = framesIter([delta("x"), overflow]);
     const open = (): Promise<OpenedAttach> =>
       Promise.reject({ _tag: "PtyNotFound", id: "gone" });
-    expect(data(await collect(reattachingDeltas(open, initial)))).toEqual([
+    expect(data(await collect(reattachingDeltas(open, initial, ctx)))).toEqual([
       "x",
     ]);
   });

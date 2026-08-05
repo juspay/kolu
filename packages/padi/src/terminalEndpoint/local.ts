@@ -106,7 +106,11 @@ import {
   publishTerminalState,
   updateMemory,
 } from "./metadata.ts";
-import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
+import {
+  type OpenedAttach,
+  reattachingDeltas,
+  releaseOnAbort,
+} from "./reattachingDeltas.ts";
 
 // ── Decoders ────────────────────────────────────────────────────────────
 // `Schema.decodeUnknownSync` is the successor of zod's `.parse` — same fail-fast
@@ -1489,13 +1493,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
           openAt === undefined ? { id } : { id, resizeTo: openAt },
         ),
       )[Symbol.asyncIterator]();
-      signal?.addEventListener(
-        "abort",
-        () => {
-          void iter.return?.();
-        },
-        { once: true },
-      );
+      // The bridge lives with the loop that re-opens (and so re-registers it):
+      // it has to answer an ALREADY-aborted signal by releasing NOW, because a
+      // re-open after an abort would otherwise hold an undetachable subscription.
+      releaseOnAbort(iter, signal);
       const first = await iter.next();
       if (first.done) {
         // The stream ended before its MANDATORY snapshot frame. If the caller
@@ -1540,7 +1541,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // ends the kaval iterator through the `iter.return()` bridge above) from an
       // end the chain manufactured: the first is graceful, the second is a
       // question to re-open on.
-      deltas: reattachingDeltas(() => open(), initial.iter, signal),
+      deltas: reattachingDeltas(() => open(), initial.iter, { id, signal }),
     };
   }
 }
