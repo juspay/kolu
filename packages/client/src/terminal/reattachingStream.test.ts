@@ -1,4 +1,5 @@
 import { Effect, Exit, Fiber, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   consumeReattachingStream,
@@ -550,5 +551,171 @@ describe("consumeReattachingStream", () => {
     // Crossing 300ms triggers the re-subscribe.
     await new Promise((r) => setTimeout(r, 350));
     expect(streamFn).toHaveBeenCalledTimes(2);
+  });
+
+  // ── The SILENT open (kolu#2101 H3) ──────────────────────────────────────
+  //
+  // The fourth way an attach stops being useful, and the only one with no event
+  // to classify: the stream opens, the transport never fails, nothing ends, and
+  // no frame ever arrives. After a laptop wake, a pane sat blank while the host
+  // showed zero lines for it — the fiber simply parked on a subscription the
+  // protocol had re-dialled out from under it.
+  //
+  // These run on Effect's own TestClock rather than real timers: the deadline is
+  // ten seconds, one case asserts nothing happens over HOURS, and one is a
+  // one-millisecond boundary. `vi.useFakeTimers()` cannot serve any of that —
+  // the loop runs on an Effect fiber whose scheduler is not the one vitest
+  // patches (the note on the backoff test above) — but a TestClock IS that
+  // scheduler's clock, so `TestClock.adjust` moves exactly the sleeps under
+  // test and nothing else.
+
+  /** Let every fiber woken by an `adjust` run to its next suspension. `adjust`
+   *  yields once per wakeup, which is not enough for a wake that has to travel
+   *  stream → handler → race → retry schedule. */
+  const drain = Effect.forEach([1, 2, 3, 4, 5, 6, 7, 8], () => Effect.yieldNow, {
+    discard: true,
+  });
+
+  /** Drive the loop under a virtual clock. `body` receives the running fiber
+   *  and moves time; whatever it returns comes back to the test. */
+  function onVirtualClock<A>(
+    args: Parameters<typeof consumeReattachingStream<string>>,
+    body: (
+      fiber: Fiber.Fiber<Exit.Exit<void, unknown>, never>,
+    ) => Effect.Effect<A, never, never>,
+  ): Promise<A> {
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(
+          Effect.exit(consumeReattachingStream(...args)),
+        );
+        yield* drain;
+        const out = yield* body(fiber);
+        yield* Fiber.interrupt(fiber);
+        return out;
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  }
+
+  /** Move virtual time and let everything it woke settle. */
+  const advance = (ms: number) =>
+    TestClock.adjust(ms).pipe(Effect.flatMap(() => drain));
+
+  it("(i) a stream that OPENS and never yields → one re-attach at the deadline, then the loud verdict", async () => {
+    // PRE-FIX (the same fixture against a `consumeReattachingStream` whose
+    // attempt is not raced against the deadline) this reproduced today's blank
+    // pane exactly. Measured at 10_000ms AND a further hour of virtual time:
+    //
+    //   { onReattachCalls: 0, streamFnCalls: 1, consoleWarnCalls: 0,
+    //     consoleErrorCalls: 0, fiberStillParked: true }
+    //
+    // Nothing logged, nothing toasted, nothing retried, the fiber still parked:
+    // a blank pane over a live agent, forever.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.never);
+
+    const exit = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          // One millisecond short of the deadline: nothing has happened.
+          yield* advance(9_999);
+          expect(streamFn).toHaveBeenCalledTimes(1);
+          expect(onReattach).not.toHaveBeenCalled();
+
+          // The deadline fires → channel 2 → the reset, then the 300ms backoff,
+          // then exactly one re-subscribe.
+          yield* advance(1);
+          expect(onReattach).toHaveBeenCalledTimes(1);
+          expect(String(warn.mock.calls[0]?.[0])).toContain("re-attaching");
+          expect(streamFn).toHaveBeenCalledTimes(1); // still inside the backoff
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(2);
+
+          // The successor is silent too: the budget is spent, so this is a
+          // DEFECT, not a third attempt (which would re-blank the pane every
+          // ten seconds forever).
+          yield* advance(10_000);
+          expect(streamFn).toHaveBeenCalledTimes(2);
+          expect(onReattach).toHaveBeenCalledTimes(1);
+          return yield* Fiber.join(fiber);
+        }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    const cause = Exit.isFailure(exit) ? String(exit.cause) : "";
+    expect(cause).toContain("opened silent twice");
+  });
+
+  it("(ii) a healthy-but-IDLE stream is never touched — the deadline is FIRST-frame only", async () => {
+    // The negative that keeps the deadline honest. An idle terminal emits
+    // nothing for hours and that is the healthy majority of panes; an
+    // inter-frame deadline would blank every one of them.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["snapshot"]), Stream.never));
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(6 * 60 * 60 * 1_000); // six hours of silence
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true); // still attached, still waiting for bytes
+    expect(onReattach).not.toHaveBeenCalled();
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("(iii) a first frame at 9_999ms beats the deadline — the boundary, exactly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const items: string[] = [];
+    // A snapshot that takes 9_999ms to arrive — the slowest frame the deadline
+    // still calls alive.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(
+        Stream.concat(
+          Stream.fromEffect(Effect.as(Effect.sleep(9_999), "snapshot")),
+          Stream.never,
+        ),
+      );
+
+    const alive = await onVirtualClock(
+      [
+        streamFn,
+        (item) => {
+          items.push(item);
+          return undefined;
+        },
+        onReattach,
+        "test",
+        tile(),
+      ],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(9_999);
+          expect(items).toEqual(["snapshot"]);
+          // The watcher wakes at 10_000, reads the latch the frame set, and
+          // parks for good.
+          yield* advance(1);
+          yield* advance(60 * 60 * 1_000);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true);
+    expect(onReattach).not.toHaveBeenCalled();
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

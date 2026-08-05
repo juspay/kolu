@@ -17,19 +17,28 @@
  *     `onReattach` every 300ms, blanking the user's pane three times a second.
  *  2. **TYPED FAILURE — a recoverable condition, retried through `onReattach`.**
  *     Spelled as a value in the error channel: a stream failure (a mid-chain padi
- *     death), a frame the consumer REFUSES ({@link StaleSnapshotGrid}), or the
- *     first unexpected clean end. All three take the SAME road — reset the screen,
+ *     death), a frame the consumer REFUSES ({@link StaleSnapshotGrid}), the
+ *     first unexpected clean end, or the first SILENT open (an attach that opened
+ *     and owed a snapshot it never sent — {@link FIRST_FRAME_DEADLINE_MS}). All
+ *     of them take the SAME road — reset the screen,
  *     wait {@link REATTACH_BACKOFF_MS}, re-subscribe through a freshly-entered
  *     `streamFn` that reads the CURRENT grid. The retry is unbounded here and that
  *     is not a new unbounded thing: every member of this channel is driven by an
  *     external cause that stops (a resize settles, a re-bound padi comes back),
  *     each attempt re-reads live inputs so it makes progress rather than repeating
- *     itself, and the two conditions that CANNOT self-heal are excluded by
- *     construction — a gone terminal ends the loop (below) and a manufactured end
- *     is budgeted (above).
+ *     itself, and the conditions that CANNOT self-heal are excluded by
+ *     construction — a gone terminal ends the loop (below), a manufactured end is
+ *     budgeted (above), and a silent open is budgeted the same way.
  *  3. **CLEAN END — classified, never trusted.** A completed stream means "the PTY
  *     exited" only when the tile's own facts agree; otherwise it is channel 2 with
  *     a budget. See {@link AttachTileFacts} and {@link CLEAN_END_REATTACH_BUDGET}.
+ *  4. **NO END AT ALL — the fourth way an attach can stop being useful, and the
+ *     only one with no event to classify.** A stream that OPENS and then delivers
+ *     nothing trips none of the three above: the transport never failed, the
+ *     stream never ended, the consumer never refused. The pane simply stays
+ *     blank over a live agent, forever (kolu#2101 H3, the wake-window residue).
+ *     So silence itself is given a deadline —
+ *     {@link FIRST_FRAME_DEADLINE_MS} — and its expiry enters channel 2.
  *
  * The rule that keeps this honest: **no message may claim a re-attach unless one
  * follows.** A comment or a toast that promises recovery on a path that dies is
@@ -77,6 +86,47 @@ const EXIT_SETTLE_MS = REATTACH_BACKOFF_MS;
  *  the W2.2 done-criterion (c) rests on. */
 const CLEAN_END_REATTACH_BUDGET = 1;
 
+/** How long an attach attempt has to deliver its FIRST frame before the silence
+ *  itself is the verdict (kolu#2101 H3 — the blank-pane residue).
+ *
+ *  **The derivation.** The honest arrival window for a first frame is one fence
+ *  retry cycle plus a snapshot round trip: `STREAM_RETRY_DELAY_MS` (1s,
+ *  `@kolu/surface`'s `client.ts`) + the request/serialize/answer hop. Ten
+ *  seconds is ~10× that — the same margin the sibling claim
+ *  `ANSWERED_TILE_DEADLINE_MS` (`useSessionRestore.ts`) takes off the same base,
+ *  and deliberately chosen so firing means the chain is DEAD, never that the
+ *  wait was merely slow. It is also deliberately UNDER the heartbeat's ~25s
+ *  worst-case half-open detection, so a genuinely dead wire meets this
+ *  re-attach before (or as) the watchdog cycles the socket; both roads end in
+ *  the same retry channel, so racing them is harmless.
+ *
+ *  **FIRST frame only — never between frames.** An idle terminal emits nothing
+ *  for hours and that is the healthy case: an inter-frame deadline would kill
+ *  every quiet pane in the canvas. What this bounds is the one thing that has no
+ *  legitimate silent form — an attach that has OPENED and owes a snapshot.
+ *
+ *  BETA-ASSUMPTION(beta.103): an in-flight stream survives a `SocketOpenError`
+ *  re-dial UNFAILED — `RpcClient.makeProtocolSocket`'s `retryTransientErrors`
+ *  arm returns early from its `tapCause` without broadcasting
+ *  `ClientProtocolError`, which is the only thing that fails registered entries,
+ *  so an opened stream can hang with no failure signal while the protocol
+ *  silently re-dials underneath it. That is why a deadline is needed at all
+ *  rather than a failure to retry on. MEASURED by
+ *  `packages/surface/src/links/socketRedialLaws.test.ts`. */
+const FIRST_FRAME_DEADLINE_MS = 10_000;
+
+/** How many re-attaches a SILENT open may buy in one attach loop.
+ *
+ *  One, mirroring {@link CLEAN_END_REATTACH_BUDGET} and for the same reason: the
+ *  first silent open is a recoverable condition (a parked subscription on a wire
+ *  the protocol re-dialled underneath), and re-opening is the whole of the
+ *  client's repair. A SECOND silent open in the same loop means the chain is
+ *  delivering no frames at all, which re-opening cannot fix — so it DIES (a
+ *  defect, not a failure, so `Effect.retry` never sees it) and the run edge
+ *  reports it: console + toast, rather than a pane that re-blanks itself every
+ *  ten seconds forever. Spent, never refilled, per attach loop. */
+const FIRST_FRAME_REATTACH_BUDGET = 1;
+
 /** A clean stream end for a tile that has NOT been told its PTY exited. Raised
  *  into the loop's own error channel so it travels the EXISTING abnormal-end path
  *  — `onReattach` (reset + re-arm the snapshot boundary) then the spaced
@@ -87,6 +137,19 @@ class AttachEndedWhileLive extends Error {
       `${label}: the attach stream ended cleanly while the terminal is still live — re-attaching`,
     );
     this.name = "AttachEndedWhileLive";
+  }
+}
+
+/** An attach attempt that OPENED and then said nothing at all. Channel 2, like
+ *  {@link AttachEndedWhileLive}: it rides the existing road (tapError →
+ *  `re-attaching` → `onReattach` → the spaced re-subscribe), because a fresh
+ *  subscription on a fresh wire is exactly the repair. */
+class AttachFirstFrameDeadline extends Error {
+  constructor(label: string, deadlineMs: number) {
+    super(
+      `${label}: the attach stream opened but delivered no frame within ${deadlineMs}ms — re-attaching`,
+    );
+    this.name = "AttachFirstFrameDeadline";
   }
 }
 
@@ -205,6 +268,18 @@ export interface AttachTileFacts {
  *  a reopen that could not come. The channel now rides in the RETURN TYPE, where
  *  it cannot be silently flipped again.
  *
+ *  **A SILENT open (kolu#2101 H3).** The three cases above all rest on an EVENT
+ *  — a failure, an end, a refused frame. The wake-window residue had none: after
+ *  a laptop woke, a pane sat blank while its host's own logs showed nothing at
+ *  all, because an opened subscription can be left parked with no failure signal
+ *  (the protocol swallows a `SocketOpenError` re-dial rather than failing
+ *  registered entries — see {@link FIRST_FRAME_DEADLINE_MS}'s BETA-ASSUMPTION,
+ *  and the relay hold-open shape has the same property). So an attempt that
+ *  opens and delivers no first frame within the deadline fails into channel 2 and
+ *  re-attaches once; a second silent open in the same loop dies through the run
+ *  edge. Only the FIRST frame is bounded — an idle terminal legitimately says
+ *  nothing for hours, and an inter-frame deadline would blank every quiet pane.
+ *
  *  `streamFn` is re-entered per attempt (`Stream.suspend` under `retry`), so each
  *  re-attach picks up whatever the caller reads at open time (Terminal.tsx
  *  re-reads the live grid there).
@@ -241,6 +316,9 @@ export function consumeReattachingStream<T>(
    *  stream, not this function. */
   let cleanEndReattaches = 0;
 
+  /** The same, for the silent-open arm — see {@link FIRST_FRAME_REATTACH_BUDGET}. */
+  let silentOpenReattaches = 0;
+
   /** Classify the end of ONE attempt that completed without failing. */
   const classifyCleanEnd = Effect.suspend(() => {
     if (tile.hasExited()) return Effect.void; // the PTY exited: a real end
@@ -265,16 +343,55 @@ export function consumeReattachingStream<T>(
     );
   });
 
-  return Stream.runForEach(Stream.suspend(streamFn), (item) =>
-    // `Effect.suspend`, not `Effect.sync`: the handler's REFUSAL has to land in
-    // the error channel, and a value returned out of `Effect.sync` would just be
-    // a success the loop ignores — the exact conflation this shape replaces. A
-    // throw still escapes as a defect, which is channel 1 and stays that way.
-    Effect.suspend(() => {
-      const refused = onItem(item);
-      return refused ? Effect.fail(refused) : Effect.void;
-    }),
-  ).pipe(
+  /** Classify an attempt that has been open for {@link FIRST_FRAME_DEADLINE_MS}
+   *  without a single frame. Same shape as {@link classifyCleanEnd}: budget,
+   *  then a typed failure; budget spent, then a defect. */
+  const silentOpenVerdict = Effect.suspend(() => {
+    if (silentOpenReattaches >= FIRST_FRAME_REATTACH_BUDGET) {
+      return Effect.die(
+        new Error(
+          `${label}: the attach stream opened silent twice — the chain is delivering no frames (no first frame within ${FIRST_FRAME_DEADLINE_MS}ms, ${silentOpenReattaches + 1} attempts running)`,
+        ),
+      );
+    }
+    silentOpenReattaches++;
+    return Effect.fail(
+      new AttachFirstFrameDeadline(label, FIRST_FRAME_DEADLINE_MS),
+    );
+  });
+
+  /** ONE attempt: consume the stream, RACED against the first-frame deadline.
+   *
+   *  `Effect.suspend` so the latch is per-attempt — the retry below re-enters
+   *  this, exactly as `Stream.suspend` re-enters `streamFn`.
+   *
+   *  Deliberately NOT a per-pull timeout (`Stream.timeoutFail` and friends bound
+   *  the GAP between elements): those kill an idle pane, which is the healthy
+   *  majority. The watcher sleeps ONCE and then reads the latch — set, and it
+   *  parks on `Effect.never` until `raceFirst` interrupts it when the consume
+   *  settles; unset, and the silence is the verdict. */
+  const oneAttempt = Effect.suspend(() => {
+    let sawFrame = false;
+    const consume = Stream.runForEach(Stream.suspend(streamFn), (item) =>
+      // `Effect.suspend`, not `Effect.sync`: the handler's REFUSAL has to land in
+      // the error channel, and a value returned out of `Effect.sync` would just be
+      // a success the loop ignores — the exact conflation this shape replaces. A
+      // throw still escapes as a defect, which is channel 1 and stays that way.
+      Effect.suspend(() => {
+        // A REFUSED frame still counts as a frame: the chain delivered, and the
+        // refusal has its own (channel 2) road.
+        sawFrame = true;
+        const refused = onItem(item);
+        return refused ? Effect.fail(refused) : Effect.void;
+      }),
+    );
+    const firstFrameWatch = Effect.sleep(FIRST_FRAME_DEADLINE_MS).pipe(
+      Effect.flatMap(() => (sawFrame ? Effect.never : silentOpenVerdict)),
+    );
+    return Effect.raceFirst(consume, firstFrameWatch);
+  });
+
+  return oneAttempt.pipe(
     Effect.flatMap(() => classifyCleanEnd),
     // The typed "this terminal is gone" verdict ENDS the loop — placed INSIDE the
     // retry so it converts to success before the schedule ever sees it.

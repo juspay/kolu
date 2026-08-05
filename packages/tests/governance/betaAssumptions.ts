@@ -76,6 +76,16 @@ export function findBetaAssumptions(source: string): BetaAssumption[] {
  *  one marker, so a marker cannot be dropped along with the reasoning it
  *  guards. */
 export const BETA_ASSUMPTION_SITES: readonly string[] = [
+  // The terminal attach loop's FIRST-FRAME DEADLINE (juspay/kolu#2101 H3). The
+  // deadline exists only because an opened stream can hang with NO failure
+  // signal: `RpcClient.makeProtocolSocket`'s `retryTransientErrors` arm returns
+  // early from its `tapCause` for a `SocketOpenError`, and that broadcast is the
+  // only thing that fails registered entries — so the protocol re-dials
+  // underneath a parked subscription forever. If a bump ever made that re-dial
+  // fail its entries, the honest fix is a retry on the failure, not a clock. The
+  // marker names the law that MEASURES it — `socketRedialLaws.test.ts` — so the
+  // re-verification is "run that law", never "read the code and hope".
+  "packages/client/src/terminal/reattachingStream.ts",
   "packages/padi/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
