@@ -188,7 +188,9 @@ jobs:
       # cache — over the network, as a client — whether the remote-agent
       # closures a `--host` dial provisions are really there, using the same
       # source tree, package inventory and cache list `@kolu/surface-remote`
-      # reads at dial time. Rationale and scope live in the script's header.
+      # reads at dial time. It asks by plain HTTP narinfo GET, so nix's local
+      # narinfo cache cannot answer on the server's behalf (that false-red this
+      # step once). Rationale and scope live in the script's header.
       #
       # Placed HERE and not in `ci/mod.just` on purpose: the odu lanes run
       # concurrently with this job on the same commit, so an odu node would be

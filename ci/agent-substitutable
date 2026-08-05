@@ -42,6 +42,24 @@
 # it lands. A hand-listed `padi-agent` here would be a second source of truth
 # that could go stale exactly the way the push set once did.
 #
+# HOW IT ASKS — AND WHY NOT `nix path-info`
+# -----------------------------------------
+# A direct HTTP GET of `<cache>/<hash>.narinfo`, not `nix path-info --store
+# <cache>`. The first real run of this check FALSE-NEGATIVED off nix's own
+# client state: `path-info` consults the LOCAL narinfo cache, and the build
+# step minutes earlier had already asked for those paths and cached the 404s
+# (`narinfo-cache-negative-ttl`, 3600s by default). The verify therefore
+# answered from a snapshot taken BEFORE the push it existed to verify — it
+# reported `kaval` and `padi` missing while attic's own log showed all three
+# uploaded and every narinfo returned 200 to anyone outside (GHA run
+# 30963447018). `padi-agent` passed only because nothing had poisoned its entry.
+#
+# `--option narinfo-cache-negative-ttl 0` would also clear it, but that tunes
+# away a symptom of consulting a cache we should never have consulted: the
+# question is "what does the SERVER hold", and any client-side answer is a
+# different question that merely agrees most of the time. curl carries no such
+# state, so the failure mode is not disabled — it is unspellable.
+#
 # SCOPE, STATED HONESTLY
 # ----------------------
 # This checks the TOP-LEVEL out-path of each exposed attr, not every closure
@@ -97,6 +115,19 @@ cache_json="${agent_flake_ref}/${cache_file}"
 substituters="$(jq -r '.substituters[]' "$cache_json")"
 [ -n "$substituters" ] || die "${cache_json} declares no substituters"
 
+command -v curl > /dev/null || die "curl is required — the cache is asked over HTTP (see the header)"
+
+# A cache this script cannot ask is worse than one it fails on: it would pass
+# by never posing the question. Refuse here, so teaching the script a new
+# scheme is the only way past it.
+while IFS= read -r url; do
+  [ -z "$url" ] && continue
+  case "$url" in
+    http://* | https://*) ;;
+    *) die "cannot query '${url}' — this check speaks HTTP binary caches only; teach it that scheme rather than skipping it" ;;
+  esac
+done <<< "$substituters"
+
 packages="$(jq -r '.expose[]' nix/agent-packages.json)"
 [ -n "$packages" ] || die "nix/agent-packages.json exposes no agent packages"
 
@@ -115,11 +146,14 @@ while IFS= read -r package; do
   # build here would mask the very absence we are testing for.
   out="$(nix eval --accept-flake-config --raw \
     "${agent_flake_ref}#packages.${system}.${package}.outPath" < /dev/null)"
+  # The store hash is the basename up to the first dash — the name a binary
+  # cache files its narinfo under. Pure parameter expansion (bash 3.2 safe).
+  base="${out##*/}"
+  hash="${base%%-*}"
   hit=""
   while IFS= read -r url; do
     [ -z "$url" ] && continue
-    # `path-info` against the cache as a store: a narinfo lookup, no transfer.
-    if nix path-info --store "$url" "$out" > /dev/null 2>&1 < /dev/null; then
+    if curl -fs --max-time 30 -o /dev/null "${url%/}/${hash}.narinfo" < /dev/null; then
       hit="$url"
       break
     fi
