@@ -53,12 +53,11 @@ const endedIter = (): AsyncIterator<PtyHostDataMsg> => ({
 function overflowIter(): AsyncIterator<PtyHostDataMsg> {
   let sent = false;
   return {
-    next: () =>
-      Promise.resolve(
-        sent
-          ? { done: true, value: undefined }
-          : ((sent = true), { done: false, value: { kind: "overflow" } }),
-      ),
+    next: () => {
+      if (sent) return Promise.resolve({ done: true, value: undefined });
+      sent = true;
+      return Promise.resolve({ done: false, value: { kind: "overflow" } });
+    },
   };
 }
 
