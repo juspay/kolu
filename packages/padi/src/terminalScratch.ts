@@ -59,9 +59,33 @@ function uniquePath(dir: string, name: string): string {
   return candidate;
 }
 
+/** THE canonical spelling of a scratch path — every path this module HANDS OUT
+ *  goes through here, so one file has exactly one name.
+ *
+ *  A chunked upload's create call and its append calls must answer with the
+ *  same string, or the client's `appendTo` continuation compares unequal to the
+ *  path it was given and the "stable path" contract is a lie. They used to
+ *  disagree: create returned `join(dir, name)` verbatim while append returned
+ *  the realpath-resolved form, which is identical on a machine whose temp root
+ *  has no symlinked ancestor and DIFFERENT on one that does. macOS is the
+ *  latter — `/tmp` is a symlink to `/private/tmp` — so darwin CI failed with
+ *  `expected '/private/tmp/…/n.md' to be '/tmp/…/n.md'` while linux stayed
+ *  green. That is a real bug and not a test artifact: on darwin the second
+ *  chunk's answer renamed the file mid-upload.
+ *
+ *  Resolving is the right half of "realpath both or neither": it makes the
+ *  answer independent of WHICH alias the caller used to reach the file, so two
+ *  spellings of the same file collapse to one. The containment fence in
+ *  `appendTerminalFile` keeps comparing realpaths on both sides regardless —
+ *  canonicalizing the RETURN value must never be mistaken for the fence, and
+ *  cannot weaken it. */
+function canonicalScratchPath(path: string): string {
+  return realpathSync(path);
+}
+
 /** Save base64-encoded data into the terminal's scratch directory,
- *  creating the dir on first use. Returns the on-disk path so the
- *  caller can bracketed-paste it into the PTY.
+ *  creating the dir on first use. Returns the canonical on-disk path so the
+ *  caller can bracketed-paste it into the PTY — and hand back as `appendTo`.
  *
  *  `name` is sanitized; a collision suffix (`-1`, `-2`, …) protects
  *  any prior file in the dir from being clobbered. Two pastes in
@@ -84,7 +108,8 @@ export function saveTerminalFile(
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = uniquePath(dir, sanitizeUploadName(name));
   writeFileSync(path, Buffer.from(base64Data, "base64"), { mode: 0o600 });
-  return path;
+  // Canonicalize AFTER the write — realpath needs the file to exist.
+  return canonicalScratchPath(path);
 }
 
 /** Append base64-encoded data to a file ALREADY inside `terminalId`'s scratch
@@ -100,20 +125,29 @@ export function saveTerminalFile(
  *  refused. `realpathSync` resolves symlinks BEFORE the comparison, so a
  *  symlink planted inside the scratch dir cannot point the append out of it.
  *
+ *  The returned path is the SAME canonical spelling `saveTerminalFile` answered
+ *  with (see `canonicalScratchPath`), so a chunked upload's path never changes
+ *  under it — including on a host whose temp root reaches the scratch dir
+ *  through a symlink, which is every macOS.
+ *
  *  Throws on any violation; the caller turns that into a typed refusal. */
 export function appendTerminalFile(
   terminalId: string,
   path: string,
   base64Data: string,
 ): { path: string; totalBytes: number } {
+  // BOTH sides of the fence are realpaths. Canonicalizing the returned value
+  // does not do this job and must not be confused with it: the comparison below
+  // is what makes the fence undodgeable via a symlink.
   const dir = realpathSync(dirFor(terminalId));
-  // Resolve the target's own real path. It must already exist — an append is
-  // only ever a CONTINUATION, never the thing that creates the file, so a
-  // missing target is a protocol violation rather than a first chunk.
+  // It must already exist — an append is only ever a CONTINUATION, never the
+  // thing that creates the file, so a missing target is a protocol violation
+  // rather than a first chunk. Checked before `realpathSync`, which throws a
+  // bare ENOENT that would read as a crash rather than a refusal.
   if (!existsSync(path)) {
     throw new Error("scratch append target does not exist");
   }
-  const real = realpathSync(path);
+  const real = canonicalScratchPath(path);
   // `sep`-terminated prefix: `/scratch/t1` must not match `/scratch/t10`.
   if (!real.startsWith(dir + sep)) {
     throw new Error("scratch append target is outside the terminal's dir");
