@@ -83,7 +83,7 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   {
     path: "packages/kaval/src/stdioBridge.ts",
     sites: 1,
-    why: "the `kaval --stdio` front's converge-before-relay pre-step (juspay/kolu#2101): the convergence kit is Effect-native all the way down, but this is a CLI entry whose caller is `bin.ts`'s Promise `.catch` and whose continuation — `frontDaemonOverStdio` — is Promise-shaped by its own contract-blind contract, so there is no caller left to compose into; one crossing, at the boundary, before a single byte is relayed",
+    why: "the `kaval --stdio` front's converge-before-relay pre-step (juspay/kolu#2101), now inside the `runStdioBridgeWith(opts, deps)` ordering seam the test pins rather than inline in the CLI shim: the convergence kit is Effect-native all the way down, but this is a CLI entry whose caller is `bin.ts`'s Promise `.catch` and whose continuation — `frontDaemonOverStdio` — is Promise-shaped by its own contract-blind contract, so there is no caller left to compose into; one crossing, at the boundary, before a single byte is relayed",
   },
   {
     path: "packages/kaval/src/streamFrame.testlib.ts",

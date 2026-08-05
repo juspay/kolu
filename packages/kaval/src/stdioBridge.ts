@@ -18,13 +18,17 @@
  * remote PTY survives detach → reattach.
  */
 
+import type { Writable } from "node:stream";
+import {
+  type StdioReadinessVerdict,
+  writeStdioReadiness,
+} from "@kolu/surface/links/readiness";
 import {
   type DaemonHomePaths,
   frontDaemonOverStdio,
   reExecAsDetachedDaemon,
   resolveDaemonHome,
 } from "@kolu/surface-daemon";
-import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { Effect } from "effect";
 import { convergeKavalStdioFront } from "./convergeFront.ts";
 import {
@@ -78,39 +82,77 @@ export async function runStdioBridge(
         : undefined,
   });
   const socketPath = home.socketPath;
+  return runStdioBridgeWith(opts, {
+    converge: convergeKavalStdioFront({
+      home,
+      stderrLog: kavalLogPath(socketPath),
+    }),
+    stdout: process.stdout,
+    relay: () =>
+      frontDaemonOverStdio({
+        socketPath,
+        // Start kaval's own durable daemon: re-exec this binary minus `--stdio`.
+        // `--socket PATH` (if any) rides through in `process.argv`, so the daemon
+        // resolves the SAME path the front just did — load-bearing, and why this
+        // shim is CLI-only (see `socketOverride`).
+        // `stderrLog` gives the DETACHED daemon a real log sink beside its socket (P0) — else
+        // a detached kaval's whole log stream went to /dev/null.
+        spawnDaemon: () =>
+          reExecAsDetachedDaemon({
+            stripArgs: ["--stdio"],
+            stderrLog: kavalLogPath(socketPath),
+          }),
+        log: (msg) => process.stderr.write(`kaval --stdio: ${msg}\n`),
+      }),
+  });
+}
 
-  // ── Converge BEFORE relaying (juspay/kolu#2101) ───────────────────────────
+/** The three things the bridge's ORDERING is defined over, injected so the
+ *  ordering can be pinned without forking a daemon or re-execing the test
+ *  runner. NOT a production API — `runStdioBridge` always supplies the real
+ *  converge, the real stdout, and the real relay. */
+export interface KavalStdioBridgeDeps {
+  /** The converge-before-relay pre-step, as the verdict it answers with. */
+  readonly converge: Effect.Effect<StdioReadinessVerdict, Error>;
+  /** Where the banner goes — the wire. */
+  readonly stdout: Writable;
+  /** Engage the byte relay. Called ONLY after a `ready` banner. */
+  readonly relay: () => Promise<void>;
+}
+
+/**
+ * The bridge's ORDER, stated once (juspay/kolu#2101): **converge, then greet,
+ * then relay — and on a refusal, greet and stop.** The twin of padi's
+ * `runPadiStdioBridgeWith`.
+ *
+ * That order is the entire fix, so it lives in its own function rather than
+ * inline in the CLI shim: every step is load-bearing and each has a way of being
+ * silently wrong. Converging after the relay engages would be useless (the client
+ * has already attached). Greeting before converging would certify a daemon nobody
+ * checked. Relaying after a refusal would hand the client the stale daemon the
+ * refusal exists to keep it away from — a fail-fast that does not actually stop.
+ */
+export async function runStdioBridgeWith(
+  _opts: RunStdioBridgeOptions,
+  deps: KavalStdioBridgeDeps,
+): Promise<void> {
+  // ── Converge BEFORE relaying ──────────────────────────────────────────────
   //
   // The same pre-step padi's front runs, for the same reason: the front is always
   // of the CURRENT epoch, so greeting `ready` without converging would certify a
-  // daemon nobody checked. THE PROCESS EDGE (governance:
-  // `packages/tests/governance/runEdges.ts`) — the kit is Effect-native all the
-  // way down and this is a CLI entry whose caller is `bin.ts`'s Promise `.catch`;
-  // the relay below is Promise-shaped by `frontDaemonOverStdio`'s own contract, so
-  // there is nothing left to compose into.
-  const verdict = await Effect.runPromise(
-    convergeKavalStdioFront({ home, stderrLog: kavalLogPath(socketPath) }),
-  );
+  // daemon nobody checked.
+  //
+  // THE PROCESS EDGE (governance: `packages/tests/governance/runEdges.ts`) — the
+  // kit is Effect-native all the way down and this is a CLI entry whose caller is
+  // `bin.ts`'s Promise `.catch`; the relay is Promise-shaped by
+  // `frontDaemonOverStdio`'s own contract, so there is nothing left to compose
+  // into.
+  const verdict = await Effect.runPromise(deps.converge);
   // The banner is the FIRST thing on stdout, written while the front still owns
   // it — before `relay()` takes it over.
-  writeStdioReadiness(process.stdout, verdict);
+  writeStdioReadiness(deps.stdout, verdict);
   if (verdict.verdict === "refused") {
     throw new KavalStdioFrontRefused(verdict.detail);
   }
-
-  return frontDaemonOverStdio({
-    socketPath,
-    // Start kaval's own durable daemon: re-exec this binary minus `--stdio`.
-    // `--socket PATH` (if any) rides through in `process.argv`, so the daemon
-    // resolves the SAME path the front just did — load-bearing, and why this
-    // shim is CLI-only (see `socketOverride`).
-    // `stderrLog` gives the DETACHED daemon a real log sink beside its socket (P0) — else
-    // a detached kaval's whole log stream went to /dev/null.
-    spawnDaemon: () =>
-      reExecAsDetachedDaemon({
-        stripArgs: ["--stdio"],
-        stderrLog: kavalLogPath(socketPath),
-      }),
-    log: (msg) => process.stderr.write(`kaval --stdio: ${msg}\n`),
-  });
+  return deps.relay();
 }
