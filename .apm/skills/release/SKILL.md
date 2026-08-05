@@ -16,7 +16,7 @@ A kolu release is a **tag on `master`** (kolu ships only as a Nix flake; master 
    - **Set the version** in `packages/server/package.json`.
 4. **Approval gate** — show the human the staged (uncommitted) diff — the promoted changelog as it will actually publish, the version bump, and the tag `v${version}` — and **`AskUserQuestion`** to proceed. Iterate on the changelog until approved; `No` discards the staged changes and leaves the tree clean.
 5. **Commit + push** — commit (`release ${version}`) and push `master`. **Do not tag yet.**
-6. **CI gate** — wait for CI to go green on the exact release commit. On failure, fix forward (or revert) on `master`; **never tag a commit CI hasn't passed**.
+6. **CI gate** — wait for CI to go green on the exact release commit. On failure, open a PR with the fix, merge it, and tag the resulting green commit instead; **never tag a commit CI hasn't passed**.
 7. **Tag & publish** — annotated tag `v${version}` on the green release commit; push it; `gh release create v${version}` with notes pointing at `kolu.dev/changelog#v<X-Y-Z>`.
 8. **Verify & report** — tag on `master`, GitHub release live, `kolu.dev/changelog` shows the release. Report the tag URL, the release URL, and the pin: `nix run github:juspay/kolu/v${version}`.
 
