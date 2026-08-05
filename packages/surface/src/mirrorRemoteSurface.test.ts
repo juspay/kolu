@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { type CollectionDeltasMsg, defineSurface } from "./define";
 import {
   ClientSurfaceMismatchError,
+  type MirrorFault,
   mirrorRemoteSurface,
 } from "./mirrorRemoteSurface";
 import { surfaceClientRef } from "./project";
@@ -288,20 +289,84 @@ describe("mirrorRemoteSurface", () => {
     expect(cellFrames).toEqual([7]);
   });
 
-  it("settles (does not reject) when a stream errors, and logs it", async () => {
+  it("REJECTS (never resolves clean) when a member's upstream stream errors, and faults it LOUD", async () => {
+    // juspay/kolu#2101 G5, the mute half-death. This used to RESOLVE — a "clean"
+    // end claiming a healthy mirror that had permanently stopped mirroring this
+    // member (nothing re-subscribes it) — with one prose line on an un-leveled
+    // `log` callback that kolu-server wired to `log.debug` and production filtered
+    // away. That combination is how a whole projection layer froze without
+    // producing a single log line.
     const client = {
       surface: { ticks: { get: () => Stream.fail(new Error("boom")) } },
     };
-    const logs: string[] = [];
+    const faults: MirrorFault[] = [];
     await expect(
       mirrorRemoteSurface(
         testSurface,
         asClient(client),
         { streams: { ticks: { input: {}, onFrame: () => {} } } },
-        { log: (l) => logs.push(l) },
+        { onFault: (f) => faults.push(f) },
       ).done,
-    ).resolves.toBeUndefined();
-    expect(logs.some((l) => l.includes("boom"))).toBe(true);
+    ).rejects.toThrow("boom");
+    // Loud, structured, and carrying the ERROR — not a stringified message.
+    expect(faults).toHaveLength(1);
+    expect(faults[0]?.scope).toBe("member");
+    expect(faults[0]?.label).toContain("ticks");
+    expect((faults[0]?.err as Error).message).toBe("boom");
+  });
+
+  it("a per-key upstream fault stays KEY-LOCAL but is LOUD — the host's mirror keeps running", async () => {
+    // F5 in this file's fiber audit, and the second of the two mute rows #2101 G5
+    // closed. Key-local is the right blast radius (one key must not kill a host),
+    // which is exactly why the fault has to arrive somewhere an operator reads:
+    // that key is now permanently unmirrored, and nothing re-subscribes it.
+    const closeKeys = Promise.withResolvers<void>();
+    const closeGood = Promise.withResolvers<void>();
+    const client = {
+      surface: {
+        items: {
+          keys: () =>
+            seq(
+              emit(["good", "bad"]),
+              park(() => closeKeys.promise),
+            ),
+          get: ({ key }: { key: string }) =>
+            key === "bad"
+              ? Stream.fail(new Error("per-key upstream died"))
+              : seq(
+                  emit({ v: 1 }),
+                  park(() => closeGood.promise),
+                ),
+        },
+      },
+    };
+
+    const upserts: string[] = [];
+    const faults: MirrorFault[] = [];
+    const { done } = mirrorRemoteSurface(
+      testSurface,
+      asClient(client),
+      {
+        collections: {
+          items: { upsert: (k) => upserts.push(k), remove: () => {} },
+        },
+      },
+      { onFault: (f) => faults.push(f) },
+    );
+
+    await delay(20);
+    // LOUD, key-scoped, and it names the key.
+    expect(faults).toHaveLength(1);
+    expect(faults[0]?.scope).toBe("key");
+    expect(faults[0]?.label).toContain("bad");
+    expect((faults[0]?.err as Error).message).toBe("per-key upstream died");
+    // KEY-LOCAL: the healthy key still mirrored, and the mirror is still running.
+    expect(upserts).toEqual(["good"]);
+
+    closeGood.resolve();
+    closeKeys.resolve();
+    // …and it ends CLEANLY — a dead key is not a dead mirror.
+    await expect(done).resolves.toBeUndefined();
   });
 
   it("surfaces a SYNCHRONOUSLY throwing client verb on `done`, never out of the call", async () => {
@@ -322,20 +387,22 @@ describe("mirrorRemoteSurface", () => {
         },
       },
     };
-    const logs: string[] = [];
+    const faults: MirrorFault[] = [];
     let handle: ReturnType<typeof mirrorRemoteSurface> | undefined;
     expect(() => {
       handle = mirrorRemoteSurface(
         testSurface,
         asClient(client),
         { streams: { ticks: { input: {}, onFrame: () => {} } } },
-        { log: (l) => logs.push(l) },
+        { onFault: (f) => faults.push(f) },
       );
     }).not.toThrow();
-    // It is an UPSTREAM fault, not a sink fault, so it settles and logs — the same
-    // disposition a stream that fails after subscribing gets.
-    await expect(handle?.done).resolves.toBeUndefined();
-    expect(logs.some((l) => l.includes("wrong surface"))).toBe(true);
+    // It is an UPSTREAM fault, so it takes the upstream disposition — which since
+    // #2101 G5 is "fault loud and reject", the same as a stream that fails after
+    // subscribing. What stays true is WHERE it arrives: on `done`, never out of
+    // the call.
+    await expect(handle?.done).rejects.toThrow("wrong surface");
+    expect(faults.map((f) => f.scope)).toEqual(["member"]);
   });
 
   it("rejects (does not log/swallow) when a stream SINK throws — fail-fast", async () => {

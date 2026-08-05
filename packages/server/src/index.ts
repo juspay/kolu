@@ -46,13 +46,6 @@ import { HttpRouter } from "effect/unstable/http";
 import { discoverKavalDaemons, legacyKavalSocketPath } from "kaval";
 import { getPendingSummaryFetches } from "kolu-claude-code";
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
-
-import { createKoluForwards } from "./portForward/forwards.ts";
-import {
-  makeHostPortsReader,
-  type TerminalsFace,
-} from "./portForward/hostPorts.ts";
-import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import {
   type HostKey,
   LOCAL_HOST,
@@ -61,36 +54,42 @@ import {
 } from "kolu-common/surfacesWithPadi";
 import { type WebSocket, WebSocketServer } from "ws";
 import type { KoluBootFlags } from "./bootFlags.ts";
-import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
 import { healthRouteLayer } from "./healthRoute.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
+import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
 import { koluHttpMiddleware } from "./httpMiddleware.ts";
 import {
   PREVIEW_ROUTE_PATTERN,
   previewRouteHandler,
 } from "./iframePreviewRoute.ts";
 import { log } from "./log.ts";
+import { enumerateDaemonInventoryOnce } from "./padi/daemonInventory.ts";
+import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import {
   ensurePadiBinding,
   handlePadiBootFailure,
 } from "./padi/padiBinding.ts";
-import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { mapConnectionToPadiLink } from "./padi/padiLink.ts";
-import { padiFailureOf, type PadiSession } from "./padi/padiSession.ts";
-import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { type PadiSession, padiFailureOf } from "./padi/padiSession.ts";
 import {
   assertRemovableHost,
   ensureRemotePadiBinding,
   parseKoluPadiHostSeed,
 } from "./padi/remotePadiBinding.ts";
 import { pruneToMembers } from "./padi/reServeEviction.ts";
-import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
-import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
   claimLocalSupervisor,
   supervisorConflictError,
 } from "./padi/supervisorClaim.ts";
 import { padiMemoryReadable } from "./padiMemoryGate.ts";
+import { createKoluForwards } from "./portForward/forwards.ts";
+import {
+  makeHostPortsReader,
+  type TerminalsFace,
+} from "./portForward/hostPorts.ts";
+import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
+import { pwaIdentityForHostname } from "./pwaIdentity.ts";
+import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
@@ -379,14 +378,36 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         source: padiSurface, // the BASE surface; reServeSurface adds `connection` internally.
         policy: PADI_FORWARDING_POLICY, // per-member value|delta forwarding.
         session: s,
+        // CHATTER at debug (reconnects, link ends) — filtered in production, and
+        // that is fine because it is no longer the only channel. FAULTS ride
+        // `onFault` at ERROR level: a projection-layer death used to reach this
+        // `log.debug` alone, which production drops, so the deploy-#2 freeze
+        // produced not one line (juspay/kolu#2101 G5).
         log: (line) => log.debug({ line, host: enc }, "padi re-serve"),
+        onFault: (fault) =>
+          log.error(
+            {
+              err: fault.err,
+              host: enc,
+              member: fault.label,
+              scope: fault.scope,
+            },
+            fault.scope === "key"
+              ? "padi projection: a collection key stopped being mirrored (key-local; the host mirror is still live)"
+              : "padi projection: a mirrored member's upstream stream died — the mirror is dead",
+          ),
       });
       reServes.set(enc, r);
       r.done
         .then(() =>
+          // A CLEAN resolve means what it says again, now that an upstream fault
+          // rejects instead (#2101 G5): every subscription ended without failing.
+          // Over one link that is the session going away or a supervised close —
+          // so this line no longer has to guess at "session destroyed" as the
+          // cause of what might have been a silent death.
           log.info(
             { host: enc },
-            "padi re-serve pump exited (session destroyed)",
+            "padi re-serve ended cleanly (link closed or supervision stopped)",
           ),
         )
         .catch((err) => {

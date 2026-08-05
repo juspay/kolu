@@ -46,6 +46,32 @@
  * stubs that relay `client.surface.<ns>.<verb>` to the remote. Graft those stubs
  * back into an `implementSurface` and `serve ∘ mirror ≈ identity` — the
  * location-transparency the whole remote-terminals epic rests on.
+ *
+ * ── THE PROJECTION-LAYER FIBER AUDIT (juspay/kolu#2101 G5) ────────────────
+ *
+ * The sibling of `SurfaceRuntimeHandle.done`'s audit in `server.ts`: that one
+ * covers the PRODUCE side's owned sources, this one the CONSUME side's fibers.
+ * Both exist because a projection that dies quietly is indistinguishable from one
+ * with nothing to say — the deploy-#2 freeze was every derived value in the
+ * process going stale, on all hosts at once, with not one log line.
+ *
+ * **No MUTE row may be added here.** Every long-lived fiber this file starts, how
+ * it dies, and who is told:
+ *
+ * | # | Fiber | Death | Observer | Disposition |
+ * | --- | --- | --- | --- | --- |
+ * | F1 | per-member subscription (`subscribeStream`: cells, streams, events) | upstream stream faults | `onFault{scope:"member"}` + `done` REJECTS | the mirror is dead — consumer's pump/re-serve policy runs (default host: exit; guest: retire) |
+ * | F2 | per-member subscription | the caller's sink throws | `done` REJECTS with the original error | fail-fast: a broken local fold is a bug |
+ * | F3 | collection deltas pump (`mirrorCollectionDeltas`) | as F1/F2 | as F1/F2 | as F1/F2 |
+ * | F4 | collection keys loop (`mirrorCollection`) | as F1/F2, or a per-key SINK failure via `sinkFailed` | as F1/F2 | as F1/F2 |
+ * | F5 | per-key value pump (`mirrorCollection`, one per live key) | that key's upstream stream faults | `onFault{scope:"key"}` — `done` UNAFFECTED | KEY-LOCAL by design (one key must not kill a host), which is precisely why it must be LOUD: the key is permanently unmirrored |
+ * | — | any of the above | `signal` aborted / interrupted | nothing | teardown is not a failure (silent by design) |
+ *
+ * Two rows were MUTE before G5 and are the incident's shape: F1 resolved `done`
+ * CLEAN after logging one prose line, and F5 logged the same way — both through an
+ * un-leveled `log` callback that kolu-server wired to `log.debug` and production
+ * filtered away. Faults now ride {@link MirrorFault}, which a serving consumer
+ * wires at ERROR level.
  */
 
 import { Cause, Deferred, Effect, Exit, Fiber, Stream } from "effect";
@@ -210,23 +236,54 @@ export type ProcedureForwarders<S extends SurfaceSpec> =
  *    (`procedures.<ns>.<verb>(input)` runs on the remote and returns its result).
  *    Available synchronously and bound to the `client` you passed, so a stub stays
  *    live for that client's lifetime. `{}` when the surface has no procedures.
- *  - `done` — settles when every opted-in streaming subscription settles; over one
- *    shared link that means the link closed (or `signal` aborted) — the cue a
- *    consumer flips a host to "unreachable" on. Rejects if a sink throws (a broken
- *    local fold — fail-fast) or setup hits a client/surface mismatch. */
+ *  - `done` — settles when every opted-in streaming subscription settles. RESOLVES
+ *    only on a clean end: over one shared link that means the link closed (or
+ *    `signal` aborted) — the cue a consumer flips a host to "unreachable" on.
+ *    REJECTS on any failure: a sink throwing (a broken local fold — fail-fast), a
+ *    member's upstream stream faulting (that member is never re-subscribed, so the
+ *    mirror is dead — juspay/kolu#2101 G5), or a setup client/surface mismatch.
+ *    A consumer MUST observe it; see the fiber audit in this file's header. */
 export interface MirroredSurface<S extends SurfaceSpec> {
   procedures: ProcedureForwarders<S>;
   done: Promise<void>;
+}
+
+/** A mirror subscription DIED of an upstream fault — the structured, leveled twin
+ *  of {@link MirrorRemoteSurfaceOptions.log}'s prose chatter.
+ *
+ *  It exists because the deploy-#2 freeze was MUTE (juspay/kolu#2101 G5): every
+ *  projection-layer death reached one un-leveled `log` callback that kolu-server
+ *  wired to `log.debug`, which production filters out — so a dead mirror produced
+ *  not one line. A fault is not chatter and must not share chatter's level, and it
+ *  carries the ERROR ITSELF, never a stringified message (the padi incident's log
+ *  dropped the stack the same way). */
+export interface MirrorFault {
+  /** The subscription that died — the member's label, plus the key for a per-key
+   *  pump. What an operator needs to name the dead thing. */
+  readonly label: string;
+  /** The error, verbatim and un-stringified. */
+  readonly err: unknown;
+  /** `member` — a whole member's stream died. The mirror can no longer mirror it
+   *  and never re-subscribes, so `done` REJECTS and the consumer's policy runs.
+   *  `key` — one key's per-key pump died. Deliberately key-local (one key must not
+   *  kill a host's mirror), so `done` is unaffected — which is exactly why this
+   *  fault has to be loud somewhere, and this is that somewhere. */
+  readonly scope: "member" | "key";
 }
 
 export interface MirrorRemoteSurfaceOptions {
   /** Torn down when aborted — threads into every subscription so the whole
    *  mirror unwinds with no leak (a consumer's dispose, or a parent shutdown). */
   signal?: AbortSignal;
-  /** Non-fatal per-primitive errors (a per-key stream blip the mirror keeps
-   *  going past). Defaults to a no-op — pass one to surface diagnostics. An
-   *  AbortError is always swallowed (it's teardown), never logged. */
+  /** CHATTER — routine narration a consumer may filter freely (a link ending, a
+   *  reconnect). Defaults to a no-op. An AbortError is always swallowed (it's
+   *  teardown), never logged. Faults do NOT come through here: see
+   *  {@link MirrorRemoteSurfaceOptions.onFault}. */
   log?: (line: string) => void;
+  /** FAULTS — a subscription died. Wire this to an ERROR-level sink; a consumer
+   *  that filters it is choosing to be blind to a dead projection. Defaults to a
+   *  no-op only because `log` does; a serving consumer supplies it. */
+  onFault?: (fault: MirrorFault) => void;
 }
 
 // ── The client's per-primitive call shapes (structural) ──────────────────
@@ -356,8 +413,28 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
   sink: SurfaceSink<S>,
   opts: MirrorRemoteSurfaceOptions = {},
 ): MirroredSurface<S> {
-  const { signal } = opts;
-  const log = opts.log ?? (() => {});
+  const { signal: callerSignal } = opts;
+  const onFault = opts.onFault ?? ((): void => {});
+  // The mirror's OWN unwind latch, downstream of the caller's `signal`. Two
+  // triggers, one teardown: the caller aborting (as before), or ANY subscription
+  // failing (juspay/kolu#2101 G5).
+  //
+  // The second is the incident's core. `done` waits for every task to settle, so
+  // one member's stream dying while its siblings park forever left `done`
+  // unsettled — a mirror running with a permanently dead member, which no
+  // observer could act on because nothing ever settled. Unwinding the siblings on
+  // the first failure makes "this mirror can no longer mirror" a PROMPT, settled
+  // fact the pump can re-mirror on. Siblings are INTERRUPTED, which is silent by
+  // contract, so the first failure stays the reported cause.
+  const unwind = new AbortController();
+  if (callerSignal) {
+    if (callerSignal.aborted) unwind.abort();
+    else
+      callerSignal.addEventListener("abort", () => unwind.abort(), {
+        once: true,
+      });
+  }
+  const signal = unwind.signal;
   const ns = client.surface as Record<string, EntryClient>;
   const spec = source.spec;
   // The PULL half of the dual: a forwarding stub per procedure. Built up front —
@@ -423,7 +500,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       if (!onValue) continue;
       const entry = requireEntry(ns, key, "cell");
       starts.push(() =>
-        subscribeStream(entry, {}, onValue, signal, log, `${key} cell`),
+        subscribeStream(entry, {}, onValue, signal, onFault, `${key} cell`),
       );
     }
 
@@ -464,7 +541,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
         starts.push(() =>
           mirrorCollectionDeltas({
             label: `${key} collection`,
-            log,
+            onFault,
             signal,
             deltas: () => deltasFn(undefined),
             onUpsert: colSink.upsert,
@@ -487,7 +564,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       starts.push(() =>
         mirrorCollection({
           label: `${key} collection`,
-          log,
+          onFault,
           signal,
           keys: () => keysFn(undefined),
           get: (k: unknown) => perKeyEntry.get({ key: k }),
@@ -511,7 +588,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
           s.input,
           s.onFrame,
           signal,
-          log,
+          onFault,
           `${key} stream`,
         ),
       );
@@ -521,7 +598,14 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       if (!e) continue;
       const entry = requireEntry(ns, key, "event");
       starts.push(() =>
-        subscribeStream(entry, e.input, e.onFrame, signal, log, `${key} event`),
+        subscribeStream(
+          entry,
+          e.input,
+          e.onFrame,
+          signal,
+          onFault,
+          `${key} event`,
+        ),
       );
     }
   } catch (err) {
@@ -531,23 +615,33 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
     return { procedures, done: Promise.reject(err) };
   }
 
-  // PASS 2 — validation passed, so start every staged subscription.
-  const tasks = starts.map((start) => start());
+  // PASS 2 — validation passed, so start every staged subscription. The FIRST
+  // failure unwinds the rest (see `unwind` above): the `.catch` here is a handled
+  // side-branch, so the original rejection still reaches `allSettled` below and
+  // every task is still observed before `done` settles (#1719).
+  const tasks = starts.map((start) => {
+    const task = start();
+    task.catch(() => unwind.abort());
+    return task;
+  });
 
-  // `done` settles when every subscription has settled. Over one shared link that
-  // means the link closed (or `signal` aborted) — the cue a consumer flips a host to
-  // "unreachable" on. `allSettled`, not `all`: one primitive's *upstream* stream
-  // error must not reject the whole mirror (it's already logged), and teardown is
-  // uniform. But a *sink* failure is NOT an upstream blip — it's a bug in the
-  // caller's local fold, and the no-fallback rule (`caught-error-must-not-
-  // collapse-to-empty`) says it must surface, not be logged and swallowed: a task
-  // tags such a rejection with `SinkError`, and the first one rethrows here so
-  // `done` rejects rather than quietly resolving on a broken fold.
+  // `done` settles when every subscription has settled. A CLEAN resolve means what
+  // it says again (juspay/kolu#2101 G5): every subscription ended without failing —
+  // over one shared link, the link closed or `signal` aborted. That is the cue a
+  // consumer flips a host to "unreachable" on.
+  //
+  // `allSettled`, not `all`: teardown stays uniform and every task is observed
+  // before `done` settles (#1719), rather than the first failure racing ahead of
+  // siblings still unwinding. But EVERY failure now surfaces — both classes:
+  //   - a SINK failure is a bug in the caller's local fold (fail-fast; the original
+  //     error is unwrapped so the consumer sees its own throw, not our tag);
+  //   - an UPSTREAM failure means a member stopped being mirrored, permanently.
+  // Neither may resolve quietly (`caught-error-must-not-collapse-to-empty`). The
+  // FIRST failure is the root cause and is what `done` rejects with.
   const done = Promise.allSettled(tasks).then((results) => {
     for (const r of results) {
-      if (r.status === "rejected" && r.reason instanceof SinkError) {
-        throw r.reason.cause;
-      }
+      if (r.status !== "rejected") continue;
+      throw r.reason instanceof SinkError ? r.reason.cause : r.reason;
     }
   });
   return { procedures, done };
@@ -597,11 +691,11 @@ function seedCarryOver<K>(initialKeys?: () => Iterable<K>): Set<K> {
  *     fiber as a {@link SinkError} failure and rethrown here, which is what makes
  *     the mirror's `done` reject.
  *
- *  The returned promise therefore rejects ONLY with a `SinkError`. */
+ *  The returned promise therefore rejects on EITHER failure class. */
 function runSubscription(
   program: Effect.Effect<void, unknown>,
   signal: AbortSignal | undefined,
-  log: (line: string) => void,
+  onFault: (fault: MirrorFault) => void,
   label: string,
 ): Promise<void> {
   const fiber = Effect.runFork(program);
@@ -622,8 +716,15 @@ function runSubscription(
         reject(err);
         return;
       }
-      log(`${label}: ${err instanceof Error ? err.message : String(err)}`);
-      resolve();
+      // An UPSTREAM failure REJECTS too (juspay/kolu#2101 G5). It used to log one
+      // line and resolve CLEAN — but this member is never re-subscribed, so a
+      // "clean" resolve claimed a healthy mirror that had permanently stopped
+      // mirroring that member. Combined with a consumer that logged the line at
+      // DEBUG, that is the mute half-death the deploy-#2 freeze was made of.
+      // The mirror is dead; the retry/exit policy belongs to the consumer's pump
+      // and re-serve observers, which can only run if they are TOLD.
+      onFault({ label, err, scope: "member" });
+      reject(err);
     });
   });
 }
@@ -651,7 +752,7 @@ function subscribeStream(
   input: unknown,
   onFrame: (frame: unknown) => void,
   signal: AbortSignal | undefined,
-  log: (line: string) => void,
+  onFault: (fault: MirrorFault) => void,
   label: string,
 ): Promise<void> {
   return runSubscription(
@@ -665,7 +766,7 @@ function subscribeStream(
       (frame) => applySink(() => onFrame(frame)),
     ),
     signal,
-    log,
+    onFault,
     label,
   );
 }
@@ -691,7 +792,7 @@ function subscribeStream(
  *  holds. */
 function mirrorCollectionDeltas<K, V>(opts: {
   label: string;
-  log: (line: string) => void;
+  onFault: (fault: MirrorFault) => void;
   signal: AbortSignal | undefined;
   /** Called on the subscription fiber (never during setup) — see
    *  {@link subscribeStream}'s note on a synchronously-throwing client verb. */
@@ -743,7 +844,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
       );
     }),
     opts.signal,
-    opts.log,
+    opts.onFault,
     opts.label,
   );
 }
@@ -785,7 +886,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  fold this code believes complete. */
 function mirrorCollection<K, V>(opts: {
   label: string;
-  log: (line: string) => void;
+  onFault: (fault: MirrorFault) => void;
   signal: AbortSignal | undefined;
   /** Called on the subscription fiber (never during setup) — see
    *  {@link subscribeStream}'s note on a synchronously-throwing client verb. */
@@ -836,12 +937,19 @@ function mirrorCollection<K, V>(opts: {
                       return Effect.asVoid(Deferred.fail(sinkFailed, err));
                     }
                     if (Cause.hasInterruptsOnly(cause)) return Effect.void;
+                    // KEY-LOCAL, and LOUD (juspay/kolu#2101 G5). Key-local is the
+                    // right blast radius — one key's stream must not kill a host's
+                    // whole mirror — but this key is now permanently unmirrored
+                    // (the pump is done and nothing re-subscribes it), so silence
+                    // is not an option. It goes to the structured FAULT channel,
+                    // not the prose chatter one a consumer filters at DEBUG, and
+                    // carries the error itself rather than its message.
                     return Effect.sync(() =>
-                      opts.log(
-                        `${opts.label}: per-key stream error for ${String(key)}: ${
-                          err instanceof Error ? err.message : String(err)
-                        }`,
-                      ),
+                      opts.onFault({
+                        label: `${opts.label} key ${String(key)}`,
+                        err,
+                        scope: "key",
+                      }),
                     );
                   },
                 ),
@@ -879,7 +987,7 @@ function mirrorCollection<K, V>(opts: {
       }),
     ),
     opts.signal,
-    opts.log,
+    opts.onFault,
     opts.label,
   );
 }

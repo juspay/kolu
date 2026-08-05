@@ -583,3 +583,157 @@ describe("pumpRemoteSurface — a mirror that ends on a LIVE link", () => {
     expect(session.isDestroyed()).toBe(false);
   });
 });
+
+describe("THE SERVER-LAYER STAMPEDE: one host's projection dies mid-flight", () => {
+  it("the dead host FAULTS LOUD and re-mirrors, while every sibling host keeps flowing", async () => {
+    // The mandated #2101 G5 falsifier, over the real machinery: N host
+    // projections running at once (the deploy's three hosts, scaled), one of
+    // which loses a member's upstream stream in the middle of the others'
+    // traffic. What the incident produced instead: that pump RESOLVED CLEAN
+    // after one prose line on a `log` callback kolu-server wired to `log.debug`
+    // — so the observer that would have retired or restarted the host never ran,
+    // and nothing was written anywhere an operator would look.
+    const N = 4;
+    const DOOMED = 2;
+
+    const openStreams: Array<() => void> = [];
+    const frames: number[][] = [];
+    const faults: Array<{ host: number; scope: string; err: unknown }> = [];
+    const chatter: string[] = [];
+
+    const hosts = Array.from({ length: N }, (_, host) => {
+      frames[host] = [];
+      let fail!: () => void;
+      const failed = new Promise<void>((r) => {
+        fail = r;
+      });
+      let close!: () => void;
+      const closed = new Promise<void>((r) => {
+        close = r;
+      });
+      openStreams.push(close);
+      const client = {
+        surface: {
+          ticks: {
+            get: () =>
+              host === DOOMED
+                ? // The doomed host: one good frame, then its upstream DIES.
+                  Stream.concat(
+                    Stream.make(1),
+                    Stream.flatMap(
+                      Stream.fromEffect(Effect.promise(() => failed)),
+                      () =>
+                        Stream.fail(
+                          new Error(`host ${host}: upstream stream died`),
+                        ),
+                    ),
+                  )
+                : Stream.concat(
+                    Stream.make(1),
+                    Stream.drain(
+                      Stream.fromEffect(Effect.promise(() => closed)),
+                    ),
+                  ),
+          },
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: structural fake client.
+      } as any as SurfaceClientLike;
+      const session = fakePumpSession(client);
+      const pumping = pumpRemoteSurface({
+        source: pumpSurface,
+        session,
+        makeSink: () => ({
+          cells: {},
+          collections: {},
+          streams: {
+            ticks: {
+              input: {},
+              onFrame: (n: number) => frames[host]?.push(n),
+            },
+          },
+          events: {},
+        }),
+        log: (line) => chatter.push(`host ${host}: ${line}`),
+        onFault: (f) => faults.push({ host, scope: f.scope, err: f.err }),
+      });
+      pumping.catch(() => {});
+      return { session, pumping, fail };
+    });
+
+    // Every host is mirroring.
+    await vi.waitFor(() => {
+      for (let h = 0; h < N; h++) expect(frames[h]).toEqual([1]);
+    });
+
+    // THE FAULT, mid-flight.
+    hosts[DOOMED]?.fail();
+
+    // 1. The dead host's pump REJECTS — which is what reaches kolu-server's
+    //    `r.done.catch` arm (default host: exit; guest: retire). Pre-fix it
+    //    resolved clean and no arm ever ran.
+    await vi.waitFor(() => expect(faults).toHaveLength(1));
+    expect(faults[0]?.host).toBe(DOOMED);
+    expect(faults[0]?.scope).toBe("member");
+    expect((faults[0]?.err as Error).message).toContain("upstream stream died");
+    // 2. The pump names the death too, and calls it a DEATH — not the "mirror
+    //    ended" line a clean close gets. Pre-fix the mirror resolved clean, so
+    //    this host was indistinguishable from one whose link simply closed.
+    await vi.waitFor(() =>
+      expect(
+        chatter.some(
+          (l) => l.includes(`host ${DOOMED}`) && l.includes("mirror FAILED"),
+        ),
+      ).toBe(true),
+    );
+    expect(
+      chatter.some(
+        (l) => l.includes(`host ${DOOMED}`) && l.includes("mirror ended"),
+      ),
+    ).toBe(false);
+    // 3. The dead host's pump is RECOVERING — awaiting the next spawn, which
+    //    re-mirrors every member and IS the repair. Deliberately not propagated
+    //    to the re-serve observer: kolu-server's policy for the default host is
+    //    to exit the process, and an ssh blip must not do that.
+    let doomedSettled = false;
+    void hosts[DOOMED]?.pumping.then(
+      () => {
+        doomedSettled = true;
+      },
+      () => {
+        doomedSettled = true;
+      },
+    );
+    await Promise.resolve();
+    expect(doomedSettled).toBe(false);
+
+    // 4. THE BYSTANDERS: every sibling host is still mirroring — a dead
+    //    projection on one host must not freeze the others (the incident froze
+    //    all three at once).
+    for (let h = 0; h < N; h++) {
+      if (h === DOOMED) continue;
+      const host = hosts[h];
+      expect(host).toBeDefined();
+      // Still live: not settled, still holding its stream open.
+      let settled = false;
+      void host?.pumping.then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        },
+      );
+      await Promise.resolve();
+      expect(settled).toBe(false);
+    }
+
+    // Tear the survivors down: destroy the sessions FIRST, so the reconnect
+    // loop's guard is already false when closing the streams ends each mirror —
+    // otherwise a pump enters the ended-link probe race against a fake client
+    // that can never answer it, which is a different (documented) shape and not
+    // what this test is about.
+    for (const host of hosts) host.session.destroy();
+    for (const close of openStreams) close();
+    await Promise.allSettled(hosts.map((h) => h.pumping));
+  });
+});

@@ -27,14 +27,15 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import { Effect } from "effect";
 import { isDeadTransportError } from "@kolu/surface/errors";
 import {
+  type MirrorFault,
   mirrorRemoteSurface,
   type ProcedureForwarders,
   type SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import { Effect } from "effect";
 import {
   type DestroyableSession,
   type Session,
@@ -158,8 +159,15 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
    *  A re-serve's `close()` drives this; omit for a pump whose only stop is the
    *  session's own destruction. */
   signal?: AbortSignal;
-  /** Diagnostic sink. Default no-op. */
+  /** Diagnostic CHATTER sink (reconnects, link ends). Default no-op — filter it
+   *  freely. Faults do not come through here: see {@link PumpRemoteSurfaceOptions.onFault}. */
   log?: (line: string) => void;
+  /** FAULT sink, forwarded verbatim to the mirror. Wire it at ERROR level: a
+   *  key-scoped fault is the ONLY notice that a key stopped being mirrored (it
+   *  never reaches `done`), and a member-scoped one narrates the death this pump
+   *  is about to report. See `MirrorFault` and the fiber audit in
+   *  `@kolu/surface/mirror`. */
+  onFault?: (fault: MirrorFault) => void;
 }
 
 /** The verdict on a link whose mirror just ended, raced against the wait for the
@@ -252,6 +260,10 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
    *  takes (an ssh provisioning campaign runs for minutes). */
   let endedClient: SurfaceClientLike | null = null;
   while (!session.isDestroyed() && !opts.signal?.aborted) {
+    /** Did THIS lap's mirror fail (rather than end cleanly)? Set in the mirror's
+     *  catch below, read at the bottom of the lap to skip the ended-on-a-live-link
+     *  probe race, which only makes sense for a CLEAN end. */
+    let failed = false;
     let client: SurfaceClientLike;
     try {
       const next = cursor.next(opts.signal);
@@ -298,7 +310,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       opts.source,
       client,
       opts.makeSink({ seq }),
-      { log, signal: opts.signal },
+      { onFault: opts.onFault, signal: opts.signal },
     );
     // Publish this spawn's forwarding stubs + live client; clear them the
     // instant the link dies so a forward in the gap fails honestly rather than
@@ -315,6 +327,32 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
     }
     try {
       await mirror.done;
+    } catch (err) {
+      // A REJECTING mirror is a DEAD mirror (juspay/kolu#2101 G5) — a member's
+      // upstream stream faulted, so that member is no longer being mirrored and
+      // the whole mirror has unwound. That is a LINK DEATH, which is precisely
+      // what this reconnect loop is for: the next spawn re-mirrors every member
+      // from a fresh snapshot, which is also the repair. So it is caught here and
+      // the loop continues — NOT propagated to the re-serve observer, whose
+      // policy for kolu-server's default host is to exit the process, and an ssh
+      // blip or a padi restart must not do that.
+      //
+      // What changed is that it is no longer SILENT: the fault already reached
+      // `onFault` at error level inside the mirror, and this line names the pump
+      // and the spawn. Before, a failing member resolved `done` clean and the one
+      // prose line went to a DEBUG sink production dropped.
+      //
+      // `endedClient` is deliberately NOT set: that variable arms the
+      // ended-on-a-live-link probe race, which answers the question "did this
+      // mirror end cleanly with the far end still there?". A FAILED mirror has
+      // already answered it — the link is bad — so the loop goes straight back to
+      // waiting for the next spawn.
+      failed = true;
+      log(
+        `pump: mirror FAILED for client #${seq} — the projection is dead; awaiting the next client to re-mirror: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     } finally {
       if (opts.liveProcedures) {
         opts.liveProcedures.current = null;
@@ -329,6 +367,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       // the fresh snapshot instead of painting a stale row across the reconnect.
       opts.onLinkDown?.();
     }
+    if (failed) continue; // a failed mirror already narrated itself; no probe race
     // Remember WHICH client's mirror ended: the next wait races its liveness
     // verdict, so an ended mirror over a still-answering link stops the pump
     // instead of parking it (see {@link probeEndedLink}).

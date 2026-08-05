@@ -46,9 +46,13 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
+import type {
+  MirrorFault,
+  ProcedureForwarders,
+  SurfaceSink,
+} from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import { Effect, type Stream } from "effect";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
@@ -57,6 +61,8 @@ import {
   inMemoryCollection,
   superviseTerminalSource,
 } from "@kolu/surface/server";
+import { Effect, type Stream } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import {
   type LiveSpawnHolder,
   observableHolder,
@@ -68,9 +74,6 @@ import {
   holdOpenStreamCore,
   type RelayPolicy,
 } from "./relayStream";
-import type { RpcGroup } from "effect/unstable/rpc";
-import type { Rpc } from "effect/unstable/rpc";
-import type { SurfaceHandlers } from "@kolu/surface/server";
 import type { Session } from "./session";
 import type { SshProv } from "./sshConnector";
 
@@ -136,8 +139,15 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
    *  both plug in. The mirror
    *  forwards the client structurally, so the contract type is not needed here. */
   session: Session<SurfaceClientLike, SshProv>;
-  /** Diagnostic sink. Default no-op. */
+  /** Diagnostic CHATTER sink (reconnects, link ends). Default no-op. Faults do
+   *  NOT come through here — see {@link ReServeSurfaceOptions.onFault}. Wiring
+   *  this at DEBUG is fine and expected; wiring the projection layer's ONLY
+   *  channel at DEBUG is what made the deploy-#2 freeze mute (juspay/kolu#2101). */
   log?: (line: string) => void;
+  /** FAULT sink, forwarded to the pump and the mirror. Wire at ERROR level. A
+   *  member-scoped fault also rejects `done`; a KEY-scoped one does not, so this
+   *  is its only notice. */
+  onFault?: (fault: MirrorFault) => void;
 }
 
 export interface ReServedSurface<S extends SurfaceSpec> {
@@ -595,6 +605,7 @@ export function reServeSurface<S extends SurfaceSpec>(
     liveClient,
     signal: pumpAbort.signal,
     log,
+    onFault: opts.onFault,
   });
 
   // Supervise the internal runtime + the pump through the framework's
