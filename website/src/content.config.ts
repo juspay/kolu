@@ -69,7 +69,10 @@ const blog = defineCollection({
 const changelog = defineCollection({
   // AGENTS.md is apm-generated agent guidance deployed into this directory —
   // guidance for writing entries, not an entry.
-  loader: glob({ pattern: ["**/*.{md,mdx}", "!**/AGENTS.md"], base: "./src/content/changelog" }),
+  loader: glob({
+    pattern: ["**/*.{md,mdx}", "!**/AGENTS.md"],
+    base: "./src/content/changelog",
+  }),
   // Release identity is one strict pair: the perpetual Unreleased entry is
   // dateless and summary-less, while every numbered release is dated and
   // opens with a summary. Keeping the pair as a union prevents malformed
