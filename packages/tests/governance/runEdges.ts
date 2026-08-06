@@ -81,6 +81,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the pty-host contract corpus — one run per procedure and stream it asserts on, each inside a vitest `it` body, which IS the harness's Promise boundary; a `.testlib.ts` rather than a `.test.ts` only because vitest's `include` and default.nix's staleKey filter both key on the suffix, so it is scanned like the production tree it sits in and the count moves only when `CONTRACT_COVERAGE` does",
   },
   {
+    path: "packages/kaval/src/selfLiveness.ts",
+    sites: 1,
+    why: "the self-liveness probe's raw-timer edge (juspay/kolu#2101 N2): the cadence rides a chained unref'd `setTimeout` by written ruling at the site (heap-diag's precedent — Effect 4's default Clock sleeps on a ref'd timeout that would hold the process open), so each tick is its own process boundary with no Effect caller to compose into; one run per tick, matching the loop shape",
+  },
+  {
     path: "packages/kaval/src/stdioBridge.ts",
     sites: 1,
     why: "the `kaval --stdio` front's converge-before-relay pre-step (juspay/kolu#2101), now inside the `runStdioBridgeWith(opts, deps)` ordering seam the test pins rather than inline in the CLI shim: the convergence kit is Effect-native all the way down, but this is a CLI entry whose caller is `bin.ts`'s Promise `.catch` and whose continuation — `frontDaemonOverStdio` — is Promise-shaped by its own contract-blind contract, so there is no caller left to compose into; one crossing, at the boundary, before a single byte is relayed",
@@ -114,6 +119,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     path: "packages/padi/src/daemonBoot/stdioBridge.ts",
     sites: 1,
     why: "the `padi --stdio` front's converge-before-relay pre-step (juspay/kolu#2101) — the twin of kaval's row, for the same reason: a CLI entry whose caller is `bin.ts`'s Promise `.catch`, whose continuation `frontDaemonOverStdio` is Promise-shaped by contract, and which must run the full convergence BEFORE the relay engages (that ordering is the whole fix, so it cannot move inward)",
+  },
+  {
+    path: "packages/padi/src/kavalSupervision.ts",
+    sites: 2,
+    why: "steady-state kaval supervision's raw-timer edge (juspay/kolu#2101 N1): the tick rides a chained unref'd `setTimeout` for the same written reasons as kaval's self-liveness row, so the probe read and the observe/repair step each cross at the tick boundary — two runs, one cadence, no Effect caller above the timer to compose into",
   },
   {
     path: "packages/padi/src/ports/sampler.ts",
