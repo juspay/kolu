@@ -1042,8 +1042,11 @@ export function startSensors(
       log,
       commandRooted,
     );
-  // The heterogeneous `AgentAdapter<unknown, any>[]` (matches anyagent's own
-  // heterogeneous-rows shape — see the adapters table in terminal-vocab).
+  // The heterogeneous adapter list — per-kind generics erased the way
+  // anyagent's own heterogeneous tables erase them. A union of the five
+  // concrete instantiations doesn't generalize to the sixth agent (the
+  // F4 volatility this list owns), so `any` is the honest type here.
+  // biome-ignore lint/suspicious/noExplicitAny: the heterogeneous adapter list erases the per-kind generics; anyagent's own tables share the shape.
   const AGENTS: AgentAdapter<unknown, any>[] = [
     claudeCodeAdapter,
     codexAdapter,

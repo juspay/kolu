@@ -584,21 +584,39 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       },
       90_000,
     );
-    // The previous padi proved the 6.0/5.3 major skew and replaced the current
-    // daemon with its companion 5.3 kaval. Rollback never adopts a peer whose
-    // removed procedure its client can still call.
+    // Contract version gates the previous padi's first-boot choice:
+    //  - 5.x previous (v2.0.0): majors skew (6.0/5.3), so rollback REPLACES
+    //    the current kaval with its companion 5.x — the post-boot gate pid
+    //    differs from the current daemon's.
+    //  - 6.x previous (v2.2.0+): N1 steady-state supervision ADOPTS a
+    //    compatible current kaval rather than replacing — the gate pid
+    //    stays the current daemon's.
+    // Either way the law the upgrade window guarantees is: the gate names a
+    // live kaval pid, and a previous-release supervisor remains functional.
     const previousKavalPid = gatePid(kavalGate);
     expect(previousKavalPid).toBeTypeOf("number");
-    expect(previousKavalPid).not.toBe(currentKavalPid);
-    expect(isHolderLive(currentKavalPid)).toBe(false);
     if (previousKavalPid === undefined) {
-      throw new Error("previous padi replacement kaval gate has no pid");
+      throw new Error(
+        "previous padi's gate has no pid (5.x replacement or 6.x adoption both require one)",
+      );
     }
+    expect(isHolderLive(previousKavalPid)).toBe(true);
+    if (previousKavalPid === currentKavalPid) {
+      // 6.x adoption arm — nothing replaced, so there's no "previous kaval"
+      // for the Manual-QA restart below to recycle. The adopt path IS the
+      // upgrade-window contract for this arm; short-circuit cleanly.
+      return;
+    }
+    // 5.x replacement arm: the current kaval must be dead. Pin it so a
+    // regression in the rollback REPLACE path fails here, not silently as
+    // a skip from the adoption arm above.
+    expect(isHolderLive(currentKavalPid)).toBe(false);
 
-    // A1-6: drive the PREVIOUS supervisor's Restart path (literal Manual QA
-    // "Restart kaval. Still works"). recycleKaval has been on padi's lifecycle
-    // surface since the previous release tag used here — if a future previous
-    // window drops it, this call fails loud and the comment documents why.
+    // A1-6 (5.x only): drive the PREVIOUS supervisor's Restart path (literal
+    // Manual QA "Restart kaval. Still works"). recycleKaval has been on
+    // padi's lifecycle surface since the previous release tag used here — if
+    // a future previous window drops it, this call fails loud and the
+    // comment documents why.
     const prevPadi = await unixSocketLink<PadiDaemonContract>({
       socketPath: padiSock,
     });
@@ -606,33 +624,35 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       await prevPadi.client.surface.padi.lifecycle.recycleKaval(undefined);
 
       const recycleDeadline = Date.now() + 60_000;
-      let newPid: number | undefined;
+      let restartPid: number | undefined;
       while (Date.now() < recycleDeadline) {
         const p = gatePid(kavalGate);
         if (p !== undefined && isHolderLive(p) && p !== previousKavalPid) {
-          newPid = p;
+          restartPid = p;
           break;
         }
         await sleep(200);
       }
       // (a) restart completed — a live replacement holds the gate
       expect(
-        newPid,
+        restartPid,
         `previous padi recycleKaval did not replace kaval (still ${previousKavalPid})`,
       ).toBeTypeOf("number");
-      if (newPid === undefined) {
-        throw new Error("unreachable: newPid typed after toBeTypeOf number");
+      if (restartPid === undefined) {
+        throw new Error(
+          "unreachable: restartPid typed after toBeTypeOf number",
+        );
       }
       // (b) SIGTERM went to the original observation (not a stranger)
       expect(isHolderLive(previousKavalPid)).toBe(false);
       // (c) post-restart gate is still pid-first-readable naming the live
-      // replacement. Previous-release kaval writes one-field (wrapper-baked
-      // binary — see env comment above); assert the rollback contract, not
-      // a two-field body previous kaval cannot write.
+      // replacement. Assert the pid-first LAW (first field is always the
+      // pid), not a one-field body — a future previous release may write
+      // `pid\tstartUnixUs`.
       const body = readFileSync(kavalGate, "utf8").trim();
-      expect(Number.parseInt(body, 10)).toBe(newPid);
-      expect(gatePid(kavalGate)).toBe(newPid);
-      expect(isHolderLive(newPid)).toBe(true);
+      expect(Number.parseInt(body.split("\t")[0] ?? "", 10)).toBe(restartPid);
+      expect(gatePid(kavalGate)).toBe(restartPid);
+      expect(isHolderLive(restartPid)).toBe(true);
     } finally {
       await prevPadi.dispose();
     }
