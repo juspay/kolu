@@ -27,14 +27,25 @@
  *     disconnected ──gave up (N *remote* fails, OR a budget-exhausted silent step)──▶ failed
  *                                                          (terminal; `reconnect()` re-arms)
  *
- * A `"remote"` failure (reached the host, it rejected us) is terminal after
- * `MAX_CONSECUTIVE_FAILURES`. A `"network"` failure (transport-class: unreachable host, or a
- * wedged/killed transport) normally retries forever at capped backoff so a roaming laptop
- * self-heals — with ONE terminal exception (#1908): a budget-exhausted silent provisioning
- * step gives up terminally, surfacing `failed` + `"network"` (the honest cause; terminality is
- * the phase, orthogonal to the transport class). `recheck()` force-cycles even a
- * seemingly-connected link (wake/network change); `reconnect()` only re-arms a `failed`/idle
- * session.
+ * The give-up budget is a CLASSIFIED ledger (`@kolu/surface`'s `makeFailureLedger`),
+ * one run per failure class, so no class can spend another's budget:
+ *
+ *   - `"remote"` (reached the host, it rejected us) — BOUNDED at
+ *     `MAX_CONSECUTIVE_FAILURES`; five consecutive remote rejections are terminal.
+ *   - `"network"` (transport-class: unreachable host, or a wedged/killed transport) —
+ *     UNBOUNDED: it retries forever at capped backoff so a roaming laptop self-heals,
+ *     and it RESETS the remote run. An unreachable gap means the host WENT AWAY, so
+ *     the next remote blip is fresh evidence of a sleeping host, not accumulation of a
+ *     persisting fault (juspay/kolu#2101: a night of unreachable attempts must not
+ *     make one dark-wake handshake failure terminal).
+ *
+ * The give-up message is derived from the ledger's verdict, so it can only ever name
+ * the remote run that actually tripped the ceiling. ONE terminal exception rides
+ * beside the budget (#1908): a budget-exhausted silent provisioning step gives up
+ * terminally regardless of any run, surfacing `failed` + `"network"` (the honest
+ * cause; terminality is the phase, orthogonal to the transport class). `recheck()`
+ * force-cycles even a seemingly-connected link (wake/network change); `reconnect()`
+ * only re-arms a `failed`/idle session. Both refill the whole ledger.
  *
  * Every server auto-answers the framework-reserved `system.identity` (see
  * `@kolu/surface/identity`), so `identity()` reports the bound server's contract
@@ -49,6 +60,7 @@ import {
   measureSurfaceClockOffset,
 } from "@kolu/surface/clock-now";
 import { isDeadTransportError } from "@kolu/surface/errors";
+import { makeFailureLedger } from "@kolu/surface/failure-ledger";
 import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -98,6 +110,8 @@ export function runProbe<A>(
   return Effect.runPromise(effect, signal ? { signal } : undefined);
 }
 
+/** The `"remote"` class's ceiling — the ONE place the number lives, fed to the
+ *  failure ledger's spec below. Not a knob. */
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /** Default pre-connected LIVENESS backstop bound (#1908 R8b) — 20min. Exported so the
@@ -282,11 +296,11 @@ export interface Session<
    *  Deliberately NARROWER than {@link recheck} on every axis, which is why it
    *  is its own verb rather than a second caller of that one. It fires the SAME
    *  attempt the backoff had already scheduled — same attempt number, same
-   *  position in the give-up budget — where `recheck()` zeroes
-   *  `consecutiveFailures` (refilling the bounded `"remote"` budget, so a
-   *  permanently-broken host nudged often enough would never reach its terminal
-   *  verdict) and stamps a fresh campaign. Three no-op arms, each for its own
-   *  reason:
+   *  position in the give-up budget (it records NOTHING in the failure ledger) —
+   *  where `recheck()` calls `failures.success()` (refilling every class's run,
+   *  so a permanently-broken host nudged often enough would never reach its
+   *  terminal verdict) and stamps a fresh campaign. Three no-op arms, each for
+   *  its own reason:
    *
    *   - **a live link** (`connecting`/`connected`, or a standing admit refuse):
    *     there is no scheduled reconnect to fast-forward, and a client connecting
@@ -696,7 +710,18 @@ export function makeSession<
 
   let refCount = 0;
   let destroyed = false;
-  let consecutiveFailures = 0;
+  /** The CLASSIFIED give-up budget (juspay/kolu#2101). One run per failure class,
+   *  so the increment predicate and the ceiling predicate are the same predicate by
+   *  construction — no shared counter exists for the terminal gate to misread. The
+   *  interleaving rule is declared here as DATA, with its rationale beside it. */
+  const failures = makeFailureLedger({
+    // An unreachable gap means the host WENT AWAY; the next remote blip is fresh
+    // evidence of a sleeping host, not accumulation of a persisting fault. So a
+    // network failure restarts the remote run — a laptop asleep overnight must not
+    // spend the budget that exists for a host which is up and rejecting us.
+    network: { ceiling: null, resets: ["remote"] },
+    remote: { ceiling: MAX_CONSECUTIVE_FAILURES },
+  });
   /** The single pending phase-transition timer — either the reconnect-backoff delay
    *  (armed in `disconnected`) or the connect watchdog (armed in `connecting`). The
    *  two are never live at once, so folding them into one slot makes "at most one
@@ -1168,29 +1193,34 @@ export function makeSession<
   const scheduleReconnect = (
     cause: "network" | "remote",
     reason: string,
-    // A GENUINELY-TERMINAL fault gives up NOW, regardless of the counter (#1908 C5) —
+    // A GENUINELY-TERMINAL fault gives up NOW, regardless of any run (#1908 C5) —
     // a budget-exhausted silent provisioning step, which the pre-connected backstop
-    // would otherwise reset before `consecutiveFailures` ever reached the ceiling.
+    // would otherwise reset before the remote run ever reached its ceiling. The flag
+    // stays ORTHOGONAL to the ledger: the recording still happens (matching the
+    // increment-then-gate order), only the message comes from the terminal arm.
     terminal = false,
   ): void => {
     if (destroyed || pendingTimer !== null) return;
     // A stale (rejected) `clientPromise` during backoff keeps `launchAttempt`
     // idempotent — an acquire/pin during the wait won't start a second concurrent
     // dial. The terminal give-up branch clears it (no timer to act as the guard).
-    const attemptsSoFar = consecutiveFailures;
-    consecutiveFailures += 1;
-    if (
-      terminal ||
-      (cause === "remote" && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
-    ) {
+    const verdict = failures.record(cause);
+    // PACING reads `attempts()` (the display/pacing tier — every class's recordings
+    // since the last success, which is what the ramp has always paced on); VERDICTS
+    // never do. That split is the whole point of the ledger.
+    const attemptsSoFar = failures.attempts() - 1;
+    if (terminal || verdict.exhausted) {
       localProgress(
         terminal
           ? `gave up — ${reason}`
-          : `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
+          : // Derived from the verdict, so it can only ever name the true remote
+            // run — the incident's "gave up after 5 consecutive failures" after ONE
+            // remote failure is now unspellable.
+            `gave up after ${verdict.run} consecutive remote failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
       // `failed` carries the HONEST transport cause, orthogonal to terminality (F3): a
-      // `MAX_CONSECUTIVE_FAILURES` give-up arrives here as `"remote"` (bounded remote
+      // remote-ceiling give-up arrives here as `"remote"` (bounded remote
       // rejections), a budget-EXHAUSTED silent step as `"network"` (a wedged transport
       // killed enough times — never "reached and rejected"). Pass the incoming `cause`
       // straight through; terminality is the `failed` phase, not a rewrite of the cause.
@@ -1200,8 +1230,10 @@ export function makeSession<
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
     localProgress(
       cause === "network"
-        ? `host unreachable — retrying in ${delay}ms… (attempt ${consecutiveFailures})`
-        : `reconnecting in ${delay}ms… (attempt ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
+        ? `host unreachable — retrying in ${delay}ms… (attempt ${failures.attempts()})`
+        : // The remote arm reports the REMOTE run — the number the ceiling actually
+          // reads — not the cross-class attempt total.
+          `reconnecting in ${delay}ms… (attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES})`,
     );
     armTimer(delay, () => {
       if (destroyed || refCount === 0) return;
@@ -1231,7 +1263,10 @@ export function makeSession<
     if (cyclingForRecheck) {
       // We tore this down ourselves to re-probe after a wake/network change — a
       // transient recovery, retry as `"network"` so it never counts toward the
-      // bounded give-up budget (even mid-`connecting`).
+      // bounded give-up budget (even mid-`connecting`). Since #2101 that sentence
+      // is finally TRUE by construction: `"network"` is recorded on its own
+      // unbounded run in the failure ledger, and it RESETS the bounded remote run
+      // rather than extending it. It was a lie for a month.
       cyclingForRecheck = false;
       reason = "rechecking link after wake/network change — cycled the link";
       cause = "network";
@@ -1389,17 +1424,17 @@ export function makeSession<
         // apart from transient-disconnected — is on the padi-cleanup ledger.
         setCurrent(conn);
         wireClosed();
-        consecutiveFailures = 0;
+        failures.success();
         setDown("disconnected", verdict.state.error, verdict.state.cause);
         throw new Error(verdict.state.error);
       }
       if (verdict.kind === "replaced") {
         // The admit hook drained the far end (it exits); tear the old link down and
         // reconnect to bring up the successor (`network` — a converge, not a fault).
-        // The admit hello proved the transport live, so reset the give-up budget —
+        // The admit hello proved the transport live, so refill the give-up budget —
         // a bounded drain→respawn treadmill (fenced by the arm) must not grow the
         // backoff toward give-up, matching the pre-S9 markConnected-before-drain.
-        consecutiveFailures = 0;
+        failures.success();
         conn.teardown();
         setDown("disconnected", verdict.reason, "network");
         scheduleReconnect("network", verdict.reason);
@@ -1647,7 +1682,8 @@ export function makeSession<
    *  skipped `ctx.connecting()`. Idempotent across reconnects (`setUp`/`startLiveness`
    *  both are). */
   const enterConnected = (): void => {
-    consecutiveFailures = 0;
+    // THE success event: a connect clears every class's run and the attempt count.
+    failures.success();
     setUp("connected");
     // Birth the liveness watchdog at the FIRST successful connect (so it can never
     // probe before the first RPC), and poll the server's identity off the fresh
@@ -1728,7 +1764,10 @@ export function makeSession<
     reconnect() {
       if (destroyed || refCount === 0) return;
       if (clientPromise !== null || pendingTimer !== null) return;
-      consecutiveFailures = 0;
+      // The user's explicit re-arm DELIBERATELY refills the whole ledger (H2: this is
+      // the stronger verb — `nudge()` is the one that records nothing and refills
+      // nothing).
+      failures.success();
       startEpisode(); // user verb ⇒ fresh campaign (#1908 R7)
       launchAttempt();
     },
@@ -1737,7 +1776,9 @@ export function makeSession<
       // A user verb (or the pre-connected backstop) ⇒ ALWAYS a fresh campaign — fresh
       // clock AND fresh connector budgets (#1908 R7/C5) — stamped before any dial.
       startEpisode();
-      consecutiveFailures = 0;
+      // DELIBERATE refill of the whole ledger — every class's run and the attempt
+      // count (H2: `recheck()` is the stronger verb; `nudge()` refills nothing).
+      failures.success();
       if (current !== null) {
         // A live (connecting/connected) link whose socket may be stale after a
         // sleep. Clear the connect-watchdog and cycle it; `cyclingForRecheck` tells
@@ -1783,11 +1824,13 @@ export function makeSession<
       if (stateCell.current().phase !== "disconnected") return;
       // Narrate BEFORE the dial so the journal reads nudge → probing, and say the
       // budget did not move — the whole point of not spelling this `recheck()`.
-      // `consecutiveFailures` is the attempt this backoff was already waiting to
-      // make; firing it early does not renumber it.
+      // `failures.attempts()` is the DISPLAY/pacing tier: the attempt this backoff
+      // was already waiting to make. Firing it early does not renumber it, and a
+      // nudge records nothing, so the promise "give-up budget unchanged" is literally
+      // true — no class's run moves here.
       localProgress(
         `nudged — firing the scheduled retry now instead of waiting out the backoff ` +
-          `(attempt ${consecutiveFailures}, give-up budget unchanged)`,
+          `(attempt ${failures.attempts()}, give-up budget unchanged)`,
       );
       // The `recheck()` backoff arm MINUS its campaign stamp and its budget reset:
       // cancel the wait, drop the stale (rejected) client handle, dial now.

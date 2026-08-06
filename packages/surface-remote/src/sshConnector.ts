@@ -72,9 +72,11 @@ export type SshProv = "probing" | "provisioning";
  *
  * **This is a BUDGET, and it has a terminal verdict** — the review's definition
  * of done for any new wait. Expiry raises a `"remote"` `ConnectError`, which
- * counts toward the session's existing `MAX_CONSECUTIVE_FAILURES`, so a host
- * that never greets reaches `failed` in five attempts. There is no path here
- * that waits forever and none that silently degrades to "assume ready".
+ * counts toward the session's bounded remote budget (five consecutive remote
+ * failures — an interleaved `"network"` failure means the host went away and
+ * starts the count over), so a host that is UP yet never greets reaches `failed`
+ * in five attempts. There is no path here that waits forever and none that
+ * silently degrades to "assume ready".
  *
  * **The number is derived from OUR ceilings, not from Effect's ping cadence** —
  * which is the whole point of gating *before* the protocol layer exists, and why
@@ -329,9 +331,12 @@ export function sshConnector<S extends SurfaceSpec>(
       // A gate REFUSAL / expiry / undecodable prelude is a REMOTE fault, not a
       // network one: the host answered, and what it said (or failed to say) is
       // about the daemon there, not the wire in between. `"remote"` is what
-      // counts toward `MAX_CONSECUTIVE_FAILURES`, so the session reaches a
-      // terminal `failed` in a bounded number of attempts through the EXISTING
-      // budget — no new budget invented, and no retry-forever left standing.
+      // counts toward the session's BOUNDED remote budget (five consecutive
+      // remote failures — an interleaved `"network"` failure means the host went
+      // away and starts the count over), so a host that is UP yet keeps refusing
+      // reaches a terminal `failed` in a bounded number of attempts through the
+      // EXISTING budget — no new budget invented, and no retry-forever left
+      // standing.
       // The app's typed anomaly rides along verbatim so the binder can render a
       // real verdict instead of string-parsing this message.
       try {
