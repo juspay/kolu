@@ -127,9 +127,15 @@ kolu is running on; remotes show the ssh target. Every tab carries a
 | --- | --- |
 | Home + hostname | this machine (local) |
 | `user@host` | a remote ssh target |
-| green pip | connected and live |
+| green pip | the whole chain is live — kolu reaches this host **and** its terminal daemon is serving |
 | amber pip (pulsing) | connecting or provisioning — coming up |
+| amber pip, "kaval down" | kolu reaches the host, but its terminal daemon is not serving. [padi restarts it for you](/padi#steady-state-supervision); the tooltip carries the daemon's own verdict |
 | red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+
+The pip reports the **whole chain** (kolu → this host's padi → its kaval), not
+just the first link. A host you can reach whose terminal daemon is dead is not
+green: that combination is the one that used to read as healthy while nothing
+would run.
 
 Click the **connection pip** for the **diagnostics popover** — connection
 state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
