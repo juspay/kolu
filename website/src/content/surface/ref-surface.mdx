@@ -939,6 +939,33 @@ the #818 selection-stability guard) wrap it in `packages/client`'s
 `createPolledQuery`; a consumer needing the same pattern reaches for the wrapper,
 not this engine directly.
 
+### The classified failure ledger (`@kolu/surface/failure-ledger`)
+
+A bounded retry budget whose classes cannot count each other's failures. Zero
+imports — a counting leaf beside `wait`. The disease it makes unrepresentable:
+*a bounded budget whose increment predicate differs from its ceiling predicate*
+(`consecutiveFailures += 1` for every cause, `cause === "remote" && count >= 5`
+at the gate — so a night of unreachable attempts spends the rejection budget,
+and the give-up line names a count that never happened; juspay/kolu#2101).
+
+| Export | Purpose |
+| --- | --- |
+| `makeFailureLedger(spec)` | build the ledger from a `Record<K, FailureClassSpec>`. **Throws at construction** on a `resets` entry naming a class the spec does not declare |
+| `FailureClassSpec` | one class's budget — `ceiling` (`number`, or `null` for UNBOUNDED: that class can never produce an exhausted verdict) and `resets?` (the interleaving rule as DATA: classes whose run a recording of *this* class restarts) |
+| `FailureVerdict` | what a recording says about the class recorded, and only it — `exhausted` · `run` (this class's run AFTER the recording, safe to print) · `ceiling` |
+| `FailureLedger<K>` | `record(cause) → FailureVerdict` · `success()` (clears every run and the attempt count) · `attempts()` |
+
+`exhausted` is computed from that class's own run and that class's own ceiling —
+no cross-class read exists in the verdict path, so the two predicates are the
+same predicate by construction and a message built from `verdict.run` can only
+ever name the run that tripped. `attempts()` is the **display/pacing tier**: the
+total across all classes since the last `success()`, exposed for backoff
+exponents and "attempt N" log lines, and read by no ceiling. A **single-class**
+budget does not need this (its one increment and one ceiling already share the
+one predicate); reach for it when a budget has more than one failure class.
+`@kolu/surface-remote`'s session is the consumer:
+`{ network: { ceiling: null, resets: ["remote"] }, remote: { ceiling: 5 } }`.
+
 ## Liveness and health
 
 Liveness is on by construction. The reserved `system/live` member
