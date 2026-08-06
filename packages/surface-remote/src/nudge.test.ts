@@ -10,8 +10,8 @@
  * What this suite exists to pin is the DIFFERENCE from `recheck()`, which is why
  * `recheck()` could not be reused as the wake verb:
  *
- *   - `recheck()` resets `consecutiveFailures` — it REFILLS the bounded `"remote"`
- *     give-up budget, so a client that reconnects often turns a terminal fault
+ *   - `recheck()` calls the failure ledger's `success()` — it REFILLS the
+ *     bounded `"remote"` give-up budget, so a client that reconnects often turns a terminal fault
  *     into an eternal one. `nudge()` fires the SAME attempt that was already
  *     scheduled, keeping its attempt number and its budget position (falsifier
  *     iii, with the `recheck()` contrast right beside it).
@@ -251,7 +251,7 @@ describe("Session.nudge — fast-forward an ALREADY-scheduled reconnect", () => 
   it("(iii) does NOT refill the give-up budget — a nudged 'remote' session still gives up at the ceiling", async () => {
     // THE reason `recheck()` is the wrong verb. Every attempt here fails
     // `"remote"` (exit 127, never connected). Nudging after each failure must
-    // fast-forward the wait WITHOUT resetting `consecutiveFailures`, so the
+    // fast-forward the wait WITHOUT refilling the ledger's remote run, so the
     // terminal verdict still arrives at exactly MAX_CONSECUTIVE_FAILURES total
     // attempts.
     const session = buildSession({
@@ -275,7 +275,7 @@ describe("Session.nudge — fast-forward an ALREADY-scheduled reconnect", () => 
   it("(iii-contrast) recheck() in the same loop never gives up — it refills the budget", async () => {
     // The falsifier for the verb choice itself: swap `nudge()` for `recheck()`
     // in the identical loop and the bounded `"remote"` give-up never arrives,
-    // because `recheck()` zeroes `consecutiveFailures` every time. A wake signal
+    // because `recheck()` refills the whole failure ledger every time. A wake signal
     // wired to `recheck()` would make a permanently-broken host retry forever.
     const session = buildSession({
       host: "recheck-host",

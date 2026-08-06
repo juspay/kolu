@@ -205,7 +205,7 @@ describe("HostSession liveness watchdog", () => {
     // reset the give-up budget so a deliberate drain-exit isn't counted as a connect
     // failure), and reServeSurface ALSO marks on the first folded frame — so
     // markConnected fires from two sites per spawn. Pin that the second call is a
-    // no-op: exactly ONE `connected` transition (so the consecutiveFailures reset +
+    // no-op: exactly ONE `connected` transition (so the give-up budget refill +
     // the liveness-watchdog birth happen once, never twice).
     vi.mocked(spawn).mockImplementation(() => healthyChild().child as never);
     const session = buildSession();
