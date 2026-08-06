@@ -249,10 +249,12 @@ case — it defaults to the home.
 
 ## Serving the surface
 
-The listener is `serveOverUnixSocket({ socketPath, group, handlers })` from
+The listener is `serveOverUnixSocket({ socketPath, group, handlers, log })` from
 `@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
 never crashes: every failure mode resolves to a no-op listener with a
-machine-readable `outcome`.
+machine-readable `outcome`. `daemonMain` passes its own `log` through, so the
+listener's lifetime (bound / post-listen fault / closed) lands in the daemon's
+journal beside the daemon's own boot and teardown narration.
 
 | `outcome.kind` | Meaning |
 | --- | --- |

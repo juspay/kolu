@@ -16,9 +16,12 @@
  * client).
  *
  * `serveOverUnixSocket` lost its `log` option in the Effect port (S4 deleted
- * `UnixSocketLogger`) — the runtime chatter it carried now lives inside Effect's
- * own socket handling. Only the BIND-TIME verdicts reach us, which is all this
- * module ever narrated anyway; nothing here changed voice.
+ * `UnixSocketLogger`); juspay/kolu#2101 N3 restored it, REQUIRED this time, and
+ * it now narrates the listener's own lifetime (bound / post-listen fault /
+ * closed). The division of voice is unchanged: the transport narrates the
+ * listener, this module narrates the BIND-TIME verdicts with the kolu-specific
+ * advice — so `log` is required here too, and there is no way to serve a
+ * pty-host socket that nobody is listening to the health of.
  */
 import {
   serveOverUnixSocket,
@@ -86,30 +89,33 @@ export async function servePtyHostOverUnixSocket(opts: {
   socketPath: string;
   /** The served pty-host wire — `createInProcessPtyHost(...).served`. */
   served: PtyHostServed;
-  log?: Logger;
+  /** Where the bind-time verdicts AND (through the transport) the listener's
+   *  own lifetime are narrated. REQUIRED — see the module header. */
+  log: Logger;
 }): Promise<PtyHostSocketListener> {
   const { socketPath, served, log } = opts;
   const listener = await serveOverUnixSocket({
     socketPath,
     group: served.group,
     handlers: served.handlers,
+    log,
   });
   const { outcome } = listener;
 
   if (outcome.kind !== "listening") {
     const { msg, ctx } = describeRefusal(outcome);
-    log?.warn({ socketPath, ...ctx }, msg);
+    log.warn({ socketPath, ...ctx }, msg);
     return listener;
   }
 
-  log?.info({ socketPath }, "pty-host socket listening (kaval-tui)");
+  log.info({ socketPath }, "pty-host socket listening (kaval-tui)");
   let closed = false;
   return {
     socketPath,
     close() {
       if (closed) return;
       closed = true;
-      log?.info({ socketPath }, "pty-host socket closed");
+      log.info({ socketPath }, "pty-host socket closed");
       listener.close();
     },
   };

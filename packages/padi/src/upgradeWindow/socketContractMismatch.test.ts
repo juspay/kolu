@@ -20,6 +20,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import type { SurfaceHandler, SurfaceHandlers } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
@@ -71,6 +72,7 @@ async function serveSkewed(socketPath: string, daemonVersion: string) {
     socketPath,
     group: RpcGroup.make(...rpcs),
     handlers,
+    log: silentLogger,
   });
   expect(listener.outcome).toEqual({ kind: "listening" });
   listeners.push(listener);

@@ -32,6 +32,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import type { SurfaceHandlers } from "@kolu/surface/server";
@@ -79,6 +80,7 @@ async function serveFakeDaemon(contractVersion: string): Promise<string> {
     socketPath,
     group: RpcGroup.make(version),
     handlers,
+    log: silentLogger,
   });
   expect(listener.outcome).toEqual({ kind: "listening" });
   listeners.push(listener);

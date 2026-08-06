@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Schema, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { defineSurface } from "./define";
 import { unixSocketLink } from "./links/unix-socket";
 import type { WireLink } from "./links/wire";
@@ -60,7 +61,11 @@ function buildServed() {
       math: { double: ({ input }) => Effect.succeed({ y: input.x * 2 }) },
     },
   });
-  return { group: runtime.group, handlers: runtime.handlers };
+  return {
+    group: runtime.group,
+    handlers: runtime.handlers,
+    log: silentLogger,
+  };
 }
 
 /** The one wire round-trip these tests make. */
@@ -297,7 +302,11 @@ describe("close() disconnects established peers (surface-lifetime-audit step 3)"
       mkdtempSync(join(tmpdir(), `surface-usock-${tag}-`)),
       "a.sock",
     );
-    const listener = await serveOverUnixSocket({ socketPath, ...served });
+    const listener = await serveOverUnixSocket({
+      socketPath,
+      ...served,
+      log: silentLogger,
+    });
     expect(listener.outcome).toEqual({ kind: "listening" });
     return { socketPath, listener };
   };

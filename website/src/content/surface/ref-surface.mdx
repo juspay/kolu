@@ -667,6 +667,31 @@ Matching serve-side entry points, all taking the same `{ group, handlers }` pair
 (`@kolu/surface/unix-socket`), and `serveSurfaceSocket`
 (`@kolu/surface-app/server`) for browsers.
 
+`serveOverUnixSocket` takes one more argument the others do not:
+
+```ts
+serveOverUnixSocket({ socketPath, group, handlers, log })
+  : Promise<UnixSocketListener>
+```
+
+`log` is a `@kolu/log` `Logger` and is **required** — it is where the listener's
+own lifetime is narrated, one structured line each with the `socketPath` in the
+context object:
+
+| Event | Level | Message |
+| --- | --- | --- |
+| the path is bound and accepting | `info` | `unix-socket listener bound` |
+| a **post-listen** fault on the server (nobody dialing, no handler in flight) | `error` | `unix-socket listener error (post-listen)` — carries the whole `err` |
+| an established peer's socket errors | `debug` | `unix-socket peer error` |
+| `close()` runs (first call only) | `info` | `unix-socket listener closed` |
+
+Required rather than optional because the alternative default is silence, and
+silence is what the incident behind this seam was made of: a daemon whose
+listening socket went comatose after a suspend/resume wrote not one error line
+for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
+`UnixSocketListener.outcome` values, and the app-flavored advice for each
+("pass `--pty-host-socket`") belongs to the caller.
+
 ### `surfaceRpcServerLayer` — a member's defect is not the wire's
 
 ```ts

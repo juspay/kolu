@@ -358,11 +358,16 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   }
   const gate = claimed;
 
-  // No `log` here: `serveOverUnixSocket`'s runtime-event sink is gone with the
-  // oRPC peer server (the events it carried live inside Effect's socket
-  // handling now). The daemon's own boot/teardown narration below still uses
-  // `log`; only the transport's chatter disappeared.
-  const listener = await serveOverUnixSocket({ socketPath, group, handlers });
+  // The listener narrates its OWN lifetime through the daemon's logger (#2101
+  // N3): bound, post-listen fault, closed. That sink is required, not optional —
+  // the incident it was restored for was a listening socket that went comatose
+  // and wrote not one error line for the rest of the process's life.
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    group,
+    handlers,
+    log,
+  });
   if (listener.outcome.kind !== "listening") {
     // A daemon whose socket won't bind has no reason to exist — release the
     // gate so a retry isn't blocked, and report the refusal verbatim.

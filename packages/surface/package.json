@@ -61,6 +61,7 @@
   "dependencies": {
     "@effect/platform-browser": "4.0.0-beta.103",
     "@effect/platform-node": "4.0.0-beta.103",
+    "@kolu/log": "workspace:*",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
     "effect": "4.0.0-beta.103",

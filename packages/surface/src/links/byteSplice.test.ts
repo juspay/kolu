@@ -25,6 +25,7 @@ import { createConnection, createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineSurface } from "../define";
@@ -68,7 +69,11 @@ function buildServed() {
       },
     },
   });
-  return { group: runtime.group, handlers: runtime.handlers };
+  return {
+    group: runtime.group,
+    handlers: runtime.handlers,
+    log: silentLogger,
+  };
 }
 
 /** A tap that records every byte flowing through it, unchanged. */

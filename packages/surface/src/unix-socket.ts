@@ -22,6 +22,7 @@ import { lstatSync, mkdirSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import type { Logger } from "@kolu/log";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { SocketServer } from "effect/unstable/socket";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
@@ -29,11 +30,19 @@ import { RpcServer } from "effect/unstable/rpc";
 import { rpcSerializationLayer } from "./frameLimit";
 import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
-// There is no `log` seam any more: the per-connection runtime events it
-// carried (a client socket error, a peer dying mid-frame) are handled inside
-// Effect's socket server, which reports an unhandled connection fault through
-// the Effect logger. BIND-time verdicts were never logged here anyway — they
-// are `UnixSocketServeOutcome`, so the caller owns the user-facing copy.
+// The LISTENER-LIFETIME log seam (juspay/kolu#2101 N3). It is REQUIRED, not
+// `log?:` as master had it: a listening socket that faults with nobody watching
+// is the exact silence the #2101 field incident was made of — a comatose kaval
+// that logged zero error or warn lines for its whole life — and an optional
+// logger is a knob whose default is that silence. Callers all have a logger in
+// scope at this call (`daemonMain`, kaval's socket voice), so requiring it costs
+// nothing and removes the way to opt out.
+//
+// What travels here vs. what the CALLER owns: this seam narrates the LISTENER's
+// own lifetime — bound, post-listen fault, closed — because only this module
+// ever sees those events. BIND-time verdicts stay the caller's: they are
+// `UnixSocketServeOutcome` values, and the app-flavored advice for each ("use
+// --pty-host-socket") is not this module's vocabulary.
 
 /** The per-user rendezvous path for a unix socket two separate processes of
  *  the same app must both compute — `override` verbatim when given (an empty
@@ -293,8 +302,11 @@ export async function serveOverUnixSocket(opts: {
   group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
   handlers: SurfaceHandlers;
+  /** Where this listener's own lifetime is narrated (bound / post-listen fault /
+   *  closed). REQUIRED — see the seam's note at the top of this module. */
+  log: Logger;
 }): Promise<UnixSocketListener> {
-  const { socketPath, group, handlers } = opts;
+  const { socketPath, group, handlers, log } = opts;
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,
@@ -353,8 +365,14 @@ export async function serveOverUnixSocket(opts: {
       };
       socket.once("close", release);
       // A client vanishing mid-frame must not take down the listener — and an
-      // 'error' with no listener is a hard process crash.
-      socket.on("error", release);
+      // 'error' with no listener is a hard process crash. DEBUG, as master had
+      // it: a peer dying mid-frame is routine (a kaval-tui closing its window),
+      // so it must not compete with the listener-level lines above for an
+      // operator's attention — but it must not be invisible either.
+      socket.on("error", (err) => {
+        log.debug({ socketPath, err }, "unix-socket peer error");
+        release();
+      });
       // Serving is per connection (as it was when each peer got its own
       // `serveOverStdio`), so a peer's teardown closes ONLY its own scope.
       // That is not merely tidiness: a single shared `NodeSocketServer` puts
@@ -380,8 +398,20 @@ export async function serveOverUnixSocket(opts: {
         resolve();
       });
     });
-    // Post-listen server faults must not crash the host either.
-    server.on("error", () => {});
+    log.info({ socketPath }, "unix-socket listener bound");
+    // Post-listen server faults must not crash the host — but they must not be
+    // SWALLOWED either. This handler existed to keep an 'error' with no listener
+    // from being a hard process crash; the Effect port kept the arm and dropped
+    // the line (`server.on("error", () => {})`), which is how #2101's comatose
+    // listening socket produced no trace at all. The whole `err` travels (pino
+    // serializes it with its stack), plus the path, so one grep over a host's
+    // daemon logs answers "which socket faulted, and with what".
+    server.on("error", (err) =>
+      log.error(
+        { socketPath, err },
+        "unix-socket listener error (post-listen)",
+      ),
+    );
 
     let closed = false;
     return {
@@ -390,6 +420,10 @@ export async function serveOverUnixSocket(opts: {
       close() {
         if (closed) return;
         closed = true;
+        // Narrated BEFORE the teardown, so the line survives even if a destroy
+        // throws — and so the log reads in causal order when a peer's severed
+        // connection logs its own death in the turns behind this call.
+        log.info({ socketPath }, "unix-socket listener closed");
         // The ordered teardown (surface-lifetime-audit step 3): stop accepting
         // → DISCONNECT established peers → release the inode, all
         // SYNCHRONOUSLY, so `close()` stays safe to call from a

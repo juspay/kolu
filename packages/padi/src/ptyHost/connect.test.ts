@@ -86,6 +86,7 @@ async function serveFake(
     socketPath,
     group: RpcGroup.make(...rpcs),
     handlers,
+    log: silentLog,
   });
   expect(listener.outcome).toEqual({ kind: "listening" });
   return listener;
@@ -178,6 +179,7 @@ async function serveFrozenIdentity(socketPath: string) {
     socketPath,
     group: runtime.group,
     handlers: runtime.handlers,
+    log: silentLog,
   });
   return {
     socketPath,

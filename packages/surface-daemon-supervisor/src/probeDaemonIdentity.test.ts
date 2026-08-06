@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface, implementSurfaces } from "@kolu/surface/server";
@@ -56,6 +57,7 @@ async function serveControl(path: string): Promise<{ close(): void }> {
     socketPath: path,
     group: runtime.group,
     handlers: runtime.handlers,
+    log: silentLogger,
   });
   listeners.push(listener);
   return listener;
@@ -101,6 +103,7 @@ describe("probeDaemonIdentity", () => {
       socketPath: path,
       group: runtime.group,
       handlers: runtime.handlers,
+      log: silentLogger,
     });
     listeners.push(listener);
     const probe = probeDaemonIdentity({ capability: "not-drainable" });
@@ -163,6 +166,7 @@ describe("probeDaemonIdentity", () => {
       socketPath: path,
       group: runtime.group,
       handlers: runtime.handlers,
+      log: silentLogger,
     });
     listeners.push(listener);
     const probe = await Effect.runPromise(
@@ -328,6 +332,7 @@ describe("probeDaemonIdentity", () => {
       socketPath: path,
       group: runtime.group,
       handlers: runtime.handlers,
+      log: silentLogger,
     });
     listeners.push(listener);
 

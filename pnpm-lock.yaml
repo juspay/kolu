@@ -1396,6 +1396,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-beta.103
         version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@solid-primitives/rootless':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
@@ -1563,6 +1566,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

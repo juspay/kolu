@@ -20,6 +20,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
@@ -86,6 +87,7 @@ async function runDefectIsolation() {
     socketPath,
     group: runtime.group,
     handlers: runtime.handlers,
+    log: silentLogger,
   });
   expect(listener.outcome).toEqual({ kind: "listening" });
   const link = await unixSocketLink({ group: surface.group, socketPath });
