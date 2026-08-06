@@ -50,10 +50,12 @@ import {
   shutdownCleanup,
 } from "../koluRoot.ts";
 import { configureDaemonLog, log as padiLog } from "../log.ts";
+import { startKavalSupervision } from "../kavalSupervision.ts";
 import { setPadiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   getLocalSocketPath,
   publishDaemonStatus,
+  setAutoRecovered,
   setPadiServeSocketPath,
 } from "../ptyHost/daemonStatus.ts";
 import {
@@ -95,7 +97,7 @@ import {
 } from "../terminalEndpoint/reattach.ts";
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
-import { LOCAL_LOCATION } from "../vocab.ts";
+import { encodeHostLocation, LOCAL_LOCATION } from "../vocab.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 
@@ -454,11 +456,14 @@ const surfacesLayer = (params: {
   );
 
 /** Boot padi's OWN kaval (adopt-or-spawn under `kaval-<digest>/`), reconcile its live
- *  PTYs against the saved session, and start the live inventory reconciler. Requires
- *  the served surfaces — the reconcile publishes onto the wired ctx. */
+ *  PTYs against the saved session, and start the live inventory reconciler AND the
+ *  steady-state kaval supervision. Requires the served surfaces — the reconcile
+ *  publishes onto the wired ctx. */
 function bootLocalEndpoint(params: {
   kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
   legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
+  stateRoot: string;
+  log: Logger;
 }): Effect.Effect<{ booted: true }> {
   return Effect.as(
     ensureLocalEndpoint({
@@ -470,7 +475,22 @@ function bootLocalEndpoint(params: {
       onStatus: publishDaemonStatus,
       onAdopted: adoptSurvivingSession,
       onNotAdopted: parkSavedSession,
-      onBootSettled: startInventoryReconciler,
+      onBootSettled: (signal) => {
+        startInventoryReconciler(signal);
+        // #2101 N1. Convergence was an event — a boot-time adopt-or-spawn — and
+        // this is what makes it an invariant: from here to process death padi
+        // keeps proving its kaval can SERVE, and recycles it when it cannot. It
+        // starts at the same edge the inventory reconciler does (boot settled: the
+        // endpoint has reported its first status, so a probe is about a daemon
+        // that has had its chance) and rides the same process-lifetime signal.
+        const stopSupervision = startKavalSupervision({
+          stateRoot: params.stateRoot,
+          log: params.log,
+          onRecovered: () =>
+            setAutoRecovered(encodeHostLocation(LOCAL_LOCATION)),
+        });
+        signal.addEventListener("abort", stopSupervision, { once: true });
+      },
     }),
     { booted: true } as const,
   );
@@ -481,6 +501,8 @@ function bootLocalEndpoint(params: {
 const endpointLayer = (params: {
   kavalHome: import("@kolu/surface-daemon").DaemonHomePaths;
   legacyKavalHome?: import("@kolu/surface-daemon").DaemonHomePaths;
+  stateRoot: string;
+  log: Logger;
 }): Layer.Layer<PadiEndpoint, never, PadiSurfaces> =>
   Layer.effect(
     PadiEndpoint,
@@ -624,7 +646,12 @@ function padiDaemonProgram(
   // the ordering. `provideMerge` keeps each phase visible to the program below
   // (it reads the served wire and the held gate) while still feeding it to the
   // phase that depends on it.
-  const bootLayer = endpointLayer({ kavalHome, legacyKavalHome }).pipe(
+  const bootLayer = endpointLayer({
+    kavalHome,
+    legacyKavalHome,
+    stateRoot,
+    log,
+  }).pipe(
     Layer.provideMerge(
       surfacesLayer({
         stateRoot,

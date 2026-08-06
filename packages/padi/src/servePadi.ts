@@ -64,7 +64,7 @@ import {
   readDaemonStatus,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
-import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
 import {
   forfeitSession,
@@ -618,29 +618,21 @@ export function buildPadiSurfaceDeps(deps: {
           }),
         // The "Restart kaval" button — force-recycle THIS host's kaval daemon,
         // preserving the session (B3.2). padi's INTERNAL supervisory op: capture →
-        // drain → recycle (kill + spawn fresh) → park, all via `restartLocalDaemon`
+        // drain → recycle (kill + spawn fresh) → park, all via `recycleLocalKaval`
         // (the soul) through the endpoint's coalescing emit-guard. PADI STAYS UP —
         // this is the `adopt-or-ensure` recycle arm, never a padi restart (that is
         // the separate `control.drain` upgrade path). Resolves once the fresh kaval
         // is connected; a failure rejects with the captured session safe on disk.
+        //
+        // `recycleLocalKaval` is THE routine, shared verbatim with the steady-state
+        // supervisor (#2101 N1) — the button is now the manual trigger of the same
+        // machinery, not a second copy of it. What stays HERE is the only thing that
+        // is about this being an RPC: retyping a contract skew as a declared wire
+        // error.
         recycleKaval: () =>
           handleEffect(
             Effect.gen(function* () {
-              log.info({}, "recycle kaval (Restart kaval)");
-              yield* Effect.catch(restartLocalDaemon(), (err) => {
-                const skew = isContractSkewError(err);
-                // A failed restart otherwise surfaces ONLY as a client toast — padi's
-                // journal would show the "recycle kaval" start line and then an
-                // unexplained silence. Surface it: the endpoint has already reported
-                // its terminal state and the captured session is safe on disk (the
-                // user can retry or restore), but the failure must be legible in the
-                // journal — naming the ACTUAL state (skew → `incompatible`).
-                log.error(
-                  { err },
-                  skew
-                    ? "recycle kaval (Restart kaval) failed — endpoint reported incompatible (contract skew); captured session is safe on disk"
-                    : "recycle kaval (Restart kaval) failed — endpoint reported dead/degraded; captured session is safe on disk",
-                );
+              yield* Effect.catch(recycleLocalKaval("Restart kaval"), (err) => {
                 // A contract skew is the ONE failure this handler can translate — it
                 // is the knowing endpoint (the same precedent as `unwrapGit`'s
                 // `FILE_GONE` → `NOT_FOUND` mapping: the layer that knows what an

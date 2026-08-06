@@ -23,12 +23,16 @@ import { Cause, Effect, Exit } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KavalContractSkew } from "./errors.ts";
 import { setDaemonProcessId } from "./koluRoot.ts";
-import { restartLocalDaemon } from "./ptyHost/restartLocal.ts";
+import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 import { buildPadiSurfaceDeps } from "./servePadi.ts";
 import { fakeEndpoint, stubLog } from "./servePadi.testlib.ts";
 
+// The RPC delegates the recycle itself to the SHARED routine (#2101 N1) — the
+// same one the supervisor invokes — so THAT is what is stubbed here. What is
+// left under test is the only part still owned by the handler: retyping a
+// contract skew as the declared wire error.
 vi.mock("./ptyHost/restartLocal.ts", () => ({
-  restartLocalDaemon: vi.fn(),
+  recycleLocalKaval: vi.fn(),
 }));
 
 // `cleanupTerminalScratch` (reached via other members' construction) reads the
@@ -84,7 +88,7 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
   afterEach(() => vi.clearAllMocks());
 
   it("rethrows the skew as the DECLARED KavalContractSkew carrying both versions", async () => {
-    vi.mocked(restartLocalDaemon).mockReturnValue(
+    vi.mocked(recycleLocalKaval).mockReturnValue(
       Effect.fail(contractSkewRejection()),
     );
     const recycle = recycleKavalHandler();
@@ -103,7 +107,7 @@ describe("recycleKaval on a contract skew — refuse typed, versions as data", (
 
   it("rethrows a NON-skew recycle failure untouched (the loud channel stays loud)", async () => {
     const boom = new Error("kaval endpoint failed to come up");
-    vi.mocked(restartLocalDaemon).mockReturnValue(Effect.fail(boom));
+    vi.mocked(recycleLocalKaval).mockReturnValue(Effect.fail(boom));
     const recycle = recycleKavalHandler();
 
     // UNDECLARED ⇒ a DEFECT (D4), and the value reaches the caller untouched.

@@ -687,6 +687,14 @@ export const DaemonStatusSchema = Schema.Union([
      *  was re-adopted (juspay/kolu#1365); the client keeps the greatest announced
      *  `adoptedAt` in localStorage and only toasts a strictly newer one. */
     adoptedAt: Schema.optionalKey(Schema.Number),
+    /** #2101 N1: the ms-epoch padi stamped when a probe PROVED that an automatic
+     *  recycle of an unresponsive kaval worked — set only on the `connected`
+     *  status that followed a supervisor-driven repair, never on a boot or on the
+     *  button's recycle (the user who pressed it does not need to be told). Drives
+     *  the client's one-shot "kaval was unresponsive — restarted" toast, deduped
+     *  against a persisted high-water mark exactly as `adoptedAt` is. Absent
+     *  everywhere else, which is the honest reading: nothing was auto-repaired. */
+    autoRecoveredAt: Schema.optionalKey(Schema.Number),
     /** The local kaval's unix socket path (`$XDG_RUNTIME_DIR/kaval-<port>/pty-host.sock`)
      *  — surfaced for the kaval dialog to show where this daemon listens (the
      *  path `kaval-tui` auto-discovers). kolu's soul (a server fact the client
@@ -719,6 +727,7 @@ export const DaemonStatusSchema = Schema.Union([
     startedAt: Schema.optionalKey(Schema.Never),
     adopted: Schema.optionalKey(Schema.Never),
     adoptedAt: Schema.optionalKey(Schema.Never),
+    autoRecoveredAt: Schema.optionalKey(Schema.Never),
     lifetime: Schema.optionalKey(Schema.Never),
     socketPath: Schema.optionalKey(Schema.String),
   }),
@@ -733,6 +742,7 @@ export const DaemonStatusSchema = Schema.Union([
     startedAt: Schema.optionalKey(Schema.Never),
     adopted: Schema.optionalKey(Schema.Never),
     adoptedAt: Schema.optionalKey(Schema.Never),
+    autoRecoveredAt: Schema.optionalKey(Schema.Never),
     lifetime: Schema.optionalKey(Schema.Never),
     daemonVersion: Schema.optionalKey(Schema.Never),
     requiredVersion: Schema.optionalKey(Schema.Never),

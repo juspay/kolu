@@ -81,7 +81,7 @@ export type KavalConnectionMetadata = {
 /** Deadline for each handshake read. The socket is already connected, so a
  * healthy kaval answers in milliseconds; a foreign or wedged peer must reject
  * rather than hang boot. */
-const HANDSHAKE_READ_DEADLINE_MS = 10_000;
+export const HANDSHAKE_READ_DEADLINE_MS = 10_000;
 
 /** Read `system.version` off `client`, bounded by {@link HANDSHAKE_READ_DEADLINE_MS}:
  *  a peer that accepts the unix connection but never answers RPC (a foreign squatter,

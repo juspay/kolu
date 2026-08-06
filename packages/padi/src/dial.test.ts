@@ -37,6 +37,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { probeKavalStatus } from "./hostInventory.ts";
 import {
   assertPadiSurfaceCompatible,
   type PadiDaemonClient,
@@ -542,6 +543,86 @@ describeDaemon("padi the process — dial acceptance", () => {
       }
     }
   }, 60000);
+
+  /**
+   * The juspay/kolu#2101 N1 field reproduction, with a REAL padi and a REAL
+   * kaval: **a comatose kaval must not be survivable.**
+   *
+   * `SIGSTOP` is the honest reproduction of the incident's presentation, and the
+   * reason no existing guard caught it. The process stays ALIVE (`Ss`, 0% CPU),
+   * its listening socket stays bound and keeps ACCEPTING connections, and it
+   * answers nothing — no rejection, no close, no in-process error, no exit. G2's
+   * fault arm sees no fault; the client-silence deadlines (H3/K1/J1) are about a
+   * peer that stopped talking to a client, not a daemon that stopped talking at
+   * all. In the field this survived a full night: padi diagnosed it in ten
+   * seconds and handed the user a card and a button.
+   *
+   * Post-N1 the streak exhausts the ledger and padi recycles the daemon itself —
+   * observed here as the gate file coming to hold a DIFFERENT pid, i.e. a
+   * genuinely new kaval process at the same rendezvous.
+   */
+  it("REPAIRS a comatose kaval by itself — SIGSTOP, no human (#2101 N1)", async () => {
+    const stateRoot = makeStateRoot();
+    const p = await startPadi(stateRoot);
+    const kavalGate = join(dirname(p.kavalSocket), "kaval.pid");
+    await waitUntil(
+      () => gatePid(kavalGate) !== undefined,
+      15000,
+      "kaval never came up under the padi",
+    );
+    const comatose = gatePid(kavalGate);
+    if (comatose === undefined) throw new Error("no kaval pid to freeze");
+
+    process.kill(comatose, "SIGSTOP");
+    try {
+      // The DERIVED bound, summed rather than picked:
+      //   ≈45 s  three consecutive probes at the 10 s inventory cadence, each
+      //          spending its full 5 s deadline against a peer that never answers;
+      //   ≤10 s  the bounded drain (`restartLocal`'s killAll deadline);
+      //   ≤125 s `reapHolder`'s ladder — REAP_TERM_CEILING_MS (120 s) is spent in
+      //          full here BY DESIGN, because a SIGSTOP'd process cannot handle
+      //          SIGTERM and the graceful window is deliberately generous for a
+      //          daemon that might be draining gigabytes of scrollback (#1034),
+      //          plus REAP_KILL_CEILING_MS (5 s) for the kernel;
+      //   ≈10 s  respawn + the fresh daemon's handshake.
+      // ≈190 s, so 240 s is that sum with headroom on a loaded box. The claim
+      // under test is that repair happens AT ALL with no human — the thing that
+      // was false before N1, at any window.
+      await waitUntil(
+        () => {
+          const now = gatePid(kavalGate);
+          return now !== undefined && now !== comatose;
+        },
+        240_000,
+        "padi never repaired the comatose kaval — the #2101 field incident, reproduced",
+      );
+    } finally {
+      // A stopped process ignores SIGTERM until continued, so CONTINUE first and
+      // only then kill: otherwise the reaper's graceful leg is wasted on a
+      // process that cannot receive it. Both are best-effort — padi's own reap
+      // ladder has usually already taken it by here.
+      try {
+        process.kill(comatose, "SIGCONT");
+      } catch {
+        // Already reaped by padi — which is the happy path.
+      }
+      try {
+        process.kill(comatose, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+
+    // ...and the daemon that replaced it actually SERVES — the repair is not
+    // merely "a new pid exists". A recycled-but-wedged kaval would satisfy the
+    // pid check and fail here, which is exactly the distinction the supervisor's
+    // own `unrepaired` budget is built on.
+    // The SAME probe the supervisor watches through — three read-only verbs over
+    // a fresh link — so "repaired" means the identical thing here and in
+    // production, rather than a second, weaker definition written for the test.
+    const probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
+    expect(probe.contractVersion).not.toBeNull();
+  }, 300_000);
 });
 
 describeDaemon(

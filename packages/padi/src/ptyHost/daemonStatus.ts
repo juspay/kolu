@@ -176,3 +176,28 @@ export function setAdoptedCount(hostId: string, adopted: number): void {
     adoptedAt: Date.now(),
   });
 }
+
+/** Fold "this daemon is here because padi recycled an unresponsive one, and the
+ *  recycle worked" onto the host's CURRENT status and re-publish (#2101 N1).
+ *
+ *  The twin of {@link setAdoptedCount}, and for the same reason: the fact is
+ *  kolu's soul, proved AFTER the endpoint already reported `connected` — the
+ *  spine's `onStatus` knows nothing about why a daemon was restarted, and a
+ *  restart RESOLVING proves only that a fresh kaval connected, which is exactly
+ *  what the comatose one did too. Only a subsequent healthy probe proves it, and
+ *  that is `kavalSupervision`'s edge, not the endpoint's.
+ *
+ *  The stamp is sticky in the store and replayed to every fresh subscription; the
+ *  client dedupes its one-shot toast on it, so a reconnect/reload replay does not
+ *  re-fire (the #1365 rule, inherited wholesale from the adoption rail). It is
+ *  cleared implicitly: the next non-`connected` publish overwrites the status
+ *  without it, which is correct — a daemon that went down again is not a daemon
+ *  whose recovery is still worth announcing. */
+export function setAutoRecovered(hostId: string): void {
+  const current = store.get(hostId);
+  if (!current || current.state !== "connected") return;
+  publishFullDaemonStatus(hostId, {
+    ...current,
+    autoRecoveredAt: Date.now(),
+  });
+}

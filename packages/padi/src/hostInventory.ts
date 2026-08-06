@@ -16,11 +16,21 @@
  *      enumerateHostDaemons} with NO active socket — kolu is bound elsewhere, so no
  *      local daemon is "in use by kolu".
  *
- * STRICTLY READ-ONLY. It reuses the SAME discovery `kaval-tui`/`padi-tui` use
- * (`discoverKavalDaemons` / `discoverPadiDaemons` — scan the runtime dir, read each
+ * The SCAN is strictly read-only. It reuses the SAME discovery `kaval-tui`/`padi-tui`
+ * use (`discoverKavalDaemons` / `discoverPadiDaemons` — scan the runtime dir, read each
  * gate `.pid`, read the `state-root` manifest) and, for each kaval, a read-only frozen
- * identity + legacy status probe over a short-lived client. It NEVER
- * spawns, writes, kills, or reaps — no path here touches a daemon's lifecycle.
+ * identity + legacy status probe over a short-lived client. Nothing in THIS module
+ * spawns, writes, kills, or reaps.
+ *
+ * What changed with juspay/kolu#2101 N1: the probe is no longer PUBLISH-ONLY. The
+ * doctrine that died is not "the scanner is read-only" — it still is — but "padi may
+ * diagnose and must never treat". `probeKavalStatus` is now ALSO the sensor behind
+ * `kavalSupervision.ts`, which folds the held kaval's verdicts into a failure ledger
+ * and, on exhaustion, runs the same recycle the "Restart kaval" button runs. A
+ * supervisor that can diagnose but not treat is a dashboard, and the field incident
+ * (#2101) is what a dashboard costs: padi classified a comatose kaval within ten
+ * seconds and then watched it stay comatose for hours. One probe implementation, two
+ * readers — the scan (which publishes) and the supervisor (which acts).
  */
 
 import { buildSurfaceFace } from "@kolu/surface/client";
@@ -160,7 +170,7 @@ export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
  *  — the T+0 seed included — is cell-local (logged, cadence held, retried next
  *  tick), so the worst case is one stale inventory tick, not a dead cell and a
  *  half-dead daemon. */
-const PROBE_TIMEOUT_MS = HOST_INVENTORY_SAMPLE_INTERVAL_MS / 2;
+export const PROBE_TIMEOUT_MS = HOST_INVENTORY_SAMPLE_INTERVAL_MS / 2;
 
 /**
  * READ-ONLY status probe of one kaval socket: dial it, read frozen
@@ -307,7 +317,10 @@ export function enumerateHostDaemons(
  *  which is by definition NOT a legacy adoption. Either way, `assembleKavalInventory`
  *  only marks the socket `active` if it appears in the discovered set, so a socket with
  *  no live daemon marks nothing. */
-function heldKaval(stateRoot: string): { socket: string; atLegacy: boolean } {
+export function heldKaval(stateRoot: string): {
+  socket: string;
+  atLegacy: boolean;
+} {
   const digest = padiKavalSocketPath(stateRoot);
   const held =
     readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.socketPath ?? null;

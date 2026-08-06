@@ -10,7 +10,11 @@
 import type { DaemonState, DaemonStatus } from "@kolu/padi/surface";
 import { describe, expect, it, vi } from "vitest";
 import { persistedPref } from "../persistedPref";
-import { announceReattach, reattachToAnnounce } from "./reattachAnnounce";
+import {
+  announceAutoRecovery,
+  announceReattach,
+  reattachToAnnounce,
+} from "./reattachAnnounce";
 
 /** A synchronous in-memory `Storage`, so the persistence-wiring tests below run
  *  the SAME `persistedPref` path the app uses (parse + write) without a DOM. */
@@ -231,5 +235,44 @@ describe("announceReattach — the persisted high-water mark", () => {
     const [ml2, sl2] = markFor(mark, setMark, "local");
     announceReattach(adoptedStatus(5_000), ml2, sl2, notify);
     expect(notify).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("announceAutoRecovery — one toast per PROVEN automatic repair (#2101 N1)", () => {
+  const connected = (autoRecoveredAt?: number) =>
+    ({ state: "connected", autoRecoveredAt }) as const;
+
+  it("announces a stamp newer than the mark, committing BEFORE notifying", () => {
+    const order: string[] = [];
+    announceAutoRecovery(
+      connected(1_700),
+      0,
+      (at) => order.push(`commit:${at}`),
+      () => order.push("notify"),
+    );
+    expect(order).toEqual(["commit:1700", "notify"]);
+  });
+
+  it("stays silent on a REPLAY of the same stamp — the #1365 rule, inherited", () => {
+    const notify = vi.fn();
+    announceAutoRecovery(connected(1_700), 1_700, vi.fn(), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when nothing was auto-repaired", () => {
+    const notify = vi.fn();
+    announceAutoRecovery(connected(undefined), 0, vi.fn(), notify);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("stays silent on a non-connected snapshot, however it is stamped", () => {
+    const notify = vi.fn();
+    announceAutoRecovery(
+      { state: "degraded" } as Parameters<typeof announceAutoRecovery>[0],
+      0,
+      vi.fn(),
+      notify,
+    );
+    expect(notify).not.toHaveBeenCalled();
   });
 });
