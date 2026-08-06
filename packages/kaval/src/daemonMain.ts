@@ -28,6 +28,7 @@ import {
 import { processIdentityFromEnv } from "osfacts-client";
 import { serveKavalDaemonSurface } from "./daemonSurface.ts";
 import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
+import { startKavalSelfLiveness } from "./selfLiveness.ts";
 import {
   KAVAL_NS_PREFIX,
   PTY_HOST_SOCK_FILE,
@@ -62,6 +63,10 @@ export interface KavalDaemonOptions {
    *  spine's `anchorPollMs`. A TEST seam (like `signal`); production omits it
    *  and uses the spine's default cadence. */
   stateRootPollMs?: number;
+  /** Self-liveness probe cadence, in ms (#2101 N2) — the same kind of TEST seam
+   *  as `stateRootPollMs`; production omits it and uses
+   *  `SELF_PROBE_INTERVAL_MS`. */
+  selfLivenessPollMs?: number;
 }
 
 /** Run the kaval daemon to completion: own a PTY host, serve `ptyHostSurface`
@@ -104,7 +109,7 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
   // — so dying loudly is strictly better than serving half a runtime. The ptyHost
   // surface declares no cell connectors, so nothing faults today; this is the arm
   // that keeps the FUTURE first fault from being a zombie instead of a restart.
-  const faultSignal = armRuntimeFaultExit({
+  const runtimeFaultSignal = armRuntimeFaultExit({
     done: daemonSurface.done,
     log,
     subject: "kaval pty-host surface runtime",
@@ -112,6 +117,26 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // are reaped by `daemonSurface.close()` in the `.finally` below — which the
     // fault path reaches like any other shutdown, because it IS one.
   });
+
+  // #2101 N2 — the SECOND way this daemon can prove itself unfit, and the one the
+  // runtime-fault arm structurally cannot see: a serving layer that HANGS without
+  // faulting. `done` never rejects for it (nothing failed), so the self-probe
+  // gets its own controller and the two are merged into the one `faultSignal`
+  // `daemonMain` takes. Merging rather than adding a second spec field is
+  // deliberate: the DISPOSITION is identical — end the tenure through the ordinary
+  // shutdown machinery with a non-zero exit so the supervisor respawns — and the
+  // spine should not learn a new vocabulary for a second reason to take the same
+  // action.
+  const selfLivenessFault = new AbortController();
+  const faultSignal = AbortSignal.any([
+    runtimeFaultSignal,
+    selfLivenessFault.signal,
+  ]);
+  // Started at readiness, not here: before the socket is listening a self-dial
+  // would be measuring a daemon that has not opened yet. Stopped in the
+  // `.finally` below AND by the caller's stop signal, so a deliberate shutdown
+  // can never race its own clean exit into a fault exit.
+  let stopSelfLiveness: (() => void) | undefined;
 
   // Interim heap instrumentation (no-op unless KOLU_DIAG_DIR is set) — logs the
   // heap curve with the live-terminal count (the leak's independent variable)
@@ -164,8 +189,22 @@ export function runKavalDaemon(opts: KavalDaemonOptions): Promise<DaemonExit> {
     // exit) through the same teardown a signal gets, rather than leaving a kaval
     // that answers RPCs with a dead runtime behind them.
     faultSignal,
-    onReady: opts.onReady,
+    onReady: (info) => {
+      stopSelfLiveness = startKavalSelfLiveness({
+        socketPath: info.socketPath,
+        log,
+        onExhausted: () => selfLivenessFault.abort(),
+        pollMs: opts.selfLivenessPollMs,
+      });
+      opts.signal?.addEventListener("abort", () => stopSelfLiveness?.(), {
+        once: true,
+      });
+      opts.onReady?.(info);
+    },
   }).finally(() => {
+    // Disarm FIRST: from here the surface is closing, so a probe crossing a
+    // listener that is going away would be measuring the shutdown, not a wedge.
+    stopSelfLiveness?.();
     // Own the surface runtime's shutdown deterministically: once the daemon has
     // stopped serving, release its owned sources. AWAITING close here (the
     // `.finally` waits on the returned promise) — rather than a fire-and-forget

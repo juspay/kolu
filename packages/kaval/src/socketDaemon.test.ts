@@ -516,6 +516,43 @@ describeDaemon("kaval daemon — process-boundary behaviour", () => {
     }
   }, 30000);
 
+  /**
+   * juspay/kolu#2101 N2, across the process boundary: **a daemon that cannot
+   * serve its own address exits non-zero, through the G2 fault arm.**
+   *
+   * The wedge is the rendezvous itself: unlink the socket inode under a running,
+   * otherwise-healthy daemon. Its own self-dial can no longer reach it, which is
+   * the same fact the field's comatose kaval presented (a peer that cannot get an
+   * answer out of this daemon) reached by the one route a test can drive from
+   * outside the process. Nothing else in the daemon notices — no handler fails, no
+   * connection closes, `done` never rejects — which is precisely why this arm had
+   * to exist.
+   *
+   * The proof is the DISPOSITION, not the mechanism: a NON-ZERO exit (the
+   * supervisor's only channel for "that was a crash, not a stop") reached through
+   * the ordinary shutdown machinery, so the gate is released and the next launch
+   * is not blocked.
+   */
+  it("self-liveness: a daemon whose own address stops answering exits NON-ZERO and releases its gate (#2101 N2)", async () => {
+    const d = track(await startDaemon());
+    expect(existsSync(d.gatePath)).toBe(true);
+
+    // Take the rendezvous away. The listener is still bound to the (now unlinked)
+    // inode and the process is untouched — only the NAME a dialer resolves is gone.
+    rmSync(d.socketPath, { force: true });
+
+    // The derived bound: SELF_PROBE_CEILING (3) consecutive failures at the
+    // production 10 s cadence ≈ 30 s — each dial fails fast (ENOENT), so the 5 s
+    // per-probe deadline is not spent — plus the daemon's own shutdown.
+    const code = await Promise.race([
+      d.exited,
+      sleep(60_000).then(() => "never exited" as const),
+    ]);
+    expect(code).not.toBe("never exited");
+    expect(code).not.toBe(0);
+    expect(existsSync(d.gatePath)).toBe(false);
+  }, 90_000);
+
   it("SIGTERM teardown removes the socket and releases the gate", async () => {
     const d = track(await startDaemon());
     expect(existsSync(d.socketPath)).toBe(true);
