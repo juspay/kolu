@@ -8,11 +8,6 @@
  *  COMPACTION: resting state is icon + status dot only. Steady versions,
  *  memory, and update detail live in the Tip / dialogs. */
 
-import {
-  type DaemonStatus,
-  encodeHostLocation,
-  LOCAL_LOCATION,
-} from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
@@ -21,7 +16,6 @@ import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import {
-  channelLive,
   DAEMON_UNKNOWN_LABEL,
   type KavalPresence,
   kavalPresencePresentation,
@@ -35,7 +29,6 @@ import {
   daemonTransportLive,
   formatUptime,
   type PadiEntry,
-  reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import {
