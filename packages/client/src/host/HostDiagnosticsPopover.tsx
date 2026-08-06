@@ -53,6 +53,7 @@ import {
 import { runAction } from "../runAction";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
+import { useHostKavalChain } from "./useHostKaval";
 import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
 
@@ -108,7 +109,9 @@ export const HostDiagnosticsPopover: Component<{
   anchor?: AnchorSide;
 }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const glance = () => hostGlance(state());
+  // #2101 N4 — the header pip and the `state` row read the whole chain.
+  const kaval = useHostKavalChain(props.host);
+  const glance = () => hostGlance(state(), kaval());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
   const store = useTerminalStore();

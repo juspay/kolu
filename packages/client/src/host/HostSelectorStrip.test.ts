@@ -14,10 +14,17 @@ import {
   chipStatusDot,
   hostGlance,
   hostRowContext,
+  type KavalChain,
   statusLabelShort,
 } from "./hostChipTone";
 
 const GREEN = "bg-emerald-400";
+
+// These pins are about the ENTRY-state fold. The daemon-chain composition
+// (#2101 N4) has its own file (`hostChainGlance.test.ts`), so every call here
+// passes a whole chain — the composition is then provably a no-op over this
+// table rather than silently absent from it.
+const SERVING: KavalChain = { kind: "serving" };
 
 // The multi-host feature is no longer gated on `KOLU_PADI_HOST` — the "+ add a
 // host" affordance and every pool member's chip render unconditionally, so the
@@ -26,11 +33,14 @@ const GREEN = "bg-emerald-400";
 
 describe("hostGlance — exception strip + detail co-defined", () => {
   it("connected: strip silent, detail green, not down", () => {
-    const g = hostGlance({
-      kind: "connected",
-      membershipId: testMembershipId(),
-      clockOffset: 0,
-    });
+    const g = hostGlance(
+      {
+        kind: "connected",
+        membershipId: testMembershipId(),
+        clockOffset: 0,
+      },
+      SERVING,
+    );
     expect(g.stripDot).toBeNull();
     expect(g.detailDot).toBe(GREEN);
     expect(g.down).toBe(false);
@@ -40,10 +50,13 @@ describe("hostGlance — exception strip + detail co-defined", () => {
   });
 
   it("warming: amber pulse strip, not down", () => {
-    const g = hostGlance({
-      kind: "warming",
-      membershipId: testMembershipId(),
-    });
+    const g = hostGlance(
+      {
+        kind: "warming",
+        membershipId: testMembershipId(),
+      },
+      SERVING,
+    );
     expect(g.stripDot).toContain("amber");
     expect(g.stripDot).toContain("animate-pulse");
     expect(g.stripDot).toContain("motion-reduce:animate-none");
@@ -53,12 +66,15 @@ describe("hostGlance — exception strip + detail co-defined", () => {
   });
 
   it("failed: red strip + detail, down, struck, unreachable short, reason in title", () => {
-    const g = hostGlance({
-      kind: "failed",
-      membershipId: testMembershipId(),
-      failure: { cause: "link-failed", reason: "ssh refused" },
-      evidence: [],
-    });
+    const g = hostGlance(
+      {
+        kind: "failed",
+        membershipId: testMembershipId(),
+        failure: { cause: "link-failed", reason: "ssh refused" },
+        evidence: [],
+      },
+      SERVING,
+    );
     expect(g.stripDot).toContain("red");
     expect(g.detailDot).toContain("red");
     expect(g.down).toBe(true);
@@ -84,7 +100,7 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       { kind: "not-a-member" },
     ];
     for (const s of states) {
-      const cls = hostGlance(s).stripDot;
+      const cls = hostGlance(s, SERVING).stripDot;
       if (cls !== null) {
         expect(cls).not.toBe(GREEN);
         expect(cls).not.toContain("emerald");
@@ -94,11 +110,14 @@ describe("hostGlance — exception strip + detail co-defined", () => {
 
   it("detailDot is green ONLY for connected", () => {
     expect(
-      hostGlance({
-        kind: "connected",
-        membershipId: testMembershipId(),
-        clockOffset: 0,
-      }).detailDot,
+      hostGlance(
+        {
+          kind: "connected",
+          membershipId: testMembershipId(),
+          clockOffset: 0,
+        },
+        SERVING,
+      ).detailDot,
     ).toBe(GREEN);
     const notConnected: EntryState[] = [
       { kind: "warming", membershipId: testMembershipId() },
@@ -111,8 +130,8 @@ describe("hostGlance — exception strip + detail co-defined", () => {
       { kind: "not-a-member" },
     ];
     for (const s of notConnected) {
-      expect(hostGlance(s).detailDot).not.toBe(GREEN);
-      expect(hostGlance(s).detailDot).not.toContain("emerald");
+      expect(hostGlance(s, SERVING).detailDot).not.toBe(GREEN);
+      expect(hostGlance(s, SERVING).detailDot).not.toContain("emerald");
     }
   });
 });
@@ -131,16 +150,16 @@ describe("chipStatusDot — always-on for every host", () => {
   };
 
   it("local healthy paints green (same as remote)", () => {
-    expect(chipStatusDot(local, connected)).toBe(GREEN);
+    expect(chipStatusDot(local, connected, SERVING)).toBe(GREEN);
   });
 
   it("remote healthy paints green", () => {
-    expect(chipStatusDot(remote, connected)).toBe(GREEN);
+    expect(chipStatusDot(remote, connected, SERVING)).toBe(GREEN);
   });
 
   it("warming keeps the pulse class on local and remote", () => {
     for (const host of [local, remote]) {
-      const cls = chipStatusDot(host, warming);
+      const cls = chipStatusDot(host, warming, SERVING);
       expect(cls).toContain("amber");
       expect(cls).toContain("animate-pulse");
     }
@@ -176,7 +195,7 @@ describe("hostRowContext — palette host status vocabulary", () => {
   it("surfaces exception states only", () => {
     expect(hostRowContext(warming, false)).toBe("connecting");
     expect(hostRowContext(failed, false)).toBe("unreachable");
-    expect(statusLabelShort(failed)).toBe("unreachable");
+    expect(statusLabelShort(failed, SERVING)).toBe("unreachable");
   });
 });
 
