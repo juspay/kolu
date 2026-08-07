@@ -83,10 +83,11 @@ export const BINARY_PREVIEWABLE_EXTENSIONS = [
 
 export type BinaryPreviewFamily = "sandbox" | "pdf" | "raster" | "video";
 
-/** Text files the Code browser can render as a document. Stays
- *  `kind:"text"` on the wire — there's no server URL; the client renders it
- *  from `content` via `@kolu/solid-markdown`. */
-export const MARKDOWN_EXTENSIONS = [".md", ".markdown"] as const;
+/** Text files the Code browser can render as a document (`kind:"text"` on the
+ *  wire; client renders via `@kolu/solid-markdown`). Includes `.mdx`: Markdown
+ *  + JSX — same Markdown preview as `.md`; component tags are not executed and
+ *  are stripped by the sanitizer (no separate MDX runtime). */
+export const MARKDOWN_EXTENSIONS = [".md", ".markdown", ".mdx"] as const;
 
 function hasExtension(filePath: string, exts: readonly string[]): boolean {
   const lower = filePath.toLowerCase();

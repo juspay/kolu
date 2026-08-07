@@ -7418,6 +7418,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "435c55381b24cb325105fee82048c00226818d0e"
+    },
+    {
+      "revisionId": "revision-482ca3b4c149605f5bf9",
+      "scenarioKey": "scenario-46ed574deb95daa9756a",
+      "feature": "features/code-tab.feature",
+      "scenario": "MDX files preview as Markdown, not Source-only",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4bb8a5d6ba10ade60b6faa72d7f27ede0508d68642651be9506e8a36a5798268",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "cb4c7f3604d67223081622aa34f5af9f40c72311"
     }
   ]
 }
