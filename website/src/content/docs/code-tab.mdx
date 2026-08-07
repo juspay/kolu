@@ -67,7 +67,7 @@ ssh hop too.
   is instant and holds your scroll position). A `---` YAML front-matter block
   renders as a table; a footnote marker opens its definition in a popover where
   your eye already is. MDX is previewed as Markdown — component tags are not
-  executed.
+  executed and are stripped by the sanitizer (use Source for the raw MDX).
 - Agent-generated **`.html`** and **`.svg`** artifacts preview inline in a
   sandboxed iframe; **`.pdf`** opens in the browser's native viewer; images and
   **video** render as themselves. Everything live-reloads on change, and an
