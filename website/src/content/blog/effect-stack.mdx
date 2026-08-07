@@ -10,7 +10,27 @@ import PR from "../../components/PR.astro";
 
 Kolu's plumbing used to be five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
 
-This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is about the shape that came out the other side, and why we wanted it.
+This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is what's there now, and why. And if you read Haskell but only basic TypeScript, you're closer to home here than in most TS codebases: Effect is the monad-transformer stack you already know, shipped as a library with a runtime attached.
+
+## Why Effect
+
+An [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/) is a value describing a computation that succeeds with `A`, fails with `E`, and needs an environment `R`. A Haskeller reads it as `ReaderT R (ExceptT E IO) A` — with structured concurrency, retry, and resource tracking built into the runtime instead of bolted on per-library. And `Effect.gen` is do-notation, spelled with generators:
+
+```ts
+const boot = Effect.gen(function* () {
+  const stores = yield* PadiStores;    // ask the environment for a service
+  const term = yield* attach(id);     // may fail — typed: TerminalNotFound
+  return term;
+});
+```
+
+That type is the whole bet, three ways:
+
+1. **One semantics.** Failure is the `E` channel, retry is a [`Schedule`](https://effect.website/docs/scheduling/introduction/), teardown is a [`Scope`](https://effect.website/docs/resource-management/scope/) — the same words at every level of the stack, where five libraries used to have five opinions and we wrote the glue.
+2. **Types with teeth.** Errors and dependencies live in the type and survive across the wire, so "this call can fail this way" is checked, not documented.
+3. **Agents write most of this code**, and Effect turns their nastiest failure mode — code that compiles and silently does nothing — into compile errors and CI scans.
+
+The rest of this post is those three claims, cashed out.
 
 <svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.103." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
   <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">five dependencies, one library</text>
@@ -42,7 +62,7 @@ This isn't the migration war story — that diff was +78,690/−31,896 across 84
 
 ## The wire
 
-The RPC contract is a flat, slash-tagged `RpcGroup` from `effect/unstable/rpc`, frames as ndjson over an Effect `Socket`:
+The RPC contract is a flat [`RpcGroup`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) — a typed map from slash-tagged method names to request/response schemas, the moral equivalent of a Servant API type. (It lives at `effect/unstable/rpc`; being unstable, its documentation is the source.) Frames are [ndjson](https://github.com/ndjson/ndjson-spec) — one JSON value per line — over an Effect `Socket`:
 
 ```ts
 // packages/common/src/contract.ts
@@ -56,11 +76,13 @@ export const koluRootGroup = RpcGroup.make(
 export const contract = koluSurfaceGroup.merge(koluRootGroup);
 ```
 
-The [surface framework](/blog/surface-framework) kept its five shapes — cell, collection, stream, event, procedure — and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the oRPC: the boundary held, and swapping the wire vendor never touched a domain module. Reconnect, partysocket's old job, is now a `Schedule` handed to the client protocol as a retry policy. One less library with its own opinions about time.
+The [surface framework](/blog/surface-framework) kept its five shapes — cell, collection, stream, event, procedure — and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the oRPC: the boundary held, and swapping the wire vendor never touched a domain module.
+
+Reconnect — partysocket's old job — is now a `Schedule` handed to the client protocol as a retry policy. A `Schedule` is a first-class value describing "when to try again" (think the [retry](https://hackage.haskell.org/package/retry) package's `RetryPolicy`, composable with `.pipe`), so backoff logic is data you test, not a config knob on somebody's WebSocket wrapper.
 
 ## Schemas that carry their types, and their errors
 
-Every zod schema is Effect Schema, and the TypeScript type falls out of the schema instead of being maintained next to it:
+Every zod schema is now [Effect Schema](https://effect.website/docs/schema/introduction/). A `Schema` is one value that is simultaneously the decoder, the encoder, and the source of the TypeScript type — `FromJSON`, `ToJSON`, and the data declaration fused (Haskellers: it's [autodocodec](https://hackage.haskell.org/package/autodocodec), not aeson):
 
 ```ts
 // packages/common/src/hostKey.ts
@@ -74,7 +96,7 @@ export const HostKeySchema = Schema.Union([
 export type HostKey = typeof HostKeySchema.Type;
 ```
 
-Errors are schemas too. A failure the caller can act on is a class that travels the wire and decodes on the far side as itself:
+Errors are schemas too. A failure the caller can act on is a class — a constructor in the error sum type — that travels the wire and decodes on the far side as itself:
 
 ```ts
 // packages/padi/src/errors.ts
@@ -87,13 +109,13 @@ export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
 }
 ```
 
-And the rule written in that file's header: if a failure means "the daemon is broken" rather than "you can handle this," it stays out of the type entirely — it's a defect, and defects crash loud. No error-code string soup, no `catch (e: unknown)`.
+Effect splits failure the way Haskell splits `ExceptT` from `error`: an [expected error](https://effect.website/docs/error-management/expected-errors/) is typed and in the `E` channel; a [defect](https://effect.website/docs/error-management/unexpected-errors/) is a crash. The rule written in that file's header: if a failure means "the daemon is broken" rather than "you can handle this," it stays out of the type entirely and crashes loud. No error-code string soup, no `catch (e: unknown)`.
 
-One bound does a lot of quiet work: every wire schema is `Schema.Codec<T, unknown, never, never>` — the two `never`s say decoding can require no services and fail into no untyped channel. zod had no way to even state that.
+One bound does a lot of quiet work: every wire schema must satisfy `Schema.Codec<T, unknown, never, never>` — decode `unknown` to `T`, where the two `never`s say decoding needs no services from the environment and fails into no untyped channel. It's a purity annotation on the codec. zod had no way to even state that — and its habit of tolerating a key that's present but `undefined` (where Effect Schema refuses) had let eight producer/schema mismatches into the tree, two of them live in production paths. The bugs were ours all along. The strictness found them.
 
 ## Daemons on Layers
 
-padi's boot sequence is a dependency-ordered Layer graph — gate, then stores, then identity, then surfaces, then the endpoint:
+A [`Layer<Out, E, In>`](https://effect.website/docs/requirements-management/layers/) is a recipe for building service `Out` given environment `In` — memoized, and torn down in reverse build order when its `Scope` closes. It's the ReaderT-pattern environment record plus `bracket`, reified as a composable value. padi's boot is a dependency-ordered graph of them:
 
 ```ts
 // packages/padi/src/daemonBoot/daemonMain.ts
@@ -105,16 +127,16 @@ const bootLayer = endpointLayer({ kavalHome, stateRoot, log }).pipe(
 );
 ```
 
-Each phase's type names the phase it needs, so booting out of order is a compile error, not a 3am log line. Teardown rides `Effect.acquireRelease` inside the scope — the hand-written `try { ... } finally { await served.close() }` is gone. hono is gone the same way: the HTTP app is `HttpRouter` layers merged together, and since the router ranks routes by specificity instead of registration order, the old "register the preview route before the static catch-all or it silently loses" footgun died with it.
+Gate, then stores, then identity, then surfaces, then the endpoint — and each phase's type names the phase it needs, so booting out of order is a compile error, not a 3am log line. Teardown rides `Effect.acquireRelease` (that's `bracket`) inside the scope; the hand-written `try { ... } finally { await served.close() }` is gone. hono went the same way: the HTTP app is `HttpRouter` layers (from `effect/unstable/http`) merged together, and since that router ranks routes by specificity instead of registration order, the old "register the preview route before the static catch-all or it silently loses" footgun died with it.
 
-## Why
+## The agent angle
 
-**One semantics.** Five libraries meant five ideas of failure, retry, cancellation and teardown, and the glue between them was ours to write and ours to get wrong. Now failure is the error channel, retry is `Schedule`, teardown is `Scope`, everywhere — 489 files under `packages/` import `effect`, and the glue code between vendors is just deleted.
+Here's the part nobody prints on the box. Kolu is built mostly by coding agents, and an agent's nastiest failure mode isn't a crash — it's code that compiles and silently does nothing. `await` on a function that now returns an `Effect` typechecks fine and never runs, because an `Effect` is an inert description until something executes it — exactly like an `IO` action you built and never bound. That pattern bit us eleven times across kolu and its consumers before we closed it.
 
-**Types with teeth.** zod tolerated a key that was present but `undefined`; Effect Schema refuses it. That one difference flushed out eight producer/schema mismatches we'd been shipping, two of them live in production paths. The bugs were ours all along. The strictness found them.
+Effect moves that class of wrong to where an agent actually sees it: into the compiler. And where types can't reach, scanners do — every `Effect.run*` edge in the tree (the `unsafePerformIO` of this world) is a named allowlist row, 109 sites in 54 files at merge, and the await-an-Effect and build-but-never-run patterns are banned by CI checks that were themselves tested against the known dodges. A human reviewer skims. The compiler and the scanners don't.
 
-**Agents write most of this code.** Here's the part nobody prints on the box. Kolu is built mostly by coding agents, and an agent's nastiest failure mode isn't a crash — it's code that compiles and silently does nothing. `await` on a function that now returns an `Effect` typechecks fine and never runs; that pattern bit us eleven times across kolu and its consumers before we closed it. Effect moves that class of wrong to where an agent actually sees it: into the compiler. And where types can't reach, scanners do — every `Effect.run*` edge in the tree is a named allowlist row (109 sites in 54 files at merge), and the await-an-Effect and build-but-never-run patterns are banned by CI checks that were themselves tested against the known dodges. A human reviewer skims. The compiler and the scanners don't.
+## The beta, then
 
-**The beta, then.** Sharp edges exist and we hit them. Effect RPC's default treats one handler's defect as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. `RpcGroup.merge` is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able `BETA-ASSUMPTION(beta.103)` marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
+Sharp edges exist and we hit them. Effect RPC's default treats one handler's defect as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. `RpcGroup.merge` is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able `BETA-ASSUMPTION(beta.103)` marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
 
-One island remains: vazhi still renders its TUI with Ink, deliberately, because there's nothing orchestral about drawing frames. Everything else — the wire, the schemas, the HTTP app, both daemons, the reactive engine, the CLIs — is Effect, and 509/509 e2e scenarios rode it green the day it merged. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
+One island remains: vazhi still renders its TUI with Ink, deliberately, because there's nothing orchestral about drawing frames. Everything else — the wire, the schemas, the HTTP app, both daemons, the reactive engine, the CLIs (489 files import `effect`) — is one library speaking one semantics, and 509/509 e2e scenarios rode it green the day it merged. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
