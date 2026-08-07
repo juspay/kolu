@@ -7430,6 +7430,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "cb4c7f3604d67223081622aa34f5af9f40c72311"
+    },
+    {
+      "revisionId": "revision-726d78345beb5292ea6d",
+      "scenarioKey": "scenario-0ae7ef2d433355e2b884",
+      "feature": "features/grok.feature",
+      "scenario": "Tile chrome keeps following Grok after a concurrent grok clobbers active_sessions",
+      "kind": "scenario",
+      "tags": ["@grok-mock"],
+      "bodyHash": "66413d57982645f983e8da330580951777d312a5b5832182d1b9dd71f7f9fedb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "efb8d8ca34b373c1cde6797e94f170890f10e24e"
     }
   ]
 }

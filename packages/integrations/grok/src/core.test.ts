@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -305,6 +306,68 @@ describe("resolveGrokSession", () => {
 
   it("returns null when nothing matches", () => {
     expect(resolveGrokSession(undefined, "/no/such/cwd")).toBeNull();
+  });
+
+  // The 2026-08-07 incident. Grok rewrites the WHOLE active_sessions.json array
+  // from a process-local snapshot, so a *concurrent* grok starting or exiting
+  // erases the rows of every other live grok — observed live as `[]` on disk
+  // while a grok was mid-turn. The file is therefore how a binding is ACQUIRED,
+  // never how it is released. Without this, resolveSession went null under a
+  // still-foreground grok, padi tore down the session watcher, and the tile
+  // froze on its last state (`thinking`) for the life of the process.
+  //
+  // These use `process.pid` — the one pid a test can be sure is ALIVE, which is
+  // the whole precondition: the binding is held for a live process and released
+  // for a dead one (see the release test below).
+  it("keeps a live pid's session after its active_sessions row is clobbered", () => {
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
+    expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
+
+    // A concurrent grok exits and rewrites the map without this pid's row.
+    writeActiveSessions([]);
+    expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
+  });
+
+  it("releases the binding once the process is gone", () => {
+    // A real reaped pid — spawnSync returns only after the child exits, so this
+    // pid is genuinely dead. Modelling the release with a live pid is
+    // impossible, and a made-up number could collide with a running process.
+    const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
+    expect(deadPid).toBeTypeOf("number");
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    writeActiveSessions([{ session_id: id, pid: deadPid, cwd }]);
+    expect(resolveGrokSession(deadPid, cwd)?.id).toBe(id);
+
+    writeActiveSessions([]);
+    // No row AND no process — nothing left to hold the binding open, so the
+    // memory must not outlive the grok it described.
+    expect(resolveGrokSession(deadPid, cwd)).toBeNull();
+  });
+
+  it("does not lend one pid's acquired session to another pid", () => {
+    const strangerPid = 5152;
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
+    expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
+
+    writeActiveSessions([]);
+    // The binding is per-pid: a grok that never appeared in the map still
+    // resolves to nothing, so the cwd-guess ban (test above) survives.
+    expect(resolveGrokSession(strangerPid, cwd)).toBeNull();
+  });
+
+  it("re-acquires when the map moves a pid to a different session", () => {
+    const newerId = "019f4782-7854-7592-8d87-3ba3a205a0b9";
+    writeSession({ cwd, id, events: [{ type: "turn_started" }] });
+    writeSession({ cwd, id: newerId, events: [{ type: "turn_started" }] });
+    writeActiveSessions([{ session_id: id, pid: process.pid, cwd }]);
+    expect(resolveGrokSession(process.pid, cwd)?.id).toBe(id);
+
+    // A present row always wins over the remembered binding — the map is
+    // still authoritative when it actually has something to say.
+    writeActiveSessions([{ session_id: newerId, pid: process.pid, cwd }]);
+    expect(resolveGrokSession(process.pid, cwd)?.id).toBe(newerId);
   });
 
   it("includes signalsPath on a matched session", () => {
