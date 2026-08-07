@@ -4,7 +4,7 @@
  * Everything a mechanism reports about a forward can carry text this library
  * did not write: ssh merges the far end's stderr into its own, and any future
  * mechanism that reads a subprocess is in the same position. Those strings are
- * rendered verbatim — by vazhi's TUI today and kolu's Inspector later — so a
+ * rendered verbatim — by kolu's Inspector and any future consumer — so a
  * hostile or careless remote could otherwise emit SGR (rewriting what the
  * operator reads) or OSC 8 (a clickable link of its choosing).
  *

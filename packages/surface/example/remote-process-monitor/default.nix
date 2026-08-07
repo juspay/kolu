@@ -29,7 +29,7 @@
 }:
 let
   # Shared "workspace tree + pnpm install, tsx-runnable" base — also used by
-  # the mini-ci example and vazhi. See ../../../../nix/workspace-tree.nix.
+  # the mini-ci example. See ../../../../nix/workspace-tree.nix.
   workspaceTree = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
   processMonitorAgent = pkgs.runCommand "process-monitor-agent"

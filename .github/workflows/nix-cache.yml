@@ -7,9 +7,9 @@
 # that already answers "what does this repo build" — `ci/flake-build`. This job
 # used to run a bare `nix build` (= `.#default` alone) and push whatever new
 # store paths appeared, so coverage was an emergent property of `default`'s
-# closure rather than a decision. `padi-agent` and `vazhi` sat outside it and
-# were never warmed at all; `kaval-tui`, `padi-tui` and `osfacts` were warmed
-# only incidentally, and would have gone quietly cold the day they left that
+# closure rather than a decision. `padi-agent` sat outside it and was never
+# warmed at all; `kaval-tui`, `padi-tui` and `osfacts` were warmed only
+# incidentally, and would have gone quietly cold the day they left that
 # closure. Nothing declared the intent, and nothing would have gone red.
 #
 # Sharing the script with `ci::nix` makes the gap impossible to express rather
@@ -109,7 +109,7 @@ jobs:
       # list of built artifacts (`-L` logs go to stderr). Warming the cache and
       # building in CI are therefore the same question with one answer; a job
       # that spelled the question itself could drift from `ci::nix` again, which
-      # is exactly how `padi-agent`/`vazhi` stayed cold and unnoticed.
+      # is exactly how `padi-agent` stayed cold and unnoticed.
       #
       # We push the closures of the built outputs, NOT a before/after diff of
       # `nix path-info --all`. The diff inferred "what this build produced" from
