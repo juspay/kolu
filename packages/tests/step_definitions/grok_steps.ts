@@ -179,6 +179,27 @@ When(
   },
 );
 
+/** Erase the whole active_sessions map while the mocked Grok keeps running —
+ *  what a *concurrent* grok's start/exit does in production (it rewrites the
+ *  file wholesale from its own snapshot, dropping every other live row).
+ *
+ *  The settle is load-bearing, not padding: the clobber must be CONSUMED before
+ *  the state flip, or the pre-clobber watcher could publish the new state on its
+ *  way out and the scenario would pass without proving anything. padi's
+ *  active_sessions watcher debounces 50ms and the production incident retired
+ *  the session watcher 53ms after the write, so 1500ms puts the buggy
+ *  teardown far in the past by the time the next step runs. */
+When(
+  "a concurrent Grok clobbers the active_sessions map",
+  async function (this: KoluWorld) {
+    if (!mockFixture) {
+      throw new Error("No Grok fixture to clobber — call mock step first");
+    }
+    fs.writeFileSync(mockFixture.activeSessionsPath, "[]");
+    await new Promise((r) => setTimeout(r, 1500));
+  },
+);
+
 When(
   "the Grok session state changes to {string}",
   async function (this: KoluWorld, state: string) {

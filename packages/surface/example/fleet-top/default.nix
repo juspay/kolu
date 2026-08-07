@@ -13,8 +13,8 @@
 { pkgs, src, pnpmDeps }:
 let
   # Shared "workspace tree + pnpm install, tsx-runnable" base
-  # (../../../../nix/workspace-tree.nix), the same one remote-process-monitor,
-  # mini-ci and vazhi build against.
+  # (../../../../nix/workspace-tree.nix), the same one remote-process-monitor
+  # and mini-ci build against.
   workspaceTree = import ../../../../nix/workspace-tree.nix { inherit pkgs src pnpmDeps; };
 
   fleetTopAgent = pkgs.runCommand "fleet-top-agent"

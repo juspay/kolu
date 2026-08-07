@@ -392,7 +392,7 @@ describe("the forward map", () => {
   });
 
   it("works when its methods are pulled off the object", async () => {
-    // vazhi hands `create` to a component as a bare function; nothing in the
+    // A consumer may hand `create` to a callback as a bare function; nothing in the
     // type says it needs its receiver, so nothing may.
     const fake = fakeMechanisms();
     const forwards = makeForwardManager({ ...fake, onLost: () => {} });

@@ -389,7 +389,7 @@ let
       runHook preInstall
 
       # Strip build-only packages and artifacts BEFORE copying to $out.
-      rm -rf packages/client/src packages/client/node_modules packages/vazhi
+      rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
       # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
       # SDK script at runtime.
@@ -400,7 +400,7 @@ let
              vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
              @babel* babel-plugin-* \
              concurrently@* rxjs@* happy-dom@* \
-             es-toolkit@* ink@* ink-text-input@* react-reconciler@* yoga-layout@* \
+             es-toolkit@* \
              es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
              @types+* type-fest@* csstype@* \
              core-js-compat@* regexpu-core@* regjsparser@* terser@*
@@ -952,18 +952,6 @@ let
     meta.mainProgram = "padi";
   };
 
-  # vazhi — the standalone port-forward TUI over `@kolu/port-forward` (Atlas:
-  # port-forwarding). Its derivation lives next to its source (it has its OWN
-  # flake.nix for a later move to its own repo, and that flake wants one
-  # definition, not a copy of this one); the root composer just threads the
-  # shared `src` + `pnpmDeps` in and re-exports it so `nix run .#vazhi` works
-  # from the repo root. It stays in THIS flake — unlike the examples, vazhi is
-  # a Kolu app, one of the two consumers `@kolu/port-forward` exists for.
-  # Unlike kaval-tui / padi-tui it does NOT wrap the full `kolu` build: vazhi
-  # imports one dependency-free library, so the vite bundle and the node-pty
-  # rebuild would be pure cost.
-  vazhi = import ./packages/vazhi { inherit pkgs src pnpmDeps; };
-
   # osfacts — scoped process/socket fact sampler (Atlas: os-facts-tool, OSF1).
   # The tool graduated to its own repo (juspay/osfacts) at OSF5; npins pins it
   # and its default.nix still takes `{ pkgs }`, so kolu builds the pinned source
@@ -972,5 +960,5 @@ let
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
 }

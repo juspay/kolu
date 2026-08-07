@@ -2,13 +2,13 @@
 #
 # kolu's own build (default.nix) additionally bundles the client with vite and
 # rebuilds node-pty with node-gyp. Everything else that just needs to RUN a
-# TypeScript entrypoint out of the workspace — the @kolu/surface examples, the
-# vazhi TUI — wants only this: install, copy, done. Skipping the bundle and the
-# native rebuild is the difference between a minute and several.
+# TypeScript entrypoint out of the workspace — the @kolu/surface examples —
+# wants only this: install, copy, done. Skipping the bundle and the native
+# rebuild is the difference between a minute and several.
 #
 # Inputs come from whichever composer is building — the independent
-# Surface-example flake, or Kolu's own default.nix for vazhi — and are the
-# canonical ones from nix/workspace.nix either way:
+# Surface-example flake — and are the canonical ones from nix/workspace.nix
+# either way:
 #   pkgs     — the per-system nixpkgs.
 #   src      — the workspace source fileset.
 #   pnpmDeps — the workspace pnpm fetch (~395 MB; one source of truth).

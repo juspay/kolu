@@ -27,7 +27,7 @@ import { assertTarget, type ForwardTarget, targetKey } from "./target.ts";
 /** A live forward, as callers see it.
  *
  *  `M` is whatever the consumer attached at `create` — see {@link Forward.meta}.
- *  It defaults to `undefined` for a consumer that attaches nothing (vazhi), so
+ *  It defaults to `undefined` for a consumer that attaches nothing, so
  *  `Forward` on its own still means what it always did. */
 export interface Forward<M = undefined> {
   /** `host:port` for a remote target, `local:port` for a loopback relay — the
@@ -369,9 +369,9 @@ export function makeForwardManager<M = undefined>(opts: {
   }
 
   /** Named, so the closing-slot branch can recurse WITHOUT `this`: these
-   *  methods are handed around as plain functions (vazhi passes `create` into a
-   *  component), and a receiver-dependent call would throw on that one rare
-   *  branch and nowhere else. */
+   *  methods are handed around as plain functions (a consumer can pass `create`
+   *  into a callback), and a receiver-dependent call would throw on that one
+   *  rare branch and nowhere else. */
   async function create(
     target: ForwardTarget,
     ...meta: MetaArg<M>

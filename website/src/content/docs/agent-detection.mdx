@@ -191,8 +191,13 @@ The context count is Codex's own `last_token_usage.input_tokens` — the number 
 ## Grok
 
 When the foreground process is `grok`, kolu prefers the entry in
-`~/.grok/active_sessions.json` whose pid matches the terminal; otherwise it takes
-the most recently updated session under `~/.grok/sessions/`. State comes from
+`~/.grok/active_sessions.json` whose pid matches the terminal; with no pid to go
+on it takes the most recently updated session under `~/.grok/sessions/`. That
+file is only ever used to **find** a session, never to decide one has ended —
+Grok rewrites the whole list from each session's own point of view, so a session
+starting or ending erases the entries of every other Grok running at that moment.
+Once a terminal is matched, only the process going away — or the terminal moving
+on to something else — ends the match. State comes from
 tailing that session's `events.jsonl` — `phase_changed` for thinking / tool use /
 awaiting you, `turn_ended` for waiting. An open `ask_user_question` promotes to
 _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "running
