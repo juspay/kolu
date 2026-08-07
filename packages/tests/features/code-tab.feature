@@ -901,6 +901,21 @@ Feature: Code tab (review + browse)
     And the file view toggle should be visible
     And the file preview iframe should not be visible
 
+  # Regression: .mdx was classified as plain text Source-only — no toggle, no
+  # document preview. MDX is Markdown + JSX; the Markdown half uses the same
+  # rendered appliance as .md (component tags are not executed).
+  Scenario: MDX files preview as Markdown, not Source-only
+    When I run "rm -rf /tmp/kolu-mdx-doc && git init /tmp/kolu-mdx-doc && cd /tmp/kolu-mdx-doc"
+    And I run "printf '# Hello MDX\n\nRendered mdx body.\n' > note.mdx"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    When I click the file "note.mdx" in the file browser
+    Then the markdown preview should be visible
+    And the markdown preview should contain "Hello MDX"
+    And the file view toggle should be visible
+    And the file preview iframe should not be visible
+
   # Regression: a >1 MB .md file is read back truncated (first 1 MB only). It
   # still defaults to the rendered view, so the rendered appliance must carry
   # the same "File truncated" banner the source view shows — otherwise a partial

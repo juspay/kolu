@@ -62,10 +62,12 @@ ssh hop too.
 
 ## Markdown and artifacts
 
-- **Markdown** renders as a reading document with a Source/Rendered toggle that
-  keeps both views alive (flipping is instant and holds your scroll position). A
-  `---` YAML front-matter block renders as a table; a footnote marker opens its
-  definition in a popover where your eye already is.
+- **Markdown** (`.md`, `.markdown`, and **`.mdx`**) renders as a reading
+  document with a Source/Rendered toggle that keeps both views alive (flipping
+  is instant and holds your scroll position). A `---` YAML front-matter block
+  renders as a table; a footnote marker opens its definition in a popover where
+  your eye already is. MDX is previewed as Markdown — component tags are not
+  executed.
 - Agent-generated **`.html`** and **`.svg`** artifacts preview inline in a
   sandboxed iframe; **`.pdf`** opens in the browser's native viewer; images and
   **video** render as themselves. Everything live-reloads on change, and an

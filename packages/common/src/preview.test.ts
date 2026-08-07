@@ -127,6 +127,9 @@ describe("isMarkdown", () => {
     expect(isMarkdown("README.md")).toBe(true);
     expect(isMarkdown("docs/Guide.MD")).toBe(true);
     expect(isMarkdown("notes.markdown")).toBe(true);
+    // MDX is Markdown + JSX — same reading preview as .md (not Source-only).
+    expect(isMarkdown("docs/atlas/note.mdx")).toBe(true);
+    expect(isMarkdown("page.MDX")).toBe(true);
   });
 
   it("excludes non-markdown text and binary-previewable files", () => {
