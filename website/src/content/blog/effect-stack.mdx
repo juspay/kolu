@@ -26,7 +26,7 @@ const boot = Effect.gen(function* () {
 
 That type is the whole bet, three ways:
 
-1. **One semantics.** Failure is the `E` channel, retry is a [`Schedule`](https://effect.website/docs/scheduling/introduction/), teardown is a [`Scope`](https://effect.website/docs/resource-management/scope/) — the same words at every level of the stack, where five libraries used to have five opinions and we wrote the glue.
+1. **One semantics.** Every networked program has three chores: things fail, failed things get retried, acquired things get cleaned up. Each of the five libraries did those its own way — zod threw, partysocket had a private reconnect loop, every server had its own shutdown hooks — and we wrote the glue between them. Now failure is the `E` in `Effect<A, E, R>`, a retry policy is a [`Schedule`](https://effect.website/docs/scheduling/introduction/) value, and cleanup is tied to a [`Scope`](https://effect.website/docs/resource-management/scope/). Same three words at every level of the stack.
 2. **Types with teeth.** Errors and dependencies live in the type and survive across the wire, so "this call can fail this way" is checked, not documented.
 3. **Agents write most of this code**, and Effect turns their nastiest failure mode — code that compiles and silently does nothing — into compile errors and CI scans.
 
