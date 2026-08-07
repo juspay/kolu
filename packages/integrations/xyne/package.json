@@ -19,7 +19,8 @@
     "anyagent": "workspace:*",
     "kolu-io": "workspace:*",
     "effect": "catalog:",
-    "kolu-shared": "workspace:*"
+    "kolu-shared": "workspace:*",
+    "kolu-transcript-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

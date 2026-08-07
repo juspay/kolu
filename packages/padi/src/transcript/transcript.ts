@@ -16,6 +16,7 @@ import { loadClaudeCodeTranscript } from "kolu-claude-code";
 import { loadCodexTranscript } from "kolu-codex";
 import { loadGrokTranscript } from "kolu-grok";
 import { loadOpenCodeTranscript } from "kolu-opencode";
+import { loadXyneTranscript } from "kolu-xyne";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { match } from "ts-pattern";
 import { TranscriptNoAgent, TranscriptNotFound } from "../errors.ts";
@@ -101,10 +102,17 @@ export async function exportTranscriptHtml(
         pr,
       }),
     )
-    // Xyne has no kolu transcript loader yet (its JSONL format is pi's, but
-    // the kolu-side loader is unwritten) — refuse honestly rather than emit
-    // a degraded export.
-    .with({ kind: "xyne" }, () => null)
+    .with({ kind: "xyne" }, (a) =>
+      loadXyneTranscript({
+        sessionId: a.sessionId,
+        title: a.summary,
+        repoName,
+        cwd,
+        model: a.model,
+        contextTokens: a.contextTokens,
+        pr,
+      }),
+    )
     .exhaustive();
   if (!transcript) {
     throw new TranscriptNotFound({

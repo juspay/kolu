@@ -650,6 +650,9 @@ importers:
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
+      kolu-transcript-core:
+        specifier: workspace:*
+        version: link:../../transcript-core
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
