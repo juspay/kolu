@@ -506,33 +506,6 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
     }),
   );
 
-<<<<<<< HEAD
-  await waitForSocket(kavalSocket, async (path) => {
-    const { unixSocketLink: link } = await import(
-      "@kolu/surface/links/unix-socket"
-    );
-    const conn = await link({ socketPath: path });
-    try {
-      await (
-        conn.client as {
-          surface: {
-            system: { heartbeat: (i: object) => Promise<unknown> };
-          };
-        }
-      ).surface.system.heartbeat({});
-    } finally {
-      await conn.dispose();
-    }
-  });
-
-  const oldPid = gatePid(kavalGate);
-  expect(oldPid).toBeTypeOf("number");
-  if (oldPid === undefined) throw new Error("previous kaval gate has no pid");
-  expect(isHolderLive(oldPid)).toBe(true);
-  // The current reader must yield the pid under the pid-first law (the #2011
-  // rollback/forward window): the pid is the FIRST tab-separated field, and a
-  // reader never depends on what follows. Assert the LAW, not one release's
-=======
   // Readiness WITHOUT speaking its protocol (D6): the socket accepts and the
   // gate names a live holder. Nothing else is knowable across the epoch.
   const oldPid = await waitForNeutralReadiness(
@@ -543,7 +516,6 @@ async function newReadsOld(window: ResolvedWindow): Promise<void> {
   // The current reader must yield the pid under the pid-first law (the #2011
   // rollback/forward window): the pid is the FIRST tab-separated field, and a
   // reader never depends on what follows. Assert the law, not one release's
->>>>>>> origin/master
   // exact bytes — v2.0.0 wrote a bare pid, v2.2.0 writes `pid\tstartUnixUs`,
   // and this harness tracks whatever the latest release tag is.
   const previousGateBody = readFileSync(kavalGate, "utf8").trim();
@@ -867,43 +839,6 @@ async function oldReadsNew(window: ResolvedWindow): Promise<void> {
       "previous padi",
       90_000,
     );
-<<<<<<< HEAD
-    // Contract version gates the previous padi's first-boot choice:
-    //  - 5.x previous (v2.0.0): majors skew (6.0/5.3), so rollback REPLACES
-    //    the current kaval with its companion 5.x — the post-boot gate pid
-    //    differs from the current daemon's.
-    //  - 6.x previous (v2.2.0+): N1 steady-state supervision ADOPTS a
-    //    compatible current kaval rather than replacing — the gate pid
-    //    stays the current daemon's.
-    // Either way the law the upgrade window guarantees is: the gate names a
-    // live kaval pid, and a previous-release supervisor remains functional.
-    const previousKavalPid = gatePid(kavalGate);
-    expect(previousKavalPid).toBeTypeOf("number");
-    if (previousKavalPid === undefined) {
-      throw new Error(
-        "previous padi's gate has no pid (5.x replacement or 6.x adoption both require one)",
-      );
-    }
-    expect(isHolderLive(previousKavalPid)).toBe(true);
-    if (previousKavalPid === currentKavalPid) {
-      // 6.x adoption arm — nothing replaced, so there's no "previous kaval"
-      // for the Manual-QA restart below to recycle. The adopt path IS the
-      // upgrade-window contract for this arm; short-circuit cleanly.
-      return;
-    }
-    // 5.x replacement arm: the current kaval must be dead. Pin it so a
-    // regression in the rollback REPLACE path fails here, not silently as
-    // a skip from the adoption arm above.
-    expect(isHolderLive(currentKavalPid)).toBe(false);
-
-    // A1-6 (5.x only): drive the PREVIOUS supervisor's Restart path (literal
-    // Manual QA "Restart kaval. Still works"). recycleKaval has been on
-    // padi's lifecycle surface since the previous release tag used here — if
-    // a future previous window drops it, this call fails loud and the
-    // comment documents why.
-    const prevPadi = await unixSocketLink<PadiDaemonContract>({
-      socketPath: padiSock,
-=======
 
     // (c) …and this build cannot speak to it. Bounded, because a peer from
     //     another epoch may answer with bytes we cannot parse OR not answer at
@@ -1042,7 +977,6 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
     const padiProbe = probeDaemonIdentity({
       capability: "drainable",
       drainCeilingMs: PADI_TAKEOVER_DRAIN_CEILING_MS,
->>>>>>> origin/master
     });
     const probed = await Effect.runPromise(padiProbe(home.socketPath)).then(
       (probe) => ({ kind: "resolved" as const, probe }),
@@ -1061,38 +995,6 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
       }`,
     );
 
-<<<<<<< HEAD
-      const recycleDeadline = Date.now() + 60_000;
-      let restartPid: number | undefined;
-      while (Date.now() < recycleDeadline) {
-        const p = gatePid(kavalGate);
-        if (p !== undefined && isHolderLive(p) && p !== previousKavalPid) {
-          restartPid = p;
-          break;
-        }
-        await sleep(200);
-      }
-      // (a) restart completed — a live replacement holds the gate
-      expect(
-        restartPid,
-        `previous padi recycleKaval did not replace kaval (still ${previousKavalPid})`,
-      ).toBeTypeOf("number");
-      if (restartPid === undefined) {
-        throw new Error(
-          "unreachable: restartPid typed after toBeTypeOf number",
-        );
-      }
-      // (b) SIGTERM went to the original observation (not a stranger)
-      expect(isHolderLive(previousKavalPid)).toBe(false);
-      // (c) post-restart gate is still pid-first-readable naming the live
-      // replacement. Assert the pid-first LAW (first field is always the
-      // pid), not a one-field body — a future previous release may write
-      // `pid\tstartUnixUs`.
-      const body = readFileSync(kavalGate, "utf8").trim();
-      expect(Number.parseInt(body.split("\t")[0] ?? "", 10)).toBe(restartPid);
-      expect(gatePid(kavalGate)).toBe(restartPid);
-      expect(isHolderLive(restartPid)).toBe(true);
-=======
     // 3) THE TAKEOVER — the binder's own values, over the framework's own verb.
     //
     // The OS-fact injects are the PRODUCTION ones (`bakedOsFactsBin` +
@@ -1220,7 +1122,6 @@ async function newTakesOverOldPadi(window: ResolvedWindow): Promise<void> {
         unknown,
         unknownSharedFileMessage(SHARED_ARTIFACTS, unknown),
       ).toEqual([]);
->>>>>>> origin/master
     } finally {
       conn.dispose();
       held?.dispose();
