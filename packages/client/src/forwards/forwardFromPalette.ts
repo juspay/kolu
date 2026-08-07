@@ -35,9 +35,9 @@ export type ForwardInput =
  *
  *  The TOKENIZING is `@kolu/port-forward`'s `splitHostPort` — the same one
  *  `parseTarget` runs, so "what a human types as host:port" has one reader and
- *  the last-colon rule is not restated here. What stays is kolu's POLICY, which
- *  genuinely differs from vazhi's: an unnamed host means the host you are looking
- *  at (which may be remote), and a named one must be in kolu's pool. */
+ *  the last-colon rule is not restated here. What stays is kolu's POLICY: an
+ *  unnamed host means the host you are looking at (which may be remote), and a
+ *  named one must be in kolu's pool. */
 export function parseForwardInput(
   raw: string,
   hosts: readonly HostKey[],

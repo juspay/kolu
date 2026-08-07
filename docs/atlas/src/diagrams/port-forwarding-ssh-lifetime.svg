@@ -45,5 +45,5 @@
   <text x="430" y="356" font-size="11.5" fill="#8a8574" text-anchor="middle">There is nothing to clean up and nothing that can be forgotten:</text>
   <text x="430" y="374" font-size="11.5" fill="#8a8574" text-anchor="middle">a door cannot outlive its owner, because the door IS the owner's open socket.</text>
 
-  <text x="430" y="412" font-size="10.5" fill="#b3a68a" text-anchor="middle">This is why quitting kolu never leaves ports mapped — the bug class vazhi's first draft had is unspellable here.</text>
+  <text x="430" y="412" font-size="10.5" fill="#b3a68a" text-anchor="middle">This is why quitting kolu never leaves ports mapped — a shared-master orphan is unspellable here.</text>
 </svg>

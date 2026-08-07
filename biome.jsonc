@@ -202,22 +202,6 @@
       }
     },
     {
-      // vazhi is the repo's ONE React tree (Ink), not SolidJS — every other UI
-      // package is Solid, which is why the Solid rules are on repo-wide.
-      // `useSolidForComponent` exists to stop `.map` from recreating DOM nodes
-      // in a Solid render; React's reconciler is keyed and this is the idiomatic
-      // React list. Scoped off for this package rather than contorting the
-      // component around a rule aimed at a different framework.
-      "includes": ["packages/vazhi/**"],
-      "linter": {
-        "rules": {
-          "performance": {
-            "useSolidForComponent": "off"
-          }
-        }
-      }
-    },
-    {
       // Test code uses idioms production code doesn't: async generators
       // that throw before yielding (error-path tests) and assign-in-expr
       // patterns (indexOf loops, Cucumber world-scratch fields).

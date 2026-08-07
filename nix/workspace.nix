@@ -104,7 +104,6 @@ let
     # this store path to `mkDaemonIdentity` as a `pinnedSources` entry
     # (juspay/kolu#2094) rather than dropping it.
     "osfacts-client" = sources.osfacts + "/client-ts";
-    "vazhi" = ../packages/vazhi;
     "kolu-server" = ../packages/server;
     "kolu-client" = ../packages/client;
     "kolu-transcript-core" = ../packages/transcript-core;
@@ -175,7 +174,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-gItoZPYOspuMCJltEAN4j3DhjCS+loDTe6QL+YTX7fM=";
+    hash = "sha256-wr2NWRh5BGgQx37FeEC+3JzcCDjUy4xppWjvErfP2c4=";
     fetcherVersion = 3;
   };
 in

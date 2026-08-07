@@ -98,5 +98,5 @@
   <rect x="420" y="492" width="14" height="14" rx="3" fill="#fbeadd" stroke="#c2611b"/>
   <text x="442" y="503" font-size="12" fill="#1a1c20">new in PRT2</text>
   <rect x="580" y="492" width="14" height="14" rx="3" fill="#efe9f8" stroke="#6d4fa3"/>
-  <text x="602" y="503" font-size="12" fill="#1a1c20">@kolu/port-forward mechanisms (shipped in PRT0, vazhi-proven)</text>
+  <text x="602" y="503" font-size="12" fill="#1a1c20">@kolu/port-forward mechanisms (shipped in PRT0)</text>
 </svg>

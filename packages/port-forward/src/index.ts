@@ -24,9 +24,9 @@
  *
  * The package has no runtime npm dependencies (node builtins only), but a
  * remote forward spawns `ssh`, so a consumer's packaging must put OpenSSH on
- * PATH. It is the shared capability under the standalone `vazhi` TUI today and
- * kolu's Inspector next (the Atlas note's PRT2), and neither app should have to
- * drag the other's world in to use it.
+ * PATH. It is the shared capability under kolu's Inspector (the Atlas note's
+ * PRT2), and any future consumer should not have to drag kolu's world in to use
+ * it.
  */
 
 import type { ForwardLoss, ForwardManager } from "./manager.ts";

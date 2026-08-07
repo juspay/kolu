@@ -1,10 +1,10 @@
 ---
-title: Port Forwarding — vazhi & Inspector Port Links
-description: A shared @kolu/port-forward library, the standalone vazhi TUI that proves it, and live openable port chips for every terminal in the Inspector — no new daemon.
+title: Port Forwarding — Library & Inspector Port Links
+description: A shared @kolu/port-forward library and live openable port chips for every terminal in the Inspector — no new daemon.
 parents: [feature]
 status: accepted
 maturity: seedling
-updated: 2026-07-27
+updated: 2026-08-07
 ---
 
 import Callout from "../../components/Callout.astro";
@@ -27,11 +27,6 @@ export const Mockup = () => (
       <div style="color:#5b6470">＋ Forward a port…</div>
     </div>
     <div style="padding:.4rem 1rem .7rem;border-top:1px solid #232834;font:.68rem/1.7 ui-monospace,monospace;color:#5b6470">FORWARDED PORTS<br/><span style="color:#a9b0be">⇄ pu-dev:5173 → :61000 · auto · ⨯&nbsp;&nbsp;&nbsp;⇄ zest:8080 → :61003 · manual · ⨯</span></div>
-    <div style="padding:.55rem 1rem .8rem;border-top:1px solid #232834;background:#0e1116;font:.72rem/1.8 ui-monospace,monospace">
-      <span style="color:#b79df0;font-weight:700">vazhi</span> <span style="color:#5b6470">— its own forwards, in its own terminal</span><br/>
-      <span style="color:#8b93a3">pu-dev:3000 → 0.0.0.0:61010&nbsp;&nbsp;up 12m</span><br/>
-      <span style="color:#5b6470"><b>a</b> add · <b>x</b> cancel · <b>q</b> quit</span>
-    </div>
   </div>
 );
 
@@ -66,9 +61,10 @@ process list with CPU% and memory. We drop processes from the plan entirely
 (KISS): CPU% is the most expensive part to build for the least payoff, and a
 name+pid list is decoration. The process-subtree walk survives only *inside*
 the scanner, as the mechanism that attributes a port to a terminal.</Footnote>
-It ships as a shared library — **`@kolu/port-forward`** — consumed by two
-independent apps in the drishti mold: kolu's Inspector, and **vazhi** (Tamil:
-*way, passage*), a standalone TUI in the spirit of opencode.
+It ships as a shared library — **`@kolu/port-forward`** — consumed by kolu's
+Inspector. PRT0 first proved the library with a standalone TUI (vazhi; since
+removed); that second consumer is what forced the extraction to stay free of
+kolu types.
 
 The plan is built for kolu's real deployment shape: the server runs on a
 headless Linux box (*pureintent*) while the browser runs elsewhere (*zest*, a
@@ -81,7 +77,7 @@ port is made to answer *there*, and the client builds URLs from
 <Svg
   svg={arch}
   wide
-  caption="Detection (green → blue): a 5-second scan in padi fills a new ports field on TerminalSnapshot, which rides the existing ssh surface mirror like every other terminal fact. Reachability (purple / orange): the kolu server embeds @kolu/port-forward, which makes any (host, port) answer on the kolu server host — an ssh -L tunnel for remote hosts, a plain TCP relay for kolu-host loopback — and the viewer's browser opens it via location.hostname. vazhi is the same library as a standalone TUI: no arrow connects it to kolu, by design."
+  caption="Detection (green → blue): a 5-second scan in padi fills a new ports field on TerminalSnapshot, which rides the existing ssh surface mirror like every other terminal fact. Reachability (purple / orange): the kolu server embeds @kolu/port-forward, which makes any (host, port) answer on the kolu server host — an ssh -L tunnel for remote hosts, a plain TCP relay for kolu-host loopback — and the viewer's browser opens it via location.hostname. The library package itself is mechanism-only: no kolu types cross its boundary."
 />
 
 ## How a click becomes a page — the three cases
@@ -162,10 +158,10 @@ Mechanism in the library, policy in the consumers.<Footnote>**Two shape question
 PRT2 was to settle, and both settled as NO CHANGE — recorded because "we looked
 and the second consumer wanted the same thing" is a different fact from "nobody
 got round to it".** (1) `list()` stays pull-only. The prediction was that a second
-consumer would want a subscription; kolu instead does exactly what vazhi does —
-re-read the map after every act — and it does so because the surface CELL it feeds
-is itself a re-read on a change edge. Two independent consumers converging on
-pull is evidence the pull shape is right, not that the subscription is overdue.
+consumer would want a subscription; kolu instead re-reads the map after every
+act — and it does so because the surface CELL it feeds is itself a re-read on a
+change edge. A second independent consumer converging on pull is evidence the
+pull shape is right, not that the subscription is overdue.
 (2) `create` still rejects with the mechanism's own message. The prediction was
 that the Inspector would branch on a `kind` (retry, pick another port, mark the
 host down); it branches on none of them, because the map ALREADY handles the only
@@ -177,14 +173,14 @@ speculative structure.<br /><br />**One thing DID change**, and it went the othe
 way — into the library rather than into a consumer: a target that comes back gets
 the local port it had before. That is what makes a link survive a dev-server
 restart, and it belongs to the MAP because it is bookkeeping the map already
-holds. Left to consumers, kolu and vazhi would each have kept the same table
-beside the same map and got its eviction rules subtly different.</Footnote>
+holds. Left to consumers, each would have kept the same table beside the same
+map and got its eviction rules subtly different.</Footnote>
 
-Two consumers, no runtime link between them — the drishti pattern proper
-(shared libraries, independent apps):
+One production consumer, the library still shaped as a shared capability
+(shared libraries, independent apps — the drishti pattern):
 
 - **kolu** embeds the library in the server process it already runs. Forward state is a cell on kolu's **existing** surface — no new socket, no IPC, no supervision. Kolu's forwards live and die with kolu's server, which is correct: reachability was tied to that process anyway.
-- **vazhi** is a standalone TUI (opencode-style — no CLI verbs, no serve mode) over the same library: a live table of its own forwards, add/cancel keybinds. Run it anywhere — including inside a kolu terminal, where kaval's persistence keeps it alive across browser reloads for free. Kolu never consults it; it exists to prove the library stands alone and to manage forwards when kolu isn't around. It gets its own `flake.nix` for later externalization into its own repo.<Footnote>Consequence of independence, stated: kolu and a running vazhi each own their *own* forwards and don't see each other's lists — they share nothing at all — not state, and (since each forward owns its own ssh connection) not connections either. Accepted for v1; a merged view would require the shared-daemon design this plan deliberately rejects.</Footnote>
+- **PRT0's standalone TUI** (vazhi) was the second consumer that proved the library stood alone; it is **removed** now that the Inspector is the only product surface for forwards. The library boundary stays: a future app can open the same doors without dragging kolu's world in.
 
 <Callout>
 **Security posture, stated:** a forward listener is unauthenticated raw TCP
@@ -357,10 +353,10 @@ ticks to the section.
 sensor module inside padi — a bounded one-shot scan with padi as its only
 consumer — and graduates only if it grows independent consumers or its own
 streaming volatility. `@kolu/port-forward` is the opposite case: ssh connection/forward
-lifecycle is a hard volatility with two genuinely independent apps on top
-(kolu and vazhi), which is exactly why it is a *library* package — the
-upstreamed "common stuff" of the drishti pattern — and why neither app is a
-daemon the other must talk to.
+lifecycle is a hard volatility that two genuinely independent apps (kolu and a
+standalone TUI) once sat on top of, which is exactly why it is a *library*
+package — the upstreamed "common stuff" of the drishti pattern — and why no
+app is a daemon the other must talk to.
 </Callout>
 
 ## Build plan — the PRT track
@@ -368,14 +364,14 @@ daemon the other must talk to.
 What each phase changes **for the user** — the sentence you'd put in a
 release note:
 
-- **PRT0** *(shipped, <PrLink pr={1975} />)* — you can forward ports by hand, today, kolu or no kolu: run `nix run …#vazhi` in any terminal (a kolu terminal keeps it alive across reloads), type `a host:4123`, and get a live table with a clickable `http://…` link; `q` reaps every forward, guaranteed. Kolu's own UI changes not at all.
+- **PRT0** *(shipped, <PrLink pr={1975} />)* — `@kolu/port-forward` lands as a runnable library, first proven by a standalone TUI (vazhi, later removed) that could open a forward on a real remote box with no kolu running. Kolu's own UI changes not at all in this phase.
 - **PRT1** *(shipped, <PrLink pr={1982} />)* — the Inspector answers "what is this terminal serving?": a live **Ports** section lists every listening port of the session within seconds of it appearing. No forwarding yet — but a port bound to `0.0.0.0` on the kolu server host needs none (it already answers on the name in your address bar), so those chips open in one click; loopback-bound and remote-host ports are listed but wait for PRT2.
 - **PRT2** *(shipped, <PrLink pr={1991} />)* — every port is one click from a page, wherever it lives: loopback and remote-host ports open via automatic forwards, one **Ports** list shows and cancels them (plus a manual ⌘K "Forward a port…"), and forwards clean themselves up when the server dies. This is the headline: *the agent started something → you're looking at it.*
 - **PRT3** *(design seeded)* — the page opens inside kolu instead of a browser tab.
 
 | id | ships | needs | proof |
 | --- | --- | --- | --- |
-| PRT0 ✅ | `@kolu/port-forward` library + vazhi TUI — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
+| PRT0 ✅ | `@kolu/port-forward` library (standalone TUI proof, since removed) — <PrLink pr={1975} /> | — | standalone forward on a real remote box, no kolu running |
 | PRT1 ✅ | padi port sensor · Ports section · direct open — <PrLink pr={1982} /> | — | e2e: spawned listener's chip appears + opens |
 | PRT2 ✅ | kolu embeds the library — <PrLink pr={1991} />: lazy forward · merged Ports UI · manual · auto-cancel | PRT0 + PRT1 | real remote box: chip → tunneled HTTP 200; kill the server → ports refuse |
 | PRT3 | embedded in-kolu preview | PRT2 | parked — <PrLink pr={2001} /> closed at the HTTPS-page × HTTP-door browser wall |
@@ -385,13 +381,14 @@ PRT0 shipped in <PrLink pr={1975} /> and PRT1 in <PrLink pr={1982} />;
 PRT2 shipped in <PrLink pr={1991} />; **PRT3 is parked** at a browser
 wall recorded in its section below; **PRT4 shipped** in <PrLink pr={2004} />.
 
-### PRT0 — the library, proven by vazhi (shipped: <PrLink pr={1975} />)
+### PRT0 — the library, proven standalone (shipped: <PrLink pr={1975} />)
 
-`packages/port-forward/` plus the vazhi TUI (`nix run .#vazhi`), proven
-standalone against a real remote box with **no kolu running**. Two structural
-facts remain load-bearing: vazhi imports only `@kolu/port-forward` — the
-proof that made PRT2's embed mechanical — and `kill -9` leaves no port
-answering, the property the per-forward connection exists to give.
+`packages/port-forward/`, first proven by a standalone TUI consumer against a
+real remote box with **no kolu running**. Two structural facts remain
+load-bearing: that consumer imported only `@kolu/port-forward` — the proof that
+made PRT2's embed mechanical — and `kill -9` leaves no port answering, the
+property the per-forward connection exists to give. The TUI itself is gone;
+the library and those proofs remain.
 
 ### PRT1 — detection + Ports section (shipped: <PrLink pr={1982} />)
 
@@ -414,11 +411,11 @@ the swap.</Footnote>
 What ships, at a glance — detail lives in the footnotes:
 
 - **Every chip opens.** Click → the embedded library opens a door → new tab at `http://${location.hostname}:<port>`. Lazy, first click only.<Footnote>Case-3 (wildcard on the kolu host) keeps opening directly with no door. Cases 1–2 call `create` and the chip gains a `⇄ :<localPort>` badge. Lazy because an agent session can hold six listening ports; eager VS-Code-style tunneling keeps doors open for ports nobody visits, and their knob matrix exists to walk that back.</Footnote>
-- **Two door mechanisms**, both shipped in PRT0 and vazhi-proven: an in-process TCP relay for the kolu host's own loopback ports, one dedicated `ssh -L` child per remote forward.<Footnote>The ssh child runs with `ControlPath=none` plus a hold-open remote command — it can neither ride nor create a shared master, so the forward's lifetime IS the child's lifetime. The shared-master design was measured and rejected in PRT0: `-O forward` listeners outlive their requester by the full ControlPersist window, and OpenSSH has no `-O list` to re-adopt them.</Footnote>
+- **Two door mechanisms**, both shipped in PRT0 and proven standalone: an in-process TCP relay for the kolu host's own loopback ports, one dedicated `ssh -L` child per remote forward.<Footnote>The ssh child runs with `ControlPath=none` plus a hold-open remote command — it can neither ride nor create a shared master, so the forward's lifetime IS the child's lifetime. The shared-master design was measured and rejected in PRT0: `-O forward` listeners outlive their requester by the full ControlPersist window, and OpenSSH has no `-O list` to re-adopt them.</Footnote>
 - **Same port when free**: `box:5173` answers at `:5173`, predictable and bookmarkable; the kernel picks only on collision — and a restarted listener gets its old local port back.<Footnote>The restart rule is one of two details adopted from VS Code's Ports view; the other is copy-address on every row. Both exist so links survive a dev-server restart.</Footnote>
 - **Forwards, three surfaces**: the Inspector's **single Ports list** (a forwarded port is one row, not a second entry in a second group), the same rows in the **host tab's dropdown**, and a **hairline teal ring on the host tab's connection dot** whenever that host has live forwards — glanceable from anywhere.<Footnote>Forwards are host-scoped facts, so the host popover is their natural home; the Inspector shows the same rows joined to what the active terminal serves, with host-scoped doors that match no scanned port trailing under "also forwarded on this host". A row carries `port · <the terminal serving it, as a link> · ⇄ :localPort · auto|pinned · ⧉ copy · ⨯ cancel`. The plan through PRT2's first cut said a **`⇄ n` badge** here; it was built, and cut — at tab scale a glyph is illegible mush, and the ring that replaced it is recorded above.</Footnote>
 - **⌘K: "Forward a port…"** — accepts `host:port`, for anything the scanner missed or outside any terminal's subtree.
-- **Doors close themselves.** Scanner sees the port die → `auto` forwards cancel; `manual` ones persist until cancelled or the host disconnects; kolu killed → the kernel closes everything, instantly.<Footnote>The kolu-level twin of vazhi's SIGKILL criterion, and it matters MORE here: the server restarts on every deploy. The old shared-master design would have orphaned every forward on each release while the restarted UI showed an empty list.</Footnote>
+- **Doors close themselves.** Scanner sees the port die → `auto` forwards cancel; `manual` ones persist until cancelled or the host disconnects; kolu killed → the kernel closes everything, instantly.<Footnote>The SIGKILL criterion from PRT0, and it matters MORE here: the server restarts on every deploy. The old shared-master design would have orphaned every forward on each release while the restarted UI showed an empty list.</Footnote>
 
 <Svg
   svg={prt2click}

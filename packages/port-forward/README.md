@@ -60,15 +60,12 @@ machine's interfaces — exactly the exposure of having started the dev server o
 
 The package has **no runtime npm dependencies** (node builtins only) and **one
 binary dependency**: a `remote` target spawns `ssh`, so every consumer's
-packaging must put OpenSSH on `PATH` — kolu's [`packages/vazhi/default.nix`](../vazhi/default.nix)
-does it with `--prefix PATH : ${pkgs.openssh}`. A `local` target needs nothing
-but node. Outside the toolchain the only dev dependency is
-`@kolu/daemon-test-gate`, the repo's real-process test leash, used by
-`lifetime.test.ts`. It has **two** consumers, which is
-what makes it a shared capability rather than one app's helper: the standalone
-[`vazhi`](../vazhi) TUI, and kolu's Inspector, which embeds the same library in
-its server process. They never talk to each other — each owns and lists only its
-own forwards, and since every forward carries its own ssh connection they do not
-even share those.
+packaging must put OpenSSH on `PATH` — kolu's server wrapper does it with
+`--prefix PATH : ${pkgs.openssh}`. A `local` target needs nothing but node.
+Outside the toolchain the only dev dependency is `@kolu/daemon-test-gate`, the
+repo's real-process test leash, used by `lifetime.test.ts`. Kolu's Inspector is
+the production consumer: it embeds the library in the server process. The
+library is still a shared capability (not one app's helper) so a future second
+consumer can open the same doors without dragging kolu's world in.
 
 See the Atlas note `port-forwarding` for the design.

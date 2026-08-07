@@ -41,7 +41,7 @@ application behavior.
 | 3 | Use the same Git 2.53 core via nixpkgs' minimal output | 964,649,168 | 883,921,464 | -80,727,704 (-8.4%) | Yes |
 | 4 | Keep only node-pty's runtime native module; remove node-gyp metadata | 883,921,464 | 760,435,216 | -123,486,248 (-14.0%) | Yes |
 | 5 | Remove remaining compiler, bundler, DOM-test, and dev-runner packages | 760,435,216 | 696,677,968 | -63,757,248 (-8.4%) | Yes |
-| 6 | Remove type-only packages and Vazhi-only Ink dependencies from Kolu's shared tree | 696,677,968 | 686,323,424 | -10,354,544 (-1.5%) | Yes |
+| 6 | Remove type-only packages and Ink dependencies (then only used by the since-removed vazhi TUI) from Kolu's shared tree | 696,677,968 | 686,323,424 | -10,354,544 (-1.5%) | Yes |
 | 7 | Advance nixpkgs to a Node-24.15 revision compatible with idli and x86_64-darwin; keep pnpm 10 | 686,314,112 | 696,462,408 | +10,148,296 (+1.5%) | Yes |
 
 ## Final Largest Paths
@@ -61,8 +61,7 @@ by several roots are counted once in the 664.2 MiB total.
 ## Verification
 
 - `just fmt`
-- Built `default`, `koluBin`, `kaval`, `padi`, `kaval-tui`, `padi-tui`, and
-  `vazhi`
+- Built `default`, `koluBin`, `kaval`, `padi`, `kaval-tui`, and `padi-tui`
 - Built the workspace typecheck derivation and evaluated `nix flake check
   --no-build`
 - Ran each shipped CLI far enough to load its packaged TypeScript dependency

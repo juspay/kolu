@@ -160,10 +160,10 @@ export function assertTarget(target: ForwardTarget): void {
  *
  *  `host` is `undefined` when the text names no machine at all (a bare `5173`)
  *  and `""` for the `:5173` spelling, because those are different inputs and the
- *  two apps disagree about them: vazhi rejects the first and reads the second as
- *  its local relay, kolu reads both as the host you are looking at. The same is
- *  true of the SENTENCE each shows a user, so a failure comes back as a reason
- *  rather than as prose and the caller writes the copy. */
+ *  library's own `parseTarget` rejects the first and reads the second as its
+ *  local relay, while kolu reads both as the host you are looking at. The same
+ *  is true of the SENTENCE each shows a user, so a failure comes back as a
+ *  reason rather than as prose and the caller writes the copy. */
 export type HostPortSplit =
   | { ok: true; host: string | undefined; port: number }
   | { ok: false; reason: "no-port" }
@@ -207,7 +207,7 @@ export function parseTarget(text: string): ForwardTarget {
   const split = splitHostPort(text);
   // A text with no colon at all names neither half — that is a different
   // mistake from `pu-dev:http`, and it gets its own sentence. A bare `5173`
-  // lands here too: vazhi's `:port` spelling is how a user says "this machine",
+  // lands here too: the `:port` spelling is how a user says "this machine",
   // and it is deliberately explicit, because a target is a (machine, port) pair
   // and half of one is not a target.
   if (!text.includes(":") || (split.ok && split.host === undefined)) {
