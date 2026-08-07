@@ -267,6 +267,33 @@ export function parseXyneSessionJsonl(content: string): TranscriptEvent[] {
  *  sensor already derived from the same file). This loader doesn't
  *  re-publish a stale snapshot.
  */
+/** Pull the freshest `usage.totalTokens` off the tail of the parsed lines.
+ *  Xyne stamps every assistant row; the badge's own deriveXyneInfo reads the
+ *  same value from the same file — one source of truth for "how full is the
+ *  window right now". */
+function latestTotalTokens(content: string): number | null {
+  for (const line of content.split("\n").reverse()) {
+    if (!line) continue;
+    let entry: XyneLine;
+    try {
+      entry = JSON.parse(line) as XyneLine;
+    } catch {
+      continue;
+    }
+    if (entry.type !== "message" || entry.message?.role !== "assistant")
+      continue;
+    const usage = entry.message.usage;
+    if (usage && typeof usage.totalTokens === "number") {
+      return usage.totalTokens;
+    }
+    // Missing usage on the newest assistant row is the "no telemetry yet"
+    // case — don't walk further back inventing an older snapshot as
+    // "current".
+    return null;
+  }
+  return null;
+}
+
 export const loadXyneTranscript: Fetcher = (input) => {
   if (!input.cwd) return null;
   const dir = path.join(SESSIONS_DIR, encodeCwd(input.cwd));
@@ -291,13 +318,18 @@ export const loadXyneTranscript: Fetcher = (input) => {
     throw err;
   }
   const transcript: Transcript = {
-    agentKind: "grok" as const, // see note below
+    agentKind: "xyne",
     sessionId: input.sessionId,
     title: input.title,
     repoName: input.repoName,
     cwd: input.cwd,
     model: input.model,
-    contextTokens: input.contextTokens,
+    // Token usage: Xyne stamps `message.usage` on every assistant row, so the
+    // freshest row's totalTokens is authoritative. The hint passed in is a
+    // fallback for a session whose newest row carries no telemetry (a
+    // compaction boundary, a corrupt line — cases the sensor itself reads
+    // as "no current total").
+    contextTokens: latestTotalTokens(raw) ?? input.contextTokens,
     pr: input.pr,
     exportedAt: Date.now(),
     events: parseXyneSessionJsonl(raw),

@@ -132,9 +132,10 @@ describe("eventsFromXyneLine", () => {
 
 describe("normalizeXyneToolInput", () => {
   it("maps bash onto the bash kind", () => {
-    expect(
-      normalizeXyneToolInput("bash", { command: "ls /tmp" }),
-    ).toEqual({ kind: "bash", command: "ls /tmp" });
+    expect(normalizeXyneToolInput("bash", { command: "ls /tmp" })).toEqual({
+      kind: "bash",
+      command: "ls /tmp",
+    });
   });
 
   it("maps ls onto a glob with a path hint", () => {
@@ -271,13 +272,74 @@ describe("loadXyneTranscript", () => {
       pr: null,
     });
     expect(transcript).not.toBeNull();
-    expect(transcript?.sessionId).toBe(
-      "019fca6a-b0ae-7204-a1bf-41913e5e6e5a",
-    );
+    expect(transcript?.sessionId).toBe("019fca6a-b0ae-7204-a1bf-41913e5e6e5a");
     expect(transcript?.events).toHaveLength(2);
     expect(transcript?.events[0]?.kind).toBe("user");
     expect(transcript?.events[1]?.kind).toBe("assistant");
-    expect(transcript?.events[1]?.kind === "assistant" &&
-      transcript?.events[1]?.model).toBe("kimi-k3");
+    expect(
+      transcript?.events[1]?.kind === "assistant" &&
+        transcript?.events[1]?.model,
+    ).toBe("kimi-k3");
+  });
+
+  it("surfaces the freshest assistant row's totalTokens as contextTokens", () => {
+    writeSession({
+      id: "019fca6a-b0ae-7204-a1bf-41913e5e6e5b",
+      cwd: "/home/me/kolu",
+      lines: [
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "first" }],
+            usage: { input: 100, output: 3, totalTokens: 103 },
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "second" }],
+            usage: { input: 900, output: 5, totalTokens: 905 },
+          },
+        }),
+      ],
+    });
+    const transcript = loadXyneTranscript({
+      sessionId: "019fca6a-b0ae-7204-a1bf-41913e5e6e5b",
+      title: null,
+      repoName: null,
+      cwd: "/home/me/kolu",
+      model: null,
+      contextTokens: 47100, // stale input — the on-disk tail must win
+      pr: null,
+    });
+    expect(transcript?.contextTokens).toBe(905);
+  });
+
+  it("falls back to the sensor's hint when the newest row has no usage", () => {
+    writeSession({
+      id: "019fca6a-b0ae-7204-a1bf-41913e5e6e5c",
+      cwd: "/home/me/kolu",
+      lines: [
+        JSON.stringify({
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "silent tail" }],
+          },
+        }),
+      ],
+    });
+    const transcript = loadXyneTranscript({
+      sessionId: "019fca6a-b0ae-7204-a1bf-41913e5e6e5c",
+      title: null,
+      repoName: null,
+      cwd: "/home/me/kolu",
+      model: null,
+      contextTokens: 47100,
+      pr: null,
+    });
+    expect(transcript?.contextTokens).toBe(47100);
   });
 });
