@@ -1,0 +1,120 @@
+---
+title: "The whole stack is Effect now"
+subtitle: "Five plumbing libraries out, one in — the wire, the schemas, the HTTP app, the daemons, the reactive engine. And the real reason: most of this code is written by agents, and Effect is the shape agents fail loudly in."
+description: "Kolu deleted zod, oRPC, partysocket, hono and @preact/signals-core and now runs end-to-end on Effect 4. What the stack looks like today — RpcGroups on the wire, schemas that carry their own types and errors, daemons booting through Layer graphs — and why a codebase written mostly by coding agents wants exactly this."
+pubDate: 2026-08-07
+author: "Sridhar Ratnakumar"
+---
+
+import PR from "../../components/PR.astro";
+
+Kolu's plumbing used to be five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
+
+This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is about the shape that came out the other side, and why we wanted it.
+
+<svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.103." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">five dependencies, one library</text>
+  <text x="120" y="64" fill="var(--color-ink-muted)" font-size="10.5" text-anchor="middle" font-family="monospace">gone from package.json</text>
+  <rect x="20" y="78" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="97" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">zod</text>
+  <line x1="224" y1="93" x2="392" y2="93" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,93 392,89 392,97" fill="var(--color-ink-dim)" />
+  <rect x="20" y="118" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="137" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">@orpc/*</text>
+  <line x1="224" y1="133" x2="392" y2="133" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,133 392,129 392,137" fill="var(--color-ink-dim)" />
+  <rect x="20" y="158" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="177" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">partysocket</text>
+  <line x1="224" y1="173" x2="392" y2="173" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,173 392,169 392,177" fill="var(--color-ink-dim)" />
+  <rect x="20" y="198" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="217" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">hono</text>
+  <line x1="224" y1="213" x2="392" y2="213" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,213 392,209 392,217" fill="var(--color-ink-dim)" />
+  <rect x="20" y="238" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="257" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">@preact/signals-core</text>
+  <line x1="224" y1="253" x2="392" y2="253" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,253 392,249 392,257" fill="var(--color-ink-dim)" />
+  <rect x="404" y="44" width="272" height="232" rx="6" fill="none" stroke="var(--color-kolu-primary)" stroke-width="1.4" />
+  <text x="540" y="64" fill="var(--color-kolu-primary)" font-size="11.5" font-weight="600" text-anchor="middle" font-family="monospace">effect@4.0.0-beta.103</text>
+  <line x1="420" y1="72" x2="660" y2="72" stroke="var(--color-rule)" stroke-width="1" />
+  <text x="540" y="97" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Schema</text>
+  <text x="540" y="137" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">unstable/rpc</text>
+  <text x="540" y="177" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Socket + Schedule</text>
+  <text x="540" y="217" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">unstable/http</text>
+  <text x="540" y="257" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Atom</text>
+</svg>
+
+## The wire
+
+The RPC contract is a flat, slash-tagged `RpcGroup` from `effect/unstable/rpc`, frames as ndjson over an Effect `Socket`:
+
+```ts
+// packages/common/src/contract.ts
+export const koluRootGroup = RpcGroup.make(
+  Rpc.make("server/info", { success: ServerInfoSchema }),
+  Rpc.make("daemon/restart"),
+  Rpc.make("hosts/add", { payload: HostRefSchema }),
+  Rpc.make("hosts/reconnect", { payload: HostRefSchema }),
+);
+
+export const contract = koluSurfaceGroup.merge(koluRootGroup);
+```
+
+The [surface framework](/blog/surface-framework) kept its five shapes — cell, collection, stream, event, procedure — and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the oRPC: the boundary held, and swapping the wire vendor never touched a domain module. Reconnect, partysocket's old job, is now a `Schedule` handed to the client protocol as a retry policy. One less library with its own opinions about time.
+
+## Schemas that carry their types, and their errors
+
+Every zod schema is Effect Schema, and the TypeScript type falls out of the schema instead of being maintained next to it:
+
+```ts
+// packages/common/src/hostKey.ts
+export const HostKeySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("remote"),
+    target: Schema.String.check(Schema.isMinLength(1)),
+  }),
+]);
+export type HostKey = typeof HostKeySchema.Type;
+```
+
+Errors are schemas too. A failure the caller can act on is a class that travels the wire and decodes on the far side as itself:
+
+```ts
+// packages/padi/src/errors.ts
+export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+  "padi/TerminalNotFound",
+)("TerminalNotFound", { id: Schema.String }) {
+  override get message(): string {
+    return `Terminal ${this.id} not found`;
+  }
+}
+```
+
+And the rule written in that file's header: if a failure means "the daemon is broken" rather than "you can handle this," it stays out of the type entirely — it's a defect, and defects crash loud. No error-code string soup, no `catch (e: unknown)`.
+
+One bound does a lot of quiet work: every wire schema is `Schema.Codec<T, unknown, never, never>` — the two `never`s say decoding can require no services and fail into no untyped channel. zod had no way to even state that.
+
+## Daemons on Layers
+
+padi's boot sequence is a dependency-ordered Layer graph — gate, then stores, then identity, then surfaces, then the endpoint:
+
+```ts
+// packages/padi/src/daemonBoot/daemonMain.ts
+const bootLayer = endpointLayer({ kavalHome, stateRoot, log }).pipe(
+  Layer.provideMerge(surfacesLayer({ stateRoot, onDrain, log })),
+  Layer.provideMerge(identityLayer(opts, home.socketPath, PADI_BOOT)),
+  Layer.provideMerge(storesLayer(stateRoot, log)),
+  Layer.provideMerge(gateLayer),
+);
+```
+
+Each phase's type names the phase it needs, so booting out of order is a compile error, not a 3am log line. Teardown rides `Effect.acquireRelease` inside the scope — the hand-written `try { ... } finally { await served.close() }` is gone. hono is gone the same way: the HTTP app is `HttpRouter` layers merged together, and since the router ranks routes by specificity instead of registration order, the old "register the preview route before the static catch-all or it silently loses" footgun died with it.
+
+## Why
+
+**One semantics.** Five libraries meant five ideas of failure, retry, cancellation and teardown, and the glue between them was ours to write and ours to get wrong. Now failure is the error channel, retry is `Schedule`, teardown is `Scope`, everywhere — 489 files under `packages/` import `effect`, and the glue code between vendors is just deleted.
+
+**Types with teeth.** zod tolerated a key that was present but `undefined`; Effect Schema refuses it. That one difference flushed out eight producer/schema mismatches we'd been shipping, two of them live in production paths. The bugs were ours all along. The strictness found them.
+
+**Agents write most of this code.** Here's the part nobody prints on the box. Kolu is built mostly by coding agents, and an agent's nastiest failure mode isn't a crash — it's code that compiles and silently does nothing. `await` on a function that now returns an `Effect` typechecks fine and never runs; that pattern bit us eleven times across kolu and its consumers before we closed it. Effect moves that class of wrong to where an agent actually sees it: into the compiler. And where types can't reach, scanners do — every `Effect.run*` edge in the tree is a named allowlist row (109 sites in 54 files at merge), and the await-an-Effect and build-but-never-run patterns are banned by CI checks that were themselves tested against the known dodges. A human reviewer skims. The compiler and the scanners don't.
+
+**The beta, then.** Sharp edges exist and we hit them. Effect RPC's default treats one handler's defect as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. `RpcGroup.merge` is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able `BETA-ASSUMPTION(beta.103)` marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
+
+One island remains: vazhi still renders its TUI with Ink, deliberately, because there's nothing orchestral about drawing frames. Everything else — the wire, the schemas, the HTTP app, both daemons, the reactive engine, the CLIs — is Effect, and 509/509 e2e scenarios rode it green the day it merged. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
