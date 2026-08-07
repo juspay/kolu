@@ -14,14 +14,37 @@ This isn't the migration war story — that diff was +78,690/−31,896 across 84
 
 ## Why Effect
 
-An [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/) is a value describing a computation that succeeds with `A`, fails with `E`, and needs an environment `R`. A Haskeller reads it as `ReaderT R (ExceptT E IO) A` — with structured concurrency, retry, and resource tracking built into the runtime instead of bolted on per-library. And `Effect.gen` is do-notation, spelled with generators:
+An [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/) is a value describing a computation that succeeds with `A`, fails with `E`, and needs an environment `R`. A Haskeller reads it as `ReaderT R (ExceptT E IO) A` — with structured concurrency, retry, and resource tracking built into the runtime instead of bolted on per-library. And `Effect.gen` is do-notation, spelled with generators. Here's the whole model as a hello world, no Kolu required:
 
 ```ts
-const boot = Effect.gen(function* () {
-  const stores = yield* PadiStores;    // ask the environment for a service
-  const term = yield* attach(id);     // may fail — typed: TerminalNotFound
-  return term;
+import { Context, Effect, Schedule, Schema } from "effect";
+
+class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>("UserNotFound")(
+  "UserNotFound",
+  { id: Schema.String },
+) {}
+
+class Users extends Context.Service<
+  Users,
+  { lookup: (id: string) => Effect.Effect<string, UserNotFound> }
+>()("Users") {}
+
+const hello = Effect.gen(function* () {
+  const users = yield* Users;              // R: ask the environment
+  const name = yield* users.lookup("42");  // E: may fail, and the type says how
+  return `hello, ${name}`;                 // A
 });
+// inferred: Effect<string, UserNotFound, Users> — nobody wrote that type
+```
+
+Nothing has run yet — `hello` is a description, an `IO` action you haven't handed to `main`. Running it is where the rest of the vocabulary shows up:
+
+```ts
+const main = hello.pipe(
+  Effect.retry(Schedule.spaced(1000)),  // the retry policy is a plain value
+  Effect.provide(usersLive),            // a Layer supplies the Users service
+);
+Effect.runPromise(main);                // the run edge — unsafePerformIO
 ```
 
 That type is the whole bet, three ways:
