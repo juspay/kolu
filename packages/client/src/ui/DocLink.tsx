@@ -28,6 +28,7 @@ export const DOC_SLUGS = [
   "mcp",
   "mobile",
   "notifications",
+  "operations",
   "padi",
   "philosophy",
   "power-features",
