@@ -33,3 +33,18 @@ Feature: Grok status detection
     When the Grok session state changes to "tool_use"
     Then the tile chrome should follow the Grok state change to "tool_use" without nudging
     And there should be no page errors
+
+  # The 2026-08-07 incident. Grok rewrites active_sessions.json wholesale from a
+  # process-local snapshot, so a CONCURRENT grok starting or exiting erases the
+  # rows of every other live grok — observed on disk as `[]` while a grok was
+  # mid-turn. padi read that as "the session ended", retired the session watcher,
+  # and — with the grok process still foreground — kept the last state forever:
+  # an agent that had finished its turn still read as working, and
+  # `padi-tui wait --until waiting` hung until its timeout.
+  Scenario: Tile chrome keeps following Grok after a concurrent grok clobbers active_sessions
+    When a Grok session is mocked with state "thinking"
+    Then the tile chrome should show a Grok indicator with state "thinking"
+    When a concurrent Grok clobbers the active_sessions map
+    And the Grok session state changes to "waiting"
+    Then the tile chrome should follow the Grok state change to "waiting" without nudging
+    And there should be no page errors
