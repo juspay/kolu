@@ -323,7 +323,14 @@ export function assertAppendOnly(
     const next = candidateById.get(record.revisionId);
     if (!next)
       throw new Error(`inventory record removed: ${record.revisionId}`);
-    if (stableJson(next) !== stableJson(record)) {
+    // firstSeenSha is historical metadata, not identity: appending a
+    // scenario against a later head re-stamps the sha for the CURRENT
+    // revision of the file even though every identity field (revisionId +
+    // bodyHash) is unchanged. Compare on the identity projection, not the
+    // bookkeeping projection — otherwise a merge-head re-render trips the
+    // mutation law.
+    const identity = (r: ScenarioRevision) => ({ ...r, firstSeenSha: "" });
+    if (stableJson(identity(next)) !== stableJson(identity(record))) {
       throw new Error(`inventory record mutated: ${record.revisionId}`);
     }
   }
