@@ -24,21 +24,24 @@
  * `stateStore.ts` makes when it says preferences never move here).
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 
 /** `inherit` — copy the host's active terminal's theme; `shuffle` — auto-pick a
  *  distinct tint from the given family. `mode` is already resolved: the
  *  preference's `"auto"` never appears here (kolu-server folds it against the
- *  viewer's OS mode before pushing), and `"random"` means the whole catalogue. */
-export const NewTerminalPolicySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("inherit") }),
-  z.object({
-    kind: z.literal("shuffle"),
-    mode: z.enum(["random", "dark", "light", "colourful"]),
+ *  viewer's OS mode before pushing), and `"random"` means the whole catalogue.
+ *
+ *  A `Schema.Union` of `Schema.Struct`s, never `Schema.TaggedUnion`: the
+ *  discriminant on this wire is `kind`, not `_tag`. */
+export const NewTerminalPolicySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("inherit") }),
+  Schema.Struct({
+    kind: Schema.Literal("shuffle"),
+    mode: Schema.Literals(["random", "dark", "light", "colourful"]),
   }),
 ]);
 
-export type NewTerminalPolicy = z.infer<typeof NewTerminalPolicySchema>;
+export type NewTerminalPolicy = typeof NewTerminalPolicySchema.Type;
 
 /** The value padi resolves against in the window between its boot and the
  *  binder's first push. It is the RESOLUTION of kolu's `DEFAULT_PREFERENCES`

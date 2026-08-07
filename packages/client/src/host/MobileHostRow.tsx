@@ -38,10 +38,12 @@ import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { activeHost, padiMap, setActiveHost } from "../wire";
+import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { chipStatusDot, hostGlance, hostHue, hostLabel } from "./hostChipTone";
+import { useHostKavalChain } from "./useHostKaval";
 import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
@@ -59,10 +61,14 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
   // never `===`: a `HostKey` is an object with no reference identity across
   // independent decodes.
   const isActive = createMemo(() => sameHost(activeHost(), props.host));
-  const glance = createMemo(() => hostGlance(state()));
+  // #2101 N4: the presented state composes the daemon chain (padi AND kaval).
+  const kaval = useHostKavalChain(props.host);
+  const glance = createMemo(() => hostGlance(state(), kaval()));
   const down = createMemo(() => glance().down);
   // Always-on connection status (green / amber / red).
-  const statusDot = createMemo(() => chipStatusDot(props.host, state()));
+  const statusDot = createMemo(() =>
+    chipStatusDot(props.host, state(), kaval()),
+  );
   // Both marks from the ONE store, bundled once (the host is fixed for this chip).
   const marks = hostMarks(encodeHostKey(props.host));
 
@@ -153,7 +159,9 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
   // `onMount` fires exactly once) — shared timing with the desktop popover.
   onMount(() => focusOnMount(inputEl));
 
-  const submit = (): void => addHost(draft(), props.onClose);
+  const submit = (): void => {
+    runAction("add host", addHost(draft(), props.onClose));
+  };
 
   return (
     <div

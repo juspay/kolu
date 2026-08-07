@@ -53,9 +53,9 @@
  *  they flip together within a single reactive tick. */
 
 import type { CodeTabView } from "@kolu/padi/surface";
+import { Effect } from "effect";
 import { scopedByEntry } from "@kolu/surface-map/client";
 import type { Subscription } from "@kolu/surface/solid";
-import { ORPCError } from "@orpc/client";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { buildTerminalFileUrl, isBinaryPreviewable } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
@@ -63,8 +63,19 @@ import type { GitDiffMode } from "kolu-git/schemas";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { windowedSub } from "../hostScope/windowedSub.ts";
+import {
+  FILE_GONE,
+  isDeclared,
+  WORKTREE_BASE_BRANCH_MISSING,
+} from "../rpc/declaredErrors";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { activeHost, activePadiRpc, activePadiStreams, padiMap } from "../wire";
+import {
+  activeHost,
+  activePadiRpc,
+  activePadiStreams,
+  padiRpcOf,
+  padiMap,
+} from "../wire";
 import { createPolledQuery, type PolledQueryConfig } from "./createPolledQuery";
 import { mergeBrowseInventory } from "./browseInventory";
 import type { CodeTabScope } from "./codeTabOpenController";
@@ -85,7 +96,9 @@ export type BrowseFileContent =
 /** A file listing stamped with the exact Code-tab owner that produced it. */
 export interface ScopedCodePaths {
   scope: CodeTabScope;
-  paths: string[];
+  /** `readonly`, because it IS the decoded wire array (Effect's `Schema.Array`
+   *  decodes to a readonly array) — carried through rather than copied. */
+  paths: readonly string[];
 }
 
 /** Build ONE host's retained Code-tab queries. `ctx.isActive` is this host's
@@ -139,22 +152,21 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "local" as const } : null;
     },
-    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
   // Always-on branch status — feeds the Branch badge/count, base/ref, and overlay.
-  // The un-fetched-base case (PRECONDITION_FAILED) is EXPECTED for this passive read
-  // and swallowed; any other failure toasts.
+  // The un-fetched-base case (`WorktreeBaseBranchMissing`) is EXPECTED for this
+  // passive read and swallowed; any other failure toasts.
   const branchStatus = repoQuery({
     input: () => {
       const p = shownRepoPath();
       return p ? { repoPath: p, mode: "branch" as const } : null;
     },
-    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => {
-      if (err instanceof ORPCError && err.code === "PRECONDITION_FAILED")
-        return;
+      if (isDeclared(err, WORKTREE_BASE_BRANCH_MISSING)) return;
       toast.error(`Git status stream: ${err.message}`);
     },
   });
@@ -168,7 +180,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       const m = codeDiffMode();
       return p && m ? { repoPath: p, mode: m } : null;
     },
-    query: (i, signal) => activePadiRpc.git.getStatus(i, { signal }),
+    query: (i) => activePadiRpc.git.getStatus(i),
     onError: (err) => toast.error(`Git status stream: ${err.message}`),
   });
 
@@ -190,21 +202,20 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   // The whole-repo file list.
   const allPaths = repoQuery({
     input: browseInput,
-    query: async (i, signal): Promise<ScopedCodePaths> => {
-      const result = await activePadiRpc.fs.listAll(
-        { repoPath: i.repoPath },
-        { signal },
-      );
-      return {
-        scope: {
-          host,
-          terminalId: i.terminalId,
-          repoRoot: i.repoPath,
-          mode: "browse",
-        },
-        paths: result.paths,
-      };
-    },
+    query: (i) =>
+      activePadiRpc.fs.listAll({ repoPath: i.repoPath }).pipe(
+        Effect.map(
+          (result): ScopedCodePaths => ({
+            scope: {
+              host,
+              terminalId: i.terminalId,
+              repoRoot: i.repoPath,
+              mode: "browse",
+            },
+            paths: result.paths,
+          }),
+        ),
+      ),
     onError: (err) => toast.error(`File list stream: ${err.message}`),
   });
 
@@ -217,21 +228,20 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
   // extra `git ls-files` spawn only while the user actually wants the overlay.
   const ignoredPaths = repoQuery({
     input: () => (showIgnoredFiles() ? browseInput() : null),
-    query: async (i, signal): Promise<ScopedCodePaths> => {
-      const result = await activePadiRpc.fs.listIgnored(
-        { repoPath: i.repoPath },
-        { signal },
-      );
-      return {
-        scope: {
-          host,
-          terminalId: i.terminalId,
-          repoRoot: i.repoPath,
-          mode: "browse",
-        },
-        paths: result.paths,
-      };
-    },
+    query: (i) =>
+      activePadiRpc.fs.listIgnored({ repoPath: i.repoPath }).pipe(
+        Effect.map(
+          (result): ScopedCodePaths => ({
+            scope: {
+              host,
+              terminalId: i.terminalId,
+              repoRoot: i.repoPath,
+              mode: "browse",
+            },
+            paths: result.paths,
+          }),
+        ),
+      ),
     onError: (err) => toast.error(`Ignored file list: ${err.message}`),
   });
 
@@ -247,7 +257,7 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
       if (!file) return null;
       return { repoPath: p, filePath: s, mode: m, oldPath: file.oldPath };
     },
-    query: (i, signal) => activePadiRpc.git.getDiff(i, { signal }),
+    query: (i) => activePadiRpc.git.getDiff(i),
     onError: (err) => toast.error(`Git diff stream: ${err.message}`),
   });
 
@@ -272,31 +282,39 @@ function buildHostCodeTab(host: HostKey, ctx: { isActive: () => boolean }) {
     },
     pulseProc: () => activePadiStreams.subscribeFileChange.unenrolled,
     pulseInput: (i) => ({ repoPath: i.repoPath, filePath: i.filePath }),
-    query: async (i, signal): Promise<BrowseFileContent> => {
-      if (isBinaryPreviewable(i.filePath)) {
-        const previewTag = await activePadiRpc.fs.filePreviewTag(
-          { repoPath: i.repoPath, filePath: i.filePath },
-          { signal },
-        );
-        return {
-          kind: "binary",
-          // Cache-bust by CONTENT hash, not mtime, and key the URL by the ACTIVE host's
-          // canonical string so the route reads bytes from the same padi the tag came
-          // from — a remote host's preview must not resolve against the local default.
-          url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
-        };
-      }
-      const { content, truncated } = await activePadiRpc.fs.readFile(
-        { repoPath: i.repoPath, filePath: i.filePath },
-        { signal },
-      );
-      return { kind: "text", content, truncated };
-    },
+    query: (i) =>
+      isBinaryPreviewable(i.filePath)
+        ? activePadiRpc.fs
+            .filePreviewTag({ repoPath: i.repoPath, filePath: i.filePath })
+            .pipe(
+              Effect.map(
+                (previewTag): BrowseFileContent => ({
+                  kind: "binary",
+                  // Cache-bust by CONTENT hash, not mtime, and key the URL by the ACTIVE
+                  // host's canonical string so the route reads bytes from the same padi
+                  // the tag came from — a remote host's preview must not resolve against
+                  // the local default.
+                  url: `${buildTerminalFileUrl(encodeHostKey(activeHost()), i.terminalId, i.filePath)}?v=${previewTag}`,
+                }),
+              ),
+            )
+        : activePadiRpc.fs
+            .readFile({ repoPath: i.repoPath, filePath: i.filePath })
+            .pipe(
+              Effect.map(
+                ({ content, truncated }): BrowseFileContent => ({
+                  kind: "text",
+                  content,
+                  truncated,
+                }),
+              ),
+            ),
     onError: (err) => toast.error(`File content stream: ${err.message}`),
-    // Delete-while-viewing parity: a file removed under the open Code tab returns a
-    // typed NOT_FOUND; swallow it (keep the last content until the selection changes),
-    // exactly as the old value stream did (it just stopped yielding).
-    swallowError: (err) => err instanceof ORPCError && err.code === "NOT_FOUND",
+    // Delete-while-viewing parity: a file removed under the open Code tab fails
+    // with padi's declared `FileGone`; swallow it (keep the last content until the
+    // selection changes), exactly as the old value stream did (it just stopped
+    // yielding).
+    swallowError: (err) => isDeclared(err, FILE_GONE),
   });
 
   return {
@@ -379,27 +397,43 @@ export const codeFileContent = windowedSub(
  * request. The request's captured host selects the padi procedures: an
  * in-flight confirmation must not follow the active-host projection when the
  * user switches hosts. Keep that read beside the retained query so both paths
- * use the same ignored-file partition. */
-export async function readFreshCodePaths(
+ * use the same ignored-file partition.
+ *
+ * No cancellation token: a padi procedure call carries none under Effect
+ * (D10/#18). Interrupting this effect's fiber IS the cancellation, and a
+ * superseded read is ALSO discarded by `codeTabOpenController`'s own `isCurrent`
+ * gate — both, deliberately: interruption is asynchronous, so a read already
+ * past its last suspension can still answer after the interrupt is requested,
+ * and the gate is what refuses that answer. */
+export function readFreshCodePaths(
   host: HostKey,
   repoPath: string,
   includeIgnored: boolean,
-  signal: AbortSignal,
-): Promise<string[]> {
-  const rpc = padiMap.entry(host).procedures;
-  const [tracked, ignored] = await Promise.all([
-    rpc.fs.listAll({ repoPath }, { signal }),
-    includeIgnored
-      ? rpc.fs.listIgnored({ repoPath }, { signal })
-      : Promise.resolve(undefined),
-  ]);
-  // No loaded levels: this read resolves a terminal link against the
-  // authoritative listing, and a lazily-expanded directory's contents are a
-  // VIEW concern — a path only reachable by hand-expanding an ignored folder is
-  // not something a `path:line` ref can name.
-  return mergeBrowseInventory(tracked.paths, ignored?.paths, undefined, {
-    trackedPending: false,
-    ignoredPending: false,
-    showIgnored: includeIgnored,
-  }).paths;
+): Effect.Effect<string[], unknown> {
+  const rpc = padiRpcOf(host);
+  return Effect.all(
+    [
+      rpc.fs.listAll({ repoPath }),
+      includeIgnored
+        ? rpc.fs.listIgnored({ repoPath })
+        : Effect.succeed(undefined),
+    ],
+    // The two listings are independent reads of the same repo — concurrent, as
+    // the `Promise.all` they replace was. A failure now INTERRUPTS the sibling
+    // rather than leaving it running into a rejection nobody reads.
+    { concurrency: 2 },
+  ).pipe(
+    Effect.map(
+      ([tracked, ignored]) =>
+        // No loaded levels: this read resolves a terminal link against the
+        // authoritative listing, and a lazily-expanded directory's contents are
+        // a VIEW concern — a path only reachable by hand-expanding an ignored
+        // folder is not something a `path:line` ref can name.
+        mergeBrowseInventory(tracked.paths, ignored?.paths, undefined, {
+          trackedPending: false,
+          ignoredPending: false,
+          showIgnored: includeIgnored,
+        }).paths,
+    ),
+  );
 }

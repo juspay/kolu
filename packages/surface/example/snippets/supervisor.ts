@@ -8,7 +8,13 @@
  * functions so nothing spawns at compile time.
  */
 
-import type { ContractRouterClient } from "@orpc/contract";
+import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+  type SurfaceFace,
+} from "@kolu/surface/client";
+import { composeSurfaceContracts } from "@kolu/surface/define";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
 import {
   type ConvergenceIdentity,
   controlCoreSurface,
@@ -17,7 +23,6 @@ import {
   readBakedIdentity,
   stderrLogger,
 } from "@kolu/surface-daemon";
-import { composeSurfaceContracts } from "@kolu/surface/define";
 import {
   converge,
   type ConvergencePolicy,
@@ -28,8 +33,8 @@ import {
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
-import { stdioLink } from "@kolu/surface/links/stdio";
-import { surface } from "./surface";
+import { Effect, Option, Stream } from "effect";
+import { type Load, surface } from "./surface";
 
 // Same home declaration the daemon uses — disagreement about gate/socket impossible.
 const home = daemonHome({ app: "fleet-top", placement: "state" });
@@ -50,54 +55,104 @@ function spawnEnvBase(): Record<string, string> {
   return env;
 }
 
-/** The contract-typed client the endpoint holds. */
-const daemonContract = composeSurfaceContracts({
+/** The two siblings the daemon serves, composed into ONE flat group: every
+ *  member at `surface/<key>/<member>/<verb>`. The dialled face is built from the
+ *  SAME composition, so client and server cannot disagree about a tag. */
+const daemonSurfaces = composeSurfaceContracts({
   app: surface,
   control: controlCoreSurface,
 });
-type TopClient = ContractRouterClient<typeof daemonContract>;
+/** The client the endpoint holds — the structural member face. There is no
+ *  contract type to be generic over; per-member precision lives in the
+ *  spec-derived bound hooks a Solid consumer builds. */
+type TopClient = SurfaceFace;
 /** What "identity" means for this daemon — enough to prove the link answered. */
 interface TopIdentity {
   loadOne: number;
 }
 
-async function firstFrame<T>(
-  src: AsyncIterable<T> | Promise<AsyncIterable<T>>,
-): Promise<T> {
-  for await (const frame of await src) return frame;
-  throw new Error("stream closed before its snapshot frame");
+/** A snapshot-then-deltas member opens with its snapshot, so `runHead` IS the
+ *  one-shot read — and it interrupts the subscription as soon as it lands. */
+function snapshot<T>(
+  stream: Stream.Stream<T, unknown>,
+  what: string,
+): Effect.Effect<T, Error> {
+  return Stream.runHead(stream).pipe(
+    // The endpoint's `connect` declares `Error`, so an upstream failure of any
+    // shape is normalised here rather than widening the contract.
+    Effect.mapError((cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+    ),
+    Effect.flatMap((head) =>
+      Option.isNone(head)
+        ? Effect.fail(
+            new Error(`${what}: stream closed before its snapshot frame`),
+          )
+        : Effect.succeed(head.value),
+    ),
+  );
 }
 
 // `connect` is the supervisor's soul: dial the socket, prove the link answers by
-// reading a first frame, and stamp the identity the endpoint reports.
-async function connectTop(
+// reading a first frame, and stamp the identity the endpoint reports. It is an
+// EFFECT: the endpoint composes it into its own fibers, so a boot the supervisor
+// gives up on tears the half-made connection down instead of abandoning it.
+function connectTop(
   socketPath: string,
-): Promise<DaemonConnection<TopClient, TopIdentity>> {
-  const socket = await dialSocket(socketPath);
-  const client: TopClient = stdioLink<typeof daemonContract>({
-    read: socket,
-    write: socket,
+): Effect.Effect<DaemonConnection<TopClient, TopIdentity>, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocket(socketPath);
+    // A connected unix socket IS a Duplex, and the framing is the same ndjson
+    // `serveOverUnixSocket` serves — so this link carries it verbatim.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract, so it is
+    // LIFTED here rather than run. It takes no readiness proof (unlike
+    // `stdioLink`, the subprocess/ssh leg): a LOCAL unix rendezvous is the
+    // residual that constructor documents — the supervisor converges the daemon
+    // before anything dials it.
+    const link = yield* Effect.promise(() =>
+      socketDuplexLink({
+        group: daemonSurfaces.group,
+        socket,
+        describe: `unix socket ${socketPath}`,
+      }),
+    );
+    // The `app` SIBLING's own face: the sibling `Surface` value already carries
+    // the `surface/app/` tag prefix, so the face never learns it is scoped.
+    const client = buildSurfaceFace(daemonSurfaces.siblings.app, link.dispatch);
+    const load = yield* snapshot(
+      (client.surface.load?.get as StreamingProcedure<undefined, Load>)(
+        undefined,
+      ),
+      "app.load",
+    );
+    const closeCbs: Array<() => void> = [];
+    let closed = false;
+    socket.once("close", () => {
+      closed = true;
+      for (const cb of closeCbs) cb();
+    });
+    return {
+      client,
+      identity: { loadOne: load.one },
+      startedAt: Date.now(),
+      // Release the LINK's scope first (it holds the protocol's fibers), then
+      // drop the socket — dropping the socket alone would leak them.
+      dispose: () => {
+        void link.dispose().finally(() => socket.destroy());
+      },
+      onClose: (cb) => (closed ? cb() : closeCbs.push(cb)),
+    };
   });
-  const load = await firstFrame(client.surface.app.load.get({}));
-  const closeCbs: Array<() => void> = [];
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
-    for (const cb of closeCbs) cb();
-  });
-  return {
-    client,
-    identity: { loadOne: load.one },
-    startedAt: Date.now(),
-    dispose: () => socket.destroy(),
-    onClose: (cb) => (closed ? cb() : closeCbs.push(cb)),
-  };
 }
 
-export async function bootSupervisor(
-  readProcessIdentity: import("@kolu/surface-daemon").ReadProcessIdentity,
+// Both OS-fact injects are Effects — `processIdentityAsync(bin)` and
+// `osfactsSocketHolders(bin)` from `osfacts-client`, bound to ONE resolved
+// binary path. The daemon half's SYNC `ReadProcessIdentity` is a different
+// inject for a different job (the gate claim); it does not fit here.
+export function bootSupervisor(
+  readProcessIdentity: import("@kolu/surface-daemon-supervisor").ReadProcessIdentityAsync,
   readSocketHolders: import("@kolu/surface-daemon-supervisor").ReadSocketHolders,
-): Promise<void> {
+): Effect.Effect<void, unknown> {
   // #region endpoint
   const policy: ConvergencePolicy<"not-drainable"> = {
     capability: "not-drainable",
@@ -132,17 +187,19 @@ export async function bootSupervisor(
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
   });
 
-  // #region converge
-  // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
-  const outcome = await converge(endpoint);
-  // #endregion converge
-  process.stderr.write(`converge outcome: ${outcome.kind}\n`);
+  return Effect.gen(function* () {
+    // #region converge
+    // The only boot verb — policy (who I am + how I converge) is fixed on the endpoint.
+    const outcome = yield* converge(endpoint);
+    // #endregion converge
+    process.stderr.write(`converge outcome: ${outcome.kind}\n`);
 
-  // The live recycle: deliberate replace under a connected client.
-  await recycle(endpoint, {
-    capture: async () => undefined,
-    drain: async () => {},
-    reattach: async () => {},
+    // The live recycle: deliberate replace under a connected client.
+    yield* recycle(endpoint, {
+      capture: Effect.succeed(undefined),
+      drain: () => Effect.void,
+      reattach: () => Effect.void,
+    });
   });
   // #endregion endpoint
 }

@@ -1,5 +1,5 @@
 /**
- * mini-ci — a CI-runner TUI over oRPC stdio.
+ * mini-ci — a CI-runner TUI over an Effect RPC stdio link.
  *
  * Connects to the runner via `@kolu/surface-remote` (provision and root the
  * runner through Nix, then run it over ssh; localhost runs it directly) and
@@ -15,6 +15,10 @@
  * scripting / CI: `--headless` streams transitions, `--json` prints the final
  * state and exits non-zero on failure.
  *
+ * Every member call is a `Stream` or a `Promise` off `./members` — including the
+ * teardown story: detaching a log is interrupting its fiber, which unwinds the
+ * wire subscription. There is no `AbortController` anywhere in this file.
+ *
  * Note on detach: kolu-tui's Phase-2 ssh-style `~`-escape exists because that
  * client is a *raw VT passthrough* where every byte must reach the inner
  * program. mini-ci's dashboard renders *structured state* and owns the
@@ -22,8 +26,10 @@
  */
 
 import { parseArgs as nodeParseArgs } from "node:util";
-import type { NodeLogFrame, NodesSnapshot } from "../common/surface";
-import { type Connection, connect, type RunnerClient } from "./connect";
+import { Effect, Stream } from "effect";
+import type { NodesSnapshot } from "../common/surface";
+import { type Connection, connect } from "./connect";
+import { nodeLogStream, nodesStream, rerunNode, runStream } from "./members";
 import {
   applyLogFrame,
   defaultAttachId,
@@ -59,24 +65,31 @@ function parseArgs(argv: string[]): Args {
   };
 }
 
-/** Iterate the `nodes` cell until the pipeline settles, calling `onState` for
- *  every yield. Flips the session to `connected` on the first frame (the
- *  session watchdog reaps the link otherwise). */
+/** Follow the `nodes` cell until the pipeline settles, calling `onState` for
+ *  every frame. `takeUntil` ends the stream on the settling frame — which
+ *  finalizes the subscription, so there is nothing left to unsubscribe. Flips
+ *  the session to `connected` on the first frame (the session watchdog reaps the
+ *  link otherwise). */
 async function pumpUntilDone(
   conn: Connection,
   onState: (state: NodesSnapshot) => void,
 ): Promise<NodesSnapshot> {
   let last: NodesSnapshot | undefined;
   let first = true;
-  for await (const state of await conn.client.surface.nodes.get({})) {
-    if (first) {
-      first = false;
-      conn.session.markConnected();
-    }
-    last = state;
-    onState(state);
-    if (summarize(state).done) break;
-  }
+  await Effect.runPromise(
+    Stream.runForEach(
+      Stream.takeUntil(nodesStream(conn.client), (s) => summarize(s).done),
+      (state) =>
+        Effect.sync(() => {
+          if (first) {
+            first = false;
+            conn.session.markConnected();
+          }
+          last = state;
+          onState(state);
+        }),
+    ),
+  );
   if (last === undefined) {
     throw new Error("mini-ci: runner closed before any state");
   }
@@ -121,7 +134,7 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   // actually subscribes (it short-circuits when id === attachedId).
   let attachedId: string | undefined;
   let log = "";
-  // The current log subscription's teardown — `attachedId` is navigation
+  // The current log subscription's stopper — `attachedId` is navigation
   // state (render, keyboard nav, rerun), so only the subscription *lifecycle*
   // lives in one handle here.
   let detachLog: (() => void) | undefined;
@@ -139,34 +152,51 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
     if (id === undefined || id === attachedId) return;
     attachedId = id;
     log = "";
+    // Stopping the previous subscription interrupts its fiber, which unwinds
+    // the wire subscription — and after the stopper runs it reports nothing,
+    // so a late frame can never contaminate the newly attached node's log.
     detachLog?.();
-    detachLog = attachLog(client, id, (frame) => {
-      log = applyLogFrame(log, frame);
-      repaint();
+    detachLog = runStream(nodeLogStream(client, id), {
+      onFrame: (frame) => {
+        log = applyLogFrame(log, frame);
+        repaint();
+      },
+      // Surface a broken log stream in the log pane instead of freezing it.
+      onFailure: (err) => {
+        log = applyLogFrame(log, {
+          kind: "append",
+          text: `\n[mini-ci] log stream error: ${err.message}\n`,
+        });
+        repaint();
+      },
     });
     repaint();
   };
 
   // State pump — keeps the table live and seeds the initial attachment.
   let first = true;
-  const stateDone = (async (): Promise<void> => {
-    for await (const next of await client.surface.nodes.get({})) {
-      if (first) {
-        first = false;
-        conn.session.markConnected();
-        // Seed the attachment once: honour --attach if it names a real node,
-        // else the default. attachedId is undefined here, so attach()
-        // subscribes rather than short-circuiting on `id === attachedId`.
-        const initial =
-          args.attach !== undefined && next.nodes[args.attach] !== undefined
-            ? args.attach
-            : defaultAttachId(next);
-        attach(initial);
-      }
-      state = next;
-      repaint();
-    }
-  })();
+  const stateDone = new Promise<void>((resolveDone, rejectDone) => {
+    runStream(nodesStream(client), {
+      onFrame: (next) => {
+        if (first) {
+          first = false;
+          conn.session.markConnected();
+          // Seed the attachment once: honour --attach if it names a real node,
+          // else the default. attachedId is undefined here, so attach()
+          // subscribes rather than short-circuiting on `id === attachedId`.
+          const initial =
+            args.attach !== undefined && next.nodes[args.attach] !== undefined
+              ? args.attach
+              : defaultAttachId(next);
+          attach(initial);
+        }
+        state = next;
+        repaint();
+      },
+      onEnd: resolveDone,
+      onFailure: rejectDone,
+    });
+  });
 
   const quit = (code: number): void => {
     detachLog?.();
@@ -182,7 +212,7 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
   process.stdin.on("data", (key: string) => {
     if (key === "q" || key === "\x03" || key === "\x04") return quit(0);
     if (key === "r" && attachedId !== undefined) {
-      void client.surface.node.rerun({ id: attachedId });
+      Effect.runFork(Effect.ignore(rerunNode(client, attachedId)));
       return;
     }
     if (state === undefined) return;
@@ -202,43 +232,6 @@ async function runInteractive(conn: Connection, args: Args): Promise<void> {
 
   await stateDone;
   quit(state !== undefined && summarize(state).failedOverall ? 1 : 0);
-}
-
-/** Subscribe to a node's log; returns a `detach()` that aborts the
- *  subscription. Owns the AbortController so the caller holds one teardown
- *  handle, not a controller it has to remember to abort. */
-function attachLog(
-  client: RunnerClient,
-  id: string,
-  onFrame: (frame: NodeLogFrame) => void,
-): () => void {
-  const controller = new AbortController();
-  void pumpLog(client, id, controller.signal, onFrame);
-  return () => controller.abort();
-}
-
-async function pumpLog(
-  client: RunnerClient,
-  id: string,
-  signal: AbortSignal,
-  onFrame: (frame: NodeLogFrame) => void,
-): Promise<void> {
-  try {
-    for await (const frame of await client.surface.nodeLog.get(
-      { id },
-      { signal },
-    )) {
-      onFrame(frame);
-    }
-  } catch (err) {
-    // An abort (attach-switch or quit) is the expected path; surface anything
-    // else in the log pane instead of silently freezing it.
-    if (signal.aborted) return;
-    onFrame({
-      kind: "append",
-      text: `\n[mini-ci] log stream error: ${(err as Error).message}\n`,
-    });
-  }
 }
 
 async function main(): Promise<void> {

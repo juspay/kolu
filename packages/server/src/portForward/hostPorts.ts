@@ -14,11 +14,8 @@
 
 import type { Logger } from "@kolu/log";
 import { activePadiTerminal } from "@kolu/padi/surface";
-import type { CollectionFace } from "@kolu/surface/collection-face";
-import {
-  firstFrameOfCollectionItem,
-  firstFrameOrUndefined,
-} from "@kolu/surface/first-frame";
+import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
+import { Effect, Option, Stream } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { type PortFamily, preferredFamily } from "kolu-common/surface";
 
@@ -54,11 +51,22 @@ export type HostPorts =
     }
   | { readonly status: "unknown" };
 
-/** A host's `terminals` collection, as this reader uses it — the framework's own
- *  loose face rather than a private structural copy of it. Hand-shaping one here
- *  meant forcing the real client through `as unknown as` at the boot site, a
- *  cast that would have survived `@kolu/surface` renaming `keys`. */
-export type TerminalsFace = CollectionFace;
+/** A host's `terminals` collection, as this reader uses it — its two READ verbs in
+ *  the shape the spec-derived client face mints them: a LAZY `Stream`, returned
+ *  synchronously, with no options bag and no `AbortSignal` (D10/#18 — cancellation
+ *  is fiber interruption). `@kolu/surface`'s `CollectionFace` (the pre-Effect loose
+ *  face) no longer describes any client, so this reader states the two verbs it
+ *  actually calls.
+ *
+ *  METHODS, not function-typed properties, and deliberately: method parameters are
+ *  bivariant, so a precisely-typed collection (`padiSurface`'s `terminals`, keyed
+ *  by terminal id) narrows to this face by ordinary assignment. Written as
+ *  properties they would be contravariant and the boot site would be back to a
+ *  cast — the same reasoning the retired `CollectionFace` carried. */
+export interface TerminalsFace {
+  keys(input: undefined): Stream.Stream<readonly unknown[]>;
+  get(input: { key: unknown }): Stream.Stream<unknown>;
+}
 
 /** The ports currently listening on `host`, as its port scanner sees them — the
  *  evidence the auto-cancel rule needs, and the ONLY thing that may close an
@@ -96,42 +104,51 @@ export function makeHostPortsReader(deps: {
   ): Promise<HostPorts> {
     const terminals = deps.terminalsOf(host);
     if (terminals === null) return { status: "unknown" };
-    const ctl = new AbortController();
     try {
-      const keys = await firstFrameOrUndefined(
-        await terminals.keys({}, { signal: ctl.signal }),
+      // ONE `Effect.run*` edge for the whole reading (PLAN D10/#25): the reactor's
+      // poll dep is `() => Promise<T>` and the reactor is deliberately non-Effect,
+      // so the boundary is crossed once, here, with every subscription this read
+      // opens inside the same fiber tree — a failure or an early return interrupts
+      // them all through their own finalizers, which is what the chained
+      // `AbortController` that used to wrap each stream did by hand.
+      const reading = await Effect.runPromise(
+        Effect.gen(function* () {
+          const keys = yield* Stream.runHead(terminals.keys(undefined));
+          if (Option.isNone(keys)) return null;
+          // All at once, because the reads are independent and each is already
+          // bounded on its own. In sequence, a host with N terminals whose mirror
+          // has gone quiet costs N × the deadline — and the whole point of the
+          // deadline is the case where it is actually reached.
+          //
+          // BOUNDED, and it has to be. A collection `get` for a key that is not a
+          // member is a HELD-OPEN subscription that yields nothing and never ends
+          // (#1681) — and the key list above is a snapshot, so a pane closed or a
+          // PTY exited in the gap leaves us asking for a key that is already gone.
+          // A bare first-frame read there never resolves, which does not merely
+          // lose a sample: this runs inside a reactor poll cell, so the in-flight
+          // latch stays held and the `forwards` cell stops recomputing for the
+          // life of the process — every door frozen, none reaped, nothing logged.
+          // `firstFrameOfCollectionItem` is the framework's reader for exactly
+          // this, racing the item's first frame against MEMBERSHIP.
+          const frames = yield* Effect.all(
+            keys.value.map((id) =>
+              firstFrameOfCollectionItem(
+                terminals.get({ key: id }),
+                terminals.keys(undefined),
+                id,
+                `terminal ${String(id)} yielded no frame`,
+                deadlineMs,
+              ),
+            ),
+            { concurrency: "unbounded" },
+          );
+          return frames;
+        }),
       );
-      if (keys === undefined) return { status: "unknown" };
+      if (reading === null) return { status: "unknown" };
       const ports = new Map<number, PortFamily>();
       let sawAnything = false;
-      // All at once, because the reads are independent and each is already
-      // bounded on its own. In sequence, a host with N terminals whose mirror
-      // has gone quiet costs N × the deadline — and the whole point of the
-      // deadline is the case where it is actually reached.
-      //
-      // BOUNDED, and it has to be. A collection `get` for a key that is not a
-      // member is a HELD-OPEN subscription that yields nothing and never ends
-      // (#1681) — and the key list above is a snapshot, so a pane closed or a
-      // PTY exited in the gap leaves us asking for a key that is already gone.
-      // A bare first-frame read there never resolves, which does not merely
-      // lose a sample: this runs inside a reactor poll cell, so the in-flight
-      // latch stays held and the `forwards` cell stops recomputing for the
-      // life of the process — every door frozen, none reaped, nothing logged.
-      // `firstFrameOfCollectionItem` is the framework's reader for exactly
-      // this, racing the item's first frame against MEMBERSHIP.
-      const frames = await Promise.all(
-        keys.map((id) =>
-          firstFrameOfCollectionItem(
-            (signal) => terminals.get({ key: id }, { signal }),
-            (signal) => terminals.keys({}, { signal }),
-            id,
-            `terminal ${String(id)} yielded no frame`,
-            `terminal ${String(id)} has no record stream`,
-            deadlineMs,
-            ctl.signal,
-          ),
-        ),
-      );
+      const frames = reading;
       // The fold stays SERIAL over the frames, in the key order above, because
       // `preferredFamily` is order-independent but the union must be a function
       // of the set rather than of which read happened to land first.
@@ -190,8 +207,6 @@ export function makeHostPortsReader(deps: {
         "host port read failed",
       );
       return { status: "unknown" };
-    } finally {
-      ctl.abort();
     }
   };
 }

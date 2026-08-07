@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createRoot, createSignal } from "solid-js";
@@ -22,8 +23,9 @@ vi.mock("../../wire", async () => {
     padiMap: mockPadiMap,
     activeHost: () => bag.activeHost(),
     groundedActiveHost: mockGroundedActiveHost(() => bag.activeHost()),
+    padiRpcOf: () => ({ chrome: { setActive: () => Effect.void } }),
     activePadiRpc: {
-      chrome: { setSubPanel: async () => {} },
+      chrome: { setSubPanel: () => Effect.void },
     },
   };
 });

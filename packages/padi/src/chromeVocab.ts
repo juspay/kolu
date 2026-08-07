@@ -10,29 +10,29 @@
  *
  * Surfaced through the SAME entry as the rest of the vocabulary: `surface.ts`
  * re-exports this module beside `./vocab.ts`, so `@kolu/padi/surface` carries the
- * identical export set it always did. BROWSER-SAFE (zod only, no `node:` imports)
- * so the client imports it via `@kolu/padi/surface`.
+ * identical export set it always did. BROWSER-SAFE (Effect Schema only, no
+ * `node:` imports) so the client imports it via `@kolu/padi/surface`.
  */
 
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
-export const CanvasLayoutSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  w: z.number(),
-  h: z.number(),
+export const CanvasLayoutSchema = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  w: Schema.Number,
+  h: Schema.Number,
 });
 
-export const SubPanelStateSchema = z.object({
-  collapsed: z.boolean(),
-  panelSize: z.number(),
+export const SubPanelStateSchema = Schema.Struct({
+  collapsed: Schema.Boolean,
+  panelSize: Schema.Number,
 });
 
 /** Sub-view of the Code tab: local/branch diff modes or the file browser. */
-export const CodeTabViewSchema = z.enum(["local", "branch", "browse"]);
+export const CodeTabViewSchema = Schema.Literals(["local", "branch", "browse"]);
 
 /** Which tab is currently displayed in the right panel. */
-export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
+export const RightPanelTabKindSchema = Schema.Literals(["inspector", "code"]);
 
 /** Per-terminal right-panel state — whether the panel is showing, which
  *  tab is open, which sub-mode the Code tab is in, and which file the user
@@ -56,32 +56,37 @@ export const RightPanelTabKindSchema = z.enum(["inspector", "code"]);
  *  on `activeTab` / `codeMode` separately leaks the storage shape across the DU
  *  seam and defeats the "codeMode survives Inspector toggle" invariant.
  *
- *  `collapsed` carries a schema `.default(false)` so a `rightPanel` record
- *  persisted before this field existed (only `activeTab`/`codeMode`) parses
- *  back as open — the shipped runtime default — with no migration. */
-export const RightPanelPerTerminalStateSchema = z.object({
+ *  `collapsed` carries a schema decoding default (`false`) so a `rightPanel`
+ *  record persisted before this field existed (only `activeTab`/`codeMode`)
+ *  parses back as open — the shipped runtime default — with no migration.
+ *  KEY-level (`withDecodingDefaultKey`, PLAN #17): a MISSING key backfills, an
+ *  explicit `undefined` is REJECTED, which is what a disk/wire field means. The
+ *  decoded value always carries the key, so the encoded JSON is byte-identical
+ *  to what zod's `.default(false)` emitted. */
+export const RightPanelPerTerminalStateSchema = Schema.Struct({
   /** Whether the panel is collapsed (hidden) for THIS terminal. Moved off the
    *  global preference so each terminal remembers whether its panel was open. */
-  collapsed: z.boolean().default(false),
+  collapsed: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
+  ),
   activeTab: RightPanelTabKindSchema,
   codeMode: CodeTabViewSchema,
   /** Repo-relative file paths keyed by Code-tab sub-mode. Absence of a
    *  key means "no selection" for that mode. */
-  selectedFileByMode: z
-    .object({
-      local: z.string().optional(),
-      branch: z.string().optional(),
-      browse: z.string().optional(),
-    })
-    .optional(),
+  selectedFileByMode: Schema.optionalKey(
+    Schema.Struct({
+      local: Schema.optionalKey(Schema.String),
+      branch: Schema.optionalKey(Schema.String),
+      browse: Schema.optionalKey(Schema.String),
+    }),
+  ),
 });
 
-export type CanvasLayout = z.infer<typeof CanvasLayoutSchema>;
-export type CodeTabView = z.infer<typeof CodeTabViewSchema>;
-export type RightPanelTabKind = z.infer<typeof RightPanelTabKindSchema>;
-export type RightPanelPerTerminalState = z.infer<
-  typeof RightPanelPerTerminalStateSchema
->;
+export type CanvasLayout = typeof CanvasLayoutSchema.Type;
+export type CodeTabView = typeof CodeTabViewSchema.Type;
+export type RightPanelTabKind = typeof RightPanelTabKindSchema.Type;
+export type RightPanelPerTerminalState =
+  typeof RightPanelPerTerminalStateSchema.Type;
 
 /** Discriminated-union view of the right panel's active tab. Derived from the
  *  flat `activeTab` + `codeMode` storage shape — see `rightPanelView()`. Use
@@ -117,9 +122,7 @@ export const CODE_TAB_VIEW_ORDER = ["browse", "local", "branch"] as const;
 /** Default per-terminal right-panel state — seeded into the in-memory
  *  store when a terminal has no `rightPanel` record yet (fresh terminals,
  *  or terminals from a session predating this schema). */
-export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: z.infer<
-  typeof RightPanelPerTerminalStateSchema
-> = {
+export const DEFAULT_RIGHT_PANEL_PER_TERMINAL: RightPanelPerTerminalState = {
   collapsed: false,
   activeTab: "code",
   codeMode: "browse",

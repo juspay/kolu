@@ -3,15 +3,18 @@
 /**
  * `ResourcePusher` lifecycle — driven generically with a fake client that
  * emits frames on demand. Pins the spine's contract: a frame fires a
- * (debounced) `notify`; unsubscribe tears the attachment down; aborting a
- * stream produces no unhandled rejection; subscribe-before-live retries.
+ * (debounced) `notify`; unsubscribe tears the attachment down; an interrupted
+ * subscription reports nothing; subscribe-before-live retries; and — new under
+ * Effect — a detach really INTERRUPTS the per-URI subscription fibers rather
+ * than leaving them running behind a disposed client.
  */
 
+import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResourcePusher } from "./pusher";
 
 /** A fake streamable source the test drives: `push` emits a frame to a live
- *  consumer; `end` completes it; abort ends it too. */
+ *  consumer; `end` completes it; ending the subscription ends it too. */
 function makeSource() {
   let pushFrame: ((v: unknown) => void) | null = null;
   let finish: (() => void) | null = null;
@@ -49,7 +52,7 @@ function makeSource() {
     },
   };
   return {
-    iterable,
+    stream: Stream.fromAsyncIterable(iterable, (e) => e),
     push: (v: unknown) => pushFrame?.(v),
     end: () => finish?.(),
     isLive: () => live,
@@ -81,12 +84,12 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: (uri) => notified.push(uri),
       client: () => ({ id: 1 }),
-      stream: () => source.iterable,
+      stream: () => source.stream,
       debounceMs: 50,
     });
 
     pusher.subscribe(URI);
-    // Let the attach + stream-open microtasks settle.
+    // Let the attach + stream-open work settle.
     await vi.advanceTimersByTimeAsync(0);
     expect(pusher.attached).toBe(true);
 
@@ -105,7 +108,7 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       client: () => ({ id: 1 }),
-      stream: () => source.iterable,
+      stream: () => source.stream,
     });
 
     pusher.subscribe(URI);
@@ -122,7 +125,7 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       client: () => ({ id: 7 }),
-      stream: () => source.iterable,
+      stream: () => source.stream,
       dispose: (c) => disposed.push(c),
     });
 
@@ -132,24 +135,63 @@ describe("ResourcePusher", () => {
     expect(disposed).toEqual([{ id: 7 }]);
   });
 
-  it("aborting a single-URI unsubscribe produces no unhandled rejection", async () => {
+  it("an interrupted subscription reports nothing and reschedules nothing", async () => {
+    // The Effect successor of "aborting a single-URI unsubscribe produces no
+    // unhandled rejection": teardown is a fiber interrupt, and an interrupt is
+    // never a failure — so nothing reaches `onError`, nothing re-attaches, and no
+    // rejection escapes.
+    const errors: unknown[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       client: () => ({ id: 1 }),
-      // The stream rejects when its signal aborts — the pusher must swallow it.
-      stream: (_client, _uri, signal) =>
-        new Promise<AsyncIterable<unknown>>((_resolve, reject) => {
-          signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        }),
+      // A subscription that would run forever if nobody interrupted it.
+      stream: () => Stream.never,
+      onError: (e) => errors.push(e),
+      retryMs: 10,
     });
 
     pusher.subscribe(URI);
     await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+
     pusher.unsubscribe(URI);
-    await vi.advanceTimersByTimeAsync(0);
-    // Let any swallowed rejection surface.
+    await vi.advanceTimersByTimeAsync(50);
+    expect(errors).toEqual([]);
+    expect(pusher.attached).toBe(false);
     await Promise.resolve();
     expect(unhandled).toEqual([]);
+  });
+
+  it("a detach INTERRUPTS every live subscription fiber (no orphaned subscription)", async () => {
+    // The behaviour this port deliberately changes. The oRPC-era detach left the
+    // per-stream controllers alone and relied on disposing the CLIENT to tear
+    // every stream with it — which the in-process `directDispatch` case cannot do
+    // (there is no socket to close), so a `stop()` would have leaked one live
+    // handler subscription per URI for the life of the process. Under Effect the
+    // subscription's lifetime IS its fiber's, so the detach interrupts them and
+    // each stream's own finalizers run.
+    let released = 0;
+    const pusher = new ResourcePusher<{ id: number }>({
+      notify: () => {},
+      client: () => ({ id: 1 }),
+      stream: () =>
+        Stream.ensuring(
+          Stream.never,
+          Effect.sync(() => {
+            released += 1;
+          }),
+        ),
+    });
+
+    pusher.subscribe(URI);
+    pusher.subscribe("surface://cells/other");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pusher.attached).toBe(true);
+    expect(released).toBe(0);
+
+    pusher.stop();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(released).toBe(2);
   });
 
   it("retries when the source isn't live yet, then attaches", async () => {
@@ -159,7 +201,7 @@ describe("ResourcePusher", () => {
       notify: () => {},
       // Returns null until `live` flips — subscribe-before-serve.
       client: () => (live ? { id: 1 } : null),
-      stream: () => source.iterable,
+      stream: () => source.stream,
       retryMs: 100,
     });
 
@@ -202,7 +244,7 @@ describe("ResourcePusher", () => {
         if (dials === 1) return Promise.reject(new Error("ECONNREFUSED"));
         return { id: 1 };
       },
-      stream: () => source.iterable,
+      stream: () => source.stream,
       onError: (e) => errors.push(e),
       retryMs: 100,
     });
@@ -229,12 +271,12 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       client: () => ({ id: 1 }),
-      // The client is live (attach succeeds), but opening the stream fails the
+      // The client is live (attach succeeds), but the subscription fails the
       // first time — a pre-first-frame error the attach retry does NOT cover.
       stream: () => {
         opens += 1;
-        if (opens === 1) return Promise.reject(new Error("stream open failed"));
-        return source.iterable;
+        if (opens === 1) return Stream.fail(new Error("stream open failed"));
+        return source.stream;
       },
       onError: (e) => errors.push(e),
       retryMs: 100,
@@ -242,7 +284,7 @@ describe("ResourcePusher", () => {
 
     pusher.subscribe(URI);
     await vi.advanceTimersByTimeAsync(0);
-    // The attach succeeded but the stream open failed → detached, retry armed.
+    // The attach succeeded but the stream failed → detached, retry armed.
     expect(errors).toHaveLength(1);
     expect(pusher.attached).toBe(false);
 
@@ -265,7 +307,7 @@ describe("ResourcePusher", () => {
         new Promise<{ id: number }>((resolve) => {
           resolveDial = resolve;
         }),
-      stream: () => source.iterable,
+      stream: () => source.stream,
       dispose: (c) => disposed.push(c),
     });
 

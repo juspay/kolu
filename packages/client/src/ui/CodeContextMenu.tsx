@@ -6,6 +6,9 @@
  *  Items are computed from a `getItems` accessor that reads the current
  *  line selection — items can return null to omit themselves. */
 
+import { runAction } from "../runAction";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { type Component, createSignal, For, onCleanup, Show } from "solid-js";
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
@@ -88,14 +91,21 @@ export const CodeContextMenu: Component<{
 
   const handleItem = (item: CodeContextMenuItem) => {
     match(item)
-      .with({ kind: "copy" }, async ({ textToCopy }) => {
-        try {
-          await writeTextToClipboard(textToCopy);
-          toast.success(`Copied: ${textToCopy}`);
-        } catch (err) {
-          console.error("Failed to copy:", err);
-          toast.error(`Failed to copy: ${(err as Error).message}`);
-        }
+      .with({ kind: "copy" }, ({ textToCopy }) => {
+        runAction(
+          "copy",
+          writeTextToClipboard(textToCopy).pipe(
+            Effect.tap(() =>
+              Effect.sync(() => toast.success(`Copied: ${textToCopy}`)),
+            ),
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                console.error("Failed to copy:", err);
+                toast.error(`Failed to copy: ${toError(err).message}`);
+              }),
+            ),
+          ),
+        );
       })
       .with({ kind: "action" }, ({ onActivate }) => onActivate())
       .exhaustive();

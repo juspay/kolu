@@ -18,11 +18,11 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.0-beta.103",
     "@kolu/log": "workspace:*",
     "@kolu/surface": "workspace:*",
-    "@orpc/server": "^1.13.13",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "effect": "4.0.0-beta.103",
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",

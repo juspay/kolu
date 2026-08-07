@@ -1,19 +1,29 @@
 /**
- * One PartySocket connection feeding `surfaceClient` + module-level
+ * One reconnecting websocket wire feeding `surfaceClient` + module-level
  * `.use(...)` calls for the app's singleton reactive subscriptions.
  *
  * `app` is the SCOPED kolu surface client (`clients.kolu`) — only kolu's own
- * surface bundle, not the full link. It exposes:
+ * surface bundle, not the whole wire. It exposes:
  *   - `app.cells / .collections / .streams / .events` — bound `.use(policy)`
  *     hooks (drop `source` / `mutate` / `valueSource` / `keyToInput`)
- *   - `app.rpc` — the scoped link slice (`{ surface: link.surface.kolu }`);
+ *   - `app.rpc` — kolu's scoped member FACE (tags `surface/kolu/<member>/<verb>`);
  *     surface-managed procedures resolve through it.
  *
- * The only raw oRPC procedures left at the ROOT of the full combined link
- * (exported as `client`) are `server` + `daemon` — `client.server.info(...)`,
- * `client.daemon.restart(...)`. The root `terminal.*` / `git.*` namespaces were
- * DELETED at W1.R7; terminal/git mutations now go through
- * `activePadiRpc.*` (padiSurface procedures). None of these are on `app.rpc`.
+ * The raw procedures at the ROOT of the wire (`server/info`, `daemon/restart`,
+ * the five `hosts/*` verbs) are not surface members, so they get their typed
+ * face from `./rpc/rootProcedures` — exported here as `client`, read
+ * `client.server.info(...)` / `client.hosts.add(...)` exactly as before. The
+ * root `terminal.*` / `git.*` namespaces were DELETED at W1.R7; terminal/git
+ * mutations now go through `activePadiRpc.*` (padiSurface procedures).
+ *
+ * TOP-LEVEL AWAIT: `connectSurfaces` is async under Effect (the dial is an
+ * effect — surface-app break 1), and every export below is derived from the
+ * connection it returns. Awaiting it HERE, once, keeps every consumer's import
+ * synchronous-looking: an importer of this module simply evaluates after the
+ * wire exists, instead of each of the ~40 call sites learning that `padiMap`
+ * might not be there yet. The dial itself does not block on the socket OPENING
+ * (the link constructs the socket and retries in its own fiber), so this is a
+ * microtask, not a network wait.
  *
  * The `preferences` accessor below collapses what used to be a hand-rolled
  * `usePreferences` module into a module-level subscription — every consumer reads
@@ -23,9 +33,14 @@
  * `preferences` below); they are no longer defined in this module.
  */
 
+import type { UnaryEffect } from "@kolu/surface/client";
+import type { WatchableWire } from "@kolu/surface/link";
+import type { WireDiagnostics } from "@kolu/surface/links/websocket";
+import type { SurfaceClient, SurfaceFace } from "@kolu/surface/solid";
 import { connectSurfaces } from "@kolu/surface-app/solid";
 import { connectSurfaceMap } from "@kolu/surface-map/client";
-import type { contract } from "kolu-common/contract";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { koluRootGroup } from "kolu-common/contract";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -37,14 +52,15 @@ import {
   type Preferences,
   type PreferencesPatch,
   surfaces,
+  type ViewerMode,
 } from "kolu-common/surface";
 import {
   type ConnectionInfo,
   type HostKey,
   LOCAL_HOST,
+  type padiEntrySurface,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import type { WebSocket as PartySocket } from "partysocket";
 import {
   type Accessor,
   createEffect,
@@ -52,12 +68,16 @@ import {
   createRoot,
   createSignal,
 } from "solid-js";
+import { Effect } from "effect";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
+import { rootProcedures } from "./rpc/rootProcedures.ts";
+import { runAction } from "./runAction.ts";
+import { recordProbeSettled } from "./wireProbes.ts";
 
 const { protocol, host } = window.location;
 const wsBaseUrl = `${protocol === "https:" ? "wss:" : "ws:"}//${host}/rpc/ws`;
@@ -128,63 +148,104 @@ export function interpretClientError(
 }
 
 // `connectSurfaces` is the receptacle for "multiple sibling surfaces over one
-// reconnecting socket with the half-open watchdog wired in." kolu plugs into it
+// reconnecting wire with the half-open watchdog wired in." kolu plugs into it
 // like drishti does, instead of re-assembling `createSurfaceSocket` →
-// `createLiveSignal` → `surfaceClients` by hand: it owns the socket + the `pid`
+// `createLiveSignal` → `surfaceClients` by hand: it owns the wire + the `pid`
 // echo (which threads the last-observed server `processId` back as a query param on
 // every (re)connect, so a stale tab reconnecting to a RESTARTED server is recognized
-// at the handshake), the always-on half-open watchdog (probing `system.live` over
-// the first sibling's slice of the combined link it builds — the probe channel is
-// provably the reconnected channel), and the per-sibling clients. We pass the
-// combined `typeof contract` so `conn.link` is fully typed.
+// at the handshake), the always-on half-open watchdog (probing `system/live` at the
+// first sibling's TAG on the very dispatch it reconnects — the probe channel is
+// provably the reconnected channel), and the per-sibling clients. It derives the
+// combined `RpcGroup` from `surfaces` itself, so no contract is passed.
 //
-// No `retireOnStaleClose`/`restartCloseCode` here — kolu's lifecycle (`rpc.ts`)
-// owns this socket and retires it through `onStaleRestart`. The watchdog lives HERE
-// (one socket, one watchdog), which is why `rpc.ts`'s `createServerLifecycle` runs
-// with `heartbeat: false`. `siblingKey` is auto-picked (`Object.keys(surfaces)[0]`)
-// — every sibling answers `system.live`, so the choice is immaterial.
+// No `restartCloseCode` here — the stale-close vocabulary now lives in the LINK
+// (surface-app hands it `isStaleProcessClose`), which stops its own retry schedule
+// and reports the terminal `WireStatus` `"retired"`; there is no consumer action
+// left to hand out, so `rpc.ts` no longer retires the socket by hand either. The
+// watchdog lives HERE (one wire, one watchdog), which is why `rpc.ts`'s
+// `createServerLifecycle` runs with `heartbeat: false`. `siblingKey` is auto-picked
+// (`Object.keys(surfaces)[0]`) — every sibling answers `system/live`, so the choice
+// is immaterial.
 //
-// Both type args are explicit (`<combined contract, surfaces map>`): TypeScript has
-// no partial inference, so once `C` is given for the typed `conn.link`, `E` must be
-// given too or it would fall back to its loose default and untype `conn.clients`.
-//
-// `C` and `E` are INDEPENDENT: `conn.clients` types off `E`, `conn.link` off `C`.
 // kolu feeds the padi-LESS sibling set (`surfaces` = { kolu, surfaceApp }) — padi is no
 // longer a single sibling but a keyed MAP of remote surfaces (`padiMap` below), dialled
-// over a SCOPED slice of `conn.link`. `kolu` stays the first sibling (the watchdog's
-// `system.live` probe channel).
-const conn = connectSurfaces<typeof contract, typeof surfaces>({
+// over a SCOPED slice of `conn.transport`. `kolu` stays the first sibling (the
+// watchdog's `system/live` probe channel).
+const conn = await connectSurfaces({
   surfaces,
   url: wsBaseUrl,
+  // The two tag namespaces kolu multiplexes on this ONE wire but does NOT reach
+  // through `clients.<key>`: the padi HOST MAP (dialled below via
+  // `connectSurfaceMap(padiHostMap, conn.transport)`) and kolu's hand-written ROOT
+  // procedures (reached via `rootProcedures(conn.transport.dispatch)`). Under Effect
+  // RPC the flat client resolves a call's payload/success SCHEMAS by looking its tag
+  // up in the group the wire was built over, so a tag absent from that group cannot
+  // be dispatched at all — the wire would connect and then fail every `surface/padi/*`
+  // and `hosts/*` call. This is the client twin of kolu-server's `servedGroup`
+  // (`server/src/surface.ts`), assembled from the same two sources.
+  //
+  // The one cast is kolu-server's, verbatim (`server/src/surface.ts`): `RpcGroup` is
+  // INVARIANT in its element union, so the hand-written, precisely-typed
+  // `koluRootGroup` is not assignable to the erased `RpcGroup<Rpc.Any>` every transport
+  // seam takes — even though every element IS an `Rpc.Any`. The two framework-assembled
+  // groups beside it are born erased and need none.
+  extraGroups: [
+    koluRootGroup as unknown as RpcGroup.RpcGroup<Rpc.Any>,
+    padiHostMap.group,
+  ],
   // The root app cells (koluSurface / surfaceApp) declare origin-FREE `toast` policies;
   // route them through the ONE interpreter (design §A/m4).
   onClientError: (p, e) => interpretClientError(p as ClientErrorPolicy, e),
+  // TUNING only in the observability sense (kolu#2101 J2) — the cadence stays the
+  // framework's. The watchdog's verdicts were reported to a `console.warn` and to
+  // nothing else, so "the wire answered a probe 4s ago" — the fact that separates
+  // a genuinely live wire from one merely reporting `open` — could not be copied
+  // into a bug report. Recorded in a leaf module the diagnostic snapshot reads.
+  heartbeat: { onProbeSettled: recordProbeSettled },
 });
-const { ws, echo } = conn;
+const { link, echo } = conn;
 
 /** Stash the latest observed server `processId` for the next reconnect's `pid`
  *  echo — fed by `rpc.ts`'s lifecycle `onProcessId`. It's null until the first
  *  probe, so the very first connect omits the param. */
 export const rememberServerProcessId = echo.remember;
-export { ws };
 
-// Expose for e2e tests: the reconnect regression test (#410) needs to
-// drop and restore the socket directly. Same pattern as __xterm on the
-// terminal container. Harmless in production — just an attribute on window.
-(window as Window & { __koluWs?: PartySocket }).__koluWs = ws;
+/** The watchable wire under every client here — status observability plus the
+ *  imperative `forceReconnect()`. Handed to `rpc.ts`'s `createServerLifecycle`
+ *  (which derives connecting/connected/restarted from its status stream). The
+ *  raw socket is no longer reachable: the link owns the dial, the retry
+ *  schedule and the terminal-close classifier (PLAN D5). */
+export const wire: WatchableWire = link.wire;
 
-// The single combined oRPC link `connectSurfaces` built (`{ surface: { kolu,
-// surfaceApp }, server, daemon }`) — the only raw oRPC procedures left at its root
-// are `server` + `daemon` (kolu's ROOT-level multiplexed procedures, the reason
-// kolu needs the combined link back from the seam; the `terminal`/`git` roots were
-// deleted at W1.R7); the sibling surfaces live under `surface.<key>`. Typed off
-// `typeof contract`, so `client` below is fully typed.
-const link = conn.link;
+/** What the LINK knows about its own dialing — the last 20 attempts with their
+ *  timestamps, close codes and outcomes, plus the re-dial EPOCH (kolu#2101 J1).
+ *
+ *  Deliberately NOT part of {@link wire}: `WatchableWire` is hand-implemented by
+ *  tests and consumers, and only a factory-built link can produce this. It is the
+ *  one place the swallowed dial — `"ended-without-open"`, invisible to the client,
+ *  to the console AND to the server's log, because the server never saw a
+ *  connection — leaves a trace, which is why the diagnostic snapshot reads it. */
+export const wireDiagnostics: WireDiagnostics = link.diagnostics;
+
+// Expose for e2e tests: the reconnect regression test (#410) drives the wire
+// directly. Same pattern as __xterm on the terminal container — harmless in
+// production, just an attribute on window.
+//
+// It is `forceReconnect()`, not the old partysocket `close()`/`reconnect()`
+// pair: under Effect the link owns its own retry schedule, so "close and stay
+// closed until told otherwise" no longer exists as a transport state. The
+// harness in `packages/tests/step_definitions/reconnect_steps.ts` drives THIS
+// hook: it severs the live socket with `forceReconnect()` and PROVES the
+// severance happened — an `onStatus` recorder armed before the call must catch
+// the status leaving "open", so a drop that severed nothing fails the step
+// instead of passing unconditionally — then waits for the link's own re-dial to
+// bring the wire back to "open".
+(window as Window & { __koluWire?: WatchableWire }).__koluWire = wire;
 
 // kolu serves TWO sibling surfaces over one transport (kolu#1197) — plus the
-// server-added `padi` sibling; `connectSurfaces` scopes each per-key client to its
-// slice (`{ surface: link.surface[key] }`) so its primitives resolve at the wire
-// path `/surface/<key>/<prim>/<verb>` that `implementSurfaces` serves.
+// server-added `padi` sibling; `connectSurfaces` scopes each per-key client by
+// splicing the sibling key into every TAG, so its primitives resolve at the wire
+// tag `surface/<key>/<member>/<verb>` that `implementSurfaces` serves.
 //
 // kolu deliberately does NOT fold these siblings via `surfaceClientsHealth` (the
 // Leak-D multi-surface fact) — it ignores `conn.health`. kolu surfaces subscription
@@ -257,15 +318,54 @@ export const [activeHost, setActiveHost] = persistedPref<HostKey>({
     ),
 });
 
-/** Convenience alias — the FULL combined link. `client.server.info(...)` /
- *  `client.daemon.restart(...)` reach the only raw oRPC procedures left at the
- *  link root (the `terminal.*` / `git.*` roots were deleted at W1.R7 — those
- *  mutations go through `activePadiRpc.*`);
- *  `client.surface.kolu.preferences.patch(...)` /
- *  `client.surface.surfaceApp.identity.info(...)` reach the sibling surfaces.
- *  (Note: the surface-bound `.use(...)` hooks come off `app`/`surfaceApp`, which
- *  wrap a SCOPED slice of this same link.) */
-export const client = link;
+/** kolu's ROOT (non-surface) procedures over the combined wire —
+ *  `client.server.info(...)`, `client.daemon.restart(...)`,
+ *  `client.hosts.add(...)`. The `terminal.*` / `git.*` roots were deleted at
+ *  W1.R7; those mutations go through `activePadiRpc.*`.
+ *
+ *  Built over `conn.transport.dispatch` — the branded combined dispatch the
+ *  watchdog also probes — so a root call and a surface call ride the one wire
+ *  by construction. Sibling-surface members are reached through the bound faces
+ *  (`app.cells.*`, `surfaceApp.*`), never through here: the flat dispatch has no
+ *  nested `surface.<key>` shape to walk any more (D1/D2). */
+export const client = rootProcedures(conn.transport.dispatch);
+
+/** Read one unary verb off a surface's structural member FACE, failing LOUDLY if
+ *  the surface does not carry it.
+ *
+ *  `SurfaceFace` is deliberately un-typed per member (D2: precision lives in the
+ *  bound `.cells`/`.procedures` faces, and a second precise mapped type over the
+ *  same spec is the union blowup D2 exists to avoid), so a consumer reaching a
+ *  member through it narrows by hand — the same shape `surfaceAppProbe` uses for
+ *  its `identity.info` probe. A missing member means the face was built from a
+ *  different surface than the caller thinks: a framework/wiring bug, so it
+ *  throws at wire-up rather than answering `undefined` at call time. */
+function unaryMember<I, O>(
+  face: SurfaceFace,
+  member: string,
+  verb: string,
+): UnaryEffect<I, O, never> {
+  const ref = face.surface[member]?.[verb];
+  if (typeof ref !== "function") {
+    throw new Error(
+      `wire: this surface carries no \`${member}.${verb}\` member — the face was built from the wrong surface.`,
+    );
+  }
+  return ref as UnaryEffect<I, O, never>;
+}
+
+/** Publish the browser's raw OS light/dark reading into kolu's server-wide
+ *  `viewerMode` cell.
+ *
+ *  A bare WRITE, not a bound `app.cells.viewerMode.use(...)`: this browser only
+ *  ever writes the reading (the server owns the `colorScheme` leg of the
+ *  resolution), so a standing subscription on a cell nothing here reads would be
+ *  pure wire cost. */
+export const setViewerMode: UnaryEffect<ViewerMode, void, never> = unaryMember(
+  app.rpc,
+  "viewerMode",
+  "set",
+);
 
 // Preferences (host-INDEPENDENT) rides the ONE app-scope reader below, beside the
 // host-membership authority — there is NO import-time module-const subscription (the
@@ -289,13 +389,13 @@ export const client = link;
 //   - `connection` — the ACTIVE host's link-health cell (W6), via `useEntry(activeHost)`,
 //     deliberately kept ACTIVE-HOST ONLY, not retained: a background host's connect
 //     narration is not something to hold warm;
-//   - the host-membership reconcile + `rpc` (`active.rpc` off `useEntry(activeHost)`, a
-//     point client that re-keys freely).
+//   - the host-membership reconcile + `procedures` / `streams` (off `useEntry(activeHost)`,
+//     point faces that re-key freely).
 //
-// `connection` and `rpc` (both off `useEntry(activeHost)`) are deliberately ACTIVE-HOST-ONLY
-// — cheap to re-open, and the keyed lens re-keys on switch (to narrate the newly-active host)
-// AND on a same-key re-add (a new `membershipId`). A single `createRoot` at module init is their app-lifetime
-// owner — never disposed.
+// `connection`, `procedures` and `streams` (all off `useEntry(activeHost)`) are deliberately
+// ACTIVE-HOST-ONLY — cheap to re-open, and the keyed lens re-keys on switch (to narrate the
+// newly-active host) AND on a same-key re-add (a new `membershipId`). A single `createRoot` at
+// module init is their app-lifetime owner — never disposed.
 const hostScoped = createRoot(() => {
   const active = padiMap.useEntry(activeHost);
   // The membership authority — shared by the host-membership reconcile (further down) and
@@ -463,8 +563,33 @@ export const encActiveHost: Accessor<string> = createRoot(() =>
  *  call, so this single client always routes to whichever host is active). Every
  *  lifecycle / chrome / screen / fs / git / session procedure call site should read
  *  `activePadiRpc.<ns>.<verb>(...)` instead of re-deriving the host by hand via
- *  `padiMap.entry(activeHost()).procedures`. */
+ *  `padiMap.entry(activeHost()).procedures`.
+ *
+ *  `activePadiRpc.<ns>.<verb>(input)` hands back a lazy `Effect` carrying the
+ *  member's declared error union plus the framework's `SurfaceCallFailure`. That
+ *  is what lets the business logic in `terminal/`, `host/`, `kaval/`, `forwards/`
+ *  and `right-panel/` be DESCRIBED rather than executed — a call can be caught by
+ *  `_tag`, raced, bounded, superseded, and torn down by the interruption of the
+ *  owner that launched it. Nothing runs until a UI edge runs it, and in this
+ *  package that edge is `runAction` (`./runAction`), never a bare run here. */
 export const activePadiRpc = hostScoped.procedures;
+
+/** The same procedure face for a SPECIFIC host — the twin of
+ *  {@link activePadiRpc} for the callers that already hold a `HostKey` and must
+ *  not route to whichever host happens to be active (the per-host scope's
+ *  active-tile report, which belongs to the host that owns the scope).
+ *
+ *  `padiMap.entry(k)` is the pure, owner-free point lens, so this is safe to call
+ *  outside a reactive owner — exactly as `padiMap.entry(host).procedures` is. */
+export function padiRpcOf(host: HostKey): PadiRpcFace {
+  return padiMap.entry(host).procedures;
+}
+
+/** The declared padi procedures, as the framework's own narrow mapped type over
+ *  the entry spec — the same one `Entry.procedures` is typed by, so a wrong verb
+ *  is a compile error and the two faces cannot come to describe different
+ *  members. Named only so {@link padiRpcOf}'s return reads as one thing. */
+type PadiRpcFace = SurfaceClient<typeof padiEntrySurface.spec>["procedures"];
 
 /** The FUSED active-host STREAM face — `padiMap.useEntry(activeHost).streams`,
  *  built once inside `hostScoped` (re-keys on switch like `activePadiRpc`). The
@@ -501,14 +626,27 @@ export const preferences = (): Preferences =>
 
 /** Patch user preferences; reports failures via `toast`. Pass `{ coalesce: true }` for
  *  high-frequency writes (panel-size drags) to trailing-debounce the server round-trip —
- *  see the cell's `coalesceMs`. */
+ *  see the cell's `coalesceMs`.
+ *
+ *  Fire-and-forget, deliberately. A DECLARED procedure is now an `Effect` a
+ *  caller composes (`activePadiRpc.<ns>.<verb>`), but a cell's `patch` is a
+ *  framework PRIMITIVE rather than a declared member, and it is not a program
+ *  anyone composes: nothing races it, nothing supersedes it, and its coalescing
+ *  is the cell's own. So this stays a write plus a toast on failure — the report
+ *  IS the whole error policy, and there is nothing here for interruption to
+ *  reach. */
 export function updatePreferences(
   patch: PreferencesPatch,
   opts?: { coalesce?: boolean },
 ): void {
-  void hostScoped.preferences
-    .patch(patch, opts)
-    .catch((err: Error) =>
-      toast.error(`Failed to save preferences: ${err.message}`),
-    );
+  runAction(
+    "save preferences",
+    Effect.catch(hostScoped.preferences.patch(patch, opts), (err) =>
+      Effect.sync(() =>
+        toast.error(
+          `Failed to save preferences: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      ),
+    ),
+  );
 }

@@ -5,7 +5,7 @@
  * pins that no use-site re-hand-wires a policy, but it never DRIVES the runtime that
  * routes a declared `client.onError` policy through `buildSurfaceClient`'s
  * `onClientError` interpreter. This file closes that gap — every test here builds a
- * real `buildSurfaceClient` over a stub link and asserts the interpreter is invoked
+ * real `buildSurfaceClient` over a stub dispatch and asserts the interpreter is invoked
  * (or the construction throws) for genuine subscription / flush failures.
  *
  * The policy VALUE is opaque, app-typed data the framework never inspects — so these
@@ -13,10 +13,11 @@
  * and assert the interpreter receives that EXACT declared value plus the error.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { createRoot, getOwner } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { defineSurfaceWithPolicy } from "../define";
+import type { SurfaceDispatch } from "../link";
 import { buildSurfaceClient, type OnClientError } from "./surfaceClient";
 
 // The app-owned policy union — opaque to the framework; only the interpreter reads it.
@@ -34,15 +35,20 @@ const MEMBERS_POLICY: Policy = { kind: "toast", label: "members" };
 const surface = defineSurfaceWithPolicy<Policy>()({
   cells: {
     watch: {
-      schema: z.object({ n: z.number() }),
+      schema: Schema.Struct({ n: Schema.Number }),
       default: { n: 0 },
       verbs: ["get"],
       client: { onError: WATCH_POLICY },
     },
     prefs: {
-      schema: z.object({ size: z.number() }),
+      schema: Schema.Struct({ size: Schema.Number }),
       default: { size: 1 },
-      patchSchema: z.object({ size: z.number() }).partial(),
+      // zod's `.partial()` → `Schema.optionalKey` per the #17 mapping LAW
+      // (`Schema.optional` would round-trip an explicit `undefined` through
+      // `null`, changing the encoded bytes).
+      patchSchema: Schema.Struct({
+        size: Schema.optionalKey(Schema.Number),
+      }),
       patch: (cur: { size: number }, p: { size?: number }) => ({
         ...cur,
         ...p,
@@ -53,8 +59,8 @@ const surface = defineSurfaceWithPolicy<Policy>()({
   },
   collections: {
     members: {
-      keySchema: z.string(),
-      schema: z.object({ title: z.string() }),
+      keySchema: Schema.String,
+      schema: Schema.Struct({ title: Schema.String }),
       client: { onError: MEMBERS_POLICY },
     },
   },
@@ -65,44 +71,60 @@ const settle = async (): Promise<void> => {
 };
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** An async generator that yields nothing — a live-but-silent server stream, so a
+/** A live-but-silent server stream (never yields, never ends), so a
  *  local-authority store stays seeded at its default (no server frame to reconcile). */
-const emptyStream = () =>
-  // biome-ignore lint/suspicious/noExplicitAny: the sub is never read for a value here.
-  (async function* () {})() as any;
-/** A stream thunk that REJECTS the moment it is awaited — drives a subscription-drop. */
-const rejectingStream = (msg: string) => () =>
-  // biome-ignore lint/suspicious/noExplicitAny: rejected thunk stands in for a failing wire stream.
-  Promise.reject(new Error(msg)) as any;
+const emptyStream = (): Stream.Stream<unknown, unknown> => Stream.never;
+/** A stream that FAILS the moment it is run — drives a subscription-drop. The
+ *  failure is a plain `Error`, not an `RpcClientError`, so the face's retry fence
+ *  refuses to retry it and it reaches the consumer once (`shouldRetryStreamError`). */
+const rejectingStream = (msg: string) => (): Stream.Stream<unknown, unknown> =>
+  Stream.fail(new Error(msg));
 
-/** Build a stub link shaped like the oRPC wire client (`surface.<member>.<verb>`),
- *  with per-member stream/mutation behaviour overridable. Modelled on
- *  `surfaceClient.readonly.test.ts`'s `stubLink`. */
-function stubLink(
+/** Build a stub DISPATCH over the surface's flat wire tags
+ *  (`surface/<member>/<verb>`), with per-member stream/mutation behaviour
+ *  overridable. `surfaceClient` builds the nested `surface.<member>.<verb>` face
+ *  itself now, so the stub sits one layer down, at the tags. Modelled on
+ *  `surfaceClient.readonly.test.ts`'s `stubDispatch`. */
+function stubDispatch(
   over: {
-    watchGet?: () => unknown;
-    prefsGet?: () => unknown;
+    watchGet?: () => Stream.Stream<unknown, unknown>;
+    prefsGet?: () => Stream.Stream<unknown, unknown>;
     prefsPatch?: () => Promise<void>;
-    membersKeys?: () => unknown;
+    membersKeys?: () => Stream.Stream<unknown, unknown>;
   } = {},
-) {
+): SurfaceDispatch {
   const noop = () => Promise.resolve();
+  const streams: Record<string, () => Stream.Stream<unknown, unknown>> = {
+    "surface/watch/get": over.watchGet ?? emptyStream,
+    "surface/prefs/get": over.prefsGet ?? emptyStream,
+    "surface/members/keys": over.membersKeys ?? emptyStream,
+    "surface/members/get": emptyStream,
+  };
+  const unaries: Record<string, () => Promise<unknown>> = {
+    "surface/prefs/patch": over.prefsPatch ?? noop,
+    "surface/members/upsert": noop,
+    "surface/members/delete": noop,
+  };
   return {
-    surface: {
-      watch: { get: over.watchGet ?? emptyStream },
-      prefs: {
-        get: over.prefsGet ?? emptyStream,
-        patch: over.prefsPatch ?? noop,
-      },
-      members: {
-        keys: over.membersKeys ?? emptyStream,
-        get: emptyStream,
-        upsert: noop,
-        delete: noop,
-      },
+    unary: (tag) => {
+      const fn = unaries[tag];
+      if (!fn) return Effect.fail(new Error(`no member served at "${tag}"`));
+      return Effect.tryPromise({ try: () => fn(), catch: (e) => e });
+    },
+    stream: (tag) => {
+      const fn = streams[tag];
+      if (!fn) return Stream.fail(new Error(`no member served at "${tag}"`));
+      return Stream.suspend(fn);
     },
   };
 }
+
+/** A dispatch that answers every tag with silence — for the two CONSTRUCTION-time
+ *  fail-fast tests, which throw before a single member is ever dispatched. */
+const silentDispatch = (): SurfaceDispatch => ({
+  unary: () => Effect.succeed(undefined),
+  stream: () => Stream.never,
+});
 
 const live = () => true;
 
@@ -112,7 +134,7 @@ describe("SR11 client-policy dispatch — a declared policy reaches the interpre
     await createRoot(async (dispose) => {
       const app = buildSurfaceClient(
         surface,
-        stubLink({ watchGet: rejectingStream("watch boom") }),
+        stubDispatch({ watchGet: rejectingStream("watch boom") }),
         live,
         onClientError,
       );
@@ -133,7 +155,7 @@ describe("SR11 client-policy dispatch — a declared policy reaches the interpre
     await createRoot(async (dispose) => {
       const app = buildSurfaceClient(
         surface,
-        stubLink({ membersKeys: rejectingStream("keys boom") }),
+        stubDispatch({ membersKeys: rejectingStream("keys boom") }),
         live,
         onClientError,
       );
@@ -154,7 +176,7 @@ describe("SR11 client-policy fail-fast — a declared policy with no interpreter
       expect(() =>
         // No fourth argument — the interpreter is absent, so a declared policy would
         // route nowhere (the silent-swallow defect the construction scan forbids).
-        buildSurfaceClient(surface, stubLink(), live),
+        buildSurfaceClient(surface, stubDispatch(), live),
       ).toThrow(/no `onClientError` interpreter was threaded/);
       dispose();
     });
@@ -168,7 +190,7 @@ describe("SR11 local-authority validity fail-fast (F1)", () => {
     const getOnlyLocal = defineSurfaceWithPolicy<Policy>()({
       cells: {
         frozen: {
-          schema: z.object({ n: z.number() }),
+          schema: Schema.Struct({ n: Schema.Number }),
           default: { n: 0 },
           verbs: ["get"],
           client: { authority: "local" },
@@ -177,11 +199,9 @@ describe("SR11 local-authority validity fail-fast (F1)", () => {
     });
     createRoot((dispose) => {
       expect(() =>
-        buildSurfaceClient(
-          getOnlyLocal,
-          { surface: { frozen: { get: emptyStream } } },
-          live,
-        ),
+        // The construction scan runs BEFORE any member is dispatched, so a
+        // silent dispatch is all this needs.
+        buildSurfaceClient(getOnlyLocal, silentDispatch(), live),
       ).toThrow(/client\.authority "local" but is get-only/);
       dispose();
     });
@@ -196,7 +216,7 @@ describe("SR11 local-authority validity fail-fast (F1)", () => {
     const primitiveLocal = defineSurfaceWithPolicy<Policy>()({
       cells: {
         count: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           verbs: ["get", "set"],
           client: { authority: "local" },
@@ -205,15 +225,7 @@ describe("SR11 local-authority validity fail-fast (F1)", () => {
     });
     createRoot((dispose) => {
       expect(() =>
-        buildSurfaceClient(
-          primitiveLocal,
-          {
-            surface: {
-              count: { get: emptyStream, set: () => Promise.resolve() },
-            },
-          },
-          live,
-        ),
+        buildSurfaceClient(primitiveLocal, silentDispatch(), live),
       ).toThrow(/client\.authority "local" but is not object-valued/);
       dispose();
     });
@@ -226,7 +238,7 @@ describe("SR11 dispatch cardinality — the policy fires per SUBSCRIPTION, not p
     await createRoot(async (dispose) => {
       const app = buildSurfaceClient(
         surface,
-        stubLink({ watchGet: rejectingStream("watch boom") }),
+        stubDispatch({ watchGet: rejectingStream("watch boom") }),
         live,
         onClientError,
       );
@@ -246,7 +258,7 @@ describe("SR11 dispatch cardinality — the policy fires per SUBSCRIPTION, not p
     await createRoot(async (dispose) => {
       const app = buildSurfaceClient(
         surface,
-        stubLink({ membersKeys: rejectingStream("keys boom") }),
+        stubDispatch({ membersKeys: rejectingStream("keys boom") }),
         live,
         onClientError,
       );
@@ -267,7 +279,9 @@ describe("SR11 spec-sourced local authority + failed flush", () => {
       const app = buildSurfaceClient(
         surface,
         // The get stream is silent (store stays at default); the flush verb REJECTS.
-        stubLink({ prefsPatch: () => Promise.reject(new Error("flush boom")) }),
+        stubDispatch({
+          prefsPatch: () => Promise.reject(new Error("flush boom")),
+        }),
         live,
         onClientError,
       );
@@ -278,7 +292,7 @@ describe("SR11 spec-sourced local authority + failed flush", () => {
 
       // A coalesced write applies locally at once (the returned promise resolves on the
       // LOCAL apply, not the server ack) but defers the server flush by `coalesceMs`.
-      await cell.patch({ size: 2 }, { coalesce: true });
+      await Effect.runPromise(cell.patch({ size: 2 }, { coalesce: true }));
       expect(cell.value()).toEqual({ size: 2 });
       expect(onClientError).not.toHaveBeenCalled();
 

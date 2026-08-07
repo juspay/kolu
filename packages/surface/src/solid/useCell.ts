@@ -20,28 +20,40 @@
  * completes. Local authority requires T to be an object/array shape so
  * Solid's createStore can reconcile field-level changes.
  *
- * `source` and `mutate` are typed oRPC procedure refs (e.g.
- * `client.preferences.get` / `client.preferences.update`). The hook
- * threads `STREAM_RETRY` context onto `source` internally; mutations
- * fail fast (no retry) per the plugin default.
+ * `source` and `mutate` are typed member refs off the surface face (e.g.
+ * `client.cells.preferences`'s bound `get` / `patch`). The hook applies the
+ * framework's retry fence to `source` internally, so a transport drop re-subscribes
+ * and the next frame is a fresh snapshot; mutations fail fast (a unary call is not
+ * retried — retrying a write would repeat it).
  */
 
 import { debounce } from "@solid-primitives/scheduled";
+import { Effect } from "effect";
 import { type Accessor, createEffect, on } from "solid-js";
 import { createStore, reconcile, type SetStoreFunction } from "solid-js/store";
-import { STREAM_RETRY, type StreamingProcedure } from "../client";
+import {
+  type StreamingProcedure,
+  type UnaryEffect,
+  unenrolledStreamCall,
+} from "../client";
 import type { Cell } from "../index";
+import { runDetached } from "../runStream";
 import { createSubscription, type Subscription } from "./createSubscription";
 
 export type Authority = "server" | "local";
 
-/** A unary procedure ref (mutation/query — non-streaming). */
-export type UnaryProcedure<I, O> = (input: I) => Promise<O>;
+/** How a cell WRITES: the member ref off the face (a {@link UnaryEffect}), or any
+ *  function of the patch that describes the write.
+ *
+ *  Either way it is a DESCRIPTION, never a running call. `set` / `patch` hand the
+ *  description back to the caller, which runs it at its own UI edge; the coalesced
+ *  flush runs it on a detached fiber, because by then no caller is left to. */
+export type CellMutate<P> = (patch: P) => Effect.Effect<void, unknown>;
 
 export interface UseCellServerOptions<T, P = T> {
   source: StreamingProcedure<undefined, T>;
   authority?: "server";
-  mutate?: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
+  mutate?: CellMutate<P>;
   onError?: (err: Error) => void;
   /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
    *  threads the keyed cache's slot eviction here so a re-served cell rebuilds. */
@@ -53,7 +65,7 @@ export interface UseCellLocalOptions<T extends object, P = T> {
   authority: "local";
   /** Default value for the local store; used until the first server yield. */
   initial: T;
-  mutate: UnaryProcedure<P, unknown> | ((patch: P) => Promise<void> | void);
+  mutate: CellMutate<P>;
   /** Pure merge: returns the next value. Used when the patch shape `P`
    *  differs from `T` (otherwise `set` semantics suffice). */
   applyPatch?: (current: T, patch: P) => T;
@@ -88,9 +100,10 @@ export interface UseCellLocalOptions<T extends object, P = T> {
    *  snapshot. This requires `applyPatch` to be a pure spread-merge (missing
    *  keys absent, not defaulted) — enforced at construction.
    *
-   *  CONTRACT: a coalesced `patch` resolves after the *local* apply, not the
-   *  server ack; callers needing acknowledgement must gate on the server echo.
-   *  Flush failures surface via `onError`, not the returned promise. */
+   *  CONTRACT: a coalesced `patch`'s effect completes after the *local* apply, not
+   *  the server ack; callers needing acknowledgement must gate on the server echo.
+   *  Flush failures surface via `onError`, not on the returned effect's channel —
+   *  by the time the flush runs, the fiber that queued it is long gone. */
   coalesceMs?: number;
   onError?: (err: Error) => void;
   /** Fired when the cell's stream ends NORMALLY (typed end) — the surface client
@@ -113,8 +126,8 @@ export interface UseCellResult<T, P> {
   value: Accessor<T | undefined>;
   pending: Accessor<boolean>;
   error: Accessor<Error | undefined>;
-  set: (next: T) => Promise<void>;
-  patch: (p: P, opts?: PatchOptions) => Promise<void>;
+  set: (next: T) => Effect.Effect<void, unknown>;
+  patch: (p: P, opts?: PatchOptions) => Effect.Effect<void, unknown>;
   sub: Subscription<T>;
 }
 
@@ -153,38 +166,49 @@ export function useCell<Name extends string, T, P = T>(
   return useCellServer(cell, options as UseCellServerOptions<T, P>);
 }
 
-function toError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
-}
-
-/** Wrap a streaming procedure ref into the thunk shape `createSubscription`
- *  expects, threading `STREAM_RETRY` context so transport drops re-subscribe
- *  transparently, AND the subscription's own abort signal — so disposing the
- *  cell (the last consumer of a shared dedup slot leaving) cancels the wire
- *  stream instead of leaving it open with nothing left to read it. */
-function streamingThunk<T>(
+/** The cell's own key is the subscription's LABEL in the liveness registry
+ *  (`../subscriptions`) — the same spelling `client.health()` enrols it under, so
+ *  the two records name one subscription one way. It is the first runtime read of
+ *  the descriptor these hooks used to take purely as a type discriminator; a
+ *  descriptor is always present (`surfaceClient` passes the spec's own), and an
+ *  absent one throwing here is the honest fail-fast rather than a subscription
+ *  that quietly reports as `(unlabeled)`.
+ *
+ *  The cell's fenced stream: the member's own `get`, wrapped in the framework's
+ *  per-subscription retry fence so a transport drop re-subscribes transparently and
+ *  the next frame is a fresh snapshot. Disposing the cell (the last consumer of a
+ *  shared dedup slot leaving) interrupts the subscription's fiber, which tears the
+ *  wire stream down through the stream's own finalizers. */
+function cellStream<T>(
   source: StreamingProcedure<undefined, T>,
-): (signal: AbortSignal) => Promise<AsyncIterable<T>> {
-  return (signal) => source(undefined, { signal, context: STREAM_RETRY });
+  label: string | undefined,
+) {
+  return unenrolledStreamCall(source, undefined, { label });
 }
 
 function useCellServer<Name extends string, T, P>(
-  _cell: Cell<Name, T>,
+  cellDescriptor: Cell<Name, T>,
   options: UseCellServerOptions<T, P>,
 ): UseCellResult<T, P> {
   // No wrapping `createRoot`: the subscription runs under the CALLER's owner — the
   // keyed-cache slot when the surface client shares it, else the consumer's own
   // owner — so it aborts when that owner disposes instead of leaking app-lifetime.
-  const sub = createSubscription(streamingThunk(options.source), {
-    onError: options.onError,
-    onComplete: options.onComplete,
-  });
+  const sub = createSubscription(
+    cellStream(options.source, cellDescriptor.name),
+    {
+      onError: options.onError,
+      onComplete: options.onComplete,
+    },
+  );
 
-  async function callMutate(p: P): Promise<void> {
-    if (!options.mutate) {
-      throw new Error("useCell: no mutate handler provided");
-    }
-    await options.mutate(p);
+  /** Suspended, so a cell with no mutate verb fails when the write is RUN rather
+   *  than throwing at the moment a handler merely builds it. */
+  function callMutate(p: P): Effect.Effect<void, unknown> {
+    return Effect.suspend(() =>
+      options.mutate
+        ? options.mutate(p)
+        : Effect.fail(new Error("useCell: no mutate handler provided")),
+    );
   }
 
   return {
@@ -200,7 +224,7 @@ function useCellServer<Name extends string, T, P>(
 }
 
 function useCellLocal<Name extends string, T extends object, P>(
-  _cell: Cell<Name, T>,
+  cellDescriptor: Cell<Name, T>,
   options: UseCellLocalOptions<T, P>,
 ): UseCellLocalResult<T, P> {
   const [store, setStore] = createStore<T>(options.initial);
@@ -214,10 +238,13 @@ function useCellLocal<Name extends string, T extends object, P>(
   // No wrapping `createRoot`: the subscription + its seed effect run under the
   // CALLER's owner (the keyed-cache slot when shared, else the consumer's own owner),
   // so they dispose with that owner instead of leaking app-lifetime.
-  const sub = createSubscription(streamingThunk(options.source), {
-    onError: options.onError,
-    onComplete: options.onComplete,
-  });
+  const sub = createSubscription(
+    cellStream(options.source, cellDescriptor.name),
+    {
+      onError: options.onError,
+      onComplete: options.onComplete,
+    },
+  );
   createEffect(
     on(
       () => sub(),
@@ -253,13 +280,12 @@ function useCellLocal<Name extends string, T extends object, P>(
     const p = pendingPatch;
     if (p === undefined) return;
     pendingPatch = undefined;
-    void (async () => {
-      try {
-        await options.mutate(p);
-      } catch (err: unknown) {
-        options.onError?.(toError(err));
-      }
-    })();
+    // DETACHED, deliberately: the window this flush waited out is exactly the
+    // window in which the owner that queued it may have gone away, and dropping a
+    // user's edit because their component unmounted is the bug coalescing exists to
+    // avoid. `runDetached` is this package's one write edge; the failure has no
+    // caller left to reach, so it goes to `onError` like every other cell fault.
+    runDetached(options.mutate(p), (err) => options.onError?.(err));
   }
   // Coalescing merges queued patches through `applyPatch`; without it, two
   // patches in one window would collapse to last-write-wins and silently drop
@@ -295,15 +321,23 @@ function useCellLocal<Name extends string, T extends object, P>(
     value: () => store as T,
     pending: sub.pending,
     error: sub.error,
-    set: async (next) => {
-      applyLocal(next as unknown as P);
-      await options.mutate(next as unknown as P);
-    },
-    patch: async (p, opts) => {
-      applyLocal(p);
-      if (opts?.coalesce && scheduleFlush) enqueue(p);
-      else await options.mutate(p);
-    },
+    // The local apply is INSIDE the suspend, so it happens when the caller runs the
+    // write — not when it builds it. That keeps "apply locally, then send" one
+    // ordering rather than two, and an unrun write changes nothing at all.
+    set: (next) =>
+      Effect.suspend(() => {
+        applyLocal(next as unknown as P);
+        return options.mutate(next as unknown as P);
+      }),
+    patch: (p, opts) =>
+      Effect.suspend(() => {
+        applyLocal(p);
+        if (opts?.coalesce && scheduleFlush) {
+          enqueue(p);
+          return Effect.void;
+        }
+        return options.mutate(p);
+      }),
     sub,
   };
 }

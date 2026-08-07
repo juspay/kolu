@@ -31,7 +31,7 @@
 { pkgs, port, kavalTui, kavalBin, lib, ... }:
 let
   inherit (lib)
-    jq curl survivalVmNode runAsAlice assertResult systemctlUser waitForListener;
+    jq rpc survivalVmNode runAsAlice assertResult systemctlUser waitForListener;
   pkgsLib = pkgs.lib;
 
   seedResultFile = "/tmp/upgrade-seed-result";
@@ -240,8 +240,11 @@ let
          && [ "$parklogs" -ge 1 ] && [ "$saved_n" -ge 1 ]; then
         # Drive the restore: the marker RECORD comes back as a live terminal (a NEW PTY —
         # the old one died in the reboot) in the fresh digest kaval.
-        ${curl} -fsS --max-time 60 -X POST "http://127.0.0.1:${port}/rpc/surface/padi/session/restore" \
-          -H 'content-type: application/json' -d '{"json":{"mapKey":"local","input":{}}}' >/dev/null || { sleep 1; continue; }
+        ${rpc {
+          tag = "surface/padi/session/restore";
+          payload = ''{"mapKey":"local","input":{}}'';
+          timeoutMs = 60000;
+        }} >/dev/null || { sleep 1; continue; }
         DIGEST_SOCK=$(ls -d "$XDG_RUNTIME_DIR"/kaval-*/pty-host.sock 2>/dev/null | grep -v "/kaval-${port}/" | head -1)
         live_n=$(${kavalTui} list --socket "$DIGEST_SOCK" --json 2>/dev/null | ${jq} 'length' 2>/dev/null || echo 0)
         if [ "$live_n" -ge 1 ]; then restored=1; break; fi
@@ -270,14 +273,18 @@ let
   # fresh, DIGEST-keyed) → park. `recycleKaval` itself takes NO input, but W4 folds every
   # entry-member input into the map envelope `{ mapKey, input }`, so the wire input is now
   # the NON-void object `{ mapKey: "local" }` — the `input` field stays ABSENT (the fold
-  # preserves recycleKaval's own `z.void()`, which accepts a missing field). So the oRPC
-  # body is `{"json":{"mapKey":"local"}}`; the pre-map bare `{}` now fails the map's
-  # `{ mapKey, input }` parse. Single-host VM ⇒ mapKey is always LOCAL_HOST "local".
-  # Unlike the shell-context calls (openTerminal / session.restore), recycleKaval is inlined
-  # DIRECTLY into the Python testScript (`wait_until_succeeds("… ${recycleKaval} …")`), so its
-  # JSON quotes are `\"`-escaped like `daemonRestart` — raw `"` breaks the Python string.
-  # Unauthenticated loopback.
-  recycleKaval = ''${curl} -fsS --max-time 90 -X POST 'http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/recycleKaval' -H 'content-type: application/json' -d '{\"json\":{\"mapKey\":\"local\"}}' >/dev/null'';
+  # preserves recycleKaval's own void input, which accepts a missing field); the pre-map
+  # bare `{}` fails the map's `{ mapKey, input }` parse. Single-host VM ⇒ mapKey is always
+  # LOCAL_HOST "local". Unlike the shell-context calls (openTerminal / session.restore),
+  # recycleKaval is inlined DIRECTLY into the Python testScript
+  # (`wait_until_succeeds("… ${recycleKaval} …")`), so `python = true` — see lib.nix's
+  # `rpc` for why the payload's quotes must be `\"`-escaped there.
+  recycleKaval = rpc {
+    tag = "surface/padi/lifecycle/recycleKaval";
+    payload = ''{"mapKey":"local"}'';
+    timeoutMs = 90000;
+    python = true;
+  };
 
   # The kolu service overrides both checks share: do NOT auto-start (the seed stands up
   # the LEGACY port kaval FIRST, then the testScript starts kolu by hand — the "upgrade"

@@ -29,6 +29,7 @@ import {
   hostRowContext,
   statusTitle,
 } from "../host/hostChipTone";
+import { useHostKavalChain } from "../host/useHostKaval";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
@@ -122,9 +123,10 @@ const TerminalLead: Component<{
 
 const HostLead: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
+  const kaval = useHostKavalChain(props.host);
   return (
     <span
-      class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state())}`}
+      class={`inline-block h-2 w-2 rounded-full shrink-0 ${dotClass(state(), kaval())}`}
       aria-hidden="true"
     />
   );
@@ -135,16 +137,17 @@ const HostLead: Component<{ host: HostKey }> = (props) => {
  *  One deliberate place; never also written into the context line. */
 const TerminalHostChip: Component<{ host: HostKey }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
+  const kaval = useHostKavalChain(props.host);
   return (
     <span
       data-testid="palette-host-chip"
       data-host={encodeHostAttr(props.host)}
-      title={`${hostLabel(props.host)} — ${statusTitle(state())}`}
+      title={`${hostLabel(props.host)} — ${statusTitle(state(), kaval())}`}
       class="palette-host-chip inline-flex items-center gap-1 max-w-[7.5rem] shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-[0.62rem] text-fg-2"
       style={{ "--host-hue": hostHue(props.host) }}
     >
       <span
-        class={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotClass(state())}`}
+        class={`inline-block h-1.5 w-1.5 rounded-full shrink-0 ${dotClass(state(), kaval())}`}
         aria-hidden="true"
       />
       <HostIdentityLabel

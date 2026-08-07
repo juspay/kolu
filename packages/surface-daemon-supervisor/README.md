@@ -5,10 +5,15 @@ to spawn, watch, and recycle a surface daemon it does *not* run in — the mirro
 [`@kolu/surface-daemon`](../surface-daemon). It runs in the *client*, never the
 daemon, so it is never a staleKey root. Beside the endpoint state machine it
 carries the **convergence kit** — the policy-driven answer to "the running daemon
-is not the one I shipped: detect it, decide, converge it." Depends only on
-`@kolu/surface-daemon` (the daemon-half twin), `@kolu/surface` for the frozen
-control-core transport, and `ts-pattern` for exhaustive policy dispatch; no app
-package.
+is not the one I shipped: detect it, decide, converge it." That includes the peer
+no version probe can reach: a survivor from a previous **protocol epoch** is
+classified `unspeakable-protocol` at the transport (an undecodable first frame,
+or silence from a peer waiting on a handshake nobody speaks any more) rather than
+guessed at as a version skew, and — only once the endpoint has corroborated that
+it owns the gate and verified the pid the gate names — taken over by signal
+instead of left standing. Depends only on `@kolu/surface-daemon` (the daemon-half
+twin), `@kolu/surface` for the frozen control-core transport, and `ts-pattern`
+for exhaustive policy dispatch; no app package.
 
 ```ts
 import {
@@ -37,15 +42,17 @@ const endpoint = createEndpoint({
   onStatus,
 });
 
-// The only boot verb — policy is fixed on the endpoint.
-await converge(endpoint);
+// The only boot verb — policy is fixed on the endpoint. Every verb below is an
+// Effect: `yield*` it inside an `Effect.gen`, and run that ONCE at your process
+// edge. `await`ing one compiles and dispatches nothing.
+yield* converge(endpoint);
 
 // The only replace verb — all steps required (no silent snapshot skip).
-await recycle(endpoint, { capture, drain, reattach });
+yield* recycle(endpoint, { capture, drain, reattach });
 
 // An ssh connector already owns the combined client and process oracle.
 // This form never returns null: the transport has already been dialed.
-const probe = await probeDaemonIdentityFrom({
+const probe = yield* probeDaemonIdentityFrom({
   client: combinedClient,
   dispose: teardown,
   capability: "drainable",

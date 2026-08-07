@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   CANVAS_TILE_SELECTOR,
@@ -445,14 +445,23 @@ Then(
 
 // Deterministic race-forcer. Installs a Playwright init script that runs
 // before every subsequent navigation and patches `window.WebSocket` so the
-// first EVENT_ITERATOR yield for `/surface/padi/session/get` is held for `ms`
-// before being dispatched. The padi `terminals` keys stream's first yield
+// first stream frame for `surface/padi/session/get` is held for `ms` before
+// being dispatched. The padi `terminals` keys stream's first frame
 // reaches the surface client unblocked, so the canvas first-mount centering effect
 // (`TerminalCanvas.tsx:331`) always observes a null `activeId`, takes the
 // bbox-fallback branch, pans the viewport, and the `isDefaultViewport()`
 // guard latches the bug for the rest of the session — exactly the
 // production race described in `useSessionRestore.ts:178-182`, made
 // deterministic. 500ms is overkill for the race window but cheap.
+//
+// The frames it reads are **Effect RPC's ndjson protocol** (`RpcSerialization.
+// layerNdjson` under `websocketLink`), not the retired oRPC envelope: every
+// message is one newline-terminated JSON object, a client request is
+// `{_tag:"Request", id, tag, payload}` — `tag` being the flat wire tag — and a
+// stream frame is `{_tag:"Chunk", requestId, values}`. Matching on `tag` rather
+// than a URL path is what keeps this a real interceptor: the oRPC-shaped reader
+// it replaces matched nothing on this wire, so the delay never applied and the
+// scenario passed without ever forcing its race.
 Given(
   "session.get's first yield is delayed by {int} ms to force the active-id race",
   async function (this: KoluWorld, ms: number) {
@@ -463,29 +472,40 @@ Given(
     // a hand-written IIFE sidesteps the toolchain entirely.
     await this.page.addInitScript(`(() => {
       const Original = globalThis.WebSocket;
-      const SESSION_PATH = "/surface/padi/session/get";
+      const SESSION_TAG = "surface/padi/session/get";
       const DELAY_MS = ${ms};
-      function readJsonHeader(bytes) {
-        const delim = bytes.indexOf(255);
-        const jsonBytes = delim >= 0 ? bytes.subarray(0, delim) : bytes;
-        return JSON.parse(new TextDecoder().decode(jsonBytes));
+      // ndjson: one JSON value per line. A socket frame may carry several.
+      function parseNdjson(text) {
+        const out = [];
+        for (const line of text.split("\\n")) {
+          if (!line) continue;
+          try { out.push(JSON.parse(line)); } catch {}
+        }
+        return out;
+      }
+      async function frameText(data) {
+        if (typeof data === "string") return data;
+        if (data instanceof Blob) return await data.text();
+        if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+        if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data);
+        return null;
       }
       function PatchedWebSocket(url, protocols) {
         const ws = new Original(url, protocols);
         if (!String(url).includes("/rpc/ws")) return ws;
         const sessionIds = new Set();
-        const seenFirstYield = new Set();
+        const seenFirstFrame = new Set();
         const origSend = ws.send.bind(ws);
         ws.send = (data) => {
-          try {
-            let msg = null;
-            if (data instanceof Uint8Array) msg = readJsonHeader(data);
-            else if (data instanceof ArrayBuffer) msg = readJsonHeader(new Uint8Array(data));
-            else if (typeof data === "string") msg = JSON.parse(data);
-            if (msg && typeof msg.p?.u === "string" && msg.p.u.includes(SESSION_PATH)) {
-              sessionIds.add(msg.i);
+          // The request side is always a string under ndjson, but read it the
+          // same tolerant way as the receive side.
+          if (typeof data === "string") {
+            for (const msg of parseNdjson(data)) {
+              if (msg && msg._tag === "Request" && msg.tag === SESSION_TAG) {
+                sessionIds.add(msg.id);
+              }
             }
-          } catch {}
+          }
           return origSend(data);
         };
         const origAdd = ws.addEventListener.bind(ws);
@@ -495,19 +515,20 @@ Given(
           }
           const wrapped = async (event) => {
             try {
-              const data = event.data;
-              let bytes = null;
-              if (data instanceof Blob) bytes = new Uint8Array(await data.arrayBuffer());
-              else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
-              else if (typeof data === "string") bytes = new TextEncoder().encode(data);
-              if (bytes) {
-                const msg = readJsonHeader(bytes);
-                // EVENT_ITERATOR=3 (server pushing yields). Only delay the
-                // first one per session id — subsequent updates (session
-                // auto-save echoes) shouldn't be slowed.
-                if (msg && msg.t === 3 && sessionIds.has(msg.i) && !seenFirstYield.has(msg.i)) {
-                  seenFirstYield.add(msg.i);
-                  await new Promise((r) => setTimeout(r, DELAY_MS));
+              const text = await frameText(event.data);
+              if (text !== null) {
+                for (const msg of parseNdjson(text)) {
+                  // Only delay the FIRST frame per session subscription —
+                  // subsequent updates (session auto-save echoes) shouldn't be
+                  // slowed.
+                  if (
+                    msg && msg._tag === "Chunk" &&
+                    sessionIds.has(msg.requestId) &&
+                    !seenFirstFrame.has(msg.requestId)
+                  ) {
+                    seenFirstFrame.add(msg.requestId);
+                    await new Promise((r) => setTimeout(r, DELAY_MS));
+                  }
                 }
               }
             } catch {}
@@ -1319,15 +1340,7 @@ async function setCanvasLayoutById(
   y: number,
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
-  const resp = await world.page.request.fetch(
-    "/rpc/surface/padi/chrome/setCanvasLayout",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: padiFold({ id, layout }) }),
-    },
-  );
-  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
+  await padiCall("chrome/setCanvasLayout", { id, layout });
   // Wait for the tile to render at the new position — proves the metadata
   // subscription delivered the update (the mechanism that must survive refresh).
   await world.page.waitForFunction(

@@ -30,7 +30,7 @@ import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { LOCAL_LOCATION, type SavedSleepingTerminal } from "@kolu/padi/surface";
 import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -151,15 +151,7 @@ async function moveSleepingTile(
   y: number,
 ): Promise<void> {
   const layout = { x, y, w: 700, h: 500 };
-  const resp = await world.page.request.fetch(
-    "/rpc/surface/padi/chrome/setCanvasLayout",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: padiFold({ id, layout }) }),
-    },
-  );
-  assert.ok(resp.ok(), `chrome/setCanvasLayout failed: ${resp.status()}`);
+  await padiCall("chrome/setCanvasLayout", { id, layout });
   await waitForSleepingTileAt(world, id, x, y);
 }
 
@@ -513,22 +505,9 @@ Given(
     this.savedSessionTerminals = [good, malformed];
     this.savedSessionTerminalCount = 2;
     this.savedSessionSavedAt = Date.now();
-    const resp = await this.page.request.fetch(
-      "/rpc/surface/padi/session/test__set",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({
-          json: padiFold({
-            terminals: [good, malformed],
-            savedAt: this.savedSessionSavedAt,
-          }),
-        }),
-      },
-    );
-    assert.ok(
-      resp.ok(),
-      `surface/padi/session/test__set failed: ${resp.status()}`,
-    );
+    await padiCall("session/test__set", {
+      terminals: [good, malformed],
+      savedAt: this.savedSessionSavedAt,
+    });
   },
 );

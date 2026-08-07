@@ -10,10 +10,10 @@
  */
 
 import { defineSurfaceMap, type KeyCodec } from "@kolu/surface-map";
-import { z } from "zod";
+import { Schema } from "effect";
 import { surface } from "./surface";
 
-const HostKeySchema = z.string();
+const HostKeySchema = Schema.String;
 
 const identityCodec: KeyCodec<string> = {
   encode: (k) => k,
@@ -22,8 +22,8 @@ const identityCodec: KeyCodec<string> = {
 
 /** This fleet's domain failure — a plain human `reason` (a real app narrows the
  *  cause; the framework only needs SOME schema-valid value on the failed arm). */
-export const hostFailureSchema = z.object({ reason: z.string() });
-export type HostFailure = z.infer<typeof hostFailureSchema>;
+export const hostFailureSchema = Schema.Struct({ reason: Schema.String });
+export type HostFailure = typeof hostFailureSchema.Type;
 
 export const hostMap = defineSurfaceMap({
   key: HostKeySchema,

@@ -1,10 +1,11 @@
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   focused: null as TerminalId | null,
   writeFocus: vi.fn(),
-  setSubPanel: vi.fn(() => Promise.resolve()),
+  setSubPanel: vi.fn(() => Effect.void),
 }));
 
 vi.mock("../hostScope/hostScopes", () => ({

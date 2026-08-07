@@ -10,8 +10,8 @@
  */
 
 import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import { ORPCError } from "@orpc/server";
 import type { TerminalHandle } from "./endpoint.ts";
+import { TerminalNotFound } from "./errors.ts";
 import type {
   AuthoredActiveTerminal,
   AuthoredParkedTerminal,
@@ -280,13 +280,11 @@ export function requireMutableTerminal(id: TerminalId): TerminalProcess {
   return entry;
 }
 
-/** The terminal-not-found fault as a typed oRPC error. One definition of
- *  the code + message shared by every per-terminal handler (router,
- *  surface) so the wire shape can't drift between call sites. Typed
- *  (not a bare Error) because oRPC scrubs bare errors to an opaque
- *  "Internal server error". */
-export function terminalNotFound(
-  id: string,
-): ORPCError<"NOT_FOUND", undefined> {
-  return new ORPCError("NOT_FOUND", { message: `Terminal ${id} not found` });
+/** The terminal-not-found fault as the surface's DECLARED tagged error. One
+ *  definition shared by every per-terminal handler so the wire shape can't
+ *  drift between call sites, and TAGGED (not a bare Error) because an
+ *  undeclared throw is a DEFECT — it crosses opaquely, where this one crosses
+ *  with its `_tag` and its `id` intact and a caller narrows on it. */
+export function terminalNotFound(id: string): TerminalNotFound {
+  return new TerminalNotFound({ id });
 }

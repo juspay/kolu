@@ -5,7 +5,7 @@
  * surface is small and default-deny: declare what an agent may touch via
  * `expose` (+ optional bespoke `tools`), hand it a live-surface `client`
  * factory, and `serveSurfaceAsMcp` builds the low-level MCP `Server` — the
- * subscribe/teardown lifecycle, the zod→JSON-Schema bridge, and the
+ * subscribe/teardown lifecycle, the Effect Schema→JSON-Schema bridge, and the
  * resource/tool wiring are the package's.
  */
 
@@ -20,7 +20,9 @@ export {
 } from "./expose";
 export { toInputSchema } from "./jsonschema";
 export {
+  type ClientOrConnection,
   type ServeSurfaceAsMcpOptions,
   serveSurfaceAsMcp,
+  type SurfaceClientCallable,
 } from "./server";
-export type { BespokeTool, ToolResult } from "./tools";
+export type { BespokeTool, ToolInputSchema, ToolResult } from "./tools";

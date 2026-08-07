@@ -98,8 +98,18 @@ connect a machine.
 
 The first time you switch to a host that has never run padi, kolu **provisions it
 over ssh**: one Nix operation evaluates the exact agent, transfers what the
-machine needs, and realises it there. A cold provision can take **minutes**. You
-don't install anything on the host by hand.
+machine needs, and realises it there. A cold provision can take **minutes** —
+mostly the transfer, plus working out *which* agent to send. You don't install
+anything on the host by hand.
+
+Where the bits come from depends on how kolu itself was installed. Run as a
+service through the **home-manager module**, kolu already holds every agent
+closure it can send: the installed generation carries them, so the transfer
+starts immediately and the host never compiles the daemon, even with no
+[binary cache](/quickstart#first-run-compiling-enable-the-binary-cache) in
+reach. Launched with `nix run` or a plain `nix profile install`, kolu fetches
+the agent from the cache first, and falls back to building it when the cache
+doesn't have it yet.
 
 What arrives is the daemon **plus the command-line tools a terminal on that host
 needs** — `kaval-tui`, `padi-tui`, and `kolu` itself. Terminals kolu opens there
@@ -117,9 +127,15 @@ kolu is running on; remotes show the ssh target. Every tab carries a
 | --- | --- |
 | Home + hostname | this machine (local) |
 | `user@host` | a remote ssh target |
-| green pip | connected and live |
+| green pip | the whole chain is live — kolu reaches this host **and** its terminal daemon is serving |
 | amber pip (pulsing) | connecting or provisioning — coming up |
+| amber pip, "kaval down" | kolu reaches the host, but its terminal daemon is not serving. [padi restarts it for you](/padi#steady-state-supervision); the tooltip carries the daemon's own verdict |
 | red pip + struck label | unreachable — open diagnostics for the real error and **retry** |
+
+The pip reports the **whole chain** (kolu → this host's padi → its kaval), not
+just the first link. A host you can reach whose terminal daemon is dead is not
+green: that combination is the one that used to read as healthy while nothing
+would run.
 
 Click the **connection pip** for the **diagnostics popover** — connection
 state, terminal and awaiting counts, padi·kaval detail, remove-with-confirm.
@@ -136,8 +152,9 @@ hover-opened.
   output, and the clock. A warm reconnect still refreshes the mandatory target-store
   root, so it crosses the same honest provisioning phase; that refresh is normally
   near-instant and may never paint before the connection is ready. After a Kolu restart,
-  a cold local derivation cache can additionally require source evaluation even when the
-  host closure itself is warm.
+  a cold local derivation cache can additionally require an **evaluation** pass — kolu
+  works out which agent this host needs before sending anything — even when the closure
+  it will send is already in hand.
 
   And if a connect **genuinely stalls**, the canvas stops narrating past a **finite deadline**
   (a short one for your local machine; a generously longer one while a remote is still
@@ -228,6 +245,7 @@ The causes it distinguishes:
 | --- | --- |
 | **Another kolu owns this host** | a different kolu supervisor already holds this host's padi |
 | **This host runs an older kolu** | the remote padi speaks an older contract and refused to bind |
+| **This host runs a kolu from before the protocol change** | the padi there speaks a protocol epoch this kolu can't query; kolu tried to take it over and couldn't. Update that machine's kolu (or stop the padi there), then reconnect — retrying alone won't help |
 | **This host needs passwordless ssh** | the host asked for a password. kolu connects non-interactively and never types one — set up key-based access (`ssh-copy-id`), then reconnect |
 | **This host isn't trusted yet** | ssh doesn't recognise the host's identity key. Run `ssh <host>` once in a terminal to review and accept it — or clear a changed-key warning — then reconnect |
 | **This host has no Nix that kolu can run** | ssh worked, but the host's shell couldn't run `nix-instantiate`. Either Nix isn't [installed](https://nixos.asia/en/install) there, or it isn't on the PATH of a non-interactive ssh session |

@@ -34,15 +34,20 @@ import os from "node:os";
 import path from "node:path";
 import {
   type PadiDaemonClient,
+  padiClientOver,
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import {
+  padiDaemonGroup,
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
   type PadiHostInventory,
+  padiSurfaceSibling,
   type PadiTerminal,
 } from "@kolu/padi/surface";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import type { AgentClient } from "@kolu/surface-remote";
+import { Effect, Stream } from "effect";
 import type { TerminalAttachFrame } from "@kolu/padi/endpoint";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { firstFrameOrUndefined } from "@kolu/surface/first-frame";
@@ -147,8 +152,10 @@ async function currentAgent(
   padi: PadiSurfaceClient,
   id: TerminalId,
 ): Promise<PadiActiveAgent | null> {
-  const rec = await firstFrameOrUndefined<PadiTerminal>(
-    await padi.surface.terminals.get({ key: id }),
+  const rec = await Effect.runPromise(
+    firstFrameOrUndefined<PadiTerminal>(
+      padi.surface.terminals.get({ key: id }),
+    ),
   );
   if (!rec || rec.state !== "active") return null;
   return rec.agent;
@@ -225,9 +232,14 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // (the deleted `getHostSession` pool). Each `dial()` OWNS its fresh session — the
     // convergence test's re-dial after a drain gets a genuinely new one, exactly as the
     // old pooled `getHostSession` handed back a fresh session once the pooled link died.
-    const s = makeSession<PadiDaemonClient, SshProv>({
+    const s = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<PadiDaemonContract>({
+      connectOnce: sshConnector({
+        // padi's SIBLING spec over the FULL daemon group — the same two halves
+        // `dialPadiViaHost` and the remote binder compose, so the link reaches the
+        // control sibling's tags too. The face the connector builds is padi's;
+        // the CONTROL face is built from the same link's dispatch below.
+        surface: { ...padiSurfaceSibling, group: padiDaemonGroup },
         host: SSH_HOST as string,
         binary: "padi",
         // `buildAgentCommand` already runs the binary as `padi --stdio` (host.ts) and
@@ -249,6 +261,20 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     return s;
   };
 
+  /** Both padi faces over the session's ONE link. `sshConnector` builds a single
+   *  face (padi's); the frozen control core is a SIBLING at another tag prefix, so
+   *  it is built over the link's own dispatch — the same move the remote binder
+   *  makes. A session with no dispatch has no live link, which is a test failure,
+   *  never something to degrade past. */
+  const combinedOf = (s: {
+    currentDispatch?(): SurfaceDispatch | undefined;
+  }): PadiDaemonClient => {
+    const dispatch = s.currentDispatch?.();
+    if (dispatch === undefined)
+      throw new Error("the pinned ssh session exposed no dispatch");
+    return padiClientOver(dispatch);
+  };
+
   afterAll(() => {
     for (const s of sessions.splice(0)) s.destroy();
   });
@@ -258,10 +284,13 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // pin() runs resolveDrvPath → provisionAgent (remote-store nix build + GC root)
     // → ssh <host> padi --stdio → stdioLink. The remote padi (and its kaval) is
     // durable behind the front.
-    const combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    const combined = combinedOf(session);
     session.markConnected();
 
-    const hello = await combined.surface.control.core.hello();
+    const hello = await Effect.runPromise(
+      combined.control.surface.core.hello(),
+    );
     console.log(
       `[ssh] hello: padiSurface=${hello.surfaceVersion} controlCore=${hello.controlCoreVersion} stateRoot=${hello.stateRoot}`,
     );
@@ -270,24 +299,28 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     ).toBe(true);
 
     const padi = scopePadiSurface(combined);
-    const { id } = await padi.surface.lifecycle.create({
-      cwd: process.env.HOME,
-    });
+    const { id } = await Effect.runPromise(
+      padi.surface.lifecycle.create({
+        cwd: process.env.HOME,
+      }),
+    );
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
     // terminalAttach's first frame is the snapshot, relayed straight over ssh.
-    const attach = (await padi.surface.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
+    const attach = Stream.toAsyncIterable(
+      padi.surface.terminalAttach.get({ id }),
+    )[Symbol.asyncIterator]();
     const first = await attach.next();
     const firstFrame = first.value as TerminalAttachFrame;
     expect(firstFrame.kind).toBe("snapshot");
     expect(typeof firstFrame.data).toBe("string");
 
-    await padi.surface.lifecycle.sendInput({ id, data: "echo SSHMARK\r" });
+    await Effect.runPromise(
+      padi.surface.lifecycle.sendInput({ id, data: "echo SSHMARK\r" }),
+    );
     let screen = "";
     for (let i = 0; i < 200 && !screen.includes("SSHMARK"); i++) {
-      screen = await padi.surface.screen.state({ id });
+      screen = await Effect.runPromise(padi.surface.screen.state({ id }));
       if (!screen.includes("SSHMARK")) await sleep(50);
     }
     expect(screen).toContain("SSHMARK");
@@ -299,9 +332,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     // only ever show the machine kolu-server runs on). The cell subscription replays the
     // current value, then a frame per sample — iterate until the serving padi has marked
     // itself active (the sampler's T+0 anchor may precede the held kaval connecting).
-    const invIter = (await padi.surface.hostInventory.get({}))[
-      Symbol.asyncIterator
-    ]();
+    const invIter = Stream.toAsyncIterable(
+      padi.surface.hostInventory.get(undefined),
+    )[Symbol.asyncIterator]();
     let inv = (await invIter.next()).value as PadiHostInventory;
     const invDeadline = Date.now() + 25_000; // spans two 10s sample intervals
     while (!inv.padis.some((p) => p.active) && Date.now() < invDeadline) {
@@ -322,18 +355,21 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
   it("records typing-echo latency over the ssh leg (the W3 reference vs 4.36ms p99 local)", async () => {
     const session = dial();
-    const combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    const combined = combinedOf(session);
     session.markConnected();
     const padi = scopePadiSurface(combined);
-    const { id } = await padi.surface.lifecycle.create({
-      cwd: process.env.HOME,
-    });
+    const { id } = await Effect.runPromise(
+      padi.surface.lifecycle.create({
+        cwd: process.env.HOME,
+      }),
+    );
 
     // Subscribe attach; skip the snapshot (frame 1). Each keystroke: clock at
     // sendInput, stop when the echoed char first appears in a delta.
-    const iter = (await padi.surface.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
+    const iter = Stream.toAsyncIterable(
+      padi.surface.terminalAttach.get({ id }),
+    )[Symbol.asyncIterator]();
     await iter.next(); // snapshot
 
     const SAMPLES = Number(process.env.KOLU_BENCH_SAMPLES ?? 60);
@@ -342,17 +378,23 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     for (let i = 0; i < SAMPLES + WARMUP; i++) {
       const ch = String.fromCharCode(97 + (i % 26)); // a..z, echoed by the shell
       const t0 = process.hrtime.bigint();
-      await padi.surface.lifecycle.sendInput({ id, data: ch });
+      await Effect.runPromise(
+        padi.surface.lifecycle.sendInput({ id, data: ch }),
+      );
       // Read deltas until the echoed char appears.
       let seen = false;
       const deadline = Date.now() + 5000;
       while (!seen && Date.now() < deadline) {
         const n = await iter.next();
-        if (typeof n.value === "string" && n.value.includes(ch)) seen = true;
+        // Contract 3.0 frames are a snapshot/delta union; the echo can only
+        // arrive in a delta (a mid-stream snapshot is a re-attach, not output).
+        if (n.value?.kind === "delta" && n.value.data.includes(ch)) seen = true;
       }
       const ms = Number(process.hrtime.bigint() - t0) / 1e6;
       if (i >= WARMUP && seen) latencies.push(ms);
-      await padi.surface.lifecycle.sendInput({ id, data: "\r" }); // clear the line buffer
+      await Effect.runPromise(
+        padi.surface.lifecycle.sendInput({ id, data: "\r" }),
+      ); // clear the line buffer
       await sleep(10);
     }
 
@@ -372,15 +414,18 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
 
   it("converges across a drain: a drained remote padi respawns and the leg recovers", async () => {
     const session = dial();
-    let combined = (await session.pin()) as PadiDaemonClient;
+    await session.pin();
+    let combined = combinedOf(session);
     session.markConnected();
     let padi = scopePadiSurface(combined);
 
-    const helloBefore = await combined.surface.control.core.hello();
+    const helloBefore = await Effect.runPromise(
+      combined.control.surface.core.hello(),
+    );
     // Drain the remote padi over the frozen control core (persist + exit; its kaval
     // + PTYs survive). The front's relay ends → the HostSession reconnects and
     // frontDaemonOverStdio respawns/re-adopts padi.
-    await combined.surface.control.core.drain().catch(() => {
+    await Effect.runPromise(combined.control.surface.core.drain()).catch(() => {
       // The link tears down mid-response — expected.
     });
 
@@ -391,23 +436,30 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
     while (!recovered && Date.now() < deadline) {
       try {
         const s2 = dial();
-        combined = (await s2.pin()) as PadiDaemonClient;
+        await s2.pin();
+        combined = combinedOf(s2);
         s2.markConnected();
-        const helloAfter = await combined.surface.control.core.hello();
+        const helloAfter = await Effect.runPromise(
+          combined.control.surface.core.hello(),
+        );
         console.log(
           `[ssh] post-drain hello: startedAt before=${helloBefore.startedAt} after=${helloAfter.startedAt} (a fresh boot ⇒ respawn; same ⇒ re-adopt)`,
         );
         padi = scopePadiSurface(combined);
-        const { id } = await padi.surface.lifecycle.create({
-          cwd: process.env.HOME,
-        });
-        await padi.surface.lifecycle.sendInput({
-          id,
-          data: "echo RECOVERED\r",
-        });
+        const { id } = await Effect.runPromise(
+          padi.surface.lifecycle.create({
+            cwd: process.env.HOME,
+          }),
+        );
+        await Effect.runPromise(
+          padi.surface.lifecycle.sendInput({
+            id,
+            data: "echo RECOVERED\r",
+          }),
+        );
         let screen = "";
         for (let i = 0; i < 100 && !screen.includes("RECOVERED"); i++) {
-          screen = await padi.surface.screen.state({ id });
+          screen = await Effect.runPromise(padi.surface.screen.state({ id }));
           if (!screen.includes("RECOVERED")) await sleep(50);
         }
         recovered = screen.includes("RECOVERED");
@@ -432,7 +484,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       // an assistant `end_turn` with a bumped token usage (→ waiting) and assert the
       // SAME `terminals` record transitions state AND its contextTokens changes.
       const session = dial();
-      const combined = (await session.pin()) as PadiDaemonClient;
+      await session.pin();
+      const combined = combinedOf(session);
       session.markConnected();
       const padi = scopePadiSurface(combined);
 
@@ -462,7 +515,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       fs.mkdirSync(projectDir, { recursive: true });
 
       try {
-        const { id } = await padi.surface.lifecycle.create({ cwd: home });
+        const { id } = await Effect.runPromise(
+          padi.surface.lifecycle.create({ cwd: home }),
+        );
         createdId = id;
 
         // Drive the foreground to a known long-running `sleep` — a stable, non-shell
@@ -471,7 +526,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // duration makes the process findable in /proc by its exact cmdline.
         const sleepSecs = 700000 + Math.floor(Math.random() * 299999);
         const sleepCmd = `sleep ${sleepSecs}`;
-        await padi.surface.lifecycle.sendInput({ id, data: `${sleepCmd}\r` });
+        await Effect.runPromise(
+          padi.surface.lifecycle.sendInput({ id, data: `${sleepCmd}\r` }),
+        );
 
         // Resolve the sleep's pid (== the foreground pid the daemon reports). Poll
         // until it appears — the shell needs a beat to exec it.
@@ -596,7 +653,9 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // Tear down the fixture: kill the terminal (its shell + the child sleep die
         // with it) and remove the planted session files + transcript.
         if (createdId !== undefined)
-          await padi.surface.lifecycle.kill({ id: createdId }).catch(() => {});
+          await Effect.runPromise(
+            padi.surface.lifecycle.kill({ id: createdId }),
+          ).catch(() => {});
         for (const p of plantedSessionFiles) {
           try {
             fs.rmSync(p, { force: true });
@@ -625,7 +684,8 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
       // so the fixtures live on this box's disk (the same disk padi reads); a two-box
       // binding can't reach them, hence the self-ssh gate.
       const session = dial();
-      const combined = (await session.pin()) as PadiDaemonClient;
+      await session.pin();
+      const combined = combinedOf(session);
       session.markConnected();
       const padi = scopePadiSurface(combined);
 
@@ -643,10 +703,12 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         fs.writeFileSync(path.join(tmpRoot, "blob.png"), blob);
 
         // TEXT — whole-file 200, real text/* Content-Type, exact bytes over the hop.
-        const t = await padi.surface.preview.read({
-          repoPath: tmpRoot,
-          filePath: "hello.txt",
-        });
+        const t = await Effect.runPromise(
+          padi.surface.preview.read({
+            repoPath: tmpRoot,
+            filePath: "hello.txt",
+          }),
+        );
         expect(t.status).toBe(200);
         const textCt = Object.entries(t.headers).find(
           ([k]) => k.toLowerCase() === "content-type",
@@ -658,10 +720,12 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         );
 
         // BINARY — whole-file 200, image/png, byte-exact round trip.
-        const b = await padi.surface.preview.read({
-          repoPath: tmpRoot,
-          filePath: "blob.png",
-        });
+        const b = await Effect.runPromise(
+          padi.surface.preview.read({
+            repoPath: tmpRoot,
+            filePath: "blob.png",
+          }),
+        );
         expect(b.status).toBe(200);
         const blobCt = Object.entries(b.headers).find(
           ([k]) => k.toLowerCase() === "content-type",
@@ -677,11 +741,13 @@ describeSsh("padiSurface consumed over ssh — the W3.1 named path", () => {
         // RANGE-CAPABLE — a bounded 206 (what the chunk loop drives) survives the
         // wire with its Content-Range + exact slice, so a `<video>` seek and the
         // route's chunked assembly both work remotely.
-        const r = await padi.surface.preview.read({
-          repoPath: tmpRoot,
-          filePath: "blob.png",
-          range: "bytes=100-163",
-        });
+        const r = await Effect.runPromise(
+          padi.surface.preview.read({
+            repoPath: tmpRoot,
+            filePath: "blob.png",
+            range: "bytes=100-163",
+          }),
+        );
         expect(r.status).toBe(206);
         const cr = Object.entries(r.headers).find(
           ([k]) => k.toLowerCase() === "content-range",

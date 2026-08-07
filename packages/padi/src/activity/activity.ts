@@ -28,26 +28,32 @@ function existsOnDisk(path: string): boolean {
 
 /** Upsert `item` into a bounded MRU list, sort most-recently-seen first,
  *  and trim to `max` entries. Returns the new list. Pure — callers
- *  persist and notify. */
+ *  persist and notify.
+ *
+ *  Genuinely pure now, not merely documented as such: the input is the DECODED
+ *  cell value, which is `readonly`, and the old in-place `list[idx] = …` /
+ *  `push` / `sort` mutated the very array the cell still held — a write the
+ *  surface never saw. It copies first. */
 function upsertMru<T>(
-  list: T[],
+  list: readonly T[],
   item: T,
   keyOf: (t: T) => string,
   timeOf: (t: T) => number,
   max: number,
 ): T[] {
   const key = keyOf(item);
-  const idx = list.findIndex((x) => keyOf(x) === key);
-  if (idx !== -1) list[idx] = item;
-  else list.push(item);
-  list.sort((a, b) => timeOf(b) - timeOf(a));
-  return list.slice(0, max);
+  const next = [...list];
+  const idx = next.findIndex((x) => keyOf(x) === key);
+  if (idx !== -1) next[idx] = item;
+  else next.push(item);
+  next.sort((a, b) => timeOf(b) - timeOf(a));
+  return next.slice(0, max);
 }
 
 /** Get recent repos, most-recently-seen first. Filters out repos that no
  *  longer exist on disk and back-writes the trimmed list so subsequent
  *  reads don't re-stat. */
-function getRecentRepos(): RecentRepo[] {
+function getRecentRepos(): readonly RecentRepo[] {
   const feed = padiSurfaceCtx.cells.activityFeed.get();
   const live = feed.recentRepos.filter((r) => existsOnDisk(r.repoRoot));
   if (live.length < feed.recentRepos.length) {
@@ -57,7 +63,7 @@ function getRecentRepos(): RecentRepo[] {
 }
 
 /** Get recent agents, most-recently-seen first. */
-function getRecentAgents(): RecentAgent[] {
+function getRecentAgents(): readonly RecentAgent[] {
   return padiSurfaceCtx.cells.activityFeed.get().recentAgents;
 }
 

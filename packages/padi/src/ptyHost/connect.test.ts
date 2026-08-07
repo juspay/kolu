@@ -1,38 +1,57 @@
 /**
- * The connect middle-hop for the Kaval-lifetime mirror (F6): `connectKaval`
- * reads `system.version` off a live kaval and copies its OPTIONAL `lifetime`
- * onto the connection `metadata` (`connect.ts` → `metadata.lifetime`). Because
- * `KavalConnectionMetadata.lifetime` is optional (a survivor predating the field
- * reports none), deleting that copy still type-checks — so the passthrough needs
- * a behavioural pin, not just the schema round-trip. This dials a REAL kaval over
- * a REAL unix socket (the exact `dialSocket` + `stdioLink` path production uses)
- * and asserts the served lifetime arrives on the metadata.
+ * `connectKaval` + `probeKavalForConvergence` over the REAL wire.
+ *
+ * Two things are pinned here, and only the second one moved with PLAN D6:
+ *
+ *   1. **The handshake middle-hop (F6).** `connectKaval` reads `system.version`
+ *      off a live kaval and copies its OPTIONAL `lifetime` onto the connection
+ *      `metadata`. Because `KavalConnectionMetadata.lifetime` is optional (a
+ *      survivor predating the field reports none), deleting that copy still
+ *      type-checks — so the passthrough needs a behavioural pin. This dials a
+ *      REAL kaval over a REAL unix socket, the exact `dialSocket` + `stdioLink`
+ *      path production uses.
+ *
+ *   2. **Partial peers.** The old file's "pre-fragment daemon" fixtures were an
+ *      oRPC router carrying a hand-copied contract entry, and the tolerance
+ *      branches they exercised are GONE: a kaval that predates the frozen
+ *      control core also predates this protocol epoch, so its first frame is
+ *      undecodable and a dial never reaches route resolution at all (that peer
+ *      is the supervisor's `unspeakable-protocol` observation, not this
+ *      module's business). What remains real, and is pinned instead, is the
+ *      IN-EPOCH partial peer: a daemon that speaks this exact protocol and
+ *      serves a NARROWER member set, or reports a `contractVersion` we refuse.
+ *      Its fake takes the LIVE `Rpc` out of `kavalDaemonGroup` — kaval's
+ *      `contractSkew.test.ts` model — so a fake can never drift from the
+ *      surface it imitates.
  */
 
 import { mkdtempSync } from "node:fs";
 import { createServer, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
+import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import {
-  controlCoreFragment,
-  controlCoreSurface,
-  daemonBuild,
-} from "@kolu/surface-daemon";
-import { implementSurfaces } from "@kolu/surface/server";
-import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
+  implementSurfaces,
+  type SurfaceHandler,
+  type SurfaceHandlers,
+} from "@kolu/surface/server";
+import {
+  serveOverUnixSocket,
+  type UnixSocketListener,
+} from "@kolu/surface/unix-socket";
+import { Effect } from "effect";
+import { RpcGroup } from "effect/unstable/rpc";
 import {
   type PtyHostSocketListener,
   PTY_HOST_CONTRACT_VERSION,
   createInProcessPtyHost,
-  ptyHostSurface,
+  kavalDaemonGroup,
   serveKavalDaemonSurface,
   servePtyHostOverUnixSocket,
 } from "kaval";
 import {
-  decide,
   instanceKeyFromStartedAt,
+  isUnspeakableProtocolError,
 } from "@kolu/surface-daemon-supervisor";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -43,16 +62,39 @@ import {
 import { probeKavalStatus } from "../hostInventory.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 
-const legacyVersionOnlyContract = oc.router({
-  surface: {
-    system: {
-      version: ptyHostSurface.contract.surface.system.version,
-    },
-    terminal: {
-      list: ptyHostSurface.contract.surface.terminal.list,
-    },
-  },
-});
+const VERSION_TAG = "surface/system/version";
+const LIST_TAG = "surface/terminal/list";
+const HELLO_TAG = "surface/control/core/hello";
+
+/** Serve a daemon assembled from LIVE `Rpc`s taken out of `kavalDaemonGroup`,
+ *  answering only the tags named here. Every other tag is simply not served —
+ *  which is exactly how a peer with a narrower member set presents to us. */
+async function serveFake(
+  socketPath: string,
+  byTag: Record<string, SurfaceHandler>,
+): Promise<UnixSocketListener> {
+  const handlers: SurfaceHandlers = Object.create(null);
+  const rpcs = Object.entries(byTag).map(([tag, handler]) => {
+    const rpc = kavalDaemonGroup.requests.get(tag);
+    if (rpc === undefined) {
+      throw new Error(`${tag} is not on the kaval daemon surface`);
+    }
+    handlers[tag] = handler;
+    return rpc;
+  });
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    group: RpcGroup.make(...rpcs),
+    handlers,
+    log: silentLog,
+  });
+  expect(listener.outcome).toEqual({ kind: "listening" });
+  return listener;
+}
+
+function sockPath(prefix: string): string {
+  return join(mkdtempSync(join(tmpdir(), prefix)), "pty-host.sock");
+}
 
 /** Serve a kaval whose resolved lifetime is `boundToPid` (the CI/smoke policy),
  *  so a copy of the value can be distinguished from the production `forever`. */
@@ -61,15 +103,6 @@ function makePtyHost() {
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-connect-rc-")),
     lifetime: { kind: "boundToPid", pid: 4242 },
-  });
-}
-
-function serveLegacy(socketPath: string): Promise<PtyHostSocketListener> {
-  const { servedRouter } = makePtyHost();
-  return servePtyHostOverUnixSocket({
-    socketPath,
-    router: servedRouter,
-    log: silentLog,
   });
 }
 
@@ -109,9 +142,9 @@ async function serveCurrent(
     ptyHost: controlPtyHost,
     stateRoot: "/run/kaval-current",
   });
-  const listener = await servePtyHostOverUnixSocket({
+  const listener: PtyHostSocketListener = await servePtyHostOverUnixSocket({
     socketPath,
-    router: runtime.router,
+    served: { group: runtime.group, handlers: runtime.handlers },
     log: silentLog,
   });
   return {
@@ -144,7 +177,8 @@ async function serveFrozenIdentity(socketPath: string) {
   );
   const listener = await serveOverUnixSocket({
     socketPath,
-    router: runtime.router as never,
+    group: runtime.group,
+    handlers: runtime.handlers,
     log: silentLog,
   });
   return {
@@ -156,78 +190,19 @@ async function serveFrozenIdentity(socketPath: string) {
   };
 }
 
-/** A pre-fragment daemon that reports a chosen observed contract version. It
- * deliberately serves no frozen route and carries a tempting legacy build id,
- * which the transition probe must discard. */
-async function serveLegacyVersionOnly(
-  socketPath: string,
-  contractVersion: string,
-) {
-  const startedAt = 424_242;
-  const t = implement(legacyVersionOnlyContract);
-  const router = t.router({
-    surface: {
-      system: {
-        version: t.surface.system.version.handler(() => ({
-          contractVersion,
-          pid: process.pid,
-          startedAt,
-          lifetime: { kind: "forever" as const },
-          identity: {
-            staleKey: "legacy-build-must-not-be-trusted",
-            navigableCommit: "legacy-commit-must-not-be-trusted",
-          },
-        })),
-      },
-      terminal: {
-        list: t.surface.terminal.list.handler(() => ({ entries: [] })),
-      },
-    },
-  });
-  const listener = await serveOverUnixSocket({
-    socketPath,
-    router,
-    log: silentLog,
-  });
-  return { listener, startedAt };
-}
-
-/** A pre-fragment daemon whose frozen route is absent but whose legacy version
- * read never settles. This binds the second, 10s handshake deadline rather than
- * the supervisor-owned 30s frozen-hello deadline. */
-async function serveLegacyHangingVersion(socketPath: string) {
-  const t = implement(legacyVersionOnlyContract);
-  const router = t.router({
-    surface: {
-      system: {
-        version: t.surface.system.version.handler(
-          async () => await new Promise<never>(() => {}),
-        ),
-      },
-      terminal: {
-        list: t.surface.terminal.list.handler(() => ({ entries: [] })),
-      },
-    },
-  });
-  return await serveOverUnixSocket({ socketPath, router, log: silentLog });
-}
-
 describe("connectKaval — mirrors the handshake lifetime onto the metadata", () => {
   let listener: Awaited<ReturnType<typeof serveCurrent>>;
   let socketPath: string;
 
   beforeAll(async () => {
-    socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-connect-sock-")),
-      "pty-host.sock",
-    );
+    socketPath = sockPath("kolu-connect-sock-");
     listener = await serveCurrent(socketPath);
   });
 
   afterAll(async () => await listener.close());
 
   it("carries the served lifetime through to metadata.lifetime", async () => {
-    const conn = await connectKaval(socketPath);
+    const conn = await Effect.runPromise(connectKaval(socketPath));
     try {
       // The whole point of F6: this fails (undefined) if the `lifetime:
       // version.lifetime` copy in connect.ts is dropped, even though the type
@@ -239,7 +214,9 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
         staleKey: "fragment-build",
         navigableCommit: "fragment-commit",
       });
-      await expect(probeKavalStatus(socketPath)).resolves.toMatchObject({
+      await expect(
+        Effect.runPromise(probeKavalStatus(socketPath)),
+      ).resolves.toMatchObject({
         buildCommit: "fragment-commit",
       });
     } finally {
@@ -249,56 +226,38 @@ describe("connectKaval — mirrors the handshake lifetime onto the metadata", ()
 });
 
 describe("connectKaval — identity comes only from frozen hello", () => {
-  it("projects honest unknown instead of copying system.version identity when an old daemon lacks the fragment", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-connect-legacy-")),
-      "pty-host.sock",
-    );
-    const { listener } = await serveLegacyVersionOnly(
-      socketPath,
-      PTY_HOST_CONTRACT_VERSION,
-    );
-    try {
-      const conn = await connectKaval(socketPath);
-      try {
-        const legacyVersion = await conn.client.surface.system.version({});
-        expect(legacyVersion.identity).toEqual({
-          staleKey: "legacy-build-must-not-be-trusted",
-          navigableCommit: "legacy-commit-must-not-be-trusted",
-        });
-        expect(conn.identity).toEqual({
-          staleKey: "",
-          navigableCommit: "",
-        });
-        expect(conn.identity).not.toEqual(legacyVersion.identity);
-
-        // The inventory and the connected/dialog path tell the same truth about
-        // this one survivor: the frozen identity is absent, so neither path copies
-        // the tempting legacy identity fields.
-        const inventory = await probeKavalStatus(socketPath);
-        expect(inventory).toEqual({
-          terminalCount: 0,
-          buildCommit: null,
+  it("REFUSES a peer that speaks this protocol but serves no frozen control core", async () => {
+    // The in-epoch successor of the retired pre-fragment tolerance. Such a peer
+    // is REACHABLE (its framing decodes, its `system.version` answers), so the
+    // refusal has to come from the handshake rather than from the transport —
+    // and it must be LOUD, because within this epoch a kaval without the frozen
+    // core is broken, not merely old.
+    const socketPath = sockPath("kolu-connect-no-core-");
+    const listener = await serveFake(socketPath, {
+      [VERSION_TAG]: () =>
+        Effect.succeed({
           contractVersion: PTY_HOST_CONTRACT_VERSION,
-        });
-      } finally {
-        conn.dispose();
-      }
+          pid: process.pid,
+          startedAt: 424_242,
+        }),
+      [LIST_TAG]: () => Effect.succeed({ entries: [] }),
+    });
+    try {
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
+        /pty-host handshake failed — could not read control\.core\.hello/,
+      );
     } finally {
       listener.close();
     }
   });
 
   it("rejects a current daemon whose two handshake surfaces name different boots", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-connect-split-boot-")),
-      "pty-host.sock",
-    );
+    const socketPath = sockPath("kolu-connect-split-boot-");
     const listener = await serveCurrent(socketPath, {
       controlStartedAtOffset: 1,
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toThrow(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         /pty-host handshake failed — control-core reports boot .* but system\.version reports/,
       );
     } finally {
@@ -307,10 +266,7 @@ describe("connectKaval — identity comes only from frozen hello", () => {
   });
 
   it("rejects a current kaval whose frozen identity is only half-present", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-connect-partial-identity-")),
-      "pty-host.sock",
-    );
+    const socketPath = sockPath("kolu-connect-partial-identity-");
     const listener = await serveCurrent(socketPath, {
       controlIdentity: {
         staleKey: "",
@@ -318,10 +274,12 @@ describe("connectKaval — identity comes only from frozen hello", () => {
       },
     });
     try {
-      await expect(connectKaval(socketPath)).rejects.toThrow(
+      await expect(Effect.runPromise(connectKaval(socketPath))).rejects.toThrow(
         "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
       );
-      await expect(probeKavalStatus(socketPath)).rejects.toThrow(
+      await expect(
+        Effect.runPromise(probeKavalStatus(socketPath)),
+      ).rejects.toThrow(
         "incomplete control-core identity: buildId and commit must be both absent, both empty, or both non-empty",
       );
     } finally {
@@ -332,17 +290,14 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
   it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
-    // A foreign squatter (or wedged daemon) accepts the unix connection but sends
-    // no oRPC reply — without a deadline the read would pend forever and hang boot,
-    // and the gate-less-squatter recovery would never reach its foreign refusal.
-    // `connectKaval` carries NO deadline override (fail-fast: no knobs), so this
-    // drives the supervisor's single baked policy under FAKE timers — production
-    // and this test run the same parameterless implementation, just with the clock
-    // advanced.
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-silent-")),
-      "pty-host.sock",
-    );
+    // A foreign squatter (or wedged daemon) accepts the unix connection but
+    // sends no reply — without a deadline the read would pend forever and hang
+    // boot, and the gate-less-squatter recovery would never reach its foreign
+    // refusal. `connectKaval` carries NO deadline override (fail-fast: no
+    // knobs), so this drives the supervisor's single baked policy under FAKE
+    // timers — production and this test run the same parameterless
+    // implementation, just with the clock advanced.
+    const socketPath = sockPath("kolu-silent-");
     const server = createServer(() => {
       // accept, then never respond
     });
@@ -351,7 +306,7 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     // the deadline timer is the one thing under our control.
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = connectKaval(socketPath).then(
+      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
         () => "resolved",
         (e: unknown) => (e as Error).message,
       );
@@ -367,15 +322,24 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
     }
   });
 
-  it("rejects on the 10s version deadline after detecting a pre-fragment daemon", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-legacy-silent-")),
-      "pty-host.sock",
-    );
-    const listener = await serveLegacyHangingVersion(socketPath);
+  it("rejects on the 10s version deadline when the frozen hello answers but system.version never does", async () => {
+    // The SECOND deadline, distinct from the supervisor-owned 30s frozen-hello
+    // one: this daemon is reachable and identifies itself, then wedges on the
+    // versioned read. Both deadlines are baked constants, never knobs.
+    const socketPath = sockPath("kolu-version-silent-");
+    const listener = await serveFake(socketPath, {
+      [HELLO_TAG]: () =>
+        Effect.succeed({
+          stateRoot: "/run/kaval-wedged",
+          surfaceVersion: PTY_HOST_CONTRACT_VERSION,
+          controlCoreVersion: "1.0",
+          startedAt: 424_242,
+        }),
+      [VERSION_TAG]: () => Effect.never,
+    });
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = connectKaval(socketPath).then(
+      const outcome = Effect.runPromise(connectKaval(socketPath)).then(
         () => "resolved",
         (e: unknown) => (e as Error).message,
       );
@@ -386,6 +350,41 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       );
     } finally {
       vi.useRealTimers();
+      listener.close();
+    }
+  });
+});
+
+describe("connectKaval — in-epoch contract skew is DATA, not a transport failure", () => {
+  it("refuses a speakable peer whose contract version this build cannot accept", async () => {
+    // The distinction D6 rests on: the link is fine, the frames decode, the
+    // handshake reads — and the verdict is then computed from two strings. A
+    // supervisor that could not tell this from a broken link could not tell a
+    // wrong-version daemon (recycle it) from a foreign squatter (leave it).
+    const socketPath = sockPath("kolu-connect-skew-");
+    const listener = await serveFake(socketPath, {
+      [HELLO_TAG]: () =>
+        Effect.succeed({
+          stateRoot: "/run/kaval-skewed",
+          surfaceVersion: "1.0",
+          controlCoreVersion: "1.0",
+          startedAt: 424_242,
+        }),
+      [VERSION_TAG]: () =>
+        Effect.succeed({
+          contractVersion: "1.0",
+          pid: process.pid,
+          startedAt: 424_242,
+        }),
+    });
+    try {
+      await expect(
+        Effect.runPromise(connectKaval(socketPath)),
+      ).rejects.toMatchObject({
+        daemonVersion: "1.0",
+        requiredVersion: PTY_HOST_CONTRACT_VERSION,
+      });
+    } finally {
       listener.close();
     }
   });
@@ -402,33 +401,9 @@ describe("probeKavalForConvergence — frozen production path", () => {
       mkdtempSync(join(tmpdir(), "kolu-probe-absent-")),
       "no.sock",
     );
-    await expect(probeKavalForConvergence(missing)).resolves.toBeNull();
-  });
-
-  it("old daemon exiting between missing-fragment detection and the legacy redial ⇒ null", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-exit-")),
-      "pty-host.sock",
-    );
-    const listener = await serveLegacy(socketPath);
-    const realDestroy = Socket.prototype.destroy;
-    let listenerClosed = false;
-    const destroySpy = vi
-      .spyOn(Socket.prototype, "destroy")
-      .mockImplementation(function (this: Socket, error?: Error) {
-        if (!listenerClosed) {
-          listenerClosed = true;
-          listener.close();
-        }
-        return realDestroy.call(this, error);
-      });
-    try {
-      await expect(probeKavalForConvergence(socketPath)).resolves.toBeNull();
-      expect(listenerClosed).toBe(true);
-    } finally {
-      destroySpy.mockRestore();
-      listener.close();
-    }
+    await expect(
+      Effect.runPromise(probeKavalForConvergence(missing)),
+    ).resolves.toBeNull();
   });
 
   it("W8.2: isNoListenerError accepts both ECONNREFUSED and ENOENT (classifier pin)", () => {
@@ -443,104 +418,53 @@ describe("probeKavalForConvergence — frozen production path", () => {
     expect(isNoListenerError(new Error("boom"))).toBe(false);
   });
 
-  it("socket accepts but handshake never answers ⇒ REJECTS (not null)", async () => {
+  it("socket accepts but nothing ever answers ⇒ REJECTS (not null)", async () => {
     // Distinguishes catch-to-null (wave-6 regression) from honest absence:
     // resolving null here would mute the failure and adopt nothing as free.
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-probe-silent-")),
-      "pty-host.sock",
-    );
-    const server = createServer(() => {
-      // accept, never answer control.core.hello
+    const socketPath = sockPath("kolu-probe-silent-");
+    const server = createServer((sock) => {
+      sock.on("error", () => {});
+      // Read our frames, answer none of them — never `control.core.hello`.
+      sock.resume();
     });
     await new Promise<void>((resolve) => server.listen(socketPath, resolve));
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     try {
-      const outcome = probeKavalForConvergence(socketPath).then(
-        (v) => (v === null ? "null" : "probe"),
-        (e: unknown) => (e as Error).message,
+      const outcome = Effect.runPromise(
+        probeKavalForConvergence(socketPath),
+      ).then(
+        (v) => (v === null ? ("null" as const) : ("probe" as const)),
+        (e: unknown) => e,
       );
       for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r));
-      await vi.advanceTimersByTimeAsync(30_000);
+      // Deliberately LESS than the frozen hello's 30 s deadline: a peer that
+      // accepts and stays mute is classified at the dial's own silence bound
+      // (D6/#9), so this probe must already have settled here. Before that
+      // bound existed this same clock had to run all the way to 30 s.
+      await vi.advanceTimersByTimeAsync(10_000);
       const result = await outcome;
-      // Must reject with the deadline message — never resolve null.
+      // Must reject — never resolve null, never yield an identity.
       expect(result).not.toBe("null");
       expect(result).not.toBe("probe");
-      expect(result).toMatch(/control-core hello timed out after 30000ms/);
+      expect(isUnspeakableProtocolError(result)).toBe(true);
+      if (!isUnspeakableProtocolError(result)) throw new Error("unreachable");
+      expect(result.evidence.trigger).toBe("silence");
     } finally {
       vi.useRealTimers();
       server.close();
     }
   });
 
-  it("pre-fragment fallback preserves the old daemon's observed version and boot, never its legacy build identity", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-version-")),
-      "pty-host.sock",
-    );
-    const { listener, startedAt } = await serveLegacyVersionOnly(
-      socketPath,
-      "5.4",
-    );
-    try {
-      const probe = await probeKavalForConvergence(socketPath);
-      expect(probe).not.toBeNull();
-      if (probe === null) throw new Error("legacy served daemon became null");
-      expect(probe.identity).toEqual({
-        contractVersion: "5.4",
-        build: { kind: "off-nix" },
-      });
-      expect(probe.instanceKey).toEqual(instanceKeyFromStartedAt(startedAt));
-      probe.dispose();
-    } finally {
-      listener.close();
-    }
-  });
-
-  it("pre-fragment daemon on the same contract is an older-build nudge, never a clean adopt", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-probe-legacy-nudge-")),
-      "pty-host.sock",
-    );
-    const { listener } = await serveLegacyVersionOnly(
-      socketPath,
-      PTY_HOST_CONTRACT_VERSION,
-    );
-    try {
-      const probe = await probeKavalForConvergence(socketPath);
-      expect(probe).not.toBeNull();
-      if (probe === null) throw new Error("legacy served daemon became null");
-      expect(
-        decide(
-          {
-            capability: "not-drainable",
-            baked: {
-              contractVersion: PTY_HOST_CONTRACT_VERSION,
-              build: daemonBuild("current-kaval-build"),
-            },
-            onContractSkew: { kind: "recycle" },
-            onBuildMismatch: { kind: "nudge-human" },
-          },
-          probe.identity,
-        ),
-      ).toMatchObject({ kind: "report-mismatch" });
-      probe.dispose();
-    } finally {
-      listener.close();
-    }
-  });
-
   it("fragment-only server ⇒ frozen identity + startedAt key + observed dispose", async () => {
-    const socketPath = join(
-      mkdtempSync(join(tmpdir(), "kolu-probe-live-")),
-      "pty-host.sock",
-    );
+    const socketPath = sockPath("kolu-probe-live-");
     const listener = await serveFrozenIdentity(socketPath);
     // Spy the production Socket.destroy boundary — a no-op dispose leaves this
     // call count unchanged and turns the test red (W8.2).
     const destroySpy = vi.spyOn(Socket.prototype, "destroy");
     try {
-      const probe = await probeKavalForConvergence(socketPath);
+      const probe = await Effect.runPromise(
+        probeKavalForConvergence(socketPath),
+      );
       expect(probe).not.toBeNull();
       if (probe === null) {
         throw new Error("unreachable: probe null after expect");

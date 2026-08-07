@@ -53,10 +53,22 @@ export type {
   SocketOccupancy,
 } from "osfacts-client";
 
-import type { SocketOccupancy } from "osfacts-client";
+import type { Effect } from "effect";
+import type { OsfactsClientError, SocketOccupancy } from "osfacts-client";
 
-/** Ask the OS which processes hold `socketPath`. Injected on `EndpointSpec` so
- *  the spine never learns which env var a given consumer bakes the binary into. */
+/**
+ * Ask the OS which processes hold `socketPath`. Injected on `EndpointSpec` so
+ * the spine never learns which env var a given consumer bakes the binary into.
+ *
+ * An **Effect**, and its error channel is `osfacts-client`'s own union rather
+ * than a wrapper of this package's making. Both halves of the answer — the
+ * `SocketOccupancy` above and the three ways the read can fail — have the same
+ * provenance, and this module already re-exports the success half verbatim; a
+ * local error type would be a second name for facts it does not produce, and
+ * every consumer would have to unwrap it to get back the tag it needed. The
+ * three tags travel, so a caller can branch on *spawn vs version vs parse*
+ * without a cast.
+ */
 export type ReadSocketHolders = (
   socketPath: string,
-) => Promise<SocketOccupancy>;
+) => Effect.Effect<SocketOccupancy, OsfactsClientError>;

@@ -34,18 +34,17 @@
     "@kolu/surface-map": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
-    "@orpc/contract": "^1.13.13",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
+    "effect": "catalog:",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
-    "kolu-grok": "workspace:*",
     "kolu-xyne": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
+    "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-transcript-core": "workspace:*",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "ts-pattern": "^5.9.0"
   }
 }

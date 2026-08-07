@@ -15,6 +15,17 @@
 # Sharing the script with `ci::nix` makes the gap impossible to express rather
 # than merely detectable: a newly exposed output is warmed the day it lands,
 # and the cache job cannot disagree with CI about what this repo builds.
+#
+# Two later corrections, both from one production incident (juspay/kolu#2101,
+# F5(a) — a deploy whose remote hosts found no `padi-agent` in the cache and
+# compiled the daemon over ssh, while this job was green):
+#
+#   * WHICH COMMIT. On `pull_request` the checkout defaulted to the synthetic
+#     `refs/pull/N/merge` tree, so a branch's own head — the thing developers,
+#     odu, and deploys all build — was never warmed. See the `ref:` note below.
+#   * TRUST NOTHING, ASK THE CACHE. Pushing is an instruction, not a result.
+#     The final step queries the cache back for the remote-agent closures
+#     (`ci/agent-substitutable`), so "warmed" is an observation.
 name: nix-cache
 
 on:
@@ -43,7 +54,28 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
+      # `ref:` is LOAD-BEARING on `pull_request`. actions/checkout defaults to
+      # `github.ref`, which for that event is `refs/pull/N/merge` — a synthetic
+      # merge of the PR into its base that NOTHING else ever builds. Developers
+      # check out the branch head; odu's CI lanes fetch the pushed head SHA; a
+      # `nix run github:juspay/kolu/<branch>` resolves the head; and a
+      # pre-release deploy ships the head. Whenever the base has moved (i.e.
+      # always, on a branch that lives more than a day) those closures differ,
+      # so the job warmed a tree nobody wanted and left the one everybody wanted
+      # cold. That is how a production deploy found no `padi-agent` in the cache
+      # and provisioned remote hosts by COMPILING the daemon over ssh
+      # (juspay/kolu#2101, F5(a)) while this job sat green.
+      #
+      # Warm what people actually build. `head.sha` is empty on non-PR events,
+      # where the fallback is checkout's own default (the pushed master commit /
+      # the dispatched ref) — the correct tree there already.
+      #
+      # No new exposure: this is `pull_request`, not `pull_request_target`, so a
+      # fork PR gets no `ATTIC_TOKEN` and cannot push regardless of which of the
+      # two trees is checked out. Both refs already run this PR's Nix code.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
       # Defaults to Nix 2.34.7 (`nix profile add`).
@@ -151,3 +183,30 @@ jobs:
           # being true, add them here; do not assume they are warm.
           warm --kinds packages,checks ./website
           warm --kinds packages ./ci
+
+      # The push above is an INSTRUCTION; this is the VERDICT. It re-asks the
+      # cache — over the network, as a client — whether the remote-agent
+      # closures a `--host` dial provisions are really there, using the same
+      # source tree, package inventory and cache list `@kolu/surface-remote`
+      # reads at dial time. It asks by plain HTTP narinfo GET, so nix's local
+      # narinfo cache cannot answer on the server's behalf (that false-red this
+      # step once). Rationale and scope live in the script's header.
+      #
+      # NOTE THE BOUNDARY: green here is a receipt about a COMMIT, and it lands
+      # tens of minutes after that commit becomes deployable. It does not, and
+      # cannot, cover the artifact an operator ships — see `ci/agent-preflight`,
+      # which is the deploy-host half of this.
+      #
+      # Placed HERE and not in `ci/mod.just` on purpose: the odu lanes run
+      # concurrently with this job on the same commit, so an odu node would be
+      # asking before the answer could be yes. After our own `attic push`, in
+      # our own job, the question has a real answer — and a red here means the
+      # exact thing it says, on both platforms the matrix covers.
+      #
+      # It is a HARD failure, not a warning. A soft-fail would restore the state
+      # this whole job was already in during the incident: green, and cold.
+      - name: Verify the agent closures are substitutable
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ci/agent-substitutable

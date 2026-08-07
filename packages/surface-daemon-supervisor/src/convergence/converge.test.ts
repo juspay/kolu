@@ -18,6 +18,7 @@ import {
   daemonBuild,
   type Logger,
 } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEndpointForKoluTest as createEndpoint } from "../createEndpoint.kolu.testlib.ts";
 
@@ -97,6 +98,13 @@ type BindMode = "spawn" | "adopt" | "refuse";
  */
 async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
   policy: ConvergencePolicy<Cap>;
+  /**
+   * The probe fixture stays PROMISE-shaped and is lifted to the endpoint's
+   * Effect seam by {@link realEndpoint} itself (`Effect.tryPromise`, one site
+   * below). A fixture that throws therefore reaches `observeProbe` as a typed
+   * FAILURE — exactly what an Effect-native probe raises — so the classification
+   * under test is the production one, while each case stays a plain async body.
+   */
   probe: () => Promise<
     ReturnType<typeof drainableProbe> | ReturnType<typeof plainProbe> | null
   >;
@@ -145,35 +153,43 @@ async function realEndpoint<Cap extends "drainable" | "not-drainable">(opts: {
     hostId: "test",
     home: { dir, gatePath, socketPath },
     policy: opts.policy,
-    // Test probes are Cap-agnostic fixtures; cast into the endpoint Cap.
+    // Test probes are Cap-agnostic fixtures; the `any` return erases into the
+    // endpoint Cap (a zero-arg fn is assignable to the probe slot as-is).
     // biome-ignore lint/suspicious/noExplicitAny: test fixture Cap erase
-    probe: opts.probe as any,
+    probe: (): any =>
+      Effect.tryPromise({
+        try: () => opts.probe(),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
     driver: {
-      spawn: async () => {
-        await listen();
-      },
+      // A VALUE, not a thunk (see `DaemonDriver`): re-running the description IS
+      // "spawn again", so `suspend` is what re-listens on each recycle.
+      spawn: Effect.suspend(() => Effect.promise(() => listen())),
     },
-    connect: async () => {
-      connectAttempt += 1;
-      if (mode === "refuse") {
-        throw new Error("connect unreachable (non-skew)");
-      }
-      if (
-        opts.refuseConnectFromAttempt !== undefined &&
-        connectAttempt >= opts.refuseConnectFromAttempt
-      ) {
-        throw new Error("connect refuse (non-skew) after prior hold");
-      }
-      return {
-        client: "c",
-        identity: { id: "i" },
-        startedAt: startedAtOf(),
-        dispose: () => {
-          opts.onConnDispose?.();
-        },
-        onClose: () => {},
-      };
-    },
+    connect: () =>
+      Effect.suspend(() => {
+        connectAttempt += 1;
+        if (mode === "refuse") {
+          return Effect.fail(new Error("connect unreachable (non-skew)"));
+        }
+        if (
+          opts.refuseConnectFromAttempt !== undefined &&
+          connectAttempt >= opts.refuseConnectFromAttempt
+        ) {
+          return Effect.fail(
+            new Error("connect refuse (non-skew) after prior hold"),
+          );
+        }
+        return Effect.succeed({
+          client: "c",
+          identity: { id: "i" },
+          startedAt: startedAtOf(),
+          dispose: () => {
+            opts.onConnDispose?.();
+          },
+          onClose: () => {},
+        });
+      }),
     log: silent,
     onStatus: () => {},
     socketReadyMs: 200,
@@ -200,18 +216,15 @@ function drainableProbe(
     disposed: false,
     drained: false,
     drainCeilingMs: hooks.ceilingMs ?? 50,
-    fireDrain: async () => {
+    fireDrain: Effect.sync(() => {
       p.drained = true;
       hooks.onDrain?.();
-    },
-    awaitExit: async (signal: AbortSignal) => {
-      if (hooks.hang) {
-        await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
-        return;
-      }
-    },
+    }),
+    // `hang` models a link-down survivor with no process oracle: the wait never
+    // succeeds, and the framework's scope closing is what ends it. Under the old
+    // AbortSignal plug this was a promise that resolved on `abort`; interruption
+    // of `Effect.never` is the same fact without the listener.
+    awaitExit: hooks.hang ? Effect.never : Effect.void,
     dispose: () => {
       p.disposed = true;
     },
@@ -242,7 +255,7 @@ describe("converge — enactment + outcomes", () => {
       probe: async () => null,
     });
     // refuse mode: live gate+socket; connect non-skew failure → refused-or-failed
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("not-adopted");
   });
 
@@ -253,7 +266,7 @@ describe("converge — enactment + outcomes", () => {
       policy: KAVAL,
       probe: async () => probe,
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("recycled");
     expect(outcomeAdopted(out)).toBe(false);
     expect(probe.disposed).toBe(true);
@@ -266,7 +279,7 @@ describe("converge — enactment + outcomes", () => {
       policy: padiPolicy(id("1.0", "B")),
       probe: async () => probe,
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
   });
@@ -278,7 +291,7 @@ describe("converge — enactment + outcomes", () => {
       policy: padiPolicy(),
       probe: async () => probe,
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(probe.drained).toBe(true);
     expect(out.kind).toBe("drained-replacing");
     expect(outcomeAnomaly(out)).toBeNull();
@@ -296,7 +309,7 @@ describe("converge — enactment + outcomes", () => {
       policy: padiPolicy(id("1.1", "B"), 1),
       probe: async () => probe,
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("spawned-fresh");
     expect(outcomeAnomaly(out)).toBeNull();
   });
@@ -316,7 +329,7 @@ describe("converge — enactment + outcomes", () => {
         return drainableProbe(id("1.1", "A"), { instanceKey: ik(2) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     const a = outcomeAnomaly(out);
     expect(a?.kind).toBe("cross-supervisor");
@@ -349,7 +362,7 @@ describe("converge — enactment + outcomes", () => {
         return drainableProbe(id("1.1", "mine"), { instanceKey: ik(1) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(drains).toBeGreaterThanOrEqual(2);
     // Not mid-budget adopted-stale while maxAttempts=3 and only 2 same-lineage drains.
     expect(out.kind).not.toBe("adopted-stale");
@@ -372,7 +385,7 @@ describe("converge — enactment + outcomes", () => {
         return null;
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     // Outcome and reality agree: held connection was released.
@@ -404,7 +417,7 @@ describe("converge — enactment + outcomes", () => {
         return plainProbe(id("5.0", "legacy"), { instanceKey: ik(1) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("mismatch-reported");
     expect(out.kind === "mismatch-reported" ? out.running.build : null).toEqual(
       daemonBuild("legacy"),
@@ -439,7 +452,7 @@ describe("converge — enactment + outcomes", () => {
         });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(drains).toBe(1);
     expect(out.kind).toBe("refused");
     expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
@@ -459,7 +472,7 @@ describe("converge — enactment + outcomes", () => {
         throw new Error("ECONNRESET: successor dial failed");
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     const a = outcomeAnomaly(out);
     expect(a?.kind).toBe("unconverged");
@@ -481,7 +494,7 @@ describe("converge — enactment + outcomes", () => {
         throw new Error("EPERM: dial blocked");
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     const a = outcomeAnomaly(out);
     expect(a?.kind).toBe("unconverged");
@@ -532,7 +545,7 @@ describe("converge — enactment + outcomes", () => {
         return p;
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(drains).toBe(0);
     expect(out.kind).toBe("refused");
     expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
@@ -558,7 +571,7 @@ describe("converge — enactment + outcomes", () => {
         return drainableProbe(id("9.0", "stale"), { instanceKey: ik(1) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(out.kind).not.toBe("adopted-stale");
     expect(outcomeAnomaly(out)?.kind).toBe("skew-refused");
@@ -576,7 +589,7 @@ describe("converge — enactment + outcomes", () => {
         throw new Error("PROTOCOL: handshake explode");
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
@@ -611,7 +624,7 @@ describe("converge — enactment + outcomes", () => {
         throw new Error("EPIPE: drainable re-probe died");
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(outcomeAdopted(out)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
     const a = outcomeAnomaly(out);
@@ -655,38 +668,39 @@ describe("converge — enactment + outcomes", () => {
         onContractSkew: { kind: "recycle" as const },
         onBuildMismatch: { kind: "nudge-human" as const },
       },
-      probe: async (socketPath: string) => {
-        // Primary empty; hint socket answers with legacy build + matching key.
-        if (socketPath === primarySock) return null;
-        if (socketPath === hintSock) {
-          return plainProbe(id("5.0", "legacy"), { instanceKey: ik(1) });
-        }
-        return null;
-      },
+      probe: (socketPath: string) =>
+        Effect.sync(() => {
+          // Primary empty; hint socket answers with legacy build + matching key.
+          if (socketPath === primarySock) return null;
+          if (socketPath === hintSock) {
+            return plainProbe(id("5.0", "legacy"), { instanceKey: ik(1) });
+          }
+          return null;
+        }),
       driver: {
-        spawn: async () => {
-          throw new Error("must not spawn — should adopt hint");
-        },
+        spawn: Effect.fail(new Error("must not spawn — should adopt hint")),
       },
       // W6.4: primary connect must NOT be used for the hint topology.
-      connect: async (_socketPath: string) => {
-        primaryConnects += 1;
-        throw new Error(
-          "primary connect must not be called for adoptHint path",
-        );
-      },
+      connect: (_socketPath: string) =>
+        Effect.suspend(() => {
+          primaryConnects += 1;
+          return Effect.fail(
+            new Error("primary connect must not be called for adoptHint path"),
+          );
+        }),
       adoptHint: {
         home: { dir: hintDir, gatePath: hintGate, socketPath: hintSock },
-        connect: async (_socketPath: string) => {
-          hintConnects += 1;
-          return {
-            client: "hint-client",
-            identity: { staleKey: "legacy" },
-            startedAt: 1,
-            dispose: () => {},
-            onClose: () => {},
-          };
-        },
+        connect: (_socketPath: string) =>
+          Effect.suspend(() => {
+            hintConnects += 1;
+            return Effect.succeed({
+              client: "hint-client",
+              identity: { staleKey: "legacy" },
+              startedAt: 1,
+              dispose: () => {},
+              onClose: () => {},
+            });
+          }),
         onAdopted: () => {},
       },
       log: silent,
@@ -697,7 +711,7 @@ describe("converge — enactment + outcomes", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(primaryConnects).toBe(0);
     expect(hintConnects).toBe(1);
     expect(out.kind).toBe("mismatch-reported");
@@ -728,11 +742,11 @@ describe("converge — enactment + outcomes", () => {
         throw new Error("EPIPE: reconverge probe failed");
       },
     });
-    const first = await converge(endpoint);
+    const first = await Effect.runPromise(converge(endpoint));
     expect(outcomeAdopted(first)).toBe(true);
     expect(endpoint.current()).toBeDefined();
 
-    const second = await converge(endpoint);
+    const second = await Effect.runPromise(converge(endpoint));
     expect(second.kind).toBe("refused");
     expect(outcomeAdopted(second)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
@@ -762,7 +776,7 @@ describe("converge — enactment + outcomes", () => {
         return drainableProbe(id("1.1", "mine"), { instanceKey: ik(1) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("adopted");
     expect(out.kind).not.toBe("adopted-stale");
     expect(outcomeAnomaly(out)).toBeNull();
@@ -782,7 +796,7 @@ describe("converge — enactment + outcomes", () => {
         return drainableProbe(id("1.1", "mine"), { instanceKey: ik(99) });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
@@ -800,7 +814,10 @@ describe("converge — enactment + outcomes", () => {
    *
    * Floor: every CallExpression whose callee has static property name `"bind"`
    * (dot **or** computed string), on **any** object, must sit as
-   * `consumeBindResult(await <call>, …)`. Reject destructuring/extraction of a
+   * `consumeBindResult(yield* <call>, …)`. (It was `await <call>` while the fold
+   * was async; the bind seam is an Effect now, so the delegating `yield*` IS the
+   * same position — the pin's force is unchanged, only the operator moved.)
+   * Reject destructuring/extraction of a
    * bind property (every ObjectPattern, not just VariableDeclarator) and calls
    * of resulting aliases. A `.bind` member is a safe field projection ONLY when
    * the complete enclosing member chain is a pure read (e.g. `outcome.bind.kind`);
@@ -956,14 +973,20 @@ describe("converge — enactment + outcomes", () => {
       );
     }
 
+    /** `yield* <expr>` — the delegating yield, which is what consumes an Effect
+     *  inside `Effect.gen`. A NON-delegating `yield` is not it. */
+    function isDelegatingYield(node: AstNode): boolean {
+      return node.type === "YieldExpression" && node.delegate === true;
+    }
+
     function checkBindCallTopology(
       parent: AstNode | null,
       grand: AstNode | null,
     ): void {
       bindCallCount += 1;
-      if (!parent || parent.type !== "AwaitExpression") {
+      if (!parent || !isDelegatingYield(parent)) {
         violations.push(
-          "bind() call is not directly awaited (stored-promise or bare call)",
+          "bind() call is not directly yielded (stored-effect or bare call)",
         );
         return;
       }
@@ -975,7 +998,7 @@ describe("converge — enactment + outcomes", () => {
         grand.arguments[0] !== parent
       ) {
         violations.push(
-          "awaited bind() is not the first argument of consumeBindResult",
+          "yielded bind() is not the first argument of consumeBindResult",
         );
       }
     }
@@ -1083,24 +1106,27 @@ describe("converge — enactment + outcomes", () => {
 
   /** Legitimate consumer kept beside each escape so count-only pins cannot pass. */
   const LEGIT = `
-async function ok(ctx: { bind: () => Promise<unknown> }, c: unknown) {
-  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
+function* ok(ctx: { bind: () => Effect.Effect<unknown> }, c: unknown) {
+  return consumeBindResult(yield* ctx.bind(), c, { kind: "plain" });
 }
 `;
 
-  it("W8–W10 confinement: every .bind() call is consumeBindResult(await …) (receiver-neutral)", () => {
+  it("W8–W10 confinement: every .bind() call is consumeBindResult(yield* …) (receiver-neutral)", () => {
     const src = readFileSync(
       fileURLToPath(new URL("./converge.ts", import.meta.url)),
       "utf8",
     );
     expect(() => assertBindCallTopology(src)).not.toThrow();
-    expect(src).toMatch(/async function consumeBindResult\b/);
+    // The fold is Effect-shaped now: `consumeBindResult` must be a plain
+    // function returning an Effect, never re-async'd behind the pin's back.
+    expect(src).toMatch(/^function consumeBindResult\b/m);
+    expect(src).not.toMatch(/async function consumeBindResult\b/);
   });
 
   it("W8.1 confinement is red against renamed-variable escape (proven)", () => {
     const renameEscapeFixture = `
-async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void; baseCtx: unknown }) {
-  const result = await args.bind();
+function* enactDrainOnce(args: { bind: () => Effect.Effect<BindResult>; releaseHeld: () => void; baseCtx: unknown }) {
+  const result = yield* args.bind();
   if (result.kind === "refused-or-failed") {
     args.releaseHeld();
     return { kind: "refused", adopted: false as const };
@@ -1113,8 +1139,8 @@ async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHe
     );
 
     const destructure = `
-async function bad(ctx: { bind: () => Promise<BindResult> }) {
-  const { kind } = await ctx.bind();
+function* bad(ctx: { bind: () => Effect.Effect<BindResult> }) {
+  const { kind } = yield* ctx.bind();
   return kind;
 }
 `;
@@ -1123,11 +1149,11 @@ async function bad(ctx: { bind: () => Promise<BindResult> }) {
     );
   });
 
-  it("W9 confinement is red against stored-promise and alias escapes (proven)", () => {
-    const storedPromiseFixture = `
-async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
+  it("W9 confinement is red against stored-effect and alias escapes (proven)", () => {
+    const storedEffectFixture = `
+function* enactDrainOnce(args: { bind: () => Effect.Effect<BindResult>; releaseHeld: () => void }) {
   const pending = args.bind();
-  const result = await pending;
+  const result = yield* pending;
   if (result.kind === "refused-or-failed") {
     args.releaseHeld();
     return { kind: "refused", adopted: false as const };
@@ -1136,14 +1162,14 @@ async function enactDrainOnce(args: { bind: () => Promise<BindResult>; releaseHe
 }
 ${LEGIT}
 `;
-    expect(() => assertBindCallTopology(storedPromiseFixture)).toThrow(
-      /not directly awaited|stored-promise/,
+    expect(() => assertBindCallTopology(storedEffectFixture)).toThrow(
+      /not directly yielded|stored-effect/,
     );
 
     const aliasFixture = `
-async function bad(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
+function* bad(ctx: { bind: () => Effect.Effect<BindResult> }, c: unknown) {
   const bind = ctx.bind;
-  const result = await bind();
+  const result = yield* bind();
   return result;
 }
 ${LEGIT}
@@ -1155,8 +1181,8 @@ ${LEGIT}
 
   it("W10 confinement is red against renamed-receiver, computed-member, destructured-alias (proven)", () => {
     const renamedReceiver = `
-async function bad(fold: { bind: () => Promise<BindResult>; releaseHeld: () => void }) {
-  const r = await fold.bind();
+function* bad(fold: { bind: () => Effect.Effect<BindResult>; releaseHeld: () => void }) {
+  const r = yield* fold.bind();
   if (r.kind === "refused-or-failed") {
     fold.releaseHeld();
     return { kind: "refused" as const };
@@ -1170,8 +1196,8 @@ ${LEGIT}
     );
 
     const computedMember = `
-async function bad(args: { bind: () => Promise<BindResult> }) {
-  const r = await args["bind"]();
+function* bad(args: { bind: () => Effect.Effect<BindResult> }) {
+  const r = yield* args["bind"]();
   return r;
 }
 ${LEGIT}
@@ -1181,9 +1207,9 @@ ${LEGIT}
     );
 
     const destructuredAlias = `
-async function bad(ctx: { bind: () => Promise<BindResult> }) {
+function* bad(ctx: { bind: () => Effect.Effect<BindResult> }) {
   const { bind } = ctx;
-  const r = await bind();
+  const r = yield* bind();
   return r;
 }
 ${LEGIT}
@@ -1196,8 +1222,8 @@ ${LEGIT}
   it("W11 confinement is red against param/assignment destructure and .bind.call (proven)", () => {
     // Finding 30: VariableDeclarator-only destructure left these green.
     const parameterDestructure = `
-async function bad({ bind }: { bind: () => Promise<BindResult> }) {
-  const r = await bind();
+function* bad({ bind }: { bind: () => Effect.Effect<BindResult> }) {
+  const r = yield* bind();
   return r;
 }
 ${LEGIT}
@@ -1207,10 +1233,10 @@ ${LEGIT}
     );
 
     const assignmentDestructure = `
-async function bad(ctx: { bind: () => Promise<BindResult> }) {
-  let bind: () => Promise<BindResult>;
+function* bad(ctx: { bind: () => Effect.Effect<BindResult> }) {
+  let bind: () => Effect.Effect<BindResult>;
   ({ bind } = ctx);
-  const r = await bind();
+  const r = yield* bind();
   return r;
 }
 ${LEGIT}
@@ -1220,14 +1246,28 @@ ${LEGIT}
     );
 
     const bindCallChain = `
-async function bad(fold: { bind: () => Promise<BindResult> }) {
-  const r = await fold.bind.call(fold);
+function* bad(fold: { bind: () => Effect.Effect<BindResult> }) {
+  const r = yield* fold.bind.call(fold);
   return r;
 }
 ${LEGIT}
 `;
     expect(() => assertBindCallTopology(bindCallChain)).toThrow(
       /bind member chain used as call|bind\.call/,
+    );
+  });
+
+  it("W8.2 confinement is red against an `await`-shaped bind (the pre-Effect operator)", () => {
+    // The operator moved from `await` to `yield*` when the fold became an
+    // Effect. Proving the checker is RED against the old shape is what keeps
+    // this migration from silently un-pinning itself.
+    const awaitShaped = `
+async function bad(ctx: { bind: () => Promise<BindResult> }, c: unknown) {
+  return consumeBindResult(await ctx.bind(), c, { kind: "plain" });
+}
+`;
+    expect(() => assertBindCallTopology(awaitShaped)).toThrow(
+      /not directly yielded|stored-effect/,
     );
   });
 
@@ -1254,7 +1294,7 @@ ${LEGIT}
         });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
@@ -1289,7 +1329,7 @@ ${LEGIT}
         });
       },
     });
-    const out = await converge(endpoint);
+    const out = await Effect.runPromise(converge(endpoint));
     expect(out.kind).toBe("refused");
     expect(outcomeAdopted(out)).toBe(false);
     expect(endpoint.current()).toBeUndefined();
@@ -1306,16 +1346,16 @@ describe("convergeAdmit — connector arm", () => {
   it("matched build → adopt", async () => {
     const policy = connectorPolicy(id("1.1", "B"));
     const budget = createConnectorDrainBudget(policy);
-    const out = await convergeAdmit({
-      running: { ...id("1.1", "B"), instanceKey: ik(1) },
-      budget,
-      drain: async () => {
-        throw new Error("should not drain");
-      },
-      awaitExit: async () => {},
-      ceilingMs: 50,
-      log: silent,
-    });
+    const out = await Effect.runPromise(
+      convergeAdmit({
+        running: { ...id("1.1", "B"), instanceKey: ik(1) },
+        budget,
+        drain: Effect.fail(new Error("should not drain")),
+        awaitExit: Effect.void,
+        ceilingMs: 50,
+        log: silent,
+      }),
+    );
     expect(out).toEqual({ kind: "adopt" });
   });
 
@@ -1323,39 +1363,40 @@ describe("convergeAdmit — connector arm", () => {
     const policy = connectorPolicy(id("1.1", "B"));
     const budget = createConnectorDrainBudget(policy);
     let drained = false;
-    const out = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: ik(1) },
-      budget,
-      drain: async () => {
-        drained = true;
-      },
-      awaitExit: async () => {}, // process oracle says exited
-      ceilingMs: 50,
-      log: silent,
-    });
+    const out = await Effect.runPromise(
+      convergeAdmit({
+        running: { ...id("1.1", "A"), instanceKey: ik(1) },
+        budget,
+        drain: Effect.sync(() => {
+          drained = true;
+        }),
+        awaitExit: Effect.void, // process oracle says exited
+        ceilingMs: 50,
+        log: silent,
+      }),
+    );
     expect(drained).toBe(true);
     expect(out.kind).toBe("replaced");
   });
 
-  it("F3: awaitExit only aborts (link-down, no process oracle) → not replaced", async () => {
+  it("F3: awaitExit never succeeds (link-down, no process oracle) → not replaced", async () => {
     const policy = connectorPolicy(id("1.1", "B"), 1);
     const budget = createConnectorDrainBudget(policy);
     let drained = false;
-    const out = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: ik(1) },
-      budget,
-      drain: async () => {
-        drained = true;
-      },
-      // Never resolves until abort — models link-down without process death.
-      awaitExit: async (signal) => {
-        await new Promise<void>((resolve) => {
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
-      },
-      ceilingMs: 30,
-      log: silent,
-    });
+    const out = await Effect.runPromise(
+      convergeAdmit({
+        running: { ...id("1.1", "A"), instanceKey: ik(1) },
+        budget,
+        drain: Effect.sync(() => {
+          drained = true;
+        }),
+        // Never succeeds — models link-down without process death. The ceiling
+        // wins and the framework interrupts this wait.
+        awaitExit: Effect.never,
+        ceilingMs: 30,
+        log: silent,
+      }),
+    );
     expect(drained).toBe(true);
     expect(out.kind).not.toBe("replaced");
     if (out.kind === "adopt-stale" || out.kind === "refuse") {
@@ -1369,25 +1410,27 @@ describe("convergeAdmit — connector arm", () => {
   it("two-supervisor drain war ends in cross-supervisor with BOTH keys", async () => {
     const policy = connectorPolicy(id("1.1", "mine"), 3);
     const budget = createConnectorDrainBudget(policy);
-    const first = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: ik(1) },
-      budget,
-      drain: async () => {},
-      awaitExit: async () => {},
-      ceilingMs: 50,
-      log: silent,
-    });
+    const first = await Effect.runPromise(
+      convergeAdmit({
+        running: { ...id("1.1", "A"), instanceKey: ik(1) },
+        budget,
+        drain: Effect.void,
+        awaitExit: Effect.void,
+        ceilingMs: 50,
+        log: silent,
+      }),
+    );
     expect(first.kind).toBe("replaced");
-    const second = await convergeAdmit({
-      running: { ...id("1.1", "A"), instanceKey: ik(2) },
-      budget,
-      drain: async () => {
-        throw new Error("should not drain");
-      },
-      awaitExit: async () => {},
-      ceilingMs: 50,
-      log: silent,
-    });
+    const second = await Effect.runPromise(
+      convergeAdmit({
+        running: { ...id("1.1", "A"), instanceKey: ik(2) },
+        budget,
+        drain: Effect.fail(new Error("should not drain")),
+        awaitExit: Effect.void,
+        ceilingMs: 50,
+        log: silent,
+      }),
+    );
     expect(second.kind).toBe("refuse");
     if (
       second.kind === "refuse" &&
@@ -1402,17 +1445,18 @@ describe("convergeAdmit — connector arm", () => {
 describe("F10: drainAndAwaitExit arms awaitExit before fireDrain", () => {
   it("awaitExit is invoked strictly before the drain verb fires", async () => {
     const order: string[] = [];
-    await drainAndAwaitExit(
-      async () => {
-        order.push("drain");
-      },
-      async (signal) => {
-        order.push("awaitExit-armed");
-        // Exit immediately after arm.
-        void signal;
-        order.push("awaitExit-resolved");
-      },
-      { ceilingMs: 100 },
+    await Effect.runPromise(
+      drainAndAwaitExit(
+        Effect.sync(() => {
+          order.push("drain");
+        }),
+        Effect.sync(() => {
+          order.push("awaitExit-armed");
+          // Exit immediately after arm.
+          order.push("awaitExit-resolved");
+        }),
+        { ceilingMs: 100 },
+      ),
     );
     expect(order[0]).toBe("awaitExit-armed");
     expect(order.indexOf("drain")).toBeGreaterThan(

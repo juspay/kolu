@@ -1,39 +1,41 @@
 /**
  * Pins `serveOverStdio`'s settled-result contract: serving ends when the
- * read stream does, and BOTH ways it can end resolve — never reject. The
- * error path is the regression that matters: a rejecting serve promise
- * turned any flaky peer (a reset socket, a pipe torn mid-frame) into an
- * unhandled rejection in the serving process, fatal under
+ * transport does, and EVERY way it can end resolves — never rejects. The error
+ * path is the regression that matters: a rejecting serve promise turned any
+ * flaky peer (a reset socket, a pipe torn mid-frame) into an unhandled
+ * rejection in the serving process, fatal under
  * `process.exit(1)`-on-unhandledRejection policies (it crashed kolu-server
- * twice from `serveOverUnixSocket`'s per-connection serves before this
- * contract was pinned).
+ * twice from `serveOverUnixSocket`'s per-connection serves before this contract
+ * was pinned).
  */
 import { PassThrough } from "node:stream";
-import { oc } from "@orpc/contract";
-import type { Router } from "@orpc/server";
-import { implement } from "@orpc/server";
-import type { StandardRequest } from "@orpc/standard-server";
-import { ClientPeer } from "@orpc/standard-server-peer";
-import { describe, expect, it, vi } from "vitest";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
+import { describe, expect, it } from "vitest";
 import { defineSurface } from "./define";
 import { stdioLink } from "./links/stdio";
-import { encodeFrame } from "./links/stdio-codec";
+import { createLoopbackPair, greetLoopback } from "./loopback";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
-// biome-ignore lint/suspicious/noExplicitAny: the shape `serveOverStdio` accepts, mirroring its own `Router<any, T>` param.
-function buildRouter(): Router<any, any> {
-  const surface = defineSurface({
+const surface = defineSurface({
+  procedures: {
+    sys: { ping: { output: Schema.Struct({ ok: Schema.Boolean }) } },
+  },
+});
+
+function buildServed(onPing?: () => void) {
+  const runtime = implementSurface(surface, {
     procedures: {
-      sys: { ping: { output: z.object({ ok: z.boolean() }) } },
+      sys: {
+        ping: () =>
+          Effect.sync(() => {
+            onPing?.();
+            return { ok: true };
+          }),
+      },
     },
   });
-  const runtime = implementSurface(surface, {
-    procedures: { sys: { ping: async () => ({ ok: true }) } },
-  });
-  // biome-ignore lint/suspicious/noExplicitAny: runtime.router is typed `unknown`; narrow to the `Router<any, any>` serving wants.
-  return runtime.router as Router<any, any>;
+  return { group: runtime.group, handlers: runtime.handlers };
 }
 
 describe("serveOverStdio — settled-result contract", () => {
@@ -41,7 +43,7 @@ describe("serveOverStdio — settled-result contract", () => {
     const read = new PassThrough();
     const write = new PassThrough();
     const serving = serveOverStdio({
-      router: buildRouter(),
+      ...buildServed(),
       transport: { read, write },
     });
     read.end();
@@ -52,7 +54,7 @@ describe("serveOverStdio — settled-result contract", () => {
     const read = new PassThrough();
     const write = new PassThrough();
     const serving = serveOverStdio({
-      router: buildRouter(),
+      ...buildServed(),
       transport: { read, write },
     });
     const reset = new Error("read ECONNRESET");
@@ -61,17 +63,14 @@ describe("serveOverStdio — settled-result contract", () => {
   });
 
   it("resolves — never rejects — on a NON-benign write failure (reason 'error')", async () => {
-    // The write half is the symmetric footgun to the read half above: a
-    // failed write emits 'error' on the write stream, and an 'error' with no
-    // listener is a hard crash — the same `process.exit(1)`-on-unhandled
-    // death the read side already guards. A write failure that is NOT a
-    // benign peer-gone death (no EPIPE/ERR_STREAM_DESTROYED code — e.g. an
-    // EIO/EACCES on a redirected stdout) is genuinely abnormal: serving ends
-    // as a settled `{ reason: "error", error }`, never a crash.
+    // The write half is the symmetric footgun to the read half: a failed write
+    // emits 'error' on the write stream, and an 'error' with no listener is a
+    // hard crash. A write failure that is NOT a benign peer-gone death (an
+    // EIO/EACCES on a redirected stdout) is genuinely abnormal.
     const read = new PassThrough();
     const write = new PassThrough();
     const serving = serveOverStdio({
-      router: buildRouter(),
+      ...buildServed(),
       transport: { read, write },
     });
     const broken = Object.assign(new Error("write EIO"), { code: "EIO" });
@@ -80,17 +79,15 @@ describe("serveOverStdio — settled-result contract", () => {
   });
 
   it("resolves with reason 'end' on a BENIGN write death (peer-gone EPIPE)", async () => {
-    // The other write-error arm: a real broken pipe (the parent exited, the
-    // unix-socket peer reset) carries code EPIPE, which the codec's
-    // `isBenignWriteError` classifies as clean peer-gone teardown. The
-    // funnel destroys the read stream WITHOUT the error, so the serve
-    // settles `{ reason: "end" }` — exactly like a clean EOF, on BOTH arms
-    // (this pins the override arm at the unit level; the default arm's
-    // exit-0 twin lives in peer-server.lifetime.test.ts).
+    // A real broken pipe (the parent exited, the unix-socket peer reset)
+    // carries EPIPE, which IS clean peer-gone teardown: on a parent death a
+    // pushing agent often sees stdout-EPIPE before stdin delivers EOF, and
+    // carrying that race as an error would nondeterministically flip the same
+    // teardown between exit 0 and exit 1 on the default arm.
     const read = new PassThrough();
     const write = new PassThrough();
     const serving = serveOverStdio({
-      router: buildRouter(),
+      ...buildServed(),
       transport: { read, write },
     });
     const gone = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
@@ -99,169 +96,131 @@ describe("serveOverStdio — settled-result contract", () => {
   });
 
   it("resolves with reason 'end' on a benign death of a SHARED duplex (the unix-socket shape)", async () => {
-    // `serveOverUnixSocket` passes ONE `net.Socket` as both read and write.
-    // Node marks a duplex destroyed BEFORE emitting 'error', so the write
-    // funnel's destroyed-guard defers and the same peer-gone EPIPE arrives
-    // as the READ-side rejection instead. The terminal classification must
-    // read it as clean teardown, exactly like the separate-stream shape —
-    // otherwise the identical death gets a different reason by shape.
+    // One `net.Socket` is both read and write. Node marks a duplex destroyed
+    // BEFORE emitting 'error', so the same peer-gone EPIPE can arrive on
+    // either half — the terminal classification must read it as clean teardown
+    // either way, or the identical death gets a different reason by shape.
     const duplex = new PassThrough();
     const serving = serveOverStdio({
-      router: buildRouter(),
+      ...buildServed(),
       transport: { read: duplex, write: duplex },
     });
     duplex.destroy(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
     await expect(serving).resolves.toEqual({ reason: "end" });
   });
 
-  it("resolves with reason 'end' when a response hits a write stream destroyed WITHOUT an error", async () => {
+  it("resolves with reason 'end' when the write stream is destroyed WITHOUT an error", async () => {
     // destroy() with no error emits NO 'error' event — Node reports
-    // ERR_STREAM_DESTROYED only to the write() callback — so the funnel
-    // never fires. Without framedSend's onPeerGone the serve promise would
-    // sit pending forever (on the default arm: the immortal orphan,
-    // re-spelled). A live request forces a response write into the dead
-    // stream; serving must settle as clean teardown.
-    const contract = {
-      add: oc
-        .input(z.object({ a: z.number(), b: z.number() }))
-        .output(z.number()),
-    };
-    const t = implement(contract);
-    const router = t.router({
-      add: t.add.handler(({ input }) => input.a + input.b),
-    });
-
-    const toServer = new PassThrough();
+    // ERR_STREAM_DESTROYED only to the write() callback — so nothing but the
+    // stream's 'close' can tell us the peer's read side is gone. Without that
+    // edge the serve promise would sit pending forever (on the default arm:
+    // the immortal orphan, re-spelled).
+    const read = new PassThrough();
     const deadEnd = new PassThrough();
     const serving = serveOverStdio({
-      router,
-      transport: { read: toServer, write: deadEnd },
+      ...buildServed(),
+      transport: { read, write: deadEnd },
     });
     deadEnd.destroy(); // silent: no 'error' event, callback-only failure
-
-    const client = stdioLink<typeof contract>({
-      read: new PassThrough(), // the response can never arrive
-      write: toServer,
-    });
-    // Intentional swallow: this call exists only to force the server's
-    // response write into the dead stream; its own rejection (the link
-    // tearing down under it) is the expected byproduct, and the assertion
-    // below on `serving` is the test's real observable.
-    void client.add({ a: 2, b: 3 }).catch(() => {});
-
     await expect(serving).resolves.toEqual({ reason: "end" });
+  });
+
+  it("fires onFirstRequest when the first inbound bytes arrive", async () => {
+    const pair = createLoopbackPair();
+    let firstSeen = false;
+    const serving = serveOverStdio({
+      ...buildServed(),
+      transport: pair.server,
+      onFirstRequest: () => {
+        firstSeen = true;
+      },
+    });
+    expect(firstSeen).toBe(false);
+
+    const readiness = await greetLoopback(pair);
+    const link = await stdioLink({
+      group: surface.group,
+      read: pair.client.read,
+      write: pair.client.write,
+      readiness,
+    });
+    await expect(
+      Effect.runPromise(link.dispatch.unary("surface/sys/ping", undefined)),
+    ).resolves.toEqual({ ok: true });
+    expect(firstSeen).toBe(true);
+
+    await link.dispose();
+    pair.client.write.end();
+    pair.server.write.end();
+    await serving;
   });
 });
 
 /**
- * The #1859 zombie, one level up: when `serveOverStdio` settles
- * `{ reason: "error" }` because the read loop hit a synchronous failure, the
+ * The #1859 zombie: when `serveOverStdio` settles `{ reason: "error" }` the
  * transport must actually be CLOSED — otherwise the socket stays alive while
- * the server-side accounting believes the connection is over, and later frames
- * keep reaching the (already closed) `ServerPeer`. This is the override-arm
- * harm the issue names (`serveOverUnixSocket`'s per-connection serves over one
+ * the serving accounting believes the connection is over, and later frames keep
+ * reaching handlers that nobody is supervising. This is the override-arm harm
+ * the issue names (`serveOverUnixSocket`'s per-connection serves over one
  * shared `net.Socket`).
- *
- * Reproduction note (repo rule #1690 — the inherited diagnosis is a hypothesis
- * until reproduced): a *corrupt inbound frame* does NOT reach this reject arm
- * through `serveOverStdio` today — `peer.message()` swallows a bad frame as a
- * caught rejection, never a synchronous throw, so the serve stays pending. The
- * only reject-arm trigger reachable through the real serve path is a
- * SYNCHRONOUS `onFrame` throw, of which the documented `onFirstRequest` hook is
- * the one production lever. The zombie itself is real: before the fix, with the
- * serve settled, a later genuine request still invoked the router handler.
  */
 describe("serveOverStdio — settled ⇒ transport closed (the #1859 zombie)", () => {
-  it("a serve settled {reason:'error'} closes the transport and stops reaching the router", async () => {
-    const contract = {
-      add: oc.input(z.object({ a: z.number() })).output(z.number()),
-    };
-    const t = implement(contract);
+  it("a serve settled {reason:'error'} closes the transport and stops reaching the handlers", async () => {
     let handlerCalls = 0;
-    const router = t.router({
-      add: t.add.handler(({ input }) => {
-        handlerCalls++;
-        return input.a;
-      }),
-    });
-
-    // Capture ONE genuine encoded request frame to replay AFTER the serve has
-    // settled — the decisive "did a later frame still reach the peer?" probe.
-    // A garbage frame can't witness this (peer.message swallows it with no
-    // router side effect); only a valid request invokes the handler.
-    // `send` emits the raw `EncodedMessage` union `encodeFrame` accepts, so keep
-    // that type — no cast needed at capture or replay.
-    const captured: (string | ArrayBufferLike | Uint8Array)[] = [];
-    const clientPeer = new ClientPeer((m) => {
-      captured.push(m);
-    });
-    const request: StandardRequest = {
-      method: "POST",
-      url: new URL("http://orpc/add"),
-      headers: {},
-      body: { json: { a: 7 }, meta: [] },
-      signal: undefined,
-    };
-    // Fire-and-swallow: this request exists ONLY to make `send` emit one encoded
-    // request frame (captured above). The mock router side never replies, so the
-    // request never resolves; its eventual teardown rejection is expected and
-    // irrelevant to what this test pins.
-    void clientPeer.request(request).catch(() => {});
-    await vi.waitFor(() => expect(captured).toHaveLength(1));
-
-    // The unix-socket shape: ONE duplex is both read and write. `onFirstRequest`
-    // throwing is the reachable synchronous read-loop failure (see the note
-    // above) that drives readFramedLines' frame-handler-failure reject arm.
-    const duplex = new PassThrough();
-    duplex.on("error", () => {}); // absorb the post-settle write on a destroyed stream
+    const pair = createLoopbackPair();
     const serving = serveOverStdio({
-      router,
-      transport: { read: duplex, write: duplex },
+      ...buildServed(() => {
+        handlerCalls++;
+      }),
+      transport: pair.server,
       onFirstRequest: () => {
         throw new Error("synchronous read-loop failure");
       },
     });
-    duplex.write(`${encodeFrame("first")}\n`);
+
+    const readiness = await greetLoopback(pair);
+    const link = await stdioLink({
+      group: surface.group,
+      read: pair.client.read,
+      write: pair.client.write,
+      readiness,
+    });
+    // The call's own fate is not what is pinned here (the transport dies under
+    // it); the observable is the serve's verdict plus the handler count.
+    void Effect.runPromise(
+      link.dispatch.unary("surface/sys/ping", undefined),
+    ).catch(() => {});
 
     await expect(serving).resolves.toMatchObject({ reason: "error" });
+    expect(pair.server.read.destroyed).toBe(true);
+    expect(handlerCalls).toBe(0);
 
-    // The transport is actually closed — no zombie (dead by accounting yet
-    // alive by socket).
-    expect(duplex.destroyed).toBe(true);
-
-    // …and a later genuine request does NOT reach the router: the destroyed
-    // stream delivers no further 'data', so the handler is never invoked.
-    const requestFrame = captured[0];
-    if (requestFrame === undefined) {
-      throw new Error("expected a captured request frame to replay");
-    }
-    duplex.write(`${encodeFrame(requestFrame)}\n`);
+    // …and a later request cannot reach the handlers either.
+    void Effect.runPromise(
+      link.dispatch.unary("surface/sys/ping", undefined),
+    ).catch(() => {});
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(handlerCalls).toBe(0);
+    await link.dispose();
   });
 
-  it("an async onFirstRequest is rejected loudly (→ reason 'error'), not left to escape as an unhandled rejection", async () => {
-    // `onFirstRequest` is typed `() => void`, but TS's void-return compatibility
-    // lets an `async () => {}` satisfy it. Such a hook's rejection would escape
-    // the synchronous read loop as an unhandled rejection; the call site instead
+  it("an async onFirstRequest is rejected loudly (→ reason 'error'), not left to escape", async () => {
+    // `onFirstRequest` is typed `() => void`, but TS's void-return
+    // compatibility lets an `async () => {}` satisfy it. Such a hook's
+    // rejection would escape as an unhandled rejection; the call site instead
     // throws on a thenable return, routing it through the same classified arm a
     // synchronous throw takes.
-    const read = new PassThrough();
-    const write = new PassThrough();
+    const pair = createLoopbackPair();
     const serving = serveOverStdio({
-      router: buildRouter(),
-      transport: { read, write },
-      // Returns a Promise<void> — satisfies `() => void`, but is NOT synchronous.
+      ...buildServed(),
+      transport: pair.server,
       onFirstRequest: async () => {},
     });
-    read.write(`${encodeFrame("first")}\n`);
+    pair.client.write.write("{}\n");
+
     const end = await serving;
     expect(end).toMatchObject({ reason: "error" });
-    // The codec wraps the guard throw as SURFACE_STDIO_FRAME_HANDLER_FAILED and
-    // carries the original on `cause`.
-    const error = (end as { error: { code?: string; cause?: unknown } }).error;
-    expect(error).toMatchObject({ code: "SURFACE_STDIO_FRAME_HANDLER_FAILED" });
-    expect((error.cause as Error).message).toMatch(
+    expect(((end as { error: Error }).error as Error).message).toMatch(
       /onFirstRequest must be synchronous/,
     );
   });

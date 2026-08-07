@@ -1,6 +1,163 @@
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { foldCheckOutcomes, prResultEqual } from "./schemas.ts";
+import {
+  CheckStatusSchema,
+  foldCheckOutcomes,
+  PrInfoSchema,
+  PrStateSchema,
+  prResultEqual,
+} from "./schemas.ts";
 import type { PrInfo, PrResult } from "./schemas.ts";
+
+/** Byte-level wire contract for `PrInfo` — the format kolu's server emits and
+ *  every client decodes. These assert the exact JSON STRING (not just
+ *  decode-equality) because a key-order or key-presence change here is a
+ *  silent wire break across a rolling deploy. */
+describe("PrInfo wire format", () => {
+  const decode = Schema.decodeUnknownSync(PrInfoSchema);
+  const encode = Schema.encodeSync(PrInfoSchema);
+
+  it("encodes to the exact legacy JSON bytes", () => {
+    const pr: PrInfo = {
+      number: 148,
+      title: "Decomplect PR resolution state",
+      url: "https://github.com/juspay/kolu/pull/148",
+      state: "open",
+      checks: "fail",
+      checkRuns: [
+        { name: "ci::biome@x86_64-linux", outcome: "fail" },
+        { name: "ci::unit@x86_64-linux", outcome: "pass" },
+      ],
+    };
+    expect(JSON.stringify(encode(pr))).toBe(
+      '{"number":148,"title":"Decomplect PR resolution state",' +
+        '"url":"https://github.com/juspay/kolu/pull/148","state":"open",' +
+        '"checks":"fail","checkRuns":[' +
+        '{"name":"ci::biome@x86_64-linux","outcome":"fail"},' +
+        '{"name":"ci::unit@x86_64-linux","outcome":"pass"}]}',
+    );
+  });
+
+  it("encodes an empty checkRuns as a present [] (never omits the key)", () => {
+    // The decoding default must NOT bleed into encoding: a newer server still
+    // puts `checkRuns` on the wire, so an even-newer peer that grows a
+    // required reading of it sees the field.
+    const pr: PrInfo = {
+      number: 1,
+      title: "t",
+      url: "https://example.invalid/pull/1",
+      state: "merged",
+      checks: null,
+      checkRuns: [],
+    };
+    expect(JSON.stringify(encode(pr))).toBe(
+      '{"number":1,"title":"t","url":"https://example.invalid/pull/1",' +
+        '"state":"merged","checks":null,"checkRuns":[]}',
+    );
+  });
+
+  it("decodes an OLD server payload with no checkRuns key (rolling deploy)", () => {
+    // Rolling-deploy tolerance, not a fallback: an older server emitting
+    // payloads without this field must still parse on a newer client.
+    expect(
+      decode({
+        number: 7,
+        title: "old server",
+        url: "https://example.invalid/pull/7",
+        state: "open",
+        checks: "pending",
+      }),
+    ).toEqual({
+      number: 7,
+      title: "old server",
+      url: "https://example.invalid/pull/7",
+      state: "open",
+      checks: "pending",
+      checkRuns: [],
+    });
+  });
+
+  it("re-encodes a defaulted old payload with the key materialised", () => {
+    const wire = {
+      number: 7,
+      title: "old server",
+      url: "https://example.invalid/pull/7",
+      state: "open" as const,
+      checks: "pending" as const,
+    };
+    expect(JSON.stringify(encode(decode(wire)))).toBe(
+      '{"number":7,"title":"old server",' +
+        '"url":"https://example.invalid/pull/7","state":"open",' +
+        '"checks":"pending","checkRuns":[]}',
+    );
+  });
+
+  it("decodes a NEW server payload with checkRuns verbatim", () => {
+    expect(
+      decode({
+        number: 8,
+        title: "new server",
+        url: "https://example.invalid/pull/8",
+        state: "closed",
+        checks: null,
+        checkRuns: [{ name: "gate", outcome: "pass" }],
+      }).checkRuns,
+    ).toEqual([{ name: "gate", outcome: "pass" }]);
+  });
+
+  it("rejects an unknown state / outcome rather than defaulting it", () => {
+    const attempt = Schema.decodeUnknownResult(PrInfoSchema);
+    expect(
+      Result.isFailure(
+        attempt({
+          number: 9,
+          title: "t",
+          url: "u",
+          state: "draft",
+          checks: null,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        attempt({
+          number: 9,
+          title: "t",
+          url: "u",
+          state: "open",
+          checks: null,
+          checkRuns: [{ name: "gate", outcome: "skipped" }],
+        }),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("enum wire vocabularies", () => {
+  it("decodes every CheckStatus member", () => {
+    const decode = Schema.decodeUnknownSync(CheckStatusSchema);
+    expect(["pending", "pass", "fail"].map((m) => decode(m))).toEqual([
+      "pending",
+      "pass",
+      "fail",
+    ]);
+  });
+
+  it("decodes every PrState member", () => {
+    const decode = Schema.decodeUnknownSync(PrStateSchema);
+    expect(["open", "closed", "merged"].map((m) => decode(m))).toEqual([
+      "open",
+      "closed",
+      "merged",
+    ]);
+  });
+
+  it("rejects an unknown member", () => {
+    expect(
+      Result.isFailure(Schema.decodeUnknownResult(PrStateSchema)("draft")),
+    ).toBe(true);
+  });
+});
 
 describe("foldCheckOutcomes", () => {
   it("returns null for an empty list (no checks configured)", () => {

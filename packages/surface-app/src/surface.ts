@@ -14,8 +14,8 @@
  * under a key (e.g. `surfaceApp`), its wire path is `surface.surfaceApp.*`.
  */
 
-import { defineSurface } from "@kolu/surface/define";
-import { z } from "zod";
+import { defineSurface, type WireSchema } from "@kolu/surface/define";
+import { Schema } from "effect";
 import { clientIsStale } from "./index";
 
 /** The minimum build identity: the deployed commit. Extend it via `defineBuildInfo`. */
@@ -35,7 +35,7 @@ export interface BuildInfo {
 export interface BuildInfoDef<T extends BuildInfo = BuildInfo> {
   cells: {
     buildInfo: {
-      schema: z.ZodType<T>;
+      schema: WireSchema<T>;
       default: T;
       verbs: readonly ["get"];
     };
@@ -47,7 +47,7 @@ export interface BuildInfoDef<T extends BuildInfo = BuildInfo> {
  *  clean-ref-guarded commit comparison; extend `schema` (and `isStale`) to add
  *  more axes — e.g. kolu's pty-host divergence. */
 export function defineBuildInfo<T extends BuildInfo>(opts: {
-  schema: z.ZodType<T>;
+  schema: WireSchema<T>;
   default: T;
   isStale?: (server: T, clientCommit: string | undefined) => boolean;
 }): BuildInfoDef<T> {
@@ -67,21 +67,32 @@ export function defineBuildInfo<T extends BuildInfo>(opts: {
 
 /** The default build identity: `{ commit }`. drishti uses exactly this. */
 export const buildInfo: BuildInfoDef = defineBuildInfo({
-  schema: z.object({ commit: z.string() }),
+  schema: Schema.Struct({ commit: Schema.String }),
   default: { commit: "" },
 });
 
 /** What an identity probe reports: the server's `processId` — a value that
  *  changes when the server restarts, so a reconnect to a *different* process is
  *  a restart, not a transient drop. This schema is the single source of the
- *  probe's wire shape: the `ServerProbe` type is derived from it via `z.infer`
- *  (and re-exported from `/solid`), so the validator and the type can't desync. */
-export const ServerProbeSchema = z.object({ processId: z.string() });
+ *  probe's wire shape: the `ServerProbe` type is derived from it via
+ *  `typeof …Schema.Type` (and re-exported from `/solid`), so the validator and
+ *  the type can't desync.
+ *
+ *  WIRE format, byte-pinned by `surface.test.ts`: `{"processId":"<id>"}`, the
+ *  same bytes the zod original encoded (a required, non-optional string). */
+export const ServerProbeSchema = Schema.Struct({ processId: Schema.String });
 
 /** The probe's wire shape as a type, derived from `ServerProbeSchema` (the one
  *  source). An app may send a superset (the `/solid` provider is generic over
  *  the probe response — see its `P`). */
-export type ServerProbe = z.infer<typeof ServerProbeSchema>;
+export type ServerProbe = typeof ServerProbeSchema.Type;
+
+/** The probe's INPUT: no arguments. Spelled as an empty struct (not
+ *  `Schema.Void`) so the encoded payload stays the `{}` object the zod-era
+ *  contract put on the wire — `Schema.Void` would encode `null` (PLAN D8's
+ *  measured divergence (3)), changing the frame for a member whose shape is
+ *  part of the app handshake. */
+export const ServerProbeInputSchema = Schema.Struct({});
 
 /** Build the standalone surface-app surface for a given build-identity def: the
  *  `buildInfo` cell (read-only) plus the `identity.info` restart probe. The
@@ -97,7 +108,9 @@ export function surfaceAppSurfaceWith<T extends BuildInfo>(
   return defineSurface({
     cells: { ...def.cells },
     procedures: {
-      identity: { info: { input: z.object({}), output: ServerProbeSchema } },
+      identity: {
+        info: { input: ServerProbeInputSchema, output: ServerProbeSchema },
+      },
     },
   });
 }

@@ -1,0 +1,196 @@
+---
+title: Operations
+description: "Stop the kolu stack cleanly, roll back to an older release by hand, and run a second kolu beside a live one without touching it — the state roots, gate files, and SIGTERM discipline all three procedures share."
+order: 74
+section: Operate
+koluHero:
+  eyebrow: operate
+  headline: |
+    Stop it cleanly.
+    Test it {beside} itself.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
+
+Two procedures answer the same question: how do you run kolu *next to* — or
+*instead of* — the kolu already running on this machine, without damaging it?
+Stopping the stack by hand (what a rollback to an older release needs) and
+launching an isolated second instance share one vocabulary, so it is introduced
+once here and used by both.
+
+Everything below is about the [daemons](/architecture), not the web server. The
+server is a face you can restart freely; `padi` and `kaval` hold the state, and
+they are what a careless stop or a careless test run damages.
+
+## Three things to know first
+
+**Two state directories.** `KOLU_STATE_DIR` is the server's config store
+(`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's **state root**
+(`~/.local/state/padi`) — saved sessions, `padi.log`, and the anchor for
+everything else. The production launcher supplies both; a bare `padi` with
+neither set refuses to start rather than guess.
+
+**The padi state root is an identity.** Its absolute path is hashed to a short
+digest, and that digest names every socket and pid gate the daemons use. Two
+kolus with different padi state roots cannot see each other's daemons at all —
+not because anything refuses them, but because they compute entirely different
+paths.
+
+**Each daemon claims a pid gate** beside its socket, in the per-user runtime
+directory:
+
+| File | Holder |
+| --- | --- |
+| `<runtime>/padi-<digest>/padi.pid` | the padi daemon |
+| `<runtime>/kaval-<digest>/kaval.pid` | the kaval daemon under it |
+| `<runtime>/kaval-<digest>/state-root` | the state-root path that digest stands for |
+
+A gate file is one line — the pid, a tab, and the process start time — so
+`cut -f1` gets you the pid. Runtime directories are wiped on reboot; the state
+roots persist.
+
+`<runtime>` is `$XDG_RUNTIME_DIR` where it is set, which on Linux is
+`/run/user/$UID`. Where it is not (macOS), the daemons fall back to `/tmp` and
+carry your uid in the directory name instead — `/tmp/padi-<digest>-$UID/`. The
+commands below spell the Linux paths; on macOS substitute that shape.
+
+## Stop the stack
+
+<Aside type="caution" title="`pkill padi` matches nothing">
+  The daemons are Node processes — their process name is `node` (or
+  `MainThread`), and "padi" appears only in their argv. A bare `pkill padi`
+  silently matches zero processes and looks like it worked. This exact mistake
+  prolonged a real recovery. A `pkill -f padi` pattern does match, but it also
+  matches your editor's buffer name and anything else with the word in its
+  command line; read the pid from the gate file instead.
+</Aside>
+
+<Steps>
+
+1. **Stop the service first.** Otherwise its supervisor restarts the web server,
+   which spawns fresh daemons the moment you kill the ones you meant to stop.
+
+   ```sh
+   systemctl --user stop kolu
+   ```
+
+   On macOS the [home-manager module](/deployment) runs a launchd LaunchAgent
+   instead; unload that. If you started kolu by hand, stop that process.
+
+2. **SIGTERM each daemon by the pid in its gate file.**
+
+   ```sh
+   kill -TERM "$(cut -f1 /run/user/$UID/padi-*/padi.pid)"
+   kill -TERM "$(cut -f1 /run/user/$UID/kaval-*/kaval.pid)"
+   ```
+
+3. **Verify they are gone** before starting anything in their place.
+
+   ```sh
+   ps -p <pids>
+   ```
+
+</Steps>
+
+The whole shutdown as one line — service and both daemons, pids read from the
+gates:
+
+```sh
+systemctl --user stop kolu; kill -TERM $(cut -f1 /run/user/$UID/padi-*/padi.pid /run/user/$UID/kaval-*/kaval.pid 2>/dev/null) 2>/dev/null
+```
+
+Stale gate directories left by earlier state roots can linger in the runtime
+directory, so the glob may hand you a pid that no longer exists; signalling a
+dead pid is a harmless error, which is what the redirections absorb. Check with
+`ps` rather than trusting the exit status.
+
+<Aside type="caution" title="Do not reach for SIGKILL first">
+  SIGTERM is the sanctioned stop because padi's last act on that signal is to
+  persist the live session — its continuous autosave is throttled, so the blob
+  on disk otherwise trails the live workspace by up to half a second. SIGKILL
+  skips that final capture and makes the last autosave your recovery point.
+  Keep SIGKILL for a daemon that has already ignored a SIGTERM.
+</Aside>
+
+## Roll back to an older release
+
+Upgrading is hands-off. When a release changes the protocol the daemons speak,
+the **new** supervisor probes whatever is holding the socket, recognises a
+previous-epoch daemon, corroborates it against the gate file and the OS process
+table, and takes it over — on this machine and on each [remote
+host](/remote-hosts). Nothing to run by hand; the story users see is in
+[Troubleshooting](/troubleshooting#how-do-i-update-kolu).
+
+Going the other way is manual, and for one reason: **that takeover logic exists
+only in the newer binary.** An older kolu has no code for it. It meets the new
+daemon's socket, fails to speak its protocol, and refuses — so you have to clear
+the way yourself.
+
+<Steps>
+
+1. **Stop the stack** with the procedure above, SIGTERM and all. The final
+   capture it triggers is what the older build will restore from.
+
+2. **Confirm nothing survived** — `ps -p` on the pids you signalled. A daemon
+   still holding its socket will make the older build refuse exactly as before.
+
+3. **Start the older version.** It spawns fresh daemons of its own generation
+   and restores your terminals from the saved session blobs.
+
+</Steps>
+
+## Run a second kolu beside a live one
+
+<Aside type="caution" title="Prefer a separate machine">
+  A second kolu on this box shares its RAM and its kernel with production. A
+  pile-up of local builds and dev servers once drove the OOM killer to reap the
+  production kaval, taking every terminal with it. An ephemeral box is the safer
+  answer. The knobs below are the floor of isolation, not the ceiling.
+</Aside>
+
+Three environment settings make a `nix run` instance its own thing:
+
+```sh
+export KOLU_STATE_DIR="$HOME/tmp/kolu-test/state"     # server config store (default: ~/.config/kolu)
+export KOLU_PADI_STATE_DIR="$HOME/tmp/kolu-test/padi" # padi state root: sessions, gates, sockets
+nix run github:juspay/kolu -- --port 8681             # production listens on 7681
+```
+
+The launcher honours both variables when they are already set, and falls back to
+the production paths when they are not — which is exactly why forgetting one is
+dangerous rather than merely untidy.
+
+<Aside type="caution" title="Sharing a padi state root makes your test a deploy">
+  The supervisor takes over any daemon it can **corroborate**: a gate file under
+  *its own* padi runtime directory naming a pid the OS agrees is holding the
+  socket. Share `KOLU_PADI_STATE_DIR` with production and both instances hash to
+  the same digest — so the test instance reads production's gate, corroborates
+  production's daemon, and SIGTERMs it. Your "local test" has just performed the
+  production upgrade. With its own state root the digest differs, and there is
+  nothing of production's for it to find.
+</Aside>
+
+**A different `--port` isolates nothing by itself.** padi and kaval are keyed by
+the digest of the padi state root, not by the listen port; `--port` moves the
+web listener and leaves the daemons exactly where they were. It is there so two
+servers can coexist, not to keep them apart.
+
+To check your work, ask each running kaval which state root it belongs to:
+
+```sh
+cat /run/user/$UID/kaval-*/state-root
+```
+
+Two different paths means the two instances are genuinely separate. Your test
+path appearing beside nothing else — or `~/.local/state/padi` appearing twice —
+means they are not.
+
+<CardGrid>
+  <LinkCard title="Deployment" href="/deployment" description="the home-manager service, addresses, logs, and heap diagnostics" />
+  <LinkCard title="Architecture" href="/architecture" description="why the server, padi, and kaval recover on different clocks" />
+  <LinkCard title="Sessions, Sleep & Wake" href="/sessions" description="what the saved session blob actually restores" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="updates, flag days, and the everyday snags" />
+</CardGrid>

@@ -2,30 +2,36 @@
  * PIN (ii) #1719: `mirrorRemoteSurface`'s `done` must not resolve while any
  * per-key collection value pump is still settling.
  *
- * The consumer-side half of the #1719 fix. `mirrorCollection` spawns each
- * per-key value stream as a DETACHED `void (async…)()` IIFE that was never
- * joined into the mirror's settle graph — so on teardown `done` (hence
+ * The consumer-side half of the #1719 fix. `mirrorCollection` used to spawn each
+ * per-key value stream as a DETACHED `void (async…)()` IIFE that was never joined
+ * into the mirror's settle graph — so on teardown `done` (hence
  * `pumpRemoteSurface`'s `await mirror.done` and the loop's advance to the next
- * spawn) could resolve while a pump's `.next()` was still parked/settling. A
- * pull that then rejects has no awaiter left → the float.
+ * spawn) could resolve while a pump's `.next()` was still parked/settling. A pull
+ * that then rejected had no awaiter left → the float.
  *
- * The invariant this pins — deterministic under OUR contract, not orpc's
- * microtask ordering — is: OWNERSHIP. Every per-key pump is tracked and
- * awaited before `mirrorCollection` (and thus `done`) resolves, so a pump's
- * settle is ALWAYS observed. We prove it by parking a pump, ending the keys
- * stream (which drives `mirrorCollection`'s `finally`), and asserting that by
- * the time `done` resolves the pump's own `finally` has run. RED pre-fix
- * (`done` resolves first); GREEN post-fix.
+ * The invariant this pins is: OWNERSHIP. Every per-key pump is a CHILD FIBER of
+ * the keys loop's scope, so it is interrupted AND AWAITED before
+ * `mirrorCollection` (and thus `done`) resolves — a pump's settle is ALWAYS
+ * observed. We prove it by parking a pump on a never-ending stream, ending the
+ * keys stream (which closes the collection's scope), and asserting that by the
+ * time `done` resolves the pump's own finalizer has run — including a deliberate
+ * async hop inside it, so "awaited" means awaited, not merely "started".
+ *
+ * The mechanism moved (AbortController → fiber interruption) but the test does not
+ * assert the mechanism: it asserts the observable ordering, which is the law.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
 import { mirrorRemoteSurface } from "./mirrorRemoteSurface";
 
 const raceSurface = defineSurface({
   collections: {
-    items: { keySchema: z.string(), schema: z.object({ v: z.number() }) },
+    items: {
+      keySchema: Schema.String,
+      schema: Schema.Struct({ v: Schema.Number }),
+    },
   },
 });
 
@@ -36,55 +42,49 @@ const asClient = (c: unknown): any => c;
 describe("mirrorRemoteSurface — per-key pump ownership (#1719 pin ii)", () => {
   it("done does NOT resolve until every parked per-key value pump has settled", async () => {
     const upserts: Array<[string, { v: number }]> = [];
-    // The completion marker: set in the value pump's OWN `finally`, which runs
-    // whether the pump ends via abort-return (this test) or a thrown pull. If
-    // `done` awaits the pump (the fix), this is true when `done` resolves;
-    // if the pump is abandoned (pre-fix), `done` resolves first and it is false.
+    // The completion marker: set in the value pump's OWN finalizer, which runs
+    // whether the pump ends by interruption (this test) or by a failed pull. If
+    // `done` awaits the pump (the contract), this is true when `done` resolves;
+    // if the pump were abandoned, `done` would resolve first and it'd be false.
     let pumpSettled = false;
+    const firstUpsert = Promise.withResolvers<void>();
 
-    async function* valueStream(
-      signal: AbortSignal,
-    ): AsyncGenerator<{ v: number }> {
-      yield { v: 1 };
-      try {
-        // Park on the next pull until the collection's `finally` aborts our ctl.
-        await new Promise<void>((resolve) => {
-          if (signal.aborted) return resolve();
-          signal.addEventListener("abort", () => resolve(), { once: true });
-        });
-      } finally {
-        // A measurable microtask gap: pre-fix `done` has already resolved by
-        // the time this runs; post-fix `done` is awaiting exactly this.
-        await tick();
-        pumpSettled = true;
-      }
-    }
+    // One frame, then PARKED forever — only teardown ends this stream.
+    const valueStream = Stream.ensuring(
+      Stream.concat(Stream.make({ v: 1 }), Stream.never),
+      // A measurable async gap inside the finalizer: an implementation that
+      // merely *starts* teardown before resolving `done` fails here, only one
+      // that AWAITS the pump passes.
+      Effect.flatMap(Effect.promise(tick), () =>
+        Effect.sync(() => {
+          pumpSettled = true;
+        }),
+      ),
+    );
 
-    async function* keysStream(): AsyncGenerator<string[]> {
-      yield ["a"];
-      // Hold the keys stream open until the value pump has delivered its first
-      // frame and PARKED — only then end it, so the collection's `finally`
-      // (and the teardown race) fires against a genuinely-parked pump.
-      for (let i = 0; i < 500 && upserts.length === 0; i++) await tick();
-      // return → keys stream ends → `mirrorCollection`'s keysLoop finishes →
-      // its `finally` aborts the per-key ctl(s).
-    }
+    // Hold the keys stream open until the value pump has delivered its first
+    // frame and parked — only then end it, so the collection's scope closes
+    // against a genuinely-parked pump.
+    const keysStream = Stream.concat(
+      Stream.make(["a"]),
+      Stream.fromEffectDrain(Effect.promise(() => firstUpsert.promise)),
+    );
 
     const client = {
       surface: {
-        items: {
-          keys: (_input: unknown, _opts: unknown) => keysStream(),
-          get: (_input: { key: string }, opts: { signal: AbortSignal }) =>
-            valueStream(opts.signal),
-        },
+        items: { keys: () => keysStream, get: () => valueStream },
       },
     };
 
-    // No signal — matches `pumpRemoteSurface` (`hostFanout.ts:206`).
+    // No signal — matches `pumpRemoteSurface` (`hostFanout.ts:206`): teardown is
+    // driven by the keys stream ending, not by the caller.
     const { done } = mirrorRemoteSurface(raceSurface, asClient(client), {
       collections: {
         items: {
-          upsert: (k, v) => upserts.push([k, v as { v: number }]),
+          upsert: (k, v) => {
+            upserts.push([k, v]);
+            firstUpsert.resolve();
+          },
           remove: () => {},
         },
       },
@@ -92,7 +92,8 @@ describe("mirrorRemoteSurface — per-key pump ownership (#1719 pin ii)", () => 
 
     await done;
     // The load-bearing assertion: the pump's settle was OWNED — observed before
-    // `done`. Pre-fix the detached pump is abandoned and this is false.
+    // `done`. An abandoned (detached) pump makes this false.
     expect(pumpSettled).toBe(true);
+    expect(upserts).toEqual([["a", { v: 1 }]]);
   }, 15000);
 });

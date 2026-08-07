@@ -1,7 +1,7 @@
 /**
  * Mock-entry e2e harness — proves the map's vertical slice end-to-end through
  * `serveSurfaceMap` + `connectSurfaceMap`, with in-process entry surfaces served
- * via `directLink` and wired through a mock `MapRegistry`.
+ * via `directDispatch` and wired through a mock `MapRegistry`.
  *
  * Proves: (1) two entries served (no cross-talk), (2) a `useEntry` switch re-keys
  * synchronously, (3) two views of one cell cause ONE upstream subscription
@@ -10,17 +10,18 @@
  * (warming→connected + a fault member reads failed).
  */
 
-import { defineSurface } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
+import { defineSurface, surfaceTag } from "@kolu/surface/define";
+import { MapKeyUnknown } from "@kolu/surface/errors";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
-import type { AnyContractRouter } from "@orpc/contract";
-import type { createRouterClient } from "@orpc/server";
+import { runStreamScoped } from "@kolu/surface/solid";
+import { Effect, Schema, Stream } from "effect";
 import { createEffect, createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { connectSurfaceMap, type EntryState, floorOnLiveness } from "./client";
 import type { EntryStatus, KeyCodec } from "./define";
-import { testMembershipId } from "./testing";
+import { fold } from "./envelope";
 import {
   A,
   B,
@@ -48,6 +49,33 @@ import {
   type MapRegistry,
   serveSurfaceMap,
 } from "./server";
+import { testMembershipId } from "./testing";
+
+/** The map's own membership tags (the map is nameless in this harness, so it serves
+ *  at the transport root). Minted through the tag algebra, never spelled by hand. */
+const ENTRIES_GET_TAG = surfaceTag("surface/", "entries", "get");
+/** The entry surface's `terminals.upsert` tag, folded onto the map's own prefix (which
+ *  is the standalone prefix here). */
+const TERMINALS_UPSERT_TAG = surfaceTag("surface/", "terminals", "upsert");
+
+/** Drain a raw per-key membership stream in the background, tallying emits. Returns
+ *  the tally and the stopper — the tests' successor of the old
+ *  `AbortController` + `for await` pump (cancellation is fiber interruption now). */
+function drainStatuses(dispatch: SurfaceDispatch, key: string) {
+  const emits: Array<EntryStatus<TestFailure>> = [];
+  const stop = runStreamScoped(
+    dispatch.stream(ENTRIES_GET_TAG, { key }) as Stream.Stream<
+      EntryStatus<TestFailure>,
+      unknown
+    >,
+    {
+      onFrame: (s) => emits.push(s),
+      onEnd: () => {},
+      onFailure: () => {},
+    },
+  );
+  return { emits, stop };
+}
 
 describe("surface-map mock-entry e2e harness", () => {
   it("(1) serves two entries with no cross-talk", async () => {
@@ -55,12 +83,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 3, awaitingIds: ["x"] }).link,
+        makeEntry({ awaiting: 3, awaitingIds: ["x"] }).dispatch,
         connected(100),
       );
       addSession(
         B,
-        makeEntry({ awaiting: 7, awaitingIds: ["y", "z"] }).link,
+        makeEntry({ awaiting: 7, awaitingIds: ["y", "z"] }).dispatch,
         connected(200),
       );
 
@@ -81,12 +109,12 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 3, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 3, awaitingIds: [] }).dispatch,
         connected(100),
       );
       addSession(
         B,
-        makeEntry({ awaiting: 7, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 7, awaitingIds: [] }).dispatch,
         connected(100),
       );
 
@@ -112,7 +140,7 @@ describe("surface-map mock-entry e2e harness", () => {
     await createRoot(async (dispose) => {
       const { client, addSession } = setup();
       const entryA = makeEntry({ awaiting: 5, awaitingIds: [] });
-      addSession(A, entryA.link, connected(0));
+      addSession(A, entryA.dispatch, connected(0));
 
       const r1 = client.entry(A).cells.urgency.use();
       const r2 = client.entry(A).cells.urgency.use();
@@ -131,7 +159,7 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession, remove } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 9, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 9, awaitingIds: [] }).dispatch,
         connected(100),
       );
 
@@ -163,7 +191,7 @@ describe("surface-map mock-entry e2e harness", () => {
       remove(A);
       await settle();
 
-      expect(cellError).toBeUndefined(); // TYPED end — no socket-error frame
+      expect(cellError).toBeUndefined(); // TYPED end — no error frame
       expect(keys).not.toContain("a"); // dropped from the one authority
       expect(state).toEqual({ kind: "not-a-member" }); // total existence-as-a-value (no id)
       dispose();
@@ -184,7 +212,7 @@ describe("surface-map mock-entry e2e harness", () => {
         stD = view.byKey(D)?.() as EntryStatus | undefined;
       });
 
-      addSession(C, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
+      addSession(C, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
       });
       await settle();
@@ -224,7 +252,7 @@ describe("surface-map mock-entry e2e harness", () => {
 
       addSession(
         C,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
         connected(0),
       );
       await settle();
@@ -289,62 +317,52 @@ describe("surface-map mock-entry e2e harness", () => {
   // to a compile-fail in `entryConnectionState.test-d.ts` (a `@ts-expect-error` on a
   // failed arm missing `failure`), the honest home for "this state cannot be spelled".
 
-  it("(6) rpc folds {mapKey,input} to the keyed entry and rejects an absent key", async () => {
+  it("(6) the face folds {mapKey,input} to the keyed entry and rejects an absent key", async () => {
     await createRoot(async (dispose) => {
-      const { client, addSession } = setup();
+      const { client, addSession, mapDispatch } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 11, awaitingIds: ["p"] }).link,
+        makeEntry({ awaiting: 11, awaitingIds: ["p"] }).dispatch,
         connected(0),
       );
       addSession(
         B,
-        makeEntry({ awaiting: 22, awaitingIds: ["q"] }).link,
+        makeEntry({ awaiting: 22, awaitingIds: ["q"] }).dispatch,
         connected(0),
       );
 
-      // `Entry.rpc` is typed `SurfaceClient<ES>["rpc"]` (`unknown` at the generic map —
-      // the consumer casts to its own entry contract; here a minimal shape for the pin).
-      // A cell `get` is a subscription (resolves to an async iterable); a collection
-      // `upsert` is a one-shot procedure (resolves to a value).
-      type EntryRpc = {
-        surface: {
-          urgency: { get: () => Promise<AsyncIterable<{ awaiting: number }>> };
-          terminals: {
-            upsert: (input: {
-              key: string;
-              value: { title: string };
-            }) => Promise<unknown>;
-          };
-        };
-      };
+      // (a) THE FOLD — a raw member read through `entry(A).rpc`: the key-injecting
+      // DISPATCH folds `{ mapKey: A }` into the payload (the consumer passes NO key),
+      // and the map server unwraps it and routes to A's entry, so the snapshot is A's
+      // urgency, never B's. The SAME envelope fold the `.use()` subs ride, exercised
+      // at the addressing face.
+      // Narrowed PER MEMBER, not by re-typing the whole face: `SurfaceFace` is
+      // deliberately structural (per-member precision lives in the spec-derived
+      // bound faces), so the honest cast is on the one ref this test calls.
+      const urgencyGet = client.entry(A).rpc.surface.urgency
+        ?.get as () => Stream.Stream<{ awaiting: number }, unknown>;
+      const stream = urgencyGet();
+      const firstA = await Effect.runPromise(
+        Stream.runCollect(Stream.take(stream, 1)),
+      );
+      expect(firstA[0]?.awaiting).toBe(11); // routed to A by the fold, not B
 
-      // (a) THE FOLD — a raw rpc call through `entry(A)`: the key-injecting link folds
-      // `{ mapKey: A }` into the wire input (the consumer passes NO key), and the map
-      // server unwraps it and routes to A's entry, so the snapshot is A's urgency, never
-      // B's. The SAME envelope fold the `.use()` subs ride, exercised at the procedure
-      // client.
-      let firstA: { awaiting: number } | undefined;
-      const iterA = await (
-        client.entry(A).rpc as EntryRpc
-      ).surface.urgency.get();
-      for await (const item of iterA) {
-        firstA = item;
-        break;
-      }
-      expect(firstA?.awaiting).toBe(11); // routed to A by the fold, not B
-
-      // (b) TYPED REJECTION ON AN ABSENT KEY — a one-shot procedure (a collection
-      // `upsert`) through a never-a-member key cannot end gracefully like a sub's typed
-      // stream-end, so it REJECTS (`MAP_KEY_UNKNOWN`), never silently resolving to a
-      // no-op. This is the procedure-client half of the total-existence discipline the
-      // subs honor (an absent key is answered, never hung or swallowed).
-      await expect(
-        (client.entry(D).rpc as EntryRpc).surface.terminals.upsert({
-          key: "t1",
-          value: { title: "x" },
-        }),
-      ).rejects.toThrow(/not a member|MAP_KEY_UNKNOWN/);
+      // (b) TYPED REJECTION ON AN ABSENT KEY — a one-shot call (a collection `upsert`)
+      // through a never-a-member key cannot end gracefully like a sub's typed
+      // stream-end, so it FAILS with the declared `MapKeyUnknown` (D4), never silently
+      // resolving to a no-op. This is the procedure half of the total-existence
+      // discipline the subs honor (an absent key is answered, never hung or swallowed).
+      // Driven at the map's own wire tag with the envelope the face would have folded.
+      const rejection = await Effect.runPromise(
+        Effect.flip(
+          mapDispatch.unary(
+            TERMINALS_UPSERT_TAG,
+            fold("d", { key: "t1", value: { title: "x" } }),
+          ),
+        ),
+      );
+      expect(rejection).toBeInstanceOf(MapKeyUnknown);
+      expect(rejection).toMatchObject({ _tag: "MapKeyUnknown", mapKey: "d" });
       dispose();
     });
   });
@@ -364,31 +382,33 @@ describe("surface-map mock-entry e2e harness", () => {
     expect(typeof e.use).toBe("function"); // the read path (keys/get) remains
   });
 
-  it("(8) removal DURING the subscribe dial ends TYPED — no stale value for an absent member", async () => {
-    // The removal-during-await half of the teardown fix: `forwardStream` installs its
-    // membership watcher BEFORE the `await leaf()` dial and re-checks `has()` AFTER it, so a
-    // removal that lands WHILE a (delta) member is still dialing ends the stream TYPED,
-    // before it can yield a snapshot for a host that is no longer a member. (The other half
-    // — a delta member whose upstream REJECTS on the pool's destroy→delete→notify order —
-    // additionally needs hostFanout reordered to delete→notify→destroy; tracked separately.)
+  it("(8) removal DURING the subscribe ends TYPED — no stale value for an absent member", async () => {
+    // The removal-during-subscribe half of the teardown fix: `forwardStream` acquires
+    // its membership watcher BEFORE the upstream stream is subscribed, and latches
+    // `removed`, so a removal that lands WHILE a (delta) member's upstream is still
+    // opening ends the stream TYPED, before it can yield a snapshot for a host that is
+    // no longer a member.
     await createRoot(async (dispose) => {
       const map = buildTestMap({
         key: HostKeySchema,
         entry: entrySurface,
         codec: identityCodec,
       });
-      // A link whose `urgency.get` DIAL is slow — resolved by hand, modelling a member
-      // still provisioning when the host is removed.
-      let resolveDial!: (it: AsyncIterable<unknown>) => void;
-      const slowLink = {
-        surface: {
-          urgency: {
-            get: () =>
-              new Promise<AsyncIterable<unknown>>((res) => {
-                resolveDial = res;
-              }),
-          },
-        },
+      // An entry dispatch whose `urgency.get` stream never emits until released by
+      // hand — modelling a member still provisioning when the host is removed.
+      let release!: (value: {
+        awaiting: number;
+        awaitingIds: string[];
+      }) => void;
+      const pending = new Promise<{
+        awaiting: number;
+        awaitingIds: string[];
+      }>((res) => {
+        release = res;
+      });
+      const slowDispatch: SurfaceDispatch = {
+        unary: () => Effect.never,
+        stream: () => Stream.fromEffect(Effect.promise(() => pending)),
       };
       const entries = new Map<HostKey, EntrySession<"copying", TestFailure>>();
       const listeners = new Set<() => void>();
@@ -407,31 +427,31 @@ describe("surface-map mock-entry e2e harness", () => {
             failure: { cause: "fault", reason: "unknown" },
           },
       };
-      entries.set(A, { kind: "session", link: slowLink, state: connected(0) });
+      entries.set(A, {
+        kind: "session",
+        dispatch: slowDispatch,
+        state: connected(0),
+      });
       const served = serveSurfaceMap(map, registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
       createEffect(() => {
         cellError = cell.error();
       });
-      await settle(); // forwardStream is now blocked in `await leaf()` (the slow dial)
+      await settle(); // forwardStream is now parked on the slow upstream
 
-      // Remove A mid-dial: delete (has → false) + notify. The watcher (installed before the
-      // await) fires; the has-recheck (after the dial resolves) ends TYPED before yielding.
+      // Remove A mid-flight: delete (has → false) + notify. The watcher (acquired
+      // before the upstream subscribe) latches `removed` and interrupts the stream.
       entries.delete(A);
       for (const l of [...listeners]) l();
-      resolveDial(
-        (async function* () {
-          yield { awaiting: 1, awaitingIds: [] }; // the value that must NOT reach the client
-        })(),
-      );
+      release({ awaiting: 1, awaitingIds: [] }); // the value that must NOT reach the client
       await settle();
 
-      expect(cellError).toBeUndefined(); // typed end, not a stub error
+      expect(cellError).toBeUndefined(); // typed end, not an error frame
       expect(cell.value()).toBeUndefined(); // absent member never received a stale snapshot
+      served.dispose();
       dispose();
     });
   });
@@ -443,16 +463,15 @@ describe("surface-map mock-entry e2e harness", () => {
       codec: identityCodec,
     });
     // Liveness comes ONLY from a branded LiveSignalHandle (its watchdog `live`) or a
-    // constant-true in-process directLink. PR3 removed the `siblingKey` param (the slice
-    // key derives from `map.name` now), so there is no 3rd argument at all — a raw
-    // liveness accessor (the #1564 green-over-dead lie) has nowhere to go.
+    // constant-true in-process directDispatch. PR3 removed the `siblingKey` param (the
+    // tag scope derives from `map.name` now), so the 3rd argument is options-only — a
+    // raw liveness accessor (the #1564 green-over-dead lie) has nowhere to go.
     const bad = () =>
-      connectSurfaceMap(
-        map,
-        {} as unknown,
-        // @ts-expect-error — connectSurfaceMap takes exactly 2 args; there is no 3rd seam.
-        { live: () => true },
-      );
+      connectSurfaceMap(map, {} as unknown, {
+        // @ts-expect-error — the options bag carries only `onClientError`; there is no
+        // `{ live }` seam to smuggle a half-open-blind accessor through.
+        live: () => true,
+      });
     expect(bad).toBeDefined();
   });
 
@@ -464,7 +483,7 @@ describe("surface-map mock-entry e2e harness", () => {
 
       // Warming (connecting, no measured offset yet) → toLocal is NULL — the honest
       // pending, never a silent identity that would paint a foreign-clock instant as local.
-      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
+      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
       });
       await settle();
@@ -484,29 +503,33 @@ describe("surface-map mock-entry e2e harness", () => {
     });
   });
 
-  it("(11) remove+READD host-flap during the dial ends the ORIGINAL forward TYPED — a re-add cannot un-orphan the captured session", async () => {
-    // The `removed`-latch half of the teardown fix: the dial-reject / recheck / loop guards
-    // test whether THIS forward's key LEFT membership (a latch set in the watcher), NOT the
-    // live `has()`. So a host flap — remove (destroy S1) then re-add under a NEW session S2
-    // while the S1 dial is still in flight — cannot un-orphan this forward (bound to S1): the
-    // captured-session dial rejects into a TYPED END, never a raw stub error, even though
-    // `has()` is true again from the re-add. (With the old `has()`-gate it would `throw e`.)
+  it("(11) remove+READD host-flap during the subscribe ends the ORIGINAL forward TYPED — a re-add cannot un-orphan the captured session", async () => {
+    // The `removed`-latch half of the teardown fix: the upstream-failure and
+    // interrupt guards test whether THIS forward's key LEFT membership (a latch set in
+    // the watcher), NOT the live `has()`. So a host flap — remove (destroy S1) then
+    // re-add under a NEW session S2 while the S1 upstream is still opening — cannot
+    // un-orphan this forward (bound to S1): the captured session's failure becomes a
+    // TYPED END, never a raw error frame, even though `has()` is true again from the
+    // re-add. (With a live `has()` gate it would propagate the failure.)
     await createRoot(async (dispose) => {
       const map = buildTestMap({
         key: HostKeySchema,
         entry: entrySurface,
         codec: identityCodec,
       });
-      let rejectDial!: (e: Error) => void;
-      const slowRejectingLink = {
-        surface: {
-          urgency: {
-            get: () =>
-              new Promise<AsyncIterable<unknown>>((_res, rej) => {
-                rejectDial = rej;
-              }),
-          },
-        },
+      let rejectUpstream!: (e: Error) => void;
+      const pending = new Promise<never>((_res, rej) => {
+        rejectUpstream = rej;
+      });
+      const failingDispatch: SurfaceDispatch = {
+        unary: () => Effect.never,
+        stream: () =>
+          Stream.fromEffect(
+            Effect.tryPromise({
+              try: () => pending,
+              catch: (e) => e,
+            }),
+          ),
       };
       const entries = new Map<HostKey, EntrySession<"copying", TestFailure>>();
       const listeners = new Set<() => void>();
@@ -530,54 +553,57 @@ describe("surface-map mock-entry e2e harness", () => {
       };
       entries.set(A, {
         kind: "session",
-        link: slowRejectingLink,
+        dispatch: failingDispatch,
         state: connected(0),
       }); // session S1
       const served = serveSurfaceMap(map, registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
 
       const cell = client.entry(A).cells.urgency.use();
       let cellError: Error | undefined;
       createEffect(() => {
         cellError = cell.error();
       });
-      await settle(); // blocked in the S1 dial
+      await settle(); // parked on the S1 upstream
 
       // Flap: remove A (has → false; the watcher LATCHES removed=true) THEN re-add under a
-      // NEW session S2 (has → true again) — both before the S1 dial settles.
+      // NEW session S2 (has → true again) — both before the S1 upstream settles.
       entries.delete(A);
       fire();
       entries.set(A, {
         kind: "session",
-        link: makeEntry({ awaiting: 7, awaitingIds: [] }).link,
+        dispatch: makeEntry({ awaiting: 7, awaitingIds: [] }).dispatch,
         state: connected(0),
       }); // session S2
       fire();
 
-      // The captured S1 dial now rejects (its session was destroyed). `has(A)` is TRUE (S2),
-      // but THIS forward is orphaned to S1 → the `removed` latch ends it TYPED.
-      rejectDial(new Error("session S1 destroyed"));
+      // The captured S1 upstream now fails (its session was destroyed). `has(A)` is TRUE
+      // (S2), but THIS forward is orphaned to S1 → the `removed` latch ends it TYPED.
+      rejectUpstream(new Error("session S1 destroyed"));
       await settle();
 
       expect(cellError).toBeUndefined(); // typed end, NOT the raw "session S1 destroyed" error
+      served.dispose();
       dispose();
     });
   });
 
-  it("(12) connectSurfaceMap REJECTS a raw pre-sliced / unbranded wire link — no green-over-dead door", () => {
+  it("(12) connectSurfaceMap REJECTS a raw unbranded wire dispatch — no green-over-dead door", () => {
     const map = buildTestMap({
       key: HostKeySchema,
       entry: entrySurface,
       codec: identityCodec,
     });
-    // A bare unbranded link (a pre-sliced `scopeSibling` re-wrap, or any non-directLink,
-    // non-LiveSignalHandle value) would fall to `resolveTransport`'s by-exclusion
-    // constant-`true` and floor chips GREEN over a dead transport (#1564). connectSurfaceMap
-    // owns the slicing now, so a pre-sliced link is a misuse — it THROWS. (The in-process
-    // `directLink` path stays valid — every other pin's `setup()` exercises it.)
-    const bareLink = { surface: { urgency: { get: () => Promise.resolve() } } };
-    expect(() => connectSurfaceMap(map, bareLink as unknown)).toThrow(
+    // A bare unbranded dispatch (any non-directDispatch, non-LiveSignalHandle value)
+    // would fall to `resolveTransport`'s by-exclusion constant-`true` and floor chips
+    // GREEN over a dead transport (#1564). connectSurfaceMap owns the tag scoping now,
+    // so a hand-rolled dispatch is a misuse — it THROWS. (The in-process
+    // `directDispatch` path stays valid — every other pin's `setup()` exercises it.)
+    const bare: SurfaceDispatch = {
+      unary: () => Effect.never,
+      stream: () => Stream.empty,
+    };
+    expect(() => connectSurfaceMap(map, bare)).toThrow(
       /branded parent transport handle|pre-sliced or bare wire link/,
     );
   });
@@ -587,7 +613,7 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 3, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 3, awaitingIds: [] }).dispatch,
         connected(0),
       );
 
@@ -630,7 +656,7 @@ describe("surface-map mock-entry e2e harness", () => {
       const { client, addSession } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).dispatch,
         connected(0),
       );
       expect(() => {
@@ -656,11 +682,10 @@ describe("surface-map mock-entry e2e harness", () => {
         codec: identityCodec,
       });
       const served = serveSurfaceMap(map, registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
       addSession(
         A,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
         connected(0),
       );
 
@@ -681,6 +706,7 @@ describe("surface-map mock-entry e2e harness", () => {
       view?.byKey(A);
       await settle();
       expect(fires.length).toBe(1);
+      served.dispose();
       dispose();
     });
   });
@@ -689,74 +715,46 @@ describe("surface-map mock-entry e2e harness", () => {
     // The republish fires on EVERY registry change (SR9 folds the fine connection onto
     // the entry, so the family fires on every session frame). Without a gate, one
     // member's frame re-emits ALL members — O(M²) across a streaming pool. Count the
-    // SERVER's per-key emits on a RAW client, BENEATH the high-level client's own dedup,
-    // so this pins the republish gate itself (not the client's).
+    // SERVER's per-key emits on a RAW dispatch, BENEATH the high-level client's own
+    // dedup, so this pins the republish gate itself (not the client's).
     await createRoot(async (dispose) => {
-      const { served, addSession, setState } = setup();
-      // `directLink<AnyContractRouter>` types the client loosely (no `.surface`), so
-      // narrow to the one streaming call this test drives.
-      const raw = directLink<AnyContractRouter>(
-        served.router as Parameters<typeof createRouterClient>[0],
-      ) as unknown as {
-        surface: {
-          entries: {
-            get: (
-              input: { key: string },
-              opts?: { signal?: AbortSignal },
-            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
-          };
-        };
-      };
+      const { mapDispatch, addSession, setState } = setup();
       addSession(
         A,
-        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).dispatch,
         connected(100),
       );
       addSession(
         B,
-        makeEntry({ awaiting: 1, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 1, awaitingIds: [] }).dispatch,
         connected(200),
       );
 
-      // Open A's per-key status stream and drain it in the background, tallying emits.
-      const ac = new AbortController();
-      const aEmits: EntryStatus<TestFailure>[] = [];
-      const stream = (await raw.surface.entries.get(
-        { key: "a" },
-        { signal: ac.signal },
-      )) as AsyncIterable<EntryStatus<TestFailure>>;
-      const pump = (async () => {
-        try {
-          for await (const s of stream) aEmits.push(s);
-        } catch {
-          // aborted at teardown — expected
-        }
-      })();
+      const { emits, stop } = drainStatuses(mapDispatch, "a");
       await settle();
-      const snapshot = aEmits.length; // just the initial snapshot yield
+      const snapshot = emits.length; // just the initial snapshot yield
       expect(snapshot).toBe(1);
 
       // A sibling (B) frames twice — A is untouched, so A must NOT re-emit.
       setState(B, connected(201));
       setState(B, connected(202));
       await settle();
-      expect(aEmits.length).toBe(snapshot);
+      expect(emits.length).toBe(snapshot);
 
       // Re-set A to the SAME published value — equals-gated, still no re-emit.
       setState(A, connected(100));
       await settle();
-      expect(aEmits.length).toBe(snapshot);
+      expect(emits.length).toBe(snapshot);
 
       // A REAL change to A DOES emit (the gate never swallows a true change).
       setState(A, connected(999));
       await settle();
-      expect(aEmits.length).toBe(snapshot + 1);
+      expect(emits.length).toBe(snapshot + 1);
       expect(
-        (aEmits.at(-1) as { clockOffset?: number | null }).clockOffset,
+        (emits.at(-1) as { clockOffset?: number | null }).clockOffset,
       ).toBe(999);
 
-      ac.abort();
-      await pump;
+      stop();
       dispose();
     });
   });
@@ -775,42 +773,18 @@ describe("surface-map mock-entry e2e harness", () => {
     // classification seam). A structural fault has no session and therefore no tail to
     // grow, so it cannot vehicle this test.
     await createRoot(async (dispose) => {
-      const { served, addSession, setState } = setup();
-      const raw = directLink<AnyContractRouter>(
-        served.router as Parameters<typeof createRouterClient>[0],
-      ) as unknown as {
-        surface: {
-          entries: {
-            get: (
-              input: { key: string },
-              opts?: { signal?: AbortSignal },
-            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
-          };
-        };
-      };
+      const { mapDispatch, addSession, setState } = setup();
       // ONE failure value, reused across both frames, so `evidence` is the only field
       // that moves.
       const failure: TestFailure = { cause: "c", reason: "r" };
       addSession(
         A,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
         connected(0),
       );
       setState(A, failed(failure, [{ source: "local", line: "first" }]));
 
-      const ac = new AbortController();
-      const emits: EntryStatus<TestFailure>[] = [];
-      const stream = (await raw.surface.entries.get(
-        { key: "a" },
-        { signal: ac.signal },
-      )) as AsyncIterable<EntryStatus<TestFailure>>;
-      const pump = (async () => {
-        try {
-          for await (const s of stream) emits.push(s);
-        } catch {
-          // aborted at teardown — expected
-        }
-      })();
+      const { emits, stop } = drainStatuses(mapDispatch, "a");
       await settle();
       expect(emits.length).toBe(1);
 
@@ -832,8 +806,7 @@ describe("surface-map mock-entry e2e harness", () => {
         { source: "remote", line: "second" },
       ]);
 
-      ac.abort();
-      await pump;
+      stop();
       dispose();
     });
   });
@@ -849,19 +822,7 @@ describe("surface-map mock-entry e2e harness", () => {
     // STRUCTURALLY and the producer owes nothing: an equal value, however freshly built,
     // is quiet. (Test (16) is the other direction — a genuinely changed field re-emits.)
     await createRoot(async (dispose) => {
-      const { served, addSession, setState } = setup();
-      const raw = directLink<AnyContractRouter>(
-        served.router as Parameters<typeof createRouterClient>[0],
-      ) as unknown as {
-        surface: {
-          entries: {
-            get: (
-              input: { key: string },
-              opts?: { signal?: AbortSignal },
-            ) => Promise<AsyncIterable<EntryStatus<TestFailure>>>;
-          };
-        };
-      };
+      const { mapDispatch, addSession, setState } = setup();
       // Every value here is minted anew per frame — nothing is shared by reference.
       const mint = () =>
         failed({ cause: "c", reason: "r" }, [
@@ -869,24 +830,12 @@ describe("surface-map mock-entry e2e harness", () => {
         ]);
       addSession(
         A,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
         connected(0),
       );
       setState(A, mint());
 
-      const ac = new AbortController();
-      const emits: EntryStatus<TestFailure>[] = [];
-      const stream = (await raw.surface.entries.get(
-        { key: "a" },
-        { signal: ac.signal },
-      )) as AsyncIterable<EntryStatus<TestFailure>>;
-      const pump = (async () => {
-        try {
-          for await (const s of stream) emits.push(s);
-        } catch {
-          // aborted at teardown — expected
-        }
-      })();
+      const { emits, stop } = drainStatuses(mapDispatch, "a");
       await settle();
       expect(emits.length).toBe(1);
 
@@ -897,14 +846,13 @@ describe("surface-map mock-entry e2e harness", () => {
       await settle();
       expect(emits.length).toBe(1);
 
-      ac.abort();
-      await pump;
+      stop();
       dispose();
     });
   });
 });
 
-/** Like {@link makeRegistry}, but `resolve` can be armed to THROW exactly once for a given
+/** Like `makeRegistry`, but `resolve` can be armed to THROW exactly once for a given
  *  key — the one-shot escape hatch to drive a REAL membership-stream fault (as opposed to a
  *  `{failed}` status VALUE, which `addFault` already covers) through `entries`' per-key status
  *  stream, for the divergent-onError-consumers regression test above. */
@@ -941,10 +889,10 @@ function armableRegistry() {
     registry,
     addSession(
       k: HostKey,
-      link: unknown,
+      dispatch: SurfaceDispatch,
       state: EntryConnectionState<"copying", TestFailure>,
     ) {
-      entries.set(k, { kind: "session", link, state });
+      entries.set(k, { kind: "session", dispatch, state });
       fire();
     },
     armResolveThrow(k: HostKey) {
@@ -985,7 +933,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
         stB = view.byKey(B)?.() as EntryStatus<TestFailure> | undefined;
       });
 
-      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).link, {
+      addSession(A, makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch, {
         kind: "connecting",
       }); // → warming
       addFault(B, { cause: "drv-missing", reason: "no drv" }); // → failed
@@ -1007,7 +955,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
     await createRoot(async (dispose) => {
       const { client, addSession, remove } = setup();
       const entry1 = makeEntry({ awaiting: 1, awaitingIds: [] });
-      addSession(A, entry1.link, connected(0));
+      addSession(A, entry1.dispatch, connected(0));
 
       // A reactive useEntry sub over A's urgency cell (opened synchronously — `useEntry`
       // needs a live reactive owner). It is the sub that must REBUILD on a same-key re-add
@@ -1028,15 +976,16 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       remove(A);
       await settle();
       const entry2 = makeEntry({ awaiting: 2, awaitingIds: [] });
-      addSession(A, entry2.link, connected(0));
+      addSession(A, entry2.dispatch, connected(0));
       await settle();
 
       const id2 = idOf();
       expect(id2).toEqual(expect.any(String));
       expect(id2).not.toBe(id1); // never reused — a re-add is a NEW member
       // The REBUILD, proven two ways: the sub now reads the NEW session's value (not
-      // stranded at the old 1), and the new session's link got EXACTLY ONE fresh upstream
-      // forward — the stale sub was torn down and a genuinely fresh one opened against it.
+      // stranded at the old 1), and the new session's dispatch got EXACTLY ONE fresh
+      // upstream forward — the stale sub was torn down and a genuinely fresh one opened
+      // against it.
       expect(awaiting).toBe(2);
       expect(entry2.urgencyGetCount()).toBe(1);
       dispose();
@@ -1047,7 +996,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
     await createRoot(async (dispose) => {
       const { client, addSession, setState } = setup();
       const entry = makeEntry({ awaiting: 7, awaitingIds: [] });
-      addSession(A, entry.link, connected(0));
+      addSession(A, entry.dispatch, connected(0));
 
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.urgency.use();
@@ -1089,14 +1038,13 @@ describe("membership is time — opaque membershipId (PR3)", () => {
     const reg = makeRegistry();
     reg.addSession(
       A,
-      makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+      makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
       connected(0),
     );
 
     const readIdFromFreshServer = async (): Promise<string | undefined> => {
       const served = serveSurfaceMap(map, reg.registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
       let id: string | undefined;
       await createRoot(async (dispose) => {
         const idOf = idReader(client);
@@ -1126,7 +1074,7 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       const entryA = makeEntry({ awaiting: 4, awaitingIds: [] });
       // Add the member, then open BOTH subs SYNCHRONOUSLY — before `settle` propagates the
       // membership frame, so `membershipIdOf(A)` is still undefined and both open on pending.
-      addSession(A, entryA.link, connected(0));
+      addSession(A, entryA.dispatch, connected(0));
 
       const retained = client.entry(A).cells.urgency.use();
       let retainedAwaiting: number | undefined;
@@ -1165,10 +1113,9 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       });
       const reg = makeRegistry();
       const served = serveSurfaceMap(map, reg.registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
 
-      reg.addSession(A, makeLiveWhenEntry(1).link, connected(0));
+      reg.addSession(A, makeLiveWhenEntry(1).dispatch, connected(0));
 
       const [active] = createSignal<HostKey>(A);
       const cell = client.useEntry(active).cells.health.use();
@@ -1183,10 +1130,11 @@ describe("membership is time — opaque membershipId (PR3)", () => {
       // under a NEW session whose `health` reads a DIFFERENT value.
       reg.remove(A);
       await settle();
-      reg.addSession(A, makeLiveWhenEntry(2).link, connected(0));
+      reg.addSession(A, makeLiveWhenEntry(2).dispatch, connected(0));
       await settle();
 
       expect(n).toBe(2); // the standing sub REBUILT against the new session — not stranded at 1
+      served.dispose();
       dispose();
     });
   });
@@ -1194,9 +1142,9 @@ describe("membership is time — opaque membershipId (PR3)", () => {
 
 // The liveness floor `state()`/foldState applies (D3): a per-key chip must never paint
 // green over a dead map transport. The dead-link branch is unreachable through the harness
-// (a `directLink` is constant-live and a `LiveSignalHandle` is un-forgeable), so the floor
-// is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every status
-// through it with the resolved transport `live()`, so this IS the state() decision.
+// (a `directDispatch` is constant-live and a `LiveSignalHandle` is un-forgeable), so the
+// floor is extracted PURE (`floorOnLiveness`) and pinned here — foldState routes every
+// status through it with the resolved transport `live()`, so this IS the state() decision.
 describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
   it("downgrades a server-published 'connected' to 'warming' when our link is dead — membershipId preserved, fine word dropped (PR3)", () => {
     // The D3 defect: state() published `connected` while `live() === false`, painting a
@@ -1345,22 +1293,26 @@ describe("floorOnLiveness — the per-key liveness floor (#1568)", () => {
 // ── A member name shared by a CELL and a PROCEDURE namespace ──────────────────
 // padi's real `session` is a CELL {get, test__set} AND a procedure namespace
 // {restore, import, forfeit}. `entryMemberVerbs` emits it TWICE (primitives first,
-// procedures last), so a reset-not-merge router build (`inner[member] = {}`) would
-// DROP the cell's `get` handler when the procedures pass ran second — `session/get`
-// would 404 on every boot, breaking session-restore (the mocked-surface blind spot:
-// the other map test surfaces have zero procedures). This pins the accumulating merge.
+// procedures last). On the oRPC nested router that was a live hazard: a reset-not-merge
+// build (`inner[member] = {}`) DROPPED the cell's `get` handler when the procedures pass
+// ran second, 404-ing `session/get` on every boot and breaking session-restore. On a FLAT
+// tag namespace each verb owns its own tag, so the hazard is unspellable — this pins that
+// both verbs really are served, which is the property the old merge existed to give.
 describe("serveSurfaceMap — a member shared by a cell AND a procedure namespace", () => {
   const collisionSurface = defineSurface({
     cells: {
       session: {
-        schema: z.object({ n: z.number() }),
+        schema: Schema.Struct({ n: Schema.Number }),
         default: { n: 0 },
-        verbs: ["get"], // the CELL verb — clobbered by the bug
+        verbs: ["get"], // the CELL verb
       },
     },
     procedures: {
       session: {
-        ping: { input: z.object({ echo: z.string() }), output: z.string() },
+        ping: {
+          input: Schema.Struct({ echo: Schema.String }),
+          output: Schema.String,
+        },
       },
     },
   });
@@ -1372,36 +1324,36 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
         entry: collisionSurface,
         codec: identityCodec,
       });
+      // Both tags are advertised by the map's own group — the D1 route-set fact the
+      // old accumulate-don't-reset comment was really about.
+      expect([...map.group.requests.keys()]).toEqual(
+        expect.arrayContaining(["surface/session/get", "surface/session/ping"]),
+      );
+
       const reg = makeRegistry();
-      const { router } = implementSurface(collisionSurface, {
+      const { handlers } = implementSurface(collisionSurface, {
         cells: { session: { store: inMemoryStore({ n: 7 }) } },
         procedures: {
-          session: { ping: ({ input }) => input.echo },
+          session: { ping: ({ input }) => Effect.succeed(input.echo) },
         },
       });
-      const entryLink = directLink<typeof collisionSurface.contract>(
-        router as never,
-      );
       const served = serveSurfaceMap(map, reg.registry);
-      const mapLink = directLink<AnyContractRouter>(
-        // biome-ignore lint/suspicious/noExplicitAny: served router re-typed by the client via map.entry
-        served.router as any,
-      );
-      const client = connectSurfaceMap(map, mapLink);
-      reg.addSession(A, entryLink, connected(0));
+      const client = connectSurfaceMap(map, directDispatch(served));
+      reg.addSession(A, directDispatch({ handlers }), connected(0));
 
       // (a) the CELL verb resolves — session/get streams the served store value.
-      //     Under the bug this route was clobbered, so the sub 404'd and value()
-      //     never left the default { n: 0 }.
       const cell = client.entry(A).cells.session.use();
       await settle();
       expect(cell.value()).toEqual({ n: 7 });
 
       // (b) the PROCEDURE verb resolves — session/ping still routes (folds {mapKey}).
-      // biome-ignore lint/suspicious/noExplicitAny: Entry.rpc is `unknown` at the generic map
-      const rpc = client.entry(A).rpc as any;
-      expect(await rpc.surface.session.ping({ echo: "pong" })).toBe("pong");
+      expect(
+        await Effect.runPromise(
+          client.entry(A).procedures.session.ping({ echo: "pong" }),
+        ),
+      ).toBe("pong");
 
+      served.dispose();
       dispose();
     });
   });
@@ -1416,7 +1368,7 @@ describe("serveSurfaceMap — a member shared by a cell AND a procedure namespac
 // first read — the primary read path the type promises.
 const streamEntrySurface = defineSurface({
   streams: {
-    ping: { inputSchema: z.object({}), outputSchema: z.number() },
+    ping: { inputSchema: Schema.Struct({}), outputSchema: Schema.Number },
   },
 });
 
@@ -1424,19 +1376,10 @@ const streamEntrySurface = defineSurface({
  *  completes (typed end) — enough to prove the delegate is callable and tracks
  *  the underlying subscription. */
 function makeStreamEntry(value: number) {
-  const { router } = implementSurface(streamEntrySurface, {
-    streams: {
-      ping: {
-        source: () =>
-          (async function* () {
-            yield value;
-          })(),
-      },
-    },
+  const { handlers } = implementSurface(streamEntrySurface, {
+    streams: { ping: { source: () => Stream.make(value) } },
   });
-  return {
-    link: directLink<typeof streamEntrySurface.contract>(router as never),
-  };
+  return { dispatch: directDispatch({ handlers }) };
 }
 
 describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a non-callable proxy", () => {
@@ -1449,9 +1392,8 @@ describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a 
       });
       const reg = makeRegistry();
       const served = serveSurfaceMap(map, reg.registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
-      reg.addSession(A, makeStreamEntry(42).link, connected(0));
+      const client = connectSurfaceMap(map, directDispatch(served));
+      reg.addSession(A, makeStreamEntry(42).dispatch, connected(0));
 
       const [active] = createSignal<HostKey>(A);
       const sub = client.useEntry(active).streams.ping.use(() => ({}));
@@ -1468,6 +1410,7 @@ describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a 
       expect(sub.pending()).toBe(false);
       expect(sub.error()).toBeUndefined();
       expect(sub()).toBe(42);
+      served.dispose();
       dispose();
     });
   });
@@ -1477,34 +1420,32 @@ describe("useEntry(...).streams.<s>.use(...) — a CALLABLE Subscription, not a 
 // The priority finding: `useEntry`'s swap-root (`createKeyedRoot`, keyed by `mapArray`'s
 // `===`) used to re-key whenever the accessor's key VALUE was replaced by a new object,
 // even one that encodes to the SAME wire string — e.g. clicking the already-active host
-// chip, whose `props.host` is a FRESH zod-decoded object each membership read. A plain
+// chip, whose `props.host` is a FRESH decoded object each membership read. A plain
 // string key (the harness's `identityCodec` above) can't reproduce this: JS strings
 // compare by VALUE, so `"a" === "a"` regardless of how each was minted. kolu's real
 // `HostKey` is an OBJECT (a discriminated sum) — this describe block uses an
 // object-shaped key + a non-identity codec to reproduce the same reference trap.
 describe("useEntry key identity — encode-keyed, not object-reference-keyed", () => {
-  interface ObjKey {
-    kind: "host";
-    name: string;
-  }
-  const ObjKeySchema = z.object({
-    kind: z.literal("host"),
-    name: z.string(),
-  }) satisfies z.ZodType<ObjKey>;
+  const ObjKeySchema = Schema.Struct({
+    kind: Schema.Literal("host"),
+    name: Schema.String,
+  });
+  type ObjKey = typeof ObjKeySchema.Type;
   const objCodec: KeyCodec<ObjKey> = {
     encode: (k) => k.name,
     decode: (s) => ({ kind: "host", name: s }),
   };
-  // A FRESH decode always mints a brand-new object — the same shape zod's own
-  // `.parse` does for kolu's real `HostKey` even on an already-valid input.
-  const freshA = (): ObjKey => ObjKeySchema.parse({ kind: "host", name: "a" });
+  // A FRESH decode always mints a brand-new object — the same shape a schema decode
+  // does for kolu's real `HostKey` even on an already-valid input.
+  const decodeObjKey = Schema.decodeUnknownSync(ObjKeySchema);
+  const freshA = (): ObjKey => decodeObjKey({ kind: "host", name: "a" });
 
   function objRegistry() {
     const entries = new Map<
       string,
       {
         kind: "session";
-        link: unknown;
+        dispatch: SurfaceDispatch;
         state: EntryConnectionState<"copying", TestFailure>;
       }
     >();
@@ -1514,7 +1455,10 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
     };
     const registry: MapRegistry<ObjKey, "copying", TestFailure> = {
       members: () =>
-        [...entries.keys()].map((name) => ({ kind: "host", name })),
+        [...entries.keys()].map((name) => ({
+          kind: "host" as const,
+          name,
+        })),
       has: (k) => entries.has(k.name),
       subscribe: (cb) => {
         listeners.add(cb);
@@ -1532,10 +1476,10 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
       registry,
       addSession(
         k: ObjKey,
-        link: unknown,
+        dispatch: SurfaceDispatch,
         state: EntryConnectionState<"copying", TestFailure>,
       ) {
-        entries.set(k.name, { kind: "session", link, state });
+        entries.set(k.name, { kind: "session", dispatch, state });
         fire();
       },
     };
@@ -1549,10 +1493,9 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
         codec: objCodec,
       });
       const { registry, addSession } = objRegistry();
-      addSession(freshA(), makeStreamEntry(9).link, connected(0));
+      addSession(freshA(), makeStreamEntry(9).dispatch, connected(0));
       const served = serveSurfaceMap(map, registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
 
       const [active, setActive] = createSignal<ObjKey>(freshA());
       // A stream's `.use()` is PER-CONSUMER, never deduped through the client-lifetime
@@ -1573,6 +1516,7 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
       expect(sub.pending()).toBe(false); // no flash to pending
       expect(sub()).toBe(9); // no stale-then-reset gap
 
+      served.dispose();
       dispose();
     });
   });
@@ -1585,10 +1529,9 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
         codec: objCodec,
       });
       const { registry, addSession } = objRegistry();
-      addSession(freshA(), makeStreamEntry(0).link, connected(0));
+      addSession(freshA(), makeStreamEntry(0).dispatch, connected(0));
       const served = serveSurfaceMap(map, registry);
-      const mapLink = directLink<AnyContractRouter>(served.router as never);
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, directDispatch(served));
 
       const view = client.entries.use();
       await settle();
@@ -1599,6 +1542,7 @@ describe("useEntry key identity — encode-keyed, not object-reference-keyed", (
       // HostSelectorStrip) reconciles only a genuinely changed row, not every row on
       // every read.
       expect(keys1[0]).toBe(keys2[0]);
+      served.dispose();
       dispose();
     });
   });
@@ -1625,26 +1569,30 @@ describe("serveSurfaceMap — the wire key must be its own canonical encoding", 
     const reg = makeRegistry();
     reg.addSession(
       A,
-      makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+      makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
       connected(0),
     ); // registers the CANONICAL member "a"
     const served = serveSurfaceMap(map, reg.registry);
-    const mapLink = directLink<AnyContractRouter>(served.router as never) as {
-      surface: {
-        entries: {
-          get: (
-            input: { key: string },
-            opts: unknown,
-          ) => Promise<AsyncIterable<unknown>>;
-        };
-      };
-    };
+    const dispatch = directDispatch(served);
 
-    await expect(
-      (async () => {
-        const upstream = await mapLink.surface.entries.get({ key: "A" }, {});
-        for await (const _ of upstream) break;
-      })(),
-    ).rejects.toThrow(/canonical/i);
+    // A DECLARED rejection (D4), not a defect: the folded `entries/get` member declares
+    // `MapKeyNonCanonical`, so the failure crosses a wire with its two keys intact.
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        Stream.runCollect(
+          dispatch.stream(ENTRIES_GET_TAG, { key: "A" }) as Stream.Stream<
+            unknown,
+            unknown
+          >,
+        ),
+      ),
+    );
+    expect(failure).toMatchObject({
+      _tag: "MapKeyNonCanonical",
+      wireKey: "A",
+      canonicalKey: "a",
+    });
+    expect(String(failure)).toMatch(/canonical/i);
+    served.dispose();
   });
 });

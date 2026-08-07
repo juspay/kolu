@@ -10,7 +10,7 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Re-expose any `@kolu/surface` as an [MCP](https://modelcontextprotocol.io) server, so a coding agent drives it with
 structured tool calls. The adapter owns the generic parts — the
-`resources/subscribe` lifecycle, the [zod](https://zod.dev) → JSON-Schema bridge, stdio discipline —
+`resources/subscribe` lifecycle, the [Effect Schema](https://effect.website) → JSON-Schema bridge, stdio discipline —
 and leaves the consumer in control of *what* is exposed.
 
 ## `serveSurfaceAsMcp`
@@ -22,8 +22,8 @@ and leaves the consumer in control of *what* is exposed.
 
 | Option | Meaning |
 | --- | --- |
-| `surface` | the surface spec being projected |
-| `client` | a factory `() => client` for a live implementation |
+| `surface` | the `Surface<S>` being projected (`expose` is checked against its `spec` at boot) |
+| `client` | a factory `() => client` for a live implementation — return `{ client, dispose }` when the adapter owns a dialled socket, or the bare client when there is nothing to dispose. Re-invoked on retry after a drop |
 | `expose` | the default-deny allowlist (see below) |
 | `tools?` | hand-authored bespoke tools |
 | `serverInfo?` | MCP server identity |
@@ -54,21 +54,40 @@ Resources are readable and subscribable; procedures become callable tools.
 
 ## Two shapes
 
-- **Serve fresh** — `client` is a `directLink` over an in-process `implementSurface`; the MCP server *is* the surface's backend.
+- **Serve fresh** — `client` is `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`; the MCP server *is* the surface's backend.
 - **Bridge a live surface** — `client` dials an already-running served surface over a socket or ssh stdio; the MCP server is a *face* on an existing server (odu's `odu mcp` dials `.ci/odu.sock`).
 
 ## Bespoke tools and curation
 
-- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: z.object(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle.
+- `tools:` — hand-authored, call-shaped capabilities (spawn-and-wait, blocking polls). Each is `{ description, input: Schema.Struct(...), mutates, handler }`; the `handler(args, client, signal)` composes over the live client and still rides the JSON-Schema bridge and lifecycle. A scalar, array, or union input is advertised **wrapped** under `value` and unwrapped before decode.
 - **Failure framing**: a rejecting handler (or a failing procedure call — e.g. the bridged transport down mid-call) always returns an `isError` **tool result** carrying the message, never a JSON-RPC protocol error — so the agent sees a typed, retryable failure instead of its SDK throwing.
+- **One tool namespace**: generated (`<ns>_<verb>`) and bespoke names are checked for collision in one pass at boot, each candidate tagged by origin so the error names both sources.
 - `projectSurface` (from `@kolu/surface/project`) is the cleanest curation: project the live surface into an observer-safe second surface — drop dangerous procedures, bound logs, derive verdicts — and serve *that*.
+
+## The schema bridge
+
+Effect ships the converter (`Schema.toJsonSchemaDocument`, draft 2020-12 — the
+dialect MCP standardized on), so the engine is bought. What this package owns is
+the adapter glue, and the glue is load-bearing: the `tools/list` JSON Schema is
+read by Anthropic, Gemini, Bedrock, Codex and Claude Desktop, and Effect's
+converter diverges from the zod one in ways an agent would notice. `toInputSchema`
+therefore reopens every object (Effect emits `additionalProperties: false`, which
+is an outright host break), normalizes `Schema.Number`'s Infinity/NaN-tolerant
+union back to its numeric arm, and special-cases `Schema.Void` / `Schema.Undefined`
+so a no-arg tool does not end up demanding `{"value": null}`.
+
+Two authoring laws follow. Prefer **`Schema.Finite` / `Schema.Int`** for an
+MCP-facing numeric — they emit `{"type":"number"}` / `{"type":"integer"}` outright.
+And put a **`default` annotation on the encoded-side node**, inside
+`optionalKey`: `withDecodingDefaultKey` is a transformation the encoded document
+cannot see through, so a default declared outside it never reaches the agent.
 
 ## Other exports
 
 | Export | Role |
 | --- | --- |
-| `toInputSchema(schema?)` | zod → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
+| `toInputSchema(schema?)` | Effect Schema → JSON Schema (draft 2020-12), `$ref`-dereferenced, top-level-object enforced |
 | `resolveExpose(spec, expose)` | the default-deny resolver → `{ resources, resourceTemplates, tools }` |
-| `ExposeMap` · `BespokeTool` · `ToolResult` · `ServeSurfaceAsMcpOptions` | types |
+| `ExposeMap` · `BespokeTool` · `ToolInputSchema` · `ToolResult` · `ServeSurfaceAsMcpOptions` · `SurfaceClientCallable` | types |
 
 The step-by-step is in [How to expose a surface to agents](/surface/expose-to-agents).

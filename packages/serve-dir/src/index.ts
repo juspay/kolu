@@ -1,29 +1,34 @@
 /** `@kolu/serve-dir` — agnostic, fetch-native directory file server: given an
  *  ABSOLUTE root, answer a request for a file under it with a streaming
- *  byte-range `Response`. The whole package is `(root, relPath, request) ->
- *  Response` — it knows nothing about terminals, git, or kolu (zero *workspace*
- *  deps — `node:fs`/`node:path`/`node:stream` plus the focused `mrmime` MIME
- *  table), so any app serving files from a dynamic absolute root can plug in.
+ *  byte-range `ServeResult`. The whole package is `(root, relPath, range) ->
+ *  Effect<ServeResult>` — it knows nothing about terminals, git, or kolu (zero
+ *  *workspace* deps — `node:fs`/`node:path`/`node:stream`, the focused `mrmime`
+ *  MIME table, and `effect` for the I/O half's lifetime and error vocabulary),
+ *  so any app serving files from a dynamic absolute root can plug in.
  *  The consumer keeps its own glue:
  *    - WHICH root (e.g. a terminal's repo root / `$PWD`) is injected by the
  *      caller, never decided here;
+ *    - which HTTP runtime the `ServeResult` becomes (a Fetch `Response`, an
+ *      `HttpServerResponse`, a base64 wire frame) is the CALLER's — this
+ *      package deliberately stops at `{status, headers, body}` with a
+ *      `ReadableStream` body, the one shape all three accept;
  *    - any response transform (e.g. kolu's artifact-sdk `<script>` injection)
- *      is an orthogonal *downstream* middleware that rewrites the HTML
- *      `Response` this returns — it composes for free precisely because `fetch`
- *      returns a real Fetch `Response` and omits `Content-Length` on full 200s
- *      (see the 200 branch);
+ *      is an orthogonal *downstream* middleware that rewrites the HTML body —
+ *      it composes for free precisely because the body is a stream and full
+ *      200s omit `Content-Length` (see the 200 branch);
  *    - any URL contract (e.g. kolu's `?v=<tag>` cache key) lives in the
  *      consumer.
  *
  *  Why this isn't an off-the-shelf static server: the shape needed here is a
- *  function that RETURNS a `Response`. Every static-serve package
+ *  function that RETURNS a response value. Every static-serve package
  *  (`send`/`serve-static`/`@fastify/static`/`@hono/node-server` serveStatic/…)
  *  is the inverse — a middleware bound to a fixed root that writes straight to a
  *  Node socket, so it can neither take a per-request absolute root nor compose
  *  with a downstream body transform. A 20-agent prior-art survey
  *  (`docs/atlas/src/content/atlas/electricity.mdx`) confirmed none fit; this
- *  ~`createReadStream({start,end}) -> Readable.toWeb -> Response` shape is the
- *  only one that does (what Deno `@std/http` and SvelteKit/Vite converge on).
+ *  ~`createReadStream({start,end}) -> Readable.toWeb -> {status,headers,body}`
+ *  shape is the only one that does (what Deno `@std/http` and SvelteKit/Vite
+ *  converge on).
  *
  *  Path safety is two-stage by volatility. Stage 1 is LEXICAL and lives here:
  *  decode-then-split rejects `..`/empty/absolute segments (defense against
@@ -37,10 +42,11 @@
  *  pointing outside the root (`leak.html -> /etc/passwd`) is rejected with 403
  *  before a single byte is read; omitting it keeps lexical-only behavior. */
 
-import type { BigIntStats } from "node:fs";
+import type { BigIntStats, promises as fsPromises } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { Effect, Exit } from "effect";
 import { lookup } from "mrmime";
 
 const TEXT_PLAIN = { "Content-Type": "text/plain; charset=utf-8" };
@@ -84,13 +90,14 @@ export function contentTypeForPath(filePath: string): string {
 }
 
 /** The path portion of a request URL WITHOUT WHATWG normalization — the RAW,
- *  still-encoded tail `serveFile`/`createDirServer().fetch` need. Slice this, do
+ *  still-encoded tail `serveFile` needs. Slice this, do
  *  NOT pass `new URL(rawUrl).pathname`: `URL` runs WHATWG path normalization,
  *  which COLLAPSES dot segments (`…/foo/%2e%2e/secret` and `…/foo/../secret`
  *  both become `…/secret`) BEFORE `resolvePathUnder`'s per-segment `..` check
  *  ever sees them — so a consumer slicing via `URL` reopens the very
  *  directory-traversal hole the lexical guard exists to close. Decoding helpers
- *  (`decodeURI`/`decodeURIComponent`, Hono's `c.req.path`/`c.req.param("*")`)
+ *  (`decodeURI`/`decodeURIComponent`, or a router that pre-decodes its params —
+ *  `HttpRouter.params["*"]` is `decodeURIComponent`d by the matcher)
  *  are equally unsafe: `resolvePathUnder` decodes exactly once internally, so a
  *  pre-decode double-decodes `%`-bearing filenames and erases `%2f` segment
  *  boundaries.
@@ -113,11 +120,16 @@ export type PathResolution =
   | { ok: false; status: 400 | 403 | 404; reason: string };
 
 /** Filesystem-authority guard, injected by the caller so this primitive stays
- *  agnostic. Given the lexically-validated absolute path, resolve `true` to
- *  allow the read or `false` to reject it as a 403 (a symlink whose real target
+ *  agnostic. Given the lexically-validated absolute path, yield `true` to allow
+ *  the read or `false` to reject it as a 403 (a symlink whose real target
  *  escapes the root). The kolu caller wires in kolu-git's `assertRealpathUnder`;
- *  callers with no symlink concern omit it (lexical guard only). */
-export type RealpathGuard = (abs: string) => Promise<boolean>;
+ *  callers with no symlink concern omit it (lexical guard only).
+ *
+ *  It yields an `Effect` rather than a `Promise` because it runs INSIDE
+ *  `serveFile`'s scope: a caller that interrupts the read (a browser abandoning
+ *  a video seek) must interrupt the guard's own filesystem walk too, and an
+ *  AbortSignal cannot be threaded through a bare `Promise` face. */
+export type RealpathGuard = (abs: string) => Effect.Effect<boolean>;
 
 /** Resolve a raw URL tail to an absolute path under `root`, lexically. Pure (no
  *  I/O) so the guard is unit-testable. Decode the whole tail FIRST, then split:
@@ -281,26 +293,42 @@ function fileETag(s: { size: bigint; mtimeNs: bigint; ino: bigint }): string {
   return `"${s.size.toString(16)}-${s.mtimeNs.toString(16)}-${s.ino.toString(16)}"`;
 }
 
+/** A file handle plus WHO owns it once the body below is done with it. The
+ *  streaming exits hand the handle to `Readable.toWeb` (whose `createReadStream`
+ *  owns the lifecycle — `autoClose` defaults on); every other exit leaves it to
+ *  the finalizer. Ownership is carried by the exit VALUE rather than by a
+ *  boolean over time, so there is no window in which the two disagree — and
+ *  because the finalizer is the one that closes, an INTERRUPT (a browser
+ *  abandoning a seek between the open and the first byte) closes it too, which
+ *  the hand-unwound version could not do. */
+interface Served {
+  readonly result: ServeResult;
+  /** True when `result.body` is a stream that has taken the handle over. */
+  readonly streams: boolean;
+}
+
 /** Read the resolved file and assemble the HTTP response (the I/O half).
  *  Separated from `resolvePathUnder` so the guard is testable without fixtures
- *  and the I/O failure modes are testable without crafting URLs. */
-export async function serveFile(
+ *  and the I/O failure modes are testable without crafting URLs.
+ *
+ *  The error channel is `never` on purpose: an HTTP status IS this function's
+ *  success value, so a missing file (404) and an unreadable one (500) are
+ *  answers, not failures. Nothing is swallowed — every I/O error reaches the
+ *  caller as the status and message it maps to. */
+export function serveFile(
   root: string,
   rawTail: string,
   rangeHeader?: string | null,
   realpathGuard?: RealpathGuard,
   ifRangeHeader?: string | null,
-): Promise<ServeResult> {
+): Effect.Effect<ServeResult> {
   const res = resolvePathUnder(root, rawTail);
   if (!res.ok) {
-    return { status: res.status, headers: TEXT_PLAIN, body: res.reason };
-  }
-  // Stage 2 (injected): filesystem-authority check. `resolvePathUnder` is
-  // lexical only, so a repo-local `leak.html -> /etc/passwd` slips through it;
-  // the caller's guard resolves symlinks and rejects anything whose real path
-  // escapes the root, BEFORE any open/stat/read below.
-  if (realpathGuard && !(await realpathGuard(res.abs))) {
-    return { status: 403, headers: TEXT_PLAIN, body: "escapes root" };
+    return Effect.succeed({
+      status: res.status,
+      headers: TEXT_PLAIN,
+      body: res.reason,
+    });
   }
   // Every successful response — 200 and 206 alike — streams from a single open
   // file handle: `open` → `handle.stat()` (the size that drives range math AND
@@ -309,8 +337,8 @@ export async function serveFile(
   // separate `createReadStream(path)` — tightens the stat/read race on a
   // live-reloading root: the handle pins one inode, so an *atomic* replace
   // (write-temp-then-rename) leaves the already-sized headers and the streamed
-  // body describing one consistent file. Open/stat failures throw here and map
-  // to 404/500 below, *before* any 200/206 is returned.
+  // body describing one consistent file. Open/stat failures fail this effect and
+  // map to 404/500 below, *before* any 200/206 is returned.
   //
   // Streaming the full 200 (not just the ranged 206) is the load-bearing reason
   // a multi-GB video never lands in the server heap: a client that omits a Range
@@ -318,38 +346,102 @@ export async function serveFile(
   // force the whole file through `readFile`. The downstream HTML decorator still
   // works because it consumes only `text/html` (via `res.text()`), and a
   // `ReadableStream` body answers `.text()` just as a buffer does.
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  try {
+  const served = Effect.acquireUseRelease(
+    // Stage 2 (injected): filesystem-authority check, INSIDE the acquire so it
+    // runs before a descriptor exists. `resolvePathUnder` is lexical only, so a
+    // repo-local `leak.html -> /etc/passwd` slips through it; the caller's guard
+    // resolves symlinks and rejects anything whose real path escapes the root,
+    // BEFORE any open/stat/read below. A rejection is a 403 ANSWER, not an
+    // error, so it rides the acquire's success channel as a handle-less
+    // `Served` the use step passes straight through.
+    Effect.gen(function* () {
+      if (realpathGuard && !(yield* realpathGuard(res.abs))) {
+        return null;
+      }
+      // `catch: (e) => e` keeps the raw node error — the ENOENT/EACCES `code`
+      // below is what picks 404 from 500, and the default `UnknownError`
+      // wrapper would erase it.
+      return yield* Effect.tryPromise({
+        try: () => open(res.abs, "r"),
+        catch: (e: unknown) => e,
+      });
+    }),
+    (handle) =>
+      handle === null
+        ? Effect.succeed<Served>({
+            result: { status: 403, headers: TEXT_PLAIN, body: "escapes root" },
+            streams: false,
+          })
+        : serveOpenFile(handle, res.mime, rangeHeader, ifRangeHeader),
+    (handle, exit) =>
+      // The handle closes here on EVERY exit that did not hand it to a stream:
+      // the 404/416 answers, a failure, and — new under Effect — an interrupt.
+      // A close that itself fails still fails this effect (and lands as a 500
+      // below), exactly as the hand-unwound `await handle.close()` did on the
+      // non-streaming branches.
+      handle === null || (Exit.isSuccess(exit) && exit.value.streams)
+        ? Effect.void
+        : Effect.tryPromise({
+            try: () => handle.close(),
+            catch: (e: unknown) => e,
+          }),
+  );
+
+  return served.pipe(
+    Effect.map((s) => s.result),
+    Effect.catch((e: unknown) => {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        return Effect.succeed<ServeResult>({
+          status: 404,
+          headers: TEXT_PLAIN,
+          body: "not found",
+        });
+      }
+      // Unexpected I/O error (EACCES, EIO, …) — surface as 500 so it doesn't
+      // masquerade as a missing file.
+      return Effect.succeed<ServeResult>({
+        status: 500,
+        headers: TEXT_PLAIN,
+        body: e instanceof Error ? e.message : "internal error",
+      });
+    }),
+  );
+}
+
+/** The response for an ALREADY-OPEN handle: stat it, shape the headers, decide
+ *  the byte source. Split out so `serveFile` above reads as the resource
+ *  lifetime it is, and so every exit here says in its `streams` flag whether it
+ *  handed the descriptor to a stream — the ownership question the caller's
+ *  finalizer asks. */
+function serveOpenFile(
+  handle: fsPromises.FileHandle,
+  mime: string,
+  rangeHeader: string | null | undefined,
+  ifRangeHeader: string | null | undefined,
+): Effect.Effect<Served, unknown> {
+  return Effect.gen(function* () {
     // `Accept-Ranges: bytes` advertises that this route can range-serve, which
     // is what lets a `<video>` element seek.
     const baseHeaders: Record<string, string> = {
-      "Content-Type": res.mime,
+      "Content-Type": mime,
       "X-Content-Type-Options": "nosniff",
       "Cache-Control": "private, max-age=60",
       "Accept-Ranges": "bytes",
     };
 
-    handle = await open(res.abs, "r");
-    // Handle ownership is a value carried by each exit, not a flag over time.
-    // The stat/isFile check is the only window where a throw can leak the
-    // handle before a stream takes ownership, so it alone closes on throw.
-    // After it, every exit decides explicitly: the non-streaming 404/416
-    // branches close the handle before returning; the streaming 200/206
-    // branches hand it to `Readable.toWeb`, whose underlying createReadStream
-    // owns the lifecycle (`autoClose` defaults on, closing on end/error).
     // `bigint: true` gives NANOSECOND `mtimeNs` for a genuinely strong `ETag`
     // (see `fileETag`); `size`/`ino` come back as bigint too, so derive a Number
     // `size` for the range math (files are never near 2^53 bytes).
-    let s: BigIntStats;
-    try {
-      s = await handle.stat({ bigint: true });
-    } catch (e) {
-      await handle.close();
-      throw e;
-    }
+    const s: BigIntStats = yield* Effect.tryPromise({
+      try: () => handle.stat({ bigint: true }),
+      catch: (e: unknown) => e,
+    });
     if (!s.isFile()) {
-      await handle.close();
-      return { status: 404, headers: TEXT_PLAIN, body: "not a file" };
+      return {
+        result: { status: 404, headers: TEXT_PLAIN, body: "not a file" },
+        streams: false,
+      };
     }
     const size = Number(s.size);
     // The strong validator rides EVERY streamed 200/206 (both share `baseHeaders`),
@@ -359,7 +451,7 @@ export async function serveFile(
     baseHeaders.ETag = fileETag(s);
 
     const streamBody = (start?: number, end?: number): ReadableStream => {
-      const stream = handle!.createReadStream(
+      const stream = handle.createReadStream(
         start === undefined ? {} : { start, end },
       );
       return Readable.toWeb(stream) as ReadableStream;
@@ -378,22 +470,24 @@ export async function serveFile(
 
     const range = effectiveRange ? parseByteRange(effectiveRange, size) : null;
     if (range === "invalid") {
-      await handle.close();
       // The body is a plain-text error, so type it `text/plain` — NOT the
-      // target file's `res.mime` from `baseHeaders`. Under `nosniff`, reusing
+      // target file's `mime` from `baseHeaders`. Under `nosniff`, reusing
       // `video/mp4`/`text/html` here would tell clients/debuggers the error
       // text is media/HTML; an HTML 416 would also dodge the artifact
       // middleware while still advertising `text/html`. Keep the range-specific
       // `Accept-Ranges`/`Content-Range`/`nosniff` headers, just not the mime.
       return {
-        status: 416,
-        headers: {
-          ...TEXT_PLAIN,
-          "X-Content-Type-Options": "nosniff",
-          "Accept-Ranges": "bytes",
-          "Content-Range": `bytes */${size}`,
+        result: {
+          status: 416,
+          headers: {
+            ...TEXT_PLAIN,
+            "X-Content-Type-Options": "nosniff",
+            "Accept-Ranges": "bytes",
+            "Content-Range": `bytes */${size}`,
+          },
+          body: "range not satisfiable",
         },
-        body: "range not satisfiable",
+        streams: false,
       };
     }
     // Shape status + range headers in one place (`rangeResponseHead`, serve-dir's
@@ -412,49 +506,9 @@ export async function serveFile(
     // never decorated (an HTML transform only touches status 200).
     const { status, headers } = rangeResponseHead(range, size, baseHeaders);
     const body = range ? streamBody(range.start, range.end) : streamBody();
-    return { status, headers, body };
-  } catch (e: unknown) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      return { status: 404, headers: TEXT_PLAIN, body: "not found" };
-    }
-    // Unexpected I/O error (EACCES, EIO, …) — surface as 500 so it doesn't
-    // masquerade as a missing file.
-    return {
-      status: 500,
-      headers: TEXT_PLAIN,
-      body: e instanceof Error ? e.message : "internal error",
-    };
-  }
-}
-
-/** The receptacle: bind an absolute `root`, get a fetch-native file responder.
- *  `fetch(relPath, request)` resolves the tail under `root` and returns a
- *  streaming-range `Response` (200 | 206 | 416 | 403 | 404 | 500). The caller
- *  injects the root, the optional symlink-escape `realpathGuard` (see
- *  `RealpathGuard`), and may wrap the returned `Response` with downstream
- *  middleware. */
-export function createDirServer(
-  root: string,
-  realpathGuard?: RealpathGuard,
-): {
-  fetch: (relPath: string, request: Request) => Promise<Response>;
-} {
-  return {
-    async fetch(relPath, request) {
-      const r = await serveFile(
-        root,
-        relPath,
-        request.headers.get("range"),
-        realpathGuard,
-      );
-      // `Buffer` (a `Uint8Array<ArrayBufferLike>`) is a runtime-valid
-      // `BodyInit`, but lib.dom narrows `BodyInit` to `Uint8Array<ArrayBuffer>`;
-      // node-server forwards the buffer unchanged, so cast at the boundary.
-      return new Response(r.body as BodyInit, {
-        status: r.status,
-        headers: r.headers,
-      });
-    },
-  };
+    // The stream now owns the descriptor: `createReadStream`'s `autoClose`
+    // defaults on, closing it on end/error — including a consumer that abandons
+    // the body mid-video.
+    return { result: { status, headers, body }, streams: true };
+  });
 }

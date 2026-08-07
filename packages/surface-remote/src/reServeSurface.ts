@@ -46,9 +46,13 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import type { ProcedureForwarders, SurfaceSink } from "@kolu/surface/mirror";
+import type {
+  MirrorFault,
+  ProcedureForwarders,
+  SurfaceSink,
+} from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import { ORPCError } from "@orpc/client";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   type CellCtxSetOpts,
   type ImplementSurfaceDeps,
@@ -57,6 +61,8 @@ import {
   inMemoryCollection,
   superviseTerminalSource,
 } from "@kolu/surface/server";
+import { Effect, type Stream } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import {
   type LiveSpawnHolder,
   observableHolder,
@@ -70,6 +76,26 @@ import {
 } from "./relayStream";
 import type { Session } from "./session";
 import type { SshProv } from "./sshConnector";
+
+/** The parent has no live link to the agent right now, so a downstream WRITE or
+ *  PROCEDURE call has nowhere to go.
+ *
+ *  A plain `Error`, deliberately NOT one of the D4 tagged errors: it is raised by
+ *  the re-serve about ITS OWN transport state, which no source surface declares (a
+ *  re-served procedure's error schema is the AGENT's), so there is no channel it
+ *  could travel on as a declared failure. It therefore crosses as a DEFECT — the
+ *  crash-loudly channel — which is also what makes it non-retryable at the
+ *  downstream fence, exactly as the oRPC-era `ORPCError("SERVICE_UNAVAILABLE")`
+ *  was (its code was sanitized on the way out, so downstream only ever saw an
+ *  opaque non-retriable failure). Named + greppable so the message, not a code, is
+ *  what a consumer matches on. */
+export class UpstreamUnavailableError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "UpstreamUnavailableError";
+    this.cause = cause;
+  }
+}
 
 /** A mirrored cell's local READ store, with the mirror-never-fabricate gate.
  *  Seeds the declared default so `get()` is a typed `T`, and flips `hasSnapshot`
@@ -113,8 +139,15 @@ export interface ReServeSurfaceOptions<S extends SurfaceSpec> {
    *  both plug in. The mirror
    *  forwards the client structurally, so the contract type is not needed here. */
   session: Session<SurfaceClientLike, SshProv>;
-  /** Diagnostic sink. Default no-op. */
+  /** Diagnostic CHATTER sink (reconnects, link ends). Default no-op. Faults do
+   *  NOT come through here — see {@link ReServeSurfaceOptions.onFault}. Wiring
+   *  this at DEBUG is fine and expected; wiring the projection layer's ONLY
+   *  channel at DEBUG is what made the deploy-#2 freeze mute (juspay/kolu#2101). */
   log?: (line: string) => void;
+  /** FAULT sink, forwarded to the pump and the mirror. Wire at ERROR level. A
+   *  member-scoped fault also rejects `done`; a KEY-scoped one does not, so this
+   *  is its only notice. */
+  onFault?: (fault: MirrorFault) => void;
 }
 
 export interface ReServedSurface<S extends SurfaceSpec> {
@@ -122,8 +155,15 @@ export interface ReServedSurface<S extends SurfaceSpec> {
    *  per-host `connection` health cell: link health now rides the host-map entry's fine
    *  `connection` payload (the ONE authority), not a second cell on this surface. */
   surface: Surface<S>;
-  /** The per-binding oRPC router (flattened for a handler / `directLink`). */
-  router: unknown;
+  /** The per-binding wire GROUP — `source.group` by identity, handed back so a
+   *  host merges ONE value pair with {@link ReServedSurface.handlers} (the same
+   *  shape `implementSurface` returns). */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** The per-binding bound handlers, keyed by FULL wire tag. Feed them to
+   *  `directDispatch` for an in-process face, or merge them into a host's handler
+   *  record for a wire serve path — a tag carries its own route, so there is
+   *  nothing to re-prefix at the mount site. (Was the oRPC `router`.) */
+  handlers: SurfaceHandlers;
   /** Settles when the pump loop exits (the session was destroyed, or `close`
    *  aborted it). It can also REJECT on an unrecoverable mirror fault — a
    *  `SinkError` (a broken local fold), a client/surface mismatch, or an owned
@@ -140,20 +180,27 @@ export interface ReServedSurface<S extends SurfaceSpec> {
 }
 
 /** The runtime shape of a forwarding stub — loosely typed here; the precise
- *  per-verb type lives at the `ProcedureForwarders<S>` boundary the pump sets. */
-type ProcedureFn = (
-  input?: unknown,
-  opts?: { signal?: AbortSignal },
-) => Promise<unknown>;
+ *  per-verb type lives at the `ProcedureForwarders<S>` boundary the pump sets.
+ *  No `{ signal }` bag: a unary call carries no cancellation token under Effect
+ *  (D10/#18), so the stub cannot invent one the face does not have — a caller
+ *  bounds the forward by bounding the `Effect` it gets back.
+ *
+ *  One shape for both paths, and that is the point: a CELL verb read off the
+ *  live upstream face and a PROCEDURE stub minted by `mirrorRemoteSurface` are
+ *  now the same kind of thing, because the mirror's stub returns exactly what
+ *  the face returns. A handler owes its caller an `Effect`, and a forwarder IS
+ *  one — so the graft is literal and there is nothing to lift at this boundary. */
+type ProcedureFn = (input?: unknown) => Effect.Effect<unknown, unknown>;
 
-/** Reach one member namespace on the opaque oRPC surface client structurally —
- *  `client.surface.<member>`. The live client is a lazy proxy with no static member
- *  types at this seam (the precise per-member client is materialized once at the
- *  typed sink, and re-spelling it here would overflow TS's union budget). So the
- *  ONE structural cast lives here, with the ONE justification, instead of restated
- *  at every relay / forward site (SR5). The caller pins the shape it expects via `T`
- *  (a stream, a cell's verb namespace); a member the client doesn't expose reads
- *  `undefined` and each caller fails loud on that. */
+/** Reach one member namespace on the surface FACE structurally —
+ *  `client.surface.<member>`. The live client is the erased `SurfaceFace` (D2: the
+ *  addressing layer is deliberately structural; per-member precision lives in the
+ *  spec-derived bound faces, and materializing a second precise mapped type here
+ *  would overflow TS's union budget). So the ONE structural cast lives here, with
+ *  the ONE justification, instead of restated at every relay / forward site (SR5).
+ *  The caller pins the shape it expects via `T` (a stream, a cell's verb
+ *  namespace); a member the client doesn't expose reads `undefined` and each caller
+ *  fails loud on that. */
 function surfaceMember<T>(client: SurfaceClientLike, member: string): T {
   return (client as unknown as { surface: Record<string, T> }).surface[
     member
@@ -202,7 +249,7 @@ export function reServeSurface<S extends SurfaceSpec>(
   // frame is harmless — the next snapshot/delta re-converges the mirror to the
   // authoritative state, so the consumer self-heals in place with the stream still
   // flowing. An `abort` here would be WRONG: it surfaces to the browser as a
-  // non-retriable ORPCError, which would STRAND the mirror (it never self-heals)
+  // non-retryable failure, which would STRAND the mirror (it never self-heals)
   // instead of recovering. Fail-fast/abort is the right policy for a byte or
   // fail-through stream (a lost frame is a real gap), NOT for a re-converging value
   // channel — see `relayFailThroughStream`. Only the channeled members (cells +
@@ -244,11 +291,11 @@ export function reServeSurface<S extends SurfaceSpec>(
   const upstreamUnavailable = (
     member: string,
     cause?: unknown,
-  ): ORPCError<"SERVICE_UNAVAILABLE", undefined> =>
-    new ORPCError("SERVICE_UNAVAILABLE", {
-      message: `reServeSurface: ${member} invoked with no live upstream link`,
+  ): UpstreamUnavailableError =>
+    new UpstreamUnavailableError(
+      `reServeSurface: ${member} invoked with no live upstream link`,
       cause,
-    });
+    );
 
   const requireConnected = (member: string): void => {
     if (session.currentState().phase !== "connected") {
@@ -275,37 +322,40 @@ export function reServeSurface<S extends SurfaceSpec>(
   // is thus left to guard only the FOLD's publish (`ctx.cells.<key>.set`), not the
   // forward. A forward with no live upstream link throws loud (fail-fast), same
   // stance as `forwardProcedure`.
-  const forwardCellWrite = async (
+  const forwardCellWrite = (
     key: string,
     verb: "set" | "patch" | "test__set",
     input: unknown,
-  ): Promise<unknown> => {
-    requireConnected(`cell "${key}.${verb}"`);
-    const client = liveClient.current;
-    if (client === null) {
-      throw new ORPCError("SERVICE_UNAVAILABLE", {
-        message: `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
-      });
-    }
-    const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
-      client,
-      key,
-    );
-    const fn = cellNs?.[verb];
-    if (typeof fn !== "function") {
-      throw new Error(
-        `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
-      );
-    }
-    try {
-      return await fn(input);
-    } catch (err) {
-      if (session.currentState().phase !== "connected") {
-        throw upstreamUnavailable(`cell "${key}.${verb}"`, err);
+  ): Effect.Effect<unknown, unknown> =>
+    Effect.suspend(() => {
+      requireConnected(`cell "${key}.${verb}"`);
+      const client = liveClient.current;
+      if (client === null) {
+        throw new UpstreamUnavailableError(
+          `reServeSurface: cell "${key}.${verb}" written with no live upstream link`,
+        );
       }
-      throw err;
-    }
-  };
+      const cellNs = surfaceMember<Record<string, ProcedureFn> | undefined>(
+        client,
+        key,
+      );
+      const fn = cellNs?.[verb];
+      if (typeof fn !== "function") {
+        throw new Error(
+          `reServeSurface: live upstream client exposes no "${key}.${verb}" cell verb to forward to`,
+        );
+      }
+      // The upstream write IS an effect — composed, not run. The classification
+      // below is unchanged: a failure that arrives while the session is no longer
+      // connected is reported as upstream-unavailable, anything else propagates.
+      return fn(input).pipe(
+        Effect.catch((err) =>
+          session.currentState().phase !== "connected"
+            ? Effect.fail(upstreamUnavailable(`cell "${key}.${verb}"`, err))
+            : Effect.fail(err),
+        ),
+      );
+    });
   const cellsDeps: Record<string, unknown> = {};
   for (const [key, cellSpec] of Object.entries(spec.cells ?? {})) {
     // A mirror never fabricates a value. The store still SEEDS the declared
@@ -350,11 +400,8 @@ export function reServeSurface<S extends SurfaceSpec>(
   // `liveClient` for the current spawn.
   const relayForMember = (
     member: string,
-  ): ((
-    input: unknown,
-    signal: AbortSignal | undefined,
-  ) => AsyncIterable<unknown>) => {
-    // The live client is an opaque oRPC proxy; reach its member namespace
+  ): ((input: unknown) => Stream.Stream<unknown, unknown>) => {
+    // The live client is the erased surface face; reach its member namespace
     // structurally (`client.surface.<member>`), the shape every relay reads.
     const select = (
       client: SurfaceClientLike,
@@ -381,39 +428,53 @@ export function reServeSurface<S extends SurfaceSpec>(
   const eventsDeps = buildRelayDeps(spec.events);
 
   // Procedures → forward every verb through the live spawn's stubs. A call while
-  // the link is down throws loudly (fail-fast); the client retries.
-  const forwardProcedure = async (
+  // the link is down fails loudly (fail-fast); the client retries.
+  //
+  // The two OUTCOMES are deliberately different channels (D4). "No live upstream"
+  // is undeclared by any surface — no source spec can declare the parent's own
+  // transport state — so it is a DEFECT (`Effect.die`), the crash-loudly channel
+  // an undeclared throw always took. An APPLICATION failure the agent raised, by
+  // contrast, is re-FAILED verbatim: it was decoded against the agent's own
+  // declared error schema on the way in, so re-failing it re-encodes it against the
+  // SAME schema on the way out and the downstream caller still narrows on `_tag`.
+  // (Under oRPC both collapsed into an `ORPCError`; only the code distinguished
+  // them, and only for codes the contract declared.)
+  const forwardProcedure = (
     ns: string,
     verb: string,
     input: unknown,
-    signal: AbortSignal | undefined,
-  ): Promise<unknown> => {
-    requireConnected(`procedure "${ns}.${verb}"`);
-    const procs = liveProcedures.current as
-      | Record<string, Record<string, ProcedureFn>>
-      | null
-      | undefined;
-    const fn = procs?.[ns]?.[verb];
-    if (typeof fn !== "function") {
-      throw new ORPCError("SERVICE_UNAVAILABLE", {
-        message: `reServeSurface: procedure "${ns}.${verb}" invoked with no live upstream link`,
-      });
-    }
-    try {
-      return await fn(input, { signal });
-    } catch (err) {
-      if (session.currentState().phase !== "connected") {
-        throw upstreamUnavailable(`procedure "${ns}.${verb}"`, err);
+  ): Effect.Effect<unknown, unknown> =>
+    Effect.suspend(() => {
+      const label = `procedure "${ns}.${verb}"`;
+      requireConnected(label);
+      const procs = liveProcedures.current as
+        | Record<string, Record<string, ProcedureFn>>
+        | null
+        | undefined;
+      const fn = procs?.[ns]?.[verb];
+      if (typeof fn !== "function") {
+        throw new UpstreamUnavailableError(
+          `reServeSurface: ${label} invoked with no live upstream link`,
+        );
       }
-      throw err;
-    }
-  };
+      // Nothing to lift: the mirror's stub is the upstream member call itself,
+      // so this handler's effect IS the forward. Its failure channel carries the
+      // SQUASHED failure — the declared tagged-error INSTANCE — so this `catch`
+      // receives exactly what the agent failed with, not a wrapper.
+      return fn(input).pipe(
+        Effect.catch((err) =>
+          session.currentState().phase !== "connected"
+            ? Effect.die(upstreamUnavailable(label, err))
+            : Effect.fail(err),
+        ),
+      );
+    });
   const proceduresDeps: Record<string, Record<string, unknown>> = {};
   for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
     const nsDeps: Record<string, unknown> = {};
     for (const verb of Object.keys(verbs)) {
-      nsDeps[verb] = (o: { input?: unknown; signal?: AbortSignal }) =>
-        forwardProcedure(ns, verb, o.input, o.signal);
+      nsDeps[verb] = (o: { input?: unknown }) =>
+        forwardProcedure(ns, verb, o.input);
     }
     proceduresDeps[ns] = nsDeps;
   }
@@ -448,9 +509,9 @@ export function reServeSurface<S extends SurfaceSpec>(
       | undefined
     >;
   };
-  // `implementSurfaceOnPublisher` already returns the FINAL top-level router
-  // (no re-flatten needed — the double-prefix is gone at the framework seam).
-  const router = runtime.router;
+  // `implementSurfaceOnPublisher` binds every handler at its FULL wire tag, so the
+  // pair below is servable verbatim — nothing to re-prefix, nothing to flatten.
+  const { group, handlers } = runtime;
 
   // ── The reconnect-mirror pump ─────────────────────────────────────────────
   // The sink folds VALUE cells + collections into the per-binding stores; streams
@@ -544,6 +605,7 @@ export function reServeSurface<S extends SurfaceSpec>(
     liveClient,
     signal: pumpAbort.signal,
     log,
+    onFault: opts.onFault,
   });
 
   // Supervise the internal runtime + the pump through the framework's
@@ -564,5 +626,5 @@ export function reServeSurface<S extends SurfaceSpec>(
     },
   });
 
-  return { surface, router, done, close };
+  return { surface, group, handlers, done, close };
 }

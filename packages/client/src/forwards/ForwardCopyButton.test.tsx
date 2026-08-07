@@ -17,14 +17,15 @@
  * requirement here — the fallback itself is that module's to test.
  */
 
+import { Effect } from "effect";
 import type { KoluForward } from "kolu-common/surface";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const writeTextToClipboard = vi.fn((_text: string) => Promise.resolve());
+const writeTextToClipboard = vi.fn((_text: string) => Effect.void);
 
 vi.mock("../ui/clipboard", () => ({ writeTextToClipboard }));
-vi.mock("./useForwards", () => ({ cancelForward: () => Promise.resolve() }));
+vi.mock("./useForwards", () => ({ cancelForward: () => Effect.void }));
 
 const { ForwardCopyButton } = await import("./ForwardPill");
 

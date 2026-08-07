@@ -18,8 +18,8 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "kolu-io": "workspace:*",
-    "kolu-shared": "workspace:*",
-    "zod": "^4.3.6"
+    "effect": "catalog:",
+    "kolu-shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

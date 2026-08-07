@@ -17,6 +17,7 @@ import {
   type PtyHost,
 } from "./ptyHost.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
+import { runScopedSync } from "./streamFrame.testlib.ts";
 
 /** Narrow a `getHistory` reply to its `chunk` arm, or fail — the common shape
  *  these tests assert on (the `stale` arm is asserted directly by the F3 test). */
@@ -80,7 +81,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
     const id = printLines(1200);
     await waitFor(() => host.getScreenText(id).includes(label(1199)));
 
-    const { snapshot, topLine } = host.attach(id);
+    const { snapshot, topLine } = runScopedSync(host.attach(id));
     // The snapshot is the recent screenful — it must NOT carry the oldest lines
     // (that is the whole point: no 10k replay on attach), yet the full mirror
     // still holds them for backfill.
@@ -96,7 +97,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
     // 1300 lines, pausing after 1200 so we can attach, then watch 100 more land.
     const id = printLines(1300, { pauseAt: 1200 });
     await waitFor(() => host.getScreenText(id).includes(label(1199)));
-    const { topLine } = host.attach(id);
+    const { topLine } = runScopedSync(host.attach(id));
 
     // Read the older chunk BEFORE the second burst.
     const first = asChunk(host.getHistory(id, topLine, 50));
@@ -123,7 +124,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
   it("pages older chunks down to exhaustion at the top of the mirror", async () => {
     const id = printLines(1200);
     await waitFor(() => host.getScreenText(id).includes(label(1199)));
-    let cursor = host.attach(id).topLine;
+    let cursor = runScopedSync(host.attach(id)).topLine;
 
     let guard = 0;
     let sawOldest = false;
@@ -146,7 +147,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
     // A shallow mirror forces eviction: 100 lines into a 50-line scrollback.
     const id = printLines(100, { scrollback: 50 });
     await waitFor(() => host.getScreenText(id).includes(label(99)));
-    const { topLine } = host.attach(id);
+    const { topLine } = runScopedSync(host.attach(id));
     // The oldest retained line is not L0000 — earlier lines fell off the top, so
     // the absolute seed is shifted past them.
     expect(topLine).toBeGreaterThan(0);
@@ -225,7 +226,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
       scrollback: 50,
     });
     await waitFor(() => host.getScreenText(id).includes(label(119)));
-    const pre = host.attach(id); // generation stamped BEFORE the RIS
+    const pre = runScopedSync(host.attach(id)); // generation stamped BEFORE the RIS
     // Wait for the RIS + phase 2: the screen shows post-reset lines and no longer
     // the pre-reset tail.
     await waitFor(
@@ -243,7 +244,7 @@ describeDaemon("scrollback backfill — bounded snapshot + getHistory", () => {
 
     // A fresh attach after the reset is self-consistent: its snapshot holds the
     // live screen, and getHistory from its seed never re-serves that newest line.
-    const post = host.attach(id);
+    const post = runScopedSync(host.attach(id));
     expect(post.snapshot).toContain(label(239));
     const page = host.getHistory(id, post.topLine, 50, post.reflowEpoch);
     if (page.kind === "chunk") expect(page.chunk).not.toContain(label(239));

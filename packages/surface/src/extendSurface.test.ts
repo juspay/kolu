@@ -1,39 +1,59 @@
 /**
  * `extendSurface` — compose a parent-LOCAL runtime onto a RE-SERVED one (SR5).
  *
- * The three properties the plan names:
+ * The three properties the plan names, restated for a FLAT tag namespace:
  *
- *   - the composed router serves EVERY base + extension member FLAT under one
- *     `surface` namespace, and — the SR1 lesson — those routes survive over the
- *     WIRE MATCHER (`StandardRPCMatcher`), not just `directLink` (which bypasses
- *     the matcher). A fragment carries no matcher meta of its own; binding both
- *     through `implement(combined).router({...})` is what attaches the routes;
+ *   - the composed runtime serves EVERY base + extension member at the SAME wire
+ *     tag it had standalone. Under oRPC this needed both router fragments to be
+ *     re-adapted through `implement(combined).router({...})` so they picked up
+ *     the combined contract's matcher meta, and the pin was a matcher-tree
+ *     assertion. With tags there is no matcher to re-adapt — a tag carries its
+ *     own route — so the pin is ROUTE-SET IDENTITY: the merged handler key set
+ *     equals `combined.group.requests`, and it equals the union of the two
+ *     inputs' tags;
  *   - supervision routes through `superviseTerminalSource`: the base is the
  *     terminal driver (its end resolves the composite), `close` releases both;
  *   - a member-name collision between base and extension fails loud.
  */
 
-import { StandardRPCMatcher } from "@orpc/server/standard";
+import { Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
-import { directLink } from "./links/direct";
 import {
   extendSurface,
   implementSurface,
   inMemoryCollection,
   inMemoryStore,
   type ServedSurface,
+  type SurfaceHandlers,
 } from "./server";
+
+function streaming(handlers: SurfaceHandlers, tag: string, payload?: unknown) {
+  const handler = handlers[tag];
+  if (!handler) throw new Error(`no handler bound at "${tag}"`);
+  return handler(payload) as Stream.Stream<unknown>;
+}
+
+async function firstFrame(stream: Stream.Stream<unknown>): Promise<unknown> {
+  const frames = await Effect.runPromise(
+    Stream.runCollect(Stream.take(stream, 1)),
+  );
+  return frames[0];
+}
 
 // A re-served BASE: a status cell + a keyed collection (the mirror's shape).
 const baseSurface = defineSurface({
-  cells: { status: { schema: z.string(), default: "" } },
-  collections: { items: { keySchema: z.string(), schema: z.number() } },
+  cells: { status: { schema: Schema.String, default: "" } },
+  collections: { items: { keySchema: Schema.String, schema: Schema.Number } },
 });
 // A parent-LOCAL extension: a retention cell (drishti's `metricHistory` shape).
 const extSurface = defineSurface({
-  cells: { history: { schema: z.array(z.number()), default: [] } },
+  cells: {
+    history: {
+      schema: Schema.Array(Schema.Number),
+      default: [] as readonly number[],
+    },
+  },
 });
 
 function buildBase() {
@@ -46,12 +66,14 @@ function buildBase() {
 
 function buildExt() {
   return implementSurface(extSurface, {
-    cells: { history: { store: inMemoryStore<number[]>([1, 2, 3]) } },
+    cells: {
+      history: { store: inMemoryStore<readonly number[]>([1, 2, 3]) },
+    },
   });
 }
 
 describe("extendSurface", () => {
-  it("routes every base + extension member FLAT over the wire matcher (no double-prefix)", () => {
+  it("route-set identity: the merged handlers ARE the combined group's tags, flat and un-re-prefixed", () => {
     const baseRt = buildBase();
     const extRt = buildExt();
     const composed = extendSurface(
@@ -59,44 +81,61 @@ describe("extendSurface", () => {
       { surface: extSurface, ...extRt },
     );
 
-    const matcher = new StandardRPCMatcher();
-    // biome-ignore lint/suspicious/noExplicitAny: matcher.init takes a Router; the composed runtime shape satisfies it (the same `as any` RPCHandler uses).
-    matcher.init(composed.router as any);
-    const paths = Object.keys(
-      (matcher as unknown as { tree: Record<string, unknown> }).tree,
-    );
-
-    // The base members route (the re-served fragment, re-adapted).
-    expect(paths).toContain("/surface/status/get");
-    expect(paths).toContain("/surface/items/keys");
-    expect(paths).toContain("/surface/items/get");
-    // The local extension member routes at the SAME flat prefix — byte-identical.
-    expect(paths).toContain("/surface/history/get");
-    // No double-prefix from the composition.
-    expect(paths).not.toContain("/surface/surface/status/get");
+    const tags = Object.keys(composed.handlers).sort();
+    // The framework's own construction-time assertion, restated as an
+    // observable: every advertised tag has exactly one handler.
+    expect(tags).toEqual(Array.from(composed.group.requests.keys()).sort());
+    expect(tags).toEqual([
+      "surface/history/get",
+      "surface/history/set",
+      "surface/items/delete",
+      "surface/items/get",
+      "surface/items/keys",
+      "surface/items/upsert",
+      "surface/status/get",
+      "surface/status/set",
+      "surface/system/clockNow",
+      "surface/system/identity",
+      "surface/system/live",
+    ]);
+    // …and it is exactly the UNION of the two inputs' tags: every base member
+    // and every extension member routes at the tag it had standalone.
+    const union = new Set([
+      ...Object.keys(baseRt.handlers),
+      ...Object.keys(extRt.handlers),
+    ]);
+    expect(tags).toEqual(Array.from(union).sort());
+    expect(tags.some((t) => t.startsWith("surface/surface/"))).toBe(false);
   });
 
-  it("calls a base member AND an extension member over one composed client", async () => {
+  it("serves a base member AND an extension member through the one composed handler record", async () => {
     const composed = extendSurface(
       { surface: baseSurface, ...buildBase() },
       { surface: extSurface, ...buildExt() },
     );
-    // The composed surface is precisely typed — base AND extension members are
-    // reachable on one client with no cast (the SR2 typed-dual discipline).
-    const client = directLink<typeof composed.surface.contract>(
-      composed.router as never,
-    );
     // The base's status cell (snapshot-then-deltas — take the first frame).
-    for await (const v of await client.surface.status.get()) {
-      expect(v).toBe("live");
-      break;
-    }
+    expect(
+      await firstFrame(streaming(composed.handlers, "surface/status/get")),
+    ).toBe("live");
     // The local extension's history cell, served flat beside the base.
-    for await (const v of await client.surface.history.get()) {
-      expect(v).toEqual([1, 2, 3]);
-      break;
-    }
+    expect(
+      await firstFrame(streaming(composed.handlers, "surface/history/get")),
+    ).toEqual([1, 2, 3]);
     await composed.close();
+  });
+
+  it("resolves the reserved system tags BASE-authoritative (they are the one legitimate overlap)", () => {
+    const baseRt = buildBase();
+    const extRt = buildExt();
+    const composed = extendSurface(
+      { surface: baseSurface, ...baseRt },
+      { surface: extSurface, ...extRt },
+    );
+    for (const verb of ["live", "identity", "clockNow"]) {
+      const tag = `surface/system/${verb}`;
+      expect(composed.handlers[tag]).toBe(baseRt.handlers[tag]);
+      expect(composed.handlers[tag]).not.toBe(extRt.handlers[tag]);
+    }
   });
 
   it("supervision: the base's terminal end resolves the composite done", async () => {
@@ -107,7 +146,7 @@ describe("extendSurface", () => {
     const extRt = buildExt();
     const base: ServedSurface<never> = {
       surface: baseSurface as never,
-      router: buildBase().router,
+      handlers: buildBase().handlers,
       done: terminalDone,
       close: async () => resolveTerminal(),
     };
@@ -134,7 +173,7 @@ describe("extendSurface", () => {
     let extClosed = 0;
     const base: ServedSurface<never> = {
       surface: baseSurface as never,
-      router: buildBase().router,
+      handlers: buildBase().handlers,
       done: terminalDone,
       close: async () => {
         baseClosed += 1;
@@ -143,7 +182,7 @@ describe("extendSurface", () => {
     };
     const ext: ServedSurface<never> = {
       surface: extSurface as never,
-      router: extRt.router,
+      handlers: extRt.handlers,
       done: extRt.done,
       close: async () => {
         extClosed += 1;
@@ -162,7 +201,7 @@ describe("extendSurface", () => {
   it("fails loud on a member-name collision between base and extension", () => {
     const clashing = defineSurface({
       // Same `status` cell name as the base — a composed surface can't have two.
-      cells: { status: { schema: z.string(), default: "" } },
+      cells: { status: { schema: Schema.String, default: "" } },
     });
     expect(() =>
       extendSurface(
@@ -177,17 +216,23 @@ describe("extendSurface", () => {
     ).toThrow(/both serve member "status"/);
   });
 
-  it("preserves an extension's app-owned system verb (deep-merges the reserved namespace)", () => {
+  it("preserves an extension's app-owned system verb (its tag is its own)", async () => {
     // `defineSurface` permits app-owned `system.*` verbs beside the reserved
-    // live/identity/clockNow. A shallow base-wins spread would drop the ext's — the
-    // deep-merge keeps base authoritative on the reserved verbs AND serves ext's.
+    // live/identity/clockNow. On a FLAT tag namespace `surface/system/echo` is a
+    // different tag from `surface/system/live`, so the base-authoritative rule
+    // for the reserved three cannot drop it — no per-verb deep-merge needed.
     const extWithSystem = defineSurface({
-      cells: { history: { schema: z.array(z.number()), default: [] } },
+      cells: {
+        history: {
+          schema: Schema.Array(Schema.Number),
+          default: [] as readonly number[],
+        },
+      },
       procedures: {
         system: {
           echo: {
-            input: z.object({ x: z.number() }),
-            output: z.object({ x: z.number() }),
+            input: Schema.Struct({ x: Schema.Number }),
+            output: Schema.Struct({ x: Schema.Number }),
           },
         },
       },
@@ -197,21 +242,25 @@ describe("extendSurface", () => {
       {
         surface: extWithSystem,
         ...implementSurface(extWithSystem, {
-          cells: { history: { store: inMemoryStore<number[]>([]) } },
-          procedures: { system: { echo: ({ input }) => input } },
+          cells: {
+            history: { store: inMemoryStore<readonly number[]>([]) },
+          },
+          procedures: {
+            system: { echo: ({ input }) => Effect.succeed(input) },
+          },
         }),
       },
     );
-    const matcher = new StandardRPCMatcher();
-    // biome-ignore lint/suspicious/noExplicitAny: matcher.init takes a Router; the composed runtime shape satisfies it.
-    matcher.init(composed.router as any);
-    const paths = Object.keys(
-      (matcher as unknown as { tree: Record<string, unknown> }).tree,
+    const tags = Object.keys(composed.handlers);
+    expect(tags).toContain("surface/system/echo");
+    expect(tags).toContain("surface/system/live");
+    const echoed = await Effect.runPromise(
+      composed.handlers["surface/system/echo"]?.({
+        x: 5,
+      }) as Effect.Effect<unknown>,
     );
-    // The ext's app-owned system verb survives the reserved-namespace deep-merge…
-    expect(paths).toContain("/surface/system/echo");
-    // …and the base's reserved system verbs still route.
-    expect(paths.some((p) => p.startsWith("/surface/system/"))).toBe(true);
+    expect(echoed).toEqual({ x: 5 });
+    await composed.close();
   });
 
   it("materializes every kind so an absent kind reads as an object, not undefined", () => {
@@ -232,10 +281,10 @@ describe("extendSurface", () => {
     // The flat wire namespace is per-NAME across all kinds: a base cell `status` and
     // an ext procedure namespace `status` have disjoint verbs, so they escape the
     // per-kind spec guard AND defineSurface's per-(name,verb) claim — the guarded
-    // splice is what stops the shallow spread from silently dropping one side.
+    // merge is what stops one side from silently dropping the other.
     const clashingProc = defineSurface({
       procedures: {
-        status: { refresh: { output: z.object({ ok: z.boolean() }) } },
+        status: { refresh: { output: Schema.Struct({ ok: Schema.Boolean }) } },
       },
     });
     expect(() =>
@@ -244,7 +293,9 @@ describe("extendSurface", () => {
         {
           surface: clashingProc,
           ...implementSurface(clashingProc, {
-            procedures: { status: { refresh: () => ({ ok: true }) } },
+            procedures: {
+              status: { refresh: () => Effect.succeed({ ok: true }) },
+            },
           }),
         },
       ),

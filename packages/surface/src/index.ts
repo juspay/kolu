@@ -18,34 +18,41 @@
  * Solid client hooks live in `./solid`.
  *
  * Headline path: declare the whole reactive surface once with
- * `defineSurface` (`./define`); the framework derives the oRPC contract,
+ * `defineSurface` (`./define`); the framework derives the Effect `RpcGroup`,
  * server router (`implementSurface`, `./server`), and client bundle
  * (`surfaceClient`, `./solid`) from one spec. The descriptor primitives
  * here are the low-level building blocks that wiring stands on, and
  * remain available as a manual escape hatch.
  */
 
-import type { ZodType } from "zod";
+import type { Schema } from "effect";
+
+/** A wire schema carried by a descriptor: an Effect `Schema.Codec` whose decoded
+ *  type is `T` and whose decode/encode require NO services (`RD = RE = never`).
+ *  Context-freedom is enforced by the type, not by convention — a schema that
+ *  demanded a service could not be decoded on the wire, where there is no
+ *  environment to provide it. The descriptor twin of `define.ts`s `WireSchema<T>`. */
+export type DescriptorSchema<T> = Schema.Codec<T, unknown, never, never>;
 
 /** A singleton typed cell. `name` is the descriptor's stable identifier
  *  — used for type identity, error messages, and as a human-readable tag
- *  in the contract / channel layout. **The framework does not dispatch
+ *  in the RPC tag / channel layout. **The framework does not dispatch
  *  on it at runtime.** Hooks accept procedure refs explicitly (e.g.
  *  `useCell(cell, { source: client.preferences.get })`), and publisher
  *  channel names are passed as explicit strings to `publisherChannel`.
- *  Conventionally a cell's `name`, its contract router path, and its
+ *  Conventionally a cell's `name`, its RPC tag, and its
  *  channel name all coincide, but nothing enforces or requires it — each
  *  string is wired up at the call site. */
 export interface Cell<Name extends string, T> {
   readonly kind: "cell";
   readonly name: Name;
-  readonly schema: ZodType<T>;
+  readonly schema: DescriptorSchema<T>;
   readonly default: T;
 }
 
 export function cell<Name extends string, T>(opts: {
   name: Name;
-  schema: ZodType<T>;
+  schema: DescriptorSchema<T>;
   default: T;
 }): Cell<Name, T> {
   return { kind: "cell", ...opts };
@@ -54,14 +61,14 @@ export function cell<Name extends string, T>(opts: {
 export interface Collection<Name extends string, K, T> {
   readonly kind: "collection";
   readonly name: Name;
-  readonly keySchema: ZodType<K>;
-  readonly schema: ZodType<T>;
+  readonly keySchema: DescriptorSchema<K>;
+  readonly schema: DescriptorSchema<T>;
 }
 
 export function collection<Name extends string, K, T>(opts: {
   name: Name;
-  keySchema: ZodType<K>;
-  schema: ZodType<T>;
+  keySchema: DescriptorSchema<K>;
+  schema: DescriptorSchema<T>;
 }): Collection<Name, K, T> {
   return { kind: "collection", ...opts };
 }
@@ -69,14 +76,14 @@ export function collection<Name extends string, K, T>(opts: {
 export interface Stream<Name extends string, I, T> {
   readonly kind: "stream";
   readonly name: Name;
-  readonly inputSchema: ZodType<I>;
-  readonly outputSchema: ZodType<T>;
+  readonly inputSchema: DescriptorSchema<I>;
+  readonly outputSchema: DescriptorSchema<T>;
 }
 
 export function stream<Name extends string, I, T>(opts: {
   name: Name;
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
+  inputSchema: DescriptorSchema<I>;
+  outputSchema: DescriptorSchema<T>;
 }): Stream<Name, I, T> {
   return { kind: "stream", ...opts };
 }
@@ -92,14 +99,14 @@ export function stream<Name extends string, I, T>(opts: {
 export interface Event<Name extends string, I, T> {
   readonly kind: "event";
   readonly name: Name;
-  readonly inputSchema: ZodType<I>;
-  readonly outputSchema: ZodType<T>;
+  readonly inputSchema: DescriptorSchema<I>;
+  readonly outputSchema: DescriptorSchema<T>;
 }
 
 export function event<Name extends string, I, T>(opts: {
   name: Name;
-  inputSchema: ZodType<I>;
-  outputSchema: ZodType<T>;
+  inputSchema: DescriptorSchema<I>;
+  outputSchema: DescriptorSchema<T>;
 }): Event<Name, I, T> {
   return { kind: "event", ...opts };
 }

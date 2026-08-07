@@ -5,6 +5,7 @@ import {
   SILENT_DEVICE_QUERIES,
 } from "@kolu/terminal-protocol";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { Effect, type Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createPtyHost,
@@ -13,7 +14,7 @@ import {
   type PtyHost,
 } from "./ptyHost.ts";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
-import { nextFrame } from "./streamFrame.testlib.ts";
+import { runScopedSync, subscribeFrames } from "./streamFrame.testlib.ts";
 
 // @xterm packages ship CJS only — same interop as ptyHost.ts.
 const require = createRequire(import.meta.url);
@@ -116,12 +117,18 @@ async function waitFor(fn: () => boolean, ms = 3000): Promise<void> {
   }
 }
 
-async function firstEvent(
-  iter: AsyncIterable<string>,
+/** First frame of a tap, with the subscription ESTABLISHED before this returns
+ *  (`subscribeFrames` issues the first pull, which is the subscribe). */
+async function firstEvent<T>(
+  stream: Stream.Stream<T, unknown>,
   ms = 3000,
-): Promise<string> {
-  const it = iter[Symbol.asyncIterator]();
-  return nextFrame(it, ms);
+): Promise<T> {
+  const frames = subscribeFrames(stream);
+  try {
+    return await frames.next(ms);
+  } finally {
+    frames.close();
+  }
 }
 
 describeDaemon("createPtyHost", () => {
@@ -181,21 +188,22 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    const { deltas } = host.attach(id);
-    let seen = "";
-    const it = deltas[Symbol.asyncIterator]();
-    // Drain chunks until the marker appears (or the stream stalls).
-    while (!seen.includes("live delta")) {
-      const next = await Promise.race([
-        it.next(),
-        new Promise<IteratorResult<string>>((resolve) =>
-          setTimeout(() => resolve({ done: true, value: undefined }), 2000),
-        ),
-      ]);
-      if (next.done) break;
-      seen += next.value;
-    }
-    expect(seen).toContain("live delta");
+    // The attachment's scope spans the whole read: closing it is what
+    // unsubscribes, so the deltas stay live for as long as this body runs.
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { deltas } = yield* host.attach(id);
+          const frames = subscribeFrames(deltas);
+          let seen = "";
+          // Drain chunks until the marker appears (or the stream stalls).
+          while (!seen.includes("live delta"))
+            seen += yield* Effect.promise(() => frames.next(2000));
+          frames.close();
+          expect(seen).toContain("live delta");
+        }),
+      ),
+    );
   });
 
   it("carries already-parsed output in the attach snapshot", async () => {
@@ -207,7 +215,7 @@ describeDaemon("createPtyHost", () => {
       cwd: "/tmp",
     });
     await waitFor(() => host.getScreenState(id).includes("snap content"));
-    const { snapshot } = host.attach(id);
+    const { snapshot } = runScopedSync(host.attach(id));
     expect(snapshot).toContain("snap content");
   });
 
@@ -248,7 +256,7 @@ describeDaemon("createPtyHost", () => {
     expect(joinedScreen()).toContain(url);
   });
 
-  it("resolves exitPromise with the child's exit code", async () => {
+  it("exit() succeeds with the child's exit code", async () => {
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -256,7 +264,7 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    expect(await host.exitPromise(id)).toBe(7);
+    expect(await Effect.runPromise(host.exit(id))).toBe(7);
   });
 
   it("still resolves the real exit code after the PTY is torn down", async () => {
@@ -267,11 +275,54 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    expect(await host.exitPromise(id)).toBe(5);
+    expect(await Effect.runPromise(host.exit(id))).toBe(5);
     // Entry is gone from list() now, but a late query gets the real code
     // (the tombstone), not a fabricated 0.
     expect(host.list()).toHaveLength(0);
-    expect(await host.exitPromise(id)).toBe(5);
+    expect(await Effect.runPromise(host.exit(id))).toBe(5);
+  });
+
+  it("exit for an id the tombstone no longer holds FAILS instead of fabricating 0 (K7)", async () => {
+    // Past the tombstone cap (or never spawned at all) the host does not KNOW
+    // the exit code. Answering `0` would be the caught-error→default shape this
+    // repo bans in its most damaging spelling: a fabricated SUCCESS code that a
+    // consumer reports to the user as "the command succeeded".
+    host = createPtyHost({ log: silentLog });
+    await expect(
+      Effect.runPromise(host.exit("00000000-0000-0000-0000-000000000000")),
+    ).rejects.toMatchObject({ _tag: "PtyNotFound" });
+  });
+
+  it("a PTY gone between the two liveness checks throws the TAGGED PtyNotFound (K6)", async () => {
+    // The attach path checks liveness TWICE: the surface's `requirePtySync`
+    // (typed `PtyNotFound`) and then, one Effect step later, `attach`'s own
+    // `requireEntry`. A PTY that exits in the gap is a HEALTHY exit, and the
+    // consumer (`padi`'s re-open loop) recognises it structurally by `_tag` — so
+    // an untagged `Error` there turns a clean end into a spurious loud failure.
+    host = createPtyHost({ log: silentLog });
+    const { id } = host.spawn({
+      shell: "/bin/sh",
+      args: ["-c", "exit 0"],
+      env: shellEnv,
+      cwd: "/tmp",
+    });
+    // Check one passes — the PTY is live.
+    expect(host.has(id)).toBe(true);
+    // …and the exit lands in the gap.
+    await Effect.runPromise(host.exit(id));
+    await waitFor(() => !host.has(id));
+    // Check two must speak the SAME vocabulary. `handle` is `requireEntry`'s
+    // synchronous caller; `attach` is the one the gap is reachable through.
+    let thrown: unknown;
+    try {
+      host.handle(id);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({ _tag: "PtyNotFound", id });
+    await expect(
+      Effect.runPromise(Effect.scoped(host.attach(id))),
+    ).rejects.toMatchObject({ _tag: "PtyNotFound" });
   });
 
   it("publishes cwd on OSC 7", async () => {
@@ -298,7 +349,19 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    expect(await firstEvent(host.subscribeCommandRun(id))).toBe("git status");
+    // The tap hands back the retention AND the live marks in one step; here
+    // nothing is retained yet, so the mark arrives live.
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const sub = yield* host.subscribeCommandRun(id);
+          expect(sub.retained).toBeUndefined();
+          expect(yield* Effect.promise(() => firstEvent(sub.marks))).toBe(
+            "git status",
+          );
+        }),
+      ),
+    );
   });
 
   it("retains the last command line so a late reader catches up (getLastCommand)", async () => {
@@ -316,7 +379,7 @@ describeDaemon("createPtyHost", () => {
     await waitFor(() => host.getLastCommand(id) === "codex");
     expect(host.getLastCommand(id)).toBe("codex");
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   // ── R2: command-rooted PTYs (#1872 lock 1 — the argv is not discarded) ──
@@ -340,7 +403,7 @@ describeDaemon("createPtyHost", () => {
     // shellSplit — tagged so a reconnect never guesses the dialect.
     expect(host.getLastCommandShellJoin(id)).toBe(true);
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   it("does not seed a title (the title tap is live-only, no snapshot replay)", async () => {
@@ -363,7 +426,7 @@ describeDaemon("createPtyHost", () => {
     await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
     expect(host.getTitle(id)).toBe("");
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   it("a live 633;E mark overrides the command-rooted seed (precedence)", async () => {
@@ -426,16 +489,25 @@ describeDaemon("createPtyHost", () => {
       cwd: "/tmp",
     });
     // The non-interactive `sh -c` runs its commands in its own process group, so
-    // the pty's foreground-group leader is the spawned shell itself. (`nextFrame`
-    // directly — `firstEvent` is the string-typed wrapper; this tap yields
-    // `ForegroundSample`.)
-    const sample = await nextFrame(
-      host.subscribeForeground(id)[Symbol.asyncIterator](),
-      3000,
+    // the pty's foreground-group leader is the spawned shell itself. The tap's
+    // `current` reading is taken at subscribe time — before the child has
+    // claimed the tty it can still be undefined — so wait for the live sample
+    // that carries it.
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const sub = yield* host.subscribeForeground(id);
+          const frames = subscribeFrames(sub.samples);
+          const sample = yield* Effect.promise(() =>
+            frames.until((s) => s.foregroundPid !== undefined, 3000),
+          );
+          frames.close();
+          expect(sample.foregroundPid).toBe(pid);
+        }),
+      ),
     );
-    expect(sample.foregroundPid).toBe(pid);
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   it("trims the headless mirror to its configured scrollback under heavy output", async () => {
@@ -487,7 +559,7 @@ describeDaemon("createPtyHost", () => {
       "TAILMARK",
     );
     // (c) a cold-attaching client repaints the recent output from the snapshot.
-    expect(host.attach(id).snapshot).toContain("TAILMARK");
+    expect(runScopedSync(host.attach(id)).snapshot).toContain("TAILMARK");
   });
 
   it("answers XTVERSION (CSI > q) so a querying child is unblocked", async () => {
@@ -546,7 +618,7 @@ describeDaemon("createPtyHost", () => {
     expect(host.getScreenText(id)).toContain("received:kolu_write_ok");
     expect(host.getProcess(id)).toBeTypeOf("string");
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   it("removes the PTY from list() after kill", async () => {
@@ -559,7 +631,7 @@ describeDaemon("createPtyHost", () => {
     });
     expect(host.list()).toHaveLength(1);
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
     expect(host.list()).toHaveLength(0);
   });
 
@@ -576,7 +648,7 @@ describeDaemon("createPtyHost", () => {
     expect(handle.cwd).toBe("/tmp");
     expect(typeof handle.process).toBe("string");
     host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(host.exit(id));
   });
 
   it("announces a spawn on the inventory feed as `created`", async () => {
@@ -584,56 +656,89 @@ describeDaemon("createPtyHost", () => {
     // Subscribe BEFORE spawning — the eager-subscribe contract means a spawn on
     // the very next line is captured, not raced away. This is the property a
     // consumer (kolu-server) leans on to never miss an out-of-band create.
-    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
-    const { id, pid } = host.spawn({
-      shell: "/bin/sh",
-      args: ["-c", "sleep 5"],
-      env: shellEnv,
-      cwd: "/tmp",
-    });
-    const ev = await nextFrame(inv, 3000);
-    expect(ev).toEqual({
-      kind: "created",
-      entry: expect.objectContaining({ id, pid, cwd: "/tmp" }),
-    });
-    host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const inv = yield* host.subscribeInventory();
+          expect(inv.entries).toEqual([]);
+          const frames = subscribeFrames(inv.deltas);
+          const { id, pid } = host.spawn({
+            shell: "/bin/sh",
+            args: ["-c", "sleep 5"],
+            env: shellEnv,
+            cwd: "/tmp",
+          });
+          expect(yield* Effect.promise(() => frames.next(3000))).toEqual({
+            kind: "created",
+            entry: expect.objectContaining({ id, pid, cwd: "/tmp" }),
+          });
+          frames.close();
+          host.kill(id);
+          yield* host.exit(id);
+        }),
+      ),
+    );
   });
 
   it("announces a teardown on the inventory feed as `exited`", async () => {
     host = createPtyHost({ log: silentLog });
     // Subscribe BEFORE spawning so neither delta can race the subscription:
     // a `/bin/sh -c 'exit 0'` would otherwise be free to exit (and publish its
-    // `exited` to an empty channel — dropped, no replay) before a post-spawn
-    // subscribe registers. Spawn a long-lived shell, consume its `created`,
-    // then KILL it to make the `exited` deterministic.
-    const inv = host.subscribeInventory()[Symbol.asyncIterator]();
-    const { id } = host.spawn({
-      shell: "/bin/sh",
-      args: ["-c", "sleep 5"],
-      env: shellEnv,
-      cwd: "/tmp",
-    });
-    expect(await nextFrame(inv, 3000)).toMatchObject({ kind: "created" });
-    host.kill(id);
-    await host.exitPromise(id);
-    expect(await nextFrame(inv, 3000)).toEqual({ kind: "exited", id });
+    // `exited` to nobody — dropped, no replay) before a post-spawn subscribe
+    // registers. Spawn a long-lived shell, consume its `created`, then KILL it
+    // to make the `exited` deterministic.
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const inv = yield* host.subscribeInventory();
+          const frames = subscribeFrames(inv.deltas);
+          const { id } = host.spawn({
+            shell: "/bin/sh",
+            args: ["-c", "sleep 5"],
+            env: shellEnv,
+            cwd: "/tmp",
+          });
+          expect(yield* Effect.promise(() => frames.next(3000))).toMatchObject({
+            kind: "created",
+          });
+          host.kill(id);
+          yield* host.exit(id);
+          expect(yield* Effect.promise(() => frames.next(3000))).toEqual({
+            kind: "exited",
+            id,
+          });
+          frames.close();
+        }),
+      ),
+    );
   });
 
   it("fans the inventory feed out to multiple independent subscribers", async () => {
     host = createPtyHost({ log: silentLog });
-    const a = host.subscribeInventory()[Symbol.asyncIterator]();
-    const b = host.subscribeInventory()[Symbol.asyncIterator]();
-    const { id } = host.spawn({
-      shell: "/bin/sh",
-      args: ["-c", "sleep 5"],
-      env: shellEnv,
-      cwd: "/tmp",
-    });
-    expect(await nextFrame(a, 3000)).toMatchObject({ kind: "created" });
-    expect(await nextFrame(b, 3000)).toMatchObject({ kind: "created" });
-    host.kill(id);
-    await host.exitPromise(id);
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const a = subscribeFrames((yield* host.subscribeInventory()).deltas);
+          const b = subscribeFrames((yield* host.subscribeInventory()).deltas);
+          const { id } = host.spawn({
+            shell: "/bin/sh",
+            args: ["-c", "sleep 5"],
+            env: shellEnv,
+            cwd: "/tmp",
+          });
+          expect(yield* Effect.promise(() => a.next(3000))).toMatchObject({
+            kind: "created",
+          });
+          expect(yield* Effect.promise(() => b.next(3000))).toMatchObject({
+            kind: "created",
+          });
+          a.close();
+          b.close();
+          host.kill(id);
+          yield* host.exit(id);
+        }),
+      ),
+    );
   });
 });
 
@@ -732,31 +837,31 @@ describeDaemon("device-query contract — suppressed ⇄ answered pairing", () =
       env: shellEnv,
       cwd: "/tmp",
     });
-    const { deltas } = host.attach(id);
-    let raw = "";
-    const it = deltas[Symbol.asyncIterator]();
-    while (!raw.includes("OSC_SENTINEL")) {
-      const next = await Promise.race([
-        it.next(),
-        new Promise<IteratorResult<string>>((resolve) =>
-          setTimeout(() => resolve({ done: true, value: undefined }), 2500),
-        ),
-      ]);
-      if (next.done) break;
-      raw += next.value;
-    }
-    expect(raw).toContain("OSC_SENTINEL");
-    expect(raw).not.toContain("rgb:");
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { deltas } = yield* host.attach(id);
+          const frames = subscribeFrames(deltas);
+          let raw = "";
+          while (!raw.includes("OSC_SENTINEL"))
+            raw += yield* Effect.promise(() => frames.next(2500));
+          frames.close();
+          expect(raw).toContain("OSC_SENTINEL");
+          expect(raw).not.toContain("rgb:");
+        }),
+      ),
+    );
     host.dispose();
   });
 });
 
 // PR1 of the kaval-memory plan (docs/atlas/.../kaval-memory-architecture.mdx):
-// a reconnect storm — a WebSocket disconnect that aborts every in-flight attach
-// and re-issues it — must not serialize the mirror N times. These guard the two
-// defenses without bounding the snapshot (that's PR2, and would change what a
-// reload restores): an already-aborted attach does ZERO work, and a burst of
-// attaches within one publish-epoch shares a single serialize.
+// a reconnect storm — a WebSocket disconnect that interrupts every in-flight
+// attach and re-issues it — must not serialize the mirror N times. These guard
+// the two defenses without bounding the snapshot (that's PR2, and would change
+// what a reload restores): an attach on an already-interrupted fiber does ZERO
+// work, and a burst of attaches within one publish-epoch shares a single
+// serialize.
 describeDaemon("attach() reconnect-storm defenses", () => {
   let host: PtyHost;
 
@@ -769,7 +874,12 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     host?.dispose();
   });
 
-  it("does zero serialize work for an already-aborted attach", async () => {
+  it("does zero work for an attach on an already-interrupted fiber", async () => {
+    // The re-issued half of a reconnect storm, whose client has gone: the attach
+    // must serialize nothing. Under the AbortSignal face this was an explicit
+    // already-aborted fast path returning an empty snapshot; under interruption
+    // it is structural — an interrupted fiber never reaches the attach at all —
+    // so the pin is that the effect is issued and NOTHING happens.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -777,29 +887,27 @@ describeDaemon("attach() reconnect-storm defenses", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // Settle real on-screen content, so a *non*-aborted attach would be non-empty.
+    // Settle real on-screen content, so a *live* attach would be non-empty.
     await waitFor(() => host.getScreenState(id).includes("abort marker"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    const ac = new AbortController();
-    ac.abort();
-    const { snapshot, deltas } = host.attach(id, ac.signal);
+    const exit = Effect.runSyncExit(
+      Effect.scoped(
+        Effect.flatMap(Effect.interrupt, () =>
+          host.attach(id, { resizeTo: { cols: 37, rows: 11 } }),
+        ),
+      ),
+    );
 
-    // No serialize ran, and the snapshot is empty despite a populated screen —
-    // the cancellable short-circuit, not a serialized "abort marker" screen.
+    expect(exit._tag).toBe("Failure");
     expect(serializeSpy).not.toHaveBeenCalled();
-    expect(snapshot).toBe("");
-    // The delta stream is already ended (subscribe returns empty when aborted).
-    const first = await deltas[Symbol.asyncIterator]().next();
-    expect(first.done).toBe(true);
   });
 
-  it("does not resize the shared PTY for an already-aborted attach", async () => {
+  it("does not resize the shared PTY for an attach on an already-interrupted fiber", async () => {
     // `resizeTo` mutates state EVERY attached client can see — it SIGWINCHes the
     // child, reflows the shared mirror, and on a width change bumps the reflow
     // epoch that stales other clients' backfill cursors. A subscriber that is
-    // already gone must not inflict that on everyone else, so the aborted fast
-    // path has to be taken BEFORE the resize, not after it. Without the guard a
+    // already gone must not inflict that on everyone else. Without the guard a
     // re-issued reconnect-storm attach carrying a different grid silently
     // re-sizes a terminal nobody asked to resize.
     // A 60-column token: one unwrapped row at the spawned 100 columns, but two
@@ -817,11 +925,15 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     });
     await waitFor(() => host.getScreenText(id).includes(wide));
 
-    const ac = new AbortController();
-    ac.abort();
-    host.attach(id, ac.signal, { resizeTo: { cols: 37, rows: 11 } });
+    Effect.runSyncExit(
+      Effect.scoped(
+        Effect.flatMap(Effect.interrupt, () =>
+          host.attach(id, { resizeTo: { cols: 37, rows: 11 } }),
+        ),
+      ),
+    );
 
-    // Still one unwrapped row — the aborted attach left the shared grid alone.
+    // Still one unwrapped row — the interrupted attach left the shared grid alone.
     expect(host.getScreenText(id)).toContain(wide);
   });
 
@@ -838,7 +950,10 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
     // A synchronous burst — no task boundary between calls, so no publish can
     // interleave: all 25 attaches fall in one publish-epoch.
-    const snaps = Array.from({ length: 25 }, () => host.attach(id).snapshot);
+    const snaps = Array.from(
+      { length: 25 },
+      () => runScopedSync(host.attach(id)).snapshot,
+    );
 
     expect(serializeSpy).toHaveBeenCalledTimes(1);
     for (const s of snaps) expect(s).toContain("idle marker");
@@ -860,15 +975,15 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     await waitFor(() => host.getScreenText(id).includes("first"));
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
-    host.attach(id);
-    host.attach(id);
+    runScopedSync(host.attach(id));
+    runScopedSync(host.attach(id));
     expect(serializeSpy).toHaveBeenCalledTimes(1); // epoch 1: coalesced
 
     // A second output chunk publishes and must invalidate the cache — driven by
     // an explicit write, so it falls strictly after the epoch-1 attaches above.
     host.write(id, "echo second\n");
     await waitFor(() => host.getScreenText(id).includes("second"));
-    const { snapshot } = host.attach(id);
+    const { snapshot } = runScopedSync(host.attach(id));
     expect(serializeSpy).toHaveBeenCalledTimes(2); // epoch 2 re-serialized, not reused
     expect(snapshot).toContain("second");
   });
@@ -888,14 +1003,14 @@ describeDaemon("attach() reconnect-storm defenses", () => {
 
     const serializeSpy = vi.spyOn(SerializeAddon.prototype, "serialize");
     // First attach in this epoch serializes and memoizes the 80-col snapshot.
-    const first = host.attach(id).snapshot;
+    const first = runScopedSync(host.attach(id)).snapshot;
     expect(serializeSpy).toHaveBeenCalledTimes(1);
 
     // resize() reflows the mirror with no output to clear the memo — without
     // invalidation the next same-epoch attach hands back the stale 80-col snap.
     serializeSpy.mockClear();
     host.resize(id, 120, 24);
-    const second = host.attach(id).snapshot;
+    const second = runScopedSync(host.attach(id)).snapshot;
 
     expect(serializeSpy).toHaveBeenCalledTimes(1); // re-serialized, not reused
     expect(second).not.toBe(first); // reflects the new 120-col layout

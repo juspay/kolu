@@ -15,6 +15,7 @@
  * `@ts-expect-error` line below compile and fail the pin.
  */
 
+import { Effect } from "effect";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
 import type { Session } from "@kolu/surface-remote";
 import type { PadiConvergence } from "kolu-common/surface";
@@ -27,7 +28,7 @@ declare const localBase: Session<PadiSurfaceClient, never>;
 // through `asPadiSession`, not discarded at its parameter.
 const localPadi: PadiSession<never> = asPadiSession(localBase, {
   convergence: () => null satisfies PadiConvergence | null,
-  renew: () => Promise.resolve(),
+  renew: () => Effect.void,
   entryFailedDetail: () => null,
 });
 

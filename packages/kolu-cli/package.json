@@ -10,11 +10,13 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@kolu/padi": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "cleye": "^2.3.0",
+    "effect": "catalog:",
     "kolu-mcp": "workspace:*",
     "kolu-pty": "workspace:*",
     "kolu-server": "workspace:*",

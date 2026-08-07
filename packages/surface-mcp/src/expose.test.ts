@@ -6,8 +6,8 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
+import { Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   cellUri,
   collectionItemTemplate,
@@ -19,18 +19,28 @@ import {
 
 function buildSpec() {
   return defineSurface({
-    cells: { count: { schema: z.number(), default: 0 } },
+    cells: { count: { schema: Schema.Finite, default: 0 } },
     collections: {
-      notes: { keySchema: z.string(), schema: z.object({ body: z.string() }) },
+      notes: {
+        keySchema: Schema.String,
+        schema: Schema.Struct({ body: Schema.String }),
+      },
     },
-    streams: { ticks: { inputSchema: z.void(), outputSchema: z.number() } },
-    events: { exited: { inputSchema: z.void(), outputSchema: z.number() } },
+    streams: {
+      ticks: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
+    },
+    events: {
+      exited: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
+    },
     procedures: {
       counter: {
-        bump: { output: z.number() },
-        add: { input: z.object({ n: z.number() }), output: z.number() },
+        bump: { output: Schema.Finite },
+        add: {
+          input: Schema.Struct({ n: Schema.Finite }),
+          output: Schema.Finite,
+        },
       },
-      admin: { nuke: { output: z.boolean() } },
+      admin: { nuke: { output: Schema.Boolean } },
     },
   }).spec;
 }
@@ -82,6 +92,15 @@ describe("resolveExpose", () => {
     for (const t of r.tools) expect(t.inputSchema.type).toBe("object");
   });
 
+  it("a no-input procedure advertises an EMPTY object, not a `value: null` demand", () => {
+    // `defineSurface` gives a no-input procedure `Schema.Void`, whose encoded form
+    // is `{"type":"null"}` — the divergence D8 item 3 exists for. Pinned end-to-end
+    // through `resolveExpose` (not only in `jsonschema.test.ts`) because this is
+    // the path an actual MCP host reads.
+    const r = resolveExpose(buildSpec(), { "counter.bump": "tool" });
+    expect(r.tools[0]?.inputSchema).toEqual({ type: "object", properties: {} });
+  });
+
   it("omitting everything exposes nothing", () => {
     const r = resolveExpose(buildSpec(), {});
     expect(r.resources).toEqual([]);
@@ -124,11 +143,11 @@ describe("resolveExpose", () => {
         // Requires an `{ id }` — no value can be passed at a static resource
         // read, so this exposure is rejected at boot.
         nodeLog: {
-          inputSchema: z.object({ id: z.string() }),
-          outputSchema: z.string(),
+          inputSchema: Schema.Struct({ id: Schema.String }),
+          outputSchema: Schema.String,
         },
         // A void-input stream is fine.
-        ticks: { inputSchema: z.void(), outputSchema: z.number() },
+        ticks: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
       },
     }).spec;
 
@@ -148,11 +167,11 @@ describe("resolveExpose", () => {
         // and fail validation, so this exposure is rejected at boot (the same
         // gate streams take).
         terminalExit: {
-          inputSchema: z.object({ id: z.string() }),
-          outputSchema: z.number(),
+          inputSchema: Schema.Struct({ id: Schema.String }),
+          outputSchema: Schema.Finite,
         },
         // A void-input event is fine.
-        exited: { inputSchema: z.void(), outputSchema: z.number() },
+        exited: { inputSchema: Schema.Void, outputSchema: Schema.Finite },
       },
     }).spec;
 
@@ -170,7 +189,10 @@ describe("resolveExpose", () => {
       collections: {
         // A NON-string key — the item-template read must decode the URI's
         // string `<id>` through this schema before `.get({ key })`.
-        rows: { keySchema: z.number(), schema: z.object({ v: z.string() }) },
+        rows: {
+          keySchema: Schema.Finite,
+          schema: Schema.Struct({ v: Schema.String }),
+        },
       },
     }).spec;
 
@@ -178,9 +200,11 @@ describe("resolveExpose", () => {
     const tmpl = r.resourceTemplates[0];
     if (tmpl === undefined) throw new Error("expected one item template");
     expect(tmpl.key).toBe("rows");
-    // The schema round-trips a numeric key from its JSON form.
-    expect(tmpl.keySchema.safeParse(42).success).toBe(true);
-    expect(tmpl.keySchema.safeParse("42").success).toBe(false);
+    // The schema round-trips a numeric key from its JSON form, and refuses the
+    // raw URI segment — which is exactly why `decodeKey` needs the JSON fallback.
+    const decode = Schema.decodeUnknownOption(tmpl.keySchema);
+    expect(Option.isSome(decode(42))).toBe(true);
+    expect(Option.isSome(decode("42"))).toBe(false);
   });
 
   it("an exposed procedure carries its wrapped flag (F3)", () => {
@@ -188,9 +212,12 @@ describe("resolveExpose", () => {
       procedures: {
         echo: {
           // A scalar input — advertised wrapped under `value`.
-          shout: { input: z.string(), output: z.string() },
+          shout: { input: Schema.String, output: Schema.String },
           // An object input — not wrapped.
-          tag: { input: z.object({ k: z.string() }), output: z.string() },
+          tag: {
+            input: Schema.Struct({ k: Schema.String }),
+            output: Schema.String,
+          },
         },
       },
     }).spec;

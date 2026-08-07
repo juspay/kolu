@@ -14,6 +14,8 @@
  */
 
 import { splitHostPort } from "@kolu/port-forward/target";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import {
   encodeHostKey,
   type HostKey,
@@ -21,6 +23,7 @@ import {
   parseHostInput,
 } from "kolu-common/hostKey";
 import { toast } from "solid-sonner";
+import type { UiAction } from "../runAction";
 import { ensureDoor } from "./openPort";
 
 /** A parsed palette target, or why it could not be one. */
@@ -104,27 +107,34 @@ export function forwardFromPalette(
   raw: string,
   hosts: readonly HostKey[],
   activeHost: HostKey,
-): void {
+): UiAction {
   const parsed = parseForwardInput(raw, hosts, activeHost);
   if (!parsed.ok) {
-    toast.error(parsed.message);
-    return;
+    return Effect.sync(() => {
+      toast.error(parsed.message);
+    });
   }
   // Compose the shared act layer — same `ensureDoor` the chip and the card use.
   // No `window.open`: the palette only opens a door, it does not load a page.
-  ensureDoor({
+  return ensureDoor({
     host: parsed.host,
     port: parsed.port,
     origin: "manual",
-  }).then(
-    (localPort) =>
-      toast.success(
-        `Forwarding ${labelOf(parsed.host)}:${parsed.port} on port ${localPort}`,
-      ),
-    (err: Error) =>
-      toast.error(
-        `Could not forward ${labelOf(parsed.host)}:${parsed.port}: ${err.message}`,
-      ),
+  }).pipe(
+    Effect.tap((localPort) =>
+      Effect.sync(() => {
+        toast.success(
+          `Forwarding ${labelOf(parsed.host)}:${parsed.port} on port ${localPort}`,
+        );
+      }),
+    ),
+    Effect.catch((err) =>
+      Effect.sync(() => {
+        toast.error(
+          `Could not forward ${labelOf(parsed.host)}:${parsed.port}: ${toError(err).message}`,
+        );
+      }),
+    ),
   );
 }
 

@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // useRightPanel reads `preferences()` and writes via `updatePreferences` from
@@ -7,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // keeps its persistCanvasLayout → solid-sonner chain out of the test env).
 const h = vi.hoisted(() => ({
   updatePreferences: vi.fn(),
-  setRightPanel: vi.fn(() => Promise.resolve()),
+  setRightPanel: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   toastError: vi.fn(),
   prefs: {
     newTerminalCollapsed: false,
@@ -135,12 +136,14 @@ describe("useRightPanel — collapsed is per-terminal (the panel follows the ter
     expect(rp.collapsed()).toBe(false); // floors to the open default
   });
 
-  it("surfaces a rejected setRightPanel via toast (dedup id), not a silent DevTools log", async () => {
+  it("surfaces a failed setRightPanel via toast (dedup id), not a silent DevTools log", async () => {
     h.activeId = "collapse-fail" as TerminalId;
-    h.setRightPanel.mockRejectedValueOnce(new Error("padi rejected"));
+    h.setRightPanel.mockImplementationOnce(() =>
+      Effect.fail(new Error("padi rejected")),
+    );
     const rp = useRightPanel();
-    rp.togglePanel(); // optimistic state flips, report rejects
-    // The `.catch` runs on the rejected-promise microtask; flush it.
+    rp.togglePanel(); // optimistic state flips, the report fails
+    // The recovery runs on the report's own fiber; let it settle.
     await Promise.resolve();
     expect(h.toastError).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining("padi rejected"),

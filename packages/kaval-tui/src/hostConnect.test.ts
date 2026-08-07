@@ -10,6 +10,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("kolu-pty", () => ({ composeSpawnEnv: h.composeSpawnEnv }));
 
+import { ptyHostSurface } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
 import { kavalHostDialOptions } from "./hostConnect.ts";
 
@@ -21,10 +22,17 @@ describe("kavalHostDialOptions", () => {
     h.composeSpawnEnv.mockReturnValue(localEnv);
     const env = { PATH: "/nix/store/path" };
 
-    const options = kavalHostDialOptions("nix@prod", env);
+    const { surface, ...policy } = kavalHostDialOptions("nix@prod", env);
 
     expect(composeSpawnEnv).toHaveBeenCalledWith(env);
-    expect(options).toEqual({
+    // The dial takes the surface as a VALUE now — it builds the wire's
+    // `RpcGroup` and the client face out of it — so this must be kaval's own
+    // `ptyHostSurface` by IDENTITY, never a copy or a re-derivation: that is
+    // what makes the dialled face and the daemon's served group provably one
+    // tag set. Split out of the policy compare below so the assertion says
+    // "the same surface", not "a deep-equal blob of schemas".
+    expect(surface).toBe(ptyHostSurface);
+    expect(policy).toEqual({
       host: "nix@prod",
       localEnv,
       // Stated, not defaulted: `kaval-tui --host` deliberately provisions the

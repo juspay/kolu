@@ -20,10 +20,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import { makeSession } from "./session";
@@ -37,18 +38,24 @@ vi.mock("./nixCopy", async (importOriginal) => ({
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 
 const surface = defineSurface({
-  cells: { v: { schema: z.object({ n: z.number() }), default: { n: 0 } } },
+  cells: {
+    v: { schema: Schema.Struct({ n: Schema.Number }), default: { n: 0 } },
+  },
 });
-type SurfaceContract = typeof surface.contract;
 
 /** A child serving the real surface over a loopback pair — it answers the reserved
  *  `system.identity` (auto-served `anonymous`) — and stays alive until killed. */
 function healthyChild() {
   const pair = createLoopbackPair();
-  const { router } = implementSurface(surface, {
+  const { group, handlers } = implementSurface(surface, {
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
-  void serveOverStdio({ router: router as never, transport: pair.server });
+  void serveOverStdio({ group, handlers, transport: pair.server });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — `serveOverStdio`
+  // does it itself when the process is the agent; over an explicit loopback
+  // transport this fake child plays that part, exactly as a real `--stdio` front
+  // does after it converges.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
@@ -77,9 +84,10 @@ describe("makeSession identity republish (F1)", () => {
   });
 
   it("publishes a state frame when the async system.identity probe lands, so onState consumers resample", async () => {
-    const session = makeSession<AgentClient<SurfaceContract>, SshProv>({
+    const session = makeSession<AgentClient, SshProv>({
       initialConnection: "probing",
-      connectOnce: sshConnector<SurfaceContract>({
+      connectOnce: sshConnector({
+        surface,
         host: "testhost",
         binary: "agent",
         localEnv: {},

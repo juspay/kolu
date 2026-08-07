@@ -2,18 +2,18 @@
  * Mirroring a surface over ssh — the blocks "How to mirror a surface over ssh",
  * the `@kolu/surface-remote` reference, and "How to operate a fleet safely"
  * embed. Dial the host with a session, pump its frames into a LOCAL mirror, and
- * re-serve the same contract to browsers.
+ * re-serve the same surface to browsers.
  *
  * Typechecked, never executed — the session/pump calls live inside functions so
  * nothing dials at compile time.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
 import {
   defineSurface,
   isContractVersionCompatible,
   type SurfaceTypes,
 } from "@kolu/surface/define";
+import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceSink } from "@kolu/surface/mirror";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import {
@@ -21,21 +21,24 @@ import {
   type AgentDerivation,
   directAgentDerivation,
   makeSession,
+  pumpRemoteSurface,
   readBakedAgentSource,
   readBakedBinaryCache,
-  pumpRemoteSurface,
   type Session,
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
-import { z } from "zod";
+import { Schema } from "effect";
 
 // ── The agent's base surface (what it serves over stdio) ─────────────────
-const LoadSchema = z.object({
-  avg: z.tuple([z.number(), z.number(), z.number()]),
+const LoadSchema = Schema.Struct({
+  avg: Schema.Tuple([Schema.Number, Schema.Number, Schema.Number]),
 });
-const PidSchema = z.number().int().nonnegative();
-const ProcSchema = z.object({ command: z.string(), cpuPct: z.number() });
+const PidSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const ProcSchema = Schema.Struct({
+  command: Schema.String,
+  cpuPct: Schema.Number,
+});
 
 const base = defineSurface({
   cells: { load: { schema: LoadSchema, default: { avg: [0, 0, 0] } } },
@@ -75,12 +78,16 @@ const resolveDrv = (_host: string): Promise<AgentDerivation> =>
 //   });
 
 // #region dial
-const session: Session<
-  AgentClient<typeof base.contract>,
-  SshProv
-> = makeSession({
+// `AgentClient` is the structural member face — there is no contract type to be
+// generic over. The connector takes the SURFACE as a VALUE: Effect RPC builds
+// its client from `surface.group`, and the face is re-nested from
+// `surface.spec` — neither is recoverable from a type alone, and passing the
+// surface is what makes the dialled face and the served group provably the same
+// tag set.
+const session: Session<AgentClient, SshProv> = makeSession({
   initialConnection: "probing", // an ssh session provisions before it connects
-  connectOnce: sshConnector<typeof base.contract>({
+  connectOnce: sshConnector({
+    surface: base,
     host: "alice@bob.example", // any ssh target; "localhost" short-circuits
     binary: "my-agent", // exe name inside the realised closure
     // Policy-free: YOU (the consumer) compose the localhost arm's spawn env, keeping only
@@ -138,13 +145,12 @@ export function buildMirror() {
   // #endregion pump
 
   // #region reserve
-  // The mirror runtime's `.router` is already the FINAL top-level router; a
+  // The mirror runtime's `{ group, handlers }` is what any transport takes; a
   // browser consumes the local copy exactly as if the agent were in-process.
-  const router = runtime.router;
-  const link = directLink<typeof source.contract>(router as never);
+  const dispatch = directDispatch(runtime);
   // #endregion reserve
 
-  return { surface: source, router, link };
+  return { surface: source, runtime, dispatch };
 }
 
 // A compact end-to-end mirror — the `@kolu/surface-remote` reference block.
@@ -183,7 +189,7 @@ const setSkew = (_skew: boolean): void => {};
 const versioned = defineSurface({
   cells: {
     version: {
-      schema: z.object({ contractVersion: z.string() }),
+      schema: Schema.Struct({ contractVersion: Schema.String }),
       default: { contractVersion: "0.0" },
     },
   },

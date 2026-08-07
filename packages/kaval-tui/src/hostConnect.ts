@@ -6,14 +6,19 @@
  */
 import type { DialAgentOnceOptions } from "@kolu/surface-remote";
 import { composeSpawnEnv } from "kolu-pty";
-import type { ptyHostSurface } from "kaval";
+import { ptyHostSurface } from "kaval";
 
 /** Compose kaval's consumer-owned values for the shared one-shot dial. */
 export function kavalHostDialOptions(
   host: string,
   env: NodeJS.ProcessEnv,
-): DialAgentOnceOptions<typeof ptyHostSurface.contract> {
+): DialAgentOnceOptions<typeof ptyHostSurface.spec> {
   return {
+    // The surface is a VALUE the dial needs now, not a type it can infer:
+    // `stdioLink` builds its wire from `surface.group` and the face from
+    // `surface.spec`/`tagPrefix`, so the dialled face and the daemon's served
+    // group are provably the same tag set instead of two derivations.
+    surface: ptyHostSurface,
     host,
     localEnv: composeSpawnEnv(env),
     // Closure and binary are the same attr here: `kaval-tui --host` deliberately

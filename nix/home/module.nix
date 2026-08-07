@@ -22,14 +22,60 @@ let
   ++ tlsArgs
   ++ lib.optionals cfg.verbose [ "--verbose" ];
 
+  # ── I1 (juspay/kolu#2101): the generation IS the agent depot ────────────────
+  # Every agent closure a connect from this deployment can provision, aggregated
+  # into ONE symlink forest so the generation has a single thing to point at.
+  #
+  # WHY THIS EXISTS AT ALL. `padi-agent` — the attr both dial paths resolve — is
+  # NOT in `.#default`'s closure and never can be: it *contains* `default`. So a
+  # deploy used to install the server plus the baked agent SOURCE, learn the
+  # closure's store path at dial time, and then have to fetch the bits from a
+  # cache or compile them on the target host. That is the production incident
+  # (F5a, G7). The DEPLOYED ARTIFACT is not `.#default` though — it is this
+  # home-manager generation, and a generation may reference both `default` and
+  # `padi-agent` with no cycle. Referencing them here makes "the binder holds
+  # every agent closure it can ship" true BY CONSTRUCTION, on every host that
+  # deploys the module, with no cache and no preflight.
+  #
+  # WHY NOT `home.packages`. `padi-agent/bin` carries `kolu`, `kaval-tui` and
+  # `padi-tui` (it is the remote toolchain), which collide with `cliPackage` /
+  # `tuiPackage` / `padiTuiPackage` in the profile buildEnv. The closures must
+  # be IN the generation, not ON `$PATH`; a linkFarm referenced from the service
+  # definition is exactly that and nothing more.
+  #
+  # WHAT IT COSTS — MEASURED, NOT ESTIMATED. On x86_64-linux at this branch's
+  # HEAD, `.#default`'s closure is 776,842,136 B / 139 paths and
+  # `.#padi-agent`'s is 776,843,896 B / 140 paths: a delta of **1,760 bytes,
+  # exactly ONE store path** (the buildEnv symlink forest itself). `padi`,
+  # `kaval`, `kaval-tui` and `padi-tui` already sit inside `default`'s closure,
+  # so deduplication makes all of them free. End to end, the example's deployed
+  # generation goes 739 → 741 paths and 2,130,132,144 → 2,130,134,536 B: **+2
+  # store paths, +2,392 bytes**, i.e. +0.0001% — nowhere near the ≥10% stop
+  # threshold the round was given.
+  agentClosures = pkgs.linkFarm "kolu-agent-closures"
+    (map (p: { name = lib.getName p; path = p; }) cfg.agentPackages);
+
   # Shared by both supervisors. systemd wants `[ "KEY=val" ]`; launchd wants
   # the attrset as a plist dict — converted at each call site. Carries the
-  # optional diagnostics dir and the optional WebSocket Origin allowlist.
+  # baked-agent anchor, the optional diagnostics dir, and the optional
+  # WebSocket Origin allowlist.
+  #
+  # `KOLU_BAKED_AGENT_CLOSURES` IS READ BY NOTHING, ON PURPOSE. An env var no
+  # code consults is normally a smell; here the VALUE is the point. It is a
+  # store-path reference on the unit file, so the agent closures are (a) in the
+  # generation's closure, (b) GC-rooted for exactly as long as the generation is
+  # — nothing extra to arm, nothing to expire — and (c) anchored on the very
+  # unit whose connects are the reason they must exist, where a reader meets
+  # them. Deleting it does not break a build; it re-opens the incident. The
+  # `agent-closure-containment` check in nix/home/example/ is what fails if it
+  # ever stops holding.
   envAttrs =
-    lib.optionalAttrs (cfg.diagnostics.dir != null)
-      {
-        KOLU_DIAG_DIR = cfg.diagnostics.dir;
-      }
+    {
+      KOLU_BAKED_AGENT_CLOSURES = "${agentClosures}";
+    }
+    // lib.optionalAttrs (cfg.diagnostics.dir != null) {
+      KOLU_DIAG_DIR = cfg.diagnostics.dir;
+    }
     // lib.optionalAttrs (cfg.allowedOrigins != [ ]) {
       KOLU_ALLOWED_ORIGINS = lib.concatStringsSep "," cfg.allowedOrigins;
     };
@@ -72,6 +118,35 @@ in
         service. Set to `null` to opt out, or to an explicit package to pin a
         build. (`padi-tui` reads the running padi daemon; inside a kolu terminal
         `$PADI_SOCKET` makes it flagless.)
+      '';
+    };
+
+    agentPackages = lib.mkOption {
+      # `nonEmptyListOf`, NOT `listOf` — the difference is the whole point.
+      # `listOf` carries an `emptyValue` (nixpkgs lib/types.nix), so an option
+      # of that type with no `default` is not required at all: an omitting
+      # consumer silently evaluates to `[ ]`. Measured on a bare-module
+      # `homeManagerConfiguration` that set only `package`, and it evaluated
+      # green. `nonEmptyListOf` drops `emptyValue`, so omission throws — and it
+      # additionally rejects an EXPLICIT `[ ]`, which is the same defect spelled
+      # out loud.
+      type = lib.types.nonEmptyListOf lib.types.package;
+      example = lib.literalExpression ''[ kolu.packages.''${system}.padi-agent ]'';
+      description = ''
+        Every agent closure this deployment can provision onto a remote host;
+        the generation carries and GC-roots them so a connect never consults a
+        cache or realises from source (I1, juspay/kolu#2101).
+
+        REQUIRED, with no default — deliberately. Like `package` and unlike
+        `tuiPackage`, there is no honest empty value: a deployment that names no
+        agent closures is one whose first remote connect compiles a daemon over
+        ssh, which is the incident this option exists to abolish. A bare-module
+        consumer must state the set or fail at eval rather than silently
+        degrade. The flake's `homeManagerModules.default` defaults it to the
+        packages named by `nix/agent-packages.json`'s `expose` list — the same
+        manifest `ci/agent-substitutable`, `ci/agent-preflight` and
+        `nix/agent-flake.nix` read — so the set can never skew from what a
+        remote is actually allowed to resolve.
       '';
     };
 
@@ -180,7 +255,8 @@ in
         Service = {
           ExecStart = toString args;
           Restart = "on-failure";
-        } // lib.optionalAttrs (envAttrs != { }) {
+          # Always non-empty: `KOLU_BAKED_AGENT_CLOSURES` is unconditional, and
+          # it is this line that puts the agent closures in the generation.
           Environment = lib.mapAttrsToList (k: v: "${k}=${v}") envAttrs;
         };
         Install = {
@@ -207,7 +283,8 @@ in
           # launchd drops stdout/stderr by default; keep service crashes visible.
           StandardOutPath = "${config.home.homeDirectory}/Library/Logs/kolu.out.log";
           StandardErrorPath = "${config.home.homeDirectory}/Library/Logs/kolu.err.log";
-        } // lib.optionalAttrs (envAttrs != { }) {
+          # Always non-empty — same reason as the systemd `Environment` above:
+          # this is the darwin seat of the baked-agent anchor.
           EnvironmentVariables = envAttrs;
         };
       };

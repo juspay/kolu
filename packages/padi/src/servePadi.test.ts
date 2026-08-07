@@ -13,9 +13,11 @@
  * renders different bytes than it did pre-migration.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { inMemoryStore } from "@kolu/surface/server";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
-import { ORPCError } from "@orpc/server";
+import { Cause, Effect, Exit, Schema } from "effect";
 import { availableThemes, getThemeByName, themeMode } from "terminal-themes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_NEW_TERMINAL_POLICY } from "./newTerminalPolicy.ts";
@@ -35,6 +37,8 @@ import {
   PADI_SURFACE_VERSION,
   type PadiIdentity,
   PadiParkedTerminalSchema,
+  type PadiStatus,
+  PadiStatusSchema,
 } from "./surface.ts";
 import {
   type ActiveTerminalProcess,
@@ -46,6 +50,7 @@ import {
   unregisterTerminal,
 } from "./terminal-registry.ts";
 import { MAX_UPLOAD_BYTES } from "./upload.ts";
+import { cleanupTerminalScratch } from "./terminalScratch.ts";
 import {
   type AuthoredActiveTerminal,
   AuthoredParkedSchema,
@@ -87,7 +92,9 @@ const activeSnapshot: TerminalSnapshot = {
 // Parse through the authored-sleeping schema so the fixture is a VALID sleeping
 // arm (the compose runs `SleepingTerminalSchema.parse`, which would throw on a
 // malformed meta — pinning validity keeps the differential honest).
-const sleepingMeta: AuthoredSleepingTerminal = AuthoredSleepingSchema.parse({
+const sleepingMeta: AuthoredSleepingTerminal = Schema.decodeUnknownSync(
+  AuthoredSleepingSchema,
+)({
   state: "sleeping",
   location: LOCAL_LOCATION,
   lastActivityAt: 7,
@@ -106,7 +113,9 @@ const sleepingSnapshot: TerminalSnapshot = {
 
 // Parse through the authored-parked schema so the fixture is a VALID parked arm —
 // the boot reconcile builds this same authored base off a saved ACTIVE record.
-const parkedMeta: AuthoredParkedTerminal = AuthoredParkedSchema.parse({
+const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
+  AuthoredParkedSchema,
+)({
   state: "parked",
   parkedAt: 999,
   location: LOCAL_LOCATION,
@@ -178,8 +187,8 @@ afterEach(() => {
  *  (NOT `composeTerminalMetadata`, which only emits active|sleeping): the
  *  restore-relevant snapshot projection joined with the authored parked arm. */
 const parkedProjection = () =>
-  PadiParkedTerminalSchema.parse({
-    ...PersistedSnapshotSchema.parse(parkedSnapshot),
+  Schema.decodeUnknownSync(PadiParkedTerminalSchema)({
+    ...Schema.decodeUnknownSync(PersistedSnapshotSchema)(parkedSnapshot),
     ...parkedMeta,
   });
 
@@ -226,6 +235,40 @@ describe("padi's own `identity` cell — the per-host hello twin (W4 host-scopin
       startedAt: 42,
       lifetime: { kind: "forever" },
     });
+  });
+});
+
+describe("padi's `status` cell — the expected-kaval axis, OFF-NIX (#17 audit)", () => {
+  /** The `status` cell's in-memory backing, narrowed out of the deps shape. */
+  function statusBacking(): PadiStatus {
+    const deps = buildPadiSurfaceDeps({
+      endpoint: fakeEndpoint,
+      log: stubLog,
+      startedAt: 0,
+      commit: "",
+      lifetime: { kind: "forever" },
+      stateRoot: "/tmp/padi-test-state-root",
+    });
+    const store = (
+      deps.cells?.status as { store?: { get: () => PadiStatus } } | undefined
+    )?.store;
+    if (!store) throw new Error("padi deps must back the status cell");
+    return store.get();
+  }
+
+  // A vitest run has no `KAVAL_BUILD_ID` — nix bakes it and nothing else does —
+  // so `currentPtyHostIdentity().staleKey` is `""` here, which is the ORDINARY
+  // state of every from-source server, not an edge case. `expectedKaval` is
+  // `Schema.optionalKey`, and this seeded value is what EVERY `status` subscribe
+  // encodes, so the pre-fix `expectedKaval: … : undefined` seed broke the cell
+  // for the whole from-source world. Falsify by restoring that ternary: the
+  // encode below throws `Expected { readonly staleKey: string; … }, got undefined`.
+  it("OMITS the key off-nix — the seeded value must ENCODE on the wire", () => {
+    const status = statusBacking();
+    expect(Object.hasOwn(status, "expectedKaval")).toBe(false);
+    expect(
+      JSON.stringify(Schema.encodeUnknownSync(PadiStatusSchema)(status)),
+    ).toBe("{}");
   });
 });
 
@@ -278,10 +321,19 @@ describe("padi terminals collection backing == the deleted client reader-join", 
   });
 });
 
-/** The `scratch.write` handler, narrowed out of the all-optional deps shape. */
-function scratchWrite(): (args: {
-  input: { terminalId: string; name: string; data: string };
-}) => { path: string } {
+/** The `scratch.write` handler, narrowed out of the all-optional deps shape.
+ *  A procedure handler returns an `Effect` now (S2), so the gate's refusal is a
+ *  typed FAILURE rather than a throw. */
+type ScratchWriteFn = (args: {
+  input: {
+    terminalId: string;
+    name: string;
+    data: string;
+    appendTo?: string;
+  };
+}) => Effect.Effect<{ path: string }, unknown>;
+
+function scratchWrite(): ScratchWriteFn {
   const deps = buildPadiSurfaceDeps({
     endpoint: fakeEndpoint,
     log: stubLog,
@@ -292,20 +344,29 @@ function scratchWrite(): (args: {
   });
   const w = deps.procedures?.scratch?.write;
   if (!w) throw new Error("padi deps must serve scratch.write");
-  return w as unknown as (args: {
-    input: { terminalId: string; name: string; data: string };
-  }) => { path: string };
+  return w as unknown as ScratchWriteFn;
 }
 
-/** Pull the thrown fault's oRPC code, or "" if it wasn't an ORPCError — lets a
- *  single assertion pin BOTH that the gate rejected AND the typed code. */
-function thrownCode(fn: () => unknown): string {
-  try {
-    fn();
-    return "<did not throw>";
-  } catch (err) {
-    return err instanceof ORPCError ? err.code : "<not an ORPCError>";
-  }
+/** Run a procedure handler to completion. A handler returns an `Effect` now
+ *  (S2's ONE `ProcedureImpl` arm), so a test that merely CALLS one runs nothing —
+ *  this is the run edge every handler-driving test in this file goes through. */
+async function runHandler(effect: unknown): Promise<unknown> {
+  return await Effect.runPromise(effect as Effect.Effect<unknown, unknown>);
+}
+
+/** Run the gate and pull the DECLARED failure's `_tag` — one assertion pins BOTH
+ *  that the gate refused AND which typed error it refused with. The oRPC-era
+ *  `err.code` string is gone with the codes: a consumer narrows on `_tag` now
+ *  (PLAN D4), so that is what the pin reads. */
+async function failureTag(
+  run: () => Effect.Effect<unknown, unknown>,
+): Promise<string> {
+  const exit = await Effect.runPromiseExit(run());
+  if (Exit.isSuccess(exit)) return "<did not fail>";
+  const err = Cause.squash(exit.cause) as { _tag?: unknown };
+  return typeof err?._tag === "string"
+    ? err._tag
+    : "<not a declared padi error>";
 }
 
 describe("padi scratch.write re-enforces the authoritative upload gate (F1)", () => {
@@ -314,63 +375,190 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
   // write, so materializing the string is the whole cost.
   const oversize = "A".repeat(Math.ceil(((MAX_UPLOAD_BYTES + 4) * 4) / 3));
 
-  it("rejects oversize data with BAD_REQUEST (never reaches disk)", () => {
+  it("rejects oversize data with ScratchWriteRejected (never reaches disk)", async () => {
     seed();
     const write = scratchWrite();
-    expect(
-      thrownCode(() =>
+    await expect(
+      failureTag(() =>
         write({
           input: { terminalId: ACTIVE_ID, name: "big.txt", data: oversize },
         }),
       ),
-    ).toBe("BAD_REQUEST");
+    ).resolves.toBe("ScratchWriteRejected");
   });
 
-  it("rejects a disallowed extension with BAD_REQUEST", () => {
+  it("rejects a disallowed extension with ScratchWriteRejected", async () => {
     seed();
     const write = scratchWrite();
-    expect(
-      thrownCode(() =>
+    await expect(
+      failureTag(() =>
         write({
           input: { terminalId: ACTIVE_ID, name: "malware.exe", data: "AAAA" },
         }),
       ),
-    ).toBe("BAD_REQUEST");
+    ).resolves.toBe("ScratchWriteRejected");
   });
 
-  it("rejects an absent terminal id with NOT_FOUND (no orphan scratch file)", () => {
+  it("rejects an absent terminal id with TerminalNotFound (no orphan scratch file)", async () => {
     const write = scratchWrite();
-    expect(
-      thrownCode(() =>
+    await expect(
+      failureTag(() =>
         write({
           input: { terminalId: "nope", name: "notes.md", data: "AAAA" },
         }),
       ),
-    ).toBe("NOT_FOUND");
+    ).resolves.toBe("TerminalNotFound");
   });
 
-  it("rejects a SLEEPING id with NOT_FOUND (only an ACTIVE terminal can take an upload)", () => {
+  it("rejects a SLEEPING id with TerminalNotFound (only an ACTIVE terminal can take an upload)", async () => {
     seed();
     const write = scratchWrite();
-    expect(
-      thrownCode(() =>
+    await expect(
+      failureTag(() =>
         write({
           input: { terminalId: SLEEPING_ID, name: "notes.md", data: "AAAA" },
         }),
       ),
-    ).toBe("NOT_FOUND");
+    ).resolves.toBe("TerminalNotFound");
   });
 
-  it("rejects a PARKED id with NOT_FOUND (a reboot placeholder can't take an upload)", () => {
+  it("rejects a PARKED id with TerminalNotFound (a reboot placeholder can't take an upload)", async () => {
     seed();
     const write = scratchWrite();
-    expect(
-      thrownCode(() =>
+    await expect(
+      failureTag(() =>
         write({
           input: { terminalId: PARKED_ID, name: "notes.md", data: "AAAA" },
         }),
       ),
-    ).toBe("NOT_FOUND");
+    ).resolves.toBe("TerminalNotFound");
+  });
+});
+
+/**
+ * The chunked upload's server half (juspay/kolu#2101 G9a/G9c).
+ *
+ * The gate that mattered before chunking was "is this ONE payload too big".
+ * Once a file arrives in pieces, that question is worthless on its own: an
+ * unlimited file is an unlimited number of individually-legal chunks. So the
+ * cap has to be re-asked against the accumulated total, and these pin that it
+ * is — plus that the client-supplied continuation path buys no authority.
+ */
+describe("padi scratch.write chunked continuation (G9a)", () => {
+  const b64 = (s: string) => Buffer.from(s).toString("base64");
+
+  afterEach(() => {
+    cleanupTerminalScratch(ACTIVE_ID);
+  });
+
+  it("appends chunks into one file and returns a stable path", async () => {
+    seed();
+    const write = scratchWrite();
+    const first = (await runHandler(
+      write({
+        input: { terminalId: ACTIVE_ID, name: "n.md", data: b64("ab") },
+      }),
+    )) as { path: string };
+    const second = (await runHandler(
+      write({
+        input: {
+          terminalId: ACTIVE_ID,
+          name: "n.md",
+          data: b64("cd"),
+          appendTo: first.path,
+        },
+      }),
+    )) as { path: string };
+    expect(second.path).toBe(first.path);
+    expect(readFileSync(second.path, "utf8")).toBe("abcd");
+  });
+
+  it("refuses a continuation whose path escapes the terminal's scratch dir", async () => {
+    seed();
+    const write = scratchWrite();
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "n.md",
+            data: b64("x"),
+            appendTo: "/etc/passwd",
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+  });
+
+  it("refuses a continuation to a file that was never created", async () => {
+    seed();
+    const write = scratchWrite();
+    const anchor = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "a.md", data: b64("x") } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "a.md",
+            data: b64("y"),
+            appendTo: `${dirname(anchor.path)}/never-created.md`,
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+  });
+
+  it("still needs an ACTIVE terminal for every chunk, not just the first", async () => {
+    // A terminal that dies mid-upload must stop taking bytes. The liveness gate
+    // runs before the append branch, so this holds for continuations too.
+    seed();
+    const write = scratchWrite();
+    const first = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "n.md", data: b64("a") } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: SLEEPING_ID,
+            name: "n.md",
+            data: b64("b"),
+            appendTo: first.path,
+          },
+        }),
+      ),
+    ).resolves.toBe("TerminalNotFound");
+  });
+
+  it("enforces the size cap on the ACCUMULATED total, not the chunk", async () => {
+    // THE property chunking could have quietly destroyed. Each chunk here is
+    // individually legal; together they exceed MAX_UPLOAD_BYTES, and the gate
+    // must refuse on the total. Without the post-append `rejectionFor` on the
+    // real on-disk size, this passes silently and the 50 MB cap means nothing.
+    seed();
+    const write = scratchWrite();
+    // Two-thirds of the cap each: legal alone, over the cap together.
+    const half = "A".repeat(Math.ceil((((MAX_UPLOAD_BYTES * 2) / 3) * 4) / 3));
+    const first = (await runHandler(
+      write({ input: { terminalId: ACTIVE_ID, name: "big.txt", data: half } }),
+    )) as { path: string };
+    await expect(
+      failureTag(() =>
+        write({
+          input: {
+            terminalId: ACTIVE_ID,
+            name: "big.txt",
+            data: half,
+            appendTo: first.path,
+          },
+        }),
+      ),
+    ).resolves.toBe("ScratchWriteRejected");
+    // And the over-cap file is REMOVED rather than left truncated on disk,
+    // where an agent could read a partial upload as a whole one.
+    expect(existsSync(first.path)).toBe(false);
   });
 });
 
@@ -564,13 +752,13 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     __resetPadiSurfaceCtxForTest();
   });
 
-  it("(v) a plain create does NOT forfeit — parked entries + saved blob both survive, restore stays offered", () => {
+  it("(v) a plain create does NOT forfeit — parked entries + saved blob both survive, restore stays offered", async () => {
     setSavedSession(savedBlob());
     seedParked();
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
 
     const { create } = serve();
-    create({ input: {} });
+    await runHandler(create({ input: {} }));
 
     // The parked entry SURVIVES — creating a terminal is no longer a forfeit.
     expect(getTerminal(PARKED_ID)?.meta.state).toBe("parked");
@@ -583,12 +771,12 @@ describe("padi restore forfeit — create preserves, session.forfeit discards (K
     expect(freshParked.map(([id]) => id)).toEqual([PARKED_ID]);
   });
 
-  it("(vii) session.forfeit discards the parked entries AND clears the saved session, atomically", () => {
+  it("(vii) session.forfeit discards the parked entries AND clears the saved session, atomically", async () => {
     setSavedSession(savedBlob());
     seedParked();
 
     const { forfeit } = serve();
-    forfeit({ input: {} });
+    await runHandler(forfeit({ input: {} }));
 
     // Both the parked entries and the blob are gone, together — one user act.
     expect(getTerminal(PARKED_ID)).toBeUndefined();
@@ -632,21 +820,63 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     return id;
   }
 
-  /** The theme the create just stamped — the one entry that is not a seeded id. */
-  function createdTheme(
-    create: ReturnType<typeof serve>,
-    input: { themeName?: string; parentId?: string } = {},
-  ): string | undefined {
-    const before = new Set([...terminalEntries()].map(([id]) => id));
-    create({ input });
-    const fresh = [...terminalEntries()].filter(([id]) => !before.has(id));
-    if (fresh.length !== 1)
-      throw new Error(`create registered ${fresh.length} entries, expected 1`);
-    return (fresh[0] as [string, { meta: { themeName?: string } }])[1].meta
-      .themeName;
+  /** Every terminal BIRTH publish this test's ctx saw, newest last. */
+  let born: Array<{ id: string; themeName?: string }> = [];
+
+  /** A padi ctx that records the `terminals` collection upserts — the birth
+   *  publish `registerActiveAndSpawn` fires, which is the very frame the client
+   *  renders a new tile from. Every other member no-ops. */
+  function recordingCtx(): ReturnType<typeof noopPadiSurfaceCtxForTest> {
+    const base = noopPadiSurfaceCtxForTest();
+    return {
+      ...base,
+      collections: new Proxy({} as never, {
+        get: (_t, name) =>
+          name === "terminals"
+            ? {
+                upsert: (id: string, v: { themeName?: string }) => {
+                  born.push({ id, themeName: v.themeName });
+                },
+                remove: () => {},
+                readAll: () => new Map(),
+                readOne: () => undefined,
+              }
+            : (base.collections as Record<string, unknown>)[name as string],
+      }),
+    } as ReturnType<typeof noopPadiSurfaceCtxForTest>;
   }
 
-  beforeEach(() => setPadiSurfaceCtx(noopPadiSurfaceCtxForTest()));
+  /** The theme the create just stamped, read off the BIRTH publish.
+   *
+   *  NOT off a post-hoc registry read: a procedure handler is an `Effect` now, so
+   *  awaiting it hands the create's async tail a turn — and with no kaval to spawn
+   *  into, that tail unwinds its own registry entry (`unwindSpawnShadow`) before
+   *  the await resolves. The publish is the honest observation point, and it is
+   *  the one the feature exists to feed. */
+  async function createdTheme(
+    create: ReturnType<typeof serve>,
+    input: { themeName?: string; parentId?: string } = {},
+  ): Promise<string | undefined> {
+    const seeded = new Set([...terminalEntries()].map(([id]) => id));
+    born = [];
+    await runHandler(create({ input }));
+    // Keyed by id, last write wins: a birth publishes TWICE by design (the
+    // snapshot install, then the lifecycle-state publish), and both carry the
+    // composed record — so the count that matters is distinct terminals.
+    const fresh = [
+      ...new Map(
+        born.filter((b) => !seeded.has(b.id)).map((b) => [b.id, b] as const),
+      ).values(),
+    ];
+    if (fresh.length !== 1)
+      throw new Error(`create published ${fresh.length} births, expected 1`);
+    return fresh[0]?.themeName;
+  }
+
+  beforeEach(() => {
+    born = [];
+    setPadiSurfaceCtx(recordingCtx());
+  });
   afterEach(async () => {
     // The kaval-less fresh spawn's async tail rejects on a later microtask; let
     // it settle before draining the registry the create wrote into.
@@ -657,30 +887,30 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     __resetPadiSurfaceCtxForTest();
   });
 
-  it("inherit — copies the active terminal's theme", () => {
+  it("inherit — copies the active terminal's theme", async () => {
     newTerminalPolicyStore.set({ kind: "inherit" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
-    expect(createdTheme(serve())).toBe(PEER_THEME);
+    await expect(createdTheme(serve())).resolves.toBe(PEER_THEME);
   });
 
-  it("inherit with no active terminal — the metadata stays theme-less (the client's built-in default)", () => {
+  it("inherit with no active terminal — the metadata stays theme-less (the client's built-in default)", async () => {
     newTerminalPolicyStore.set({ kind: "inherit" });
     seedActive(ACTIVE_ID, PEER_THEME);
-    expect(createdTheme(serve())).toBeUndefined();
+    await expect(createdTheme(serve())).resolves.toBeUndefined();
   });
 
-  it("inherit with a STALE active marker (the terminal was killed) — theme-less, not a crash", () => {
+  it("inherit with a STALE active marker (the terminal was killed) — theme-less, not a crash", async () => {
     // `killTerminal` does not clear the marker, so the id can outlive its entry.
     newTerminalPolicyStore.set({ kind: "inherit" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
     unregisterTerminal(ACTIVE_ID);
-    expect(createdTheme(serve())).toBeUndefined();
+    await expect(createdTheme(serve())).resolves.toBeUndefined();
   });
 
-  it("shuffle — picks a real catalogue theme of the policy's family, distinct from the sole peer", () => {
+  it("shuffle — picks a real catalogue theme of the policy's family, distinct from the sole peer", async () => {
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
     seedActive(ACTIVE_ID, PEER_THEME);
-    const picked = createdTheme(serve());
+    const picked = await createdTheme(serve());
     const named = availableThemes.find((t) => t.name === picked);
     if (!named) throw new Error(`picked theme not in the catalogue: ${picked}`);
     expect(themeMode(named)).toBe("dark");
@@ -689,21 +919,27 @@ describe("padi new-terminal theme — lifecycle.create resolves the pushed polic
     expect(picked).not.toBe(PEER_THEME);
   });
 
-  it("an explicit themeName wins over BOTH policy kinds (session restore, worktree opens)", () => {
+  it("an explicit themeName wins over BOTH policy kinds (session restore, worktree opens)", async () => {
     newTerminalPolicyStore.set({ kind: "inherit" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
-    expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
+    await expect(
+      createdTheme(serve(), { themeName: "Homebrew" }),
+    ).resolves.toBe("Homebrew");
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
-    expect(createdTheme(serve(), { themeName: "Homebrew" })).toBe("Homebrew");
+    await expect(
+      createdTheme(serve(), { themeName: "Homebrew" }),
+    ).resolves.toBe("Homebrew");
   });
 
-  it("a SPLIT resolves no policy theme — it renders with its PARENT's, and stays out of the peer set", () => {
+  it("a SPLIT resolves no policy theme — it renders with its PARENT's, and stays out of the peer set", async () => {
     // A split pane draws inside its parent tile and is handed the parent's theme
     // (`TerminalContent.tsx`), so a shuffled tint for it would be invisible — and
     // would then steer later shuffles away from colours nobody can see.
     newTerminalPolicyStore.set({ kind: "shuffle", mode: "dark" });
     setActiveTerminalId(seedActive(ACTIVE_ID, PEER_THEME));
-    expect(createdTheme(serve(), { parentId: ACTIVE_ID })).toBeUndefined();
+    await expect(
+      createdTheme(serve(), { parentId: ACTIVE_ID }),
+    ).resolves.toBeUndefined();
     expect(shufflePeerBgs()).toEqual([
       getThemeByName(PEER_THEME).background as string,
     ]);

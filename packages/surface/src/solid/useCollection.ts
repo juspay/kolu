@@ -11,15 +11,15 @@
  * server stream tears down. No manual Map / version signals / abort plumbing
  * required at the call site.
  *
- * `valueSource` is a typed oRPC procedure ref (e.g.
- * `client.terminal.onMetadataChange`) plus a `keyToInput` adapter — the
- * input shape per key varies by procedure (some take `{ id }`, some take
- * `{ key }`, some take the raw key) and the framework can't guess. The
- * hook threads `STREAM_RETRY` context internally.
+ * `valueSource` is a typed member ref (the collection's per-key `get`) plus a
+ * `keyToInput` adapter — the input shape per key varies by member (some take
+ * `{ id }`, some take `{ key }`, some take the raw key) and the framework can't
+ * guess. The hook applies the framework's retry fence internally.
  */
 
+import type { Stream } from "effect";
 import { type Accessor, createMemo, mapArray } from "solid-js";
-import { STREAM_RETRY, type StreamingProcedure } from "../client";
+import { type StreamingProcedure, unenrolledStreamCall } from "../client";
 import type { CollectionDeltasMsg } from "../define";
 import type { Collection } from "../index";
 import {
@@ -32,8 +32,8 @@ export interface UseCollectionOptions<K, T, I> {
   /** Reactive accessor for the live key set. The caller owns the subscription
    *  (or computation) that produces this — useCollection just observes it. */
   keys: Accessor<K[]>;
-  /** Typed streaming procedure ref for one key's value stream. Hook
-   *  threads `STREAM_RETRY` context per call. */
+  /** Typed streaming member ref for one key's value stream. The hook applies the
+   *  retry fence per key. */
   valueSource: StreamingProcedure<I, T>;
   /** Adapter from key to procedure input shape. Always required (even
    *  when `I = K`) — without it the framework would have to silently cast
@@ -73,7 +73,7 @@ export interface UseCollectionResult<K, T> {
 }
 
 export function useCollection<Name extends string, K, T, I>(
-  _coll: Collection<Name, K, T>,
+  collDescriptor: Collection<Name, K, T>,
   options: UseCollectionOptions<K, T, I>,
 ): UseCollectionResult<K, T> {
   const keys = createMemo<K[]>(() => options.keys());
@@ -83,11 +83,12 @@ export function useCollection<Name extends string, K, T, I>(
   // → server stream closes. No manual teardown.
   const perKey = mapArray(keys, (key) => {
     const sub = createSubscription(
-      (signal) =>
-        options.valueSource(options.keyToInput(key), {
-          signal,
-          context: STREAM_RETRY,
-        }),
+      unenrolledStreamCall(options.valueSource, options.keyToInput(key), {
+        // The `client.health()` per-key spelling (`<key>[<id>]`), reused rather
+        // than re-spelled, so the liveness registry and the health fact name one
+        // subscription one way (kolu#2101 J2).
+        label: `${collDescriptor.name}[${String(key)}]`,
+      }),
       { onError: options.onError },
     );
     // Enrol this per-key sub into the client health registry (when wired). Runs
@@ -252,12 +253,10 @@ export function foldCollectionDeltas<K, T>(
 export function useCollectionDeltas<Name extends string, K, T>(
   _coll: Collection<Name, K, T>,
   options: {
-    /** The collection's `deltas` stream factory (snapshot-then-deltas). Receives
-     *  the subscription's abort signal — thread it into the wire call so tearing
-     *  down the last consumer of a shared dedup slot cancels the upstream stream. */
-    source: (
-      signal: AbortSignal,
-    ) => Promise<AsyncIterable<CollectionDeltasMsg<K, T>>>;
+    /** The collection's `deltas` stream (snapshot-then-deltas), already fenced.
+     *  Lazy — tearing down the last consumer of a shared dedup slot interrupts the
+     *  subscription's fiber, and the stream's own finalizers cancel upstream. */
+    source: Stream.Stream<CollectionDeltasMsg<K, T>, unknown>;
     onError?: SubscriptionOptions<unknown>["onError"];
     /** Fired when the batched stream ends NORMALLY (typed end) — the surface client
      *  threads the keyed cache's slot eviction here so a re-served collection rebuilds. */

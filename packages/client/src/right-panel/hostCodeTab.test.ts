@@ -23,6 +23,7 @@
  *  hand-driven, procedure-and-input-keyed pulse (`unenrolledStreamCall` mocked)
  *  requeries the matching ACTIVE instance. */
 
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { batch, createEffect, createRoot, createSignal } from "solid-js";
@@ -34,32 +35,31 @@ type PulseSubscription = {
   emit: () => void;
 };
 
-// A multi-subscriber hand-driven pulse over the SHARED abort-aware stream mock.
+// A multi-subscriber hand-driven pulse over the SHARED controllable stream mock.
 // Subscriptions retain both the procedure identity and serialized input, so focused
 // tests can emit one exact server event instead of broadcasting an indistinguishable
-// generic pulse. A paused/re-keyed instance aborts and removes its old subscription.
+// generic pulse. A paused/re-keyed instance is INTERRUPTED, and the mock's finalizer
+// (`onTeardown`) removes its subscription — the successor of the old abort listener.
 const pulseCtl = vi.hoisted(() => ({
   repoProc: () => ({}),
   fileProc: () => ({}),
   subs: new Set<PulseSubscription>(),
 }));
 vi.mock("@kolu/surface/client", async () => {
-  const { makeAbortAwareStream } = await import("./streamMock.testlib");
+  const { makeControllableStream } = await import("./streamMock.testlib");
   return {
-    unenrolledStreamCall: async (
-      proc: unknown,
-      input: unknown,
-      opts?: { signal?: AbortSignal },
-    ) => {
-      const { iterable, push } = makeAbortAwareStream(opts?.signal);
-      const sub = {
-        proc,
-        input: JSON.stringify(input),
-        emit: () => push({ frame: true }),
-      };
+    unenrolledStreamCall: (proc: unknown, input: unknown) => {
+      const sub: {
+        proc: unknown;
+        input: string;
+        emit: () => void;
+      } = { proc, input: JSON.stringify(input), emit: () => {} };
+      const { stream, push } = makeControllableStream({
+        onTeardown: () => pulseCtl.subs.delete(sub),
+      });
+      sub.emit = () => push({ frame: true });
       pulseCtl.subs.add(sub);
-      opts?.signal?.addEventListener("abort", () => pulseCtl.subs.delete(sub));
-      return iterable;
+      return stream;
     },
   };
 });
@@ -78,30 +78,35 @@ const bag = vi.hoisted(() => ({
 
 vi.mock("../wire", async () => {
   const { mockPadiMap } = await import("../hostScope/mockHostMap.testlib");
-  // Bound procedures face (no `.surface` prefix now).
+  // The EFFECT-native procedures face. Each verb answers with a DESCRIPTION, so
+  // the recorded side effects below run when the query is RUN — which is what
+  // the call-count assertions are really about.
   const activePadiRpc = {
     git: {
-      getStatus: async (i: { repoPath: string; mode: string }) => {
-        bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
-        return {
-          files: [],
-          label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
-          n: bag.counts[i.mode],
-        };
-      },
-      getDiff: async () => ({ hunks: [] }),
+      getStatus: (i: { repoPath: string; mode: string }) =>
+        Effect.sync(() => {
+          bag.counts[i.mode] = (bag.counts[i.mode] ?? 0) + 1;
+          return {
+            files: [],
+            label: `${encodeHostKey(bag.activeHost())}:${i.mode}`,
+            n: bag.counts[i.mode],
+          };
+        }),
+      getDiff: () => Effect.succeed({ hunks: [] }),
     },
     fs: {
-      listAll: async () => {
-        bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
-        return { paths: ["src/app.ts"] };
-      },
-      listIgnored: async () => ({ paths: ["node_modules/"] }),
-      readFile: async () => ({ content: "", truncated: false }),
-      filePreviewTag: async (input: { repoPath: string; filePath: string }) => {
-        bag.previewTagInputs.push(input);
-        return "same-content-tag";
-      },
+      listAll: () =>
+        Effect.sync(() => {
+          bag.counts.listAll = (bag.counts.listAll ?? 0) + 1;
+          return { paths: ["src/app.ts"] };
+        }),
+      listIgnored: () => Effect.succeed({ paths: ["node_modules/"] }),
+      readFile: () => Effect.succeed({ content: "", truncated: false }),
+      filePreviewTag: (input: { repoPath: string; filePath: string }) =>
+        Effect.sync(() => {
+          bag.previewTagInputs.push(input);
+          return "same-content-tag";
+        }),
     },
   };
   // The un-enrolled change pulses ride the entry's STREAM face now

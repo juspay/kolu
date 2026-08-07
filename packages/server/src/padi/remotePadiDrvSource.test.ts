@@ -22,6 +22,13 @@ import {
   type SshConnectorOptions,
 } from "@kolu/surface-remote";
 import { PADI_REMOTE_DIAL } from "@kolu/padi/dial";
+import type { padiSurface } from "@kolu/padi/surface";
+
+/** `SshConnectorOptions` is generic over the dialed surface's spec now (the
+ *  connector needs the surface as a VALUE to build its link and face). Only the
+ *  `resolveDrvPath` field matters here, and it does not vary with the spec — so
+ *  the alias is pinned once, at padi's spec, rather than at every reference. */
+type PadiSshConnectorOptions = SshConnectorOptions<typeof padiSurface.spec>;
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
@@ -93,11 +100,11 @@ const resolverContext: ResolveDrvPathContext = {
  *  cause the binder publishes (`entryFailedDetail`). */
 function seedLiveBinding(): {
   binding: ReturnType<typeof ensureRemotePadiBinding>;
-  resolve: SshConnectorOptions["resolveDrvPath"];
+  resolve: PadiSshConnectorOptions["resolveDrvPath"];
 } {
-  let captured: SshConnectorOptions["resolveDrvPath"] | undefined;
+  let captured: PadiSshConnectorOptions["resolveDrvPath"] | undefined;
   h.sshConnector.mockImplementation(
-    (opts: { resolveDrvPath: SshConnectorOptions["resolveDrvPath"] }) => {
+    (opts: { resolveDrvPath: PadiSshConnectorOptions["resolveDrvPath"] }) => {
       captured = opts.resolveDrvPath;
       // The connector is never invoked (makeSession is mocked); return a dummy.
       return async () => {
@@ -113,7 +120,7 @@ function seedLiveBinding(): {
   return { binding, resolve: captured };
 }
 
-function seedAndCaptureResolver(): SshConnectorOptions["resolveDrvPath"] {
+function seedAndCaptureResolver(): PadiSshConnectorOptions["resolveDrvPath"] {
   const { binding, resolve } = seedLiveBinding();
   binding.destroy();
   return resolve;

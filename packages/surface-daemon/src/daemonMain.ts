@@ -3,8 +3,8 @@
  *
  * `daemonMain` is the mechanism; the *policy* arrives as parameters — the
  * on-disk {@link DaemonHomePaths} (`home`: gate + socket co-located under
- * `dir`), what to serve (`router`, any `@kolu/surface` router), how long to
- * live (`lifetime`), and what the daemon's existence is anchored to
+ * `dir`), what to serve (`group` + `handlers`, any `@kolu/surface` runtime),
+ * how long to live (`lifetime`), and what the daemon's existence is anchored to
  * (`anchor` — the required self-reap invariant: a daemon whose identity
  * directory is proven gone shuts itself down rather than leaking forever,
  * juspay/kolu#2010). kaval picks
@@ -21,11 +21,12 @@
  */
 
 import { lstatSync } from "node:fs";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   serveOverUnixSocket,
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
-import type { Router } from "@orpc/server";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import type { DaemonHomePaths } from "./daemonHome.ts";
 import type { Logger } from "./logger.ts";
 import {
@@ -58,8 +59,8 @@ export type DaemonLifetime =
  *  `boundToPid`'s test-only `pollMs`). This is what a daemon publishes about
  *  itself so a UI can show which lifetime it is running under (`forever` in
  *  production; `boundToPid` under a test/smoke run). Kept here, beside the union
- *  it projects, so the two can't drift; the wire (zod) schema is declared
- *  downstream in each surface's browser-safe vocab, `satisfies`-pinned to this. */
+ *  it projects, so the two can't drift; the wire schema is declared downstream
+ *  in each surface's browser-safe vocab, `satisfies`-pinned to this. */
 export type DaemonLifetimeInfo =
   | { kind: "forever" }
   | { kind: "idleTimeout"; ms: number }
@@ -91,13 +92,16 @@ export function lifetimeInfo(lifetime: DaemonLifetime): DaemonLifetimeInfo {
  *  Single-sourced here so the trigger sites, `DaemonExit`, and the resolve
  *  type can't drift on the union. `anchor-gone` is the self-reap: the daemon's
  *  {@link DaemonSpec.anchor} directory stopped existing, so its reason to exist
- *  is gone. */
+ *  is gone. `runtime-fault` is the ONE unhappy reason — the served surface
+ *  runtime's `done` rejected ({@link DaemonSpec.faultSignal}) — and the only one
+ *  {@link daemonExitCode} scores non-zero. */
 export type DaemonShutdownReason =
   | "signal"
   | "abort"
   | "idle"
   | "pid-gone"
-  | "anchor-gone";
+  | "anchor-gone"
+  | "runtime-fault";
 
 /** Why `daemonMain` returned, for the bin to turn into an exit code.
  *  `already-running` is a *success* (another live daemon serves this scope —
@@ -170,12 +174,19 @@ export function daemonLifetimeFromEnv(
  *  and `shutdown` are success (a second launch yielding to the live daemon must
  *  exit 0, not look like a crash); `serve-failed` is the one real error. A new
  *  `DaemonExit` variant fails this switch's exhaustiveness check, forcing the
- *  classification update here at the type's home. */
+ *  classification update here at the type's home.
+ *
+ *  The ONE shutdown that is NOT success is `runtime-fault`: the daemon tore down
+ *  ORDERLY (that is why it is a `shutdown` at all — socket closed, gate released,
+ *  last rites run) but it did so because its surface runtime died structurally.
+ *  A supervisor must be able to tell that from a graceful stop, and the exit code
+ *  is the only channel it reads (juspay/kolu#2101 G2). */
 export function daemonExitCode(exit: DaemonExit): number {
   switch (exit.kind) {
     case "already-running":
-    case "shutdown":
       return 0;
+    case "shutdown":
+      return exit.reason === "runtime-fault" ? 1 : 0;
     case "serve-failed":
       return 1;
   }
@@ -247,9 +258,18 @@ export interface DaemonSpec {
   /** Anchor poll period override, in ms. A TEST seam — production omits it and
    *  uses {@link ANCHOR_POLL_MS} (mirrors `boundToPid`'s `pollMs`). */
   anchorPollMs?: number;
-  /** The surface router to serve. Shared across every connection.  */
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverUnixSocket's own `Router<any, any>` param.
-  router: Router<any, any>;
+  /** The served surface's flat `RpcGroup` — `runtime.group`. Paired with
+   *  {@link DaemonSpec.handlers}, and spelled as the same two fields
+   *  `serveOverUnixSocket` takes, so the spine forwards what it is handed
+   *  rather than inventing a wrapper the caller has to learn. The element type
+   *  is deliberately erased (`Rpc.Any`): a group assembled by `defineSurface`'s
+   *  runtime spec walk carries no type information a caller could trust
+   *  (review #16), and the route-set identity between group and handlers is
+   *  asserted at `implementSurface` time, not here. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`. Shared
+   *  across every connection. */
+  handlers: SurfaceHandlers;
   /** Lifetime policy — the one knob that differs across daemons. */
   lifetime: DaemonLifetime;
   log: Logger;
@@ -257,6 +277,22 @@ export interface DaemonSpec {
    *  down without a real OS signal). Aborting it ends the daemon via
    *  `reason: "abort"`. */
   signal?: AbortSignal;
+  /** The OWNED-FAULT stop signal — a SECOND abort arm, separate from
+   *  {@link DaemonSpec.signal} because the two mean opposite things: `signal` is
+   *  a graceful stop (exit 0), this is the served surface runtime's `done`
+   *  rejecting, i.e. structural wiring death (`reason: "runtime-fault"`, exit
+   *  NON-ZERO — see {@link daemonExitCode}).
+   *
+   *  Routing the fault through the SAME shutdown machinery rather than a bare
+   *  `process.exit` is the point: the socket closes, the gate is released, and
+   *  the daemon's own last rites run before the process ends, so the supervisor's
+   *  respawn finds a clean rendezvous instead of a stale socket + held gate.
+   *  {@link armRuntimeFaultExit} builds the observer that aborts this.
+   *
+   *  Omit it and a runtime fault has nowhere to go — which is exactly the zombie
+   *  the #2101 deploy-#2 incident produced (process alive, gate held, socket
+   *  answering, runtime dead). */
+  faultSignal?: AbortSignal;
   /** Fired once, after the gate is held and the socket is listening — the boot
    *  log's hook and the readiness point a test awaits before connecting. */
   onReady?: (info: { socketPath: string; pid: number }) => void;
@@ -282,11 +318,11 @@ export interface DaemonSpec {
   readProcessIdentity: ReadProcessIdentity;
 }
 
-/** Run the daemon: take the gate, serve the router over the socket, then wait
+/** Run the daemon: take the gate, serve the surface's handlers over the socket, then wait
  *  for the configured lifetime to end. Resolves with a `DaemonExit`; cleans up
  *  the socket and releases the gate on every non-`already-running` path. */
 export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
-  const { home, router, lifetime, log, signal } = spec;
+  const { home, group, handlers, lifetime, log, signal } = spec;
   const { gatePath, socketPath } = home;
   // Default anchor is the home dir — gate/socket/anchor derived from `home`.
   const anchor = spec.anchor ?? (() => home.dir);
@@ -322,7 +358,16 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
   }
   const gate = claimed;
 
-  const listener = await serveOverUnixSocket({ socketPath, router, log });
+  // The listener narrates its OWN lifetime through the daemon's logger (#2101
+  // N3): bound, post-listen fault, closed. That sink is required, not optional —
+  // the incident it was restored for was a listening socket that went comatose
+  // and wrote not one error line for the rest of the process's life.
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    group,
+    handlers,
+    log,
+  });
   if (listener.outcome.kind !== "listening") {
     // A daemon whose socket won't bind has no reason to exist — release the
     // gate so a retry isn't blocked, and report the refusal verbatim.
@@ -355,6 +400,7 @@ export async function daemonMain(spec: DaemonSpec): Promise<DaemonExit> {
       anchor,
       anchorPollMs: spec.anchorPollMs,
       external: signal,
+      fault: spec.faultSignal,
       log,
     });
 
@@ -414,6 +460,9 @@ function waitForShutdown(opts: {
   anchor: () => string | undefined;
   anchorPollMs: number | undefined;
   external?: AbortSignal;
+  /** The owned-runtime-fault arm ({@link DaemonSpec.faultSignal}) — same
+   *  abort mechanics as `external`, different reason, non-zero exit code. */
+  fault?: AbortSignal;
   log: Logger;
 }): {
   shutdown: Promise<DaemonShutdownReason>;
@@ -425,7 +474,7 @@ function waitForShutdown(opts: {
    *  meet the kernel's default disposition (observed as exit 143). */
   alreadyOver: boolean;
 } {
-  const { lifetime, anchor, anchorPollMs, external, log } = opts;
+  const { lifetime, anchor, anchorPollMs, external, fault, log } = opts;
   // Fail fast at CONSUMPTION, not only at the env boundary: a direct caller can
   // construct `{ kind: "boundToPid", pid }` with any number, and an invalid pid
   // (0, negative, fractional, out of range) would be silently reclassified — a
@@ -473,15 +522,31 @@ function waitForShutdown(opts: {
       });
     }
 
-    if (external) {
-      if (external.aborted) {
-        finish("abort");
-        return;
+    // The two abort arms, armed identically and differing only in the reason they
+    // resolve (and so in the process's exit code). An ALREADY-aborted arm resolves
+    // at arm time — that is what `alreadyOver` reports, so the caller skips the
+    // readiness announcement; a runtime that faulted during boot (before the
+    // daemon ever listened) takes exactly that path rather than announcing a
+    // daemon whose runtime is already dead.
+    const abortArm = (
+      arm: AbortSignal | undefined,
+      reason: DaemonShutdownReason,
+    ): boolean => {
+      if (!arm) return false;
+      if (arm.aborted) {
+        finish(reason);
+        return true;
       }
-      const handler = (): void => finish("abort");
-      external.addEventListener("abort", handler, { once: true });
-      cleanups.push(() => external.removeEventListener("abort", handler));
-    }
+      const handler = (): void => finish(reason);
+      arm.addEventListener("abort", handler, { once: true });
+      cleanups.push(() => arm.removeEventListener("abort", handler));
+      return false;
+    };
+    // Fault FIRST: if both are already aborted, the fault is the truer story (a
+    // graceful stop that raced a dying runtime is still a dying runtime), and the
+    // exit code must say so.
+    if (abortArm(fault, "runtime-fault")) return;
+    if (abortArm(external, "abort")) return;
 
     // The ANCHOR trigger — armed under EVERY lifetime, like the signal +
     // external-abort triggers above (it is an independent axis, not a

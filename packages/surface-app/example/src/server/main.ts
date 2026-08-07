@@ -6,31 +6,40 @@
  * transport by `implementSurfaces`. The `surfaceApp` entry's deps come from
  * `surfaceAppServer()` in one call (commit auto-resolved, the buildInfo cell's
  * async `connect` fired internally by the surface runtime); the `demo` entry
- * wires only the example's own cell. `installSurfaceApp` serves the shell fresh
- * + the manifest + the `/sw.js` retirement worker. The example writes no cell
- * store wiring, no `/sw.js` route, and no commit literal. To see skew in dev,
- * boot with `SURFACE_APP_COMMIT=<other>` — a real deploy-simulating override.
+ * wires only the example's own cell. `surfaceAppLayer` serves the shell fresh
+ * + the manifest + the `/sw.js` retirement worker, as an `HttpRouter` layer this
+ * server mounts on an `http.Server` it OWNS (so the `upgrade` event below stays
+ * ours alone). The example writes no cell store wiring, no `/sw.js` route, and
+ * no commit literal. To see skew in dev, boot with `SURFACE_APP_COMMIT=<other>`
+ * — a real deploy-simulating override.
+ *
+ * The RPC leg is ONE WebSocket: `acceptSurfaceSocket` keeps the
+ * gate → enrol → dispatch order (a stale tab bound to a previous server
+ * instance is closed BEFORE any dispatch), and `serveSurfaceSocket` is the
+ * dispatch — a per-connection Effect RPC server over the SHARED handlers.
  */
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { serve } from "@hono/node-server";
+import { NodeHttpServer } from "@effect/platform-node";
 import {
   implementSurfacesOnPublisher,
+  inMemoryPublisher,
   publisherChannel,
 } from "@kolu/surface/server";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
-import { installSurfaceApp, surfaceAppServer } from "@kolu/surface-app/server";
+  acceptSurfaceSocket,
+  type ServableSocket,
+  serveSurfaceSocket,
+  surfaceAppLayer,
+  surfaceAppServer,
+} from "@kolu/surface-app/server";
 import { resolveCommit } from "@kolu/surface-app/vite";
-import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
-import { RPCHandler } from "@orpc/server/fetch";
-import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import {
   EMPTY_STATS,
@@ -50,8 +59,11 @@ const DIST_DIR =
   process.env.KOLU_SURFACE_APP_DIST ??
   fileURLToPath(new URL("../../dist", import.meta.url));
 
-// biome-ignore lint/suspicious/noExplicitAny: MemoryPublisher's generic is too strict for our payloads; type safety lives on the typed channels.
-const publisher = new MemoryPublisher<Record<string, any>>();
+/** The framework's own name-keyed publisher: "the same `Channel<T>` for the same
+ *  name", which is what makes the surface's derived channel names bind publish
+ *  site to subscribe site. Held here (rather than letting `implementSurfaces`
+ *  own one) only because this server passes the factory explicitly. */
+const publisher = inMemoryPublisher();
 
 // App-specific live state — the example's OWN cell, served as a sibling
 // alongside surface-app's buildInfo. The server pushes updates via
@@ -83,30 +95,30 @@ const statsStore = {
 // The fragment seeds `{ commit, bootId: "" }` synchronously, folds the resolved
 // patch in when the promise settles, and the runtime republishes it to
 // subscribers — no hand-written second `ctx.cells.buildInfo.set`.
-const {
-  router: surfacesRouter,
-  ctx,
-  done,
-  close,
-} = implementSurfacesOnPublisher(
-  // `surfaces` (the keyed map) is the single source shared with the contract
-  // (`composeSurfaceContracts`) and the client (`surfaceClients`); here we add
-  // only the server-only per-surface deps, keyed the same way.
+// ONE `surfaceAppServer` call, so the `processId` the stale-tab gate compares
+// against IS the one `identity.info` reports. A second call would mint a second
+// id and every reconnecting tab would read as stale.
+const surfaceAppDeps = surfaceAppServer<ExampleBuildInfo>({
+  // The schema-valid seed: every required axis at its default. Until the
+  // async source settles, the cell publishes `{ commit, bootId: "" }` — a
+  // full `ExampleBuildInfo`, never a half-shape missing `bootId`.
+  default: exampleBuildInfo.cells.buildInfo.default,
+  buildInfo: async () => {
+    await new Promise((r) => setTimeout(r, 50)); // the link round-trip
+    return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
+  },
+  // Surface a failed boot-time probe instead of silently keeping the seed.
+  onError: (err) => console.error("buildInfo boot-time axis failed:", err),
+});
+
+const { group, handlers, ctx, done, close } = implementSurfacesOnPublisher(
+  // `surfaces` (the keyed map) is the single source shared with the composed
+  // group (`composeSurfaceContracts`) and the client (`surfaceClients`); here we
+  // add only the server-only per-surface deps, keyed the same way.
   surfaces,
   { channel: <T>(name: string) => publisherChannel<T>(publisher, name) },
   {
-    surfaceApp: surfaceAppServer<ExampleBuildInfo>({
-      // The schema-valid seed: every required axis at its default. Until the
-      // async source settles, the cell publishes `{ commit, bootId: "" }` — a
-      // full `ExampleBuildInfo`, never a half-shape missing `bootId`.
-      default: exampleBuildInfo.cells.buildInfo.default,
-      buildInfo: async () => {
-        await new Promise((r) => setTimeout(r, 50)); // the link round-trip
-        return { bootId: randomUUID().slice(0, 8) }; // a Partial<T> patch
-      },
-      // Surface a failed boot-time probe instead of silently keeping the seed.
-      onError: (err) => console.error("buildInfo boot-time axis failed:", err),
-    }),
+    surfaceApp: surfaceAppDeps,
     // the example's OWN cell — per-key deps typed against `demoSurface`'s spec
     demo: { cells: { serverStats: { store: statsStore } } },
   },
@@ -131,65 +143,91 @@ function pushStats(patch: Partial<ServerStats>): void {
 // Tick the server clock once a second so even a single tab sees the cell update live.
 setInterval(() => pushStats({ now: Date.now() }), 1000);
 
-// `implementSurfacesOnPublisher` already returns the FINAL top-level router — no
-// re-wrap; hand it straight to the RPC handlers.
-// biome-ignore lint/suspicious/noExplicitAny: SurfaceRuntime.router is opaque; runtime shape is a valid top-level router for RPCHandler.
-const appRouter = surfacesRouter as any;
+// The HTTP app is a LAYER, not a framework instance: `surfaceAppLayer` is one
+// call for the fresh shell + manifest + `/sw.js` retirement. With no dist yet
+// there is simply no route, and every request 404s.
+const appLayer = existsSync(DIST_DIR)
+  ? surfaceAppLayer({
+      clientDist: DIST_DIR,
+      manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
+    })
+  : Layer.empty;
 
-const app = new Hono();
-
-const httpHandler = new RPCHandler(appRouter);
-app.use("/rpc/*", async (c, next) => {
-  // CSWSH gate, HTTP arm — same policy as the `/rpc/ws` upgrade below. The HTTP
-  // RPC transport is browser-reachable too (a cross-site `multipart/form-data`
-  // POST deserializes into procedure input with no preflight), so the Origin
-  // check must run on BOTH transports. See `gateHttpRpcOrigin`.
-  const rejected = gateHttpRpcOrigin(c.req.raw, {
-    allowedOrigins: ALLOWED_ORIGINS,
-  });
-  if (rejected) return rejected;
-  const { matched, response } = await httpHandler.handle(c.req.raw, {
-    prefix: "/rpc",
-  });
-  if (matched) return response;
-  await next();
+// We own the `http.Server` and hand its `request` event an Effect handler,
+// rather than letting `HttpServer.serve` own the listener. That is what leaves
+// the `upgrade` event to US (below): Node fans an event out to EVERY listener,
+// so a second, framework-owned upgrade handler would also try to answer a socket
+// we have already upgraded.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      // The platform services the static layer asks for: file system, path, the
+      // file-response platform, ETags.
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
+);
+server.listen({ host: HOST, port: PORT }, () => {
+  console.log(
+    `@kolu/surface-app-example on http://${HOST}:${PORT} (server commit ${resolveCommit()})`,
+  );
+  if (!existsSync(DIST_DIR)) {
+    console.log(
+      "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
+    );
+  }
 });
 
-if (existsSync(DIST_DIR)) {
-  // one call: fresh shell + manifest + /sw.js retirement — all from the library.
-  installSurfaceApp(app, {
-    clientDist: DIST_DIR,
-    manifest: { name: "surface-app hello", themeColor: "#6b4eff", icons: [] },
-  });
-}
-
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: HOST },
-  (info) => {
-    console.log(
-      `@kolu/surface-app-example on http://${info.address}:${info.port} (server commit ${resolveCommit()})`,
-    );
-    if (!existsSync(DIST_DIR)) {
-      console.log(
-        "  (no dist yet — run `pnpm build:client`, or start Vite for dev)",
-      );
-    }
-  },
-);
-
-const wsHandler = new WsRPCHandler(appRouter);
 const wss = new WebSocketServer({ noServer: true });
-wss.on("connection", (peer) => {
-  // app-specific: reflect the live client count in the serverStats cell
-  pushStats({ connections: stats.connections + 1 });
-  peer.on("close", () =>
-    pushStats({ connections: Math.max(0, stats.connections - 1) }),
+
+// The server-side acceptance seam: it owns the liveness reaper and sequences
+// gate → enrol → dispatch, so a socket CANNOT be dispatched without first being
+// gated and enrolled (kolu#1231). `liveProcessId` must be the id `identity.info`
+// reports, which is exactly what `surfaceAppServer()` mints.
+const acceptor = acceptSurfaceSocket({
+  server: wss,
+  liveProcessId: surfaceAppDeps.processId,
+  onReject: (claimedPid) =>
+    console.log(`stale tab rejected (claimed pid ${claimedPid})`),
+});
+
+wss.on("connection", (peer, req) => {
+  acceptor.accept(
+    peer,
+    new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`),
+    () => {
+      // app-specific: reflect the live client count in the serverStats cell
+      pushStats({ connections: stats.connections + 1 });
+      peer.on("close", () =>
+        pushStats({ connections: Math.max(0, stats.connections - 1) }),
+      );
+      const serving = serveSurfaceSocket({
+        group,
+        handlers,
+        // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+        // narrow `addEventListener` per event name, which the seam does not.
+        socket: peer as unknown as ServableSocket,
+      });
+      // A serving site OWNS `done`: it resolves on hang-up and REJECTS if the
+      // serving stack failed. An ignored rejection is an unhandled one.
+      serving.done.catch((err) =>
+        console.error("surface connection failed:", err),
+      );
+    },
   );
-  void wsHandler.upgrade(peer);
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {
-    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    // CSWSH gate — reject a cross-site browser Origin before we upgrade.
     if (gateWsOrigin(req, socket, { allowedOrigins: ALLOWED_ORIGINS })) return;
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req),
@@ -209,6 +247,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   console.log(`\n${signal} — closing surface runtime and server`);
   await close();
+  acceptor.stop();
   wss.close();
   server.close(() => process.exit(0));
 }

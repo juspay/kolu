@@ -32,7 +32,17 @@
  *  the reader, and crucially not an out-of-band write from `handleRestoreSession`
  *  that the pre-W7 shape allowed): `markDecided` runs the decision once,
  *  `markSeeded` records the view seed, `reseedForRestore` re-arms an already-seeded
- *  host for an in-session restore. */
+ *  host for an in-session restore.
+ *
+ *  ── The restore's ANSWER ─────────────────────────────────────────────────
+ *  Beside the phase, the latch parks ONE fact for the next view seed:
+ *  `session.restore`'s answer to "which terminal is active now"
+ *  ({@link HostRestoreLatch.restoredActive}). It lives HERE, not in the hook's
+ *  signals, because it is per-HOST state whose lifetime is exactly one
+ *  `decided → seeded` trip — the same span the phase names. Without it the seed
+ *  fell back to the saved-session cell, whose post-restore snapshot publishes
+ *  behind a synchronous disk write and so routinely arrives AFTER the terminals
+ *  it describes. */
 export type HydrationPhase = "pending" | "decided" | "seeded";
 
 export interface HostRestoreLatch {
@@ -52,22 +62,56 @@ export interface HostRestoreLatch {
    *  so the hydration effect must re-run `hydrateFromTerminals` for them. It
    *  re-latches `seeded` after, so a later reconnect stays a no-op. */
   reseedForRestore(): void;
+  /** The active-terminal marker `session.restore` ANSWERED with, for the restore
+   *  this host is currently seeding — the id the seed must prefer over the saved
+   *  session's.
+   *
+   *  A BOX, not a bare id, because the two absences are different facts: `null` is
+   *  "no restore has answered, read the persisted marker", while `{ id: null }` is
+   *  "the host answered, and it holds no active terminal". Collapsing them would
+   *  send the seed back to the very blob this exists to stop it reading. */
+  readonly restoredActive: { readonly id: string | null } | null;
+  /** Record `session.restore`'s answer. Read once by the next view seed, which
+   *  clears it — a consumed answer must never seed a LATER hydration. */
+  reportRestoredActive(id: string | null): void;
+  /** Drop an answer the seed could NOT use: the answered terminal never reached
+   *  this host's `terminals` collection, so the seed's wait for it is over. The
+   *  box is cleared WITHOUT advancing the phase — the next hydration seeds from
+   *  the persisted marker instead of gating forever on an id the host no longer
+   *  holds. Distinct from `markSeeded`, which spends an answer the seed actually
+   *  consumed; both leave `restoredActive` null, so "the answer seeds exactly one
+   *  hydration" still holds. */
+  expireRestoredActive(): void;
 }
 
 export function createSessionRestore(): HostRestoreLatch {
   let phase: HydrationPhase = "pending";
+  let restoredActive: { readonly id: string | null } | null = null;
   return {
     get phase() {
       return phase;
+    },
+    get restoredActive() {
+      return restoredActive;
     },
     markDecided() {
       if (phase === "pending") phase = "decided";
     },
     markSeeded() {
-      if (phase === "decided") phase = "seeded";
+      if (phase === "decided") {
+        phase = "seeded";
+        // The answer has been spent on THIS seed.
+        restoredActive = null;
+      }
     },
     reseedForRestore() {
       if (phase === "seeded") phase = "decided";
+    },
+    reportRestoredActive(id: string | null) {
+      restoredActive = { id };
+    },
+    expireRestoredActive() {
+      restoredActive = null;
     },
   };
 }

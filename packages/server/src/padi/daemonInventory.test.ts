@@ -19,6 +19,7 @@
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
 import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
 import { enumerateDaemonInventoryOnce } from "./daemonInventory.ts";
 
 const KAVAL = "/run/user/1000/kaval-abc123/pty-host.sock";
@@ -48,10 +49,14 @@ const probe = (over: Partial<KavalProbe> = {}): KavalProbe => ({
 
 type Deps = Parameters<typeof enumerateDaemonInventoryOnce>[0];
 
+/** Run the read. `enumerateDaemonInventoryOnce` is an Effect now; a test IS a process
+ *  edge, so it runs it here rather than restructuring every assertion. */
+const run = (d: Deps) => Effect.runPromise(enumerateDaemonInventoryOnce(d));
+
 const deps = (over: Partial<Deps> = {}): Deps => ({
   discoverKavals: () => [kaval()],
   discoverPadis: () => [padi()],
-  probe: async () => probe(),
+  probe: () => Effect.succeed(probe()),
   activePadiSurfaceVersion: () => "1.2",
   activePadiBuildCommit: () => "localcommit",
   activePadiConvergence: () => null,
@@ -63,7 +68,7 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
   it("does NOT scan the local machine (the bound padi's member already covers it): localScan is null", async () => {
     // A discovery that would THROW if called — proving the local scan is skipped entirely
     // under a local binding, not merely emptied.
-    const inv = await enumerateDaemonInventoryOnce(
+    const inv = await run(
       deps({
         discoverKavals: () => {
           throw new Error("local scan must not run under a local binding");
@@ -79,7 +84,7 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
   });
 
   it("returns the bound padi's honest identity on boundPadi (works over ssh; no local active row needed)", async () => {
-    const inv = await enumerateDaemonInventoryOnce(deps());
+    const inv = await run(deps());
     expect(inv.boundPadi).toEqual({
       surfaceVersion: "1.2",
       buildCommit: "localcommit",
@@ -88,7 +93,7 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
   });
 
   it("boundPadi is null only when there is NOTHING to say (no identity AND no convergence)", async () => {
-    const inv = await enumerateDaemonInventoryOnce(
+    const inv = await run(
       deps({
         activePadiSurfaceVersion: () => null,
         activePadiBuildCommit: () => null,
@@ -101,7 +106,7 @@ describe("enumerateDaemonInventoryOnce — local binding", () => {
 
 describe("enumerateDaemonInventoryOnce — remote binding", () => {
   it("scans the LOCAL machine into localScan, marking NONE active — a leak stays visible, never 'in use by kolu'", async () => {
-    const inv = await enumerateDaemonInventoryOnce(
+    const inv = await run(
       deps({
         boundHost: "nix@remote.example",
         // The bound padi is REMOTE — its honest identity rides boundPadi, and must NOT land
@@ -124,9 +129,7 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
   });
 
   it("returns boundHost = the remote host so the dialog labels the local scan 'not the bound host'", async () => {
-    const inv = await enumerateDaemonInventoryOnce(
-      deps({ boundHost: "nix@prod.example" }),
-    );
+    const inv = await run(deps({ boundHost: "nix@prod.example" }));
     expect(inv.binding).toMatchObject({
       kind: "remote",
       host: "nix@prod.example",
@@ -141,7 +144,7 @@ describe("enumerateDaemonInventoryOnce — remote binding", () => {
   });
 
   it("a degraded bind with NO adopted identity (skew/link-failed) still returns boundPadi carrying the convergence reason", async () => {
-    const inv = await enumerateDaemonInventoryOnce(
+    const inv = await run(
       deps({
         boundHost: "nix@prod.example",
         // A REFUSED / FAILED bind: no adopted identity, but a standing convergence reason.

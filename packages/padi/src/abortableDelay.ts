@@ -11,6 +11,11 @@
  *  `unref`'d so a pending delay never keeps the process alive on its own (the
  *  serve link does). */
 export function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  // An ALREADY-aborted signal is answered without waiting: per WHATWG,
+  // `addEventListener("abort")` on an aborted signal NEVER fires, so the
+  // registration below would sit out the full `ms` — the exact "shutdown during
+  // a wait" this function exists to cut short, silently not cut short.
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const onAbort = (): void => {
       clearTimeout(timer);

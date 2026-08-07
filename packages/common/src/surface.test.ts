@@ -9,6 +9,7 @@
  */
 
 import { DEFAULT_NEW_TERMINAL_POLICY, padiSurface } from "@kolu/padi/surface";
+import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   DaemonInventorySchema,
@@ -24,6 +25,12 @@ import {
   surfaces,
 } from "./surface.ts";
 import { surfacesWithPadi } from "./surfacesWithPadi.ts";
+
+/** zod's `.safeParse(x).success`, in Effect terms. */
+const accepts =
+  <T, E>(schema: Schema.Codec<T, E>) =>
+  (value: unknown): boolean =>
+    Result.isSuccess(Schema.decodeUnknownResult(schema)(value));
 
 describe("surfacesWithPadi — the app composes its registry FROM padi", () => {
   it("adds exactly the `padi` sibling to the padi-less `surfaces` map", () => {
@@ -146,7 +153,7 @@ describe("resolveNewTerminalPolicy — the one derivation pushed into padi", () 
   });
 });
 
-describe("PadiConvergenceSchema — framework-shaped arms, no z.null() padding", () => {
+describe("PadiConvergenceSchema — framework-shaped arms, no null padding", () => {
   const identity = (contractVersion: string, buildId: string) => ({
     contractVersion,
     build: { kind: "known" as const, id: buildId },
@@ -154,41 +161,41 @@ describe("PadiConvergenceSchema — framework-shaped arms, no z.null() padding",
 
   it("accepts adopted-stale with running + expected identities", () => {
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "adopted-stale",
         running: identity("1.0", "abc"),
         expected: identity("1.0", "def"),
         detail: "mismatch",
-      }).success,
+      }),
     ).toBe(true);
   });
 
   it("accepts skew-refused with typed identities (no null padding)", () => {
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "skew-refused",
         running: identity("99.0", "x"),
         expected: identity("1.0", "y"),
         detail: "refusing",
-      }).success,
+      }),
     ).toBe(true);
   });
 
   it("accepts cross-supervisor with drained + observed instance keys as data", () => {
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "cross-supervisor",
         drained: { kind: "instance", key: 1 },
         observed: { kind: "instance", key: 2 },
         running: identity("1.0", "old"),
         detail: "fight",
-      }).success,
+      }),
     ).toBe(true);
   });
 
   it("accepts unconverged and link-failed without padding fields", () => {
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "unconverged",
         running: identity("1.0", "x"),
         expected: identity("1.0", "y"),
@@ -199,32 +206,32 @@ describe("PadiConvergenceSchema — framework-shaped arms, no z.null() padding",
           maxAttempts: 3,
         },
         detail: "budget",
-      }).success,
+      }),
     ).toBe(true);
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "link-failed",
         detail: "ssh died",
-      }).success,
+      }),
     ).toBe(true);
   });
 
   it("rejects old wire shape (state + null padding)", () => {
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         state: "link-failed",
         runningBuild: null,
         expectedBuild: null,
         detail: "reason",
-      }).success,
+      }),
     ).toBe(false);
     expect(
-      PadiConvergenceSchema.safeParse({
+      accepts(PadiConvergenceSchema)({
         kind: "adopted-stale",
         runningBuild: "abc",
         expectedBuild: "def",
         detail: "mismatch",
-      }).success,
+      }),
     ).toBe(false);
   });
 });
@@ -233,32 +240,38 @@ describe("DaemonInventorySchema.boundPadi — exactly one representation of 'not
   const binding = { kind: "local" as const };
 
   it("accepts the top-level null, and an inner object with at least one non-null field", () => {
+    expect(accepts(DaemonInventorySchema)({ binding, boundPadi: null })).toBe(
+      true,
+    );
     expect(
-      DaemonInventorySchema.safeParse({ binding, boundPadi: null }).success,
-    ).toBe(true);
-    expect(
-      DaemonInventorySchema.safeParse({
+      accepts(DaemonInventorySchema)({
         binding,
         boundPadi: {
           surfaceVersion: "1.2",
           buildCommit: null,
           convergence: null,
         },
-      }).success,
+      }),
     ).toBe(true);
   });
 
   it("rejects the redundant inner all-null shape — that meaning is spelled only as top-level null", () => {
-    expect(
-      DaemonInventorySchema.safeParse({
-        binding,
-        boundPadi: {
-          surfaceVersion: null,
-          buildCommit: null,
-          convergence: null,
-        },
-      }).success,
-    ).toBe(false);
+    const allNull = {
+      binding,
+      boundPadi: {
+        surfaceVersion: null,
+        buildCommit: null,
+        convergence: null,
+      },
+    };
+    expect(accepts(DaemonInventorySchema)(allNull)).toBe(false);
+    // The MESSAGE is the half a boolean assertion cannot see — it is what a
+    // publisher hitting this reads, so it survives the schema-library change
+    // verbatim.
+    const result = Schema.decodeUnknownResult(DaemonInventorySchema)(allNull);
+    expect(Result.isFailure(result) ? String(result.failure) : "").toContain(
+      "boundPadi: nothing to report is the top-level null, not an inner object with every field null",
+    );
   });
 });
 
@@ -297,7 +310,7 @@ describe("sameForwards — the forwards cell's dedup gate", () => {
     // stopped the dedup. The case below pins the transitive half.
     const determinedByKey = new Set(["host", "remotePort"]);
     for (const key of Object.keys(
-      KoluForwardSchema.shape,
+      KoluForwardSchema.fields,
     ) as (keyof KoluForward)[]) {
       if (determinedByKey.has(key)) continue;
       expect(

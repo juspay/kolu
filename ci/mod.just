@@ -381,23 +381,26 @@ atlas-sync:
 attach:
     nix run ./ci#odu -- attach
 
-# The final green-gate: print the required `<recipe>@<platform>` status
-# contexts the canonical DAG produces for BOTH CI platforms (x86_64-linux +
-# aarch64-darwin) — exactly the contexts branch protection gates on. This is
-# the source of truth for "is CI done"; verify each is green with
-# `gh pr checks`. Pins both platforms so the required list is never a
-# single-platform subset (see the ci skill's green-gate). Extra args pass
-# straight through to odu, so `just ci::protect --dry-run` prints the contexts
-# without touching the PR.
+# The final green-gate: the COMPLETE required-status-check set, which is two
+# lists — odu's canonical `<recipe>@<platform>` contexts for BOTH CI platforms
+# (x86_64-linux + aarch64-darwin, pinned by the script so the required list is
+# never a single-platform subset), PLUS the GitHub Actions contexts that
+# `.github/workflows/nix-cache.yml` posts for the Attic cache warm. This is the
+# source of truth for "is CI done"; verify each is green with `gh pr checks`.
+# Extra args pass straight through to odu, so `just ci::protect --dry-run`
+# prints the whole set without touching the branch.
 #
-# Owed — the four `ci::osfacts…@…` contexts: both osfacts leaves left with the
-# tool (OSF5), and `required_status_checks` still lists them, where nothing will
-# ever post them again. Re-run this recipe (non-dry-run) to drop them, or master
-# blocks on statuses that no longer exist. osfacts is a pinned dependency now;
-# `ci::nix` builds it like every other flake package, and the tool's own repo
-# runs its hermetic and live lanes on both platforms.
+# The append lives in `ci/protect` — inside this path — because `odu protect`
+# REPLACES `required_status_checks.contexts` with its DAG list and has no
+# extra-context flag: a context enrolled by hand survives only until the next
+# person runs protect. And the cache warm has to be gated, not merely green:
+# when it was green-but-not-required, a deploy off that commit found no agent
+# closure in the cache and compiled the daemon on the remote host over ssh
+# (juspay/kolu#2101, G7). The script derives those context names by parsing the
+# workflow (a check-run is named `<job-id> (<matrix value>)`) and refuses to
+# touch branch protection at all if that shape has drifted.
 protect *args:
-    nix run ./ci#odu -- protect --platform x86_64-linux --platform aarch64-darwin {{ args }}
+    bash ci/protect {{ args }}
 
 # ── linux CI host pool (coordinator-side; NOT part of the [metadata("ci")] DAG) ──
 # These run on the machine driving CI (not on a pool box), so they're

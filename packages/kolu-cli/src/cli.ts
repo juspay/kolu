@@ -22,6 +22,7 @@
  */
 
 import { cli, command } from "cleye";
+import { Data, Effect, Runtime } from "effect";
 // The web face's ONE flag artifact — the cleye schema and the `KoluBootFlags`
 // contract DERIVED from it, co-located in `kolu-server/src/bootFlags.ts`. A
 // deep LEAF import (like the hostname one below): it skips the server's
@@ -134,24 +135,77 @@ export type KoluCliFace =
   | { face: "web"; flags: KoluBootFlags }
   | { face: "mcp"; host: string | undefined };
 
-/** The dispatch seam `main.ts` parses through: returns the face to boot, or
- *  fails fast (a named message on stderr, exit 1) on a reserved subcommand or a
- *  positional that matches no command. `exhaustive()` is load-bearing: a new
- *  face added to `KoluCliParse` without an arm here is a compile error, where
- *  a `!== "web"` catch-all would silently mislabel it. */
-export function koluFaceOrExit(argv?: string[]): KoluCliFace {
-  return match(parseKoluCli(argv))
-    .with({ face: "web" }, (p): KoluCliFace => p)
-    .with({ face: "mcp" }, (p): KoluCliFace => p)
-    .with({ face: P.union(...RESERVED_FACES) }, (p): never => {
-      process.stderr.write(`${reservedFaceMessage(p.face)}\n`);
-      process.exit(1);
-    })
-    .with({ face: "unknown-command" }, (p): never => {
-      process.stderr.write(
-        `kolu: unknown command "${p.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.\n`,
-      );
-      process.exit(1);
-    })
-    .exhaustive();
+/** A face the plan RESERVES but has not shipped (`kolu tui`).
+ *
+ *  `Data.TaggedError`, not `Schema.TaggedError`: this error never crosses a wire
+ *  — it is raised and handled inside one process — so it needs a `_tag` to match
+ *  on, not a codec. The two `Runtime` markers are what turn the tag into an exit
+ *  code without a second mapping table: `errorExitCode` is the code
+ *  `NodeRuntime.runMain`'s default teardown reads off the squashed cause, and
+ *  `errorReported: false` suppresses Effect's own pretty log so the ONE line the
+ *  user sees is the named message `main.ts` writes. */
+export class ReservedFaceError extends Data.TaggedError("ReservedFaceError")<{
+  readonly face: ReservedFace;
+  readonly message: string;
+}> {
+  readonly [Runtime.errorExitCode] = 1;
+  readonly [Runtime.errorReported] = false;
+}
+
+/** A positional no spelling takes (`kolu tuii`) — the fail-fast that keeps a
+ *  typo'd subcommand from silently booting the web server. */
+export class UnknownCommandError extends Data.TaggedError(
+  "UnknownCommandError",
+)<{
+  readonly args: readonly string[];
+  readonly message: string;
+}> {
+  readonly [Runtime.errorExitCode] = 1;
+  readonly [Runtime.errorReported] = false;
+}
+
+/** The dispatch seam `main.ts` composes: SUCCEEDS with the face to boot, or
+ *  FAILS with the tagged reason a reserved subcommand / an unknown positional
+ *  can't be booted. The failure is a value on the error channel rather than a
+ *  `process.exit` inside the parse, so the exit-code map lives at the ONE run
+ *  edge (`main.ts`) and this function is drivable from a test with no
+ *  `process.exit` spy.
+ *
+ *  `exhaustive()` is still load-bearing: a new face added to `KoluCliParse`
+ *  without an arm here is a compile error, where a `!== "web"` catch-all would
+ *  silently mislabel it. The arms return effects now instead of `never`, so the
+ *  match reads as the total function it always was.
+ *
+ *  Suspended because {@link parseKoluCli} is not pure at the process level —
+ *  cleye handles `--help`/`--version` by printing and exiting — so the parse
+ *  belongs INSIDE the effect the caller runs, not at the moment it is built. */
+export function koluFace(
+  argv?: string[],
+): Effect.Effect<KoluCliFace, ReservedFaceError | UnknownCommandError> {
+  return Effect.suspend<
+    KoluCliFace,
+    ReservedFaceError | UnknownCommandError,
+    never
+  >(() =>
+    match(parseKoluCli(argv))
+      .with({ face: "web" }, (p) => Effect.succeed<KoluCliFace>(p))
+      .with({ face: "mcp" }, (p) => Effect.succeed<KoluCliFace>(p))
+      .with({ face: P.union(...RESERVED_FACES) }, (p) =>
+        Effect.fail(
+          new ReservedFaceError({
+            face: p.face,
+            message: reservedFaceMessage(p.face),
+          }),
+        ),
+      )
+      .with({ face: "unknown-command" }, (p) =>
+        Effect.fail(
+          new UnknownCommandError({
+            args: p.args,
+            message: `kolu: unknown command "${p.args[0]}" — commands: web (the default), tui, mcp. See kolu --help.`,
+          }),
+        ),
+      )
+      .exhaustive(),
+  );
 }

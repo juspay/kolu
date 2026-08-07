@@ -57,7 +57,7 @@ import {
   createReactiveSubscription,
   type Subscription,
 } from "@kolu/surface/solid";
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import type { TerminalPlacement } from "../terminal/focusedTerminal";
@@ -112,13 +112,13 @@ export function createHostWire(host: HostKey): HostWire {
   // background-logs behaviour the declared members get for free.
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => host,
-    (_h, signal) =>
+    () =>
       unenrolledStreamCall(
         entry.collections.terminals.unenrolledKeys,
         undefined,
-        {
-          signal,
-        },
+        // Scoped by HOST (kolu#2101 J2): this same member is opened once per
+        // host, and the liveness table has to be able to say WHICH one parked.
+        { label: `terminals.keys[${encodeHostKey(host)}]` },
       ),
     {
       onError: (err) =>

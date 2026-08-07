@@ -5,8 +5,9 @@
  * digest-keyed socket (re-exported from {@link ./stateRoot.ts}), dial it, and
  * handshake the FROZEN control core — hello · version compare · typed skew
  * refusal — returning the live, version-checked connection whose `.client` is the
- * COMBINED-contract client (it reaches `.surface.control.core.*` AND scopes to
- * `.surface.padi`). This is the kaval precedent: a daemon's package owns the dial
+ * COMBINED daemon client — one dispatch carrying BOTH siblings' tags, with a
+ * typed face over each (`.control.surface.core.*` and `.padi.surface.*`).
+ * This is the kaval precedent: a daemon's package owns the dial
  * kit its clients share, so BOTH consumers import it —
  *   - kolu-server's binder (`server/src/padi/padiBinding.ts`), which layers
  *     SUPERVISION (drivers · adopt/spawn/refuse · the newer-binder drain
@@ -23,24 +24,34 @@
  */
 
 import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+} from "@kolu/surface/client";
+import {
   isContractVersionCompatible,
-  scopeSibling,
+  type Surface,
+  type SurfaceSpec,
 } from "@kolu/surface/define";
-import { stdioLink } from "@kolu/surface/links/stdio";
+import { firstFrameOrThrow } from "@kolu/surface/first-frame";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { socketDuplexLink } from "@kolu/surface/links/stdio";
+import type { SurfaceClientOf, SurfaceReadFace } from "@kolu/surface/project";
 import {
   type DaemonConnection,
   DaemonContractSkewError,
   dialSocket,
 } from "@kolu/surface-daemon-supervisor";
 import { type AgentDial, dialAgentOnce } from "@kolu/surface-remote";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { ContractRouterClient } from "@orpc/contract";
+import { Effect } from "effect";
 import { composeSpawnEnv } from "kolu-pty";
 import {
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
+  padiControlSibling,
+  type padiControlSurface,
+  padiDaemonGroup,
   type PadiHello,
   type padiSurface,
+  padiSurfaceSibling,
 } from "./surface.ts";
 
 // The client-side rendezvous resolve is part of the dial kit — `state-root →
@@ -80,37 +91,98 @@ export {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-/** The client a dial produces — typed to the COMBINED contract, so the handshake
- *  reaches `.surface.control.core.hello()` AND a consumer can scope
- *  `.surface.padi` (via `scopeSibling`). Structurally identical to
- *  surface-remote's `AgentClient<PadiDaemonContract>` (both are
- *  `ContractRouterClient<C, ClientRetryPluginContext>` — the shape `stdioLink`
- *  returns), spelled from padi's OWN oRPC deps so the type needs no AgentClient
- *  import. The one-shot remote dial deliberately depends on
- *  `@kolu/surface-remote`; only this client entry loads that edge, never padi's
- *  daemon entrypoints. */
-export type PadiDaemonClient = ContractRouterClient<
-  PadiDaemonContract,
-  ClientRetryPluginContext
->;
+/** The collection READ verbs, typed off a spec.
+ *
+ *  The framework's `SurfaceReadFace` deliberately declines collections: it exists
+ *  for a PROJECTION's `deps`, which consumes cells and streams and never walks a
+ *  collection. padi's clients do — `watchTerminals` enumerates `terminals.keys`,
+ *  the TUI reads a record by key — so the two read verbs are spelled here, once,
+ *  in the same shape and on the same sides the face actually mints them
+ *  (`buildSurfaceFace` emits `keys`/`get`/`deltas` as streaming refs). Keys and
+ *  values are DECODED on both legs, per S3's rule: a collection key is an
+ *  identity in the client's own key set, not a pure forwarded argument. */
+type SurfaceCollectionsReadFace<S extends SurfaceSpec> = {
+  [K in keyof S["collections"] & string]: {
+    keys: StreamingProcedure<
+      undefined,
+      readonly NonNullable<S["collections"]>[K]["keySchema"]["Type"][]
+    >;
+    get: StreamingProcedure<
+      { key: NonNullable<S["collections"]>[K]["keySchema"]["Type"] },
+      NonNullable<S["collections"]>[K]["schema"]["Type"]
+    >;
+  };
+};
 
-/** The padi-SIBLING-scoped client — `.surface.padi.<member>` — a consumer derives
- *  from a {@link PadiConnection}'s combined `.client` via `scopeSibling(client,
- *  "padi")`. The binder's re-serve mirrors it; padi-tui's verbs call it. */
-export type PadiSurfaceClient = ContractRouterClient<
-  typeof padiSurface.contract,
-  ClientRetryPluginContext
->;
+/** The padi-SIBLING face — `client.surface.<member>.<verb>` over `surface/padi/*`.
+ *
+ *  Spec-derived (D2): every member is typed straight off `padiSurface.spec`, so a
+ *  schema edit is a compile error at each call site rather than a runtime
+ *  surprise. Two shape changes every consumer sees, both from the Effect port:
+ *  a PROCEDURE takes the ENCODED side of its input and returns `Promise<Out>`;
+ *  a CELL / STREAM / EVENT / COLLECTION read returns a lazy `Stream`
+ *  SYNCHRONOUSLY (was `Promise<AsyncIterable<…>>` plus an `AbortSignal` option).
+ *  Cancellation is fiber interruption (D10/#18) — there is no signal to thread
+ *  and none to forget. */
+export type PadiSurfaceClient = {
+  readonly surface: SurfaceReadFace<typeof padiSurface.spec> &
+    SurfaceCollectionsReadFace<typeof padiSurface.spec>;
+};
 
-/** Narrow a dialed COMBINED client down to its `.surface.padi` sibling — the LAST
- *  mile of "reaching padi's surface", owned by the kit that owns
- *  {@link PadiSurfaceClient}. The `"padi"` sibling key and the (framework-forced)
- *  cast live HERE, once, so a plain-dial consumer asks for a padi client instead of
- *  re-narrowing the combined one itself. The binder keeps the combined `.client`
- *  for supervision (`control.core.drain`) and calls this only for its relay's
- *  scoped client; padi-tui's dial calls it for the verbs. */
+/** The FROZEN control-core face — `client.surface.core.<verb>` over
+ *  `surface/control/*`. Reached even when `padiSurface` is version-skewed,
+ *  because the schemas under it never move. */
+export type PadiControlClient = SurfaceClientOf<typeof padiControlSurface.spec>;
+
+/** What a dialed padi daemon gives a caller: the erased, tag-keyed dispatch the
+ *  link produced, plus the TWO typed faces built over it.
+ *
+ *  Under oRPC this was ONE `ContractRouterClient` of the combined contract, and
+ *  `.surface.control` / `.surface.padi` were nested namespaces on it. The Effect
+ *  wire namespace is FLAT, so a sibling is a TAG PREFIX, not a nesting: each
+ *  sibling's face is built from its own `Surface` value over the SAME dispatch
+ *  (S1's sibling algebra, S3's `buildSurfaceFace`). Keeping the dispatch on the
+ *  value is what lets a consumer build any further face it needs without
+ *  re-dialing — and it is the one thing a re-nested client could not have
+ *  handed back. */
+export interface PadiDaemonClient {
+  /** The link's tag-keyed dispatch — both faces below are built over it. */
+  readonly dispatch: SurfaceDispatch;
+  /** padi's versioned surface, at `surface/padi/*`. */
+  readonly padi: PadiSurfaceClient;
+  /** The frozen control core, at `surface/control/*`. */
+  readonly control: PadiControlClient;
+}
+
+/** Build padi's two faces over one dialed dispatch — the ONE place the sibling
+ *  keys and the (framework-forced, deliberately STRUCTURAL) `SurfaceFace` casts
+ *  live, so no consumer re-derives either.
+ *
+ *  Both faces come from the SIBLING surface values `surface.ts` composes, never
+ *  from a hand-spliced prefix: the serving side and the dialing side therefore
+ *  read their tags off ONE expression, and a mis-scoped dispatch is impossible
+ *  rather than merely unlikely. */
+export function padiClientOver(dispatch: SurfaceDispatch): PadiDaemonClient {
+  return {
+    dispatch,
+    padi: buildSurfaceFace(
+      padiSurfaceSibling,
+      dispatch,
+    ) as unknown as PadiSurfaceClient,
+    control: buildSurfaceFace(
+      padiControlSibling,
+      dispatch,
+    ) as unknown as PadiControlClient,
+  };
+}
+
+/** Narrow a dialed daemon client to padi's own surface face — the LAST mile of
+ *  "reaching padi's surface", owned by the kit that owns
+ *  {@link PadiSurfaceClient}. A field read now rather than a re-wrap: the faces
+ *  are built once, at dial, over the dispatch they share. Kept as a FUNCTION so
+ *  every consumer that asks for "the padi client" still spells the same call. */
 export function scopePadiSurface(client: PadiDaemonClient): PadiSurfaceClient {
-  return scopeSibling(client, "padi") as unknown as PadiSurfaceClient;
+  return client.padi;
 }
 
 /** padi's wire identity, from its control-core `hello`. `commit` is the RUNNING
@@ -144,9 +216,15 @@ export type PadiConnection = DaemonConnection<
  *  (`probeDaemonIdentity`, which reads identity for padi's `ConvergencePolicy`
  *  to drain or leave be). */
 export type PadiDial = {
-  socket: Awaited<ReturnType<typeof dialSocket>>;
+  /** `Effect.Effect.Success`, not `Awaited` — `Awaited<Effect<A>>` is `Effect<A>`,
+   *  so the old spelling would keep compiling and silently mean the effect. */
+  socket: Effect.Success<ReturnType<typeof dialSocket>>;
   client: PadiDaemonClient;
   hello: PadiHello;
+  /** Release the link's protocol fibers. ASYNC and idempotent — it is the ONLY
+   *  thing that frees them, so a caller that drops a dial without it leaks a
+   *  fiber per attempt. Destroying the socket alone is no longer enough. */
+  dispose: () => Promise<void>;
 };
 
 // ── The compatibility gate ────────────────────────────────────────────────────
@@ -203,17 +281,60 @@ export const PADI_REMOTE_DIAL = {
   binary: "padi",
 } as const;
 
-export function dialPadiViaHost(
-  host: string,
-): Promise<AgentDial<PadiDaemonContract>> {
-  return dialAgentOnce<PadiDaemonContract>({
+/** The `Surface` an ssh dial is opened with: padi's SIBLING spec (so the face it
+ *  builds is `client.surface.<member>.<verb>` at `surface/padi/*` — what every
+ *  consumer of a remote padi actually holds) carried over the FULL daemon group
+ *  (so the link can reach the control sibling's tags too).
+ *
+ *  Two halves, deliberately: `sshConnector` reads `.group` to open the link and
+ *  walks `.spec`/`.tagPrefix` to build the face. Splitting them is the only way
+ *  to dial a two-sibling daemon through a one-surface connector, and it is
+ *  honest — the group IS what the daemon serves, the spec IS what the face
+ *  addresses. */
+const padiRemoteDialSurface: Surface<typeof padiSurface.spec> = {
+  ...padiSurfaceSibling,
+  group: padiDaemonGroup,
+};
+
+export function dialPadiViaHost(host: string): Promise<AgentDial> {
+  return dialAgentOnce({
+    surface: padiRemoteDialSurface,
     host,
     localEnv: composeSpawnEnv(process.env),
     ...PADI_REMOTE_DIAL,
     fatalPrefix: "padi --stdio:",
-    probe: async (client) => {
-      const hello = await client.surface.control.core.hello();
-      assertPadiSurfaceCompatible(hello.surfaceVersion);
+    probe: (client) => {
+      // The compatibility gate, over the padi face this dial hands back.
+      //
+      // The LOCAL dial gates on the frozen control-core `hello`; this one gates
+      // on padi's own `identity` cell, and they are the SAME FACT: padi seeds
+      // `identity` at boot from the same source constants `hello` reads, never
+      // re-derived (see `PadiIdentitySchema`), precisely so a per-host consumer
+      // can read the RUNNING padi's identity directly (P3).
+      //
+      // Sound here because this is a REFUSE-ONLY gate — a one-shot dial never
+      // drains or converges a running padi (#1313), so its only two outcomes are
+      // "proceed" and "fail loud", and an unreadable `identity` produces exactly
+      // the refusal a version mismatch does. WITHIN a protocol epoch the two
+      // reads are interchangeable; ACROSS one neither is reachable (the framing
+      // itself differs — D6's `unspeakable-protocol`, the supervisor's domain).
+      //
+      // The reason it is not simply the control core: `sshConnector` builds ONE
+      // face from ONE surface and never hands the link's `dispatch` back, so a
+      // consumer of `dialAgentOnce` cannot build a second sibling's face. If
+      // `AgentDial` ever carries the dispatch, swap this for
+      // `padiClientOver(dial.dispatch).control.surface.core.hello()` and delete
+      // this note.
+      const face = client as unknown as PadiSurfaceClient;
+      return Effect.map(
+        firstFrameOrThrow(
+          face.surface.identity.get(undefined),
+          "padi handshake failed — the identity cell yielded no frame",
+        ),
+        (identity) => {
+          assertPadiSurfaceCompatible(identity.surfaceVersion);
+        },
+      );
     },
   });
 }
@@ -226,21 +347,47 @@ export function dialPadiViaHost(
  *  `dialSocket` + `stdioLink` (NOT `unixSocketLink`, which hides the socket's
  *  `close` event the endpoint's `onClose` needs). Rejects with a plain Error if
  *  the socket is unreachable or `hello` is unreadable — a non-skew failure. */
-export async function dialPadiHello(socketPath: string): Promise<PadiDial> {
-  const socket = await dialSocket(socketPath);
-  const client = stdioLink<PadiDaemonContract>({
-    read: socket,
-    write: socket,
-  }) as PadiDaemonClient;
-  try {
-    const hello = await client.surface.control.core.hello();
-    return { socket, client, hello };
-  } catch (err) {
-    socket.destroy();
-    throw new Error(
-      `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+export function dialPadiHello(
+  socketPath: string,
+): Effect.Effect<PadiDial, Error> {
+  return Effect.gen(function* () {
+    const socket = yield* dialSocket(socketPath);
+    // ONE link over the WHOLE daemon group, then both sibling faces over its one
+    // dispatch — the flat-tag successor of the combined-contract client.
+    // `socketDuplexLink` is a Promise-shaped constructor by contract, so it is
+    // LIFTED. The socket is BOTH halves so its `close` stays observable (see the
+    // docstring). No readiness proof, deliberately: this is the LOCAL-rendezvous
+    // residual `socketDuplexLink` names (juspay/kolu#2101) — padi's epoch safety
+    // on this path is owed by the converge-before-dial discipline that governs
+    // every caller (the binder's `converge(ep)`, the front's own pre-step),
+    // never by a banner over a pipe that never leaves this box.
+    const link = yield* Effect.promise(() =>
+      socketDuplexLink({
+        group: padiDaemonGroup,
+        socket,
+        describe: `unix socket ${socketPath}`,
+      }),
     );
-  }
+    const client = padiClientOver(link.dispatch);
+    const dispose = async (): Promise<void> => {
+      await link.dispose();
+      socket.destroy();
+    };
+    // `onError`, not `catch`: an INTERRUPTED dial releases the link too — a
+    // `catch` sees only typed failures and would leak the protocol fibers on the
+    // abandonment path.
+    const hello = yield* Effect.onError(
+      Effect.catch(client.control.surface.core.hello(), (err) =>
+        Effect.fail(
+          new Error(
+            `padi handshake failed — could not read control.core.hello (${(err as Error).message})`,
+          ),
+        ),
+      ),
+      () => Effect.promise(dispose),
+    );
+    return { socket, client, hello, dispose };
+  });
 }
 
 /**
@@ -262,44 +409,59 @@ export async function dialPadiHello(socketPath: string): Promise<PadiDial> {
  *     endpoint calls `connectPadi` a newer binder's skewed survivor is already
  *     drained + gone and this connect is against the fresh newer closure.)
  */
-export async function connectPadi(socketPath: string): Promise<PadiConnection> {
-  const { socket, client, hello } = await dialPadiHello(socketPath);
+export function connectPadi(
+  socketPath: string,
+): Effect.Effect<PadiConnection, Error> {
+  return Effect.gen(function* () {
+    const { socket, client, hello, dispose } = yield* dialPadiHello(socketPath);
 
-  try {
     // The dial kit's one compatibility judgement (shared with `padi-tui --host`'s
-    // ssh probe). This connect OWNS the socket, so tear it down before surfacing a
-    // skew — the remote probe's teardown is `dialAgentOnce`'s, so it just rethrows.
-    assertPadiSurfaceCompatible(hello.surfaceVersion);
-  } catch (err) {
-    socket.destroy();
-    throw err;
-  }
+    // ssh probe). This connect OWNS the link, so tear it down before surfacing a
+    // skew — the remote probe's teardown is `dialAgentOnce`'s, so it just re-fails.
+    yield* Effect.onError(
+      Effect.suspend(() => {
+        assertPadiSurfaceCompatible(hello.surfaceVersion);
+        return Effect.void;
+      }),
+      () => Effect.promise(dispose),
+    );
 
-  let closed = false;
-  socket.once("close", () => {
-    closed = true;
+    let closed = false;
+    socket.once("close", () => {
+      closed = true;
+    });
+    return {
+      client,
+      identity: {
+        stateRoot: hello.stateRoot,
+        surfaceVersion: hello.surfaceVersion,
+        // The RUNNING padi's navigable git commit off the hello (optional — a survivor
+        // padi predating the field omits it → honest "—" downstream).
+        commit: hello.commit,
+      },
+      // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
+      // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
+      // reconnect reports true uptime instead of resetting the age to `Date.now()`.
+      startedAt: hello.startedAt,
+      metadata: {
+        surfaceVersion: hello.surfaceVersion,
+        controlCoreVersion: hello.controlCoreVersion,
+      },
+      // `DaemonConnection.dispose` is a synchronous seam (the supervisor calls it
+      // from teardown paths that cannot await), so the link release is FIRED here
+      // rather than awaited. It is idempotent and its only failure mode is a link
+      // already gone — but it must never replace the reason a caller is tearing
+      // down, so a rejection is swallowed at this one edge, deliberately and
+      // visibly, instead of becoming an unhandled rejection.
+      dispose: () => {
+        void dispose().catch(() => {
+          /* best-effort — a link already disposed is fine */
+        });
+      },
+      onClose: (cb) => {
+        if (closed) queueMicrotask(cb);
+        else socket.once("close", cb);
+      },
+    };
   });
-  return {
-    client,
-    identity: {
-      stateRoot: hello.stateRoot,
-      surfaceVersion: hello.surfaceVersion,
-      // The RUNNING padi's navigable git commit off the hello (optional — a survivor
-      // padi predating the field omits it → honest "—" downstream).
-      commit: hello.commit,
-    },
-    // padi's HONEST boot time — stamped once at padi's daemon init and echoed by
-    // the frozen `hello` (W2.2 added `startedAt` to `PadiHelloSchema`), so a
-    // reconnect reports true uptime instead of resetting the age to `Date.now()`.
-    startedAt: hello.startedAt,
-    metadata: {
-      surfaceVersion: hello.surfaceVersion,
-      controlCoreVersion: hello.controlCoreVersion,
-    },
-    dispose: () => socket.destroy(),
-    onClose: (cb) => {
-      if (closed) queueMicrotask(cb);
-      else socket.once("close", cb);
-    },
-  };
 }

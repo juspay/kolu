@@ -22,6 +22,7 @@
  * `terminal-workspace` surface over the link, so there is one fs/git impl.
  */
 
+import type { WireSchema } from "@kolu/surface/define";
 import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type {
   AgentIdentity,
@@ -33,25 +34,25 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
+import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
-import type { ZodType } from "zod";
+import { abortableDelay } from "../abortableDelay.ts";
 import { trackRecentAgent, trackRecentRepo } from "../activity/activity.ts";
 import type {
+  EndpointGrid,
   PtySpawnOpts,
   TerminalAttachment,
   TerminalEndpoint,
-  EndpointGrid,
   TerminalHandle,
   TerminalHistoryChunk,
 } from "../endpoint.ts";
-import { abortableDelay } from "../abortableDelay.ts";
 import { log } from "../log.ts";
+import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import {
   createPortSampler,
   type PortSampler,
   type PortScanTarget,
 } from "../ports/index.ts";
-import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
 import {
@@ -105,7 +106,24 @@ import {
   publishTerminalState,
   updateMemory,
 } from "./metadata.ts";
-import { type OpenedAttach, reattachingDeltas } from "./reattachingDeltas.ts";
+import {
+  type OpenedAttach,
+  reattachingDeltas,
+  releaseOnAbort,
+} from "./reattachingDeltas.ts";
+
+// ── Decoders ────────────────────────────────────────────────────────────
+// `Schema.decodeUnknownSync` is the successor of zod's `.parse` — same fail-fast
+// semantic, same call sites. Bound ONCE per schema at module scope rather than
+// per call: `decodeUnknownSync` compiles the schema on each application, and
+// three of these run on the per-terminal sleep/wake/seed paths.
+const decodePersistedSnapshot = Schema.decodeUnknownSync(
+  PersistedSnapshotSchema,
+);
+const decodeAuthoredActive = Schema.decodeUnknownSync(AuthoredActiveSchema);
+const decodeAuthoredSleeping = Schema.decodeUnknownSync(AuthoredSleepingSchema);
+const decodeAuthoredParked = Schema.decodeUnknownSync(AuthoredParkedSchema);
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** Birth a terminal's two halves together — register the entry (whose required
  *  `snapshot` field carries the value) and fan that snapshot out to the
@@ -156,7 +174,11 @@ export class TerminalSpawnRacedError extends Error {
   }
 }
 
-class PtyHostTerminalProxy implements TerminalHandle {
+/** Exported so a seam test can drive the REAL producer against a REAL
+ *  `ptyHostClientOver` face — the face is where kaval's input schemas are
+ *  decoded, so a paraphrased fake would not exercise the gate this proxy has to
+ *  satisfy (#17: an `optionalKey` field rejects a present-`undefined`). */
+export class PtyHostTerminalProxy implements TerminalHandle {
   pid = 0;
   /** Resolves once `terminal.spawn` has created the PTY. Rejects if spawn
    *  failed, so a queued write / awaited attach surfaces the failure instead
@@ -197,7 +219,11 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   write(data: string): void {
     void this.ready
-      .then(() => this.client.surface.terminal.write({ id: this.id, data }))
+      .then(() =>
+        runEndpointEdge(
+          this.client.surface.terminal.write({ id: this.id, data }),
+        ),
+      )
       .catch((err) => log.error({ terminal: this.id, err }, "pty-host write"));
   }
 
@@ -217,11 +243,13 @@ class PtyHostTerminalProxy implements TerminalHandle {
    *  the client's toast exists for. */
   async resize(cols: number, rows: number): Promise<void> {
     await this.ready;
-    const { ok } = await this.client.surface.terminal.resize({
-      id: this.id,
-      cols,
-      rows,
-    });
+    const { ok } = await runEndpointEdge(
+      this.client.surface.terminal.resize({
+        id: this.id,
+        cols,
+        rows,
+      }),
+    );
     if (!ok)
       log.debug(
         { terminal: this.id, cols, rows },
@@ -231,9 +259,11 @@ class PtyHostTerminalProxy implements TerminalHandle {
 
   async getScreenState(): Promise<string> {
     await this.ready;
-    const { data } = await this.client.surface.terminal.getScreenState({
-      id: this.id,
-    });
+    const { data } = await runEndpointEdge(
+      this.client.surface.terminal.getScreenState({
+        id: this.id,
+      }),
+    );
     return data;
   }
 
@@ -248,16 +278,30 @@ class PtyHostTerminalProxy implements TerminalHandle {
     // start/end is a line range; nothing set is the full scrollback. The three
     // never combine, so there's no precedence to encode — each maps to its own
     // `ScreenExtent` variant rather than an open range standing in for "full".
+    //
+    // The `range` arm SPREADS each bound, never spells it (#17): both are
+    // `Schema.optionalKey` on kaval's wire and the client face DECODES this
+    // input, so an ABSENT key is accepted and a present-but-`undefined` one is
+    // REJECTED — where zod's `.optional()` took either. A HALF-open range (only
+    // a start, or only an end) is exactly the shape `screen.text` forwards when
+    // the caller sent one bound, so spelling the missing half out would throw
+    // before the call ever left padi.
     const extent =
       tailLines !== undefined
         ? ({ kind: "tail", lines: tailLines } as const)
         : startLine === undefined && endLine === undefined
           ? ({ kind: "full" } as const)
-          : ({ kind: "range", startLine, endLine } as const);
-    const { text } = await this.client.surface.terminal.getScreenText({
-      id: this.id,
-      extent,
-    });
+          : ({
+              kind: "range",
+              ...(startLine !== undefined && { startLine }),
+              ...(endLine !== undefined && { endLine }),
+            } as const);
+    const { text } = await runEndpointEdge(
+      this.client.surface.terminal.getScreenText({
+        id: this.id,
+        extent,
+      }),
+    );
     return text;
   }
 
@@ -267,12 +311,22 @@ class PtyHostTerminalProxy implements TerminalHandle {
     epoch?: number,
   ): Promise<TerminalHistoryChunk> {
     await this.ready;
-    return this.client.surface.terminal.getHistory({
-      id: this.id,
-      before,
-      max,
-      epoch,
-    });
+    return runEndpointEdge(
+      this.client.surface.terminal.getHistory({
+        id: this.id,
+        // SPREAD both cursors, never spell them (#17): each is
+        // `Schema.optionalKey` on kaval's wire and the client face DECODES this
+        // input, so an ABSENT key is accepted and a present-but-`undefined` one is
+        // REJECTED — where zod's `.optional()` took either. Both absences are
+        // ORDINARY, not edge cases: an omitted `before` is the documented
+        // self-seeding first page (what the `screen_history` MCP tool sends), and
+        // an omitted `epoch` is every caller whose attach snapshot carried no
+        // `reflowEpoch`. Spelling either out throws before the call leaves padi.
+        ...(before !== undefined && { before }),
+        max,
+        ...(epoch !== undefined && { epoch }),
+      }),
+    );
   }
 }
 
@@ -313,8 +367,31 @@ export function onForegroundTapError(
   );
 }
 
+/**
+ * THE Effect run edge of padi's terminal-endpoint layer — one function, so the
+ * crossing is countable rather than scattered.
+ *
+ * Two shapes cross here and they are the same crossing. A TAP hands a `signal`,
+ * which becomes fiber interruption at exactly this seam (D10/#18) — the
+ * surrounding domain (`TerminalLifecycle.abort`, the port-nudge controller, the
+ * reconciler) stays AbortController-shaped because it is not Effect code, and
+ * interruption is what actually closes the kaval subscription. The SPAWN TAIL
+ * hands none: `spawnPty` is synchronous by contract (the sync-shadow invariant —
+ * the tile must render before the PTY exists), so the tail it fires cannot be
+ * `yield*`ed by anybody; there is no Effect above it to compose into, because its
+ * caller returns a value rather than a description.
+ *
+ * Everything else in this file composes.
+ */
+function runEndpointEdge<A>(
+  program: Effect.Effect<A, unknown>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return Effect.runPromise(program, signal ? { signal } : undefined);
+}
+
 export function bridgeStream<T>(
-  source: AsyncIterable<T> | PromiseLike<AsyncIterable<T>>,
+  source: Stream.Stream<T, unknown>,
   signal: AbortSignal,
   onEvent: (value: T) => void,
   // Called when the stream itself fails for a NON-abort reason (an abort is
@@ -328,16 +405,15 @@ export function bridgeStream<T>(
   // is a lifecycle problem ("we no longer know when this PTY dies"), not a missing field.
   onError?: (err: unknown) => void,
 ): Promise<void> {
-  return (async () => {
-    try {
-      const iter = await source;
-      for await (const value of iter) {
+  return runEndpointEdge(
+    Stream.runForEach(source, (value) =>
+      Effect.sync(() => {
         try {
           onEvent(value);
         } catch (err) {
           // Per-event fence: a single bad event (a failed metadata publish, a
           // scratch-cleanup fs error on exit, …) must NOT escape and end the
-          // `for await` loop — that would silence this tap (cwd / title /
+          // consumption — that would silence this tap (cwd / title /
           // foreground / exit) for the terminal for good. Log and keep
           // consuming. (This is the fence the dissolved agent metadata loop
           // carried in `applyAgentEvent`; it moved here with the taps.)
@@ -346,16 +422,20 @@ export function bridgeStream<T>(
             "pty-host tap onEvent threw (subscription kept alive)",
           );
         }
-      }
-    } catch (err) {
+      }),
+    ),
+    signal,
+  ).then(
+    () => {},
+    (err) => {
       if (signal.aborted) return;
       if (onError) {
         onError(err);
         return;
       }
       log.error({ err }, "pty-host tap subscription failed");
-    }
-  })();
+    },
+  );
 }
 
 /** Delay before re-subscribing to a kaval stream after it ends — one cadence for
@@ -381,11 +461,17 @@ export const ACTIVITY_RESUBSCRIBE_DELAY_MS = 2_000;
  *  `onDrop` logs, then delay + re-subscribe. A stream that DRAINS (bridgeStream
  *  resolves, never rejects) is a separate case, routed to `onStreamError` (or
  *  bridgeStream's default when omitted). Extracting this loop is what keeps the
- *  eager-throw guard from diverging between the two call sites. */
+ *  eager-throw guard from diverging between the two call sites.
+ *
+ *  A kaval stream member is now a LAZY `Stream` (kaval-report §5): building one
+ *  registers nothing. That is why `getStream` is still a THUNK and why the
+ *  subscription only exists once `bridgeStream` runs it — the same shape the
+ *  loop already had, so the laziness trap is closed here by construction rather
+ *  than at each call site. */
 export async function resubscribeStream<T>(opts: {
   signal: AbortSignal;
   delayMs: number;
-  getStream: () => AsyncIterable<T> | PromiseLike<AsyncIterable<T>>;
+  getStream: () => Stream.Stream<T, unknown>;
   onEvent: (value: T) => void;
   onStreamError?: (err: unknown) => void;
   onDrop: (err: unknown) => void;
@@ -441,7 +527,7 @@ function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
  *  a fourth persisted field to `PersistedSnapshotSchema` and the fence covers it
  *  with no second edit here. */
 const PERSISTED_SNAPSHOT_KEYS = Object.keys(
-  PersistedSnapshotSchema.shape,
+  PersistedSnapshotSchema.fields,
 ) as (keyof TerminalSnapshot)[];
 
 /** Are two folds' RESTORE-RELEVANT projections equal — the autosave (disk) fence?
@@ -520,7 +606,7 @@ export function adoptedSnapshot(
     // the host-wide scan re-derives the real set within a tick of the sensor layer
     // starting. A SEVENTH snapshot field then lands in `seedSnapshot` alone.
     ...seedSnapshot(liveEntry.cwd),
-    ...PersistedSnapshotSchema.parse(record),
+    ...decodePersistedSnapshot(record),
     // The two DELIBERATE overrides: the live daemon snapshot is the authority for
     // both (see above), so they win over the saved projection.
     cwd: liveEntry.cwd,
@@ -535,7 +621,7 @@ export function adoptedSnapshot(
 export function adoptedAuthored(
   record: SavedActiveTerminal,
 ): AuthoredActiveTerminal {
-  return AuthoredActiveSchema.parse(record);
+  return decodeAuthoredActive(record);
 }
 
 /** The OBSERVATION half of an ORPHAN survivor (B3.3): a live PTY the daemon still
@@ -605,11 +691,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     void resubscribeStream({
       signal: this.portNudgeAbort.signal,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-      getStream: () =>
-        ptyHostClient.surface.activity.get(
-          {},
-          { signal: this.portNudgeAbort.signal },
-        ),
+      getStream: () => ptyHostClient.surface.activity.get({}),
       onEvent: () => sampler.nudge(),
       onDrop: (err) => {
         // A dropped feed costs promptness, not correctness — the 5 s baseline
@@ -802,13 +884,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     proxy: PtyHostTerminalProxy,
     expected: ActiveTerminalProcess,
   ): Promise<{ pid: number; cwd: string } | null> {
-    const res = await ptyHostClient.surface.terminal.spawn(
-      await buildTerminalSpawnInput({ id, cwd: opts.cwd }),
+    const res = await runEndpointEdge(
+      Effect.flatMap(buildTerminalSpawnInput({ id, cwd: opts.cwd }), (input) =>
+        ptyHostClient.surface.terminal.spawn(input),
+      ),
     );
     if (getActiveTerminal(id) !== expected) {
       proxy.markFailed(new TerminalSpawnRacedError());
       try {
-        await ptyHostClient.surface.terminal.kill({ id });
+        await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
       } catch (err) {
         log
           .child({ terminal: id })
@@ -845,7 +929,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     if (!res) return; // raced during spawn — spawnViaClient already cleaned up
 
     proxy.markReady(res.pid);
-    entry.info.pid = res.pid;
+    // A decoded wire value is `readonly` — rebuild rather than assign into it.
+    entry.info = { ...entry.info, pid: res.pid };
     // Seed the authoritative resolved cwd onto the entry's observation before
     // starting the producer (the git sensor reads the spawn cwd at start, and the
     // fold seeds `current` off `entry.snapshot`).
@@ -931,11 +1016,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): void {
     tlog.error({ err }, reason);
     this.teardownSensors(id);
-    void ptyHostClient.surface.terminal
-      .kill({ id })
-      .catch((killErr) =>
+    void runEndpointEdge(ptyHostClient.surface.terminal.kill({ id })).catch(
+      (killErr) =>
         tlog.error({ err: killErr }, "kill of half-wired PTY failed"),
-      );
+    );
     this.unwindSpawnShadow(id, entry, prior);
   }
 
@@ -1045,18 +1129,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Bridge the raw VT taps onto the producer's signals (fire-and-forget — the
     // abort signal owns teardown). The producer emits a `cwd` observation off the
     // `cwd` channel; the git sensor reads the same channel to re-resolve git.
-    void bridgeStream(
-      ptyHostClient.surface.cwd.get({ id }, { signal }),
-      signal,
-      (msg) => signals.cwd.publish(msg.cwd),
+    void bridgeStream(ptyHostClient.surface.cwd.get({ id }), signal, (msg) =>
+      signals.cwd.publish(msg.cwd),
+    );
+    void bridgeStream(ptyHostClient.surface.title.get({ id }), signal, (msg) =>
+      signals.title.publish(msg.title),
     );
     void bridgeStream(
-      ptyHostClient.surface.title.get({ id }, { signal }),
-      signal,
-      (msg) => signals.title.publish(msg.title),
-    );
-    void bridgeStream(
-      ptyHostClient.surface.commandRun.get({ id }, { signal }),
+      ptyHostClient.surface.commandRun.get({ id }),
       signal,
       (msg) => {
         // An OSC 633 command mark is the other "look sooner" signal (the note's
@@ -1080,7 +1160,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       },
     );
     void bridgeStream(
-      ptyHostClient.surface.foreground.get({ id }, { signal }),
+      ptyHostClient.surface.foreground.get({ id }),
       signal,
       (msg) =>
         signals.foreground.publish({
@@ -1106,7 +1186,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // aborts this signal first (see `teardownSensors`), so `handleExit` only
     // ever fires for a genuine exit.
     void bridgeStream(
-      ptyHostClient.surface.exit.get({ id }, { signal }),
+      ptyHostClient.surface.exit.get({ id }),
       signal,
       (msg) => this.handleExit(id, msg.exitCode),
       (err) => {
@@ -1200,7 +1280,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // cleanup instead.
     this.teardownSensors(id);
     try {
-      await ptyHostClient.surface.terminal.kill({ id });
+      await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
       tlog.error({ err }, "pty-host kill failed; unregistering anyway");
     }
@@ -1240,7 +1320,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // (re-launch fixes it); the active drain is an async-`beginSleep` follow-up.
     const sleeping: SleepingTerminalProcess = {
       info: { id, pid: 0 },
-      meta: AuthoredSleepingSchema.parse({
+      meta: decodeAuthoredSleeping({
         ...entry.meta,
         state: "sleeping",
         sleptAt: Date.now(),
@@ -1261,7 +1341,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  regardless, and boot reconcile reaps any survivor (adopt-or-reap). */
   async releaseSleptPty(id: TerminalId): Promise<void> {
     try {
-      await ptyHostClient.surface.terminal.kill({ id });
+      await runEndpointEdge(ptyHostClient.surface.terminal.kill({ id }));
     } catch (err) {
       log
         .child({ terminal: id })
@@ -1294,7 +1374,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // active entry built in `registerActiveAndSpawn`.
     const wokenAwareness: TerminalSnapshot = seedSnapshot(entry.snapshot.cwd);
     // Flip the AUTHORED record to active — drops `sleptAt`.
-    const meta = AuthoredActiveSchema.parse({ ...entry.meta, state: "active" });
+    const meta = decodeAuthoredActive({ ...entry.meta, state: "active" });
     log
       .child({ terminal: id })
       .info({ resuming: resumeCommand !== null }, "waking");
@@ -1355,7 +1435,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     log.info({ count: ids.length }, "killing all terminals");
     for (const id of ids) this.teardownSensors(id);
     try {
-      await ptyHostClient.surface.terminal.killAll({});
+      await runEndpointEdge(ptyHostClient.surface.terminal.killAll({}));
     } catch (err) {
       log.error({ err }, "pty-host killAll failed; draining anyway");
     }
@@ -1399,11 +1479,24 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // and `lifecycle.resize` has owned every change since, so the PTY is already
     // at the consumer's current size and the fresh snapshot serializes there.
     const open = async (openAt?: EndpointGrid): Promise<OpenedAttach> => {
-      const stream = await ptyHostClient.surface.terminalAttach.get(
-        { id, resizeTo: openAt },
-        { signal },
-      );
-      const iter = stream[Symbol.asyncIterator]();
+      // A kaval stream member is a lazy `Stream`; `toAsyncIterable`'s iterator
+      // is what runs it, and its `return()` interrupts the running fiber —
+      // which IS the unsubscribe (D10/#18). The caller's `signal` is bridged
+      // onto that one teardown so an aborted attach still releases kaval's
+      // subscriber slot, exactly as the retired `{ signal }` call option did.
+      const iter = Stream.toAsyncIterable(
+        // OMIT `resizeTo` on a bare re-attach rather than spelling `undefined`:
+        // it is a `Schema.optionalKey` field, which accepts an ABSENT key and
+        // REJECTS a present `undefined` one (#17) — and the face DECODES the
+        // input at this edge, so an explicit `undefined` fails the call.
+        ptyHostClient.surface.terminalAttach.get(
+          openAt === undefined ? { id } : { id, resizeTo: openAt },
+        ),
+      )[Symbol.asyncIterator]();
+      // The bridge lives with the loop that re-opens (and so re-registers it):
+      // it has to answer an ALREADY-aborted signal by releasing NOW, because a
+      // re-open after an abort would otherwise hold an undetachable subscription.
+      releaseOnAbort(iter, signal);
       const first = await iter.next();
       if (first.done) {
         // The stream ended before its MANDATORY snapshot frame. If the caller
@@ -1412,8 +1505,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // always yields a snapshot first, even an empty one), so FAIL LOUD rather
         // than fabricate a valid `{ snapshot: "", topLine: 0 }` that paints a
         // blank, frozen pane indistinguishable from a real empty terminal.
-        if (signal?.aborted)
-          return { snapshot: "", topLine: 0, reflowEpoch: undefined, iter };
+        // OMIT `reflowEpoch` rather than spelling `undefined`: "this attachment
+        // reports no reflow generation" is an ABSENT key, and an explicit
+        // `undefined` is the one spelling nothing downstream can honestly carry.
+        if (signal?.aborted) return { snapshot: "", topLine: 0, iter };
         throw new Error(
           `attach(${id}): stream ended before its mandatory snapshot frame`,
         );
@@ -1434,13 +1529,19 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const initial = await open(resizeTo);
     // The deltas survive a slow-subscriber drop: on kaval's `overflow` frame the
     // loop re-attaches for a fresh snapshot instead of ending (which would freeze
-    // the client's scrollback as if the PTY had exited). See `reattachingDeltas`.
+    // the client's scrollback as if the PTY had exited). Since kolu#2101 it also
+    // survives a PLAIN end for a still-live PTY, re-opening to ask kaval whether
+    // the PTY is actually gone. See `reattachingDeltas`.
     return {
       snapshot: initial.snapshot,
       topLine: initial.topLine,
       reflowEpoch: initial.reflowEpoch,
       // Re-attaches carry NO resize (see above) — `open()` with no argument.
-      deltas: reattachingDeltas(() => open(), initial.iter),
+      // `signal` rides along so the loop can tell OUR teardown (the abort that
+      // ends the kaval iterator through the `iter.return()` bridge above) from an
+      // end the chain manufactured: the first is graceful, the second is a
+      // question to re-open on.
+      deltas: reattachingDeltas(() => open(), initial.iter, { id, signal }),
     };
   }
 }
@@ -1520,7 +1621,7 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
     toEntry,
     label,
   }: {
-    recordSchema: ZodType<Saved>;
+    recordSchema: WireSchema<Saved>;
     toEntry: (
       parsed: Saved,
       base: { info: TerminalInfo; snapshot: TerminalSnapshot },
@@ -1528,24 +1629,28 @@ function seedHandlelessTerminal<Saved extends { id: string }>(
     label: string;
   },
 ): boolean {
-  const idParsed = TerminalIdSchema.safeParse(record.id);
-  const recordParsed = recordSchema.safeParse(record);
-  if (!idParsed.success || !recordParsed.success) {
+  // The tolerant read boundary: `decodeUnknownResult` is the Effect successor of
+  // zod's `.safeParse` — a BRANCH, never a throw — so one corrupt record is
+  // dropped and every other terminal still loads
+  // (`persisted-schema-stays-tolerant`). Both decodes must succeed.
+  const idParsed = decodeTerminalId(record.id);
+  const recordParsed = Schema.decodeUnknownResult(recordSchema)(record);
+  if (Result.isFailure(idParsed) || Result.isFailure(recordParsed)) {
     log.warn(
       { id: record.id },
       `dropping malformed record while seeding ${label} terminal`,
     );
     return false;
   }
-  const id = idParsed.data;
+  const id = idParsed.success;
   if (getTerminal(id)) return false;
-  const parsed = recordParsed.data;
+  const parsed = recordParsed.success;
   // Seed the OBSERVATION from the saved restore-relevant projection (cwd / git / pr),
   // live agent + foreground reset — the client's join recomposes the dormant tile's
   // cwd / branch / pr off it. The agent the terminal will resume rides the authored
   // record built by `toEntry`. The observation rides the entry's `snapshot` field (no
   // separate store), then fans out.
-  const persisted = PersistedSnapshotSchema.parse(parsed);
+  const persisted = decodePersistedSnapshot(parsed);
   const snapshot: TerminalSnapshot = {
     // The live fields (agent, foreground, ports) come from the ONE home for the
     // snapshot-default set rather than being re-spelled here: a cold-restored
@@ -1570,7 +1675,7 @@ export function seedSleepingTerminal(record: SavedSleepingTerminal): boolean {
     recordSchema: SavedSleepingTerminalSchema,
     toEntry: (parsed, base) => ({
       ...base,
-      meta: AuthoredSleepingSchema.parse(parsed),
+      meta: decodeAuthoredSleeping(parsed),
     }),
     label: "sleeping",
   });
@@ -1593,7 +1698,7 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
     recordSchema: SavedActiveTerminalSchema,
     toEntry: (parsed, base) => ({
       ...base,
-      meta: AuthoredParkedSchema.parse({
+      meta: decodeAuthoredParked({
         ...parsed,
         state: "parked",
         parkedAt: Date.now(),
@@ -1679,12 +1784,12 @@ export function reapUnrepresentablePty(rawId: string): void {
     { rawId },
     "live PTY id failed TerminalIdSchema — killing the unrepresentable PTY (fail-closed)",
   );
-  void ptyHostClient.surface.terminal
-    .kill({ id: rawId })
-    .catch((err) =>
-      log.error(
-        { err, rawId },
-        "kill of unrepresentable PTY failed; it remains live on the daemon",
-      ),
-    );
+  void runEndpointEdge(
+    ptyHostClient.surface.terminal.kill({ id: rawId }),
+  ).catch((err) =>
+    log.error(
+      { err, rawId },
+      "kill of unrepresentable PTY failed; it remains live on the daemon",
+    ),
+  );
 }

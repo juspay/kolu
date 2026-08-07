@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run"
   },
+  "dependencies": {},
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",

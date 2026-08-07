@@ -224,6 +224,18 @@ let
         # sanctioned signal. (padi's leaves are only the framework tier — its
         # staleness response is a cheap auto-drain, so over-firing is harmless.)
         "@kolu/surface-daemon"
+        # `@kolu/surface-daemon-supervisor` — the SUPERVISOR half of that same
+        # spine, an edge kaval grew at juspay/kolu#2101 when `kaval --stdio`
+        # started converging its own daemon before relaying. Excluded for exactly
+        # the #L3 reason above, and one more: this package runs in the SUPERVISING
+        # process, never inside the kaval daemon, so by construction a change here
+        # cannot change what a kaval restart would load — which is the only
+        # question the staleKey exists to answer. Keying kaval's PTY-costing nudge
+        # on it would fire on every convergence-kit refactor for no kaval delta at
+        # all. (kaval's OWN convergence declaration — `convergencePolicy.ts` — is
+        # in kaval/src and IS hashed; that is the part a supervisor must not
+        # disagree with us about.)
+        "@kolu/surface-daemon-supervisor"
         # `@kolu/surface` — the framework "electricity", a stable drishti-gated
         # volatility boundary, excluded for the same contract-shaped reason as
         # the spine it underlies.
@@ -784,6 +796,32 @@ let
     entry = "packages/padi-tui/src/main.ts";
   };
 
+  # kolu-rpc: the HARNESS caller on kolu-server's own wire — one call, by wire tag,
+  # over the `/rpc/ws` ndjson socket, printing the answer as JSON
+  # (`packages/server/src/wireCall.ts` owns the why). The NixOS adoption VM tests
+  # reach into a running kolu with it, in place of the `curl -X POST /rpc/...` HTTP
+  # arm the Effect port deleted; a shell cannot speak the socket, and hand-rolling
+  # its frames would be a second copy of the wire contract.
+  #
+  # QUARANTINE — harness-only, and it must STAY that way. This attr may be named by
+  # exactly two things: this binding, and the flake `packages` export at the bottom of
+  # this file (which is how `nix/home/example/adoption/*.nix` reaches it). It must NOT
+  # be added to `agentToolPackages` / `koluAgentTools` (a terminal's PATH), to
+  # `padi-agent`'s `paths` (a remote host's closure), to `default` / `koluBin`, or to
+  # `nix/home/module.nix`'s `home.packages` — a caller that can place ANY wire call is
+  # a debug tool, not something a user installs. It is also not a `kolu` subcommand,
+  # and nothing in kolu-server imports its entry. The rule is machine-checked by the
+  # "quarantine" block in `packages/server/src/wireCall.test.ts`, which reads this file
+  # and rejects any occurrence outside those two sites; keep prose mentions of the name
+  # on their OWN comment lines, which is what that scanner skips.
+  #
+  # It rides `mkAgentTuiWrapper` because that helper is exactly "run a workspace TS
+  # entry from the built closure under tsx" — the same thing this needs.
+  kolu-rpc = mkAgentTuiWrapper {
+    name = "kolu-rpc";
+    entry = "packages/server/src/wireCallMain.ts";
+  };
+
   # The client CLIs a kolu TERMINAL must be able to run, named ONCE. Both arms
   # derive from this list — `koluAgentTools` (local) and `padi-agent` (remote) —
   # so adding a fourth tool cannot give local terminals something remote ones
@@ -934,5 +972,5 @@ let
   osfacts = import sources.osfacts { inherit pkgs; };
 in
 {
-  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
+  inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck vazhi osfacts;
 }

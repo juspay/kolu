@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import type { TerminalInfo, TerminalMetadata } from "@kolu/padi/surface";
 import { LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
@@ -19,6 +20,15 @@ const h = vi.hoisted(() => ({
   awaited: 0,
   sessionPending: true,
   savedSession: null as unknown,
+  /** The saved-session cell's reactive version — read by the `activeWire` mock's
+   *  accessor, bumped by {@link pushSavedSession}. Wired below the imports (the
+   *  hoisted bag is built before `solid-js` is available); an inert stand-in
+   *  until then, which is all the pre-mount assignments need. */
+  sessionVersion: (() => 0) as () => number,
+  /** PUSH a new saved-session snapshot the way the cell does — assign AND
+   *  notify, so the hydration effect re-runs. Tests that only need a value
+   *  BEFORE mount can still assign `h.savedSession` directly. */
+  pushSavedSession: (_value: unknown) => {},
 }));
 
 // Spies for every RPC `handleRestoreSession` could conceivably fire. The W1.R6
@@ -27,11 +37,17 @@ const h = vi.hoisted(() => ({
 // (`lifecycle.restoreSleeping` was also part of that dead loop and is now retired
 // from the padi surface entirely — see #1784's W12 disposition.)
 const rpc = vi.hoisted(() => ({
-  restore: vi.fn(async () => {}),
-  import: vi.fn(async () => {}),
-  forfeit: vi.fn(async () => {}),
-  create: vi.fn(async () => {}),
-  sendInput: vi.fn(async () => {}),
+  // `session.restore` ANSWERS with the active-terminal marker it settled on — the
+  // seed's source of truth. `null` is the honest default for the tests that only
+  // care that the call was made.
+  restore: vi.fn(
+    (): Effect.Effect<{ activeTerminalId: string | null }> =>
+      Effect.succeed({ activeTerminalId: null }),
+  ),
+  import: vi.fn(() => Effect.void),
+  forfeit: vi.fn(() => Effect.void),
+  create: vi.fn(() => Effect.void),
+  sendInput: vi.fn(() => Effect.void),
 }));
 
 // Spread the REAL (browser-safe) module so every schema kolu-common/surface pulls from
@@ -73,7 +89,15 @@ vi.mock("../wire", async () => {
 // now. Drive them through the same hoisted bag.
 vi.mock("../hostScope/activeWire", () => ({
   savedSessionSub: { pending: () => h.sessionPending },
-  savedSession: () => h.savedSession,
+  // The saved-session CELL is a live subscription — a host PUSH must re-run the
+  // hydration effect. Reading the version signal (created below, once the real
+  // `solid-js` import has run) inside the accessor gives the hoisted bag that
+  // reactivity, so a test can deliver the terminals and the session snapshot in
+  // EITHER order and drive the real wire ordering.
+  savedSession: () => {
+    h.sessionVersion();
+    return h.savedSession;
+  },
 }));
 vi.mock("../rpc/rpc", () => ({ lifecycle: () => ({ kind: "connected" }) }));
 vi.mock("../right-panel/useRightPanel", () => ({
@@ -87,20 +111,34 @@ vi.mock("./useSubPanel", () => ({
     setActiveSubTab: subPanelSpy.setActiveSubTab,
   }),
 }));
-const toastSpy = vi.hoisted(() => ({ success: vi.fn() }));
+const toastSpy = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("solid-sonner", () => ({
   toast: Object.assign(() => {}, {
     loading: () => 0,
     success: toastSpy.success,
-    error: () => {},
+    error: toastSpy.error,
     warning: () => {},
   }),
 }));
 vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
-import { useSessionRestore } from "./useSessionRestore";
+import {
+  ANSWERED_TILE_DEADLINE_MS,
+  useSessionRestore,
+} from "./useSessionRestore";
 import type { TerminalStore } from "./useTerminalStore";
+
+// Wire the saved-session cell's reactivity now that `solid-js` has loaded (the
+// hoisted bag above is built before any import runs).
+{
+  const [version, bump] = createSignal(0);
+  h.sessionVersion = version;
+  h.pushSavedSession = (value: unknown) => {
+    h.savedSession = value;
+    bump((n) => n + 1);
+  };
+}
 
 beforeEach(() => {
   // The restore latch is per-host owner state now: empty membership to DISPOSE
@@ -282,10 +320,12 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             // Let the hydration effect flush so `savedSession()` is populated.
             await new Promise((r) => setTimeout(r, 0));
 
-            await session.handleRestoreSession({
-              resumeAgents: true,
-              optOutIds: [],
-            });
+            await Effect.runPromise(
+              session.handleRestoreSession({
+                resumeAgents: true,
+                optOutIds: [],
+              }),
+            );
 
             // ONE server call — the whole restore. Intent, not a client id list.
             expect(rpc.restore).toHaveBeenCalledTimes(1);
@@ -340,10 +380,12 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
             const session = mount();
             await new Promise((r) => setTimeout(r, 0));
 
-            await session.handleRestoreSession({
-              resumeAgents: true,
-              optOutIds: ["1"],
-            });
+            await Effect.runPromise(
+              session.handleRestoreSession({
+                resumeAgents: true,
+                optOutIds: ["1"],
+              }),
+            );
 
             expect(toastSpy.success).toHaveBeenCalledWith(
               "Restored 2 terminals, resumed 1 agent",
@@ -398,7 +440,7 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(h.savedSession);
 
-            await session.handleForfeitSession();
+            await Effect.runPromise(session.handleForfeitSession());
 
             // ONE server call — the explicit discard — with the empty input the
             // contract declares.
@@ -488,6 +530,352 @@ describe("useSessionRestore — multi-terminal restore seeds the server-active t
   });
 });
 
+describe("useSessionRestore — the restored active tile does NOT ride the session-cell echo", () => {
+  // THE RACE (aarch64-darwin e2e "Restored multi-tile session preserves active
+  // terminal", both retries): a restore delivers its result on TWO independently
+  // timed channels. `restoreSession` spawns the terminals — publishing the
+  // `terminals` collection — and only THEN calls `saveSession`, whose cell write
+  // goes through padi's Conf (a synchronous DISK write) before the `session`
+  // snapshot is published. On a loaded box that disk write can outlast the
+  // client's per-terminal metadata round-trips, so the hydration effect sees the
+  // full restored set while still holding the blob it CONSUMED — whose
+  // `activeTerminalId` names a PRE-restore id that no longer exists. The
+  // membership check then silently falls back to `topIds[0]` and `markSeeded()`
+  // latches the wrong tile for the rest of the session: a lost write, not a slow
+  // one, which is why the step failed for the full 20 s on every attempt.
+  //
+  // The fix makes the ordering STRUCTURAL: `session.restore` ANSWERS with the
+  // active terminal the host settled on, the hook pins that answer on the host's
+  // latch, and the seed waits for the call to answer instead of racing the blob.
+  // This test drives the adverse ordering directly — restored terminals arrive
+  // while the session cell still holds the consumed blob — and is red without it.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  /** The blob the user clicked Restore on: pre-restore ids, and an
+   *  `activeTerminalId` naming the SECOND of them. */
+  const consumedBlob = {
+    terminals: [],
+    activeTerminalId: "old-1",
+    savedAt: 1,
+    resumableIds: [],
+  };
+
+  it("seeds the host-reported active tile when the restored terminals beat the session push", async () => {
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = consumedBlob;
+    // The host maps the saved active through old→new and answers with the id it
+    // made active — the FRESH id of the second tile.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
+              [],
+            );
+            const [meta, setMeta] = createSignal<
+              Record<string, TerminalMetadata>
+            >({});
+            const setActiveSilently = vi.fn();
+            const store = {
+              listSub: Object.assign(() => list(), { pending: () => false }),
+              terminalIds: () =>
+                (list() ?? []).map((t) => t.id) as TerminalId[],
+              getMetadata: (id: TerminalId) => meta()[id],
+              setActiveSilently,
+              activeId: () => null,
+              reconcileLiveIds: () => {},
+            } as unknown as TerminalStore;
+
+            // Empty canvas + a saved session → the restore card.
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(consumedBlob);
+
+            // The user restores. The host spawns both tiles under FRESH ids and
+            // publishes them; its `session` snapshot is still in flight behind
+            // the disk write, so the cell keeps serving the CONSUMED blob.
+            await Effect.runPromise(session.handleRestoreSession({}));
+            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
+            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+
+            // The SECOND tile is active — the host said so. Reading the consumed
+            // blob here would pick `new-0` (its "old-1" is in no live set).
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(setActiveSilently).not.toHaveBeenCalledWith("new-0");
+
+            // The late session push is a no-op: the view is already seeded.
+            setActiveSilently.mockClear();
+            h.pushSavedSession({
+              terminals: [],
+              activeTerminalId: "new-1",
+              savedAt: 2,
+              resumableIds: [],
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — the seed WAITS for the answered tile to reach the list", () => {
+  // The residual channel of the same race. Server-side the restore's collection
+  // deltas are emitted BEFORE the answer, but client-side the unary answer's
+  // continuation and the collection-delta application are independently scheduled
+  // pipelines over one socket — under CPU contention the answer lands first. The
+  // old seed then read a list holding only the FIRST restored tile, consumed the
+  // answered id (naming the SECOND), failed the membership test in
+  // `hydrateFromTerminals`, fell back to `topIds[0]` and `markSeeded()` the wrong
+  // tile permanently — the 20 s e2e timeout on "the active canvas tile should
+  // match the saved-session second tile". Red when reverted: the seed runs on the
+  // partial list and activates `new-0`.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  it("does not seed while the answered id is absent, then seeds it once its delta lands", async () => {
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = {
+      terminals: [],
+      activeTerminalId: "old-1",
+      savedAt: 1,
+      resumableIds: [],
+    };
+    // The host answers with the SECOND tile's fresh id — the delta carrying it
+    // has not been applied on this client yet.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const [list, setList] = createSignal<TerminalInfo[] | undefined>(
+              [],
+            );
+            const [meta, setMeta] = createSignal<
+              Record<string, TerminalMetadata>
+            >({});
+            const setActiveSilently = vi.fn();
+            const store = {
+              listSub: Object.assign(() => list(), { pending: () => false }),
+              terminalIds: () =>
+                (list() ?? []).map((t) => t.id) as TerminalId[],
+              getMetadata: (id: TerminalId) => meta()[id],
+              setActiveSilently,
+              activeId: () => null,
+              reconcileLiveIds: () => {},
+            } as unknown as TerminalStore;
+
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(h.savedSession);
+
+            await Effect.runPromise(session.handleRestoreSession({}));
+
+            // (1) Only the FIRST restored tile's row + record have been applied.
+            // The answered id is not in the list, so the seed must NOT run — and
+            // must NOT consume the answer.
+            setMeta({ "new-0": activeMeta() });
+            setList([{ id: "new-0" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // (2) The second tile's delta lands. The seed runs ONCE, on the tile
+            // the host named.
+            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
+            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+
+            // Seeded is latched: a later session push re-seeds nothing.
+            setActiveSilently.mockClear();
+            h.pushSavedSession({
+              terminals: [],
+              activeTerminalId: "new-0",
+              savedAt: 2,
+              resumableIds: [],
+            });
+            await new Promise((r) => setTimeout(r, 0));
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+});
+
+describe("useSessionRestore — that wait is BOUNDED (the answered tile never arrives)", () => {
+  // The wait above defers on a reactive read, so a row that NEVER arrives defers
+  // FOREVER: the old bug was the wrong tile, the unbounded wait's failure mode is
+  // NO tile. Only a STALE answer can reach that state (the healthy path's delta is
+  // already in-process when the answer's continuation runs; a reconnect replays a
+  // fresh snapshot which either holds the id or proves it gone), so the deadline
+  // seeds conservatively from the blob-fallback path and reports the anomaly.
+  const activeMeta = (): TerminalMetadata =>
+    ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
+
+  /** The three reactive inputs the deadline arbitrates, plus the seed spy. */
+  function deferringHarness() {
+    const [list, setList] = createSignal<TerminalInfo[] | undefined>([]);
+    const [meta, setMeta] = createSignal<Record<string, TerminalMetadata>>({});
+    const setActiveSilently = vi.fn();
+    const store = {
+      listSub: Object.assign(() => list(), { pending: () => false }),
+      terminalIds: () => (list() ?? []).map((t) => t.id) as TerminalId[],
+      getMetadata: (id: TerminalId) => meta()[id],
+      setActiveSilently,
+      activeId: () => null,
+      reconcileLiveIds: () => {},
+    } as unknown as TerminalStore;
+    /** Deliver a restored tile's row AND its composed record together. */
+    const deliver = (...ids: string[]) => {
+      setMeta(Object.fromEntries(ids.map((id) => [id, activeMeta()])));
+      setList(ids.map((id) => ({ id })) as TerminalInfo[]);
+    };
+    return { store, deliver, setActiveSilently };
+  }
+
+  /** The saved blob the restore consumed — its `activeTerminalId` names a
+   *  PRE-restore id, so the fallback path can only land on `topIds[0]`. */
+  const consumedBlob = {
+    terminals: [],
+    activeTerminalId: "old-1",
+    savedAt: 1,
+    resumableIds: [],
+  };
+
+  beforeEach(() => {
+    toastSpy.error.mockClear();
+    h.listPending = false;
+    h.sessionPending = false;
+    h.savedSession = consumedBlob;
+    // The host answers with a tile whose collection row this client must wait for.
+    rpc.restore.mockImplementationOnce(() =>
+      Effect.succeed({ activeTerminalId: "new-1" }),
+    );
+  });
+
+  it("seeds via the blob fallback and reports, once the deadline passes with the answered id still absent", async () => {
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, deliver, setActiveSilently } = deferringHarness();
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+
+            // Real timers through the restore call itself — the deadline is armed
+            // only once the seed defers, which is strictly after this resolves.
+            await Effect.runPromise(session.handleRestoreSession({}));
+            vi.useFakeTimers();
+
+            // Only the FIRST restored tile ever lands. `new-1` is stale: the host
+            // that answered no longer holds it.
+            deliver("new-0");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // The wait holds for the whole deadline — this is the existing
+            // behavior, and the window a healthy delta lands in.
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS - 1);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            // The deadline fires: EXACTLY one seed, down the blob-fallback path —
+            // the consumed blob's `old-1` is in no live set, so `topIds[0]`.
+            await vi.advanceTimersByTimeAsync(1);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-0");
+            expect(toastSpy.error).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error.mock.calls[0]?.[0]).toContain("new-1");
+
+            // Seeded is latched: a late arrival of the answered id changes nothing
+            // (the box was consumed, so it cannot gate or seed a second time).
+            deliver("new-0", "new-1");
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error).toHaveBeenCalledTimes(1);
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          } finally {
+            vi.useRealTimers();
+          }
+        })();
+      });
+    });
+  });
+
+  it("an arrival a tick before the deadline seeds the answered tile and DISARMS the timer", async () => {
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
+            const { store, deliver, setActiveSilently } = deferringHarness();
+            const session = useSessionRestore({ store });
+            await new Promise((r) => setTimeout(r, 0));
+
+            await Effect.runPromise(session.handleRestoreSession({}));
+            vi.useFakeTimers();
+
+            deliver("new-0");
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS - 1);
+            expect(setActiveSilently).not.toHaveBeenCalled();
+
+            // The delta lands with one millisecond to spare — the ordinary path.
+            deliver("new-0", "new-1");
+            await vi.advanceTimersByTimeAsync(0);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            // No LATE fire: the seed disarmed the timer, so the deadline's instant
+            // (and every instant after) reports nothing and re-seeds nothing.
+            await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS * 2);
+            expect(setActiveSilently).toHaveBeenCalledTimes(1);
+            expect(toastSpy.error).not.toHaveBeenCalled();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          } finally {
+            vi.useRealTimers();
+          }
+        })();
+      });
+    });
+  });
+});
+
 describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSeeded reset)", () => {
   // FIX 2: `viewSeeded` latches true on the first live load so a reconnect doesn't
   // re-pan/re-seed. But an in-session `recycleKaval` restore (no page reload)
@@ -559,7 +947,7 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             subPanelSpy.setActiveSubTab.mockClear();
 
             // 3) The user clicks Restore — `handleRestoreSession` resets the latch.
-            await session.handleRestoreSession({});
+            await Effect.runPromise(session.handleRestoreSession({}));
 
             // 4) The restored terminals arrive under FRESH ids. With the latch
             // reset, the hydration effect re-seeds the restored parent's sub-tab.

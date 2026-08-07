@@ -7,9 +7,9 @@
  * `verb === "use"` at its second proxy level to spot the reactive-hook verb. For
  * cells/collections/streams/events that level is a FIXED vocabulary (use/upsert/
  * delete), so the check is safe. `procedures: { <ns>: { use: {...} } }` is legally
- * spellable, though (ProcedureSpec inner keys are free-form; the wire path
- * `<ns>.use` collides with nothing), so if procedures ALSO rode `primProxy` a verb
- * literally named `use` would be mis-caught by that branch and wrapped in a keyed
+ * spellable, though (ProcedureSpec inner keys are free-form; the wire tag
+ * `surface/<ns>/use` collides with nothing), so if procedures ALSO rode `primProxy` a
+ * verb literally named `use` would be mis-caught by that branch and wrapped in a keyed
  * root instead of called.
  *
  * The current wiring makes that mis-route unspellable: `procedures` (and `.rpc`) do
@@ -24,15 +24,15 @@
  */
 
 import { defineSurface } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface } from "@kolu/surface/server";
-import type { AnyContractRouter } from "@orpc/contract";
+import { Effect, Schema } from "effect";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { connectSurfaceMap } from "./client";
 import { defineSurfaceMap } from "./define";
 import {
+  A,
   connected,
   HostKeySchema,
   identityCodec,
@@ -47,28 +47,28 @@ const licenseSurface = defineSurface({
   procedures: {
     license: {
       use: {
-        input: z.object({ seat: z.string() }),
-        output: z.object({ granted: z.boolean(), seat: z.string() }),
+        input: Schema.Struct({ seat: Schema.String }),
+        output: Schema.Struct({
+          granted: Schema.Boolean,
+          seat: Schema.String,
+        }),
       },
     },
   },
 });
 
-function buildLicenseEntryLink() {
-  const { router } = implementSurface(licenseSurface, {
+function buildLicenseEntryDispatch() {
+  const { handlers } = implementSurface(licenseSurface, {
     procedures: {
       license: {
-        use: async ({ input }: { input: { seat: string } }) => ({
-          granted: true,
-          seat: input.seat,
-        }),
+        use: ({ input }) => Effect.succeed({ granted: true, seat: input.seat }),
       },
     },
   });
-  return directLink<typeof licenseSurface.contract>(router as never);
+  return directDispatch({ handlers });
 }
 
-/** The map + registry + wire link. The CLIENT is built INSIDE each test's
+/** The map + registry + dispatch. The CLIENT is built INSIDE each test's
  *  `createRoot` (below), never here: `connectSurfaceMap` installs a
  *  membership-pruning `createEffect` at construction, so building it outside an
  *  owner would leak a never-disposed computation into later tests. */
@@ -81,44 +81,40 @@ function setup() {
   });
   const reg = makeRegistry();
   const served = serveSurfaceMap(map, reg.registry);
-  // biome-ignore lint/suspicious/noExplicitAny: served router is a runtime-valid oRPC router; the client re-types via map.entry.
-  const mapLink = directLink<AnyContractRouter>(served.router as any);
-  return { map, mapLink, reg };
+  return { map, mapDispatch: directDispatch(served), reg };
 }
-
-const A = HostKeySchema.parse("a");
 
 describe("procedure verb named `use` routes as an imperative call, not a reactive hook", () => {
   it("entry(key).procedures.<ns>.use(input) calls the procedure (pure lens)", async () => {
-    const { map, mapLink, reg } = setup();
-    reg.addSession(A, buildLicenseEntryLink(), connected(0));
+    const { map, mapDispatch, reg } = setup();
+    reg.addSession(A, buildLicenseEntryDispatch(), connected(0));
     await settle();
     await createRoot(async (dispose) => {
-      const client = connectSurfaceMap(map, mapLink);
-      const result = await client
-        .entry(A)
-        .procedures.license.use({ seat: "s1" });
+      const client = connectSurfaceMap(map, mapDispatch);
+      const result = await Effect.runPromise(
+        client.entry(A).procedures.license.use({ seat: "s1" }),
+      );
       expect(result).toEqual({ granted: true, seat: "s1" });
       dispose();
     });
   });
 
   it("useEntry(...).procedures.<ns>.use(input) calls the procedure too (the fix)", async () => {
-    const { map, mapLink, reg } = setup();
-    reg.addSession(A, buildLicenseEntryLink(), connected(0));
+    const { map, mapDispatch, reg } = setup();
+    reg.addSession(A, buildLicenseEntryDispatch(), connected(0));
     await settle();
     await createRoot(async (dispose) => {
-      const client = connectSurfaceMap(map, mapLink);
+      const client = connectSurfaceMap(map, mapDispatch);
       const view = client.useEntry(() => A);
       // Before the fix this hit the `verb === "use"` reactive-hook branch and
       // returned a `reactiveDelegate` proxy wrapping a keyed root — NOT the
-      // procedure's Promise. Assert the call returns a genuine Promise (the value
-      // still resolves either way, because the delegate forwards `.then`, so the
-      // return TYPE is what distinguishes the imperative call from the intercepted
-      // reactive-hook wrap).
+      // procedure's call. Assert the call returns a genuine EFFECT: the value
+      // still arrives either way (the delegate forwards), so the return TYPE is
+      // what distinguishes the imperative call from the intercepted
+      // reactive-hook wrap.
       const pending = view.procedures.license.use({ seat: "s2" });
-      expect(pending).toBeInstanceOf(Promise);
-      const result = await pending;
+      expect(Effect.isEffect(pending)).toBe(true);
+      const result = await Effect.runPromise(pending);
       expect(result).toEqual({ granted: true, seat: "s2" });
       dispose();
     });

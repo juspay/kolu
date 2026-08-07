@@ -7,7 +7,10 @@
     "@cucumber/messages": "32.2.0",
     "@kolu/padi": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "@kolu/surface-app": "workspace:*",
     "@kolu/surface-map": "workspace:*",
+    "effect": "catalog:",
     "get-port": "^7.2.0",
     "kaval-tui": "workspace:*",
     "kolu-common": "workspace:*",
@@ -22,6 +25,6 @@
     "test:governance": "node --import tsx governance/check.ts",
     "baseline:report": "node --import tsx governance/reportBaseline.ts",
     "inventory:update": "node --import tsx governance/updateInventory.ts",
-    "test:unit": "node --import tsx --test support/scenarioSetupRetry.test.ts governance/*.test.ts"
+    "test:unit": "node --import tsx --test support/*.test.ts governance/*.test.ts"
   }
 }

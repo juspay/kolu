@@ -89,7 +89,7 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     // forcing it into the round-trip below rather than silently slipping the
     // adoption path — the structural guard that closes the #1275 class.
     expect(Object.keys(sentinel).sort()).toEqual(
-      Object.keys(SavedActiveTerminalSchema.shape).sort(),
+      Object.keys(SavedActiveTerminalSchema.fields).sort(),
     );
   });
 
@@ -99,7 +99,7 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
     // live entry whose cwd MATCHES the saved record so this test isolates the
     // whole-record carry-through; the live-cwd-wins case is asserted below.
     const aw = adoptedSnapshot(sentinel, liveEntry({ cwd: sentinel.cwd }));
-    for (const key of Object.keys(PersistedSnapshotSchema.shape)) {
+    for (const key of Object.keys(PersistedSnapshotSchema.fields)) {
       expect(aw[key as keyof typeof aw]).toEqual(
         sentinel[key as keyof SavedActiveTerminal],
       );
@@ -108,7 +108,7 @@ describe("adoption preserves the whole record — the #1275 lossy-adoption class
 
   it("adoptedAuthored carries location + memory + restoreTarget + client chrome + the active discriminant", () => {
     const authored = adoptedAuthored(sentinel);
-    for (const key of Object.keys(AuthoredActiveSchema.shape)) {
+    for (const key of Object.keys(AuthoredActiveSchema.fields)) {
       expect(authored[key as keyof typeof authored]).toEqual(
         sentinel[key as keyof SavedActiveTerminal],
       );

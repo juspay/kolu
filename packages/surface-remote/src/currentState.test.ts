@@ -23,6 +23,7 @@
  * turn. `currentState()` always returns the freshest cell truth, never the frame that
  * woke the reader.
  */
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import {
@@ -38,8 +39,8 @@ import {
 type FakeClient = {
   surface: {
     system: {
-      identity: () => Promise<{ kind: string }>;
-      clockNow: () => Promise<{ epochMs: number }>;
+      identity: () => Effect.Effect<{ kind: string }, never>;
+      clockNow: () => Effect.Effect<{ epochMs: number }, never>;
     };
   };
 };
@@ -47,8 +48,8 @@ type FakeClient = {
 const fakeClient = (): FakeClient => ({
   surface: {
     system: {
-      identity: () => Promise.resolve({ kind: "anonymous" }),
-      clockNow: () => Promise.resolve({ epochMs: 0 }),
+      identity: () => Effect.succeed({ kind: "anonymous" }),
+      clockNow: () => Effect.succeed({ epochMs: 0 }),
     },
   },
 });

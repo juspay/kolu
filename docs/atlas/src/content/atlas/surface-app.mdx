@@ -55,7 +55,7 @@ For this class, **build-skew, connection status, and server identity are one que
 1. **One mutable entry point; everything else immutable.** The shell (`index.html`) is the _only_ never-cached resource (`Cache-Control: no-store`); every content-hashed asset is `immutable`; a missing `/assets/*` hash **404**s rather than falling through to the shell. The one document that names the bundle is always re-fetched, so staleness is _structurally impossible_. (`immutable` presumes content-hashed names; unhashed shell assets stay `no-cache`.)
 2. **Build identity is first-class and single-sourced — and rides the shell, never a hashed asset.** Client and server stamp the _same_ commit; the server exposes it. Bundler-agnostic: server reads `SURFACE_APP_COMMIT` from env; the client commit rides the `no-store` shell as `window.__SURFACE_APP_COMMIT__` (injected by the `surfaceApp()` Vite plugin or `buildSurfaceClient` for Bun, and read via `shellCommit()`) — _never_ a bundler define baked into a content-hashed `/assets/*` file. A define would pin the sha inside a year-`immutable` bundle whose _name_ doesn't change on a stamp-only deploy, so the rewritten bytes never re-fetch and every returning browser stays stuck on the old stamp, looping the update prompt forever (the bug fixed in <PrLink pr={1324} />); the always-fresh shell carries identity instead. The env-var _name_ and the flake-rev resolution are single-sourced for nix consumers in `nix/commit-stamp.nix` (kept equal to `resolveCommit`'s `DEFAULT_COMMIT_ENV_VAR`), so a nix-built client and the server wrapper stamp from the same var — no hardcoded literal downstream.
 3. **Skew is visible and recoverable, on every form factor.** When client ≠ server, a _durable_ indicator shows and a reload that lands fresh is one tap away — desktop rail _and_ mobile.
-4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** A SW intercepts navigations _in front of_ the network, so the cache contract (#1) can't reach it; gate on `window.isSecureContext`, never `location.protocol === "https:"`. An always-connected app has no offline mode, so surface-app ships no caching worker and actively retires any it finds; the one opt-in is a fetch-less notification worker (`installFreshStatic({ serviceWorker: "notify" })` + `registerServiceWorker()`, <PrLink pr={1216} />) that registers no fetch handler, so the cache contract (#1) never sees it — kolu opts in for OS notifications.
+4. **A service worker is an opt-in you own end-to-end — or, for this class, none.** A SW intercepts navigations _in front of_ the network, so the cache contract (#1) can't reach it; gate on `window.isSecureContext`, never `location.protocol === "https:"`. An always-connected app has no offline mode, so surface-app ships no caching worker and actively retires any it finds; the one opt-in is a fetch-less notification worker (`freshStaticLayer({ serviceWorker: "notify" })` + `registerServiceWorker()`, <PrLink pr={1216} />) that registers no fetch handler, so the cache contract (#1) never sees it — kolu opts in for OS notifications.
 5. **The client always knows its relationship to the server it's bound to.** Which host, which build, and the live status (connected / reconnecting / server-restarted / stale-build) are first-class — surfaced as a _model_ the app renders. This is the invariant that makes surface-app an _app shell_, not just a cache policy.
 
 The old triage rule (_normal reload stale, hard reload fresh → a cached shell or a service worker; confirm in the browser, not by reasoning about the origin_) is a debugging heuristic, not an encoded invariant — it lives in the library's README review checklist.
@@ -92,7 +92,7 @@ So the desktop layer needs a _trusted_ HTTPS origin. The recommended paths:
 
 | Piece | The question it answers | Entrypoint | Inv. |
 | --- | --- | --- | --- |
-| `installSurfaceApp` · `installFreshStatic` · `installPwaManifest` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement, or the opt-in fetch-less notification worker via `serviceWorker: "notify"`) — one composed call." | <Pill variant="new">/server</Pill> | #1,2,4 |
+| `surfaceAppLayer` · `freshStaticLayer` · `pwaManifestLayer` | "Serve the SPA fresh, the manifest, AND `/sw.js` (retirement, or the opt-in fetch-less notification worker via `serviceWorker: "notify"`) — one composed `HttpRouter` layer, merged not installed, so registration order carries no meaning." | <Pill variant="new">/server</Pill> | #1,2,4 |
 | `buildInfoServer()` · `surfaceAppServer()` | "The buildInfo cell's server impl (+ the `identity.info` probe impl) — the deps bundle for the surface-app sibling entry in `implementSurfaces`; commit auto-resolved." | <Pill variant="new">/server</Pill> | #2,5 |
 | `surfaceAppSurface` · `surfaceAppSurfaceWith` | "surface-app's complete standalone surface (buildInfo cell + `identity.info` probe) — served as a sibling via `implementSurfaces` / `surfaceClients` / `composeSurfaceContracts`." | <Pill variant="dx">/surface</Pill> | #2,5 |
 | `buildInfo` · `defineBuildInfo` | "The buildInfo cell definition — composed into the surface-app surface; extensible." | <Pill variant="dx">/surface</Pill> | #2,5 |
@@ -167,7 +167,7 @@ And the commit is **resolved once** — `SURFACE_APP_COMMIT` env, else `git rev-
 ```ts
 // server — a hand-written cell store, and a hand-rolled /sw.js route
 cells: { buildInfo: { store: { get: () => ({ commit: SERVER_COMMIT }), set() {} } } }
-app.get("/sw.js", (c) => c.body(SW_SOURCE, 200, { "content-type": "text/javascript" }));
+HttpRouter.add("GET", "/sw.js", HttpServerResponse.text(SW_SOURCE, { contentType: "text/javascript" }));
 // vite.config — a sha literal (!) and a per-app define
 const clientCommit = process.env.CLIENT_COMMIT || "c11e7700";
 define: { __SURFACE_APP_COMMIT__: JSON.stringify(clientCommit) }
@@ -184,7 +184,7 @@ declare const __SURFACE_APP_COMMIT__: string;
 const surface = defineSurface(composeSurfaces(surfaceAppSurface, { cells: {/* yours */}, procedures: {/* yours */} }));
 // server — ONE call: merges the surface-app impls, runs implementSurface, flows buildInfo.connect; then serve shell + manifest + /sw.js
 const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer(), { channel, cells: {/* yours */}, procedures: {/* yours */} });
-installSurfaceApp(app, { clientDist, manifest });
+const appLayer = surfaceAppLayer({ clientDist, manifest });
 // vite.config — one plugin resolves the commit (git/env), injects the define, ships its type
 plugins: [solid(), surfaceApp()]
 // env.d.ts — deleted. no define, no sha literal, no hand-rolled routes, no hand-spread fragments.
@@ -207,7 +207,7 @@ One package, sub-path entrypoints mirroring @kolu/surface's `exports` map. Pure 
 ```ts
 import {
   implementSurfaceApp,
-  installSurfaceApp,
+  surfaceAppLayer,
   surfaceAppServer,
 } from "@kolu/surface-app/server";
 // `implementSurfaceApp` — the server-side counterpart to `composeSurfaces`: ONE
@@ -219,8 +219,8 @@ const { router, ctx } = implementSurfaceApp(surface, surfaceAppServer(), {
   cells: { /* yours only */ },
   procedures: { /* yours only */ },
 });
-// one call serves the shell fresh + the manifest + /sw.js (retirement). Granular pieces exported too.
-installSurfaceApp(app, { clientDist, manifest: { name: `Kolu [${host}]`, themeColor, icons } });
+// one LAYER serves the shell fresh + the manifest + /sw.js (retirement). Granular pieces exported too.
+const appLayer = surfaceAppLayer({ clientDist, manifest: { name: `Kolu [${host}]`, themeColor, icons } });
 ```
 
 ### /surface — compose the library's surface <Pill variant="dx">@kolu/surface-app/surface</Pill>
@@ -264,7 +264,7 @@ Both stamp the same commit via `resolveCommit` (env → git → `"dev"`). The Bu
 
 ### Using it — kolu & drishti
 
-Both are SolidJS + Hono on `@hono/node-server`, both vendor `@kolu/*` via npins (zero flake inputs), so adding surface-app is one overlay line each. **Same model + same UX**; kolu only differs by extending build identity for its pty-host axis.
+Both are SolidJS servers on `effect/unstable/http` — each owns its `http.Server` and hands the `request` event a handler built from `HttpRouter.toHttpEffect`, so the ws `upgrade` seam stays the app's alone — and both vendor `@kolu/*` via npins (zero flake inputs), so adding surface-app is one merged layer each. **Same model + same UX**; kolu only differs by extending build identity for its pty-host axis.
 
 ```tsx
 // drishti — surface: ONE merge of surface-app's fragment (cell + surfaceApp.info probe) + its own
@@ -272,7 +272,7 @@ export const adminSurface = defineSurface(composeSurfaces(surfaceAppSurface, { c
 // drishti — server: ONE call composes the surface-app impls (buildInfo cell + surfaceApp.info probe)
 // into the app's own deps, runs implementSurface, and flows the cell's connect (commit auto-resolved; /sw.js served by the lib)
 const { router, ctx } = implementSurfaceApp(adminSurface, surfaceAppServer(), { channel, collections: { hosts }, procedures: { hosts } });
-installSurfaceApp(app, { clientDist, manifest: { name: "drishti", themeColor: "#0e7490", icons } });
+const appLayer = surfaceAppLayer({ clientDist, manifest: { name: "drishti", themeColor: "#0e7490", icons } });
 // drishti — vite: one plugin resolves + injects the commit
 plugins: [solid(), surfaceApp()]
 // drishti — client: provider (this bundle's baked commit) + your own chrome from useSurfaceApp()
@@ -362,7 +362,7 @@ walkSurface(t.surface[key], surface, { ...deps, channel: (n) => baseChannel(`${k
 // 2. key each surface's router + ctx under its registration name (instead of the hardcoded single `surface`)
 ```
 
-surface-app's `/surface` and `/server` entrypoints lose `composeSurfaces`, `surfaceAppServer`, `implementSurfaceApp`, `assertNoOverride`; the `surfaceAppSurface` definition + its server impl stay (now served as a sibling). The headless model, `installSurfaceApp`, and the client build are untouched.
+surface-app's `/surface` and `/server` entrypoints lose `composeSurfaces`, `surfaceAppServer`, `implementSurfaceApp`, `assertNoOverride`; the `surfaceAppSurface` definition + its server impl stay (now served as a sibling). The headless model, `surfaceAppLayer`, and the client build are untouched.
 
 ### Why this is the right boundary
 

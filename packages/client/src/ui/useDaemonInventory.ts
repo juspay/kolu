@@ -78,14 +78,14 @@ export function daemonScanBoundHost(): string | null {
  *  machine, marked NONE active (kolu is bound elsewhere). Non-empty only under a remote
  *  binding; `[]` under a local binding (the bound host's member already covers it — the
  *  `remote`-only discriminant makes a local scan structurally impossible to carry). */
-export function localScanKavals(): RunningKaval[] {
+export function localScanKavals(): readonly RunningKaval[] {
   const binding = sub.value()?.binding;
   return binding?.kind === "remote" ? binding.localScan.kavals : [];
 }
 
 /** kolu-server's scan of the machine it ITSELF runs on — every running padi on that
  *  machine, marked NONE active. Non-empty only under a remote binding. */
-export function localScanPadis(): RunningPadi[] {
+export function localScanPadis(): readonly RunningPadi[] {
   const binding = sub.value()?.binding;
   return binding?.kind === "remote" ? binding.localScan.padis : [];
 }

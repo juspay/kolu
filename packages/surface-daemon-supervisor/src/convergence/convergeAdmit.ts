@@ -8,11 +8,12 @@
  * **Budget must be a {@link ConnectorDrainBudget}** (F7) — recycle / nudge-human are
  * unspellable at the type level; no runtime throws for wrong policy arms.
  *
- * **`awaitExit` contract (F3):** resolve ONLY when an independent process/instance
+ * **`awaitExit` contract (F3):** succeed ONLY when an independent process/instance
  * oracle confirms the daemon is gone (gate gone, pid reaped, ssh process exit).
  * Sustained RPC/`hello` failure is NOT exit — if the link is down and the oracle
  * cannot confirm, leave the wait hanging until the ceiling (drain-not-taken), never
- * report `replaced`.
+ * report `replaced`. Its error channel is `never`, so "a failure is not an exit"
+ * is the type rather than a rule to remember.
  */
 
 import {
@@ -20,6 +21,7 @@ import {
   type ConvergenceIdentity,
   type Logger,
 } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import type { ConvergenceAnomaly, RefusedAnomaly } from "./anomaly.ts";
 import {
   type ConnectorDrainBudget,
@@ -60,7 +62,7 @@ export type ConvergeAdmitVerdict =
       readonly error: string;
     };
 
-export async function convergeAdmit(args: {
+export function convergeAdmit(args: {
   /** What the dial found — the running daemon's identity (+ instance key). */
   running: RunningDaemon;
   /**
@@ -70,85 +72,125 @@ export async function convergeAdmit(args: {
   budget: ConnectorDrainBudget;
   /** Fire the drain verb (the daemon's control-core `drain`). Fire-and-forget;
    *  ground truth is `awaitExit`. */
-  drain: () => Promise<void>;
+  drain: Effect.Effect<void, unknown>;
   /**
    * Observe that the daemon process actually left (F3). Armed before `drain`.
-   * Resolve only from an independent process oracle — NOT from a single RPC
-   * rejection. Honour the abort signal when the ceiling wins.
+   * Succeed only from an independent process oracle — NOT from a single RPC
+   * failure. It needs no abort signal: the framework forks it into a scope it
+   * closes when the ceiling wins, so it is interrupted rather than notified.
    */
-  awaitExit: (signal: AbortSignal) => Promise<void>;
+  awaitExit: Effect.Effect<void>;
   /** Ceiling for the exit wait (transport-adapted: local ~2s, ssh ~6s). */
   ceilingMs: number;
   log: Logger;
-}): Promise<ConvergeAdmitVerdict> {
-  const { running, budget, log } = args;
-  const policy = policyOf(budget);
-  const baked = policy.baked;
-  const identity: ConvergenceIdentity = {
-    contractVersion: running.contractVersion,
-    build: running.build,
-  };
-  const lineage: DrainLineage = {
-    build: running.build,
-    instanceKey: running.instanceKey,
-  };
+}): Effect.Effect<ConvergeAdmitVerdict, Error> {
+  return Effect.gen(function* () {
+    const { running, budget, log } = args;
+    const policy = policyOf(budget);
+    const baked = policy.baked;
+    const identity: ConvergenceIdentity = {
+      contractVersion: running.contractVersion,
+      build: running.build,
+    };
+    const lineage: DrainLineage = {
+      build: running.build,
+      instanceKey: running.instanceKey,
+    };
 
-  const decision = decide(policy, identity);
-  const skewCtx = {
-    runningContract: identity.contractVersion,
-    mineContract: baked.contractVersion,
-    runningBuild: buildLabel(identity.build),
-    mineBuild: buildLabel(baked.build),
-  };
+    const decision = decide(policy, identity);
+    const skewCtx = {
+      runningContract: identity.contractVersion,
+      mineContract: baked.contractVersion,
+      runningBuild: buildLabel(identity.build),
+      mineBuild: buildLabel(baked.build),
+    };
 
-  // ConnectorPolicy makes recycle / report-mismatch unspellable at the type
-  // level (F7) — no runtime endpoint-only throws. Cast so those arms are not
-  // switch cases (decide's return type is still the full Decision union).
-  type ConnectorDecision = Exclude<
-    typeof decision,
-    { kind: "recycle" } | { kind: "report-mismatch" }
-  >;
-  const d = decision as ConnectorDecision;
+    // ConnectorPolicy makes recycle / report-mismatch unspellable at the type
+    // level (F7) — no runtime endpoint-only throws. Cast so those arms are not
+    // switch cases (decide's return type is still the full Decision union).
+    type ConnectorDecision = Exclude<
+      typeof decision,
+      { kind: "recycle" } | { kind: "report-mismatch" }
+    >;
+    const d = decision as ConnectorDecision;
 
-  switch (d.kind) {
-    case "spawn":
-      throw new Error(
-        "convergeAdmit: decide returned spawn for a live running identity — unreachable",
-      );
+    switch (d.kind) {
+      case "spawn":
+        throw new Error(
+          "convergeAdmit: decide returned spawn for a live running identity — unreachable",
+        );
 
-    case "adopt":
-      return { kind: "adopt" };
+      case "adopt":
+        return { kind: "adopt" } as const;
 
-    case "refuse": {
-      const detail =
-        `contract skew: running serves ${identity.contractVersion}, ` +
-        `supervisor needs ${baked.contractVersion} — this binder is OLDER/behind, refusing`;
-      log.warn(
-        skewCtx,
-        "convergence admit: REFUSING a skewed survivor — left standing + degraded, never touched",
-      );
-      return {
-        kind: "refuse",
-        error: detail,
-        anomaly: {
-          kind: "skew-refused",
-          running: identity,
-          expected: baked,
-          detail,
-        },
-      };
-    }
+      case "refuse": {
+        const detail =
+          `contract skew: running serves ${identity.contractVersion}, ` +
+          `supervisor needs ${baked.contractVersion} — this binder is OLDER/behind, refusing`;
+        log.warn(
+          skewCtx,
+          "convergence admit: REFUSING a skewed survivor — left standing + degraded, never touched",
+        );
+        return {
+          kind: "refuse",
+          error: detail,
+          anomaly: {
+            kind: "skew-refused",
+            running: identity,
+            expected: baked,
+            detail,
+          },
+        } as const;
+      }
 
-    case "drain-and-replace": {
-      const why =
-        d.axis === "contract"
-          ? `contract skew (mine ${baked.contractVersion} newer than running ${identity.contractVersion})`
-          : `build mismatch (running=${buildLabel(identity.build)} expected=${buildLabel(baked.build)})`;
-      const admission = budgetInternal(budget).admit(lineage, why);
-      if (admission.kind === "giveUp") {
+      case "drain-and-replace": {
+        const why =
+          d.axis === "contract"
+            ? `contract skew (mine ${baked.contractVersion} newer than running ${identity.contractVersion})`
+            : `build mismatch (running=${buildLabel(identity.build)} expected=${buildLabel(baked.build)})`;
+        const admission = yield* budgetInternal(budget).admit(lineage, why);
+        if (admission.kind === "giveUp") {
+          return toAdmitVerdict(
+            giveUpOutcome({
+              admission,
+              onGiveUp: drainBudgetOf(budget).onGiveUp,
+              axis: d.axis,
+              running: identity,
+              expected: baked,
+              log,
+              skewCtx,
+              logPrefix: "convergence admit",
+            }),
+          );
+        }
+        log.info(
+          { axis: d.axis, attempt: admission.attempt, ...skewCtx },
+          "convergence admit: draining a superseded survivor and awaiting exit",
+        );
+        const drain = yield* drainAndAwaitExit(args.drain, args.awaitExit, {
+          ceilingMs: args.ceilingMs,
+        });
+        if (drain.took) {
+          return {
+            kind: "replaced",
+            reason:
+              d.axis === "contract"
+                ? "daemon drained (newer contract) — reconnecting to the respawned newer build"
+                : "daemon drained (build mismatch) — reconnecting to re-handshake the survivor",
+          } as const;
+        }
+        // Drain not taken (ceiling or link-down without process oracle) — never
+        // replaced (F3).
         return toAdmitVerdict(
           giveUpOutcome({
-            admission,
+            admission: {
+              kind: "giveUp",
+              why: "budget",
+              axisHint: why,
+              attempts: admission.attempt,
+              maxAttempts: drainBudgetOf(budget).maxAttempts,
+              instanceKey: running.instanceKey,
+            },
             onGiveUp: drainBudgetOf(budget).onGiveUp,
             axis: d.axis,
             running: identity,
@@ -156,59 +198,22 @@ export async function convergeAdmit(args: {
             log,
             skewCtx,
             logPrefix: "convergence admit",
+            drainNotTaken: {
+              ceilingMs: args.ceilingMs,
+              rejection: drain.drainRejection,
+            },
           }),
         );
       }
-      log.info(
-        { axis: d.axis, attempt: admission.attempt, ...skewCtx },
-        "convergence admit: draining a superseded survivor and awaiting exit",
-      );
-      const drain = await drainAndAwaitExit(args.drain, args.awaitExit, {
-        ceilingMs: args.ceilingMs,
-      });
-      if (drain.took) {
-        return {
-          kind: "replaced",
-          reason:
-            d.axis === "contract"
-              ? "daemon drained (newer contract) — reconnecting to the respawned newer build"
-              : "daemon drained (build mismatch) — reconnecting to re-handshake the survivor",
-        };
-      }
-      // Drain not taken (ceiling or link-down without process oracle) — never
-      // replaced (F3).
-      return toAdmitVerdict(
-        giveUpOutcome({
-          admission: {
-            kind: "giveUp",
-            why: "budget",
-            axisHint: why,
-            attempts: admission.attempt,
-            maxAttempts: drainBudgetOf(budget).maxAttempts,
-            instanceKey: running.instanceKey,
-          },
-          onGiveUp: drainBudgetOf(budget).onGiveUp,
-          axis: d.axis,
-          running: identity,
-          expected: baked,
-          log,
-          skewCtx,
-          logPrefix: "convergence admit",
-          drainNotTaken: {
-            ceilingMs: args.ceilingMs,
-            rejection: drain.drainRejection,
-          },
-        }),
-      );
-    }
 
-    default: {
-      const _exhaustive: never = d;
-      throw new Error(
-        `convergeAdmit: unreachable decision ${JSON.stringify(_exhaustive)}`,
-      );
+      default: {
+        const _exhaustive: never = d;
+        throw new Error(
+          `convergeAdmit: unreachable decision ${JSON.stringify(_exhaustive)}`,
+        );
+      }
     }
-  }
+  });
 }
 
 function toAdmitVerdict(

@@ -20,36 +20,47 @@
  *  standalone unit. */
 
 import type { SavedSession } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { toast } from "solid-sonner";
+import type { UiAction } from "./runAction";
 
 export function createImportSessionAction(deps: {
   /** Prompt for and validate the session blob (null when the user cancels or
    *  the file is malformed — malformed already surfaced its own toast). */
-  pick: () => Promise<SavedSession | null>;
+  pick: () => Effect.Effect<SavedSession | null>;
   /** Hand the picked blob to the host restore writer (the import RPC). */
-  runImport: (args: { session: SavedSession }) => Promise<unknown>;
-}): () => Promise<void> {
+  runImport: (args: {
+    session: SavedSession;
+  }) => Effect.Effect<unknown, unknown>;
+}): () => UiAction {
   let inFlight = false;
-  return async () => {
-    // Re-entry guard: a second invoke while a pick/import is in flight is a
-    // no-op. Set synchronously before the first await so a rapid double-invoke
-    // can't slip a duplicate import (and duplicate terminals) past it.
-    if (inFlight) return;
-    inFlight = true;
-    try {
-      const session = await deps.pick();
-      if (!session) return;
-      const id = toast.loading(
-        `Importing ${session.terminals.length} terminals…`,
-      );
-      try {
-        await deps.runImport({ session });
-        toast.success("Session imported", { id });
-      } catch (err) {
-        toast.error(`Import failed: ${(err as Error).message}`, { id });
-      }
-    } finally {
-      inFlight = false;
-    }
-  };
+  return () =>
+    Effect.suspend(() => {
+      // Re-entry guard: a second invoke while a pick/import is in flight is a
+      // no-op. Set on the FORKING stack (`Effect.suspend`'s body runs there)
+      // so a rapid double-invoke can't slip a duplicate import — and duplicate
+      // terminals — past it.
+      if (inFlight) return Effect.void;
+      inFlight = true;
+      return Effect.gen(function* () {
+        const session = yield* deps.pick();
+        if (!session) return;
+        const id = toast.loading(
+          `Importing ${session.terminals.length} terminals…`,
+        );
+        yield* deps.runImport({ session }).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => toast.success("Session imported", { id })),
+          ),
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(`Import failed: ${toError(err).message}`, { id });
+            }),
+          ),
+        );
+        // The `finally` of the old shape, and now total: a finalizer runs on
+        // interruption too, so a dismissed picker never leaves the guard armed.
+      }).pipe(Effect.ensuring(Effect.sync(() => (inFlight = false))));
+    });
 }

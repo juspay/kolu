@@ -15,9 +15,20 @@
  * that case, so it must LAND on `null`, not escape as an exception.
  */
 
+import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const viewer = vi.fn();
+
+/** The root face is EFFECT-native now, so a stub answers with a DESCRIPTION.
+ *  `Effect.suspend` keeps the mock's own laziness — the value is read when the
+ *  effect runs, not when the ref is built. */
+const answers = (value: unknown): void => {
+  viewer.mockImplementation(() => Effect.succeed(value));
+};
+const refuses = (error: Error): void => {
+  viewer.mockImplementation(() => Effect.fail(error));
+};
 /** The forwards cell's current value, swappable per test. */
 const cell: { value: () => unknown[] } = { value: () => [] };
 
@@ -43,13 +54,13 @@ async function loadViewerHost() {
 
 describe("viewerHost", () => {
   it("reads the host the server names", async () => {
-    viewer.mockResolvedValue({ host: { kind: "remote", target: "zest" } });
+    answers({ host: { kind: "remote", target: "zest" } });
     const viewerHost = await loadViewerHost();
     expect(viewerHost()).toEqual({ kind: "remote", target: "zest" });
   });
 
   it("is `null`, not a throw, when the server cannot tell", async () => {
-    viewer.mockResolvedValue({ host: null });
+    answers({ host: null });
     const viewerHost = await loadViewerHost();
     expect(viewerHost()).toBeNull();
   });
@@ -59,7 +70,7 @@ describe("viewerHost", () => {
     // it, so the Ports section — and whatever else is in that update — would go
     // down over a transient RPC failure. `null` degrades to "keep offering the
     // forward", which is the behaviour that always works.
-    viewer.mockRejectedValue(new Error("websocket closed"));
+    refuses(new Error("websocket closed"));
     const viewerHost = await loadViewerHost();
     expect(() => viewerHost()).not.toThrow();
     expect(viewerHost()).toBeNull();

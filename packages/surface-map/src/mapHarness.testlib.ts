@@ -1,18 +1,18 @@
 /**
  * Shared in-process map harness — the vertical slice (`serveSurfaceMap` +
- * `connectSurfaceMap`) wired over `directLink` and a mock `MapRegistry`, reused
- * by both `mapHarness.test.ts` (the framework e2e) and `scoped.test.ts` (the
- * `scopedByEntry` ownership contract). `.testlib.ts` is test-only (dropped from
- * the build fileset and not matched by the vitest `*.test.ts` include), so it
+ * `connectSurfaceMap`) wired over `directDispatch` and a mock `MapRegistry`,
+ * reused by both `mapHarness.test.ts` (the framework e2e) and `scoped.test.ts`
+ * (the `scopedByEntry` ownership contract). `.testlib.ts` is test-only (dropped
+ * from the build fileset and not matched by the vitest `*.test.ts` include), so it
  * never ships and never runs as a suite of its own.
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import { defineSurface } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
+import { defineSurface, surfaceTag } from "@kolu/surface/define";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
-import type { AnyContractRouter } from "@orpc/contract";
-import { z } from "zod";
+import { Schema } from "effect";
 import { connectSurfaceMap } from "./client";
 import {
   defineSurfaceMap,
@@ -31,9 +31,9 @@ import {
 export const entrySurface = defineSurface({
   cells: {
     urgency: {
-      schema: z.object({
-        awaiting: z.number(),
-        awaitingIds: z.array(z.string()),
+      schema: Schema.Struct({
+        awaiting: Schema.Number,
+        awaitingIds: Schema.Array(Schema.String),
       }),
       default: { awaiting: 0, awaitingIds: [] },
       verbs: ["get"], // server-authority, read-only — like padi's real `urgency`
@@ -41,14 +41,24 @@ export const entrySurface = defineSurface({
   },
   collections: {
     terminals: {
-      keySchema: z.string(),
-      schema: z.object({ title: z.string() }),
+      keySchema: Schema.String,
+      schema: Schema.Struct({ title: Schema.String }),
     },
   },
 });
 
-export const HostKeySchema = z.string().brand("HostKey");
-export type HostKey = z.infer<typeof HostKeySchema>;
+/** The entry surface's own `urgency` cell subscription tag — the ONE tag the dedup
+ *  spy counts. Minted through the same algebra the face and the map both use, so a
+ *  tag-shape change is a compile-adjacent break here, not a silently-zero counter. */
+export const URGENCY_GET_TAG = surfaceTag(
+  entrySurface.tagPrefix,
+  "urgency",
+  "get",
+);
+
+export const HostKeySchema = Schema.String.pipe(Schema.brand("HostKey"));
+export type HostKey = typeof HostKeySchema.Type;
+const decodeHostKey = Schema.decodeUnknownSync(HostKeySchema);
 // The harness's own key IS already a plain (branded) string, so its codec is the
 // identity pair — kolu's real `HostKey` (a discriminated-sum object) is the case
 // {@link KeyCodec} exists for; see `hostKeyCodec` in `kolu-common/hostKey`.
@@ -61,20 +71,20 @@ export const identityCodec: KeyCodec<HostKey> = {
 // A minimal `{ cause, reason }` — the real padi map carries a richer discriminated
 // union (`PadiEntryFailureSchema`); the framework only needs SOME schema-valid
 // domain value on the `failed` arm, so this is the smallest one that exercises it.
-export const testFailureSchema = z.object({
-  cause: z.string(),
-  reason: z.string(),
+export const testFailureSchema = Schema.Struct({
+  cause: Schema.String,
+  reason: Schema.String,
 });
-export type TestFailure = z.infer<typeof testFailureSchema>;
+export type TestFailure = typeof testFailureSchema.Type;
 
 /** Build a test map — `failure` is the one field every test map shares
  *  ({@link testFailureSchema}), defaulted here so a future required `defineSurfaceMap`
  *  field is a ONE-line change rather than editing every call site (PR4's own `failure`
  *  addition was exactly that pain). Callers pass the per-map `key`/`entry`/`codec`. */
 export function buildTestMap<
-  KS extends z.ZodType,
+  KS extends Schema.Codec<unknown, unknown, never, never>,
   const ES extends SurfaceSpec,
->(opts: { key: KS; entry: Surface<ES>; codec: KeyCodec<z.infer<KS>> }) {
+>(opts: { key: KS; entry: Surface<ES>; codec: KeyCodec<KS["Type"]> }) {
   return defineSurfaceMap({ ...opts, failure: testFailureSchema });
 }
 
@@ -83,13 +93,18 @@ export const settle = async (): Promise<void> => {
 };
 
 /** A mock in-process entry surface, with a spy on how many times its `urgency`
- *  stream is subscribed upstream (the dedup measurement). */
+ *  stream is subscribed upstream (the dedup measurement).
+ *
+ *  The oRPC-era spy was a Proxy-of-Proxy walking `link.surface.urgency.get`. The
+ *  wire namespace is flat now, so the spy is a one-line tag compare over the erased
+ *  `SurfaceDispatch` — measuring exactly the same thing (one upstream forward per
+ *  subscription) with none of the tree walking. */
 export function makeEntry(urgency: {
   awaiting: number;
-  awaitingIds: string[];
+  awaitingIds: readonly string[];
 }) {
   let urgencyGetCount = 0;
-  const { router, ctx } = implementSurface(entrySurface, {
+  const { handlers, ctx } = implementSurface(entrySurface, {
     cells: { urgency: { store: inMemoryStore(urgency) } },
     collections: {
       terminals: {
@@ -99,37 +114,21 @@ export function makeEntry(urgency: {
       },
     },
   });
-  const raw = directLink<typeof entrySurface.contract>(router as never);
-  // Count subscriptions to `surface.urgency.get` — one per upstream forward.
-  // biome-ignore lint/suspicious/noExplicitAny: opaque oRPC client, spied by string
-  const link = new Proxy(raw as any, {
-    get(target, prop) {
-      if (prop !== "surface") return target[prop];
-      const surf = target.surface;
-      return new Proxy(surf, {
-        get(_s, member) {
-          if (member !== "urgency") return surf[member];
-          const ns = surf[member];
-          return new Proxy(ns, {
-            get(_n, verb) {
-              if (verb !== "get") return ns[verb];
-              return (i: unknown, o: unknown) => {
-                urgencyGetCount++;
-                return ns.get(i, o);
-              };
-            },
-          });
-        },
-      });
+  const base = directDispatch({ handlers });
+  const dispatch: SurfaceDispatch = {
+    unary: (tag, payload) => base.unary(tag, payload),
+    stream: (tag, payload) => {
+      if (tag === URGENCY_GET_TAG) urgencyGetCount++;
+      return base.stream(tag, payload);
     },
-  });
+  };
   return {
-    link,
+    dispatch,
     urgencyGetCount: () => urgencyGetCount,
     /** Push a new urgency value through the server-internal ctx writer (the fold
      *  path) so a downstream watcher sees a genuine change — for driving
      *  `watchByEntry`'s raise detection. */
-    setUrgency: (u: { awaiting: number; awaitingIds: string[] }) =>
+    setUrgency: (u: { awaiting: number; awaitingIds: readonly string[] }) =>
       ctx.cells.urgency.set(u),
   };
 }
@@ -145,7 +144,7 @@ export function makeEntry(urgency: {
 export const liveWhenEntrySurface = defineSurface({
   cells: {
     health: {
-      schema: z.object({ n: z.number() }),
+      schema: Schema.Struct({ n: Schema.Number }),
       default: { n: 0 },
       verbs: ["get"],
       liveWhen: (v: { n: number }) => v.n > 0,
@@ -158,14 +157,11 @@ export const liveWhenEntrySurface = defineSurface({
  *  server-internal ctx writer so a re-add's fresh session reads a genuinely
  *  different value (proving the sub rebuilt, not stranded at the old one). */
 export function makeLiveWhenEntry(n: number) {
-  const { router, ctx } = implementSurface(liveWhenEntrySurface, {
+  const { handlers, ctx } = implementSurface(liveWhenEntrySurface, {
     cells: { health: { store: inMemoryStore({ n }) } },
   });
-  const link = directLink<typeof liveWhenEntrySurface.contract>(
-    router as never,
-  );
   return {
-    link,
+    dispatch: directDispatch({ handlers }),
     setHealth: (v: { n: number }) => ctx.cells.health.set(v),
   };
 }
@@ -209,10 +205,10 @@ export function makeRegistry() {
     registry,
     addSession(
       k: HostKey,
-      link: unknown,
+      dispatch: SurfaceDispatch,
       state: EntryConnectionState<"copying", TestFailure>,
     ) {
-      entries.set(k, { session: { kind: "session", link, state } });
+      entries.set(k, { session: { kind: "session", dispatch, state } });
       fire();
     },
     // PR4: a structural fault carries a schema-valid domain `failure` (the mock's
@@ -229,7 +225,7 @@ export function makeRegistry() {
       const e = entries.get(k);
       if (e?.session) {
         entries.set(k, {
-          session: { kind: "session", link: e.session.link, state },
+          session: { kind: "session", dispatch: e.session.dispatch, state },
         });
         fire();
       }
@@ -237,7 +233,7 @@ export function makeRegistry() {
     remove(k: HostKey) {
       // CLAUSE 1 ordering: drop membership FIRST, then fire — so the map's
       // stream-forwarders see `!has(k)` on the notification and end their
-      // streams TYPED before this reference is dropped (no socket-error frame).
+      // streams TYPED before this reference is dropped (no error frame).
       entries.delete(k);
       fire();
     },
@@ -252,16 +248,15 @@ export function setup() {
   });
   const reg = makeRegistry();
   const served = serveSurfaceMap(map, reg.registry);
-  // biome-ignore lint/suspicious/noExplicitAny: served router is a runtime-valid oRPC router; the client re-types via map.entry.
-  const mapLink = directLink<AnyContractRouter>(served.router as any);
-  const client = connectSurfaceMap(map, mapLink);
-  return { map, served, client, ...reg };
+  const mapDispatch = directDispatch(served);
+  const client = connectSurfaceMap(map, mapDispatch);
+  return { map, served, mapDispatch, client, ...reg };
 }
 
-export const A = HostKeySchema.parse("a");
-export const B = HostKeySchema.parse("b");
-export const C = HostKeySchema.parse("c");
-export const D = HostKeySchema.parse("d");
+export const A = decodeHostKey("a");
+export const B = decodeHostKey("b");
+export const C = decodeHostKey("c");
+export const D = decodeHostKey("d");
 
 // `clockOffset` accepts `null` (not-yet-measured) as well as a number: readiness is
 // link-liveness, so a `connected` state is legal with an unmeasured offset.

@@ -1,24 +1,29 @@
 /**
  * Per-host binding — dial one box over ssh, mirror its `top` inward, and expose
- * an in-process link the surface-map forwards to.
+ * an in-process DISPATCH the surface-map forwards to.
  *
  * The three-hop mirror, explicit:
  *
  *   1. **Dial** — `makeSession({ connectOnce: sshConnector(...) })`. Per spawn,
  *      `sshConnector` nix-provisions the agent closure onto the host and runs
- *      `ssh <host> fleet-top-agent --stdio`, wiring stdio to a typed client.
+ *      `ssh <host> fleet-top-agent --stdio`, wiring stdio to a member face over
+ *      the agent's own surface.
  *   2. **Pump inward** — `pumpRemoteSurface` pins the session, loops over each
  *      successive client, and folds the agent's frames into a LOCAL surface
  *      implementation (`makeSink` writes through `runtime.ctx`). Rebuilt per
  *      spawn, so per-client state resets on reconnect.
  *   3. **Re-serve** — the local `implementSurface` runtime IS the browser-facing
- *      surface for this host; `directLink` over its flattened router is the
- *      `link` the map forwards calls to. `process.kill` forwards to the current
- *      live agent client (an imperative mutation has no local state to keep).
+ *      surface for this host; `directDispatch` over its handler record is the
+ *      `dispatch` the map forwards calls to. `process.kill` forwards to the
+ *      current live agent client (an imperative mutation has no local state to
+ *      keep).
  */
 
+import type { UnaryEffect } from "@kolu/surface/client";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
-import { directLink } from "@kolu/surface/links/direct";
+import type { EntryConnectionState } from "@kolu/surface-map/server";
 import {
   type AgentClient,
   agentBinaryCache,
@@ -30,20 +35,22 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
-import type { EntryConnectionState } from "@kolu/surface-map/server";
+import { Effect } from "effect";
 import { match, P } from "ts-pattern";
 import type { HostFailure } from "../common/map";
 import {
   DEFAULT_LOAD,
   DEFAULT_MEMORY,
+  type KillArgs,
+  type KillResult,
   type Pid,
   type Process,
   surface,
 } from "../common/surface";
 
 export interface HostBinding {
-  /** The in-process link the surface-map forwards member calls to. */
-  link: unknown;
+  /** The in-process dispatch the surface-map forwards member calls to. */
+  dispatch: SurfaceDispatch;
   /** This host's latest session state, projected for the map. */
   state(): EntryConnectionState<"copying", HostFailure>;
   /** Subscribe to session-state changes (for the registry's `subscribe`). */
@@ -109,12 +116,14 @@ const EXAMPLE_BINARY_CACHE = agentBinaryCache({
 
 export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   // #region dial
-  const session: Session<
-    AgentClient<typeof surface.contract>,
-    SshProv
-  > = makeSession({
+  // `AgentClient` is the structural member face — there is no contract type to
+  // be generic over any more, and the connector takes the SURFACE as a VALUE:
+  // Effect RPC builds its client from `surface.group` and the face is re-nested
+  // from `surface.spec`, neither of which is recoverable from a type alone.
+  const session: Session<AgentClient, SshProv> = makeSession({
     initialConnection: "probing",
-    connectOnce: sshConnector<typeof surface.contract>({
+    connectOnce: sshConnector({
+      surface,
       host,
       binary: "fleet-top-agent",
       // Policy-free: the CONSUMER composes the localhost arm's spawn env, keeping only
@@ -161,15 +170,29 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
     procedures: {
       process: {
         // `kill` forwards to the CURRENT live agent client — never a per-spawn
-        // mirror stub, since a kill can land across a reconnect. Fails loudly in
-        // a link gap.
-        kill: async ({ input }) => {
-          const pending = session.currentClient();
-          if (pending === null)
-            throw new Error("no live agent link — cannot kill");
-          const client = await pending;
-          return client.surface.process.kill(input);
-        },
+        // mirror stub, since a kill can land across a reconnect. `Effect.promise`,
+        // not `tryPromise`: this procedure declares no error channel, so a link
+        // gap is an UNDECLARED failure and must stay a loud defect rather than
+        // something a browser could narrow on and quietly handle.
+        kill: ({ input }) =>
+          Effect.gen(function* () {
+            const pending = session.currentClient();
+            if (pending === null)
+              throw new Error("no live agent link — cannot kill");
+            // The SESSION hands back a Promise (its reconnect machinery is
+            // Promise-shaped); the member call it yields is an Effect, so the
+            // lift stops at the session and the call composes.
+            const client = yield* Effect.promise(() => pending);
+            const kill = client.surface.process?.kill as UnaryEffect<
+              KillArgs,
+              KillResult,
+              never
+            >;
+            // The re-serving surface declares no error for this member, so an
+            // upstream transport failure is UNDECLARED here and crosses as a
+            // defect rather than being smuggled into a `never` channel.
+            return yield* Effect.orDie(kill(input));
+          }),
       },
     },
   });
@@ -206,11 +229,10 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   });
   // #endregion
 
-  // `implementSurface`'s `.router` is already the FINAL flattened router
-  // (`/surface/…`) — no consumer re-finalizes it via oRPC `implement`. It's
-  // typed `unknown`; cast at the `directLink` boundary.
-  const router = runtime.router;
-  const link = directLink<typeof surface.contract>(router as never);
+  // `directDispatch` takes the served surface itself (anything carrying
+  // `handlers`) and calls its handlers in-process — zero serialization, and the
+  // map never learns whether the dispatch it forwards to crosses a wire.
+  const dispatch = directDispatch(runtime);
 
   let latest: SessionState<SshProv> = {
     phase: "probing",
@@ -223,7 +245,7 @@ export function buildHostBinding(host: string, agentDrv: string): HostBinding {
   });
 
   return {
-    link,
+    dispatch,
     state: () => projectState(latest),
     onStateChange: (cb) => session.onState(() => cb()),
     destroy: () => {

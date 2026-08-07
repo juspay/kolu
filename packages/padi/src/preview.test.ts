@@ -1,6 +1,6 @@
 /** Tests for padi's `readPreview` — the ONE range-capable byte read behind both
- *  `padiSurface.procedures.preview.read` and kolu-server's re-backed Hono
- *  preview route. This is where the `..`/`%2f`/symlink 403 coverage lives now
+ *  `padiSurface.procedures.preview.read` and kolu-server's re-backed preview
+ *  route. This is where the `..`/`%2f`/symlink 403 coverage lives now
  *  that the guard moved out of kolu-server (`iframePreviewRoute.ts`): a repo-
  *  local symlink escaping the root is rejected 403 before any byte is read, and
  *  a lexical `..`/`%2f` traversal is rejected 400 by serve-dir's per-segment
@@ -9,8 +9,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Cause, Effect, Exit } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readPreview } from "./preview.ts";
+import { readPreview as readPreviewEffect } from "./preview.ts";
+
+/** The one run edge for this file — a test IS a process edge (the run-edge
+ *  allowlist's own policy). The declared `PreviewTooLarge` failure is squashed
+ *  back out to a rejection so the cap assertions below stay `.rejects`
+ *  assertions on the error VALUE rather than on a fiber-failure wrapper. */
+function readPreview(...args: Parameters<typeof readPreviewEffect>) {
+  return Effect.runPromiseExit(readPreviewEffect(...args)).then((exit) =>
+    Exit.isSuccess(exit)
+      ? exit.value
+      : Promise.reject(Cause.squash(exit.cause)),
+  );
+}
 
 /** Decode `readPreview`'s base64 body back to a UTF-8 string for assertions. */
 function decodeBody(bodyBase64: string): string {
@@ -137,17 +150,17 @@ describe("readPreview caps an unranged/open-ended read (no unbounded inline buff
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("throws PAYLOAD_TOO_LARGE for an open-ended range over the cap (via Content-Length)", async () => {
+  it("refuses an open-ended range over the cap with PreviewTooLarge (via Content-Length)", async () => {
     await expect(
       readPreview({
         repoPath: tmpRoot,
         filePath: "big.bin",
         range: "bytes=0-",
       }),
-    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+    ).rejects.toMatchObject({ _tag: "PreviewTooLarge" });
   });
 
-  it("throws PAYLOAD_TOO_LARGE for a HUGE bounded range that resolves to ~the whole file", async () => {
+  it("refuses a HUGE bounded range that resolves to ~the whole file with PreviewTooLarge", async () => {
     // `bytes=0-99999999999` is shape-bounded (both ends present) but serve-dir
     // clamps its end to the file size, so it resolves to the whole 64 MiB+1 file.
     // The old shape-only `isBoundedRange` let exactly this ride the UNCAPPED
@@ -159,7 +172,7 @@ describe("readPreview caps an unranged/open-ended read (no unbounded inline buff
         filePath: "big.bin",
         range: "bytes=0-99999999999",
       }),
-    ).rejects.toMatchObject({ code: "PAYLOAD_TOO_LARGE" });
+    ).rejects.toMatchObject({ _tag: "PreviewTooLarge" });
   });
 
   it("leaves a BOUNDED range over the same big file unchanged (206, just those bytes)", async () => {

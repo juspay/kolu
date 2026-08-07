@@ -80,6 +80,30 @@ they own different state.
   </svg>
 </figure>
 
+## Steady-state supervision
+
+"padi supervises its own kaval" is continuous, not a boot-time step. Every ten
+seconds padi asks its kaval three read-only questions over the socket, and a
+kaval that cannot answer them in five seconds is not busy — it is stuck. Three
+such answers in a row (about half a minute) and padi runs, by itself, exactly
+what the **Restart kaval** button runs: save the session, stop the stuck daemon,
+start a fresh one, and offer your terminals back for restore. One slow moment
+changes nothing; only a real stretch of silence does.
+
+If three restarts in a row do not produce a daemon that answers, padi stops
+restarting and leaves the card and the button — a hot restart loop is not a
+repair. The kaval-down card is for the genuinely unrepairable now, not for every
+case.
+
+kaval watches itself from the other side of the same wire: it asks its **own**
+address a trivial question on the same cadence, and three unanswered self-checks
+in a row make it exit non-zero rather than sit there accepting connections it
+cannot serve. That covers the case padi cannot — a kaval nobody is currently
+watching — and turns "stuck forever", which nothing handles, into "stopped",
+which the supervisor already handles.
+
+While a host's kaval is down, [that host's dot is amber, not green](/remote-hosts).
+
 ## What padi knows
 
 kaval only knows terminals. padi is where terminal observations become a
@@ -170,5 +194,6 @@ workspace disappear.
 <CardGrid>
   <LinkCard title="architecture" href="/architecture" description="the full stack and survival story" />
   <LinkCard title="kaval" href="/kaval" description="the PTY daemon under padi" />
+  <LinkCard title="operations" href="/operations" description="stopping the daemons by hand, rolling back, and testing beside production" />
   <LinkCard title="padi atlas note" href="https://kolu.dev/atlas/padi.html" description="design notes and phase history" />
 </CardGrid>

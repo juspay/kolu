@@ -1,9 +1,9 @@
 /**
  * The in-process identity-link path: the contract corpus
  * (`contractCorpus.testlib.ts`) instantiated over `createInProcessPtyHost`'s
- * `directLink` client — the fast path kolu-server's web tier uses — plus the
+ * `directDispatch` client — the fast path kolu-server's web tier uses — plus the
  * one mechanism that is identity-link-specific and has no socket analogue: the
- * abort-before-kill silence `local.ts` relies on to keep an intentional kill
+ * close-before-kill silence `local.ts` relies on to keep an intentional kill
  * from surfacing as a `terminalExit`.
  *
  * The SAME corpus runs over a real spawned daemon's socket in
@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { expect, it } from "vitest";
+import { Effect } from "effect";
 import {
   drainForOverflow,
   runContractCorpus,
@@ -25,7 +26,12 @@ import {
   createInProcessPtyHost,
   type PtyHostClient,
 } from "./inProcessPtyHost.ts";
-import { nextFrame } from "./streamFrame.testlib.ts";
+import {
+  closeStream,
+  nextFrame,
+  openStream,
+  subscribeFrames,
+} from "./streamFrame.testlib.ts";
 function makeClient(opts?: { dataMaxQueue?: number }): PtyHostClient {
   return createInProcessPtyHost({
     log: silentLog,
@@ -48,20 +54,24 @@ runContractCorpus({
 describeDaemon(
   "createInProcessPtyHost — identity-link-specific mechanism",
   () => {
-    it("terminalAttach on an unknown PTY rejects with the structured NOT_FOUND local.ts reads", async () => {
-      // The corpus asserts only "rejects" for the stream (the socket link's error
-      // code races a transport-close). Here, on the identity link, the precise
-      // NOT_FOUND shape is deterministic — and it is the shape kolu-server's
-      // `local.ts` re-attach loop reads as "the PTY is gone" — so pin it.
+    it("terminalAttach on an unknown PTY rejects with the structured PtyNotFound local.ts reads", async () => {
+      // The corpus asserts only "rejects" for the stream (over a wire the failure
+      // is an undeclared DEFECT — a `StreamSpec` has no error channel to declare
+      // on — and races a transport close). Here, on the identity link, the
+      // precise shape IS deterministic: `directDispatch` runs the very handler
+      // stream, so the `PtyNotFound` instance reaches the consumer intact. That
+      // is the shape kolu-server's `local.ts` re-attach loop reads as "the PTY is
+      // gone" (vs "the stream dropped"), so pin it here.
       const client = makeClient();
       const iterate = async (): Promise<void> => {
-        for await (const _ of await client.surface.terminalAttach.get({
-          id: "00000000-0000-0000-0000-000000000000",
-        })) {
-          break;
-        }
+        const it = openStream(
+          client.surface.terminalAttach.get({
+            id: "00000000-0000-0000-0000-000000000000",
+          }),
+        );
+        await it.next();
       };
-      await expect(iterate()).rejects.toMatchObject({ code: "NOT_FOUND" });
+      await expect(iterate()).rejects.toMatchObject({ _tag: "PtyNotFound" });
     });
 
     it("inventory yields a snapshot first, then created/exited deltas (snapshot-then-deltas)", async () => {
@@ -70,21 +80,18 @@ describeDaemon(
       // subscribing so it appears in the snapshot; spawn a second AFTER so it
       // arrives as a `created`; kill it for the `exited`.
       const client = makeClient();
-      const { id: first } = await client.surface.terminal.spawn(
-        spawnInput(makeCwd()),
+      const { id: first } = await Effect.runPromise(
+        client.surface.terminal.spawn(spawnInput(makeCwd())),
       );
-      const ac = new AbortController();
-      const it = (
-        await client.surface.inventory.get({}, { signal: ac.signal })
-      )[Symbol.asyncIterator]();
+      const it = openStream(client.surface.inventory.get({}));
 
       const snapshot = await nextFrame(it);
       expect(snapshot.kind).toBe("snapshot");
       if (snapshot.kind !== "snapshot") throw new Error("unreachable");
       expect(snapshot.entries.map((e) => e.id)).toContain(first);
 
-      const { id: second } = await client.surface.terminal.spawn(
-        spawnInput(makeCwd()),
+      const { id: second } = await Effect.runPromise(
+        client.surface.terminal.spawn(spawnInput(makeCwd())),
       );
       // The snapshot already contained `first`, so the next NEW-id frame is the
       // `created` for `second` (a duplicate of `first` can't occur — it was live
@@ -92,36 +99,37 @@ describeDaemon(
       const created = await nextFrame(it);
       expect(created).toMatchObject({ kind: "created", entry: { id: second } });
 
-      await client.surface.terminal.kill({ id: second });
+      await Effect.runPromise(client.surface.terminal.kill({ id: second }));
       const exited = await nextFrame(it);
       expect(exited).toEqual({ kind: "exited", id: second });
 
-      ac.abort();
-      await client.surface.terminal.kill({ id: first });
+      closeStream(it);
+      await Effect.runPromise(client.surface.terminal.kill({ id: first }));
     });
 
-    it("an aborted exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
+    it("a closed exit subscription stops without delivering the exit (the kill-silence mechanism)", async () => {
       // The mechanism `local.ts` relies on to keep an intentional kill silent:
-      // `teardownSensors` aborts the exit-tap signal BEFORE the kill, so the
-      // tap ends via abort rather than yielding an exit code that would become a
-      // `terminalExit`. Verify the contract honors that abort.
+      // `teardownSensors` ends the exit tap BEFORE the kill, so the tap stops
+      // rather than yielding an exit code that would become a `terminalExit`.
+      // Under Effect that teardown is fiber INTERRUPTION rather than an
+      // `AbortSignal` (D10/#18) — `iterator.return()` is how a non-Effect
+      // consumer spells it — and the contract must honour it just the same.
       const client = makeClient();
-      const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
-      const ac = new AbortController();
-      const it = (await client.surface.exit.get({ id }, { signal: ac.signal }))[
-        Symbol.asyncIterator
-      ]();
+      const { id } = await Effect.runPromise(
+        client.surface.terminal.spawn(spawnInput(makeCwd())),
+      );
+      const it = openStream(client.surface.exit.get({ id }));
       const next = it.next();
-      ac.abort();
+      closeStream(it);
       let deliveredExit = false;
       try {
         const r = await next;
-        if (!r.done) deliveredExit = true; // yielded despite the abort
+        if (!r.done) deliveredExit = true; // yielded despite the teardown
       } catch {
-        // abort surfaced as a throw — also "stopped without delivering"
+        // teardown surfaced as a throw — also "stopped without delivering"
       }
       expect(deliveredExit).toBe(false);
-      await client.surface.terminal.kill({ id });
+      await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
 
     it("commandRun replays the last command to a late subscriber (snapshot-first)", async () => {
@@ -132,39 +140,41 @@ describeDaemon(
       // `commandRun` source now replays the last command snapshot-first, exactly
       // as `foreground` already replays the current process.
       const client = makeClient();
-      const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
+      const { id } = await Effect.runPromise(
+        client.surface.terminal.spawn(spawnInput(makeCwd())),
+      );
 
       // Drive a command-run and confirm an EARLY subscriber sees it live, so the
       // host's retention is in place before the late subscriber joins.
-      const ac1 = new AbortController();
-      const early = (
-        await client.surface.commandRun.get({ id }, { signal: ac1.signal })
-      )[Symbol.asyncIterator]();
-      await client.surface.terminal.write({
-        id,
-        data: "printf '\\033]633;E;codex\\033\\\\'\n",
-      });
-      const liveFrame = await nextFrame(early);
+      // `subscribeFrames`, not a bare open: the subscription must be ESTABLISHED
+      // before the mark is driven, or the host's retention would replay it to a
+      // late subscriber and the `replayed: false` assertion below would be
+      // asserting the opposite of what it names.
+      const early = subscribeFrames(client.surface.commandRun.get({ id }));
+      await Effect.runPromise(
+        client.surface.terminal.write({
+          id,
+          data: "printf '\\033]633;E;codex\\033\\\\'\n",
+        }),
+      );
+      const liveFrame = await early.next();
       expect(liveFrame.command).toContain("codex");
       // A live mark is flagged `replayed: false`.
       expect(liveFrame.replayed).toBe(false);
-      ac1.abort();
+      early.close();
 
       // The repro: a NEW subscriber, joining after the mark, must still receive
       // the command — snapshot-first, on its very first frame. Before the fix it
       // got nothing and this hangs to the nextFrame timeout. The frame is flagged
       // `replayed: true` so the consumer seeds detection WITHOUT re-firing the
       // live-only recent-agent recency bump.
-      const ac2 = new AbortController();
-      const late = (
-        await client.surface.commandRun.get({ id }, { signal: ac2.signal })
-      )[Symbol.asyncIterator]();
+      const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
       expect(replayFrame.command).toContain("codex");
       expect(replayFrame.replayed).toBe(true);
 
-      ac2.abort();
-      await client.surface.terminal.kill({ id });
+      closeStream(late);
+      await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
 
     it("a command-rooted spawn's commandRun snapshot carries the shellJoin dialect (#1872)", async () => {
@@ -175,22 +185,20 @@ describeDaemon(
       // shellSplit, never string-argv. A shell terminal's 633 marks carry
       // `shellJoin: false` (the raw-line dialect) — covered by the replay test above.
       const client = makeClient();
-      const { id } = await client.surface.terminal.spawn({
-        ...spawnInput(makeCwd()),
-        argv: ["/bin/sh", "-c", "sleep 5"],
-        commandRooted: true,
-      });
-      const ac = new AbortController();
-      const frame = await nextFrame(
-        (await client.surface.commandRun.get({ id }, { signal: ac.signal }))[
-          Symbol.asyncIterator
-        ](),
+      const { id } = await Effect.runPromise(
+        client.surface.terminal.spawn({
+          ...spawnInput(makeCwd()),
+          argv: ["/bin/sh", "-c", "sleep 5"],
+          commandRooted: true,
+        }),
       );
+      const seed = openStream(client.surface.commandRun.get({ id }));
+      const frame = await nextFrame(seed);
       expect(frame.replayed).toBe(true);
       expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
       expect(frame.shellJoin).toBe(true);
-      ac.abort();
-      await client.surface.terminal.kill({ id });
+      closeStream(seed);
+      await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
 
     it("terminalAttach yields a typed `overflow` frame when a slow subscriber is dropped", {
@@ -204,33 +212,36 @@ describeDaemon(
       // distinguishable from a graceful end. A 1-deep data queue makes the drop
       // deterministic.
       const client = makeClient({ dataMaxQueue: 1 });
-      const { id } = await client.surface.terminal.spawn(spawnInput(makeCwd()));
+      const { id } = await Effect.runPromise(
+        client.surface.terminal.spawn(spawnInput(makeCwd())),
+      );
 
       // Read the snapshot first — that pull starts the (lazy) source generator,
       // so it subscribes to the data channel before we flood it. Then STOP
       // reading: live PTY output piles into this subscriber's 1-deep queue and
       // trips the slow-subscriber drop while we look away.
-      const ac = new AbortController();
-      const iter = (
-        await client.surface.terminalAttach.get({ id }, { signal: ac.signal })
-      )[Symbol.asyncIterator]();
+      const iter = openStream(client.surface.terminalAttach.get({ id }));
       const snap = await iter.next();
       expect(snap.done).toBe(false);
       if (!snap.done) expect(snap.value.kind).toBe("snapshot");
 
       // Produce well more than one chunk of output without reading any of it.
       for (let i = 0; i < 8; i++) {
-        await client.surface.terminal.write({
-          id,
-          data: `printf 'OVF-%s\\n' ${i}\n`,
-        });
+        await Effect.runPromise(
+          client.surface.terminal.write({
+            id,
+            data: `printf 'OVF-%s\\n' ${i}\n`,
+          }),
+        );
       }
       // Poll the rendered mirror (a separate RPC — it does NOT drain the attach
       // stream) until the last line lands, proving the host produced the output
       // and so the drop has latched before we start reading.
       let text = "";
       for (let i = 0; i < 120; i++) {
-        ({ text } = await client.surface.terminal.getScreenText({ id }));
+        ({ text } = await Effect.runPromise(
+          client.surface.terminal.getScreenText({ id }),
+        ));
         if (text.includes("OVF-7")) break;
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -242,8 +253,8 @@ describeDaemon(
       const kinds = await drainForOverflow(iter, 20);
       expect(kinds).toContain("overflow");
 
-      ac.abort();
-      await client.surface.terminal.kill({ id });
+      closeStream(iter);
+      await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
   },
 );

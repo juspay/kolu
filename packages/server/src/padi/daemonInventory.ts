@@ -29,6 +29,7 @@
  */
 
 import { enumerateHostDaemons } from "@kolu/padi/assembly";
+import { Effect } from "effect";
 import type { KavalProbe, PadiDaemon } from "@kolu/padi/assembly";
 import type { KavalDaemon } from "kaval";
 import type {
@@ -48,7 +49,7 @@ export interface DaemonInventoryDeps {
   /** Read-only discovery of every running padi daemon (`discoverPadiDaemons`). */
   discoverPadis: () => PadiDaemon[];
   /** Best-effort read-only status probe of a kaval socket. */
-  probe: (socket: string) => Promise<KavalProbe>;
+  probe: (socket: string) => Effect.Effect<KavalProbe, unknown>;
   /** The ssh host the bound padi lives on (`KOLU_PADI_HOST`), or `null` for a LOCAL
    *  binding — the SINGLE source for both "is this a remote bind?" and the dialog label.
    *  When non-null the bound padi lives on ANOTHER host, so kolu-server scans its OWN
@@ -75,55 +76,57 @@ export interface DaemonInventoryDeps {
  *  probe, but this is NOT total — a discovery fs-walk or a session readout can throw; a
  *  later-read throw is caught by the reactor's poll loop (log-skip-continue, holds the
  *  last value), and the T+0 seed throw propagates to the runtime's `done`. */
-export async function enumerateDaemonInventoryOnce(
+export function enumerateDaemonInventoryOnce(
   deps: DaemonInventoryDeps,
-): Promise<DaemonInventory> {
-  // The binding + (remote-only) own-machine scan, as ONE discriminated value so the
-  // coupling is a type, not a convention: a LOCAL binding carries no scan (the bound
-  // padi's `hostInventory` member already describes this machine — a second copy would
-  // duplicate it), and a REMOTE binding ALWAYS carries both its host and the scan. The
-  // scan runs ONLY in the remote branch, marking NONE active (a remote binding owns no
-  // local daemon, so a stray local kaval/padi is listed — leak visible — but never
-  // labelled "in use by kolu"). `boundHost === null` is the sole local/remote signal.
-  const binding: DaemonBinding =
-    deps.boundHost === null
-      ? { kind: "local" }
-      : {
-          kind: "remote",
-          host: deps.boundHost,
-          localScan: await enumerateHostDaemons({
-            discoverKavals: deps.discoverKavals,
-            discoverPadis: deps.discoverPadis,
-            probe: deps.probe,
-            activeKavalSocket: null,
-            activeKavalAtLegacy: false,
-            activePadiSocket: null,
-          }),
-        };
-  // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
-  // readouts (works over ssh: no local padi is `active` under a remote binding).
-  const padiSurfaceVersion = deps.activePadiSurfaceVersion();
-  const padiBuildCommit = deps.activePadiBuildCommit();
-  const padiConvergence = deps.activePadiConvergence();
-  return {
-    binding,
-    // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
-    // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
-    // anomaly (adopted-stale / skew / drain-fail / link-fail) so a degraded bind is a
-    // visible dialog state, not a swallowed log. `null` only when there is NOTHING to say —
-    // no identity AND no convergence reason (converged-unbound / pre-enumeration); a
-    // refused/failed bind has a reason but no adopted identity, so it stays non-null.
-    boundPadi:
-      padiSurfaceVersion === null &&
-      padiBuildCommit === null &&
-      padiConvergence === null
-        ? null
+): Effect.Effect<DaemonInventory, unknown> {
+  return Effect.gen(function* () {
+    // The binding + (remote-only) own-machine scan, as ONE discriminated value so the
+    // coupling is a type, not a convention: a LOCAL binding carries no scan (the bound
+    // padi's `hostInventory` member already describes this machine — a second copy would
+    // duplicate it), and a REMOTE binding ALWAYS carries both its host and the scan. The
+    // scan runs ONLY in the remote branch, marking NONE active (a remote binding owns no
+    // local daemon, so a stray local kaval/padi is listed — leak visible — but never
+    // labelled "in use by kolu"). `boundHost === null` is the sole local/remote signal.
+    const binding: DaemonBinding =
+      deps.boundHost === null
+        ? { kind: "local" }
         : {
-            surfaceVersion: padiSurfaceVersion,
-            buildCommit: padiBuildCommit,
-            convergence: padiConvergence,
-          },
-  };
+            kind: "remote",
+            host: deps.boundHost,
+            localScan: yield* enumerateHostDaemons({
+              discoverKavals: deps.discoverKavals,
+              discoverPadis: deps.discoverPadis,
+              probe: deps.probe,
+              activeKavalSocket: null,
+              activeKavalAtLegacy: false,
+              activePadiSocket: null,
+            }),
+          };
+    // The BOUND padi's honest identity (both arms) — read ONCE off the session's hello
+    // readouts (works over ssh: no local padi is `active` under a remote binding).
+    const padiSurfaceVersion = deps.activePadiSurfaceVersion();
+    const padiBuildCommit = deps.activePadiBuildCommit();
+    const padiConvergence = deps.activePadiConvergence();
+    return {
+      binding,
+      // The Padi dialog's version + build-commit rows read THIS, so they work over ssh even
+      // though no LOCAL padi is `active` under a remote binding. Plus a STANDING convergence
+      // anomaly (adopted-stale / skew / drain-fail / link-fail) so a degraded bind is a
+      // visible dialog state, not a swallowed log. `null` only when there is NOTHING to say —
+      // no identity AND no convergence reason (converged-unbound / pre-enumeration); a
+      // refused/failed bind has a reason but no adopted identity, so it stays non-null.
+      boundPadi:
+        padiSurfaceVersion === null &&
+        padiBuildCommit === null &&
+        padiConvergence === null
+          ? null
+          : {
+              surfaceVersion: padiSurfaceVersion,
+              buildCommit: padiBuildCommit,
+              convergence: padiConvergence,
+            },
+    };
+  });
 }
 
 /** Cadence of the inventory readout. Coarser than the 5s memory tick — the binding

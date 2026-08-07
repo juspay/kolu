@@ -53,8 +53,9 @@ it retries, `failed` only on a standing fault — never as a fleet-wide crash.
 `serveSurfaceMap` takes a `MapRegistry` — the one writer of membership. Build it
 over your bindings: `members()`/`has()` answer from the binding set, `subscribe`
 fires on any host's state change, and `resolve(host)` hands the map that host's
-`link` + projected state (or a `fault` for an unknown key). There is no second
-writer of membership.
+`dispatch` + projected state (or a `fault` for an unknown key). The map forwards
+member calls over that dispatch **by tag** and never learns what minted it — a
+wire link, a `directDispatch`, a mirror. There is no second writer of membership.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="registry" />
 
@@ -62,10 +63,11 @@ writer of membership.
 
 `serveSurfaceMap(map, registry)` publishes `entries` and derives each entry's
 `EntryStatus` by projecting its session's connection state — you never write
-status yourself. It returns a **finalized top-level router** — hand it straight to
-a transport (a `directLink` in-process, or an HTTP+WebSocket serve path); like
-`implementSurface`'s own router, it is already final, so never re-wrap it with
-`implement(...).router({...})`.
+status yourself. It returns the same **`{ group, handlers }` pair**
+`implementSurface` returns — hand it straight to a transport (a `directDispatch`
+in-process, or a WebSocket serve path), or merge it into a host's own served
+surface. A tag carries its own route, so there is nothing to finalize and nothing
+to re-prefix at the mount site.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="serve" />
 

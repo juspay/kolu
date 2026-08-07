@@ -32,6 +32,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { After, When } from "@cucumber/cucumber";
 import { connectPtyHost, type Connection } from "kaval-tui/src/connect.ts";
+import { Effect, Exit, Scope } from "effect";
 import { buildCreateInput } from "kaval-tui/src/create.ts";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import { writeOpenCodeFixture } from "../support/agent-mock-opencode.ts";
@@ -56,8 +57,12 @@ const AGENT_LOOP = (title?: string) =>
   "while true; do printf '.'; read -rt 1 _ || true; done";
 
 // A single command-rooted PTY per scenario; the dial is kept only to kill the
-// PTY in the After hook (the daemon owns it and outlives the dial).
+// PTY in the After hook (the daemon owns it and outlives the dial). The dial is
+// a SCOPED effect, so the scenario holds the scope and closes it in cleanup —
+// Cucumber's world is the non-Effect scaffold here, so the scope is explicit
+// rather than a `Effect.scoped` block.
 let conn: Connection | null = null;
+let connScope: Scope.Closeable | null = null;
 let spawnedId: string | null = null;
 const artifacts: Array<() => void> = [];
 
@@ -65,7 +70,10 @@ async function spawnCommandRooted(
   command: string[],
   cwd: string,
 ): Promise<{ id: string; pid: number }> {
-  conn = await connectPtyHost(kavalSocketPath());
+  connScope = Scope.makeUnsafe();
+  conn = await Effect.runPromise(
+    Scope.provide(connectPtyHost(kavalSocketPath()), connScope),
+  );
   const input = buildCreateInput({
     id: randomUUID(),
     cwd,
@@ -73,7 +81,9 @@ async function spawnCommandRooted(
     command,
     kavalSocket: kavalSocketPath(),
   });
-  const result = await conn.client.surface.terminal.spawn(input);
+  const result = await Effect.runPromise(
+    conn.client.surface.terminal.spawn(input),
+  );
   spawnedId = result.id;
   return result;
 }
@@ -81,12 +91,17 @@ async function spawnCommandRooted(
 async function cleanup() {
   if (conn && spawnedId) {
     try {
-      await conn.client.surface.terminal.kill({ id: spawnedId });
+      await Effect.runPromise(
+        conn.client.surface.terminal.kill({ id: spawnedId }),
+      );
     } catch {
       // The PTY may already be gone — nothing to reap.
     }
   }
-  conn?.dispose();
+  if (connScope !== null) {
+    await Effect.runPromise(Scope.close(connScope, Exit.void));
+    connScope = null;
+  }
   conn = null;
   spawnedId = null;
   for (const undo of artifacts.splice(0)) undo();

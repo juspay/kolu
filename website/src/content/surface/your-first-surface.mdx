@@ -55,8 +55,9 @@ values), one **collection** (the processes, keyed by pid), and one **procedure**
 
 <Snippet src="packages/surface/example/fleet-top/part-1/src/common/surface.ts" />
 
-That one declaration is the contract. From it the framework derives the server
-router and the client hooks — you never hand-write either. (For *why* there are
+That one declaration is the contract. From it the framework derives the wire
+shape — a flat set of string-tagged members like `surface/load/get` — the server
+handlers, and the client hooks; you never hand-write any of them. (For *why* there are
 four member kinds and not one, see [Why surfaces](/surface/why-surfaces); you do
 not need it to finish here.)
 
@@ -71,9 +72,11 @@ if you are curious; you do not have to change a line.
 
 ## See it work — in one process
 
-Before any network, the surface is consumable *in the same process*. `directLink`
-takes the served router and hands you the exact client a WebSocket consumer would
-get — every call runs the handler directly.
+Before any network, the surface is consumable *in the same process*.
+`directDispatch` takes the served surface itself and calls its handlers directly;
+`buildSurfaceFace` re-nests the flat wire tags into `face.surface.load.get`, so
+what you hold is the exact face a WebSocket consumer holds — with zero
+serialization in either direction.
 
 <Snippet src="packages/surface/example/fleet-top/part-1/src/inproc.ts" />
 
@@ -90,24 +93,26 @@ load 0.42 0.38 0.31 over 8 cores · mem 9.2/16.0 GB · 431 processes
 ```
 
 That is a working surface — defined, served, and consumed — with the transport
-collapsed to nothing. Notice `firstFrame`: a cell read is a *stream* whose first
-frame is the current snapshot, so we take that first frame. That is not an
-in-process quirk; every link yields the same snapshot-then-deltas shape, which is
-what keeps a reconnect honest (see [Reactive honesty](/surface/reactive-honesty)).
+collapsed to nothing. Notice the `snapshot` helper: a cell read is a *stream*
+whose first frame is the current snapshot, so running the stream's head *is* the
+one-shot read — and it interrupts the subscription the moment that frame lands.
+That is not an in-process quirk; every link yields the same snapshot-then-deltas
+shape, which is what keeps a reconnect honest (see
+[Reactive honesty](/surface/reactive-honesty)).
 
 ## Put it on a WebSocket
 
 Now the same surface over the wire. `src/server/main.ts` serves the *same*
-`createTop()` engine — the same router — over a WebSocket for streaming
-subscriptions and HTTP for one-shot calls. On the client, the only thing that
-changes from the in-process version is the link: `createLiveSignal` builds the
-WebSocket link and wires the half-open heartbeat, then `surfaceClient` binds the
-hooks.
+`createTop()` engine — the same `{ group, handlers }` pair — over a WebSocket. On
+the client, the only thing that changes from the in-process version is the link:
+`websocketLink` dials (async — building a protocol and its fibers is an effect),
+`createLiveSignal` takes the whole `{ dispatch, wire }` it minted and adds the
+half-open watchdog, then `surfaceClient` binds the hooks.
 
 <Snippet src="packages/surface/example/fleet-top/part-1/src/client/wire.ts" />
 
 The result — `app.cells.load`, `app.collections.processes`,
-`app.procedures.process.kill` — is the exact shape `directLink` gave us
+`app.procedures.process.kill` — is the exact shape `directDispatch` gave us
 in-process. Only the transport changed.
 
 ## Render it live

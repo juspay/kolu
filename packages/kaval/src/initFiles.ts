@@ -32,7 +32,9 @@ function resolveWithin(rcDir: string, name: string): string {
  *  failed materialisation never leaves stragglers under `rcDir`. */
 export function writeInitFiles(
   rcDir: string,
-  files: PtyHostInitFile[],
+  // `readonly`, because that is what an Effect-Schema-decoded `Schema.Array`
+  // hands the spawn handler — and this function only reads it.
+  files: readonly PtyHostInitFile[],
 ): string[] {
   // Resolve every name up front so a containment violation aborts the spawn
   // before any file is written (no partial materialisation).

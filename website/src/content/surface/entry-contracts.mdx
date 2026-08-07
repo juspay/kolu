@@ -66,7 +66,7 @@ forever. The sum is the fix that makes both unrepresentable.
   required `failure` schema — not a baked-in list. The generic package cannot know a
   domain's failure taxonomy, so it carries the discriminant, plus exactly one thing of
   its own; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map, where
-  `PadiEntryFailure` is a validated `z.discriminatedUnion` over a structural `cause`
+  `PadiEntryFailure` is a validated `Schema.Union` of `Schema.Struct`s over a structural `cause`
   (each arm carrying its human `reason`, the `contract-skew-refused` arm additionally a
   typed `running`/`expected` version pair). The `failed` arm carries a schema-valid
   domain value, not a loose object. Domain vocabulary stays in the domain — the
@@ -93,12 +93,14 @@ with it. Misroute-by-collision isn't unlikely; it is unconstructible.
 The subtle clause is void. A member that takes no input carries **no** `input`
 field at all — `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting
 version relies on two accidents: that JSON drops an `undefined` value, and that
-the validator accepts the resulting missing key. Both are quicksand — a validator
-tightened `z.object({ input: z.void() })` to *reject* a missing key, and every
-void-input call would have broken the moment a lockfile drifted onto it. Omitting
-the field makes "void = no input key" the one representation on both encode and
-validate, independent of any validator's mood. It is a small thing that exists so
-a dependency bump can't silently break the wire.
+the decoder accepts the resulting missing key. Both are quicksand — a schema
+library that tightens "a declared-void field" to *reject* a missing key would
+break every void-input call the moment a lockfile drifted onto it, and one did.
+Omitting the field makes "void = no input key" the one representation on both
+encode and decode, independent of any library's mood. It is a small thing that
+exists so a dependency bump can't silently break the wire — and it survived the
+move from zod to Effect Schema without a byte changing, which is the test it was
+written for.
 
 ## Why keys are codecs, not strings
 

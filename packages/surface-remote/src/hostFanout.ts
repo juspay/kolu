@@ -17,7 +17,7 @@
  *     handler}>` a `?host=` upgrade dispatcher reads. Owns only the map + its
  *     lifecycle (add / remove / retire + per-host socket eviction, plus the optional
  *     fleet verbs a `controls` supplies); the app supplies `buildEntry` (how a host
- *     becomes a session + an oRPC handler) and an optional `persist` hook.
+ *     becomes a session + a served handler) and an optional `persist` hook.
  *
  * Both are lifted verbatim-in-shape from drishti's `bridgeAgentToParent` +
  * `hostRegistry.ts` — the two consumers (drishti's process monitor, kolu-server's
@@ -27,13 +27,20 @@
  */
 
 import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import { isDeadTransportError } from "@kolu/surface/errors";
 import {
+  type MirrorFault,
   mirrorRemoteSurface,
   type ProcedureForwarders,
   type SurfaceSink,
 } from "@kolu/surface/mirror";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { DestroyableSession, Session } from "./session";
+import { Effect } from "effect";
+import {
+  type DestroyableSession,
+  type Session,
+  surfaceLiveProbe,
+} from "./session";
 import type { SshProv } from "./sshConnector";
 import { makeClientCursor } from "./waitForNextClient";
 
@@ -62,21 +69,27 @@ export interface LiveSpawnHolder<T> {
   onChange?: () => void;
 }
 
-/** A {@link LiveSpawnHolder} that NOTIFIES — `whenChanged()` resolves on the
- *  next `.current` mutation the pump makes, so a forwarder can `await` the next
- *  live client (or its clear) rather than poll. The pump mutates `.current` and
- *  calls `onChange`; the holder fans that out to everyone waiting. Use this (not
- *  a bare `{ current: null }`) when a re-served stream must rebind across remote
- *  respawns instead of completing when one spawn's link dies. */
+/** A {@link LiveSpawnHolder} that NOTIFIES — `changed` completes on the next
+ *  `.current` mutation the pump makes, so a forwarder can await the next live
+ *  client (or its clear) rather than poll. The pump mutates `.current` and calls
+ *  `onChange`; the holder fans that out to everyone waiting. Use this (not a bare
+ *  `{ current: null }`) when a re-served stream must rebind across remote respawns
+ *  instead of completing when one spawn's link dies. */
 export interface ObservableHolder<T> extends LiveSpawnHolder<T> {
-  /** Resolve on the next `.current` change. One-shot: re-await for the one after. */
-  whenChanged(signal?: AbortSignal): Promise<void>;
+  /** An EFFECT that completes on the next `.current` change. One-shot — re-run it
+   *  for the one after.
+   *
+   *  Effect-shaped rather than the old `whenChanged(signal): Promise<void>`
+   *  (PLAN D10): its one consumer is `relayStream`'s rebind wait, which is now a
+   *  `Stream`, and cancellation there is fiber INTERRUPTION, not an `AbortSignal`.
+   *  Interrupting the awaiting fiber runs the effect's own finalizer, which
+   *  detaches the waiter — so a torn-down subscription still leaks no listener,
+   *  with no signal to thread and none to forget. */
+  readonly changed: Effect.Effect<void>;
 }
 
 /** Build an {@link ObservableHolder}. The `onChange` the pump fires wakes every
- *  pending `whenChanged()` waiter exactly once; an aborted waiter rejects with
- *  the signal's reason and detaches, so a torn-down subscription never leaks a
- *  listener. */
+ *  pending `changed` waiter exactly once. */
 export function observableHolder<T>(): ObservableHolder<T> {
   const waiters = new Set<() => void>();
   return {
@@ -84,25 +97,18 @@ export function observableHolder<T>(): ObservableHolder<T> {
     onChange() {
       for (const wake of [...waiters]) wake();
     },
-    whenChanged(signal) {
-      return new Promise<void>((resolve, reject) => {
-        if (signal?.aborted) {
-          reject(signal.reason);
-          return;
-        }
-        const wake = (): void => {
-          waiters.delete(wake);
-          signal?.removeEventListener("abort", onAbort);
-          resolve();
-        };
-        const onAbort = (): void => {
-          waiters.delete(wake);
-          reject(signal?.reason);
-        };
-        waiters.add(wake);
-        signal?.addEventListener("abort", onAbort, { once: true });
+    changed: Effect.callback<void>((resume) => {
+      const wake = (): void => {
+        waiters.delete(wake);
+        resume(Effect.void);
+      };
+      waiters.add(wake);
+      // Interruption finalizer — detaching here is what makes an interrupted
+      // waiter leave nothing behind (the old `signal.removeEventListener` pair).
+      return Effect.sync(() => {
+        waiters.delete(wake);
       });
-    },
+    }),
   };
 }
 
@@ -153,8 +159,59 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
    *  A re-serve's `close()` drives this; omit for a pump whose only stop is the
    *  session's own destruction. */
   signal?: AbortSignal;
-  /** Diagnostic sink. Default no-op. */
+  /** Diagnostic CHATTER sink (reconnects, link ends). Default no-op — filter it
+   *  freely. Faults do not come through here: see {@link PumpRemoteSurfaceOptions.onFault}. */
   log?: (line: string) => void;
+  /** FAULT sink, forwarded verbatim to the mirror. Wire it at ERROR level: a
+   *  key-scoped fault is the ONLY notice that a key stopped being mirrored (it
+   *  never reaches `done`), and a member-scoped one narrates the death this pump
+   *  is about to report. See `MirrorFault` and the fiber audit in
+   *  `@kolu/surface/mirror`. */
+  onFault?: (fault: MirrorFault) => void;
+}
+
+/** The verdict on a link whose mirror just ended, raced against the wait for the
+ *  next spawn — see {@link probeEndedLink}. `answers` is the ONE outcome that
+ *  stops the pump; `silent` falls back to the ordinary next-spawn wait. */
+type EndedLinkVerdict = "answers" | "silent";
+
+/** Ask the far end whether the link whose mirror JUST ended is still there, over
+ *  the framework-reserved `system.live` round-trip — the SAME probe the session's
+ *  own liveness watchdog runs (`surfaceLiveProbe`), read by the SAME three-way
+ *  rule it applies:
+ *
+ *   - RESOLVES, or rejects with anything that is not a dead transport → the far
+ *     end ANSWERED. The link is live and its mirror is over, so no further frame
+ *     can arrive on it and no fresh spawn is coming: `"answers"`.
+ *   - rejects with a DEAD-TRANSPORT error → the ordinary link death; the session
+ *     is already redialing, so the pump must keep waiting: `"silent"`.
+ *   - a probe that THROWS SYNCHRONOUSLY made no round-trip at all (a miswired
+ *     client) — no liveness signal either way, so `"silent"`.
+ *   - a probe that NEVER settles is a silently half-open link, which is the
+ *     session liveness watchdog's job (it force-cycles within one probe cycle),
+ *     not this loop's — the promise simply never settles, so the next-spawn wait
+ *     it races against wins when that recovery lands.
+ *
+ *  Asking the far end is what makes the verdict race-free: the session's own
+ *  `phase` is NOT a usable substitute, because the RPC layer can fail every call
+ *  on a dead link BEFORE the transport's `closed` reaches `handleClosed` (the race
+ *  `dialAgentOnce` already names), leaving the session reading `connected` over a
+ *  corpse for that window. */
+async function probeEndedLink(
+  client: SurfaceClientLike,
+): Promise<EndedLinkVerdict> {
+  let probe: Promise<void>;
+  try {
+    probe = surfaceLiveProbe(client)();
+  } catch {
+    return "silent";
+  }
+  try {
+    await probe;
+    return "answers";
+  } catch (err) {
+    return isDeadTransportError(err) ? "silent" : "answers";
+  }
 }
 
 /**
@@ -168,6 +225,15 @@ export interface PumpRemoteSurfaceOptions<S extends SurfaceSpec> {
  * so the loop blocks on `.done`. The `makeClientCursor` comparison on the
  * *promise* (not the awaited client) is what keeps the loop from busy-spinning
  * while a link is down — see there.
+ *
+ * A mirror USUALLY ends because the link died, and then the session's own
+ * reconnect machinery produces the next spawn the loop rides. But a mirror can
+ * also end with the link fully ALIVE — every subscription settled (a far end that
+ * closed its streams; a source with nothing to hold open) — and then no spawn is
+ * ever coming: the wait for the next client would park FOREVER with the live
+ * holders cleared, a pump silently serving nothing. So each mirror end races the
+ * next-spawn wait against {@link probeEndedLink}: an answering corpse-of-a-mirror
+ * ends the pump loudly instead.
  */
 export async function pumpRemoteSurface<S extends SurfaceSpec>(
   opts: PumpRemoteSurfaceOptions<S>,
@@ -187,10 +253,41 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
   // connection subscription that used to need an outer try/finally teardown here.)
   const cursor = makeClientCursor(session);
   let seq = 0;
+  /** The client whose mirror ended on the PREVIOUS iteration, or `null` before the
+   *  first mirror. Only a mirror END can leave the loop waiting on a spawn that
+   *  will never come, so the liveness verdict is raced ONLY from the second wait
+   *  onward — the FIRST wait legitimately parks for as long as the opening dial
+   *  takes (an ssh provisioning campaign runs for minutes). */
+  let endedClient: SurfaceClientLike | null = null;
   while (!session.isDestroyed() && !opts.signal?.aborted) {
+    /** Did THIS lap's mirror fail (rather than end cleanly)? Set in the mirror's
+     *  catch below, read at the bottom of the lap to skip the ended-on-a-live-link
+     *  probe race, which only makes sense for a CLEAN end. */
+    let failed = false;
     let client: SurfaceClientLike;
     try {
-      client = await cursor.next(opts.signal);
+      const next = cursor.next(opts.signal);
+      if (endedClient === null) client = await next;
+      else {
+        const outcome = await Promise.race([
+          next.then((c) => ({ spawn: c })),
+          probeEndedLink(endedClient).then((v) => ({ verdict: v })),
+        ]);
+        if ("spawn" in outcome) client = outcome.spawn;
+        else if (outcome.verdict === "silent") client = await next;
+        else {
+          // The far end answered a link whose mirror is over: nothing more can
+          // arrive on it, and the session has no reason to redial. Abandon the
+          // next-spawn wait (swallowing its later rejection — nobody is left to
+          // read it) and stop, rather than park forever serving nothing.
+          next.catch(() => {});
+          log(
+            `pump: mirror ended for client #${seq} but the link still answers — ` +
+              "no further frames can arrive; exiting reconnect loop",
+          );
+          return;
+        }
+      }
     } catch (err) {
       // A supervision `close()` aborts `opts.signal` while the pump is WAITING
       // for a fresh client (the link is down, no spawn coming) — `cursor.next`
@@ -213,7 +310,7 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       opts.source,
       client,
       opts.makeSink({ seq }),
-      { log, signal: opts.signal },
+      { onFault: opts.onFault, signal: opts.signal },
     );
     // Publish this spawn's forwarding stubs + live client; clear them the
     // instant the link dies so a forward in the gap fails honestly rather than
@@ -230,6 +327,32 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
     }
     try {
       await mirror.done;
+    } catch (err) {
+      // A REJECTING mirror is a DEAD mirror (juspay/kolu#2101 G5) — a member's
+      // upstream stream faulted, so that member is no longer being mirrored and
+      // the whole mirror has unwound. That is a LINK DEATH, which is precisely
+      // what this reconnect loop is for: the next spawn re-mirrors every member
+      // from a fresh snapshot, which is also the repair. So it is caught here and
+      // the loop continues — NOT propagated to the re-serve observer, whose
+      // policy for kolu-server's default host is to exit the process, and an ssh
+      // blip or a padi restart must not do that.
+      //
+      // What changed is that it is no longer SILENT: the fault already reached
+      // `onFault` at error level inside the mirror, and this line names the pump
+      // and the spawn. Before, a failing member resolved `done` clean and the one
+      // prose line went to a DEBUG sink production dropped.
+      //
+      // `endedClient` is deliberately NOT set: that variable arms the
+      // ended-on-a-live-link probe race, which answers the question "did this
+      // mirror end cleanly with the far end still there?". A FAILED mirror has
+      // already answered it — the link is bad — so the loop goes straight back to
+      // waiting for the next spawn.
+      failed = true;
+      log(
+        `pump: mirror FAILED for client #${seq} — the projection is dead; awaiting the next client to re-mirror: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
     } finally {
       if (opts.liveProcedures) {
         opts.liveProcedures.current = null;
@@ -244,6 +367,11 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
       // the fresh snapshot instead of painting a stale row across the reconnect.
       opts.onLinkDown?.();
     }
+    if (failed) continue; // a failed mirror already narrated itself; no probe race
+    // Remember WHICH client's mirror ended: the next wait races its liveness
+    // verdict, so an ended mirror over a still-answering link stops the pump
+    // instead of parking it (see {@link probeEndedLink}).
+    endedClient = client;
     log(`pump: mirror ended for client #${seq} — awaiting next client`);
   }
   // The loop exits on EITHER the session's own destruction OR a supervision
@@ -259,12 +387,12 @@ export async function pumpRemoteSurface<S extends SurfaceSpec>(
 
 // ── buildRemotePool — the keyed per-host fan-out ─────────────────────────
 
-/** One host's entry: its session and the oRPC handler a `?host=` dispatcher
+/** One host's entry: its session and the served handler a `?host=` dispatcher
  *  upgrades a browser socket onto. The session slot is the minimal
  *  {@link DestroyableSession} (S1) — the registry only ever `destroy()`s it; a
  *  richer type (`Session`) still fits, and the app's `S` is what `getSession`
- *  hands back. `H` stays generic (the app's `RPCHandler<…>`) so this package needs
- *  no `@orpc/server/ws` dependency. */
+ *  hands back. `H` stays generic (whatever the app's serving layer hands a socket),
+ *  so this package needs no dependency on it. */
 export interface RemoteEntry<S extends DestroyableSession, H> {
   session: S;
   handler: H;
@@ -272,8 +400,8 @@ export interface RemoteEntry<S extends DestroyableSession, H> {
 
 /** The structural subset of a server-side WebSocket the registry closes on
  *  host removal — kept structural (the `@kolu/surface-app` `GateableSocket`
- *  stance) so this package needn't depend on `ws`. partysocket auto-reconnects
- *  a browser, so a removal only "sticks" if the parent closes the socket. */
+ *  stance) so this package needn't depend on `ws`. The browser's link re-dials on
+ *  its own, so a removal only "sticks" if the parent closes the socket. */
 export interface ClosableSocket {
   close(code: number, reason?: string): void;
 }
@@ -295,7 +423,8 @@ export interface RemotePoolOptions<S extends DestroyableSession, H> {
   /** Hosts seeded synchronously at construction. */
   initialHosts: readonly string[];
   /** Build one host's `{ session, handler }`. Owns session provisioning
-   *  (`makeSession`), the re-serve router, and the oRPC handler — all the
+   *  (`makeSession`), the re-serve's `{ group, handlers }`, and the serving handler
+   *  — all the
    *  surface-specific knowledge the registry deliberately doesn't hold. Sync
    *  (matching `makeSession`, which defers the dial into the session's own
    *  reconnect machinery): a host unreachable at boot surfaces as a per-host
@@ -344,7 +473,7 @@ export interface RemotePool<S extends DestroyableSession, H> {
   has(host: string): boolean;
   /** The known hosts, in insertion order. */
   hosts(): string[];
-  /** The host's entry — its oRPC handler (what a `?host=` upgrade dispatcher
+  /** The host's entry — its served handler (what a `?host=` upgrade dispatcher
    *  hands the browser socket) plus its session — or `undefined` for an
    *  unknown host. Returns the whole {@link RemoteEntry}, not a bare `H`:
    *  `H` is an open type parameter a caller may instantiate with a value
@@ -512,8 +641,8 @@ export function buildRemotePool<S extends DestroyableSession, H>(
   //
   // Ordering is load-bearing: membership is dropped + notified BEFORE `session.destroy()`,
   // so `has(host)` is already false when the destroy fault reaches the map's
-  // `forwardStream` — its error→typed-end guard fires and each delta/fail-through iterator
-  // ends TYPED, never a raw session-death `ORPCError` reaching the browser (and it honors
+  // `forwardStream` — its error→typed-end guard fires and each delta/fail-through stream
+  // ends TYPED, never a raw session-death failure reaching the browser (and it honors
   // the MapRegistry clause that `has()` reflects the change before `onChange` fires). The
   // destroy throw is SWALLOWED: kolu sheds a guest fire-and-forget (`void pool.retire(h)`),
   // so an unguarded throw here would float an unhandledRejection → the server's fatal
@@ -643,7 +772,7 @@ export function buildRemotePool<S extends DestroyableSession, H>(
     destroyAll() {
       // Mirror `remove()`'s ordering + guard: snapshot, then drop membership + notify
       // BEFORE destroying any session (so a live `forwardStream` sees `has(host) ===
-      // false` and ends each stream TYPED, never a raw session-death `ORPCError`), and
+      // false` and ends each stream TYPED, never a raw session-death failure), and
       // destroy each snapshotted session inside its OWN try/catch (`session.destroy()`
       // CAN throw — it kills the ssh child + clears timers) so one throwing teardown
       // can't abort the loop and strand the rest un-destroyed.

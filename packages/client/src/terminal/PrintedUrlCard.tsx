@@ -8,7 +8,9 @@
  */
 
 import { activeArm } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
 import { parseLoopbackUrl } from "@kolu/url-shape";
+import { Effect } from "effect";
 import { hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import { portReach } from "kolu-common/surface";
 import type { TerminalId } from "kolu-common/surface";
@@ -35,6 +37,7 @@ import { portAction } from "../forwards/portAction";
 import { forwardsForHost, viewerHost } from "../forwards/useForwards";
 import { hostDisplayName } from "../host/hostChipTone";
 import { isActiveHostLocal } from "../kaval/useDaemonStatus";
+import { runAction, type UiAction } from "../runAction";
 import { writeTextToClipboard } from "../ui/clipboard";
 import { surface } from "../ui/Surface";
 import { useServerIdentity } from "../useServerIdentity";
@@ -46,6 +49,20 @@ import {
   type PrintedUrlCardTarget,
 } from "./printedUrlCardState";
 import { useTerminalStore } from "./useTerminalStore";
+
+/** Put a URL on the clipboard and say so — the card's two copy affordances (the
+ *  post-open toast action and the raw `⧉ copy` button) share one program so the
+ *  success and failure wording cannot drift between them. */
+function copyUrl(url: string): UiAction {
+  return writeTextToClipboard(url).pipe(
+    Effect.tap(() => Effect.sync(() => toast.success("URL copied"))),
+    Effect.catch((err) =>
+      Effect.sync(() => {
+        toast.error(`Could not copy: ${toError(err).message}`);
+      }),
+    ),
+  );
+}
 
 const CARD_WIDTH = 320;
 const CARD_GAP = 8;
@@ -162,32 +179,33 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
   });
 
   /** Compose decide · act · effect for a joined open. */
-  const forwardAndOpen = async (): Promise<void> => {
-    const action = actionForJoined();
-    if (action === undefined || action.kind === "none") return;
-    if (busy()) return;
-    setBusy(true);
-    const j = join();
-    const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
-    const first = urlForPort({
-      action,
-      remotePort: props.target.port,
-      doorPort,
-      pageHost: window.location.hostname,
-      remainder: remainder(),
-    });
-    if (first.kind === "ready") {
-      openRawUrl(first.url);
-      setBusy(false);
-      return;
-    }
-    if (first.kind === "none") {
-      setBusy(false);
-      return;
-    }
-    // needs-door — claim the tab before the await (popup-blocker rule).
-    const tab = window.open("", "_blank");
-    try {
+  const forwardAndOpen = (): UiAction =>
+    Effect.suspend(() => {
+      const action = actionForJoined();
+      if (action === undefined || action.kind === "none") return Effect.void;
+      if (busy()) return Effect.void;
+      setBusy(true);
+      const j = join();
+      const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
+      const first = urlForPort({
+        action,
+        remotePort: props.target.port,
+        doorPort,
+        pageHost: window.location.hostname,
+        remainder: remainder(),
+      });
+      if (first.kind === "ready") {
+        openRawUrl(first.url);
+        setBusy(false);
+        return Effect.void;
+      }
+      if (first.kind === "none") {
+        setBusy(false);
+        return Effect.void;
+      }
+      // needs-door — claim the tab on the CALLING stack (popup-blocker rule);
+      // `runAction` forks synchronously into this `suspend` body.
+      const tab = window.open("", "_blank");
       if (tab !== null) {
         try {
           tab.opener = null;
@@ -195,102 +213,104 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
           // Electron can throw; ignore.
         }
       }
-      const localPort = await ensureDoor({
+      return ensureDoor({
         host: host(),
         port: props.target.port,
         origin: "auto",
-      });
-      const ready = urlForPort({
-        action: { kind: "forward" },
-        remotePort: props.target.port,
-        doorPort: localPort,
-        pageHost: window.location.hostname,
-        remainder: remainder(),
-      });
-      if (ready.kind !== "ready") {
-        tab?.close();
-        return;
-      }
-      if (tab === null) {
-        toast.info(`Forward open on port ${localPort}`, {
-          description: "Your browser blocked the new tab.",
-        });
-        return;
-      }
-      tab.location.replace(ready.url);
-    } catch (err) {
-      tab?.close();
-      toast.error(
-        `Could not forward port ${props.target.port}: ${(err as Error).message}`,
+      }).pipe(
+        Effect.tap((localPort) =>
+          Effect.sync(() => {
+            const ready = urlForPort({
+              action: { kind: "forward" },
+              remotePort: props.target.port,
+              doorPort: localPort,
+              pageHost: window.location.hostname,
+              remainder: remainder(),
+            });
+            if (ready.kind !== "ready") {
+              tab?.close();
+              return;
+            }
+            if (tab === null) {
+              toast.info(`Forward open on port ${localPort}`, {
+                description: "Your browser blocked the new tab.",
+              });
+              return;
+            }
+            tab.location.replace(ready.url);
+          }),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            tab?.close();
+            toast.error(
+              `Could not forward port ${props.target.port}: ${toError(err).message}`,
+            );
+          }),
+        ),
+        Effect.ensuring(Effect.sync(() => setBusy(false))),
       );
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   /** Copy = decision (+ act when a door is already ready). Never clipboard-write
    *  after an await — user activation is gone (see clipboard.ts). needs-door
    *  opens the door, then asks for a second click to copy. */
-  const copyDoorUrl = async (): Promise<void> => {
-    const action = actionForJoined();
-    if (action === undefined || action.kind === "none") return;
-    if (busy()) return;
-    const j = join();
-    const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
-    const decided = urlForPort({
-      action,
-      remotePort: props.target.port,
-      doorPort,
-      pageHost: window.location.hostname,
-      remainder: remainder(),
-    });
-    if (decided.kind === "ready") {
-      // Still inside the click gesture — write before any await.
-      try {
-        await writeTextToClipboard(decided.url);
-        toast.success("URL copied");
-      } catch (err) {
-        toast.error(`Could not copy: ${(err as Error).message}`);
-      }
-      return;
-    }
-    if (decided.kind !== "needs-door") return;
-    setBusy(true);
-    try {
-      const localPort = await ensureDoor({
-        host: host(),
-        port: props.target.port,
-        origin: "auto",
-      });
-      const ready = urlForPort({
-        action: { kind: "forward" },
+  const copyDoorUrl = (): UiAction =>
+    Effect.suspend(() => {
+      const action = actionForJoined();
+      if (action === undefined || action.kind === "none") return Effect.void;
+      if (busy()) return Effect.void;
+      const j = join();
+      const doorPort = j.kind === "joined" ? j.forward?.localPort : undefined;
+      const decided = urlForPort({
+        action,
         remotePort: props.target.port,
-        doorPort: localPort,
+        doorPort,
         pageHost: window.location.hostname,
         remainder: remainder(),
       });
-      if (ready.kind !== "ready") return;
-      // Second gesture required — clipboard after await is blocked.
-      toast.success(`Door open on port ${localPort}`, {
-        description: "Click copy again to put the URL on the clipboard.",
-        action: {
-          label: "Copy",
-          onClick: () => {
-            void writeTextToClipboard(ready.url).then(
-              () => toast.success("URL copied"),
-              (err: Error) => toast.error(`Could not copy: ${err.message}`),
+      // Still inside the click gesture — the clipboard write is the FIRST thing
+      // this branch does, with nothing asynchronous in front of it, so the user
+      // activation is intact when `execCommand` runs.
+      if (decided.kind === "ready") return copyUrl(decided.url);
+      if (decided.kind !== "needs-door") return Effect.void;
+      setBusy(true);
+      return ensureDoor({
+        host: host(),
+        port: props.target.port,
+        origin: "auto",
+      }).pipe(
+        Effect.tap((localPort) =>
+          Effect.sync(() => {
+            const ready = urlForPort({
+              action: { kind: "forward" },
+              remotePort: props.target.port,
+              doorPort: localPort,
+              pageHost: window.location.hostname,
+              remainder: remainder(),
+            });
+            if (ready.kind !== "ready") return;
+            // Second gesture required — a clipboard write out here is past the
+            // activation window.
+            toast.success(`Door open on port ${localPort}`, {
+              description: "Click copy again to put the URL on the clipboard.",
+              action: {
+                label: "Copy",
+                onClick: () => runAction("copy URL", copyUrl(ready.url)),
+              },
+            });
+          }),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(
+              `Could not open door for port ${props.target.port}: ${toError(err).message}`,
             );
-          },
-        },
-      });
-    } catch (err) {
-      toast.error(
-        `Could not open door for port ${props.target.port}: ${(err as Error).message}`,
+          }),
+        ),
+        Effect.ensuring(Effect.sync(() => setBusy(false))),
       );
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   // External should never open the card — but if the target drifts, dismiss.
   createEffect(() => {
@@ -424,7 +444,9 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                           class="font-semibold text-teal-700 dark:text-teal-300 hover:underline disabled:opacity-50"
                           data-testid="printed-url-forward-open"
                           disabled={busy()}
-                          onClick={() => void forwardAndOpen()}
+                          onClick={() =>
+                            runAction("open through forward", forwardAndOpen())
+                          }
                         >
                           {label}
                         </button>
@@ -437,7 +459,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                           class="text-fg-3 hover:text-fg disabled:opacity-50"
                           data-testid="printed-url-copy-door"
                           disabled={busy()}
-                          onClick={() => void copyDoorUrl()}
+                          onClick={() => runAction("copy URL", copyDoorUrl())}
                         >
                           {label}
                         </button>
@@ -478,13 +500,7 @@ export const PrintedUrlCard: Component<{ target: PrintedUrlCardTarget }> = (
                 type="button"
                 class="text-fg-3 hover:text-fg"
                 data-testid="printed-url-copy-raw"
-                onClick={() =>
-                  void writeTextToClipboard(props.target.uri).then(
-                    () => toast.success("URL copied"),
-                    (err: Error) =>
-                      toast.error(`Could not copy: ${err.message}`),
-                  )
-                }
+                onClick={() => runAction("copy URL", copyUrl(props.target.uri))}
               >
                 ⧉ copy
               </button>

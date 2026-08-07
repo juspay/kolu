@@ -13,7 +13,7 @@ import {
   defineBuildInfo,
   surfaceAppSurfaceWith,
 } from "@kolu/surface-app/surface";
-import { z } from "zod";
+import { Schema } from "effect";
 
 /** The example EXTENDS the default `{ commit }` build identity with a `bootId`
  *  axis that the server only learns *asynchronously at boot* — standing in for
@@ -24,19 +24,19 @@ import { z } from "zod";
  *  comparison, which is exactly what we want; bootId is informational (rendered
  *  in the rail), not a staleness axis. */
 export const buildInfo = defineBuildInfo({
-  schema: z.object({ commit: z.string(), bootId: z.string() }),
+  schema: Schema.Struct({ commit: Schema.String, bootId: Schema.String }),
   default: { commit: "", bootId: "" },
 });
-export type ExampleBuildInfo = z.infer<typeof buildInfo.cells.buildInfo.schema>;
+export type ExampleBuildInfo = typeof buildInfo.cells.buildInfo.schema.Type;
 
 /** App-specific live server state — pushed by the server every second (the
  *  clock) and on every connect/disconnect (the client count). See server/main.ts. */
-export const ServerStatsSchema = z.object({
-  startedAt: z.number(),
-  now: z.number(),
-  connections: z.number(),
+export const ServerStatsSchema = Schema.Struct({
+  startedAt: Schema.Number,
+  now: Schema.Number,
+  connections: Schema.Number,
 });
-export type ServerStats = z.infer<typeof ServerStatsSchema>;
+export type ServerStats = typeof ServerStatsSchema.Type;
 
 export const EMPTY_STATS: ServerStats = {
   startedAt: 0,
@@ -65,8 +65,10 @@ export const surfaces = {
   demo: demoSurface,
 } as const;
 
-/** The combined wire contract — `{ surface: { surfaceApp, demo } }`. The server
- *  serves `implementSurfaces`' router directly (it is already the FINAL top-level
- *  router — no `implement(contract).router(...)` re-wrap); the client types its
- *  `websocketLink` off `typeof contract`. */
-export const contract = composeSurfaceContracts(surfaces);
+/** The two siblings composed into ONE flat wire group. Every member is minted at
+ *  `surface/<key>/<member>/<verb>`, so the two surfaces cannot collide — not
+ *  even on the three framework-reserved `system/*` members every surface
+ *  carries. The server serves `implementSurfaces`' `{ group, handlers }`; the
+ *  client's `websocketLink` is built over `composed.group`, and `surfaceClients`
+ *  slices the one dispatch per key. */
+export const composed = composeSurfaceContracts(surfaces);

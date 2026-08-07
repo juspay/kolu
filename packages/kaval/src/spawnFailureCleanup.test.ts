@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { expect, it, vi } from "vitest";
+import { Effect } from "effect";
 
 // Mock the primitive so `createPtyHost().spawn` throws synchronously. Only the
 // members the spawn path touches need to exist; `has`/`list` back the handler's
@@ -43,17 +44,19 @@ describeDaemon(
         lifetime: { kind: "forever" },
       }).client;
       await expect(
-        client.surface.terminal.spawn({
-          argv: ["/bin/bash"],
-          cwd: rcDir,
-          env: {},
-          // One flat + one nested file (the zsh ZDOTDIR shape) so the prune of
-          // the dir the write created is exercised on the failure path too.
-          initFiles: [
-            { name: "bashrc-fail", content: "export X=1" },
-            { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },
-          ],
-        }),
+        Effect.runPromise(
+          client.surface.terminal.spawn({
+            argv: ["/bin/bash"],
+            cwd: rcDir,
+            env: {},
+            // One flat + one nested file (the zsh ZDOTDIR shape) so the prune of
+            // the dir the write created is exercised on the failure path too.
+            initFiles: [
+              { name: "bashrc-fail", content: "export X=1" },
+              { name: join("zdotdir-fail", ".zshrc"), content: "export Y=2" },
+            ],
+          }),
+        ),
       ).rejects.toThrow(/forced spawn failure/);
       expect(existsSync(join(rcDir, "bashrc-fail"))).toBe(false);
       expect(existsSync(join(rcDir, "zdotdir-fail"))).toBe(false);

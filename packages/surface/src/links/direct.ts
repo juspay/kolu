@@ -1,73 +1,108 @@
 /**
- * Direct link — the **identity element** of the link family.
+ * Direct dispatch — the **identity element** of the link family.
  *
- * The wire links (`websocketLink`, `stdioLink`) *separate* the serve side
- * from the consume side: one process serves a router, another connects over
- * a transport. The direct link *fuses* them — there is no wire, so serve and
- * consume collapse into one process. That's why it's shaped differently from
- * its siblings: instead of a transport (a socket, a stream pair), it takes
- * the **served router itself** (what `implementSurface` returns) and builds a
- * caller straight over the handlers. `client.surface.foo(input)` is then a
- * direct, microtask-deferred handler call — no serialization round-trip.
+ * The wire links (`websocketLink`, `stdioLink`, `unixSocketLink`) *separate* the
+ * serve side from the consume side: one process serves a group, another connects
+ * over a transport. The direct dispatch *fuses* them — there is no wire, so serve
+ * and consume collapse into one process. That's why it's shaped differently from
+ * its siblings: instead of a transport (a socket, a stream pair), it takes the
+ * **served handler record itself** (what `implementSurface` returns) and builds a
+ * {@link SurfaceDispatch} straight over it. `client.cells.foo.use()` is then a
+ * direct, microtask-deferred handler invocation — no serialization round-trip, in
+ * either direction.
+ *
+ * That "no serialization" is now a fact of the TYPES, not a claim: S2 defined
+ * every handler as a function of the member's DECODED payload returning an
+ * `Effect` (unary) or a `Stream` (streaming), and {@link SurfaceDispatch}'s payload
+ * side is the decoded side too. So the value the face decodes at its edge is the
+ * value the handler receives — there is no encode/decode pair to skip, because
+ * there never was one.
  *
  * This is what lets a project run the exact same consumer code against an
  * in-process implementation that it will later run against a socket/ssh-served
- * one: only the link changes. A single-process deployment, a unit test, or
- * the in-process phase of a not-yet-decoupled service can all hold a
- * `ContractRouterClient<C>` of the *same contract shape* as the remote
- * topology they grow into. (One honest difference: the direct client carries
- * no `ClientRetryPluginContext` — the wire links install it, but there's no
- * transport here to retry over. Streams still come back as async iterables,
- * exactly as the wire-link clients yield them.)
+ * one: only the dispatch changes. A single-process deployment, a unit test, or the
+ * in-process phase of a not-yet-decoupled service all hold the SAME face over the
+ * same surface. (One honest difference: the direct dispatch carries no reconnect
+ * behaviour — the face's retry fence still wraps it, but there is no transport to
+ * drop, so it never fires.)
  *
- * Need the server-side mutation `ctx` too (to drive cells/collections from
- * domain code)? Destructure it from `implementSurface` alongside the router:
- * `const { router, ctx } = implementSurface(surface, deps)`.
+ * Need the server-side mutation `ctx` too (to drive cells/collections from domain
+ * code)? Destructure it from `implementSurface` alongside the handlers:
+ * `const { handlers, ctx } = implementSurface(surface, deps)`.
  */
 
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
-import { createRouterClient } from "@orpc/server";
+import { Effect, Stream } from "effect";
+import { brandDirectDispatch, type SurfaceDispatch } from "../link";
+import type { SurfaceHandlers } from "../server";
 
-// A `directLink` is the identity element of the link family — in-process, no wire, so it
-// physically CANNOT half-open; its constant-`true` transport liveness is sound BY
-// CONSTRUCTION. Brand it (the sibling of `_wire.ts`'s `HALF_OPEN_LINKS`) so a consumer
-// that must tell a sound constant-`true` transport from an unbranded/pre-sliced wire slice
-// — e.g. `connectSurfaceMap`, which now owns slicing and REFUSES a bare wire link so it
-// can't floor a green dot over a dead transport — can recognize it structurally.
-const DIRECT_LINKS = new WeakSet<object>();
-
-/** Whether `link` is a `directLink` (in-process, half-open-exempt — a sound
- *  constant-`true` transport, unlike a bare/pre-sliced wire link). */
-export function isDirectLink(link: unknown): boolean {
-  return (
-    (typeof link === "object" || typeof link === "function") &&
-    link !== null &&
-    DIRECT_LINKS.has(link as object)
-  );
+/** What {@link directDispatch} needs off a served surface — just the handler
+ *  record. Accepts a whole `SurfaceRuntime` / `ServedSurface` structurally, so a
+ *  call site writes `directDispatch(implementSurface(surface, deps))` without
+ *  destructuring. */
+export interface DirectlyDispatchable {
+  readonly handlers: SurfaceHandlers;
 }
 
-/** Build a direct (no-wire) client over a served router — the in-process
- *  member of the link family.
+/** Resolve one bound handler, or CRASH. A tag the served surface never bound is
+ *  the in-process twin of a 404 — and unlike a wire 404 it can only mean the face
+ *  and the runtime were built from DIFFERENT surfaces, which is a wiring bug, not
+ *  a runtime condition. `implementSurface` already asserts route-set identity
+ *  against its own group at boot (D1), so reaching here means the CALLER brought a
+ *  foreign surface. Die loudly rather than resolve to `undefined` and fail with a
+ *  "not a function" three frames later. */
+function resolveHandler(handlers: SurfaceHandlers, tag: string) {
+  const handler = handlers[tag];
+  if (handler === undefined) {
+    throw new Error(
+      `directDispatch: no handler bound at "${tag}" — the served surface does ` +
+        "not carry this member. The face and the runtime were built from " +
+        "different surfaces (an in-process dispatch cannot 404 for any other " +
+        "reason: `implementSurface` asserts its handler set equals its group's).",
+    );
+  }
+  return handler;
+}
+
+/** Build the in-process dispatch over a served surface — the no-wire member of
+ *  the link family.
  *
  *  ```ts
- *  const { router } = implementSurface(surface, deps);
- *  const client = directLink<typeof surface.contract>(router);
- *  const out = await client.surface.thing.do({ ... });   // direct, no wire
+ *  const served = implementSurface(surface, deps);
+ *  const client = surfaceClient(surface, directDispatch(served));
  *  ```
  *
- *  The contract type parameter is supplied at the call site — concrete there
- *  (e.g. `typeof surface.contract`), so it never overflows TS's union budget
- *  the way materializing it over an abstract spec would (the router itself is
- *  typed loosely because `implementSurface`'s surface walk is dynamic).
+ *  **Microtask-deferred, deliberately.** Both legs yield to the scheduler before
+ *  touching a handler, so an in-process call is never *more* synchronous than the
+ *  wire call it stands in for. Without it a consumer could observe a handler's
+ *  first frame before its own `createSubscription` had finished wiring — an
+ *  ordering that no socket-served deployment can reproduce, so a test that passed
+ *  in-process would fail over the wire. The old `createRouterClient` gave this for
+ *  free; here it is spelled out.
  *
- *  `C` is **load-bearing and must be passed explicitly**: the router arg is
- *  typed loosely, so it can't be inferred — omit `C` and you silently get
- *  `ContractRouterClient<AnyContractRouter>` (every call typed `any`), not a
- *  compile error. Always write `directLink<typeof surface.contract>(router)`. */
-export function directLink<C extends AnyContractRouter>(
-  router: Parameters<typeof createRouterClient>[0],
-): ContractRouterClient<C> {
-  const client = createRouterClient(router) as ContractRouterClient<C>;
-  DIRECT_LINKS.add(client as object);
-  return client;
+ *  **`live` is constant-`true`, honestly.** There is no transport, so this
+ *  dispatch cannot half-open — the one member of the family whose constant-`true`
+ *  liveness leg is sound BY CONSTRUCTION rather than by assumption. That is what
+ *  {@link brandDirectDispatch} records, and it is why `surfaceClient` accepts this
+ *  dispatch bare while refusing a bare wire dispatch. */
+export function directDispatch(served: DirectlyDispatchable): SurfaceDispatch {
+  const { handlers } = served;
+  return brandDirectDispatch<SurfaceDispatch>({
+    unary: (tag, payload) =>
+      Effect.flatMap(
+        Effect.yieldNow,
+        () => resolveHandler(handlers, tag)(payload) as Effect.Effect<unknown>,
+      ),
+    stream: (tag, payload) =>
+      // `Stream.unwrap` over the deferred lookup: the yield happens at SUBSCRIBE
+      // time (each retry attempt gets its own), not when the stream value is
+      // built, so a stream held un-run costs nothing and a re-subscribe really
+      // re-enters the handler.
+      Stream.unwrap(
+        Effect.map(
+          Effect.yieldNow,
+          () =>
+            resolveHandler(handlers, tag)(payload) as Stream.Stream<unknown>,
+        ),
+      ),
+  });
 }

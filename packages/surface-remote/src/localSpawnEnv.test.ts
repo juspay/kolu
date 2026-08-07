@@ -15,12 +15,16 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import type { ConnectContext } from "./session";
 import { type SshProv, sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  TEST_AGENT_SURFACE,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 
 vi.mock("./nixCopy", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./nixCopy")>()),
@@ -33,10 +37,16 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 function fakeChild() {
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = new PassThrough();
-  child.stdout = new PassThrough();
+  const stdout = new PassThrough();
+  child.stdout = stdout;
   child.stderr = new PassThrough();
   child.pid = 4321;
   child.kill = vi.fn(() => true);
+  // GREET (juspay/kolu#2101). The connector now waits for the agent's readiness
+  // banner before it builds a link, so a fake agent that never speaks would park
+  // this dial for the whole gate deadline. A real `--stdio` agent greets at boot;
+  // so does this one.
+  writeStdioReadiness(stdout, { verdict: "ready" });
   return child;
 }
 
@@ -75,6 +85,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
     vi.stubEnv("CLAUDE_CODE_CHILD_SESSION", "1");
     const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const connector = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "localhost",
       binary: "agent",
       resolveDrvPath: () =>
@@ -92,6 +103,7 @@ describe("sshConnector localhost arm env (PR1.5 / #1872)", () => {
 
   it("leaves the ssh arm's env undefined — the local ssh client inherits (SSH_AUTH_SOCK / ~/.ssh)", async () => {
     const connector = sshConnector({
+      surface: TEST_AGENT_SURFACE,
       host: "bob.example",
       binary: "agent",
       resolveDrvPath: () =>

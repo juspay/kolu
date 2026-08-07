@@ -4,13 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { resumableTerminalIds } from "@kolu/padi/resumable";
+import { Schema } from "effect";
 import {
   LOCAL_LOCATION,
   SavedSessionSchema,
   type SavedTerminal,
 } from "@kolu/padi/surface";
 import { padiStateDir } from "../support/hooks.ts";
-import { padiFold } from "../support/padiEnvelope.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { pollFor } from "../support/poll.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -37,7 +38,13 @@ async function postSavedSession(
  *  timestamp is captured on the first POST per scenario and replayed
  *  verbatim on subsequent self-heal re-POSTs — so the test always
  *  asserts that the *originally persisted* session restores, never a
- *  fresh-savedAt one a regression might require. */
+ *  fresh-savedAt one a regression might require.
+ *
+ *  `activeTerminalId` is stashed and replayed the SAME way, and must be: the
+ *  self-heal re-POSTs below pass only the terminal list, `test__set` writes the
+ *  WHOLE blob, and an omitted `activeTerminalId` key decodes to `null`. A
+ *  re-POST that dropped it therefore ERASED the active marker — leaving an
+ *  assertion on the restored active tile unable to pass however long it polled. */
 async function postSavedSessionPayload(
   world: KoluWorld,
   terminals: SavedTerminal[],
@@ -45,6 +52,9 @@ async function postSavedSessionPayload(
 ): Promise<void> {
   if (world.savedSessionSavedAt === undefined) {
     world.savedSessionSavedAt = Date.now();
+  }
+  if (activeTerminalId !== undefined) {
+    world.savedSessionActiveId = activeTerminalId;
   }
   const payload: {
     terminals: SavedTerminal[];
@@ -70,20 +80,9 @@ async function postSavedSessionPayload(
     })),
     savedAt: world.savedSessionSavedAt,
   };
-  if (activeTerminalId !== undefined)
-    payload.activeTerminalId = activeTerminalId;
-  const resp = await world.page.request.fetch(
-    "/rpc/surface/padi/session/test__set",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      data: JSON.stringify({ json: padiFold(payload) }),
-    },
-  );
-  assert.ok(
-    resp.ok(),
-    `surface/padi/session/test__set failed: ${resp.status()}`,
-  );
+  if (world.savedSessionActiveId !== undefined)
+    payload.activeTerminalId = world.savedSessionActiveId;
+  await padiCall("session/test__set", payload);
 }
 
 Given(
@@ -390,9 +389,13 @@ Then(
       const persisted = JSON.parse(fs.readFileSync(sessionFile, "utf8")) as {
         session?: unknown;
       };
-      const session = SavedSessionSchema.nullable().parse(
-        persisted.session ?? null,
-      );
+      const raw = persisted.session ?? null;
+      // Parsed with padi's OWN schema (`Schema.decodeUnknownSync` — the Effect
+      // successor of the zod `.nullable().parse()` this used to spell), so a blob
+      // that has drifted from the contract fails LOUDLY here rather than being
+      // counted as zero resumable agents.
+      const session =
+        raw === null ? null : Schema.decodeUnknownSync(SavedSessionSchema)(raw);
       const terminals = session?.terminals ?? [];
       return {
         count: resumableTerminalIds(terminals).length,

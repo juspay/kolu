@@ -18,6 +18,7 @@
  *      generic `onEvent`-never-called proof) would not catch.
  */
 
+import { Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ForegroundSample } from "kaval";
 import {
@@ -26,21 +27,23 @@ import {
   resubscribeStream,
 } from "./local.ts";
 
-/** An async iterable that REJECTS on first pull — the shape a dropped tap socket
- *  surfaces (the `for await` throws rather than ending cleanly). */
-const failingStream = (): AsyncIterable<number> => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () =>
-      Promise.reject(new Error("stream failed (kaval socket dropped)")),
-  }),
-});
+/** A stream that FAILS on its first pull — the shape a dropped tap socket
+ *  surfaces (the run fails rather than ending cleanly). Built from a rejecting
+ *  async iterable so the failure crosses the SAME bridge a real kaval member
+ *  does, rather than being minted directly on the Effect failure channel. */
+const failingStream = (): Stream.Stream<number, unknown> =>
+  Stream.fromAsyncIterable<number, unknown>(
+    {
+      [Symbol.asyncIterator]: () => ({
+        next: () =>
+          Promise.reject(new Error("stream failed (kaval socket dropped)")),
+      }),
+    },
+    (err) => err,
+  );
 
-/** An async iterable that yields nothing and ends — a clean close. */
-const emptyStream = (): AsyncIterable<number> => ({
-  [Symbol.asyncIterator]: () => ({
-    next: () => Promise.resolve({ done: true, value: undefined }),
-  }),
-});
+/** A stream that yields nothing and ends — a clean close. */
+const emptyStream = (): Stream.Stream<number, unknown> => Stream.empty;
 
 describe("bridgeStream — the failure path never fabricates an event", () => {
   it("a NON-abort source failure routes to onError and NEVER calls onEvent", async () => {
@@ -141,11 +144,7 @@ describe("resubscribeStream — the eager synchronous-throw guard", () => {
         }
         // Second attempt: the daemon is back — a clean, empty stream that ends.
         ac.abort(); // stop the loop after one successful re-subscribe
-        return {
-          [Symbol.asyncIterator]: () => ({
-            next: () => Promise.resolve({ done: true, value: undefined }),
-          }),
-        };
+        return emptyStream();
       },
       onEvent: () => {},
       onDrop: (err) => drops.push(err),
@@ -167,11 +166,7 @@ describe("resubscribeStream — the eager synchronous-throw guard", () => {
       delayMs: 0,
       getStream: () => {
         calls += 1;
-        return {
-          [Symbol.asyncIterator]: () => ({
-            next: () => Promise.resolve({ done: true, value: undefined }),
-          }),
-        };
+        return emptyStream();
       },
       onEvent: () => {},
       onDrop: () => {},

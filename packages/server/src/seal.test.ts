@@ -31,6 +31,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Effect } from "effect";
 import { parse } from "@babel/parser";
 import { contract } from "kolu-common/contract";
 import { describe, expect, it } from "vitest";
@@ -126,6 +127,16 @@ const WEB_SHELL_FILES = [
   // beside the shell, wired into `buildRemotePool`'s `persist` hook from `index.ts`.
   // Pure shell glue (a file codec keyed by pool membership), not terminal domain.
   "hostPersistence",
+  // The liveness probe route — a constant 200 `kolu` with no dependencies, so it
+  // answers as soon as the HTTP handler is attached (which is what `ci::dev-smoke`
+  // and the packaged-binary smoke both wait on). Pure HTTP shell code.
+  "healthRoute",
+  // The web shell's HTTP middleware: the catch-all fault logger (an uncaught route
+  // fault — e.g. the artifact-sdk HTML decorator draining a remote-preview stream
+  // that faults past the route's own 503 `try` — becomes a LOGGED 500) plus the
+  // per-request debug log. The one bridge between the serving stack and pino.
+  // Pure HTTP shell code, runs no terminal domain.
+  "httpMiddleware",
   "iframePreviewRoute",
   "index",
   "log",
@@ -138,15 +149,19 @@ const WEB_SHELL_FILES = [
   // gate is pinnable apart from index.ts's boot-only closure. Web-shell policy.
   "padiMemoryGate",
   "pwaIdentity",
-  // The web shell's catch-all `app.onError` logger — turns an uncaught route/
-  // middleware fault (e.g. the artifact-sdk HTML decorator draining a remote-preview
-  // stream that faults past the route's own 503 `try`) into a LOGGED 500. Pure HTTP
-  // shell code, runs no terminal domain.
-  "routeErrors",
   "router",
   "state",
   "surface",
   "tls",
+  // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
+  // over `/rpc/ws`, printing the answer as JSON, so a shell (the NixOS adoption VM
+  // probes) can reach in now that the HTTP RPC arm is gone. Web-shell code by the
+  // seal's own test: it dials the shell's transport and runs no terminal domain —
+  // the terminal verbs it can NAME are padi's, reached the way any client reaches
+  // them, over the wire. `wireCallMain` is its argv entry (nix wraps it); nothing
+  // in `index.ts`'s graph imports either.
+  "wireCall",
+  "wireCallMain",
 ].sort();
 
 /** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —
@@ -406,11 +421,19 @@ function koluSurfaceBindings(file: string): string[] {
  *     kaval/padi probe types) — the one production door for state-root-adjacent needs;
  *   - `/dial` — the shared dial kit (`connectPadi`), so `padi-tui` and the binder
  *     share ONE state-root→socket resolve + control-core handshake (the kaval precedent);
- *   - `/log` — padi's pino logger, so a server log line joins padi's stream.
+ *   - `/log` — padi's pino logger, so a server log line joins padi's stream;
+ *   - `/convergence-policy` — padi's own declaration of WHO IT IS and how a
+ *     supervisor of it converges (juspay/kolu#2101). It earned a door of its own
+ *     rather than riding `/assembly` precisely because of the rule above: it is
+ *     NARROWER. Two pure factories, no terminal domain, no state-root vocabulary
+ *     — and it must be shared, because `padi --stdio` now converges its own daemon
+ *     too, so this binder and padi's front cannot be allowed to hold two opinions
+ *     about padi's contract version or its drain semantics.
  *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
  *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
   "@kolu/padi/assembly",
+  "@kolu/padi/convergence-policy",
   "@kolu/padi/dial",
   "@kolu/padi/surface",
   "@kolu/padi/log",
@@ -589,32 +612,36 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
     expect(sawPadiImport).toBe(true);
   });
 
-  it("(c) the root terminal.* / git.* namespaces are gone — only server + daemon beside surface", () => {
-    const c = contract as Record<string, unknown>;
-    expect(c.terminal).toBeUndefined();
-    expect(c.git).toBeUndefined();
-    expect(
-      Object.keys(contract)
-        .filter((k) => k !== "surface")
-        .sort(),
-    ).toEqual(["daemon", "hosts", "server"]);
+  it("(c) the root terminal/* and git/* tag namespaces are gone — only server, daemon, hosts beside surface/", () => {
+    // Under Effect RPC the contract is one FLAT `RpcGroup` and a "namespace" is a
+    // tag's first segment, so the same seal reads off `requests` rather than off
+    // object keys. Nothing else about the assertion moved.
+    const roots = new Set(
+      [...contract.requests.keys()].map((tag) => tag.split("/")[0]),
+    );
+    expect(roots.has("terminal")).toBe(false);
+    expect(roots.has("git")).toBe(false);
+    expect([...roots].sort()).toEqual(["daemon", "hosts", "server", "surface"]);
 
-    // `appRouter` is assembled in `index.ts`'s async boot now (the padi sibling is
-    // an `await`ed re-serve), so build it here with stub deps to assert the same
-    // fact: no terminal/git root namespace survives beside surface/server/daemon.
-    const r = buildAppRouter({
-      surfaceRouter: { surface: {} },
-      drainBoundPadi: async () => {},
-      addHost: async () => {},
-      removeHost: async () => {},
-      reconnectHost: () => {},
-      renewHostDaemon: async () => {},
-      // No viewer identity in a router-shape assertion — `null` is the answer
-      // for every uncertain case anyway.
-      viewerHost: async () => null,
-    }) as Record<string, unknown>;
-    expect(r.terminal).toBeUndefined();
-    expect(r.git).toBeUndefined();
+    // The bound ROOT handlers are assembled in `index.ts`'s async boot now, so
+    // build them here with stub deps to assert the same fact on the serving side:
+    // no terminal/git root tag survives beside server/daemon/hosts.
+    const bound = new Set(
+      Object.keys(
+        buildAppRouter({
+          drainBoundPadi: () => Effect.void,
+          addHost: async () => {},
+          removeHost: async () => {},
+          reconnectHost: () => {},
+          renewHostDaemon: () => Effect.void,
+          // No viewer identity in a shape assertion — `null` is the answer for
+          // every uncertain case anyway.
+          viewerHost: async () => null,
+        }).handlers,
+      ).map((tag) => tag.split("/")[0]),
+    );
+    expect(bound.has("terminal")).toBe(false);
+    expect(bound.has("git")).toBe(false);
   });
 
   it("(d) REVERSE seal — no @kolu/padi src file references koluSurface (import/type/namespace/re-export)", () => {

@@ -15,6 +15,8 @@
  * driven by the re-serve's own `health()` fact, phase-agnostic.
  */
 
+import { Effect } from "effect";
+import type { StreamingProcedure } from "@kolu/surface/client";
 import type { SurfaceHealth } from "@kolu/surface/solid";
 import { HostStatusPip } from "@kolu/surface/solid/HostStatusPip";
 import { SurfaceGate } from "@kolu/surface/solid/SurfaceGate";
@@ -26,6 +28,8 @@ import {
   DEFAULT_SYSTEM,
   type Pid,
   type Process,
+  type ProcessesSnapshotInput,
+  type ProcessesSnapshotMsg,
 } from "../common/surface";
 import { app } from "./wire";
 
@@ -52,9 +56,18 @@ export default function App() {
   // `<SurfaceGate>` below) instead of a private `console.error` nobody sees — and
   // `rawStream` THROWS if it were ever driven outside this component owner, so
   // forgetting to enrol isn't possible, not just discouraged.
+  //
+  // `app.rpc` is the STRUCTURAL member face — per-member types live in the
+  // spec-derived bound hooks (`app.cells` / `app.collections` / …), and a second
+  // precise mapped type over the same spec is the union-budget blow-up the
+  // framework avoids. A raw stream therefore NAMES its shape once, here, and
+  // every use below is fully typed.
   app.rawStream(
     "processesSnapshot",
-    app.rpc.surface.processesSnapshot.get,
+    app.rpc.surface.processesSnapshot?.get as StreamingProcedure<
+      ProcessesSnapshotInput,
+      ProcessesSnapshotMsg
+    >,
     {},
     {
       onItem: (msg) => {
@@ -114,12 +127,15 @@ export default function App() {
     return rows;
   });
 
-  const killProcess = async (pid: number, signal: "TERM" | "KILL") => {
-    try {
-      await app.procedures.process.kill({ pid, signal });
-    } catch (err) {
-      console.error(`kill ${pid} ${signal} failed`, err);
-    }
+  // A declared procedure is an EFFECT: the failure rides the error channel, so
+  // the policy is a combinator rather than a `try`/`catch`, and the DOM handler
+  // is the edge that runs it.
+  const killProcess = (pid: number, signal: "TERM" | "KILL"): void => {
+    Effect.runFork(
+      Effect.catchCause(app.procedures.process.kill({ pid, signal }), (cause) =>
+        Effect.sync(() => console.error(`kill ${pid} ${signal} failed`, cause)),
+      ),
+    );
   };
 
   return (

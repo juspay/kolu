@@ -11,11 +11,16 @@
 // so a hand-enrol can never read as a forgotten one. The full transport surface
 // lives at `@kolu/surface/client` for non-Solid consumers.
 
-// Re-exported so `@kolu/surface-app` (which has no direct `@orpc` dependency) can
-// constrain its own generics (`connectSurfaces<C extends AnyContractRouter>`) over
-// the combined contract without reaching into `@orpc/contract` itself.
-export type { AnyContractRouter } from "@orpc/contract";
-export type { StreamingProcedure } from "../client";
+// The client-side member ref shapes, re-exported so a consumer types a carve-out
+// stream ref (`.unenrolled`) or a bound procedure without importing the transport
+// tier. There is no contract type to re-export any more: the seam between face and
+// link is the erased `SurfaceDispatch`, and per-member precision lives in the
+// spec-derived bound faces below (D2/#16).
+export type {
+  StreamingProcedure,
+  SurfaceFace,
+  UnaryEffect,
+} from "../client";
 // The keyed-root swap atom: run a factory under a root disposed + rebuilt on a key
 // change (the switch-abort ordering). Pure solid-generic; `@kolu/surface-map`'s
 // `useEntry` builds on it.
@@ -70,7 +75,6 @@ export {
   type LiveSignal,
   type LiveSignalHandle,
   type SurfaceConnectionStatus,
-  type WatchableSocket,
 } from "./liveSignal";
 // The browser wake-event seam (window focus / tab visible → an immediate heartbeat
 // re-probe). Exported so `@kolu/surface-app`'s `createServerLifecycle` wires the
@@ -93,18 +97,18 @@ export {
   type BoundCellOptions,
   type BoundCollection,
   type BoundEvent,
-  type BoundProcedure,
-  type BoundProcedureOptions,
   type BoundStream,
   buildSurfaceClient,
-  // The declared-error narrowing verbs (SK6) — re-exported through the surface
-  // receptacle so an app never imports `@orpc/client` to read a typed rejection.
-  isDefinedError,
+  // The bound procedure — `client.procedures.<ns>.<verb>` — an `Effect` a consumer
+  // COMPOSES (a deadline, a race, a supersede, a Ctrl-C) rather than awaits. The
+  // declared error union rides its channel, so the narrowing verbs an awaited
+  // rejection used to need (`isDefinedError` / `safe`) are `Effect.catchTag` now.
+  type EffectProcedure,
+  type ProcedureEffect,
   type OnClientError,
   type ReadOnlyBoundCollection,
   type ReadOnlyBoundCollectionResult,
   resolveTransport,
-  safe,
   type SurfaceClient,
   type SurfaceClients,
   surfaceClient,
@@ -113,7 +117,6 @@ export {
 } from "./surfaceClient";
 export {
   type Authority,
-  type UnaryProcedure,
   type UseCellLocalResult,
   type UseCellOptions,
   type UseCellResult,
@@ -131,3 +134,13 @@ export { useStream } from "./useStream";
 // non-framework callers that stitch server data into the same wrapped-store
 // shape (e.g. `@kolu/client`'s `createPolledQuery`).
 export { writeWrappedValue } from "./writeValue";
+// The ONE Effect→Solid run edge (PLAN D10/#25). Exported so a consumer that drives
+// a raw stream OUTSIDE a `Subscription` — kolu's terminal attach, which owns its own
+// in-pane reset/retry UX — inherits the same scoped-fiber teardown and the same
+// "a disposed subscription reports nothing" rule instead of hand-rolling a second
+// `Effect.runFork` edge with its own interruption bugs.
+export {
+  runStreamScoped,
+  type StreamRunHandlers,
+  toError,
+} from "../runStream";

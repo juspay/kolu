@@ -10,6 +10,8 @@
  *  pure porcelain→word git-status mapping lives in `gitStatusEntries.ts`, kept
  *  toast-free so it stays unit-testable in a plain node env.) */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import {
   CODE_TAB_VIEW_ORDER,
   type CodeTabView,
@@ -20,6 +22,7 @@ import type {
   ContextMenuOpenContext,
 } from "@kolu/solid-pierre";
 import { toast } from "solid-sonner";
+import { runAction } from "../runAction";
 import { writeTextToClipboard } from "./clipboard";
 
 /** Hooks the menu needs from the Code tab to offer view-switch entries. */
@@ -140,12 +143,20 @@ export function makeTreeContextMenu(nav: TreeContextMenuNav) {
     addSeparator();
 
     addItem("Copy path", () => {
-      writeTextToClipboard(item.path)
-        .then(() => toast.success(`Copied: ${item.path}`))
-        .catch((err: Error) => {
-          console.error("Failed to copy path:", err);
-          toast.error(`Failed to copy path: ${err.message}`);
-        });
+      runAction(
+        "copy path",
+        writeTextToClipboard(item.path).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => toast.success(`Copied: ${item.path}`)),
+          ),
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              console.error("Failed to copy path:", err);
+              toast.error(`Failed to copy path: ${toError(err).message}`);
+            }),
+          ),
+        ),
+      );
     });
 
     return menu;

@@ -4,10 +4,10 @@
  * injects into `@kolu/serve-dir`'s `serveFile`.
  *
  * ONE serve-dir read (`previewFile`), two forms, two callers:
- *   - `previewFile` (STREAMING `ServeResult`) — kolu-server's Hono preview route
- *     (`server/src/index.ts`) re-backs its `/api/terminals/:host/:id/file/*` mount onto
- *     it (forwarding the browser's `Range`) instead of a direct `createDirServer`,
- *     streaming disk→socket with bounded heap exactly as before;
+ *   - `previewFile` (STREAMING `ServeResult`) — kolu-server's preview route
+ *     (`server/src/iframePreviewRoute.ts`) backs its `/api/terminals/:host/:id/file/*`
+ *     route onto it (forwarding the browser's `Range`), streaming disk→socket with
+ *     bounded heap;
  *   - `readPreview` (BASE64 wire-form, = `previewFile` + buffer) —
  *     `padiSurface.procedures.preview.read` (`servePadi.ts`), the procedure a
  *     REMOTE consumer (W2) calls, where the body must serialize over the wire.
@@ -27,29 +27,32 @@
 
 import type { RealpathGuard, ServeResult } from "@kolu/serve-dir";
 import { getHeaderCI, serveFile } from "@kolu/serve-dir";
-import { ORPCError } from "@orpc/server";
+import { Effect } from "effect";
 import { assertRealpathUnder } from "kolu-git";
+import { PreviewTooLarge } from "./errors.ts";
 
 /** The filesystem-authority guard padi injects into `@kolu/serve-dir` for a
  *  given root: resolve symlinks and reject anything whose real path escapes the
  *  root. Wraps kolu-git's `assertRealpathUnder` into the `RealpathGuard` shape,
  *  matching kolu-server's retired `previewRealpathGuard` byte-for-byte. */
 export function previewRealpathGuard(root: string): RealpathGuard {
-  return async (abs) => (await assertRealpathUnder(root, abs)).ok;
+  return (abs) =>
+    Effect.promise(async () => (await assertRealpathUnder(root, abs)).ok);
 }
 
 /** The range-capable, serve-dir-shaped byte read behind the preview — the
  *  STREAMING form. Forwards an optional raw HTTP `Range` header to `serveFile`
- *  (206/416/200 all behave as the retired direct `createDirServer` bypass did)
+ *  (206/416/200 all behave as the retired direct serve-dir bypass did)
  *  and injects the realpath guard (the `..`/`%2f`/symlink 403 stage the lexical
  *  guard inside `@kolu/serve-dir` can't cover). Returns serve-dir's `ServeResult`
  *  VERBATIM — a `ReadableStream` body on 2xx (bytes flow disk→socket with
  *  bounded heap; a multi-GB video never lands whole in memory, and the browser
  *  can abort early), a string on errors.
  *
- *  This is the in-process path kolu-server's Hono preview route uses (it returns
- *  `new Response(r.body, r)` directly, byte-identical AND memory-identical to the
- *  old serve-dir route). {@link readPreview} wraps it for the WIRE (base64). */
+ *  This is the in-process path kolu-server's preview route uses (it hands the
+ *  streamed body straight to the HTTP response, byte-identical AND
+ *  memory-identical to the old serve-dir route). {@link readPreview} wraps it for
+ *  the WIRE (base64). */
 export function previewFile(input: {
   repoPath: string;
   filePath: string;
@@ -58,7 +61,7 @@ export function previewFile(input: {
    *  still matches the file's current strong `ETag`, else serves the full 200
    *  (RFC 9110 §13.1.3). Omitted = honor the range unconditionally. */
   ifRange?: string;
-}): Promise<ServeResult> {
+}): Effect.Effect<ServeResult> {
   const guard: RealpathGuard = previewRealpathGuard(input.repoPath);
   return serveFile(
     input.repoPath,
@@ -78,15 +81,12 @@ export function previewFile(input: {
  *  pulled with a bounded byte range. */
 const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
 
-/** The typed fault a caller sees when an unranged/open-ended preview would exceed
- *  {@link MAX_INLINE_PREVIEW_BYTES} — fail-fast, NEVER a silent truncation. Names
- *  the fix: request a bounded byte range. */
-function previewTooLarge(): ORPCError<"PAYLOAD_TOO_LARGE", undefined> {
-  return new ORPCError("PAYLOAD_TOO_LARGE", {
-    message:
-      `Preview body exceeds the ${MAX_INLINE_PREVIEW_BYTES}-byte inline cap for ` +
-      "an unranged read; request a bounded byte range (e.g. `bytes=0-…`) instead.",
-  });
+/** The DECLARED fault a caller sees when an unranged/open-ended preview would
+ *  exceed {@link MAX_INLINE_PREVIEW_BYTES} — fail-fast, NEVER a silent
+ *  truncation. The cap rides as typed data, so the message names the fix AND a
+ *  client can compute a range from it rather than read a number out of prose. */
+function previewTooLarge(): PreviewTooLarge {
+  return new PreviewTooLarge({ limitBytes: MAX_INLINE_PREVIEW_BYTES });
 }
 
 /** Read `Content-Length` case-insensitively (serve-dir sets it on a 206, but
@@ -103,21 +103,34 @@ function contentLengthOf(headers: Record<string, string>): number | undefined {
  *  huge file never fully materializes into the heap (serve-dir omits
  *  Content-Length on a full 200, so counting the streamed bytes is the only
  *  pre-completion gate for that case). */
-async function bufferBase64Capped(body: ReadableStream): Promise<string> {
-  const reader = body.getReader();
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_INLINE_PREVIEW_BYTES) {
-      await reader.cancel();
-      throw previewTooLarge();
-    }
-    chunks.push(Buffer.from(value));
-  }
-  return Buffer.concat(chunks).toString("base64");
+function bufferBase64Capped(
+  body: ReadableStream,
+): Effect.Effect<string, PreviewTooLarge> {
+  return Effect.tryPromise({
+    try: async () => {
+      const reader = body.getReader();
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_INLINE_PREVIEW_BYTES) {
+          await reader.cancel();
+          throw previewTooLarge();
+        }
+        chunks.push(Buffer.from(value));
+      }
+      return Buffer.concat(chunks).toString("base64");
+    },
+    // The cap is the ONLY thing this read raises, and it is a DECLARED fault —
+    // so it goes to the failure channel typed. Anything else out of a
+    // `ReadableStream` read is a defect and is re-thrown as one.
+    catch: (err: unknown) => {
+      if (err instanceof PreviewTooLarge) return err;
+      throw err;
+    },
+  });
 }
 
 /** The WIRE form of {@link previewFile}: buffers the streamed body to base64 so
@@ -134,40 +147,49 @@ async function bufferBase64Capped(body: ReadableStream): Promise<string> {
  *  fix (request a smaller range) rather than buffering an unbounded blob. Shape
  *  alone was the earlier bypass. This is why the local HTTP route must stream via
  *  {@link previewFile}, not call this. */
-export async function readPreview(input: {
+export function readPreview(input: {
   repoPath: string;
   filePath: string;
   range?: string;
-}): Promise<{
-  status: number;
-  headers: Record<string, string>;
-  bodyBase64: string;
-}> {
-  const r = await previewFile(input);
-  // Error responses (400/403/404/416/500) come back as a small plain-text body.
-  if (typeof r.body === "string") {
+}): Effect.Effect<
+  {
+    status: number;
+    headers: Record<string, string>;
+    bodyBase64: string;
+  },
+  PreviewTooLarge
+> {
+  return Effect.gen(function* () {
+    const r = yield* previewFile(input);
+    // Bound to a local because a `yield*` between the narrowing and the use
+    // widens a property access back to the union (the generator could resume
+    // against different state, as far as the checker knows).
+    const body = r.body;
+    // Error responses (400/403/404/416/500) come back as a small plain-text body.
+    if (typeof body === "string") {
+      return {
+        status: r.status,
+        headers: r.headers,
+        bodyBase64: Buffer.from(body, "utf8").toString("base64"),
+      };
+    }
+    // EVERY non-error body is capped identically — a bounded 206, an open-ended
+    // 206, or a full 200. A caller-bounded range whose end is legitimately small
+    // (a `<video>` seek) buffers unchanged, so seeking stays byte-identical; but a
+    // huge BOUNDED range (`bytes=0-999999999999`) resolves to ~the whole file and
+    // must NOT ride an uncapped `arrayBuffer()` — checking only the range *shape*
+    // was the cap bypass. Prefer the `Content-Length` serve-dir sets on a 206 so an
+    // over-cap read fails BEFORE any byte is read; a full 200 omits it, so the
+    // capped stream reader (`bufferBase64Capped`) bounds the buffer instead.
+    const declared = contentLengthOf(r.headers);
+    if (declared !== undefined && declared > MAX_INLINE_PREVIEW_BYTES) {
+      yield* Effect.promise(() => body.cancel());
+      return yield* Effect.fail(previewTooLarge());
+    }
     return {
       status: r.status,
       headers: r.headers,
-      bodyBase64: Buffer.from(r.body, "utf8").toString("base64"),
+      bodyBase64: yield* bufferBase64Capped(body),
     };
-  }
-  // EVERY non-error body is capped identically — a bounded 206, an open-ended
-  // 206, or a full 200. A caller-bounded range whose end is legitimately small
-  // (a `<video>` seek) buffers unchanged, so seeking stays byte-identical; but a
-  // huge BOUNDED range (`bytes=0-999999999999`) resolves to ~the whole file and
-  // must NOT ride an uncapped `arrayBuffer()` — checking only the range *shape*
-  // was the cap bypass. Prefer the `Content-Length` serve-dir sets on a 206 so an
-  // over-cap read fails BEFORE any byte is read; a full 200 omits it, so the
-  // capped stream reader (`bufferBase64Capped`) bounds the buffer instead.
-  const declared = contentLengthOf(r.headers);
-  if (declared !== undefined && declared > MAX_INLINE_PREVIEW_BYTES) {
-    await r.body.cancel();
-    throw previewTooLarge();
-  }
-  return {
-    status: r.status,
-    headers: r.headers,
-    bodyBase64: await bufferBase64Capped(r.body),
-  };
+  });
 }

@@ -27,14 +27,25 @@
  *     disconnected ──gave up (N *remote* fails, OR a budget-exhausted silent step)──▶ failed
  *                                                          (terminal; `reconnect()` re-arms)
  *
- * A `"remote"` failure (reached the host, it rejected us) is terminal after
- * `MAX_CONSECUTIVE_FAILURES`. A `"network"` failure (transport-class: unreachable host, or a
- * wedged/killed transport) normally retries forever at capped backoff so a roaming laptop
- * self-heals — with ONE terminal exception (#1908): a budget-exhausted silent provisioning
- * step gives up terminally, surfacing `failed` + `"network"` (the honest cause; terminality is
- * the phase, orthogonal to the transport class). `recheck()` force-cycles even a
- * seemingly-connected link (wake/network change); `reconnect()` only re-arms a `failed`/idle
- * session.
+ * The give-up budget is a CLASSIFIED ledger (`@kolu/surface`'s `makeFailureLedger`),
+ * one run per failure class, so no class can spend another's budget:
+ *
+ *   - `"remote"` (reached the host, it rejected us) — BOUNDED at
+ *     `MAX_CONSECUTIVE_FAILURES`; five consecutive remote rejections are terminal.
+ *   - `"network"` (transport-class: unreachable host, or a wedged/killed transport) —
+ *     UNBOUNDED: it retries forever at capped backoff so a roaming laptop self-heals,
+ *     and it RESETS the remote run. An unreachable gap means the host WENT AWAY, so
+ *     the next remote blip is fresh evidence of a sleeping host, not accumulation of a
+ *     persisting fault (juspay/kolu#2101: a night of unreachable attempts must not
+ *     make one dark-wake handshake failure terminal).
+ *
+ * The give-up message is derived from the ledger's verdict, so it can only ever name
+ * the remote run that actually tripped the ceiling. ONE terminal exception rides
+ * beside the budget (#1908): a budget-exhausted silent provisioning step gives up
+ * terminally regardless of any run, surfacing `failed` + `"network"` (the honest
+ * cause; terminality is the phase, orthogonal to the transport class). `recheck()`
+ * force-cycles even a seemingly-connected link (wake/network change); `reconnect()`
+ * only re-arms a `failed`/idle session. Both refill the whole ledger.
  *
  * Every server auto-answers the framework-reserved `system.identity` (see
  * `@kolu/surface/identity`), so `identity()` reports the bound server's contract
@@ -43,10 +54,13 @@
  */
 
 import type { Logger } from "@kolu/log";
+import { Effect } from "effect";
 import {
   ClockNowUnavailableError,
   measureSurfaceClockOffset,
 } from "@kolu/surface/clock-now";
+import { isDeadTransportError } from "@kolu/surface/errors";
+import { makeFailureLedger } from "@kolu/surface/failure-ledger";
 import {
   createHeartbeat,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -57,13 +71,47 @@ import {
   type ServedIdentity,
   type SurfaceIdentity,
 } from "@kolu/surface/identity";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
 import type { SurfaceClientLike } from "@kolu/surface/project";
 import { inMemoryCell } from "@kolu/surface/server";
-import { ORPCError } from "@orpc/client";
 import type { LogEntry } from "./connection";
 import { MAX_PROGRESS_LINES } from "./progressTail";
 
+/**
+ * THE session's probe edge — the ONE place a framework-reserved probe becomes a
+ * Promise.
+ *
+ * The three reserved round-trips this module fires (`system.identity`,
+ * `system.clockNow`, `system.live`) are Effects, because a member call is one.
+ * Everything that consumes them here is not: the session's dial/reconnect
+ * machinery is Promise- and timer-shaped BY CONTRACT — `Connector` hands back a
+ * `Promise<Connection>`, `Connection.isAlive()` is a `() => Promise<void>` the
+ * heartbeat races against a timer, and the clock probe is a deadline armed with
+ * `setTimeout`. That layer is this campaign's recorded residual and is
+ * deliberately not converted here, so this is the one seam where the two meet,
+ * named once instead of three times.
+ *
+ * `signal`, when given, is the probe's own `AbortController`: `Effect.runPromise`
+ * turns an abort into fiber INTERRUPTION, which tears the in-flight request down
+ * rather than merely stopping us waiting for it. That is strictly stronger than
+ * the `signal` these probes used to take as a parameter — an interrupt is not
+ * refusable, and a plug that ignored a threaded signal could leave a request
+ * stacked behind the retry.
+ *
+ * Package-internal (it is NOT in `./index`'s export list): `dialAgentOnce` reaches
+ * it for the same reserved probe, so the package has one such edge rather than one
+ * per file.
+ */
+export function runProbe<A>(
+  effect: Effect.Effect<A, unknown>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return Effect.runPromise(effect, signal ? { signal } : undefined);
+}
+
+/** The `"remote"` class's ceiling — the ONE place the number lives, fed to the
+ *  failure ledger's spec below. Not a knob. */
 const MAX_CONSECUTIVE_FAILURES = 5;
 
 /** Default pre-connected LIVENESS backstop bound (#1908 R8b) — 20min. Exported so the
@@ -200,6 +248,14 @@ export interface Session<
    *  meaning, so `currentClient() !== null` is NEVER "the far end is live" — read
    *  {@link currentState} (`.phase === "connected"`) for honest liveness. */
   currentClient(): Promise<Client> | null;
+  /** The CURRENT connection's {@link Connection.dispatch}, or `undefined` when
+   *  there is no live connection or its connector supplied none. Synchronous, and
+   *  read at the instant of the call — a reconnect replaces it, so a consumer that
+   *  builds a second face off it must re-read rather than cache across a drop.
+   *
+   *  OPTIONAL on the role so a hand-built session (a test stand-in, a consumer's
+   *  own receptacle) stays assignable; `makeSession` always implements it. */
+  currentDispatch?(): SurfaceDispatch | undefined;
   /** The current published connection frame — the SYNCHRONOUS point-read twin of
    *  {@link onState}'s snapshot-then-delta. Returns exactly `stateCell.current()`,
    *  the same value `onState` publishes, so honest liveness is
@@ -230,6 +286,38 @@ export interface Session<
   /** Force a fresh link probe (wake / network change) — force-cycles even a
    *  seemingly-`connected` link whose socket may have gone stale across a sleep. */
   recheck(): void;
+  /** A SCHEDULED reconnect fires NOW; every other state is a no-op (H2,
+   *  juspay/kolu#2101). The signal a consumer sends when the world plausibly
+   *  changed under a down session — kolu-server fires it on every websocket
+   *  client accept, because a waking laptop's first observable act is its
+   *  browser reconnecting, and the alternative is up to a full capped backoff
+   *  (60s) of dead remote panes.
+   *
+   *  Deliberately NARROWER than {@link recheck} on every axis, which is why it
+   *  is its own verb rather than a second caller of that one. It fires the SAME
+   *  attempt the backoff had already scheduled — same attempt number, same
+   *  position in the give-up budget (it records NOTHING in the failure ledger) —
+   *  where `recheck()` calls `failures.success()` (refilling every class's run,
+   *  so a permanently-broken host nudged often enough would never reach its
+   *  terminal verdict) and stamps a fresh campaign. Three no-op arms, each for
+   *  its own reason:
+   *
+   *   - **a live link** (`connecting`/`connected`, or a standing admit refuse):
+   *     there is no scheduled reconnect to fast-forward, and a client connecting
+   *     is no evidence THIS link is stale. Cycling it is `recheck()`'s job and
+   *     costs a real reconnect; a nudge must be free.
+   *   - **a dial in flight**: the probe this would ask for is already running.
+   *     This no-op IS the coalescing — an N-client wake storm collapses to the
+   *     one dial already underway, with no lock or debounce of its own.
+   *   - **`failed`** (terminal): the budget is spent and the verdict stands.
+   *     Reviving it is `reconnect()`'s job — the user's explicit re-arm — never
+   *     an ambient wake signal.
+   *
+   *  NO NEW UNBOUNDEDNESS: `nudge()` only fast-forwards an ALREADY-armed timer,
+   *  so it cannot create an attempt the existing schedule would not have made —
+   *  it only makes that attempt happen sooner. The attempt count, the backoff
+   *  progression, and the terminal give-up are all untouched. */
+  nudge(): void;
   /** The bound server's identity off its reserved `system.identity` — a TOTAL,
    *  null-free {@link SurfaceIdentity} sum. `disconnected` before the first successful
    *  connect / between dials; `anonymous`/`identified` once connected (never
@@ -278,11 +366,84 @@ export type ClosedInfo =
   | { kind: "endpoint-down" }
   | { kind: "spawn-error"; message: string };
 
+/**
+ * Classify a link death into the loop's `(reason, cause)` — the SINGLE authority
+ * on what a `ClosedInfo` means, shared by the reconnect loop and by any connector
+ * that must answer the same question BEFORE it has a `Connection` to hand back.
+ *
+ * That second caller is why this is exported (juspay/kolu#2101): the ssh
+ * connector's readiness gate races the banner against the child's own exit, and
+ * when the exit wins there is no connection for `handleClosed` to classify. It
+ * must therefore reach the same verdict — a child that exits before it greets is
+ * exactly the child-exits-before-the-first-RPC case, which is BOUNDED (`"remote"`),
+ * not a network fault. Restating that rule at the connector is how the two would
+ * drift, and drifting here means either an unbounded retry loop or a host that is
+ * merely asleep going terminal.
+ *
+ * `wasConnected` distinguishes a LIVE link dropping (transport → retry forever)
+ * from a death before the session ever connected (the far end refusing to come
+ * up → bounded). A connector calling this pre-connection passes `false`.
+ */
+export function classifyClosed(
+  info: ClosedInfo,
+  wasConnected: boolean,
+): { reason: string; cause: "network" | "remote" } {
+  switch (info.kind) {
+    case "spawn-error":
+      // The transport couldn't even start — a local/config problem. Bounded.
+      return {
+        reason: `transport failed to spawn: ${info.message}`,
+        cause: "remote",
+      };
+    case "transport-failed":
+      // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
+      // or a dropped link — the connector classified it, so no magic literal
+      // lives here). Transport → retry forever.
+      return {
+        reason:
+          "ssh transport connection failed — host unreachable or link dropped",
+        cause: "network",
+      };
+    case "endpoint-down":
+      // A non-process endpoint link death (no child, so no exit code/signal). A
+      // dropped LIVE link retries as transport; a death BEFORE we ever connected
+      // is the endpoint refusing to come up — bounded.
+      return {
+        reason: "endpoint link down (no process exit)",
+        cause: wasConnected ? "network" : "remote",
+      };
+    case "exit":
+      // A live link that dropped is transport — retry forever. An exit BEFORE we
+      // ever connected means the transport ran the agent and IT exited (bad path,
+      // missing exe, startup crash) — bounded. (An ssh transport-255 arrives as
+      // `transport-failed` above, not here, so 255 is no longer magic-matched: a
+      // real agent that exits 255 is now honestly bounded, and a localhost 255 —
+      // which has no ssh transport — no longer misreads as a network fault.)
+      return {
+        reason: `agent exited (code=${info.code}, signal=${info.signal})`,
+        cause: wasConnected ? "network" : "remote",
+      };
+  }
+}
+
 /** A single live connection attempt, handed back by a connector once the transport
  *  is up (the `connecting` phase — client built, first RPC not yet seen). */
 export interface Connection<Client> {
   /** The live client for THIS attempt. */
   client: Client;
+  /** The link's tag-keyed dispatch behind {@link Connection.client}, when the
+   *  connector has one to give.
+   *
+   *  A connector builds ONE typed face from ONE surface, which is all most
+   *  consumers want — but a daemon that serves SIBLING surfaces (padi's versioned
+   *  surface beside the frozen control core) is one wire with two faces, and the
+   *  second face can only be built over the same dispatch. Handing it back is what
+   *  lets a consumer build it without re-dialing.
+   *
+   *  OPTIONAL because it is a property of the TRANSPORT, not of the role: an
+   *  in-process endpoint connector (padi's local arm) has a client with no wire
+   *  behind it at all, and must stay a valid `Connection`. */
+  dispatch?: SurfaceDispatch;
   /** Resolves when THIS attempt's link dies. The loop awaits it to reconnect. */
   closed: Promise<ClosedInfo>;
   /** Probe THIS connection's liveness — the watchdog's per-transport probe. A
@@ -375,6 +536,19 @@ export class ConnectError extends Error {
      *  number of attempts — the retry counter alone can't, because the pre-connected
      *  backstop resets it first. Default `false` (a normal bounded `"remote"` fault). */
     readonly terminal: boolean = false,
+    /** The app's own TYPED verdict for this failure, carried OPAQUELY (#2101).
+     *
+     *  The framework neither reads nor validates it — it only moves it from the
+     *  connector that classified the fault to the binder that renders it. The ssh
+     *  connector's epoch gate puts the remote front's encoded convergence anomaly
+     *  here; kolu-server decodes it with its own schema and stands it up as the
+     *  host's convergence verdict.
+     *
+     *  This exists so a binder never has to STRING-PARSE `message` to tell "this
+     *  daemon speaks a previous protocol epoch" from "this host is down" — the
+     *  exact ambiguity the #2101 incident log had nothing to break. `null` for
+     *  every fault with no structured evidence, which is most of them. */
+    readonly anomaly: unknown = null,
   ) {
     super(message);
     this.name = "ConnectError";
@@ -536,7 +710,18 @@ export function makeSession<
 
   let refCount = 0;
   let destroyed = false;
-  let consecutiveFailures = 0;
+  /** The CLASSIFIED give-up budget (juspay/kolu#2101). One run per failure class,
+   *  so the increment predicate and the ceiling predicate are the same predicate by
+   *  construction — no shared counter exists for the terminal gate to misread. The
+   *  interleaving rule is declared here as DATA, with its rationale beside it. */
+  const failures = makeFailureLedger({
+    // An unreachable gap means the host WENT AWAY; the next remote blip is fresh
+    // evidence of a sleeping host, not accumulation of a persisting fault. So a
+    // network failure restarts the remote run — a laptop asleep overnight must not
+    // spend the budget that exists for a host which is up and rejecting us.
+    network: { ceiling: null, resets: ["remote"] },
+    remote: { ceiling: MAX_CONSECUTIVE_FAILURES },
+  });
   /** The single pending phase-transition timer — either the reconnect-backoff delay
    *  (armed in `disconnected`) or the connect watchdog (armed in `connecting`). The
    *  two are never live at once, so folding them into one slot makes "at most one
@@ -933,12 +1118,38 @@ export function makeSession<
         // the already-struggling process every ~25s. The reused promise still times out
         // against the heartbeat each cycle so the process oracle is re-checked.
         if (ep.inFlight !== null) return ep.inFlight;
-        const probe: Promise<void> = conn.isAlive().finally(() => {
-          // Clear only if still OURS — a stale settle must not null out a newer probe's
-          // in-flight tracking. `ep` is this connection's episode record; once the
-          // connection is retired the record is detached, so writing it is inert.
-          if (ep.inFlight === probe) ep.inFlight = null;
-        });
+        const probe: Promise<void> = conn
+          .isAlive()
+          .catch((err: unknown) => {
+            // A rejection normally counts as ALIVE — the round-trip completed and the
+            // far end answered, even if it answered "no". A DEAD-TRANSPORT rejection is
+            // the one rejection that is not an answer at all: the link itself reported
+            // that it is gone. Effect RPC's protocol carries a ping/pong keepalive, so a
+            // silently wedged peer (process alive, app hung — no stdio EOF, ssh
+            // keepalive ~30s away) now fails the LINK within ~10s and every later call
+            // rejects with `SurfaceStdioTransportClosed`. Reading that as "alive" would
+            // park the session `connected` over a corpse forever, since a stdio leg never
+            // reconnects itself and no `closed` fires while the wedged child lives — the
+            // green-dot-over-a-dead-link lie, one hop out.
+            //
+            // So force-cycle NOW instead of waiting out a timeout the link can no longer
+            // meet. This is the SAME verdict `onStale` reaches for a wedged remote, taken
+            // one signal earlier and on harder evidence — and it needs no process oracle:
+            // a dead transport cannot be reused whether or not the far process is alive.
+            if (!isDeadTransportError(err)) return;
+            // Supersession guard, the same one the `finally` below carries: a reject that
+            // lands after this connection was replaced must not cycle its successor.
+            if (destroyed || current !== conn) return;
+            forceCycle(
+              "liveness probe hit a dead transport — force-cycling the link",
+            );
+          })
+          .finally(() => {
+            // Clear only if still OURS — a stale settle must not null out a newer probe's
+            // in-flight tracking. `ep` is this connection's episode record; once the
+            // connection is retired the record is detached, so writing it is inert.
+            if (ep.inFlight === probe) ep.inFlight = null;
+          });
         ep.inFlight = probe;
         return probe;
       },
@@ -982,29 +1193,34 @@ export function makeSession<
   const scheduleReconnect = (
     cause: "network" | "remote",
     reason: string,
-    // A GENUINELY-TERMINAL fault gives up NOW, regardless of the counter (#1908 C5) —
+    // A GENUINELY-TERMINAL fault gives up NOW, regardless of any run (#1908 C5) —
     // a budget-exhausted silent provisioning step, which the pre-connected backstop
-    // would otherwise reset before `consecutiveFailures` ever reached the ceiling.
+    // would otherwise reset before the remote run ever reached its ceiling. The flag
+    // stays ORTHOGONAL to the ledger: the recording still happens (matching the
+    // increment-then-gate order), only the message comes from the terminal arm.
     terminal = false,
   ): void => {
     if (destroyed || pendingTimer !== null) return;
     // A stale (rejected) `clientPromise` during backoff keeps `launchAttempt`
     // idempotent — an acquire/pin during the wait won't start a second concurrent
     // dial. The terminal give-up branch clears it (no timer to act as the guard).
-    const attemptsSoFar = consecutiveFailures;
-    consecutiveFailures += 1;
-    if (
-      terminal ||
-      (cause === "remote" && consecutiveFailures >= MAX_CONSECUTIVE_FAILURES)
-    ) {
+    const verdict = failures.record(cause);
+    // PACING reads `attempts()` (the display/pacing tier — every class's recordings
+    // since the last success, which is what the ramp has always paced on); VERDICTS
+    // never do. That split is the whole point of the ledger.
+    const attemptsSoFar = failures.attempts() - 1;
+    if (terminal || verdict.exhausted) {
       localProgress(
         terminal
           ? `gave up — ${reason}`
-          : `gave up after ${MAX_CONSECUTIVE_FAILURES} consecutive failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
+          : // Derived from the verdict, so it can only ever name the true remote
+            // run — the incident's "gave up after 5 consecutive failures" after ONE
+            // remote failure is now unspellable.
+            `gave up after ${verdict.run} consecutive remote failures — fix the underlying issue (often: remote nix-daemon needs your user in 'trusted-users' to accept unsigned closures), then reconnect`,
       );
       clientPromise = null;
       // `failed` carries the HONEST transport cause, orthogonal to terminality (F3): a
-      // `MAX_CONSECUTIVE_FAILURES` give-up arrives here as `"remote"` (bounded remote
+      // remote-ceiling give-up arrives here as `"remote"` (bounded remote
       // rejections), a budget-EXHAUSTED silent step as `"network"` (a wedged transport
       // killed enough times — never "reached and rejected"). Pass the incoming `cause`
       // straight through; terminality is the `failed` phase, not a rewrite of the cause.
@@ -1014,8 +1230,10 @@ export function makeSession<
     const delay = Math.min(reconnectDelayMs * 2 ** attemptsSoFar, 60_000);
     localProgress(
       cause === "network"
-        ? `host unreachable — retrying in ${delay}ms… (attempt ${consecutiveFailures})`
-        : `reconnecting in ${delay}ms… (attempt ${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`,
+        ? `host unreachable — retrying in ${delay}ms… (attempt ${failures.attempts()})`
+        : // The remote arm reports the REMOTE run — the number the ceiling actually
+          // reads — not the cross-class attempt total.
+          `reconnecting in ${delay}ms… (attempt ${verdict.run}/${MAX_CONSECUTIVE_FAILURES})`,
     );
     armTimer(delay, () => {
       if (destroyed || refCount === 0) return;
@@ -1045,7 +1263,10 @@ export function makeSession<
     if (cyclingForRecheck) {
       // We tore this down ourselves to re-probe after a wake/network change — a
       // transient recovery, retry as `"network"` so it never counts toward the
-      // bounded give-up budget (even mid-`connecting`).
+      // bounded give-up budget (even mid-`connecting`). Since #2101 that sentence
+      // is finally TRUE by construction: `"network"` is recorded on its own
+      // unbounded run in the failure ledger, and it RESETS the bounded remote run
+      // rather than extending it. It was a lie for a month.
       cyclingForRecheck = false;
       reason = "rechecking link after wake/network change — cycled the link";
       cause = "network";
@@ -1055,32 +1276,8 @@ export function makeSession<
       connectTimedOut = false;
       reason = `connect handshake timed out after ${connectTimeoutMs}ms (transport up, no first RPC)`;
       cause = "remote";
-    } else if (info.kind === "spawn-error") {
-      // The transport couldn't even start — a local/config problem. Bounded.
-      reason = `transport failed to spawn: ${info.message}`;
-      cause = "remote";
-    } else if (info.kind === "transport-failed") {
-      // The ssh TRANSPORT itself failed (a connection error, ssh's own exit 255,
-      // or a dropped link — the connector classified it, so no magic literal
-      // lives here). Transport → retry forever.
-      reason =
-        "ssh transport connection failed — host unreachable or link dropped";
-      cause = "network";
-    } else if (info.kind === "endpoint-down") {
-      // A non-process endpoint link death (no child, so no exit code/signal). A
-      // dropped LIVE link retries as transport; a death BEFORE we ever connected
-      // is the endpoint refusing to come up — bounded.
-      reason = "endpoint link down (no process exit)";
-      cause = wasConnected ? "network" : "remote";
     } else {
-      reason = `agent exited (code=${info.code}, signal=${info.signal})`;
-      // A live link that dropped is transport — retry forever. An exit BEFORE we
-      // ever connected means the transport ran the agent and IT exited (bad path,
-      // missing exe, startup crash) — bounded. (An ssh transport-255 arrives as
-      // `transport-failed` above, not here, so 255 is no longer magic-matched: a
-      // real agent that exits 255 is now honestly bounded, and a localhost 255 —
-      // which has no ssh transport — no longer misreads as a network fault.)
-      cause = wasConnected ? "network" : "remote";
+      ({ reason, cause } = classifyClosed(info, wasConnected));
     }
     localProgress(reason);
     setDown("disconnected", reason, cause);
@@ -1227,17 +1424,17 @@ export function makeSession<
         // apart from transient-disconnected — is on the padi-cleanup ledger.
         setCurrent(conn);
         wireClosed();
-        consecutiveFailures = 0;
+        failures.success();
         setDown("disconnected", verdict.state.error, verdict.state.cause);
         throw new Error(verdict.state.error);
       }
       if (verdict.kind === "replaced") {
         // The admit hook drained the far end (it exits); tear the old link down and
         // reconnect to bring up the successor (`network` — a converge, not a fault).
-        // The admit hello proved the transport live, so reset the give-up budget —
+        // The admit hello proved the transport live, so refill the give-up budget —
         // a bounded drain→respawn treadmill (fenced by the arm) must not grow the
         // backoff toward give-up, matching the pre-S9 markConnected-before-drain.
-        consecutiveFailures = 0;
+        failures.success();
         conn.teardown();
         setDown("disconnected", verdict.reason, "network");
         scheduleReconnect("network", verdict.reason);
@@ -1301,7 +1498,7 @@ export function makeSession<
     // probe reads `system.live`). A rejection (an older server, a link blip) leaves
     // the last-known identity in place — an honest degrade, never a fabricated one.
     const epoch = dialEpoch; // this dial's generation — a later dial supersedes it
-    probeSurfaceIdentity(client)
+    runProbe(probeSurfaceIdentity(client))
       .then((id) => {
         // Drop a probe that resolved AFTER its dial was superseded (a slow probe from a
         // now-dead link landing after a reconnect) — writing it would clobber the live
@@ -1386,7 +1583,10 @@ export function makeSession<
         ac.abort(err);
         reject(err);
       });
-      measureSurfaceClockOffset(client, ac.signal).then(resolve, reject);
+      runProbe(measureSurfaceClockOffset(client), ac.signal).then(
+        resolve,
+        reject,
+      );
     })
       .then((clockOffset) => {
         settleClockProbe();
@@ -1419,13 +1619,24 @@ export function makeSession<
         //
         // EXPECTED-ABSENT vs GENUINE FAILURE (`.agency/code-police.md`: genuine failed I/O
         // at `error`, expected-absent at `info`). EXPECTED-ABSENT is the missing-member dial:
-        // its client has no `system.clockNow` — the route is STRUCTURALLY absent, so
-        // `probeSurfaceClockNow` threw a TYPED `ClockNowUnavailableError` (client-side
-        // navigation), or the server refused it with an oRPC `NOT_FOUND` (server-side). Both
-        // are detected by an `instanceof` check — NEVER by string-matching a `TypeError`
-        // message (which differs by which navigation step is undefined and by JS engine; a
-        // genuine transient `TypeError` must not be misfiled as permanent-absent and silently
-        // stop the probe). That condition is PERMANENT on this dial (the member will never
+        // the client in THIS process's own hand has no `system.clockNow` — the route is
+        // STRUCTURALLY absent, so `probeSurfaceClockNow` threw a TYPED
+        // `ClockNowUnavailableError`. Detected by an `instanceof` check — NEVER by
+        // string-matching a `TypeError` message (which differs by which navigation step is
+        // undefined and by JS engine; a genuine transient `TypeError` must not be misfiled as
+        // permanent-absent and silently stop the probe).
+        //
+        // The SERVER-side twin is gone (PLAN D6). It used to be an oRPC `NOT_FOUND`: a
+        // pre-`clockNow` agent answered the rest of the surface and 404'd this one route,
+        // which was a real rolling-upgrade state worth tolerating. Under the flag day a
+        // peer either speaks THIS protocol epoch — in which case its group carries the
+        // reserved `system/clockNow` tag, because `defineSurface` mints it and
+        // `implementSurface` asserts route-set identity at boot (D1) — or it cannot decode
+        // a frame at all and the dial never reaches a probe. So a far-end refusal of this
+        // tag is no longer an older-server condition to expect: it is a framework defect or
+        // a genuine transport fault, and both belong in the loud, retried arm below. Reading
+        // it as "expected-absent" would silently stop probing a peer that should answer.
+        // That condition is PERMANENT on this dial (the member will never
         // appear), so retrying it every cadence forever is pure waste: emit ONCE at `debug`
         // (the "tool not installed" analogue — not a fault), leave the honest `null` standing,
         // and STOP. A fresh `enterConnected` on the next reconnect re-fires the probe, so a
@@ -1435,9 +1646,7 @@ export function makeSession<
         // never lands) AND retried on `clockProbeRetryMs` cadence while connected, until it
         // lands or the link drops. On the padi bindings `system.clockNow` is framework-reserved
         // and always present, so every rejection there is genuine.
-        const expectedAbsent =
-          err instanceof ClockNowUnavailableError ||
-          (err instanceof ORPCError && err.code === "NOT_FOUND");
+        const expectedAbsent = err instanceof ClockNowUnavailableError;
         const reason = err instanceof Error ? err.message : String(err);
         if (expectedAbsent) {
           emit(
@@ -1473,7 +1682,8 @@ export function makeSession<
    *  skipped `ctx.connecting()`. Idempotent across reconnects (`setUp`/`startLiveness`
    *  both are). */
   const enterConnected = (): void => {
-    consecutiveFailures = 0;
+    // THE success event: a connect clears every class's run and the attempt count.
+    failures.success();
     setUp("connected");
     // Birth the liveness watchdog at the FIRST successful connect (so it can never
     // probe before the first RPC), and poll the server's identity off the fresh
@@ -1503,6 +1713,9 @@ export function makeSession<
     },
     currentClient() {
       return destroyed ? null : clientPromise;
+    },
+    currentDispatch() {
+      return destroyed ? undefined : (current?.dispatch ?? undefined);
     },
     currentState() {
       // The freshest cell truth — the same value `onState` publishes, read
@@ -1551,7 +1764,10 @@ export function makeSession<
     reconnect() {
       if (destroyed || refCount === 0) return;
       if (clientPromise !== null || pendingTimer !== null) return;
-      consecutiveFailures = 0;
+      // The user's explicit re-arm DELIBERATELY refills the whole ledger (H2: this is
+      // the stronger verb — `nudge()` is the one that records nothing and refills
+      // nothing).
+      failures.success();
       startEpisode(); // user verb ⇒ fresh campaign (#1908 R7)
       launchAttempt();
     },
@@ -1560,7 +1776,9 @@ export function makeSession<
       // A user verb (or the pre-connected backstop) ⇒ ALWAYS a fresh campaign — fresh
       // clock AND fresh connector budgets (#1908 R7/C5) — stamped before any dial.
       startEpisode();
-      consecutiveFailures = 0;
+      // DELIBERATE refill of the whole ledger — every class's run and the attempt
+      // count (H2: `recheck()` is the stronger verb; `nudge()` refills nothing).
+      failures.success();
       if (current !== null) {
         // A live (connecting/connected) link whose socket may be stale after a
         // sleep. Clear the connect-watchdog and cycle it; `cyclingForRecheck` tells
@@ -1592,6 +1810,34 @@ export function makeSession<
       clientPromise = null;
       launchAttempt();
     },
+    nudge() {
+      if (destroyed || refCount === 0) return;
+      // The ONE actionable arm: a reconnect backoff is armed and waiting. That is
+      // exactly `pendingTimer !== null` WHILE `disconnected` — `pendingTimer` is a
+      // shared slot (backoff in `disconnected`, connect watchdog in `connecting`),
+      // so the phase is what tells the two apart. Every other state falls through
+      // to the no-op the docblock argues for: a live/connecting link, an in-flight
+      // dial (no timer armed — this no-op IS the wake-storm coalescing), a
+      // standing admit refuse (down but deliberately not scheduled), and terminal
+      // `failed`.
+      if (pendingTimer === null) return;
+      if (stateCell.current().phase !== "disconnected") return;
+      // Narrate BEFORE the dial so the journal reads nudge → probing, and say the
+      // budget did not move — the whole point of not spelling this `recheck()`.
+      // `failures.attempts()` is the DISPLAY/pacing tier: the attempt this backoff
+      // was already waiting to make. Firing it early does not renumber it, and a
+      // nudge records nothing, so the promise "give-up budget unchanged" is literally
+      // true — no class's run moves here.
+      localProgress(
+        `nudged — firing the scheduled retry now instead of waiting out the backoff ` +
+          `(attempt ${failures.attempts()}, give-up budget unchanged)`,
+      );
+      // The `recheck()` backoff arm MINUS its campaign stamp and its budget reset:
+      // cancel the wait, drop the stale (rejected) client handle, dial now.
+      clearTimer();
+      clientPromise = null;
+      launchAttempt();
+    },
     identity(): SurfaceIdentity {
       // TOTAL — never null. No live poll (destroyed, or between dials) is the
       // `disconnected` arm; a polled value is `anonymous`/`identified` verbatim.
@@ -1609,5 +1855,5 @@ export function makeSession<
  *  `system.live` round-trip. A connector that yields a raw surface client uses this;
  *  a transport with its own liveness (an endpoint) supplies its own. */
 export function surfaceLiveProbe(client: unknown): () => Promise<void> {
-  return () => probeSurfaceLive(client).then(() => undefined);
+  return () => runProbe(probeSurfaceLive(client)).then(() => undefined);
 }

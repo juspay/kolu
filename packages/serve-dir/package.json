@@ -20,6 +20,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
+    "effect": "catalog:",
     "mrmime": "^2.0.1"
   }
 }

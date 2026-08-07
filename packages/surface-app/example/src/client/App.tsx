@@ -15,7 +15,7 @@ import {
 } from "@kolu/surface-app/solid";
 import { createSignal, Show } from "solid-js";
 import { buildInfo, type ExampleBuildInfo } from "../common/surface";
-import { clients, ws } from "./wire";
+import { clients, link } from "./wire";
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
   live: "live",
@@ -142,18 +142,19 @@ export default function App() {
       controlPlane={clients.surfaceApp}
       clientCommit={shellCommit()}
       buildInfo={buildInfo}
-      ws={ws}
+      wire={link.wire}
       // `wire.ts`'s `createLiveSignal` already wires the half-open watchdog over
-      // this admin socket (minting the branded `{ live }` the clients require), so
-      // the lifecycle opts ITS watchdog out — one watchdog on the socket, not two.
+      // this wire (minting the branded `{ live }` the clients require), so
+      // the lifecycle opts ITS watchdog out — one watchdog on the wire, not two.
       // (The lifecycle mints no brand, so this is ownership coordination only.)
       heartbeat={false}
-      // The probe rides the SCOPED `surfaceApp` client: its `.rpc` is the
-      // `{ surface: link.surface.surfaceApp }` slice, so `surface.identity.info`
-      // resolves at the wire path `/surface/surfaceApp/identity/info`. The key
-      // is consumed by the scope and does NOT reappear in the path. `.rpc` is
-      // typed `unknown` (the dynamic combined link can't be expanded per-key),
-      // so the caller pins the probe call shape here.
+      // The probe rides the SCOPED `surfaceApp` client: its dispatch splices the
+      // sibling key into every tag, so `surface.identity.info` resolves at the
+      // wire tag `surface/surfaceApp/identity/info`. The key is consumed by the
+      // scope and does NOT reappear in the member path. `.rpc` is the STRUCTURAL
+      // member face (per-member types live in the bound hooks), so the caller
+      // pins the probe call shape here. It hands back an `Effect` — the provider
+      // runs it at its own edge, so an app never opens one.
       probe={() => surfaceAppProbe(clients.surfaceApp)}
       // Turnkey `{ ws, probe }` mode: `onError` covers BOTH the buildInfo
       // stream and a failed identity probe (a broken probe would otherwise

@@ -13,6 +13,7 @@
 
 import { type ImplementSurfaceDeps, inMemoryStore } from "@kolu/surface/server";
 import { controlCoreFragment } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import {
   CONTROL_CORE_VERSION,
   PADI_SURFACE_VERSION,
@@ -51,8 +52,14 @@ export function buildControlCoreDeps(deps: {
     procedures: {
       core: {
         ...fragment.procedures.core,
-        controlVersion: () => ({ controlCoreVersion: CONTROL_CORE_VERSION }),
-        clockNow: () => ({ epochMs: Date.now() }),
+        // Effect-returning (S2): a procedure handler's ONE arm is
+        // `({input, ctx}) => Effect`. Both of these are pure reads of a build
+        // constant / the clock, so `Effect.succeed` / `Effect.sync` is the whole
+        // body — the clock one must be `sync` so each call reads `Date.now()`
+        // afresh rather than freezing the value at deps-build time.
+        controlVersion: () =>
+          Effect.succeed({ controlCoreVersion: CONTROL_CORE_VERSION }),
+        clockNow: () => Effect.sync(() => ({ epochMs: Date.now() })),
       },
     },
   };

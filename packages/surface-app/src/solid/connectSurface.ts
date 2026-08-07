@@ -1,43 +1,42 @@
 /**
  * `connectSurface` — the turnkey client seam for a SINGLE surface over one
- * reconnecting socket, with the liveness watchdog wired in BY DEFAULT.
+ * reconnecting wire, with the liveness watchdog wired in BY DEFAULT.
  *
  * This is the no-lifecycle counterpart to `createServerLifecycle`: an app with
- * no shared connection-status UI driven off the socket — drishti's per-host
- * fleet sockets — builds its reactive client AND its
- * half-open watchdog in one call, instead of hand-rolling `createSurfaceSocket`
- * → `createLiveSignal` → `surfaceClient` (the steps every such app FORGOT — the
- * watchdog, and threading its handle). The heartbeat is default-on and probes the
- * framework-reserved `system.live` round-trip (`@kolu/surface/liveness`), so it
- * needs no app-supplied probe — there is no probe left for an app to forget.
+ * no shared connection-status UI driven off the wire — drishti's per-host
+ * fleet wires — builds its reactive client AND its half-open watchdog in one
+ * call, instead of hand-rolling `createSurfaceSocket` → `createLiveSignal` →
+ * `surfaceClient` (the steps every such app FORGOT — the watchdog, and threading
+ * its handle). The heartbeat is default-on and probes the framework-reserved
+ * `system/live` member (`@kolu/surface/liveness`), so it needs no app-supplied
+ * probe — there is no probe left for an app to forget.
  *
- * An app that DOES drive shared connection-status UI off the socket (kolu's
+ * An app that DOES drive shared connection-status UI off the wire (kolu's
  * header dot) derives a `createServerLifecycle` instead — which folds the SAME
  * watchdog in — and builds its own (possibly multi-sibling) clients over the
- * combined link. So an app that reaches for either of the two seams gets the
+ * combined dispatch. So an app that reaches for either of the two seams gets the
  * liveness watchdog BY DEFAULT — there is no probe to forget. (A consumer that
- * hand-builds the raw seam, like a minimal example, calls `createLiveSignal(ws)`
+ * hand-builds the raw seam, like a minimal example, calls `createLiveSignal(link)`
  * itself and passes the WHOLE handle to `surfaceClient(surface, transport)` — that
- * is the only hand-built path, since handing `surfaceClient` a bare `websocketLink`
+ * is the only hand-built path, since handing `surfaceClient` a bare wire dispatch
  * THROWS, and the branded handle can't be obtained any other way. The seams exist so
- * it doesn't have to wire the socket + client + watchdog by hand.)
+ * it doesn't have to wire the wire + client + watchdog by hand.)
+ *
+ * ASYNC (PLAN D5): the dial is `websocketLink`, and building a protocol and its
+ * fibers is an effect — so this seam, like every wire link factory, returns a
+ * Promise.
  */
 
-import type {
-  Surface,
-  SurfaceContractFor,
-  SurfaceSpec,
-} from "@kolu/surface/define";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { WebsocketLink } from "@kolu/surface/links/websocket";
 import {
   createLiveSignal,
   type HeartbeatTuning,
-  type SurfaceConnectionStatus,
   type SurfaceClient,
+  type SurfaceConnectionStatus,
   surfaceClient,
 } from "@kolu/surface/solid";
-import type { WebSocket as PartySocket } from "partysocket";
 import type { Accessor } from "solid-js";
-import { STALE_PROCESS_CLOSE_CODE } from "../index";
 import {
   createSurfaceSocket,
   type ProcessIdEcho,
@@ -45,81 +44,80 @@ import {
 } from "../connect";
 
 export interface ConnectSurfaceOptions<S extends SurfaceSpec>
-  extends SurfaceSocketOptions {
-  /** The surface to build a reactive client for. */
+  extends Omit<SurfaceSocketOptions, "group"> {
+  /** The surface to build a reactive client for. Its `group` is what the wire
+   *  link is built over, so the seam takes the surface (not a separate group) —
+   *  a client and a wire that disagreed about the contract is unspellable. */
   surface: Surface<S>;
   /** TUNE the always-on liveness heartbeat (`intervalMs`/`timeoutMs`/`onStale`).
    *  There is deliberately NO disable option: the seam mints the watchdog-backed
    *  brand `surfaceClient` requires, and a disabled watchdog would mint a
    *  branded-but-blind signal — the override knob the design philosophy forbids.
-   *  A socket whose liveness another layer owns simply doesn't use this seam (it
-   *  passes that layer's `LiveSignal` to `surfaceClient` directly). */
+   *  A wire whose liveness another layer owns simply doesn't use this seam (it
+   *  passes that layer's `LiveSignalHandle` to `surfaceClient` directly). */
   heartbeat?: HeartbeatTuning;
 }
 
-/** A live single-surface connection: the socket, its `pid` echo, the reactive
+/** A live single-surface connection: the wire link, its `pid` echo, the reactive
  *  client, a reactive transport `status` (for a per-connection indicator), and a
- *  `dispose` that stops the liveness heartbeat. */
+ *  `dispose` that stops the liveness heartbeat and closes the wire. */
 export interface SurfaceConnection<S extends SurfaceSpec> {
-  ws: PartySocket;
+  /** The wire this connection rides — `{ dispatch, wire, dispose }`. Read
+   *  `link.wire` for the status stream / `forceReconnect`; `link.dispatch` is the
+   *  branded seam the client is built over. (Was `ws: PartySocket`.) */
+  link: WebsocketLink;
   echo: ProcessIdEcho;
   /** The reactive surface client. `.cells` / `.collections` / `.streams` are
    *  fully typed off `S`; declared imperative procedures ride the bound
    *  `client.procedures.<ns>.<verb>(input)` face — typed straight from `S`, no cast.
-   *  `.rpc` (the raw link) is `unknown` — the same deliberate choice kolu's own
-   *  combined client makes, because the fully-expanded oRPC link type is too complex
-   *  to represent generically (TS2590) — and is reserved for the framework procedures
-   *  (`system.live` / `system.identity`) and the link-root escape hatch. A consumer
-   *  that must reach one of THOSE casts `.rpc` to its CONCRETE contract once at the
-   *  wire boundary: `client.rpc as ContractRouterClient<typeof mySurface.contract>`
-   *  — sound, since the runtime `.rpc` IS that link. */
+   *  `.rpc` is the STRUCTURAL `SurfaceFace` (per-member precision lives in the
+   *  bound faces — PLAN D2), reserved for the framework-reserved members
+   *  (`system.live` / `system.identity` / `system.clockNow`) and as the escape
+   *  hatch for a member the bound shapes can't model. */
   client: SurfaceClient<S>;
   /** Reactive transport status — `connecting` / `live` / `reconnecting` / `down`
-   *  — derived from the socket's own open/close (no identity probe). Render it so
+   *  — derived from the wire's own status stream (no identity probe). Render it so
    *  the watchdog's recovery is VISIBLE rather than silent. */
   status: Accessor<SurfaceConnectionStatus>;
-  /** Stop the liveness heartbeat. A per-app-lifetime socket (cached for the
-   *  page's life, like drishti's per-host clients) needn't call this. */
-  dispose: () => void;
+  /** Stop the liveness heartbeat, tear down the client's standing subscriptions,
+   *  and close the wire. A per-app-lifetime wire (cached for the page's life,
+   *  like drishti's per-host clients) needn't call this. Async because releasing
+   *  the link's scope is. */
+  dispose: () => Promise<void>;
 }
 
-export function connectSurface<const S extends SurfaceSpec>(
+export async function connectSurface<const S extends SurfaceSpec>(
   opts: ConnectSurfaceOptions<S>,
-): SurfaceConnection<S> {
+): Promise<SurfaceConnection<S>> {
   const { surface, heartbeat: hb, ...socketOptions } = opts;
-  const { ws, echo } = createSurfaceSocket(socketOptions);
-  // `createLiveSignal` builds the oRPC link over THIS socket, derives the reactive
-  // transport `status`, wires the half-open watchdog (probing `system.live` over the
-  // link it just built — anchored to the socket it reconnects), AND mints the BRANDED
-  // handle the client requires — in one call. We hand the WHOLE handle to
-  // `surfaceClient`, so client and watchdog share ONE link over the ONE socket by
-  // construction. Without that handle `surfaceClient` refuses a bare websocket link: a
-  // surface whose socket is silently half-open (or retired `down`) but whose subs
-  // already yielded a first frame would otherwise read `ready` — the green-dot-over-
-  // a-dead-link lie.
-  const transport = createLiveSignal<SurfaceContractFor<S>>(ws, {
-    ...hb,
-    retireOnStaleClose: socketOptions.retireOnStaleClose,
-    // The stale-restart code is a surface-app protocol constant, defaulted HERE
-    // (createLiveSignal lives in @kolu/surface and takes it explicitly).
-    restartCloseCode:
-      socketOptions.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE,
+  const { link, echo } = await createSurfaceSocket({
+    ...socketOptions,
+    group: surface.group,
   });
-  // Pass the WHOLE handle — `surfaceClient` reads `.link` and `.live` off it, so the
-  // client and the watchdog's probe share ONE link by construction (no separate,
-  // fabricatable probe target, nothing to re-prove at runtime).
+  // `createLiveSignal` takes the WHOLE `{ dispatch, wire }` the link factory
+  // minted together: it derives the reactive transport `status`, wires the
+  // half-open watchdog (probing the reserved `system/live` TAG over the very
+  // dispatch it guards), AND mints the BRANDED handle the client requires — in one
+  // call. We hand that whole handle to `surfaceClient`, so client and watchdog
+  // share ONE dispatch over ONE wire by construction. Without it `surfaceClient`
+  // refuses a bare wire dispatch: a surface whose socket is silently half-open (or
+  // retired `down`) but whose subs already yielded a first frame would otherwise
+  // read `ready` — the green-dot-over-a-dead-link lie.
+  const transport = createLiveSignal(link, hb ?? {});
   const client = surfaceClient(surface, transport);
   return {
-    ws,
+    link,
     echo,
     client,
     status: transport.status,
-    // Stop the watchdog AND tear down the client's build-time standing
+    // Stop the watchdog, tear down the client's build-time standing
     // subscriptions (the eager `liveWhen`-cell readiness subs — present when the
-    // surface is mirrored), so a torn-down socket leaks neither.
-    dispose: () => {
+    // surface is mirrored), and release the link's scope (its dial/ping/response
+    // fibers), so a torn-down connection leaks none of the three.
+    dispose: async () => {
       transport.dispose();
       client.dispose();
+      await link.dispose();
     },
   };
 }

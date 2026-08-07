@@ -5,7 +5,7 @@ Re-expose any [`@kolu/surface`](../surface) as an
 Codex, opencode) drives your surface with structured tool calls. Cells,
 collections, streams, and events become subscribable **resources**; procedures
 become **tools**. A thin adapter that owns the generic parts (the
-`resources/subscribe` lifecycle, the zod → JSON-Schema bridge, stdio discipline)
+`resources/subscribe` lifecycle, the Effect Schema → JSON-Schema bridge, stdio discipline)
 and leaves you in control of what is exposed, default-deny.
 
 ```ts

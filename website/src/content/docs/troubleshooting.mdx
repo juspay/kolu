@@ -102,12 +102,52 @@ nix --refresh run github:juspay/kolu
 The `--refresh` flag busts Nix's flake cache so you pull the latest commit; it is
 the same command from [Quickstart](/quickstart).
 
+A release that **changes the protocol** the long-lived daemons speak is a **flag
+day**, and kolu handles it for you: the daemons still running from before are
+restarted or taken over on their own — on your machine and on each remote host,
+over ssh — with nothing to run by hand. Live shells end when that happens; your
+[session](/sessions) is restored from disk and agents resume on their prior
+conversation. A remote machine kolu cannot settle this way shows **"This host
+runs a kolu from before the protocol change"** instead of connecting: update
+kolu on that machine (or stop its padi), then reconnect.
+
+Going *backwards* — to an older release — is the one direction kolu cannot do
+for you, because the takeover code lives only in the newer build. Stop the
+daemons by hand first: [Operations → Roll back to an older
+release](/operations#roll-back-to-an-older-release).
+
 ## I closed the welcome. How do I get it back?
 
 Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
 (alias: "Welcome"). It reopens the welcome overlay while you are working. The
 same palette opens the first terminal flow in
 [First Five Minutes](/first-five-minutes).
+
+## Something looks stuck, and I want to report it
+
+Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> → **Debug → Diagnostic
+info** and press **Copy diagnostics** (the same button lives on any host tab's
+status popover, behind its connection dot). It copies a plain-text block naming:
+
+- **every connection attempt this tab has made** — when each started, whether it
+  ever came up, when it ended and with what close code. An attempt that failed
+  *before* it was established is recorded here and nowhere else: it never reaches
+  your machine, so it is absent from the server's log too;
+- **every live subscription** — what it is, when it opened, when it last heard
+  from your machine, how many updates it has received and how many times it has
+  reconnected. One marked **parked** last heard something older than the
+  connection it is riding on, which is the fingerprint of a tab showing stale
+  state over a connection that reports itself healthy;
+- **every host** as this tab currently believes it, with when that belief last
+  changed;
+- the build this tab is running, the build it is talking to, and the watchdog's
+  last connection check.
+
+The block is read entirely from what the tab already holds — it asks your machine
+nothing — so it still tells the truth when the connection is the thing that is
+wrong. Paste it into your issue. The **Copy JSON** button beside it is the other
+dump: the full per-terminal render state, for a rendering or memory problem
+rather than a connection one.
 
 ## kolu is using a lot of memory
 
@@ -151,5 +191,6 @@ diagnostics](/deployment#capture-memory-diagnostics).
   <LinkCard title="Remote Access" href="/remote-access" description="private HTTPS, install prompts, and Tailscale Serve" />
   <LinkCard title="Install as an App" href="/install-pwa" description="browser-specific PWA install paths" />
   <LinkCard title="Deployment" href="/deployment" description="home-manager service, logs, origins, and heap diagnostics" />
+  <LinkCard title="Operations" href="/operations" description="stopping the daemons, rolling back, and testing beside production" />
   <LinkCard title="GitHub" href="https://github.com/juspay/kolu" description="source, issues, and pull requests" />
 </CardGrid>

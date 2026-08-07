@@ -84,6 +84,7 @@ export {
 export {
   type DeltaMembers,
   type ForwardableStream,
+  type RelayedStream,
   type RelayHoldOpenOptions,
   type RelayPolicy,
   type RelayStreamOptions,
@@ -96,6 +97,7 @@ export {
   type ReServedSurface,
   type ReServeSurfaceOptions,
   reServeSurface,
+  UpstreamUnavailableError,
 } from "./reServeSurface";
 export {
   type MembershipPool,

@@ -2,6 +2,7 @@
  *  meter, webcam preview, "Start recording" commit button. Appears when
  *  the chrome-bar record button is clicked from idle. */
 
+import { runAction } from "../runAction";
 import { type Component, createEffect, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";
@@ -105,7 +106,9 @@ const RecordPopover: Component<{
                 devices={recorder.micDevices()}
                 selectedId={recorder.micDeviceId()}
                 fallbackLabel={(s) => `Microphone ${s}`}
-                onChange={(id) => void recorder.changeMic(id)}
+                onChange={(id) =>
+                  runAction("change microphone", recorder.changeMic(id))
+                }
               />
             </Show>
             <LevelMeter level={recorder.micLevel()} class="h-2" />
@@ -119,7 +122,7 @@ const RecordPopover: Component<{
                 testId="record-webcam-toggle"
                 enabled={recorder.webcamEnabled()}
                 onChange={() => {
-                  void recorder.toggleWebcam();
+                  runAction("toggle webcam", recorder.toggleWebcam());
                 }}
               />
             </div>
@@ -137,7 +140,9 @@ const RecordPopover: Component<{
                 devices={recorder.webcamDevices()}
                 selectedId={recorder.webcamDeviceId()}
                 fallbackLabel={(s) => `Camera ${s}`}
-                onChange={(id) => void recorder.changeWebcam(id)}
+                onChange={(id) =>
+                  runAction("change webcam", recorder.changeWebcam(id))
+                }
               />
             </Show>
             <Show when={recorder.webcamStream()}>
@@ -169,7 +174,7 @@ const RecordPopover: Component<{
               data-testid="record-start"
               class="h-7 px-3 text-sm text-white bg-danger hover:bg-danger/90 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
               onClick={() => {
-                void recorder.startRecording();
+                runAction("start recording", recorder.startRecording());
               }}
             >
               Start recording

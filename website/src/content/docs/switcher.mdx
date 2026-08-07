@@ -141,7 +141,10 @@ Host status text is quiet by default:
 | Connected, not active | *(none — connected is the default)* |
 | Warming / failed / removed | `connecting` / `unreachable` / `removed` |
 
-The connection **dot** still carries health color on every row.
+The connection **dot** still carries health color on every row — and it is the
+[whole-chain reading](/remote-hosts), so a reachable host whose terminal daemon is
+down paints amber here too, never green. (The status *text* above stays about the
+connection alone; the dot is where the chain is read.)
 
 ## Reading a row
 

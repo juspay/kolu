@@ -1,20 +1,20 @@
 /**
- * SolidJS primitive for consuming async streams whose **input parameters**
- * are reactive — i.e., the subscription must tear down and re-establish
- * whenever the input changes, not just when the consuming component
- * unmounts.
+ * SolidJS primitive for consuming streams whose **input parameters** are
+ * reactive — i.e., the subscription must tear down and re-establish whenever the
+ * input changes, not just when the consuming component unmounts.
  *
  * Use this when the upstream stream depends on an input that the user can
  * change (selected file, active git mode, etc.). For static-input streams
  * use `createSubscription` — cheaper, simpler.
  *
- * Lifecycle: every input change runs `onCleanup` for the previous
- * subscription's `AbortController`, abandons the in-flight iterator (the
- * server tears down on the abort), then opens a fresh subscription. The
- * exposed `Subscription<T>` reads the latest value any subscriber yielded;
- * `pending()` is true between the input change and the first new yield.
+ * Lifecycle: every input change runs `onCleanup` for the previous subscription,
+ * which INTERRUPTS its fiber (the server tears down through the stream's own
+ * finalizers), then opens a fresh one. The exposed `Subscription<T>` reads the
+ * latest value any subscriber yielded; `pending()` is true between the input
+ * change and the first new yield.
  */
 
+import type { Stream } from "effect";
 import {
   type Accessor,
   createEffect,
@@ -24,6 +24,7 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 import { createUpdatedTracker, type Subscription } from "./createSubscription";
+import { runStreamScoped } from "../runStream";
 import { writeWrappedValue } from "./writeValue";
 
 export interface ReactiveSubscriptionOptions {
@@ -32,17 +33,13 @@ export interface ReactiveSubscriptionOptions {
 
 export function createReactiveSubscription<I, T>(
   inputFn: () => I | null,
-  factory: (input: I, signal: AbortSignal) => Promise<AsyncIterable<T>>,
+  factory: (input: I) => Stream.Stream<T, unknown>,
   options?: ReactiveSubscriptionOptions,
 ): Subscription<T> {
   const [store, setStore] = createStore<{ v: T | undefined }>({ v: undefined });
   const [error, setError] = createSignal<Error | undefined>();
   const [pending, setPending] = createSignal(true);
   const [complete, setComplete] = createSignal(false);
-
-  function toError(err: unknown): Error {
-    return err instanceof Error ? err : new Error(String(err));
-  }
 
   // The change-iff-fired half of the Dynamic — the ONE law shared with
   // `createSubscription` via `createUpdatedTracker`. A fresh input opens a fresh
@@ -63,32 +60,32 @@ export function createReactiveSubscription<I, T>(
       tracker.reset();
       if (input === null) return;
 
-      const controller = new AbortController();
-      onCleanup(() => controller.abort());
-
-      void (async () => {
-        try {
-          const iterable = await factory(input, controller.signal);
-          for await (const item of iterable) {
-            if (controller.signal.aborted) break;
+      // The prior input's fiber was interrupted by this effect's own `onCleanup`
+      // BEFORE this body ran, so the two subscriptions never overlap and a stale
+      // frame can never land in the fresh state reset above.
+      onCleanup(
+        runStreamScoped<T>(factory(input), {
+          onFrame: (item) => {
             tracker.noteFrame(item);
             writeWrappedValue(setStore, item);
             if (pending()) setPending(false);
-            if (error()) setError(undefined);
-          }
-          // Normal completion — mirrors `createSubscription`'s typed-end handling:
-          // an aborted loop takes the `break` above with `aborted` already true,
-          // so reaching here means the iterable ended on its own.
-          if (!controller.signal.aborted) {
+            // No clear-on-frame branch: a failure is the fiber's EXIT, so no frame
+            // can follow one on the same subscription (see `createSubscription`).
+            // Here the error clears when the INPUT changes — the state reset above
+            // — which is this primitive's own recovery point.
+          },
+          // Mirrors `createSubscription`'s typed-end handling: an interruption
+          // (a superseding input, an unmount) reports nothing.
+          onEnd: () => {
             if (pending()) setPending(false);
             setComplete(true);
-          }
-        } catch (err) {
-          if (controller.signal.aborted) return;
-          setError(toError(err));
-          setPending(false);
-        }
-      })();
+          },
+          onFailure: (err) => {
+            setError(err);
+            setPending(false);
+          },
+        }),
+      );
     }),
   );
 
@@ -99,15 +96,14 @@ export function createReactiveSubscription<I, T>(
     updated: tracker.updated,
   }) as Subscription<T>;
 
-  // Route `onError` through the SAME self-clearing EDGE effect `createSubscription`
-  // uses (`createSubscription.ts`: the `on(() => sub.error(), …)` block), NOT
-  // inline in the `catch`. Inline-in-catch fires on every re-throw AND diverges
-  // the callback from the self-clearing `error()` LEVEL: a consumer wiring
-  // `onError → signal → render` would latch on a transient blip while `error()`
-  // had already cleared on the next good frame (the #1564 latch, the reactive
-  // path's copy of it). Driving the callback off `error()` makes the edge fire
-  // once per rising error transition and clear with the signal — so the two
-  // error channels can never disagree, the property `client.health()` relies on.
+  // Route `onError` through the SAME EDGE effect `createSubscription` uses
+  // (`createSubscription.ts`: the `on(() => sub.error(), …)` block), NOT inline at
+  // the failure site. Driving the callback off the `error()` LEVEL is what keeps
+  // the two error channels from disagreeing — the property `client.health()` relies
+  // on: whatever clears `error()` (here, an input change resetting the state)
+  // clears the callback's view with it, so a consumer wiring
+  // `onError → signal → render` cannot latch on a failure the signal has already
+  // dropped (the #1564 latch, the reactive path's copy of it).
   if (options?.onError) {
     const handler = options.onError;
     createEffect(

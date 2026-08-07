@@ -37,6 +37,7 @@ import {
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
 import {
+  getActiveTerminalId,
   restoreActiveTerminalId,
   restoreSpawn,
   setTerminalParent,
@@ -48,6 +49,12 @@ import type {
   SavedTerminal,
 } from "../vocab.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
+import { Schema } from "effect";
+
+/** zod's `.parse`, in Effect terms — bound once at module scope (`decodeUnknownSync`
+ *  compiles the schema on each application). Fail-fast by design: an IMPORTED blob
+ *  that does not decode after the backfill ladder is a refusal, not a silent drop. */
+const decodeSavedSession = Schema.decodeUnknownSync(SavedSessionSchema);
 
 /** Re-spawn one saved ACTIVE record as a FRESH live terminal, forwarding its
  *  restore-relevant chrome + the saved recency, and (opt-in) resuming its agent.
@@ -80,15 +87,20 @@ function respawnActive(
   // facts, through its distinct `restoreOnly` arm (an ordinary `createTerminal` can't
   // spell them). Base chrome rides `initial`; the three restore-only facts ride
   // `restoreOnly`.
+  // Every field of both seed shapes is a `Schema.optionalKey`, which accepts an
+  // ABSENT key and REJECTS a present `undefined` one (#17) — so an absent saved
+  // value is OMITTED here, never spelled as `undefined`. Same conditional-spread
+  // idiom `settleRestoreRespawns` uses for `parentId` below; the absence stays
+  // unspellable at the source rather than relying on a downstream truthiness read.
   const info = restoreSpawn(
     t.cwd,
     parentId,
     {
-      themeName: t.themeName,
-      canvasLayout: t.canvasLayout,
-      subPanel: t.subPanel,
-      rightPanel: t.rightPanel,
-      intent: t.intent,
+      ...(t.themeName === undefined ? {} : { themeName: t.themeName }),
+      ...(t.canvasLayout === undefined ? {} : { canvasLayout: t.canvasLayout }),
+      ...(t.subPanel === undefined ? {} : { subPanel: t.subPanel }),
+      ...(t.rightPanel === undefined ? {} : { rightPanel: t.rightPanel }),
+      ...(t.intent === undefined ? {} : { intent: t.intent }),
     },
     {
       // Carry the saved agent-resume facts ONLY when actually resuming, so the closing
@@ -101,18 +113,24 @@ function respawnActive(
       // `updateMemory` never fires to overwrite the seed) — the exact target would persist
       // and a later WAKE would resume the very agent the user declined. So drop both,
       // leaving the bare shell's target at `none`.
-      lastAgentCommand: resume ? t.lastAgentCommand : undefined,
-      restoreTarget: resume ? t.restoreTarget : undefined,
+      ...(resume && t.lastAgentCommand !== undefined
+        ? { lastAgentCommand: t.lastAgentCommand }
+        : {}),
+      ...(resume && t.restoreTarget !== undefined
+        ? { restoreTarget: t.restoreTarget }
+        : {}),
       // Preserve the saved recency across the restart (RISK Q6) — without this the fold
       // reseeds the restored terminal to a fresh (never-active) recency and the dock's
       // recency ranking permanently collapses after a `session.restore`. The parked record
       // already copied this off the saved active record at park time; here it rides the
       // fresh spawn. (Distinct from the client-facing `lifecycle.create`, which drops it so
-      // a genuinely fresh terminal gets padi's clock.) `?? undefined` bridges `AgentMemory`'s
-      // honest `null` (never-active) onto this input's `undefined` absence form — both fall
-      // through to the SAME `seedMemory()` default, so the bridge can't lose the never-active
-      // fact, only its spelling.
-      lastActivityAt: t.lastActivityAt ?? undefined,
+      // a genuinely fresh terminal gets padi's clock.) `AgentMemory`'s honest `null`
+      // (never-active) bridges onto this input's ABSENCE — omitting the key falls through
+      // to the SAME `seedMemory()` default, so the bridge can't lose the never-active fact,
+      // only its spelling.
+      ...(t.lastActivityAt === null
+        ? {}
+        : { lastActivityAt: t.lastActivityAt }),
     },
   );
   // Auto-launch the resume form of the previously captured agent command, if the
@@ -142,12 +160,24 @@ function respawnActive(
  *  Resume intent is host-owned: the host computes the resumable set from each
  *  record's `restoreTarget` ({@link resumableTerminalIds}); the client may only
  *  subtract via `optOutIds`. `resumeAgents: false` resumes none; `true` (default)
- *  resumes every host-resumable id not listed in `optOutIds`. */
+ *  resumes every host-resumable id not listed in `optOutIds`.
+ *
+ *  ANSWERS with the active-terminal marker as of the end of the restore — the
+ *  saved marker mapped through `oldToNew`, read back from its ONE writer rather
+ *  than re-derived. The client seeds its active tile from THIS answer. It used to
+ *  read the `session` cell instead, and that is a race the client cannot win: the
+ *  terminals are published as they spawn, while the cell's snapshot only publishes
+ *  after `saveSession` has been through padi's Conf (a synchronous DISK write). On
+ *  a loaded box the disk write outlasts the client's per-terminal metadata
+ *  round-trips, so the client saw the full restored set while still holding the
+ *  blob it CONSUMED — pre-restore ids, none of them live — and silently seeded the
+ *  FIRST tile instead. Riding the call means the answer cannot arrive after the
+ *  terminals it describes. */
 export async function restoreSession(
-  input: { resumeAgents?: boolean; optOutIds?: string[] } = {},
-): Promise<void> {
+  input: { resumeAgents?: boolean; optOutIds?: readonly string[] } = {},
+): Promise<{ activeTerminalId: string | null }> {
   const saved = getSavedSession();
-  if (!saved) return;
+  if (!saved) return { activeTerminalId: getActiveTerminalId() };
   const resumeAgents = input.resumeAgents ?? true;
   const optOut = new Set(input.optOutIds ?? []);
   const hostResumable = new Set(resumableTerminalIds(saved.terminals));
@@ -316,6 +346,12 @@ export async function restoreSession(
       `Session restore incomplete: ${unrestored.length} terminal(s) could not be restored (missing parent): ${ids}. Their resume tokens were preserved — retry restore or start fresh.`,
     );
   }
+  // Read the marker back from its ONE writer rather than re-deriving the mapping:
+  // a spawn that failed and re-parked above cannot leave this answer disagreeing
+  // with what the host actually holds. The id can still name a terminal that did
+  // not come back (its respawn was re-parked), which is exactly why the client
+  // re-validates membership before seeding.
+  return { activeTerminalId: getActiveTerminalId() };
 }
 
 /** Settle the fresh restore respawns INDEPENDENTLY — the ONE place the mixed
@@ -371,10 +407,17 @@ export async function settleRestoreRespawns(
           // removal may have orphaned a live child, so fall through to reconcile below
           // rather than returning early.
         } else {
+          // OMIT `parentId` for a top-level record rather than spelling
+          // `undefined`: it is a `Schema.optionalKey` field, which accepts an
+          // ABSENT key and REJECTS a present `undefined` one (#17). Spelling it
+          // would make `seedParkedTerminal`'s tolerant decode DROP the record —
+          // silently losing the very re-park this path exists to perform.
           const record: SavedActiveTerminal = {
             ...r.record,
             id: r.newId,
-            parentId: r.parentIdMapped,
+            ...(r.parentIdMapped === undefined
+              ? {}
+              : { parentId: r.parentIdMapped }),
           };
           seedParkedTerminal(record); // idempotent — a repeat settle no-ops
           reparked.push(record);
@@ -479,11 +522,9 @@ export function forfeitSession(): void {
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;
-  optOutIds?: string[];
+  optOutIds?: readonly string[];
 }): Promise<void> {
-  const backfilled = SavedSessionSchema.parse(
-    backfillSavedSession(input.session),
-  );
+  const backfilled = decodeSavedSession(backfillSavedSession(input.session));
   setSavedSession(backfilled);
   await restoreSession({
     resumeAgents: input.resumeAgents,

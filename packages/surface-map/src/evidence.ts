@@ -1,15 +1,17 @@
 /**
  * `@kolu/surface-map/evidence` — the failure-evidence VOCABULARY and its wire schema.
  *
- * A leaf on purpose. `define.ts` imports `@orpc/contract` and `@kolu/surface/define` as
- * VALUES to build the map's wire contract; this module imports `zod` and nothing else, so
- * a browser-bundle-constrained consumer (`@kolu/surface-remote/connection`, whose whole
+ * A leaf on purpose. `define.ts` imports `effect/unstable/rpc` and `@kolu/surface/define`
+ * as VALUES to build the map's wire group; this module imports `effect`'s `Schema` and
+ * nothing else at RUNTIME (the `WireSchema` bound below is a TYPE-only import), so a
+ * browser-bundle-constrained consumer (`@kolu/surface-remote/connection`, whose whole
  * point is that it pulls no node/server code) can hold the SCHEMA — not just the type —
- * without dragging the contract builder into its graph. `define.ts` re-exports both
- * names, so nothing else has to know this file exists.
+ * without dragging the Rpc builder into its graph. `define.ts` re-exports both names, so
+ * nothing else has to know this file exists.
  */
 
-import { z } from "zod";
+import type { WireSchema } from "@kolu/surface/define";
+import { Schema } from "effect";
 
 /** One retained output line of a failed entry's episode — the WHOLE structural
  *  vocabulary {@link FailureEvidence} is built from. `source` says WHERE the line
@@ -42,10 +44,11 @@ export interface EvidenceLine {
  *  `ZodType<LogEntry>` annotation that does not guard — TypeScript accepts a NARROWER
  *  schema annotated as a wider type, so adding a third provenance to `EvidenceLine` would
  *  have compiled clean on both sides. One exported schema closes that direction by
- *  construction. */
-export const EvidenceLineSchema: z.ZodType<EvidenceLine> = z.object({
-  source: z.enum(["local", "remote"]),
-  line: z.string(),
+ *  construction. (The annotation is now `WireSchema<EvidenceLine>` — the framework's
+ *  context-free `Schema.Codec` bound — and carries exactly the same intent.) */
+export const EvidenceLineSchema: WireSchema<EvidenceLine> = Schema.Struct({
+  source: Schema.Literals(["local", "remote"]),
+  line: Schema.String,
 });
 
 /** The retained output tail STAPLED to a failure record — the EVIDENCE for the
@@ -72,9 +75,9 @@ export const EvidenceLineSchema: z.ZodType<EvidenceLine> = z.object({
  *  "we couldn't see it": there is no such state on a failed arm any more. */
 export type FailureEvidence = readonly EvidenceLine[];
 
-/** The wire/zod schema for {@link FailureEvidence} — a module const (not a function of a
+/** The wire schema for {@link FailureEvidence} — a module const (not a function of a
  *  domain schema like the failure value): evidence is a fixed structural type this
- *  package owns, so there is exactly one schema for it. */
-export const FailureEvidenceSchema: z.ZodType<FailureEvidence> = z
-  .array(EvidenceLineSchema)
-  .readonly();
+ *  package owns, so there is exactly one schema for it. `Schema.Array` already decodes
+ *  to a `readonly` array, so zod's trailing `.readonly()` has no counterpart to spell. */
+export const FailureEvidenceSchema: WireSchema<FailureEvidence> =
+  Schema.Array(EvidenceLineSchema);

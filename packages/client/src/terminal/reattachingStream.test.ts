@@ -1,42 +1,78 @@
+import { Effect, Exit, Fiber, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { consumeReattachingStream } from "./reattachingStream";
+import {
+  consumeReattachingStream,
+  StaleSnapshotGrid,
+} from "./reattachingStream";
 
-/** Yield each of `items`, then either return cleanly or throw `endWith`. */
-async function* iterableThat<T>(
+/** The loud verdict's user-visible half. Same shape as `publishGrid.test.ts`'s
+ *  mock — the arrow defers the `toastSpy` read past module init, so the hoisted
+ *  factory is safe. */
+const toastSpy = { error: vi.fn() };
+vi.mock("solid-sonner", () => ({
+  toast: Object.assign(() => {}, {
+    loading: () => 0,
+    success: () => {},
+    error: (...a: unknown[]) => toastSpy.error(...a),
+    warning: () => {},
+    info: () => {},
+  }),
+}));
+
+/** Emit each of `items`, then either END cleanly or FAIL with `failWith`. */
+function streamThat<T>(
   items: T[],
-  endWith?: unknown,
-): AsyncGenerator<T> {
-  for (const item of items) yield item;
-  if (endWith !== undefined) throw endWith;
+  failWith?: unknown,
+): Stream.Stream<T, unknown> {
+  const emitted: Stream.Stream<T, unknown> = Stream.fromIterable(items);
+  return failWith === undefined
+    ? emitted
+    : Stream.concat(emitted, Stream.fail(failWith));
 }
 
-/** Resolve pending microtasks so the fire-and-forget loop advances. */
+/** Resolve pending microtasks so the fire-and-forget fiber advances. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+/** Run the loop the way its one production caller does: one fiber, interrupted
+ *  to stop it. The `AbortSignal` this helper used to take is gone — teardown is
+ *  fiber interruption (D10/#18), and there is nothing left to thread. */
+function start(
+  ...args: Parameters<typeof consumeReattachingStream<string>>
+): Fiber.Fiber<void, never> {
+  return Effect.runFork(consumeReattachingStream(...args).pipe(Effect.orDie));
+}
+
+/** The tile fact the loop reads back on a clean end. `exited` is the PTY-exit
+ *  case (a graceful end is real); the default is a LIVE terminal. */
+const tile = (exited = false) => ({ hasExited: () => exited });
 
 describe("consumeReattachingStream", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    toastSpy.error.mockReset();
   });
 
   it("abnormal end → re-attaches and re-subscribes with fresh items", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const controller = new AbortController();
     const items: string[] = [];
     const onReattach = vi.fn();
-    // 1st iterable throws a PLAIN Error (not a cleanup error) → abnormal mid-chain
-    // end; 2nd iterable yields then ends cleanly, stopping the loop.
+    // 1st stream FAILS after its frame → abnormal mid-chain end; 2nd emits then
+    // ends cleanly, stopping the loop.
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValueOnce(iterableThat(["stale"], new Error("padi died")))
-      .mockResolvedValueOnce(iterableThat(["fresh-snapshot", "live"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat(["stale"], new Error("padi died")))
+      .mockReturnValueOnce(streamThat(["fresh-snapshot", "live"]));
 
-    consumeReattachingStream(
+    start(
       streamFn,
-      (item) => items.push(item),
+      (item) => {
+        items.push(item);
+      },
       onReattach,
-      controller.signal,
       "test",
+      tile(),
     );
 
     // Drain the loop, waiting past the real-timer 300ms backoff that sits
@@ -46,109 +82,1023 @@ describe("consumeReattachingStream", () => {
 
     expect(onReattach).toHaveBeenCalledTimes(1);
     expect(streamFn).toHaveBeenCalledTimes(2);
-    // The stale first-iterable item flowed to onItem; then the fresh re-subscribe's
-    // items flowed too — the reattach never spliced, it re-served.
+    // The stale first stream's frame flowed to onItem; then the fresh
+    // re-subscribe's frames flowed too — the reattach never spliced, it re-served.
     expect(items).toEqual(["stale", "fresh-snapshot", "live"]);
   });
 
-  it("graceful end (PTY exit) → does NOT loop or re-attach", async () => {
-    const controller = new AbortController();
+  it("graceful end + the tile KNOWS the PTY exited → does NOT loop or re-attach", async () => {
     const items: string[] = [];
     const onReattach = vi.fn();
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat(["a", "b"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat(["a", "b"]));
 
-    consumeReattachingStream(
+    start(
       streamFn,
-      (item) => items.push(item),
+      (item) => {
+        items.push(item);
+      },
       onReattach,
-      controller.signal,
       "test",
+      tile(true),
     );
 
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(streamFn).toHaveBeenCalledTimes(1); // clean return → no re-subscribe
+    expect(streamFn).toHaveBeenCalledTimes(1); // clean end → no re-subscribe
     expect(onReattach).not.toHaveBeenCalled();
     expect(items).toEqual(["a", "b"]);
   });
 
-  it("unmount abort (expected cleanup error) → does NOT loop or re-attach", async () => {
-    const controller = new AbortController();
-    const onReattach = vi.fn();
-    // `isExpectedCleanupError` matches a DOMException named "AbortError" — the
-    // shape `AbortController.abort()` produces on unmount (see rpc/streamCleanup).
-    const abortError = new DOMException("aborted", "AbortError");
-    const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat<string>([], abortError));
+  // ── The manufactured clean end (kolu#2101, deploy #2) ────────────────────
+  //
+  // The frozen panes: a kaval-side attach subscription ended with no `overflow`
+  // frame while the PTY kept running, padi relayed that as a graceful end, and
+  // every retry layer — which retries FAILURES only — read it as "the PTY
+  // exited". Pre-fix this loop did nothing at all here (the case above), so the
+  // tile waited forever for a `terminalExit` that was never coming: blank pane,
+  // live title, no verdict.
 
-    consumeReattachingStream(
+  it("clean end while the terminal is still LIVE → one re-attach through onReattach", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const items: string[] = [];
+    const onReattach = vi.fn();
+    // 1st stream ends CLEANLY after its frame — no failure anywhere. 2nd stays
+    // open, which is what a healthy re-attach looks like.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat(["stale"]))
+      .mockReturnValueOnce(
+        Stream.concat(streamThat(["fresh-snapshot", "live"]), Stream.never),
+      );
+
+    start(
       streamFn,
-      () => {},
+      (item) => {
+        items.push(item);
+      },
       onReattach,
-      controller.signal,
       "test",
+      tile(),
     );
 
+    // Past the exit-settle window AND the re-subscribe backoff (300 + 300).
+    await new Promise((r) => setTimeout(r, 800));
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(streamFn).toHaveBeenCalledTimes(1); // stopped on the cleanup error
+    expect(streamFn).toHaveBeenCalledTimes(2);
+    expect(onReattach).toHaveBeenCalledTimes(1);
+    expect(items).toEqual(["stale", "fresh-snapshot", "live"]);
+  });
+
+  it("the exit facts landing DURING the settle window cancel the re-attach", async () => {
+    // The end frame and the exit publishes race over one socket, so a real exit
+    // routinely ends the stream before the tile has been told. Learning it
+    // inside the settle window must cost nothing: no reset, no RPC.
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat(["a"]));
+    let exited = false;
+
+    start(streamFn, () => {}, onReattach, "test", {
+      hasExited: () => exited,
+    });
+
+    await new Promise((r) => setTimeout(r, 50)); // inside the 300ms settle
+    exited = true;
+    await new Promise((r) => setTimeout(r, 600)); // well past settle + backoff
+
+    expect(streamFn).toHaveBeenCalledTimes(1);
     expect(onReattach).not.toHaveBeenCalled();
   });
 
-  it("signal already aborted → streamFn is never invoked", async () => {
-    const controller = new AbortController();
-    controller.abort();
+  it("a re-attach answered `TerminalNotFound` ENDS the loop — no storm", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const onReattach = vi.fn();
+    // The PTY really had exited; the tile just hadn't been told. padi answers
+    // the re-attach with the DECLARED `TerminalNotFound` — undeclared on a
+    // stream member, so it arrives as a bare tagged value (rpc/declaredErrors).
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValue(iterableThat(["never"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat(["last"]))
+      .mockReturnValue(
+        streamThat<string>([], { _tag: "TerminalNotFound", id: "t1" }),
+      );
 
-    consumeReattachingStream(
-      streamFn,
-      () => {},
-      onReattach,
-      controller.signal,
-      "test",
+    start(streamFn, () => {}, onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 1200)); // room for several retries
+    expect(streamFn).toHaveBeenCalledTimes(2); // re-attached ONCE, then stopped
+    expect(info).toHaveBeenCalledTimes(1);
+  });
+
+  it("a SECOND clean end while live is LOUD, and the loop persists (kolu#2101 K1)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    // A chain that manufactures ends: every attach ends cleanly, the PTY never
+    // exits. Note the frame — so the FIRST end refills the budgets and the
+    // second end of the following episode is the one that speaks.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat(["snapshot"]));
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          // Each cycle: end → 300ms exit settle → 300ms backoff. A delivered
+          // frame refills, so every end is "the first of its episode" and stays
+          // quiet, exactly as a chain that keeps delivering should.
+          for (let i = 0; i < 20; i++) yield* advance(600);
+          expect(err).not.toHaveBeenCalled();
+          expect(toastSpy.error).not.toHaveBeenCalled();
+          expect(streamFn.mock.calls.length).toBeGreaterThan(2);
+          return fiber.pollUnsafe() === undefined;
+        }),
     );
 
+    // It used to `Effect.die` on the second end — executing a tile whose PTY was
+    // demonstrably still delivering snapshots.
+    expect(alive).toBe(true);
+    expect(onReattach.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("clean ends with NO frame at all spend the budget and speak, without dying", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Nothing delivered, ever: the budget cannot refill, so the second end is
+    // the verdict.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat<string>([]));
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, vi.fn(), "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(600); // end #1: settle + backoff
+          expect(err).not.toHaveBeenCalled();
+          yield* advance(600); // end #2: the budget is out
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true);
+  });
+
+  // ── The stale-grid refusal (kolu#2101, deploy #2 incident #3) ───────────
+  //
+  // A snapshot answers the grid the attempt ASKED at. If the pane has resized
+  // since, painting it wraps scrollback at the wrong width — damage no later
+  // repaint undoes — so the handler refuses the frame. That refusal is a
+  // RECOVERABLE race with a documented repair (reset, reopen at the current
+  // grid). Spelled as a `throw` it was a DEFECT the failure-only retry never
+  // saw: the loop died, the pane went permanently blank over a live agent, and
+  // the toast said "reopening". These pin the channel, not the wording.
+
+  /** One pane driven the way `Terminal.tsx` drives it: the thunk captures the
+   *  grid it opens at, the frame handler refuses a snapshot that answers any
+   *  other grid, and `onReattach` is the screen reset. `perturb` runs at open
+   *  time and models a grid that moves WHILE the request is in flight (a
+   *  reload's column settle, another client's resize landing on the shared pty). */
+  function pane(opts: {
+    startAt: number;
+    perturbTo?: number[];
+    onOpen?: (cols: number) => void;
+  }) {
+    let paneCols = opts.startAt;
+    let requestedCols = 0;
+    const perturbations = [...(opts.perturbTo ?? [])];
+    const refusals: string[] = [];
+    const painted: string[] = [];
+    const onReattach = vi.fn();
+    const streamFn = vi.fn<() => Stream.Stream<string, unknown>>(() => {
+      requestedCols = paneCols; // the thunk reads the CURRENT grid, every open
+      opts.onOpen?.(requestedCols);
+      const settle = perturbations.shift();
+      if (settle !== undefined) paneCols = settle; // …and it moves in flight
+      return Stream.concat(
+        streamThat([`snapshot@${requestedCols}`]),
+        Stream.never, // a healthy attach stays open
+      );
+    });
+    const onItem = (item: string): StaleSnapshotGrid | undefined => {
+      if (item.startsWith("snapshot@") && requestedCols !== paneCols) {
+        refusals.push(item);
+        return new StaleSnapshotGrid({
+          terminalId: "t1",
+          requested: { cols: requestedCols, rows: 24 },
+          current: { cols: paneCols, rows: 24 },
+        });
+      }
+      painted.push(item);
+      return undefined;
+    };
+    return {
+      streamFn,
+      onItem,
+      onReattach,
+      refusals,
+      painted,
+      cols: () => paneCols,
+      resizeTo: (cols: number) => {
+        paneCols = cols;
+      },
+    };
+  }
+
+  it("resize between the request and the answer → resets, reopens ONCE, converges", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const p = pane({ startAt: 66, perturbTo: [65] }); // the 66→65 column settle
+
+    const fiber = start(p.streamFn, p.onItem, p.onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 500)); // past one 300ms backoff
+    expect(p.refusals).toEqual(["snapshot@66"]); // the stale answer, refused
+    expect(p.painted).toEqual(["snapshot@65"]); // the fresh one, at the new grid
+    expect(p.onReattach).toHaveBeenCalledTimes(1); // reset once, before reopening
+    expect(p.streamFn).toHaveBeenCalledTimes(2); // reopened exactly once
+
+    // And the loop is ALIVE — the incident's whole cost was that it was not.
+    expect(fiber.pollUnsafe()).toBe(undefined);
+    fiber.interruptUnsafe();
+  });
+
+  it("the reload storm: N panes each shifting one column all converge", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Three panes, the shape of the production report: a hard reload, every
+    // pane's layout settling one column narrower at once.
+    const panes = [66, 100, 132].map((startAt) =>
+      pane({ startAt, perturbTo: [startAt - 1] }),
+    );
+    const fibers = panes.map((p) =>
+      start(p.streamFn, p.onItem, p.onReattach, "test", tile()),
+    );
+
+    await new Promise((r) => setTimeout(r, 500));
+
+    for (const [i, p] of panes.entries()) {
+      expect(p.painted).toEqual([`snapshot@${[65, 99, 131][i]}`]);
+      expect(p.streamFn).toHaveBeenCalledTimes(2);
+      expect(fibers[i]?.pollUnsafe()).toBe(undefined); // none died
+    }
+    for (const f of fibers) f.interruptUnsafe();
+  });
+
+  it("a THROW from the frame handler still DIES loud — not retried", async () => {
+    // The negative pin. Refusing a frame is recoverable and returns; a breach of
+    // an invariant nothing can repair still throws, and must still skip every
+    // recovery path (channel 1). Same rule as the thunk's measured-grid assert.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["boom"]), Stream.never));
+
+    const fiber = Effect.runFork(
+      consumeReattachingStream(
+        streamFn,
+        () => {
+          throw new Error("attach opened without a measured grid");
+        },
+        onReattach,
+        "test",
+        tile(),
+      ),
+    );
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(1); // never retried
+    expect(onReattach).not.toHaveBeenCalled(); // and never reset the screen
+  });
+
+  it("a THROW from the thunk still DIES loud — not retried", async () => {
+    const onReattach = vi.fn();
+    const streamFn = vi.fn<() => Stream.Stream<string, unknown>>(() => {
+      throw new Error("terminal t1: attach opened without a measured grid");
+    });
+
+    const fiber = Effect.runFork(
+      consumeReattachingStream(
+        streamFn,
+        () => undefined,
+        onReattach,
+        "t",
+        tile(),
+      ),
+    );
+    const exit = await Effect.runPromise(Fiber.await(fiber));
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(onReattach).not.toHaveBeenCalled();
+  });
+
+  it("a throwing onReattach does NOT cost the re-attach — the promise holds", async () => {
+    // `onReattach` is the caller's screen reset (`xterm.reset()` on a terminal
+    // that may already be disposed). Run bare it is a DEFECT, so the loop would
+    // die having just WIPED the pane — blank pane, live agent, the exact
+    // rendering this module exists to kill — while the comment one line above it
+    // promises "fired ⇒ a re-subscribe follows". Contained, the promise holds.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn(() => {
+      throw new Error("xterm: terminal has been disposed");
+    });
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat<string>([], new Error("padi died")))
+      .mockReturnValue(Stream.concat(streamThat(["fresh"]), Stream.never));
+
+    const fiber = start(streamFn, () => undefined, onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 500));
+    expect(streamFn).toHaveBeenCalledTimes(2); // re-subscribed anyway
+    expect(err).toHaveBeenCalledTimes(1); // and said so, loudly
+    expect(fiber.pollUnsafe()).toBe(undefined); // still alive
+    fiber.interruptUnsafe();
+  });
+
+  // ── Multi-client grid contention (kolu#2101 G8d/G8e) ────────────────────
+  //
+  // `resizeTo` is a WRITE to a SHARED pty and the policy is LAST-ATTACH-WINS
+  // (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`). Two clients on one
+  // terminal therefore ping-pong its width — the production recording shows
+  // content re-wrapping 136 → ~65 → 136 with neither viewer told why. The policy
+  // is not what this test can change; what it pins is that the contention is a
+  // WRAPPING artifact and never a LIFECYCLE one: every refusal converges, and no
+  // pane loses its attach loop no matter how many times the other side asserts.
+
+  it("two clients ping-ponging the shared grid: both converge, neither loop dies", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    /** The shared pty, last-attach-wins — the stated policy, executed. */
+    let ptyCols = 136;
+    const attachAsserts: number[] = [];
+    const assertGrid = (cols: number) => {
+      attachAsserts.push(cols);
+      ptyCols = cols;
+    };
+
+    // The desktop holds a live attach at 136; its own layout settles twice
+    // (136 → 132 → 130) while the phone resumes alongside it — the iOS unlock
+    // re-attach, asserting 65 on the shared pty each time.
+    const desktop = pane({
+      startAt: 136,
+      perturbTo: [132, 130],
+      onOpen: assertGrid,
+    });
+    const phone = pane({ startAt: 65, onOpen: assertGrid });
+
+    const dFiber = start(
+      desktop.streamFn,
+      desktop.onItem,
+      desktop.onReattach,
+      "desktop",
+      tile(),
+    );
+    const pFiber = start(
+      phone.streamFn,
+      phone.onItem,
+      phone.onReattach,
+      "phone",
+      tile(),
+    );
+
+    await new Promise((r) => setTimeout(r, 1000)); // several backoff windows
+
+    // The desktop refused every stale answer and re-attached each time, ending
+    // painted at the grid its pane actually has.
+    expect(desktop.refusals).toEqual(["snapshot@136", "snapshot@132"]);
+    expect(desktop.painted).toEqual(["snapshot@130"]);
+    expect(desktop.streamFn).toHaveBeenCalledTimes(3);
+    // The phone was never perturbed, so it painted first time and never reopened.
+    expect(phone.painted).toEqual(["snapshot@65"]);
+    expect(phone.streamFn).toHaveBeenCalledTimes(1);
+    // Neither loop died — the property the incident broke.
+    expect(dFiber.pollUnsafe()).toBe(undefined);
+    expect(pFiber.pollUnsafe()).toBe(undefined);
+    // The ping-pong itself: both sizes asserted on ONE shared pty, and the pty
+    // carries the LAST assertion — the stated last-attach-wins policy, executed.
+    expect(new Set(attachAsserts)).toEqual(new Set([136, 132, 130, 65]));
+    expect(ptyCols).toBe(attachAsserts[attachAsserts.length - 1]);
+
+    dFiber.interruptUnsafe();
+    pFiber.interruptUnsafe();
+  });
+
+  it("a FOREIGN resize alone is invisible to this pane — today's gap, pinned", async () => {
+    // The honest negative pin, and the reason the affordance needs a wire fact.
+    // The refusal compares what THIS attempt asked for against what THIS pane
+    // now measures. A foreign client's `resizeTo` moves the SHARED pty and
+    // touches neither, so this pane paints a snapshot serialized at the other
+    // viewer's width into its own unchanged grid — the production recording's
+    // 136-col pane rendering ~65 cols of content, with nothing said to either
+    // viewer. Nothing here is wrong about the LOOP (the point of the test above);
+    // what is missing is a fact. Flip this test when the pty's current grid
+    // reaches the client — see `PadiTerminalAttachInputSchema`'s policy note.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let ptyCols = 136;
+    const desktop = pane({ startAt: 136, onOpen: (c) => (ptyCols = c) });
+
+    const fiber = start(
+      desktop.streamFn,
+      desktop.onItem,
+      desktop.onReattach,
+      "desktop",
+      tile(),
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    ptyCols = 65; // the phone attaches: last-attach-wins, silently
+
+    await new Promise((r) => setTimeout(r, 400));
+    expect(ptyCols).toBe(65); // the pty really is 65 now
+    expect(desktop.cols()).toBe(136); // the pane really is still 136
+    expect(desktop.refusals).toEqual([]); // …and nothing refused,
+    expect(desktop.painted).toEqual(["snapshot@136"]); // nothing re-attached,
+    expect(desktop.onReattach).not.toHaveBeenCalled(); // nothing told the user.
+    fiber.interruptUnsafe();
+  });
+
+  // The successor of the old "expected cleanup error" case. There is no such
+  // error to classify any more: teardown is a fiber INTERRUPT, and an
+  // interruption is not a failure — so an unmount can no longer be mistaken for
+  // a mid-chain death by any predicate, because it never reaches the failure
+  // handler at all (D10/#18).
+  it("interrupt mid-stream → the loop stops silently, no re-attach", async () => {
+    const items: string[] = [];
+    const onReattach = vi.fn();
+    // Never ends on its own: only the interrupt can stop it.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["a"]), Stream.never));
+
+    const fiber = start(
+      streamFn,
+      (item) => {
+        items.push(item);
+      },
+      onReattach,
+      "test",
+      tile(),
+    );
+
+    for (let i = 0; i < 5; i++) await flush();
+    expect(items).toEqual(["a"]);
+
+    fiber.interruptUnsafe();
     for (let i = 0; i < 10; i++) await flush();
 
-    expect(streamFn).not.toHaveBeenCalled();
+    expect(streamFn).toHaveBeenCalledTimes(1); // stopped, never re-subscribed
     expect(onReattach).not.toHaveBeenCalled();
+  });
+
+  it("interrupting during the BACKOFF stops the loop — the sleep is interruptible", async () => {
+    // The successor of "signal already aborted → streamFn is never invoked".
+    // That case tested a pre-armed abort against a hand-rolled `open()` guard;
+    // the guard is gone, and what replaces it is stronger: the backoff is an
+    // `Effect.sleep` inside the retry schedule, so an interrupt lands DURING it
+    // and no re-subscribe ever happens. The old `clearTimeout` bookkeeping the
+    // abort listener did is what this deletes.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat<string>([], new Error("padi died")));
+
+    const fiber = start(streamFn, () => {}, onReattach, "test", tile());
+
+    await new Promise((r) => setTimeout(r, 50)); // failed once, now sleeping
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    fiber.interruptUnsafe();
+
+    await new Promise((r) => setTimeout(r, 350)); // well past the backoff
+    expect(streamFn).toHaveBeenCalledTimes(1); // never re-subscribed
   });
 
   it("waits ~300ms between a failed attempt and the re-subscribe (backoff)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.useFakeTimers();
-    const controller = new AbortController();
     const onReattach = vi.fn();
     const streamFn = vi
-      .fn<() => Promise<AsyncIterable<string>>>()
-      .mockResolvedValueOnce(iterableThat<string>([], new Error("padi died")))
-      .mockResolvedValueOnce(iterableThat(["fresh"]));
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat<string>([], new Error("padi died")))
+      .mockReturnValueOnce(streamThat(["fresh"]));
 
-    consumeReattachingStream(
-      streamFn,
-      () => {},
-      onReattach,
-      controller.signal,
-      "test",
-    );
+    start(streamFn, () => {}, onReattach, "test", tile());
 
-    // Let the first attempt fail + onReattach fire, but DON'T yet cross the backoff.
-    await vi.advanceTimersByTimeAsync(0);
+    // Let the first attempt fail + onReattach fire, but DON'T yet cross the
+    // backoff. Real timers, not fake ones: the attempt runs on an Effect fiber
+    // whose scheduler is not the one `vi.useFakeTimers()` controls, so faking
+    // time here would stall the failure that arms the backoff in the first place.
+    await new Promise((r) => setTimeout(r, 50));
     expect(onReattach).toHaveBeenCalledTimes(1);
     expect(streamFn).toHaveBeenCalledTimes(1); // still inside the backoff
 
-    // Just shy of 300ms: still no re-subscribe.
-    await vi.advanceTimersByTimeAsync(299);
-    expect(streamFn).toHaveBeenCalledTimes(1);
-
     // Crossing 300ms triggers the re-subscribe.
-    await vi.advanceTimersByTimeAsync(1);
+    await new Promise((r) => setTimeout(r, 350));
     expect(streamFn).toHaveBeenCalledTimes(2);
+  });
+
+  // ── The SILENT open (kolu#2101 H3) ──────────────────────────────────────
+  //
+  // The fourth way an attach stops being useful, and the only one with no event
+  // to classify: the stream opens, the transport never fails, nothing ends, and
+  // no frame ever arrives. After a laptop wake, a pane sat blank while the host
+  // showed zero lines for it — the fiber simply parked on a subscription the
+  // protocol had re-dialled out from under it.
+  //
+  // These run on Effect's own TestClock rather than real timers: the deadline is
+  // ten seconds, one case asserts nothing happens over HOURS, and one is a
+  // one-millisecond boundary. `vi.useFakeTimers()` cannot serve any of that —
+  // the loop runs on an Effect fiber whose scheduler is not the one vitest
+  // patches (the note on the backoff test above) — but a TestClock IS that
+  // scheduler's clock, so `TestClock.adjust` moves exactly the sleeps under
+  // test and nothing else.
+
+  /** Let every fiber woken by an `adjust` run to its next suspension. `adjust`
+   *  yields once per wakeup, which is not enough for a wake that has to travel
+   *  stream → handler → race → retry schedule. */
+  const drain = Effect.forEach(
+    [1, 2, 3, 4, 5, 6, 7, 8],
+    () => Effect.yieldNow,
+    {
+      discard: true,
+    },
+  );
+
+  /** Drive the loop under a virtual clock. `body` receives the running fiber
+   *  and moves time; whatever it returns comes back to the test. */
+  function onVirtualClock<A>(
+    args: Parameters<typeof consumeReattachingStream<string>>,
+    body: (
+      fiber: Fiber.Fiber<Exit.Exit<void, unknown>, never>,
+    ) => Effect.Effect<A, never, never>,
+  ): Promise<A> {
+    return Effect.runPromise(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(
+          Effect.exit(consumeReattachingStream(...args)),
+        );
+        yield* drain;
+        const out = yield* body(fiber);
+        yield* Fiber.interrupt(fiber);
+        return out;
+      }).pipe(Effect.provide(TestClock.layer())),
+    );
+  }
+
+  /** Move virtual time and let everything it woke settle. */
+  const advance = (ms: number) =>
+    TestClock.adjust(ms).pipe(Effect.flatMap(() => drain));
+
+  it("(i) a stream that OPENS and never yields → one re-attach at the deadline, then the loud verdict", async () => {
+    // PRE-FIX (the same fixture against a `consumeReattachingStream` whose
+    // attempt is not raced against the deadline) this reproduced today's blank
+    // pane exactly. Measured at the deadline AND a further hour of virtual time:
+    //
+    //   { onReattachCalls: 0, streamFnCalls: 1, consoleWarnCalls: 0,
+    //     consoleErrorCalls: 0, fiberStillParked: true }
+    //
+    // Nothing logged, nothing toasted, nothing retried, the fiber still parked:
+    // a blank pane over a live agent, forever.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.never);
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          // One millisecond short of the deadline: nothing has happened.
+          yield* advance(44_999);
+          expect(streamFn).toHaveBeenCalledTimes(1);
+          expect(onReattach).not.toHaveBeenCalled();
+
+          // The deadline fires → channel 2 → the reset, then the 300ms backoff,
+          // then exactly one re-subscribe.
+          yield* advance(1);
+          expect(onReattach).toHaveBeenCalledTimes(1);
+          expect(String(warn.mock.calls[0]?.[0])).toContain("re-attaching");
+          expect(streamFn).toHaveBeenCalledTimes(1); // still inside the backoff
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(2);
+
+          // The successor is silent too: the budget is spent, so the loop says
+          // so — once — and drops to the demoted cadence instead of dying.
+          yield* advance(45_000);
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(String(err.mock.calls[0]?.[0])).toContain("opened silent 2");
+          expect(streamFn).toHaveBeenCalledTimes(2); // demoted: 30s, not 300ms
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true);
+    expect(toastSpy.error).toHaveBeenCalledTimes(1);
+  });
+
+  it("(ii) a healthy-but-IDLE stream is never touched — the deadline is FIRST-frame only", async () => {
+    // The negative that keeps the deadline honest. An idle terminal emits
+    // nothing for hours and that is the healthy majority of panes; an
+    // inter-frame deadline would blank every one of them.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.concat(streamThat(["snapshot"]), Stream.never));
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(6 * 60 * 60 * 1_000); // six hours of silence
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true); // still attached, still waiting for bytes
+    expect(onReattach).not.toHaveBeenCalled();
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("(iii) a first frame at 9_999ms beats the deadline — the boundary, exactly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const items: string[] = [];
+    // A snapshot that takes 9_999ms to arrive — the slowest frame the deadline
+    // still calls alive.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(
+        Stream.concat(
+          Stream.fromEffect(Effect.as(Effect.sleep(9_999), "snapshot")),
+          Stream.never,
+        ),
+      );
+
+    const alive = await onVirtualClock(
+      [
+        streamFn,
+        (item) => {
+          items.push(item);
+          return undefined;
+        },
+        onReattach,
+        "test",
+        tile(),
+      ],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(9_999);
+          expect(items).toEqual(["snapshot"]);
+          // The watcher wakes at 10_000, reads the latch the frame set, and
+          // parks for good.
+          yield* advance(1);
+          yield* advance(60 * 60 * 1_000);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true);
+    expect(onReattach).not.toHaveBeenCalled();
+    expect(streamFn).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // ── The deadline must never EXECUTE a healthy pane (kolu#2101 K1) ────────
+  //
+  // The deadline shipped derived from TRANSPORT margins only: one fence retry
+  // plus "a hop". The remote shape is browser→kolu-server→ssh→padi→kaval, plus
+  // padi's own 150+300+600ms re-open ladder right after reconvergence, plus a
+  // snapshot serialization that scales with scrollback and cannot be bounded at
+  // all. At 10s with a budget of 1, a legitimately slow first frame was
+  // executed at ~20.3s with no signposted recovery for that tile.
+  //
+  // The measurement that sets the constant is in the first test below: the
+  // deadline's re-attach is DESTRUCTIVE. `Effect.raceFirst` interrupts the
+  // loser, and interrupting the consume runs the stream's finalizers — which IS
+  // the unsubscribe — so the in-flight snapshot the host is serializing is
+  // abandoned and the successor starts from zero. The deadline is therefore a
+  // hard CEILING on legitimate first-frame latency, not a free nudge, and it
+  // has to sit above every arrival time we are willing to call alive.
+
+  /** A first frame that takes `ms` to arrive on an otherwise HEALTHY stream —
+   *  the remote shape: a big scrollback serialized over an ssh hop. */
+  const slowFirstFrame = (ms: number) =>
+    Stream.concat(
+      Stream.fromEffect(Effect.as(Effect.sleep(ms), "snapshot")),
+      Stream.never,
+    );
+
+  it("(K1a) a healthy remote-shaped first frame at 25s PAINTS — the deadline is not a verdict on slow", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const items: string[] = [];
+    // 25s: more than 2× the old 10s deadline, and well inside what a loaded
+    // remote host can honestly take (heartbeat worst case alone is ~25s).
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(slowFirstFrame(25_000));
+
+    const alive = await onVirtualClock(
+      [
+        streamFn,
+        (item) => {
+          items.push(item);
+          return undefined;
+        },
+        onReattach,
+        "test",
+        tile(),
+      ],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(25_000);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(items).toEqual(["snapshot"]); // it PAINTED
+    expect(alive).toBe(true);
+    expect(streamFn).toHaveBeenCalledTimes(1); // never re-attached
+    expect(onReattach).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+    expect(toastSpy.error).not.toHaveBeenCalled();
+  });
+
+  it("(K1) the deadline is a CEILING: a first frame slower than it can never land — measured", async () => {
+    // The measurement behind the constant. A chain whose honest first-frame
+    // time exceeds the deadline converges NEVER: every attempt is torn down at
+    // the deadline and its successor restarts the serialization from zero. So
+    // the deadline cannot be read as "re-attach cheaply and race the in-flight
+    // snapshot" — there is no in-flight snapshot left to race.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const items: string[] = [];
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(slowFirstFrame(60_000)); // > FIRST_FRAME_DEADLINE_MS
+
+    await onVirtualClock(
+      [
+        streamFn,
+        (item) => {
+          items.push(item);
+          return undefined;
+        },
+        vi.fn(),
+        "test",
+        tile(),
+      ],
+      () =>
+        Effect.gen(function* () {
+          yield* advance(10 * 60 * 1_000); // ten minutes of trying
+          return undefined;
+        }),
+    );
+
+    expect(items).toEqual([]); // nothing ever painted
+    expect(streamFn.mock.calls.length).toBeGreaterThan(1); // it kept trying
+  });
+
+  it("(K1b) a genuine park: re-attach at 45s, loud verdict at 90.3s, then a demoted cadence", async () => {
+    // Falsifier (b) with its bound STATED: the H3 park fixture (a stream that
+    // opens and says nothing at all) is still caught — repair attempt at 45s,
+    // user-visible verdict at 90.3s — and the loop PERSISTS instead of dying.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onReattach = vi.fn();
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(Stream.never);
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, onReattach, "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          yield* advance(44_999);
+          expect(onReattach).not.toHaveBeenCalled();
+
+          // t=45_000 — the deadline fires, channel 2, reset + backoff.
+          yield* advance(1);
+          expect(onReattach).toHaveBeenCalledTimes(1);
+          expect(String(warn.mock.calls[0]?.[0])).toContain("re-attaching");
+          expect(err).not.toHaveBeenCalled();
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(2);
+
+          // t=90_300 — the second silent open. The budget is spent, so the
+          // verdict is SAID (once, loudly) and the loop keeps its promise.
+          yield* advance(45_000);
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+          expect(fiber.pollUnsafe()).toBe(undefined); // NOT executed
+
+          // …and demoted: the next attempt is 30s away, not 300ms.
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(2);
+          yield* advance(30_000);
+          expect(streamFn).toHaveBeenCalledTimes(3);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true);
+  });
+
+  it("(K1) a first frame REFILLS both budgets — max-2-then-loud holds per EPISODE", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      // 1: silent → deadline at 45_000, budget 0→1
+      .mockReturnValueOnce(Stream.never)
+      // 2: PAINTS, then dies mid-chain a second later → the refill
+      .mockReturnValueOnce(
+        Stream.concat(
+          streamThat(["snapshot"]),
+          Stream.fromEffect(
+            Effect.flatMap(Effect.sleep(1_000), () =>
+              Effect.fail(new Error("padi died")),
+            ),
+          ),
+        ),
+      )
+      // 3 and 4: silent again — a NEW episode, so 3 must buy a re-attach
+      .mockReturnValue(Stream.never);
+
+    await onVirtualClock(
+      [streamFn, () => undefined, vi.fn(), "test", tile()],
+      () =>
+        Effect.gen(function* () {
+          yield* advance(45_000 + 300); // attempt 2 opens and paints
+          expect(streamFn).toHaveBeenCalledTimes(2);
+          yield* advance(1_000 + 300); // it dies; attempt 3 opens
+          expect(streamFn).toHaveBeenCalledTimes(3);
+
+          // Attempt 3's deadline. PRE-REFILL this would be the second silent
+          // open of the loop and the verdict; post-refill it is the FIRST of a
+          // fresh episode, so it buys a re-attach and says nothing loud.
+          yield* advance(45_000);
+          expect(err).not.toHaveBeenCalled();
+          expect(toastSpy.error).not.toHaveBeenCalled();
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(4);
+
+          // Attempt 4 is the episode's second silent open — now it is loud.
+          yield* advance(45_000);
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+          return undefined;
+        }),
+    );
+
+    expect(warn.mock.calls.length).toBeGreaterThan(0);
+  });
+
+  it("(K1c) a J1 epoch re-dial inside the first-frame window spends NEITHER budget", async () => {
+    // J1's `websocketLink` now FAILS every call a wire re-dial orphaned, with
+    // an `RpcClientError`. That arrives here as an ordinary channel-2 transport
+    // failure — it always did, and this pins that it stays that way now that
+    // the budgets are the thing standing between a pane and a loud verdict.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    /** The shape J1's epoch wrap raises (`packages/surface/src/links/websocket.ts`). */
+    const epochFail = () => ({
+      _tag: "RpcClientError",
+      reason: "RpcClientDefect",
+      message: "wire re-dialled (epoch 1 → 2) — failing the calls it orphaned",
+    });
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      // 1 & 2: two epoch fails, both INSIDE the first-frame window
+      .mockReturnValueOnce(
+        Stream.fromEffect(
+          Effect.flatMap(Effect.sleep(5_000), () => Effect.fail(epochFail())),
+        ),
+      )
+      .mockReturnValueOnce(
+        Stream.fromEffect(
+          Effect.flatMap(Effect.sleep(5_000), () => Effect.fail(epochFail())),
+        ),
+      )
+      // 3: silent → the deadline budget's FIRST spend
+      .mockReturnValueOnce(Stream.never)
+      // 4: a clean end while live → the clean-end budget's FIRST spend
+      .mockReturnValueOnce(streamThat<string>([]))
+      // 5: silent again → NOW the deadline budget is spent
+      .mockReturnValue(Stream.never);
+
+    await onVirtualClock(
+      [streamFn, () => undefined, vi.fn(), "test", tile()],
+      () =>
+        Effect.gen(function* () {
+          yield* advance(5_000 + 300); // epoch fail #1 → attempt 2
+          yield* advance(5_000 + 300); // epoch fail #2 → attempt 3
+          expect(streamFn).toHaveBeenCalledTimes(3);
+          expect(err).not.toHaveBeenCalled();
+
+          yield* advance(45_000); // attempt 3's deadline — budget 0→1
+          expect(err).not.toHaveBeenCalled();
+          expect(toastSpy.error).not.toHaveBeenCalled();
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(4);
+
+          yield* advance(300); // attempt 4's clean end + exit settle
+          yield* advance(300);
+          expect(err).not.toHaveBeenCalled(); // clean-end budget 0→1, quiet
+          expect(streamFn).toHaveBeenCalledTimes(5);
+
+          yield* advance(45_000); // attempt 5 silent → the verdict, at last
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+          return undefined;
+        }),
+    );
+  });
+
+  // ── The fruitless-cycle verdict (kolu#2101 K3-client) ───────────────────
+  //
+  // The 300ms macro-retry that absorbs a server-side budget exhaustion is
+  // unbounded BY DESIGN and stays so — a genuine transient must not be
+  // punished. What it lacked was loudness: a persistently wedged chain churned
+  // to console forever, the one attach lane with neither ceiling nor verdict.
+  // Same policy as K1, different lane: the budgets above catch the SLOW
+  // fruitless shape (silence), this catches the FAST one (churn).
+
+  it("(K3) a sustained mid-chain wedge gets a verdict at 200 fruitless cycles, then slows down", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Every attach fails immediately: the fastest fruitless cycle there is —
+    // one failure plus one 300ms backoff.
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValue(streamThat<string>([], new Error("mid-chain wedge")));
+
+    const alive = await onVirtualClock(
+      [streamFn, () => undefined, vi.fn(), "test", tile()],
+      (fiber) =>
+        Effect.gen(function* () {
+          // 199 cycles: churning, console-only, nothing said to the user.
+          for (let i = 0; i < 198; i++) yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(199);
+          expect(err).not.toHaveBeenCalled();
+          expect(toastSpy.error).not.toHaveBeenCalled();
+
+          // The 200th — t=59_700, ~60s of unbroken fruitlessness.
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(200);
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+
+          // Demoted: 300ms buys nothing now, 30s buys one attempt.
+          yield* advance(300);
+          expect(streamFn).toHaveBeenCalledTimes(200);
+          yield* advance(30_000);
+          expect(streamFn).toHaveBeenCalledTimes(201);
+          // And said ONCE, not once per cycle.
+          expect(err).toHaveBeenCalledTimes(1);
+          expect(toastSpy.error).toHaveBeenCalledTimes(1);
+          return fiber.pollUnsafe() === undefined;
+        }),
+    );
+
+    expect(alive).toBe(true); // loud persistence, not execution
+    expect(warn.mock.calls.length).toBeGreaterThan(100);
+  });
+
+  it("(K3) a two-cycle transient stays QUIET — the unbounded-by-design lane is untouched", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const streamFn = vi
+      .fn<() => Stream.Stream<string, unknown>>()
+      .mockReturnValueOnce(streamThat<string>([], new Error("blip")))
+      .mockReturnValueOnce(streamThat<string>([], new Error("blip")))
+      .mockReturnValue(Stream.concat(streamThat(["snapshot"]), Stream.never));
+
+    await onVirtualClock(
+      [streamFn, () => undefined, vi.fn(), "test", tile()],
+      () =>
+        Effect.gen(function* () {
+          yield* advance(2_000);
+          return undefined;
+        }),
+    );
+
+    expect(streamFn).toHaveBeenCalledTimes(3);
+    expect(err).not.toHaveBeenCalled();
+    expect(toastSpy.error).not.toHaveBeenCalled();
   });
 });

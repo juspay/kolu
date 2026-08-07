@@ -12,10 +12,13 @@
  * the transport, and it lives HERE once: both legs that need it consume it instead
  * of re-deriving it.
  *
- *   - the BROWSER leg (`@kolu/surface-app`'s partysocket `createHeartbeat`) passes
- *     `isLive: () => ws.readyState === ws.OPEN` and `onStale: () => ws.reconnect()`;
- *   - the SSH leg (`@kolu/surface-remote`'s HostSession) passes
- *     `isLive: () => this.connection === 'connected'` and `onStale: () => this.recheck()`.
+ *   - the BROWSER leg (`@kolu/surface-app/connect`'s wire-shaped `createHeartbeat`
+ *     wrapper) passes `isLive: () => wire.status() === "open"` and
+ *     `onStale: () => wire.forceReconnect()` — it severs the half-open socket and
+ *     the LINK's own retry schedule dials fresh;
+ *   - the SSH leg (`@kolu/surface-remote`'s `makeSession`) passes
+ *     `isLive: () => state.phase === "connected"` (plus a live connection handle)
+ *     and an `onStale` that force-cycles the link through `session.recheck()`.
  *
  * The two variation points the legs differ on — the "is the link live enough to
  * probe?" GATE and the "the link is lying, recover it" ACTION — are the two
@@ -23,7 +26,7 @@
  * single-settle, the skip-overlap, the late-fire-safe dispose, the
  * synchronous-throw branch) is shared.
  *
- * Framework-free: timers only, no SolidJS, no partysocket — so the ssh leg can
+ * Framework-free: timers only, no SolidJS, no socket library — so the ssh leg can
  * consume it without pulling in a browser transport. Lives in `@kolu/surface`
  * (which both legs already depend on) so the dependency arrow points OUT of both.
  */
@@ -98,6 +101,18 @@ export interface HeartbeatTuning {
   timeoutMs?: number;
   /** Report a forced reconnect (a missed probe). Defaults to a `console.warn`. */
   onStale?: () => void;
+  /** Observe every DEFINITIVE probe verdict — `ok` true when the peer answered
+   *  (or answered with an error: the round-trip completed), false when the probe
+   *  timed out and the link was declared half-open. `atMs` is the wall clock at
+   *  the settle, so it is comparable to a server log.
+   *
+   *  Additive observability (kolu#2101 J2), never policy: it runs AFTER the
+   *  recovery and its report, and a throw from it is contained. A VOIDED probe
+   *  (a suspension re-probe, a wake) is deliberately not reported — it is not a
+   *  verdict, and a diagnostic that counted it as one would read a healthy
+   *  resumed tab as a flapping link. kolu records the last verdict into its
+   *  copy-pasteable diagnostic snapshot; a consumer that wants none passes none. */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
 }
 
 /** Options for {@link createHeartbeat}. */
@@ -132,6 +147,10 @@ export interface HeartbeatOptions {
   /** Report a probe that threw SYNCHRONOUSLY (a miswired/broken probe, distinct
    *  from an async rejection). Optional. */
   onProbeError?: (error: unknown) => void;
+  /** Observe every DEFINITIVE probe verdict — see
+   *  {@link HeartbeatTuning.onProbeSettled}. Optional; run guarded, LAST, so it
+   *  can never defeat the recovery or its report. */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
   /** The wall + monotonic clock pair the suspension check reads, gathered into ONE
    *  both-or-neither container (matching the repo's `deps` test-seam convention —
    *  renderRecovery / scrollLock) so the illegal half-injected state (a fake wall
@@ -284,6 +303,14 @@ export function createHeartbeat(opts: HeartbeatOptions): {
         // surface it rather than swallow (same fail-loud posture as above).
         console.error("heartbeat: onStaleReport reporter threw", error);
       }
+    }
+    // LAST, and only for a DEFINITIVE verdict (`abandon` never reaches here), so
+    // an observer sees exactly the alive/stale decisions the watchdog made —
+    // never a voided window. Guarded for the same reason as the two above.
+    try {
+      opts.onProbeSettled?.(!stale, now());
+    } catch (error) {
+      console.error("heartbeat: onProbeSettled observer threw", error);
     }
   };
   // Abandon the current probe WITHOUT a verdict — used by a suspension-void and by

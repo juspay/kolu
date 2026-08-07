@@ -27,21 +27,26 @@ import { currentPadiBuildId } from "@kolu/padi/assembly";
 import {
   PADI_REMOTE_DIAL,
   type PadiDaemonClient,
+  padiClientOver,
   type PadiSurfaceClient,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import {
+  padiDaemonGroup,
+  type padiSurface,
   PADI_SURFACE_VERSION,
-  type PadiDaemonContract,
+  padiSurfaceSibling,
 } from "@kolu/padi/surface";
 import {
   convergeAdmit,
+  type ControlCoreProbeClient,
   createConnectorDrainBudget,
   probeDaemonIdentityFrom,
 } from "@kolu/surface-daemon-supervisor";
 import {
   type Admit,
   type AdmitVerdict,
+  ConnectError,
   type Connector,
   makeSession,
   ResolveDrvError,
@@ -51,9 +56,13 @@ import {
   sshConnector,
   type SshProv,
 } from "@kolu/surface-remote";
+import { Effect, Schema } from "effect";
 import { composeSpawnEnv } from "kolu-pty";
 import { encodeHostKey, parseHostInput } from "kolu-common/hostKey";
-import type { PadiConvergence } from "kolu-common/surface";
+import {
+  type PadiConvergence,
+  PadiConvergenceSchema,
+} from "kolu-common/surface";
 import {
   type EntryFailedCause,
   type HostKey,
@@ -83,32 +92,87 @@ const REMOTE_DRAIN_TEARDOWN_CEILING_MS = 6000;
 const MAX_BUILD_DRAINS_PER_INSTANCE = 3;
 
 type AdmitDrainPlugs = {
-  readonly drain: () => Promise<void>;
-  readonly awaitExit: (signal: AbortSignal) => Promise<void>;
+  readonly drain: Effect.Effect<void, unknown>;
+  readonly awaitExit: Effect.Effect<void>;
 };
 
 function supersededAdmitError(): Error {
   return new Error("remote padi admit superseded");
 }
 
-/** Bind both convergence effects to one connector generation. The synchronous
- * drain fence leaves no interleaving point between checking the generation and
- * firing the verb; the exit plug rejects if superseded before or while waiting,
- * so a stale oracle cannot manufacture a verdict. */
+/** True for the ONE standing verdict that means "we reached this host's daemon and
+ *  it is not of this protocol epoch" (juspay/kolu#2101). Read as a predicate rather
+ *  than spelled inline so the two places that must agree — the `failed` arm that
+ *  refuses to overwrite it, and `computeEntryFailedDetail`'s own split — cannot
+ *  drift into disagreeing about which anomaly is the epoch one. */
+function isEpochVerdict(convergence: PadiConvergence | null): boolean {
+  return (
+    convergence?.kind === "unconverged" &&
+    convergence.cause.kind === "unspeakable-protocol"
+  );
+}
+
+/** An `Effect<void>` that completes the moment `signal` aborts (immediately, if it
+ *  already has). The listener is removed by the effect's own finalizer, so an arm
+ *  that LOSES a race leaves nothing attached to the signal.
+ *
+ *  This observes a signal the SESSION layer owns (`ConnectContext.signal` — the
+ *  per-dial generation fence `@kolu/surface-remote` hands every connector); it does
+ *  not manufacture one. That distinction is the whole reason it survives the
+ *  campaign's AbortSignal purge: interruption replaced every signal kolu-server
+ *  CREATED, and this is the one it is HANDED. */
+function whenAborted(signal: AbortSignal): Effect.Effect<void> {
+  return Effect.callback<void>((resume) => {
+    if (signal.aborted) {
+      resume(Effect.void);
+      return;
+    }
+    const onAbort = (): void => resume(Effect.void);
+    signal.addEventListener("abort", onAbort, { once: true });
+    return Effect.sync(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/** Bind both convergence effects to one connector generation.
+ *
+ * `Effect.suspend` is what makes the DRAIN fence synchronous: the generation is read
+ * at the instant the effect runs, in the same step that decides whether to hand the
+ * verb on, so there is no interleaving point between the check and the fire — the
+ * property the old `async` fence spelled with an early `throw`.
+ *
+ * The EXIT plug fences on both edges. Superseded BEFORE it starts and it dies at
+ * once; superseded WHILE waiting and the `whenAborted` arm wins the race and dies
+ * then. It dies rather than fails because its declared error channel is `never`
+ * (F3 — an exit oracle may not report failure as exit), and because that is what
+ * this already was: the old plug's rejection reached `drainAndAwaitExit` through an
+ * `Effect.promise`, which turns a rejection into a defect. Same cause, same
+ * `convergeAdmit` rejection, now stated in the type.
+ *
+ * The CEILING no longer appears here. It used to arrive as a second signal to
+ * compose (`AbortSignal.any([ceilingSignal, generationSignal])`); the framework
+ * interrupts the exit fiber instead, which stops a poll-based oracle without being
+ * asked. */
 export function generationBoundAdmitDrainPlugs(
   generationSignal: AbortSignal,
   plugs: AdmitDrainPlugs,
 ): AdmitDrainPlugs {
+  // `suspend` so each run raises its OWN error instance, exactly as the old
+  // `throw supersededAdmitError()` did — never one shared object with a stale stack.
+  const superseded = Effect.suspend(() => Effect.die(supersededAdmitError()));
   return {
-    drain: async () => {
-      if (generationSignal.aborted) throw supersededAdmitError();
-      await plugs.drain();
-    },
-    awaitExit: async (ceilingSignal) => {
-      if (generationSignal.aborted) throw supersededAdmitError();
-      await plugs.awaitExit(AbortSignal.any([ceilingSignal, generationSignal]));
-      if (generationSignal.aborted) throw supersededAdmitError();
-    },
+    drain: Effect.suspend(() =>
+      generationSignal.aborted
+        ? Effect.fail(supersededAdmitError())
+        : plugs.drain,
+    ),
+    awaitExit: Effect.suspend(() =>
+      generationSignal.aborted
+        ? superseded
+        : Effect.raceFirst(
+            plugs.awaitExit,
+            Effect.andThen(whenAborted(generationSignal), superseded),
+          ),
+    ),
   };
 }
 
@@ -257,7 +321,9 @@ class PadiDrvFault extends ResolveDrvError {
  *  boot-brick that takes the whole server + the healthy local default down with it
  *  (F6). A source that cannot resolve padi for the probed system is likewise a
  *  TERMINAL config fault; an unreachable host rejects plainly → `"network"` (retry). */
-function makeResolvePadiDrv(): SshConnectorOptions["resolveDrvPath"] {
+function makeResolvePadiDrv(): SshConnectorOptions<
+  typeof padiSurface.spec
+>["resolveDrvPath"] {
   return async (ctx) => {
     // Validate the baked ref here (lazy). A missing ref can't self-heal on a
     // retry, so represent it as a TERMINAL `ResolveDrvError("remote")` — the session
@@ -416,7 +482,14 @@ export function ensureRemotePadiBinding(
           expected: convergence.expected.contractVersion,
         };
       case "unconverged":
-        return { cause: "unconverged" };
+        // Split by CAUSE: an epoch failure and a drain that never took are both
+        // `unconverged` to the framework, but they are different situations for
+        // the operator and have different remedies. Rendering the generic card
+        // for the epoch case is what left the #2101 incident indistinguishable
+        // from an ordinary unreachable host.
+        return isEpochVerdict(convergence)
+          ? { cause: "previous-protocol-epoch" }
+          : { cause: "unconverged" };
       case "adopted-stale":
         // Canvas-live degraded bind — not an entry failure.
         return null;
@@ -441,7 +514,14 @@ export function ensureRemotePadiBinding(
   // padi-scoped view (`client.surface.<member>` at /surface/padi/*). So the wrapper
   // stashes the combined (for admit/drain) and hands the session the scoped client.
   const resolveDrv = makeResolvePadiDrv();
-  const inner = sshConnector<PadiDaemonContract>({
+  const inner = sshConnector({
+    // padi's SIBLING spec carried over the FULL daemon group — the same two halves
+    // `dialPadiViaHost` composes, for the same reason: `sshConnector` reads `.group`
+    // to open the link (which must reach the CONTROL sibling's tags too) and walks
+    // `.spec`/`.tagPrefix` to build the face (which is padi's own surface, what the
+    // pump and `identity()` consume). Splitting them is the only way to dial a
+    // two-sibling daemon through a one-surface connector.
+    surface: { ...padiSurfaceSibling, group: padiDaemonGroup },
     host,
     binary: PADI_REMOTE_DIAL.binary,
     extraArgs,
@@ -468,62 +548,109 @@ export function ensureRemotePadiBinding(
   // the ceiling yields drain-not-taken (ssh link loss is deliberately
   // transport-failed on the session ClosedInfo).
   const rawConnector: Connector<PadiSurfaceClient, SshProv> = async (ctx) => {
-    const conn = await inner(ctx);
+    // The EPOCH GATE's verdict, decoded (juspay/kolu#2101). The ssh connector
+    // reads the remote front's readiness banner before it builds a client, and a
+    // refusal arrives here as a `"remote"` `ConnectError` carrying the front's
+    // own convergence anomaly — opaque to the framework, `PadiConvergence`-shaped
+    // to us, because the wire schema re-derives the framework union. Standing it
+    // up as `convergence` is what turns the eternal spinner into a typed card;
+    // `"remote"` counting is what makes the session terminal at the existing
+    // give-up budget rather than looping forever on `"network"`.
+    //
+    // Rethrown either way: the session owns the retry/give-up decision, and a
+    // caught error that stopped here would be exactly the collapse-to-empty this
+    // codebase forbids.
+    const conn = await inner(ctx).catch((err: unknown) => {
+      if (err instanceof ConnectError && err.anomaly !== null) {
+        const decoded = Schema.decodeUnknownExit(PadiConvergenceSchema)(
+          err.anomaly,
+        );
+        if (decoded._tag === "Success") {
+          convergence = decoded.value;
+          // ONE structured line naming the classification. The incident log had
+          // nothing that distinguished a previous-epoch daemon from a down host;
+          // this is that line. Typed fields, not a sentence to grep.
+          log.warn(
+            {
+              host,
+              verdict: "gate-refused",
+              convergenceKind: decoded.value.kind,
+              cause:
+                decoded.value.kind === "unconverged"
+                  ? decoded.value.cause
+                  : undefined,
+              reason: err.message,
+            },
+            `remote padi on ${host} refused at the readiness gate — ${err.message}`,
+          );
+        } else {
+          // The far end sent an anomaly we cannot decode. Say so loudly; do NOT
+          // fall back to a null convergence, which would render as a generic
+          // link failure and hide that the two sides disagree about the shape.
+          log.error(
+            { host, anomaly: err.anomaly },
+            `remote padi on ${host} refused at the readiness gate with an anomaly this kolu cannot decode`,
+          );
+        }
+      }
+      throw err;
+    });
     const processExit = conn.closed.then((info) => {
       if (info.kind !== "exit") {
         // Keep the oracle unsettled so awaitExit only resolves on ceiling abort.
         return new Promise<void>(() => {});
       }
     });
+    // The COMBINED daemon client — padi's face AND the frozen control core — built
+    // over the link's OWN dispatch. `sshConnector` builds ONE face from ONE surface
+    // (padi's), so the control sibling's face can only come from the dispatch it
+    // hands back beside it. A connection without one cannot be admitted: admit
+    // probes and drains through `surface/control/*`, so proceeding would mean
+    // riding a padi we can neither identify nor drain.
+    if (conn.dispatch === undefined) {
+      throw new ConnectError(
+        `remote padi on ${host}: the ssh link exposed no dispatch, so the frozen control core is unreachable`,
+        "remote",
+        true,
+      );
+    }
+    const daemonClient = padiClientOver(conn.dispatch);
     const active = {
-      client: conn.client,
+      client: daemonClient,
       dispose: conn.teardown,
       processExit,
       signal: ctx.signal,
     };
-    const scopedClient = scopePadiSurface(conn.client);
+    const scopedClient = scopePadiSurface(daemonClient);
     combinedByScopedClient.set(scopedClient, active);
     return { ...conn, client: scopedClient };
   };
 
   // ── Drain plumbing: process oracle, not hello-poll (F3) ────────────────────
-  /** awaitExit resolves only from ClosedInfo.kind === "exit".
-   *  transport-failed / link-down + ceiling → drain-not-taken, never replaced. */
+  /** awaitExit succeeds only from ClosedInfo.kind === "exit".
+   *  transport-failed / link-down + ceiling → drain-not-taken, never replaced.
+   *
+   *  Just the promise, lifted. The abort plumbing this used to carry existed to
+   *  stop waiting once the ceiling won; the framework interrupts this effect
+   *  instead, and an interrupted `Effect.promise` simply stops observing a promise
+   *  the SESSION owns — there is no listener of ours left behind to leak. */
   function awaitExitViaProcessOracle(
     processExit: Promise<void>,
-    signal: AbortSignal,
-  ): Promise<void> {
-    return new Promise<void>((resolve) => {
-      if (signal.aborted) {
-        resolve();
-        return;
-      }
-      const onAbort = (): void => {
-        cleanup();
-        resolve();
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-      let done = false;
-      const cleanup = (): void => {
-        if (done) return;
-        done = true;
-        signal.removeEventListener("abort", onAbort);
-      };
-      void processExit.then(() => {
-        cleanup();
-        resolve();
-      });
-    });
+  ): Effect.Effect<void> {
+    return Effect.promise(() => processExit);
   }
 
   /** Fire the control-core drain + await process exit (not hello rejection). */
-  function drainAndAwaitClose(active: ActiveCombined): Promise<{
-    took: boolean;
-    drainRejection: string | null;
-  }> {
+  function drainAndAwaitClose(active: ActiveCombined): Effect.Effect<
+    {
+      took: boolean;
+      drainRejection: string | null;
+    },
+    Error
+  > {
     return drainAndAwaitExit(
-      () => active.client.surface.control.core.drain(),
-      (signal) => awaitExitViaProcessOracle(active.processExit, signal),
+      active.client.control.surface.core.drain(),
+      awaitExitViaProcessOracle(active.processExit),
       { ceilingMs: drainCeilingMs },
     );
   }
@@ -531,103 +658,134 @@ export function ensureRemotePadiBinding(
   // ── The admit hook: framework probe → convergeAdmit ────────────────────────
   // No raw decide(), no admitDrain, no convergeNewerContract / convergeBuildMismatch —
   // the framework owns the decision table, budget, race, and cross-supervisor memory.
-  const admit: Admit<PadiSurfaceClient> = async (
-    scopedClient,
-  ): Promise<AdmitVerdict> => {
-    const active = combinedByScopedClient.get(scopedClient);
-    if (active === undefined) {
-      throw new Error("remote padi admit: no matching combined connection");
-    }
-    const probe = await probeDaemonIdentityFrom({
-      client: active.client,
-      dispose: active.dispose,
-      capability: "drainable",
-      awaitExit: (signal) =>
-        awaitExitViaProcessOracle(active.processExit, signal),
-      drainCeilingMs,
-    });
-    // The identity hello is the first await under this binder's control. A
-    // recheck may supersede the dial while it is pending; fence before
-    // convergence so the stale generation cannot issue a drain.
-    if (active.signal.aborted) {
-      throw new Error("remote padi admit superseded");
-    }
-    const runningBuild =
-      probe.identity.build.kind === "known" ? probe.identity.build.id : "";
-
-    // Preserve the #1670 build-change breadcrumb when a build-axis drain fires —
-    // the VM adoption arm greps this string. Logged here (before convergeAdmit)
-    // only when the pure decision would drain on build; the framework logs its own
-    // generic line too.
-    const generationPlugs = generationBoundAdmitDrainPlugs(active.signal, {
-      drain: probe.fireDrain,
-      awaitExit: probe.awaitExit,
-    });
-    const verdict = await convergeAdmit({
-      running: {
-        ...probe.identity,
-        instanceKey: probe.instanceKey,
-      },
-      budget,
-      drain: generationPlugs.drain,
-      awaitExit: generationPlugs.awaitExit,
-      ceilingMs: probe.drainCeilingMs,
-      log: log.child({ host }),
-    });
-    // `convergeAdmit` can itself outlive a recheck while its drain awaits. Once
-    // this generation is superseded it may not mutate the standing anomaly or
-    // the later renew target; makeSession will tear its connection down.
-    if (active.signal.aborted) {
-      throw new Error("remote padi admit superseded");
-    }
-
-    // Breadcrumb for build-axis drains that took (or attempted) — keep the VM arm green.
-    if (
-      verdict.kind === "replaced" &&
-      runningBuild !== "" &&
-      runningBuild !== binderBuildId
-    ) {
-      log.info(
-        { host, binderBuildId, runningBuild },
-        `padi build change on boot: running=${runningBuild} expected=${binderBuildId}` +
-          " — draining the survivor (persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)",
-      );
-    }
-
-    switch (verdict.kind) {
-      case "adopt": {
-        // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
-        convergence = null;
-        activeCombined = active;
-        return { kind: "adopt" };
-      }
-      case "adopt-stale": {
-        // Framework anomaly rides the wire as-is (typed running + expected).
-        convergence = verdict.anomaly;
-        activeCombined = active;
-        return { kind: "adopt" };
-      }
-      case "replaced": {
-        // Drain took → reconnect will re-handshake. Standing anomaly cleared; budget
-        // retains the drained lineage so a foreign respawn is cross-supervisor.
-        convergence = null;
-        return { kind: "replaced", reason: verdict.reason };
-      }
-      case "refuse": {
-        convergence = verdict.anomaly;
-        return {
-          kind: "refuse",
-          state: { error: verdict.error, cause: "remote" },
-        };
-      }
-      default: {
-        const _exhaustive: never = verdict;
-        throw new Error(
-          `remote padi admit: unreachable verdict ${JSON.stringify(_exhaustive)}`,
+  //
+  // The BODY is an Effect — the probe, the convergence and both drain plugs are —
+  // and it is run exactly once, at the plug below.
+  const admitEffect = (
+    scopedClient: PadiSurfaceClient,
+  ): Effect.Effect<AdmitVerdict, unknown> =>
+    Effect.gen(function* () {
+      const active = combinedByScopedClient.get(scopedClient);
+      if (active === undefined) {
+        return yield* Effect.fail(
+          new Error("remote padi admit: no matching combined connection"),
         );
       }
-    }
-  };
+      const probe = yield* probeDaemonIdentityFrom({
+        // The framework's probe speaks `client.surface.control.core.<verb>` — the
+        // shape an oRPC nested client had. Under the flat wire a sibling is a tag
+        // PREFIX, so padi's control face is `{ surface: { core: … } }` and nesting it
+        // under `control` restores that one vocabulary. The framework's own
+        // `probeDaemonIdentity` re-nests identically, at the same seam, with the same
+        // assertion — a `SurfaceFace` carries no per-member types (D2/#16).
+        client: {
+          surface: { control: active.client.control.surface },
+        } as ControlCoreProbeClient,
+        dispose: active.dispose,
+        capability: "drainable",
+        awaitExit: awaitExitViaProcessOracle(active.processExit),
+        drainCeilingMs,
+      });
+      // The identity hello is the first suspension under this binder's control. A
+      // recheck may supersede the dial while it is pending; fence before
+      // convergence so the stale generation cannot issue a drain.
+      if (active.signal.aborted) {
+        return yield* Effect.fail(new Error("remote padi admit superseded"));
+      }
+      const runningBuild =
+        probe.identity.build.kind === "known" ? probe.identity.build.id : "";
+
+      // Preserve the #1670 build-change breadcrumb when a build-axis drain fires —
+      // the VM adoption arm greps this string. Logged here (before convergeAdmit)
+      // only when the pure decision would drain on build; the framework logs its own
+      // generic line too.
+      const generationPlugs = generationBoundAdmitDrainPlugs(active.signal, {
+        drain: probe.fireDrain,
+        awaitExit: probe.awaitExit,
+      });
+      const verdict = yield* convergeAdmit({
+        running: {
+          ...probe.identity,
+          instanceKey: probe.instanceKey,
+        },
+        budget,
+        drain: generationPlugs.drain,
+        awaitExit: generationPlugs.awaitExit,
+        ceilingMs: probe.drainCeilingMs,
+        log: log.child({ host }),
+      });
+      // `convergeAdmit` can itself outlive a recheck while its drain waits. Once
+      // this generation is superseded it may not mutate the standing anomaly or
+      // the later renew target; makeSession will tear its connection down.
+      if (active.signal.aborted) {
+        return yield* Effect.fail(new Error("remote padi admit superseded"));
+      }
+
+      // Breadcrumb for build-axis drains that took (or attempted) — keep the VM arm green.
+      if (
+        verdict.kind === "replaced" &&
+        runningBuild !== "" &&
+        runningBuild !== binderBuildId
+      ) {
+        log.info(
+          { host, binderBuildId, runningBuild },
+          `padi build change on boot: running=${runningBuild} expected=${binderBuildId}` +
+            " — draining the survivor (persist + exit, its kaval + PTYs survive) and respawning this binder's own build (drain-on-build-mismatch, #1670)",
+        );
+      }
+
+      switch (verdict.kind) {
+        case "adopt": {
+          // Clean adopt — budget memory SURVIVES (not reset). Clear standing anomaly.
+          convergence = null;
+          activeCombined = active;
+          return { kind: "adopt" };
+        }
+        case "adopt-stale": {
+          // Framework anomaly rides the wire as-is (typed running + expected).
+          convergence = verdict.anomaly;
+          activeCombined = active;
+          return { kind: "adopt" };
+        }
+        case "replaced": {
+          // Drain took → reconnect will re-handshake. Standing anomaly cleared; budget
+          // retains the drained lineage so a foreign respawn is cross-supervisor.
+          convergence = null;
+          return { kind: "replaced", reason: verdict.reason };
+        }
+        case "refuse": {
+          convergence = verdict.anomaly;
+          return {
+            kind: "refuse",
+            state: { error: verdict.error, cause: "remote" },
+          };
+        }
+        default: {
+          const _exhaustive: never = verdict;
+          throw new Error(
+            `remote padi admit: unreachable verdict ${JSON.stringify(_exhaustive)}`,
+          );
+        }
+      }
+    });
+
+  /**
+   * THE remote arm's Promise edge — one function, one `Effect.runPromise`, named so
+   * the boundary is countable (governance: `packages/tests/governance/runEdges.ts`).
+   *
+   * `@kolu/surface-remote`'s session asks for `Admit<C> = (client) =>
+   * Promise<AdmitVerdict>` and drives it from its own reconnect loop. That session
+   * layer is Promise-shaped by public contract and is this campaign's recorded
+   * residual, so the crossing cannot be composed away from this side: the probe, the
+   * budget-gated drain and `convergeAdmit` are Effect-native all the way down, and
+   * this is where they meet a seam kolu-server does not own.
+   */
+  const runAtSessionPlug = <A>(
+    program: Effect.Effect<A, unknown>,
+  ): Promise<A> => Effect.runPromise(program);
+
+  const admit: Admit<PadiSurfaceClient> = (scopedClient) =>
+    runAtSessionPlug(admitEffect(scopedClient));
 
   // ── The base session + the daemon-member spread ─────────────────────────────
   const base: Session<PadiSurfaceClient, SshProv> = makeSession<
@@ -652,13 +810,26 @@ export function ensureRemotePadiBinding(
   // handshake re-decides). Mirrors the pre-S9 hostUnsub.
   base.onState((s) => {
     if (s.phase === "failed") {
-      // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
-      // split) — a `failed` session always carries the real reason it gave up,
-      // so there is no invented fallback text left to write here.
-      convergence = {
-        kind: "link-failed",
-        detail: s.error,
-      };
+      // The EPOCH verdict outranks the generic give-up banner (juspay/kolu#2101).
+      // `link-failed` means "we could not reach it"; an `unspeakable-protocol`
+      // standing verdict means "we reached it and it is from another epoch" — a
+      // strictly more specific fact about the SAME give-up, which the gate stood
+      // up on the very dials that exhausted the budget. Overwriting it here would
+      // put the operator back in front of a "can't reach this host" card for a
+      // host that answered every time.
+      //
+      // Deliberately narrow: every OTHER standing anomaly (adopted-stale, a skew
+      // the admit refused) describes a bind that WAS working, so a later terminal
+      // link failure is genuinely newer news and still wins.
+      if (!isEpochVerdict(convergence)) {
+        // `lastError` is REQUIRED on the down arm (juspay/kolu SessionState sum
+        // split) — a `failed` session always carries the real reason it gave up,
+        // so there is no invented fallback text left to write here.
+        convergence = {
+          kind: "link-failed",
+          detail: s.error,
+        };
+      }
       activeCombined = null;
     } else if (s.phase === "disconnected") {
       // A refused/degraded verdict from admit is left standing (it re-decides on the
@@ -678,20 +849,25 @@ export function ensureRemotePadiBinding(
      *  Ground truth is the LINK DEATH (via {@link drainAndAwaitClose}), not the drain
      *  reply, and THROW if it does not exit in the window — never report a success that
      *  did not happen. */
-    renew: async () => {
-      const active = activeCombined;
-      if (active === null) {
-        throw new Error(
-          "remote padi is not bound — cannot drain (the daemon is unreachable)",
-        );
-      }
-      const { took, drainRejection } = await drainAndAwaitClose(active);
-      if (!took) {
-        throw new Error(
-          `remote padi drain did not complete — it did not exit within ${drainCeilingMs}ms (padi did not exit)` +
-            drainRejectionSuffix(drainRejection),
-        );
-      }
-    },
+    renew: () =>
+      Effect.gen(function* () {
+        const active = activeCombined;
+        if (active === null) {
+          return yield* Effect.fail(
+            new Error(
+              "remote padi is not bound — cannot drain (the daemon is unreachable)",
+            ),
+          );
+        }
+        const { took, drainRejection } = yield* drainAndAwaitClose(active);
+        if (!took) {
+          return yield* Effect.fail(
+            new Error(
+              `remote padi drain did not complete — it did not exit within ${drainCeilingMs}ms (padi did not exit)` +
+                drainRejectionSuffix(drainRejection),
+            ),
+          );
+        }
+      }),
   });
 }

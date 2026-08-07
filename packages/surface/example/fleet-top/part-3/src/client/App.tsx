@@ -8,6 +8,7 @@
  *     subscriptions dispose and the new host's populate synchronously.
  */
 
+import { Effect } from "effect";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { Pid } from "../common/surface";
 import { app } from "./wire";
@@ -35,8 +36,15 @@ export default function App() {
   // Declared procedures ride `entry.procedures.<ns>.<verb>` — bound and typed from
   // the entry spec, NO cast (the narrow `procedures` map dodges the TS2590 union
   // overflow the full `entry.rpc` contract client trips on a generic map).
-  const kill = async (pid: Pid): Promise<void> => {
-    await active.procedures.process.kill({ pid, signal: "TERM" });
+  // A declared procedure is an EFFECT, so this is a description until something
+  // runs it. A DOM handler is a genuine process/UI edge, which is where it runs.
+  const kill = (pid: Pid): void => {
+    Effect.runFork(
+      Effect.catchCause(
+        active.procedures.process.kill({ pid, signal: "TERM" }),
+        (cause) => Effect.sync(() => console.error("kill failed", cause)),
+      ),
+    );
   };
   // #endregion
 

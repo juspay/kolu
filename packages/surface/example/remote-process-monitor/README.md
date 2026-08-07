@@ -2,13 +2,13 @@
 
 A three-tier `top`-shaped live process monitor — browser SolidJS UI ↔ Node parent server ↔ remote agent over ssh stdio. Same typed `@kolu/surface` reactive primitives the notes app uses, but the source of truth lives on another machine.
 
-This is **R-1.5's falsifiability test** for the framework's stdio transport: every primitive added in R-1.5 (`StdioRPCLink`, `serveOverStdio`, `createLoopbackPair`, `inMemoryChannel`) is exercised in the same shape Kolu R-2's `RemoteTerminalBackend` will use — different data (processes instead of terminals), same lifecycle and transport stack.
+This is **R-1.5's falsifiability test** for the framework's stdio transport: every primitive added in R-1.5 (`stdioLink`, `serveOverStdio`, `createLoopbackPair`, `inMemoryChannel`) is exercised in the same shape Kolu R-2's `RemoteTerminalBackend` will use — different data (processes instead of terminals), same lifecycle and transport stack.
 
 ## Three tiers
 
 ```
 Browser (SolidJS UI)
-   │  WebSocket (oRPC — the framework's existing browser transport)
+   │  WebSocket (Effect RPC over ndjson — the framework's browser transport)
    ▼
 Parent server (Node)
    │  ssh stdio (the R-1.5 stdio link)
@@ -65,7 +65,7 @@ nix run ..#process-monitor-agent -- --stdio --broken-stdout-log # lesson #4
 The plan's 12-row table maps to observable behavior in this app:
 
 1. **Stdio link over ssh** — `ssh $host $agent --stdio` connects; the typed RPC client `surface.system.get(...)` round-trips.
-2. **Peer-server pumps typed router** — the agent's `serveOverStdio({ router })` serves a non-trivial surface (system cell + processes collection + kill procedure).
+2. **The stdio server pumps a typed surface** — the agent's `serveOverStdio({ group, handlers })` serves a non-trivial surface (system cell + processes collection + kill procedure).
 3. **Snapshot-then-delta on collections** — open devtools, watch the WebSocket frames: first frame for the processes collection is the full PID map, subsequent frames are per-PID upserts/removes.
 4. **Snapshot-then-delta on state listeners** — the "Connecting…" overlay attaches before `connect()` returns and still sees the initial connection state. The parent session's `onState(cb)` fires `cb(current)` synchronously.
 5. **Deferred heartbeat** — no heartbeat in this PR; the link survives a long cold provision because there's no premature "disconnected" transition. The parent transitions to `connected` only after the first system snapshot arrives.

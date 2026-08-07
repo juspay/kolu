@@ -7,21 +7,30 @@
  *  fetch the shell still owned) so the layout shell stops carrying a non-layout
  *  fetch and drilling `appTitle` through every consumer. */
 
+import { Effect } from "effect";
 import type { PwaIdentity } from "kolu-common/contract";
 import { createSignal } from "solid-js";
 import { createSharedRoot } from "./createSharedRoot";
 import { hostTitle } from "./host/hostTitle";
+import { runOwnedAction } from "./runAction";
 import { activeHost, client } from "./wire";
 
 export const useServerIdentity = createSharedRoot(() => {
   const [identity, setIdentity] = createSignal<PwaIdentity>();
-  void client.server
-    .info()
-    .then((info) => setIdentity(info.identity))
-    .catch((err) => {
-      // Server info is cosmetic — safe to ignore on failure.
-      console.warn("Server info fetch failed:", err);
-    });
+  // Owned by the shared root, so an in-flight fetch is interrupted if the root
+  // is ever disposed rather than writing into a dead signal.
+  runOwnedAction(
+    "read server info",
+    client.server.info().pipe(
+      Effect.tap((info) => Effect.sync(() => setIdentity(info.identity))),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          // Server info is cosmetic — safe to ignore on failure.
+          console.warn("Server info fetch failed:", err);
+        }),
+      ),
+    ),
+  );
 
   // Expose only the named projections, not the raw `identity()` signal: a
   // consumer reaching past these to read `identity()?.name` would re-scatter the

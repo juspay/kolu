@@ -14,49 +14,50 @@
  *
  * The plan writes these as `nodes.list()` / `node.log(id)` / `node.rerun(id)`;
  * the surface-idiomatic spelling the framework derives is
- * `surface.nodes.get({})` / `surface.nodeLog.get({ id })` /
- * `surface.node.rerun({ id })`. The mapping is the point — if the surface
+ * `surface.nodes.get()` / `surface.nodeLog.get({ id })` /
+ * `surface.node.rerun({ id })`, each at the wire tag
+ * `surface/<member>/<verb>`. The mapping is the point — if the surface
  * primitives express this cleanly, the seam is at the right altitude for
  * kolu-tui to inherit; if it were awkward, that would be a framework
  * finding to fix *before* kolu-tui adopts it.
  */
 
 import { defineSurface, type SurfaceTypes } from "@kolu/surface/define";
-import { z } from "zod";
+import { Schema } from "effect";
 import { TaskIdSchema } from "./pipeline";
 
-export const NodeStatusSchema = z.enum([
+export const NodeStatusSchema = Schema.Literals([
   "pending",
   "running",
   "ok",
   "failed",
   "skipped",
 ]);
-export type NodeStatus = z.infer<typeof NodeStatusSchema>;
+export type NodeStatus = typeof NodeStatusSchema.Type;
 
-export const NodeStateSchema = z.object({
+export const NodeStateSchema = Schema.Struct({
   id: TaskIdSchema,
-  name: z.string(),
-  command: z.string(),
-  needs: z.array(TaskIdSchema),
+  name: Schema.String,
+  command: Schema.String,
+  needs: Schema.Array(TaskIdSchema),
   status: NodeStatusSchema,
   /** Process exit code once terminal; `null` while pending/running or when
    *  the process never spawned. */
-  exitCode: z.number().int().nullable(),
+  exitCode: Schema.NullOr(Schema.Int),
   /** `Date.now()` when the node started running; `null` until then. */
-  startedAt: z.number().nullable(),
+  startedAt: Schema.NullOr(Schema.Number),
   /** Wall-clock run time in ms once terminal; `null` otherwise. */
-  durationMs: z.number().nullable(),
+  durationMs: Schema.NullOr(Schema.Number),
 });
-export type NodeState = z.infer<typeof NodeStateSchema>;
+export type NodeState = typeof NodeStateSchema.Type;
 
-export const PipelineStateSchema = z.object({
-  name: z.string(),
+export const PipelineStateSchema = Schema.Struct({
+  name: Schema.String,
   /** Task ids in declaration order — the row order the dashboard paints. */
-  order: z.array(TaskIdSchema),
-  nodes: z.record(TaskIdSchema, NodeStateSchema),
+  order: Schema.Array(TaskIdSchema),
+  nodes: Schema.Record(TaskIdSchema, NodeStateSchema),
 });
-export type PipelineState = z.infer<typeof PipelineStateSchema>;
+export type PipelineState = typeof PipelineStateSchema.Type;
 
 export const EMPTY_STATE: PipelineState = {
   name: "pipeline",
@@ -69,12 +70,15 @@ export const EMPTY_STATE: PipelineState = {
  *  frame is `snapshot` (the buffered-so-far output); subsequent frames are
  *  `append` deltas. A `rerun` that clears a node's log re-emits a
  *  `snapshot` with empty text, so a still-attached client resets cleanly
- *  rather than seeing the new run's lines glued onto the old buffer. */
-export const NodeLogMessageSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("snapshot"), text: z.string() }),
-  z.object({ kind: z.literal("append"), text: z.string() }),
+ *  rather than seeing the new run's lines glued onto the old buffer.
+ *
+ *  `Schema.Union`, not `Schema.TaggedUnion`: the discriminant is `kind`, and
+ *  a tagged union would rename it to `_tag` and change the bytes. */
+export const NodeLogMessageSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("snapshot"), text: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("append"), text: Schema.String }),
 ]);
-export type NodeLogMessage = z.infer<typeof NodeLogMessageSchema>;
+export type NodeLogMessage = typeof NodeLogMessageSchema.Type;
 
 /** Cap a per-node log to its last `MAX_LOG_CHARS` — bounds memory for a noisy
  *  command, on both the runner's buffer and the TUI's accumulated copy. The
@@ -96,15 +100,15 @@ export const surface = defineSurface({
   },
   streams: {
     nodeLog: {
-      inputSchema: z.object({ id: TaskIdSchema }),
+      inputSchema: Schema.Struct({ id: TaskIdSchema }),
       outputSchema: NodeLogMessageSchema,
     },
   },
   procedures: {
     node: {
       rerun: {
-        input: z.object({ id: TaskIdSchema }),
-        output: z.object({ ok: z.boolean() }),
+        input: Schema.Struct({ id: TaskIdSchema }),
+        output: Schema.Struct({ ok: Schema.Boolean }),
       },
     },
   },
@@ -113,3 +117,4 @@ export const surface = defineSurface({
 type SF = SurfaceTypes<typeof surface.spec>;
 export type NodesSnapshot = SF["cells"]["nodes"]["Value"];
 export type NodeLogFrame = SF["streams"]["nodeLog"]["Output"];
+export type NodeLogInput = SF["streams"]["nodeLog"]["InputWire"];

@@ -31,6 +31,8 @@
  *  Callers read/write for the *active* terminal — the API is parameterless,
  *  resolving the current terminal id from `useTerminalStore` internally. */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import {
   type CodeTabView,
   DEFAULT_RIGHT_PANEL_PER_TERMINAL,
@@ -47,6 +49,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
+import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 import { isDesktop } from "../useMobile";
@@ -188,28 +191,47 @@ function ensureState(id: TerminalId): void {
 function reportToServer(id: TerminalId): void {
   const s = perTerminal[id];
   if (!s) return;
-  void activePadiRpc.chrome
-    .setRightPanel({
-      id,
-      collapsed: s.collapsed,
-      activeTab: s.activeTab,
-      codeMode: s.codeMode,
-      selectedFileByMode: s.selectedFileByMode,
-    })
-    .catch((err: Error) =>
-      // A rejected `setRightPanel` means the optimistic per-terminal state
-      // (collapsed / active tab / code mode / selected file) is NOT persisted —
-      // it silently reverts on the next session restore. The connection-health
-      // pip only reports TRANSPORT health, so an application-level rejection
-      // (validation / authorization) on an otherwise-live padi would go
-      // unseen; surface it per the repo's terminal-mutation rule (toast with
-      // the server message). One STABLE toast id dedups the failure so a downed
-      // padi — where every tab/file/collapse write fails — collapses onto a
-      // single toast instead of one per interaction.
-      toast.error(`Failed to save panel state: ${err.message}`, {
-        id: "right-panel-report-failed",
-      }),
-    );
+  // Run at the seam: the caller is a synchronous store mutation echoing a local
+  // write that already happened, with nothing to compose into.
+  runAction(
+    "save panel state",
+    activePadiRpc.chrome
+      .setRightPanel({
+        id,
+        collapsed: s.collapsed,
+        activeTab: s.activeTab,
+        codeMode: s.codeMode,
+        // SPREAD, never `selectedFileByMode: s.selectedFileByMode` (#17): the
+        // field is `Schema.optionalKey` on the wire, and Effect Schema accepts
+        // an ABSENT key but REJECTS a present-but-`undefined` one — where zod's
+        // `.optional()` tolerated both. The bound face decodes its input at the
+        // edge, so an explicit `undefined` here would THROW at this call site
+        // the first time a terminal has no file selected in any mode. Absence is
+        // the only spelling of "no selection".
+        ...(s.selectedFileByMode !== undefined && {
+          selectedFileByMode: s.selectedFileByMode,
+        }),
+      })
+      .pipe(
+        Effect.catch((err) =>
+          // A failed `setRightPanel` means the optimistic per-terminal state
+          // (collapsed / active tab / code mode / selected file) is NOT
+          // persisted — it silently reverts on the next session restore. The
+          // connection-health pip only reports TRANSPORT health, so an
+          // application-level rejection (validation / authorization) on an
+          // otherwise-live padi would go unseen; surface it per the repo's
+          // terminal-mutation rule (toast with the server message). One STABLE
+          // toast id dedups the failure so a downed padi — where every
+          // tab/file/collapse write fails — collapses onto a single toast
+          // instead of one per interaction.
+          Effect.sync(() => {
+            toast.error(`Failed to save panel state: ${toError(err).message}`, {
+              id: "right-panel-report-failed",
+            });
+          }),
+        ),
+      ),
+  );
 }
 
 export function useRightPanel() {
@@ -383,19 +405,23 @@ export function useRightPanel() {
      *  terminal remembers its own pick in each of local/branch/browse. */
     selectedFile: (mode: CodeTabView): string | null =>
       activeState().selectedFileByMode?.[mode] ?? null,
+    // A shallow PATCH, not a `produce` mutator: the decoded record is readonly
+    // (Effect's `Struct.Type`), so the map is REBUILT — the deselect arm drops
+    // the mode's key entirely rather than writing `undefined` into it, which is
+    // also what keeps the reported payload decodable (#17: these inner fields are
+    // `optionalKey` too).
     setSelectedFile: (mode: CodeTabView, path: string | null) => {
-      mutateActive((s) => {
-        const cur = s.selectedFileByMode ?? {};
-        if (path === null) {
-          if (!(mode in cur)) return;
-          const { [mode]: _, ...rest } = cur;
-          s.selectedFileByMode =
-            Object.keys(rest).length > 0 ? rest : undefined;
-        } else {
-          if (cur[mode] === path) return;
-          s.selectedFileByMode = { ...cur, [mode]: path };
-        }
-      });
+      const cur = activeState().selectedFileByMode ?? {};
+      if (path === null) {
+        if (!(mode in cur)) return;
+        const { [mode]: _dropped, ...rest } = cur;
+        mutateActive({
+          selectedFileByMode: Object.keys(rest).length > 0 ? rest : undefined,
+        });
+      } else {
+        if (cur[mode] === path) return;
+        mutateActive({ selectedFileByMode: { ...cur, [mode]: path } });
+      }
     },
 
     // ── Navigation history (back / forward) ──────────────────────────

@@ -17,12 +17,13 @@ another page is unfamiliar, this is the place to look it up.
 - **Stream** — a read-only view the server computes from an input (the live tail of a log). → [Reference](/surface/ref-surface)
 - **Event** — something that *happened*, not a value: a handler fires per occurrence, and there is no "current value." → [Reference](/surface/ref-surface)
 - **Procedure** — a plain call you make to *do* something (kill a process) — the imperative escape hatch. → [Reference](/surface/ref-surface)
-- **Contract** — the typed description of a surface that both the server and client compile against. Changing it is changing the wire. → [Why surfaces](/surface/why-surfaces)
+- **Group** — the typed description of a surface that both the server and client compile against: one flat set of string-tagged members (`surface/<member>/<verb>`), derived from the spec. Changing it is changing the wire. → [Why surfaces](/surface/why-surfaces)
 - **Snapshot-then-deltas** — every cell, collection, and stream opens with a full snapshot and then sends only changes, so a reconnect always re-seeds from truth. → [Reactive honesty](/surface/reactive-honesty)
 
 ## Wiring it up
 
-- **Link** — how a client reaches a served surface over one transport; every link yields the *same* typed client. `directLink` (in-process), `websocketLink` (browser ⇄ server), `unixSocketLink` (local daemon), `stdioLink` (subprocess / ssh). → [Choose a link](/surface/choose-a-link)
+- **Link** — how a client reaches a served surface over one transport; every link yields the *same* typed client. `directDispatch` (in-process), `websocketLink` (browser ⇄ server), `unixSocketLink` (local daemon), `stdioLink` (subprocess / ssh). → [Choose a link](/surface/choose-a-link)
+- **Dispatch** — what a link actually hands back: one flat `{ unary, stream }` pair keyed by wire tag. It is the whole seam between the client face and the transport, which is why swapping transports never touches a call site. → [Reference](/surface/ref-surface)
 - **Watchdog / liveness** — a small heartbeat that tells a live connection from a silently dead one (a socket can read "open" while no bytes flow). On by construction. → [@kolu/surface-app](/surface/ref-surface-app)
 - **Health — a fact, not a verdict** — `client.health()` reports what is *true* (the transport is up, and each subscription's state); the app decides what to *show*. → [Reactive honesty](/surface/reactive-honesty)
 - **Reactive honesty** — the discipline that a live view never silently lies: it opens with a snapshot, fails loud on a broken stream, and is consumed fine-grained. → [Reactive honesty](/surface/reactive-honesty)

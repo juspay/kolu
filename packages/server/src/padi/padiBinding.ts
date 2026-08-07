@@ -82,10 +82,12 @@ import type { PadiConvergence } from "kolu-common/surface";
 import {
   type ClosedInfo,
   ConnectError,
+  type Connection,
   type Connector,
   makeSession,
   type Session,
 } from "@kolu/surface-remote";
+import { Effect } from "effect";
 import { assertDaemonSpawnAllowed } from "kaval";
 import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
 import {
@@ -341,10 +343,13 @@ export function localPadiDriver(
   // refused at the driver's OWN spawn, not just in tests. A strict no-op in production
   // (no `VITEST`); the generic `survivableSpawnDriver` (odu's) stays untouched.
   return {
-    spawn: () => {
+    // `Effect.suspend` so the leash is re-checked on every RUN of the effect (each
+    // recycle), exactly as the old per-call check was — a `spawn` that is a VALUE
+    // must not bake its guard in at construction.
+    spawn: Effect.suspend(() => {
       assertDaemonSpawnAllowed("a real padi daemon");
-      return driver.spawn();
-    },
+      return driver.spawn;
+    }),
   };
 }
 
@@ -408,7 +413,9 @@ export interface EnsurePadiBindingOptions {
  * driver / connect — never a public override knob.
  */
 export type PadiBindingDeps = {
-  probe: (socketPath: string) => Promise<ConvergenceProbe<"drainable"> | null>;
+  probe: (
+    socketPath: string,
+  ) => Effect.Effect<ConvergenceProbe<"drainable"> | null, Error>;
   driver: DaemonDriver;
   connect: (socketPath: string) => ReturnType<typeof connectPadi>;
   policy: ReturnType<typeof padiConvergencePolicy>;
@@ -704,8 +711,8 @@ export function ensurePadiBindingWith(
 
   // SELF-CONVERGE (pre-connect): the only boot verb. Policy + budget live on the
   // endpoint (budget survives adopts across dials of this boot).
-  const convergePadi = async (): Promise<ConvergenceOutcome> => {
-    const outcome = await converge(ep);
+  const convergePadi = Effect.gen(function* () {
+    const outcome = yield* converge(ep);
     // Framework anomaly rides the wire as-is (PadiConvergence re-derives the
     // framework shape). No converter.
     standingConvergence = outcomeAnomaly(outcome);
@@ -725,82 +732,114 @@ export function ensurePadiBindingWith(
       );
     }
     return outcome;
-  };
+  });
 
   // The LOCAL transport CONNECTOR (`endpointConnector`, a kolu-server leaf): self-
   // converge, then hand the loop the endpoint's held connection, scoped to the padi
   // sibling (the pump mirrors `/surface/padi/*`; `identity()` reads its `system.identity`).
-  const connector: Connector<PadiSurfaceClient> = async (ctx) => {
-    ctx.connecting();
-    // The gone-root fail-fast (#2010), checked at the top of EVERY dial — the
-    // binder created the root at boot (above), so ENOENT here is proof the
-    // workspace was deleted while this kolu ran. Converging would respawn a
-    // padi whose boot RECREATES the directory, resurrecting the zombie its own
-    // anchor-gone self-reap just collected; reported through the same hook a
-    // reconnect-dial adoption refusal uses, so the composition root exits loud
-    // no matter which dial discovers it. Same ENOENT-only proof as the daemon
-    // side (`anchorGone`, single-sourced in `@kolu/surface-daemon`). A deletion
-    // landing in the check→spawn window is a DOCUMENTED RESIDUAL, not
-    // engineered around (the `boundToPid` pid-reuse stance): the spawned padi
-    // recreates the dir, its own anchor poll reaps it within two ticks, and the
-    // reconnect dial that follows lands back here — one bounded extra cycle,
-    // never a leaked class.
-    if (anchorGone(stateRoot)) {
-      const gone = new PadiStateRootGoneError(stateRoot);
-      reportFatalBindingError(gone, opts.onFatalBindingError);
-      throw gone;
-    }
-    const outcome = await convergePadi();
-    const conn = ep.current();
-    if (conn === undefined) {
-      // Classified by the extracted, unit-testable `padiConnectFailure`: a genuine
-      // `"refused"` contract skew (#1313) is FATAL (a distinguished error the
-      // composition root's boot `pin()` catches specifically, to exit loudly with the
-      // conflict + the remedy); everything else reconnects (network, retry with
-      // backoff), matching the pre-S9 scheduleReconnect. NEVER a kill.
-      const err = padiConnectFailure(outcome, stateRoot, home.socketPath);
-      // Report a fatal refusal HERE, synchronously, on every dial this connector
-      // ever runs — not just whichever dial a caller happens to await. Reconnect
-      // dials run through the session's own fire-and-forget loop and would
-      // otherwise swallow this throw silently (see `onFatalBindingError`'s doc).
-      reportFatalBindingError(err, opts.onFatalBindingError);
-      throw err;
-    }
-    // The far-end clock offset is no longer hand-measured here: `makeSession` samples
-    // it off the framework-reserved `system.clockNow` at admit and carries it on the
-    // session's own `connected` state (a keyed map reads it there).
-    const closed = new Promise<ClosedInfo>((resolve) => {
-      currentClosed = resolve;
+  //
+  // The BODY is an Effect — everything it composes (`converge`, the endpoint's own
+  // verbs) is one — and it is run exactly once, at the plug below.
+  const connectorEffect = (
+    ctx: Parameters<Connector<PadiSurfaceClient>>[0],
+  ): Effect.Effect<Connection<PadiSurfaceClient>, unknown> =>
+    Effect.gen(function* () {
+      ctx.connecting();
+      // The gone-root fail-fast (#2010), checked at the top of EVERY dial — the
+      // binder created the root at boot (above), so ENOENT here is proof the
+      // workspace was deleted while this kolu ran. Converging would respawn a
+      // padi whose boot RECREATES the directory, resurrecting the zombie its own
+      // anchor-gone self-reap just collected; reported through the same hook a
+      // reconnect-dial adoption refusal uses, so the composition root exits loud
+      // no matter which dial discovers it. Same ENOENT-only proof as the daemon
+      // side (`anchorGone`, single-sourced in `@kolu/surface-daemon`). A deletion
+      // landing in the check→spawn window is a DOCUMENTED RESIDUAL, not
+      // engineered around (the `boundToPid` pid-reuse stance): the spawned padi
+      // recreates the dir, its own anchor poll reaps it within two ticks, and the
+      // reconnect dial that follows lands back here — one bounded extra cycle,
+      // never a leaked class.
+      if (anchorGone(stateRoot)) {
+        const gone = new PadiStateRootGoneError(stateRoot);
+        reportFatalBindingError(gone, opts.onFatalBindingError);
+        return yield* Effect.fail(gone);
+      }
+      const outcome = yield* convergePadi;
+      const conn = ep.current();
+      if (conn === undefined) {
+        // Classified by the extracted, unit-testable `padiConnectFailure`: a genuine
+        // `"refused"` contract skew (#1313) is FATAL (a distinguished error the
+        // composition root's boot `pin()` catches specifically, to exit loudly with the
+        // conflict + the remedy); everything else reconnects (network, retry with
+        // backoff), matching the pre-S9 scheduleReconnect. NEVER a kill.
+        const err = padiConnectFailure(outcome, stateRoot, home.socketPath);
+        // Report a fatal refusal HERE, synchronously, on every dial this connector
+        // ever runs — not just whichever dial a caller happens to await. Reconnect
+        // dials run through the session's own fire-and-forget loop and would
+        // otherwise swallow this failure silently (see `onFatalBindingError`'s doc).
+        reportFatalBindingError(err, opts.onFatalBindingError);
+        return yield* Effect.fail(err);
+      }
+      // The far-end clock offset is no longer hand-measured here: `makeSession` samples
+      // it off the framework-reserved `system.clockNow` at admit and carries it on the
+      // session's own `connected` state (a keyed map reads it there).
+      const closed = new Promise<ClosedInfo>((resolve) => {
+        currentClosed = resolve;
+      });
+      return {
+        client: scopePadiSurface(conn.client),
+        closed,
+        // The FROZEN control-core hello round-trip — the liveness probe the watchdog
+        // uses. `isAlive` is `@kolu/surface-remote`'s Promise-shaped plug (the session
+        // layer this campaign records as its residual), and the hello is an Effect, so
+        // the crossing rides the SAME sanctioned run edge as the connector itself —
+        // `runAtSessionPlug` below, not a second one.
+        isAlive: () =>
+          runAtSessionPlug(
+            Effect.asVoid(conn.client.control.surface.core.hello()),
+          ),
+        // The LOCAL arm's same-box life-oracle (#1776): read padi's OWN pid gate and
+        // consult the process table directly (`gatePid` + `isHolderLive` = `kill(pid,0)`,
+        // the canonical helpers). This is the superior authority a same-box arm has that
+        // the ssh arm cannot: when the `isAlive` hello goes SILENT under CPU load, the
+        // watchdog asks "is the padi process actually gone, or just slow?" — alive → don't
+        // force-cycle a merely-slow link (the wedge #1776 fixes); gone → force-cycle now.
+        // The ssh connector supplies no such oracle (its heartbeat stays its only signal).
+        //
+        // SYNC read on the serving loop is deliberate and safe here
+        // (`no-sync-blocking-on-the-serving-loop` carve-out): `gatePid` reads a bytes-long
+        // pid file on the local runtime tmpfs (`XDG_RUNTIME_DIR`) — a microsecond read — and
+        // this oracle fires ONLY from the watchdog's `onStale`, i.e. on a heartbeat TIMEOUT
+        // (a rare event: a healthy probe answers and `onStale` never runs; even a wedged
+        // link only re-fires it ~once per 25s cycle), never per request. It stays
+        // SYNCHRONOUS by design — the ruling's synchronous predicate — rather than promoting
+        // the whole oracle path to `Promise<boolean>` for a fast local tmpfs read.
+        processAlive: () => {
+          const pid = gatePid(home.gatePath);
+          return pid !== undefined && isHolderLive(pid);
+        },
+        teardown: () => conn.dispose(),
+      };
     });
-    return {
-      client: scopePadiSurface(conn.client),
-      closed,
-      // The FROZEN control-core hello round-trip — the liveness probe the watchdog uses.
-      isAlive: () =>
-        conn.client.surface.control.core.hello().then(() => undefined),
-      // The LOCAL arm's same-box life-oracle (#1776): read padi's OWN pid gate and
-      // consult the process table directly (`gatePid` + `isHolderLive` = `kill(pid,0)`,
-      // the canonical helpers). This is the superior authority a same-box arm has that
-      // the ssh arm cannot: when the `isAlive` hello goes SILENT under CPU load, the
-      // watchdog asks "is the padi process actually gone, or just slow?" — alive → don't
-      // force-cycle a merely-slow link (the wedge #1776 fixes); gone → force-cycle now.
-      // The ssh connector supplies no such oracle (its heartbeat stays its only signal).
-      //
-      // SYNC read on the serving loop is deliberate and safe here
-      // (`no-sync-blocking-on-the-serving-loop` carve-out): `gatePid` reads a bytes-long
-      // pid file on the local runtime tmpfs (`XDG_RUNTIME_DIR`) — a microsecond read — and
-      // this oracle fires ONLY from the watchdog's `onStale`, i.e. on a heartbeat TIMEOUT
-      // (a rare event: a healthy probe answers and `onStale` never runs; even a wedged
-      // link only re-fires it ~once per 25s cycle), never per request. It stays
-      // SYNCHRONOUS by design — the ruling's synchronous predicate — rather than promoting
-      // the whole oracle path to `Promise<boolean>` for a fast local tmpfs read.
-      processAlive: () => {
-        const pid = gatePid(home.gatePath);
-        return pid !== undefined && isHolderLive(pid);
-      },
-      teardown: () => conn.dispose(),
-    };
-  };
+
+  /**
+   * THE local arm's Promise edge — one function, one `Effect.runPromise`, named so
+   * the boundary is countable (governance: `packages/tests/governance/runEdges.ts`).
+   *
+   * `@kolu/surface-remote`'s reconnect loop asks for `Connector<C> = (ctx) =>
+   * Promise<Connection<C>>` and OWNS the connection it gets — re-invoking the plug on
+   * its own schedule, tearing the result down through `teardown`. That session layer
+   * is Promise-shaped by public contract and is this campaign's recorded residual, so
+   * the crossing cannot be composed away from this side: kolu-server's convergence is
+   * Effect-native all the way down to `converge(ep)`, and this is where it meets a
+   * seam it does not own. The `isAlive` plug above rides the same function for the
+   * same reason, so the boundary stays ONE site rather than two.
+   */
+  const runAtSessionPlug = <A>(
+    program: Effect.Effect<A, unknown>,
+  ): Promise<A> => Effect.runPromise(program);
+
+  const connector: Connector<PadiSurfaceClient> = (ctx) =>
+    runAtSessionPlug(connectorEffect(ctx));
 
   // The LOCAL endpoint arm — `Prov = never` (no provisioning phases): the local
   // daemon is already here, nothing to provision or probe, so `initialConnection` can
@@ -842,14 +881,16 @@ export function ensurePadiBindingWith(
      *  `drain` over the endpoint's held connection — padi persists + exits, its kaval +
      *  PTYs survive, the socket closes → the loop reconnects. NEVER a kill-9. The
      *  RPC/socket-close race is handled by the shared {@link drainViaControlCore}. */
-    renew: async () => {
-      const conn = ep.current();
-      if (conn === undefined) {
-        throw new Error(
-          "padi is not bound — cannot drain (the daemon is down)",
-        );
-      }
-      await drainViaControlCore(conn);
-    },
+    renew: () =>
+      Effect.suspend(() => {
+        const conn = ep.current();
+        return conn === undefined
+          ? Effect.fail(
+              new Error(
+                "padi is not bound — cannot drain (the daemon is down)",
+              ),
+            )
+          : drainViaControlCore(conn);
+      }),
   });
 }

@@ -35,6 +35,14 @@ Apply the home-manager configuration as usual, then open
 [http://127.0.0.1:7681](http://127.0.0.1:7681). The module also puts the
 matching `kolu`, `padi-tui`, and `kaval-tui` commands on `PATH`.
 
+A generation built this way **carries every agent kolu can send to a [remote
+host](/remote-hosts)**, so a first connect copies binaries this machine already
+holds instead of fetching them from a cache or asking the remote machine to
+build them. Nothing to warm, nothing to run before switching. The set comes
+from `services.kolu.agentPackages`, which the module's flake defaults to the
+agents kolu is allowed to provision — override it only to pin particular
+builds.
+
 The complete, build-tested flake is in
 [`nix/home/example`](https://github.com/juspay/kolu/tree/master/nix/home/example).
 CI boots its systemd configuration in a NixOS VM and builds its launchd
@@ -124,3 +132,11 @@ retains the growing objects.
 Diagnostics are disabled by default and add no overhead until `dir` is set.
 Browser-tab or GPU growth has a different checklist in
 [Troubleshooting](/troubleshooting#kolu-is-using-a-lot-of-memory).
+
+## Stop it, roll it back, or test beside it
+
+Stopping the whole stack by hand — the daemons included — is not `systemctl stop`
+alone, and it is what a rollback to an older release needs. Running a second kolu
+on a machine that already has one needs its own state directories, or the test
+instance takes production's daemons over. Both procedures, and the vocabulary
+they share, are in [Operations](/operations).

@@ -7,16 +7,23 @@
  * synchronously).
  *
  * The per-key subtree is the runtime-keyed analogue of the compile-time sibling
- * client: a per-key `SurfaceClient<ES>` built over a `keyInjectingLink` — a Proxy
- * that folds `{ mapKey }` into every leaf call's input, so the base client (typed
- * against `ES`, with no `mapKey` in the consumer API) makes wire calls the server
- * reads as `{ mapKey, ...input }`. The base client's ref-counted dedup gives
- * per-key within-entry dedup for free (each per-key client has its own cache).
+ * client: a per-key `SurfaceClient<ES>` built over a {@link keyInjectingDispatch} —
+ * a `SurfaceDispatch` wrapper that folds `{ mapKey }` into every call's payload and
+ * re-tags it onto the map's own prefix, so the base client (typed against `ES`, with
+ * no `mapKey` in the consumer API) makes wire calls the server reads as
+ * `{ mapKey, input }`. The base client's ref-counted dedup gives per-key
+ * within-entry dedup for free (each per-key client has its own cache).
+ *
+ * The oRPC-era `keyInjectingLink` was a Proxy-of-Proxy over a nested client tree —
+ * the deepest structural dependency on oRPC's client shape in the codebase. Under the
+ * flat, string-tagged wire (W2 / PLAN D2) it collapses to a two-line wrapper over the
+ * erased `{ unary, stream }` seam: there is no tree to walk, so there is no proxy to
+ * write.
  */
 
-import type { Surface, SurfaceSpec } from "@kolu/surface/define";
-import { defineSurface, scopeSibling } from "@kolu/surface/define";
-import { isDirectLink } from "@kolu/surface/links/direct";
+import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { defineSurface, scopeSiblingTag } from "@kolu/surface/define";
+import { isDirectDispatch, type SurfaceDispatch } from "@kolu/surface/link";
 import {
   buildSurfaceClient,
   createKeyedRoot,
@@ -26,6 +33,7 @@ import {
   type Subscription,
   type SurfaceClient,
 } from "@kolu/surface/solid";
+import { Schema } from "effect";
 import {
   type Accessor,
   createEffect,
@@ -34,7 +42,6 @@ import {
   untrack,
 } from "solid-js";
 import { match } from "ts-pattern";
-import type { z } from "zod";
 import type {
   EntryState,
   EntryStatus,
@@ -73,14 +80,18 @@ export interface Entry<
    *  why the declared procedures moved off the raw `.rpc` onto this typed face (no
    *  consumer casts a procedure client any more). */
   readonly procedures: SurfaceClient<ES>["procedures"];
-  /** The raw oRPC LINK/router client (`rpc.surface.<ns>.<verb>`) — for the RESERVED
-   *  framework procedures (`system.live` / `system.identity`, contract-only) and the
-   *  link-root escape hatch, NOT the declared procedures (those ride `procedures`
-   *  above). Typed as the base `SurfaceClient`'s `rpc` — `unknown` for the generic
-   *  map, since the entry's link is untyped here; a consumer that must reach a
-   *  reserved proc reads it through its own concrete contract. Kept as
-   *  `SurfaceClient<ES>["rpc"]` rather than a `ContractRouterClient<...>` expansion,
-   *  which is a TS2590 "union too complex" under a generic `ES`. */
+  /** The raw nested member FACE (`rpc.surface.<ns>.<verb>`) — the addressing-layer
+   *  escape hatch for a member the bound shapes can't model, NOT the declared
+   *  procedures (those ride `procedures` above). Typed as the base `SurfaceClient`'s
+   *  `rpc` (`SurfaceFace`, structural by D2), so a consumer that must reach a raw
+   *  member narrows it itself.
+   *
+   *  NOTE the map does NOT fold the three reserved framework members
+   *  (`system.live` / `system.identity` / `system.clockNow`) — they are not entry-spec
+   *  members, so `defineSurfaceMap` mints no folded tag for them and the served map
+   *  binds no handler. Reaching one through this face fails at the map hop, exactly as
+   *  it did over the oRPC contract. Per-entry liveness rides the `entries` membership
+   *  authority instead. */
   readonly rpc: SurfaceClient<ES>["rpc"];
   /** The clock-translation lens — reproject a far-end (remote-host) timestamp into THIS
    *  process's local clock using the entry's measured `clockOffset`. The ONE generic
@@ -164,7 +175,16 @@ export function floorOnLiveness<Failure = unknown, Conn = unknown>(
       // `failed` has no `connection` field to drop — its record is already floor-proof by
       // construction, so it passes through whole rather than being rebuilt.
       .with({ kind: "failed" }, (s) => s)
-      .with({ kind: "warming" }, (s) => ({ ...s, connection: undefined }))
+      // REBUILD without the key rather than spreading `connection: undefined`, for
+      // the same reason the `connected` arm above rebuilds: `connection` is
+      // `Schema.optionalKey` on the published union, and "no fine word" is spelled
+      // as an ABSENT key — a present-`undefined` is a shape the schema refuses, so
+      // a floored value that ever reached an encode (a mirror, a relay) would throw
+      // (#17). The two demoting arms now spell absence the one same way.
+      .with({ kind: "warming" }, (s) => ({
+        kind: "warming" as const,
+        membershipId: s.membershipId,
+      }))
       .exhaustive()
   );
 }
@@ -214,14 +234,14 @@ function makeEntryClock(getState: () => EntryState): EntryClock {
 }
 
 export interface SurfaceMapClient<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
 > {
   /** The ONE membership authority, consumed as a normal bound collection. */
   readonly entries: ReadOnlyBoundCollection<
-    z.infer<KS>,
+    KS["Type"],
     EntryStatus<Failure, Conn>
   >;
   /** The app-transport liveness leg (resolved from the link once). A per-key chip
@@ -235,58 +255,69 @@ export interface SurfaceMapClient<
    *  to its canonical wire string through this rather than trusting `===`
    *  reference identity, which the client cannot guarantee across independent
    *  decodes of the same logical key (the map client's own cache vs. the caller's). */
-  readonly codec: KeyCodec<z.infer<KS>>;
+  readonly codec: KeyCodec<KS["Type"]>;
   /** PURE lens — partial application of the key. No owner, no I/O, safe
    *  anywhere. Total. */
-  entry(key: z.infer<KS>): Entry<ES, Failure, Conn>;
+  entry(key: KS["Type"]): Entry<ES, Failure, Conn>;
   /** Solid reactive lens — owns swap disposal (a keyed root disposes the old
    *  key's subscriptions on switch and rebuilds synchronously). THROWS outside a
    *  reactive owner. */
-  useEntry(key: Accessor<z.infer<KS>>): Entry<ES, Failure, Conn>;
+  useEntry(key: Accessor<KS["Type"]>): Entry<ES, Failure, Conn>;
   dispose(): void;
 }
 
-// ── The key-injecting link ──────────────────────────────────────────────
+// ── The key-injecting dispatch ──────────────────────────────────────────
 
-/** Wrap a leaf call's input in the uniform fold envelope `{ mapKey, input }` — the
- *  map server reads `mapKey` and forwards `input` verbatim. Uniform across object,
- *  primitive, and void inputs (a void-input member carries NO `input` field — just
- *  `{ mapKey }`), and an entry input carrying its own `mapKey` field can't collide with the folded key
- *  (it rides `input`, nested). `mapKey` is ALWAYS the canonical wire string here —
- *  the caller (`clientFor`) already ran the key through `map.codec.encode`. */
-function foldMapKey(mapKey: string, input: unknown): unknown {
-  return fold(mapKey, input);
+/** A tag rewriter: a STANDALONE surface tag (`surface/<member>/<verb>` — what the
+ *  entry face and the membership face both mint) onto the tag the MAP advertises for
+ *  it. Identity for a map served at the transport root; `scopeSiblingTag` for a map
+ *  DECLARED with a mount name (PR3: the key derives from the declaration, never from
+ *  a caller-passed string).
+ *
+ *  This is the tag-algebra successor of `scopeSibling(link, key)`'s link re-wrap. It
+ *  is also why the old brand-stripping hazard is gone: re-tagging never rebuilds the
+ *  transport, so the half-open brand and the watchdog `live` stay on the ONE dispatch
+ *  the guard already approved. */
+function mapRetag(map: { readonly name?: string }): (tag: string) => string {
+  const name = map.name;
+  return name === undefined
+    ? (tag) => tag
+    : (tag) => scopeSiblingTag(tag, name);
 }
 
-/** A Proxy over `link` that folds the encoded `mapKey` STRING into every
- *  `surface.<member>.<verb>` leaf call — so a per-key `SurfaceClient<ES>` built
- *  over it (typed against `ES`, no `mapKey`) issues wire calls the map server
- *  reads as `{ mapKey, ...input }`. */
-function keyInjectingLink(link: unknown, mapKey: string): unknown {
-  const surface = (link as { surface: Record<string, unknown> }).surface;
+/** Wrap a dispatch so every call carries the uniform fold envelope
+ *  `{ mapKey, input }` and lands on the map's own tag — the map server reads `mapKey`
+ *  and forwards `input` verbatim. Uniform across object, primitive, and void inputs
+ *  (a void-input member carries NO `input` field — just `{ mapKey }`), and an entry
+ *  input carrying its own `mapKey` field can't collide with the folded key (it rides
+ *  `input`, nested). `mapKey` is ALWAYS the canonical wire string here — the caller
+ *  (`clientFor`) already ran the key through `map.codec.encode`.
+ *
+ *  The payload side is the DECODED one on both legs (`@kolu/surface/link`'s contract):
+ *  the entry face hands this wrapper the member's decoded input, and the folded
+ *  envelope schema's decoded type is `{ mapKey: string, input: <decoded member input> }`
+ *  — so the fold is a plain value wrap, with no second encode/decode to keep in step. */
+function keyInjectingDispatch(
+  dispatch: SurfaceDispatch,
+  mapKey: string,
+  retag: (tag: string) => string,
+): SurfaceDispatch {
   return {
-    surface: new Proxy(
-      {},
-      {
-        get(_t, member: string) {
-          // biome-ignore lint/suspicious/noExplicitAny: opaque oRPC client node walked by string
-          const ns = surface[member] as any;
-          return new Proxy(
-            {},
-            {
-              get(_t2, verb: string) {
-                const leaf = ns[verb] as (
-                  input: unknown,
-                  opts?: unknown,
-                ) => unknown;
-                return (input: unknown, opts?: unknown) =>
-                  leaf(foldMapKey(mapKey, input), opts);
-              },
-            },
-          );
-        },
-      },
-    ),
+    unary: (tag, payload) => dispatch.unary(retag(tag), fold(mapKey, payload)),
+    stream: (tag, payload) =>
+      dispatch.stream(retag(tag), fold(mapKey, payload)),
+  };
+}
+
+/** Re-tag a dispatch WITHOUT folding a key — what the unfolded `entries` membership
+ *  collection rides (its key IS the map key, so there is nothing to fold). */
+function retaggedDispatch(
+  dispatch: SurfaceDispatch,
+  retag: (tag: string) => string,
+): SurfaceDispatch {
+  return {
+    unary: (tag, payload) => dispatch.unary(retag(tag), payload),
+    stream: (tag, payload) => dispatch.stream(retag(tag), payload),
   };
 }
 
@@ -523,16 +554,17 @@ export interface ConnectSurfaceMapOptions<K> {
  *  declaration. A nameless map (the in-process harness) is served at the transport root
  *  and is not sliced. */
 export function connectSurfaceMap<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
 >(
   map: SurfaceMap<KS, ES, Failure, Conn>,
   transport: unknown,
-  opts?: ConnectSurfaceMapOptions<z.infer<KS>>,
+  opts?: ConnectSurfaceMapOptions<KS["Type"]>,
 ): SurfaceMapClient<KS, ES, Failure, Conn> {
-  type K = z.infer<KS>;
+  type K = KS["Type"];
+  const decodeKeyValue = Schema.decodeUnknownSync(map.keySchema);
 
   // Resolve the transport ONCE — the guard is the ONLY way in: a branded
   // `LiveSignalHandle` yields its watchdog `live` + link; a bare half-open wire link
@@ -541,30 +573,30 @@ export function connectSurfaceMap<
   // pass the whole branded handle: the sibling is sliced by `map.name` from the resolved
   // link AFTER the guard, so it inherits the PARENT's watchdog `live` by construction —
   // there is no bare slice paired with a fabricated accessor.
-  // connectSurfaceMap OWNS the slicing (by `map.name`), so `transport` must be the
-  // BRANDED parent handle (a `LiveSignalHandle`, whose watchdog `live` the sliced sibling
-  // inherits) or an in-process `directLink` (sound constant-`true`). A RAW PRE-SLICED wire
-  // link — `scopeSibling(conn.link, "padi")` — or any other unbranded wire link is a
-  // MISUSE: `scopeSibling` re-wraps, stripping the half-open brand, so its liveness would
-  // fall to `resolveTransport`'s by-exclusion constant-`true` and floor every chip GREEN
-  // over a genuinely half-openable socket (#1564). Reject it loudly so THIS api cannot
-  // express that lie. (The framework-wide brand-propagation through `scopeSibling` — so a
-  // scoped WIRE slice still throws everywhere — is #1580's own fix, not this PR's; this
-  // guards connectSurfaceMap's own door.)
-  if (!isLiveSignalHandle(transport) && !isDirectLink(transport)) {
+  // connectSurfaceMap OWNS the scoping (by `map.name`), so `transport` must be the
+  // BRANDED parent handle (a `LiveSignalHandle`, whose watchdog `live` the scoped sibling
+  // inherits) or an in-process `directDispatch` (sound constant-`true`). Any other
+  // unbranded wire dispatch is a MISUSE: its liveness would fall to `resolveTransport`'s
+  // by-exclusion constant-`true` and floor every chip GREEN over a genuinely half-openable
+  // socket (#1564). Reject it loudly so THIS api cannot express that lie.
+  //
+  // The old "pre-sliced link" half of this hazard is now structurally gone: scoping is a
+  // TAG rewrite over the resolved dispatch (`mapRetag`), never a re-wrap of the transport
+  // value, so there is no re-wrapping step left that could strip the brand (#1580).
+  if (!isLiveSignalHandle(transport) && !isDirectDispatch(transport)) {
     throw new Error(
       "connectSurfaceMap: pass the BRANDED parent transport handle (e.g. `conn.transport` " +
-        "from connectSurfaces) — or an in-process `directLink`. A pre-sliced " +
+        "from connectSurfaces) — or an in-process `directDispatch`. A pre-sliced " +
         "or bare wire link cannot carry the half-open watchdog live; its by-exclusion " +
         "constant-`true` liveness would floor a green chip over a dead transport (#1564 / #1580).",
     );
   }
-  const { link: fullLink, live } = resolveTransport(transport);
-  // The transport-slice key derives from the map DECLARATION (`map.name`), never a
-  // caller-passed string (PR3). A named map is a sibling of the combined transport and is
-  // sliced by that name; a nameless map is served at the root and is not sliced.
-  const baseLink =
-    map.name !== undefined ? scopeSibling(fullLink, map.name) : fullLink;
+  const { dispatch: fullDispatch, live } = resolveTransport(transport);
+  // The tag scope derives from the map DECLARATION (`map.name`), never a caller-passed
+  // string (PR3). A named map is a sibling of the combined transport and its members are
+  // re-tagged under that name; a nameless map is served at the root and is not scoped.
+  const retag = mapRetag(map);
+  const baseDispatch = retaggedDispatch(fullDispatch, retag);
 
   // Capture the STABLE client owner: per-key clients' dedup caches must be
   // client-lifetime, never the transient `.use()`/mapArray owner that first
@@ -597,13 +629,13 @@ export function connectSurfaceMap<
     // the construction-time fail-fast reachable — no always-defined wrapper). The
     // base `buildSurfaceClient` stays origin-agnostic; the `{ key }` origin lives only
     // where keys exist (below).
-    buildSurfaceClient(entriesSurface, baseLink, live, appOnError),
+    buildSurfaceClient(entriesSurface, baseDispatch, live, appOnError),
   );
   const rawEntries = entriesClient.collections
     .entries as ReadOnlyBoundCollection<string, EntryStatus<Failure, Conn>>;
 
   // A key object has NO reference identity of its own (two independent decodes of
-  // the same wire string are logically equal but never `===` — zod's `.parse`
+  // the same wire string are logically equal but never `===` — a schema decode
   // mints a fresh object even for an already-valid input). Every consumer that
   // needs IDENTITY-keyed reconciliation (Solid's `<For>` over `entries.use().keys()`,
   // `useEntry`'s `createKeyedRoot` swap-root, which `mapArray`-keys by `===`) leans
@@ -625,7 +657,7 @@ export function connectSurfaceMap<
    *  server somehow published must fail here, not silently become a trusted `K`) —
    *  then canonicalize it to the one stable reference for its encoded string. */
   const decodeKey = (wire: string): K =>
-    canonicalizeKey(map.keySchema.parse(map.codec.decode(wire)) as K);
+    canonicalizeKey(decodeKeyValue(map.codec.decode(wire)) as K);
 
   // The external, OBJECT-keyed membership view (`SurfaceMapClient.entries`) — a thin
   // projection of `rawEntries` that encodes a caller's `keys` override going in and
@@ -713,7 +745,11 @@ export function connectSurfaceMap<
         // here, where the key exists — the base stays origin-agnostic.
         buildSurfaceClient(
           map.entry,
-          keyInjectingLink(baseLink, enc),
+          // The per-key dispatch folds `{ mapKey: enc }` into every payload AND
+          // re-tags onto the map's own prefix in ONE wrapper over the resolved
+          // dispatch — so the entry face, built from the STANDALONE `map.entry`,
+          // never learns that it is keyed or scoped.
+          keyInjectingDispatch(fullDispatch, enc, retag),
           live,
           appOnError
             ? (policy, err) => appOnError(policy, err, { key })
@@ -824,10 +860,9 @@ export function connectSurfaceMap<
       streams: c.streams,
       events: c.events,
       // The per-key client's bound, declaration-typed procedures — its key-injecting
-      // link folds `{ mapKey }` into every call, so the consumer never passes the key.
+      // dispatch folds `{ mapKey }` into every call, so the consumer never passes the key.
       procedures: c.procedures,
-      // The raw oRPC procedure client — reserved procs + link-root escape hatch. Typed
-      // loosely off the untyped link (`c.rpc` is `unknown`), so cast to `Entry.rpc`.
+      // The raw nested member face — the addressing-layer escape hatch.
       rpc: c.rpc as Entry<ES, Failure, Conn>["rpc"],
       clock: makeEntryClock(() => foldState(key)),
       state: () => foldState(key),

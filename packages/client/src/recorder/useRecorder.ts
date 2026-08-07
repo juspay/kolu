@@ -26,10 +26,12 @@
  *  elapsed-time clock, and re-exports a flat facade via `useRecorder()`.
  *  Mic and webcam domains live in their own modules. */
 
+import { Effect } from "effect";
 import fixWebmDuration from "fix-webm-duration";
 import { batch, createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { match, P } from "ts-pattern";
+import { runAction, type UiAction } from "../runAction";
 import {
   closeMicPreview,
   mic,
@@ -152,37 +154,52 @@ function errMsg(err: unknown): string {
 
 /** Populate both device lists. Labels are only populated after the
  *  relevant getUserMedia permission has been granted. */
-async function refreshDevices(): Promise<void> {
-  try {
-    const all = await navigator.mediaDevices.enumerateDevices();
-    setMicDevices(all.filter((d) => d.kind === "audioinput"));
-    setWebcamDevices(all.filter((d) => d.kind === "videoinput"));
-  } catch {
-    // Leave current lists as-is — an enumeration failure shouldn't wipe
-    // a previously-populated list.
-  }
+const refreshDevices: UiAction = Effect.tryPromise(() =>
+  navigator.mediaDevices.enumerateDevices(),
+).pipe(
+  Effect.tap((all) =>
+    Effect.sync(() => {
+      setMicDevices(all.filter((d) => d.kind === "audioinput"));
+      setWebcamDevices(all.filter((d) => d.kind === "videoinput"));
+    }),
+  ),
+  // Leave current lists as-is — an enumeration failure shouldn't wipe
+  // a previously-populated list.
+  Effect.ignore,
+);
+
+/** Report a mic failure unless the user simply dismissed the permission
+ *  prompt. Shared by the two verbs that open a preview. */
+const toastUnlessDismissed = <A>(
+  self: Effect.Effect<A, unknown>,
+): Effect.Effect<A | undefined, never> =>
+  Effect.catch(self, (err) =>
+    Effect.sync(() => {
+      if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
+      return undefined;
+    }),
+  );
+
+function openSetup(): UiAction {
+  return Effect.suspend(() => {
+    if (phase() !== "idle") return Effect.void;
+    setPhase("setup");
+    return openMicPreview(mic.selectedId()).pipe(
+      Effect.andThen(() => refreshDevices),
+      // The phase falls back to idle only on FAILURE — a `tapError`, not a
+      // finalizer, since the success path must stay in `setup`.
+      Effect.tapError(() => Effect.sync(() => setPhase("idle"))),
+      toastUnlessDismissed,
+    );
+  });
 }
 
-async function openSetup(): Promise<void> {
-  if (phase() !== "idle") return;
-  setPhase("setup");
-  try {
-    await openMicPreview(mic.selectedId());
-    await refreshDevices();
-  } catch (err) {
-    if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
-    setPhase("idle");
-  }
-}
-
-async function changeMic(deviceId: string): Promise<void> {
-  if (phase() !== "setup") return;
-  setMicSelectedId(deviceId);
-  try {
-    await openMicPreview(deviceId);
-  } catch (err) {
-    if (!isAbort(err)) toast.error(`Microphone: ${errMsg(err)}`);
-  }
+function changeMic(deviceId: string): UiAction {
+  return Effect.suspend(() => {
+    if (phase() !== "setup") return Effect.void;
+    setMicSelectedId(deviceId);
+    return openMicPreview(deviceId).pipe(toastUnlessDismissed);
+  });
 }
 
 function cancelSetup(): void {
@@ -192,67 +209,103 @@ function cancelSetup(): void {
   setPhase("idle");
 }
 
-async function startRecording(): Promise<void> {
-  if (phase() !== "setup") return;
-  const preview = micPreviewStream();
-  if (!preview) return;
+/** Start recording. GESTURE-BOUND: `showSaveFilePicker` and `getDisplayMedia`
+ *  both require an active user activation, and `runAction` forks on the calling
+ *  stack, so the picker below is the first thing this effect does. Nothing
+ *  asynchronous may be composed in front of it. */
+function startRecording(): UiAction {
+  return Effect.suspend(() => {
+    if (phase() !== "setup") return Effect.void;
+    const preview = micPreviewStream();
+    if (!preview) return Effect.void;
 
-  const displayTracks: MediaStreamTrack[] = [];
-  let openedWritable: FileSystemWritableFileStream | null = null;
-  try {
-    const handle = await window.showSaveFilePicker({
-      suggestedName: `kolu-${timestamp()}.webm`,
-      types: [
-        { description: "WebM video", accept: { "video/webm": [".webm"] } },
-      ],
-    });
-    const writable = await handle.createWritable();
-    openedWritable = writable;
+    // Both are cleanup state the failure path owns — a picker that opened a
+    // writable, and display tracks that started capturing, before a later step
+    // failed. Held here rather than in the effect's success channel because
+    // exactly the partial states need undoing.
+    const displayTracks: MediaStreamTrack[] = [];
+    let openedWritable: FileSystemWritableFileStream | null = null;
 
-    const display = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
-      preferCurrentTab: true,
-      selfBrowserSurface: "include",
-      systemAudio: "exclude",
-    });
-    displayTracks.push(...display.getTracks());
+    return Effect.gen(function* () {
+      const handle = yield* Effect.tryPromise({
+        try: () =>
+          window.showSaveFilePicker({
+            suggestedName: `kolu-${timestamp()}.webm`,
+            types: [
+              {
+                description: "WebM video",
+                accept: { "video/webm": [".webm"] },
+              },
+            ],
+          }),
+        catch: (e) => e,
+      });
+      const writable = yield* Effect.tryPromise({
+        try: () => handle.createWritable(),
+        catch: (e) => e,
+      });
+      openedWritable = writable;
 
-    const stream = new MediaStream([
-      ...display.getVideoTracks(),
-      ...preview.getAudioTracks(),
-    ]);
-    const recorder = new MediaRecorder(stream, { mimeType: MIME });
-    recorder.ondataavailable = (ev) => {
-      if (ev.data.size > 0) void writable.write(ev.data);
-    };
-    // Browser's own "stop sharing" bar ends the video track — treat it
-    // like a normal stop so the file closes cleanly.
-    display
-      .getVideoTracks()[0]
-      ?.addEventListener("ended", () => void stopRecording(), { once: true });
+      const display = yield* Effect.tryPromise({
+        try: () =>
+          navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+            preferCurrentTab: true,
+            selfBrowserSurface: "include",
+            systemAudio: "exclude",
+          }),
+        catch: (e) => e,
+      });
+      displayTracks.push(...display.getTracks());
 
-    session = {
-      recorder,
-      handle,
-      writable,
-      tracks: [...displayTracks, ...preview.getTracks()],
-    };
-    openedWritable = null; // ownership transferred to `session`
-    batch(() => {
-      setAnchor(performance.now());
-      setPausedAt(null);
-      setNow(performance.now());
-    });
-    startTicker();
-    setPhase("recording");
-    recorder.start(TIMESLICE_MS);
-    toast.success("Recording started");
-  } catch (err) {
-    for (const t of displayTracks) t.stop();
-    if (openedWritable) await openedWritable.close().catch(() => {});
-    if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
-  }
+      const stream = new MediaStream([
+        ...display.getVideoTracks(),
+        ...preview.getAudioTracks(),
+      ]);
+      const recorder = new MediaRecorder(stream, { mimeType: MIME });
+      recorder.ondataavailable = (ev) => {
+        if (ev.data.size > 0) void writable.write(ev.data);
+      };
+      // Browser's own "stop sharing" bar ends the video track — treat it
+      // like a normal stop so the file closes cleanly. A DOM listener, so it is
+      // its own edge.
+      display
+        .getVideoTracks()[0]
+        ?.addEventListener(
+          "ended",
+          () => runAction("stop recording", stopRecording()),
+          { once: true },
+        );
+
+      session = {
+        recorder,
+        handle,
+        writable,
+        tracks: [...displayTracks, ...preview.getTracks()],
+      };
+      openedWritable = null; // ownership transferred to `session`
+      batch(() => {
+        setAnchor(performance.now());
+        setPausedAt(null);
+        setNow(performance.now());
+      });
+      startTicker();
+      setPhase("recording");
+      recorder.start(TIMESLICE_MS);
+      toast.success("Recording started");
+    }).pipe(
+      Effect.catch((err) =>
+        Effect.gen(function* () {
+          for (const t of displayTracks) t.stop();
+          const stray = openedWritable;
+          if (stray)
+            yield* Effect.tryPromise(() => stray.close()).pipe(Effect.ignore);
+          if (!isAbort(err)) toast.error(`Recording failed: ${errMsg(err)}`);
+        }),
+      ),
+    );
+  });
 }
 
 function togglePause(): void {
@@ -312,63 +365,101 @@ function stopTicker(): void {
   }
 }
 
-async function stopRecording(): Promise<void> {
-  const s = session;
-  if (!s) return;
-  session = null;
-  setPhase("idle");
-  stopTicker();
+function stopRecording(): UiAction {
+  return Effect.suspend(() => {
+    const s = session;
+    if (!s) return Effect.void;
+    session = null;
+    setPhase("idle");
+    stopTicker();
 
-  // Capture ms-precise duration BEFORE zeroing the clock (the memo's
-  // last cached value is up to 1s stale at a sub-second ticker).
-  const durationMs =
-    (pausedAt() ?? performance.now()) - (anchor() ?? performance.now());
-  batch(() => {
-    setAnchor(null);
-    setPausedAt(null);
+    // Capture ms-precise duration BEFORE zeroing the clock (the memo's
+    // last cached value is up to 1s stale at a sub-second ticker).
+    const durationMs =
+      (pausedAt() ?? performance.now()) - (anchor() ?? performance.now());
+    batch(() => {
+      setAnchor(null);
+      setPausedAt(null);
+    });
+
+    // Race-safe recorder shutdown. If `state` is already "inactive" (e.g.
+    // the display track ended and re-entered stopRecording after
+    // MediaRecorder auto-stopped), calling stop() throws AND the stop
+    // event has already fired — waiting on the event would hang forever,
+    // blocking cleanup and leaking the mic stream. `Effect.callback`'s resume
+    // is idempotent, so the throw-path resume and the event can race freely.
+    const awaitStopped =
+      s.recorder.state === "inactive"
+        ? Effect.void
+        : Effect.callback<void>((resume) => {
+            s.recorder.addEventListener("stop", () => resume(Effect.void), {
+              once: true,
+            });
+            try {
+              s.recorder.stop();
+            } catch {
+              resume(Effect.void);
+            }
+          });
+
+    return awaitStopped.pipe(
+      Effect.andThen(() =>
+        Effect.gen(function* () {
+          for (const t of s.tracks) t.stop();
+          closeMicPreview();
+          closeWebcam();
+
+          yield* Effect.tryPromise({
+            try: () => s.writable.close(),
+            catch: (e) => e,
+          });
+
+          // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
+          // header — players show ~1 second. Read back, patch, rewrite.
+          const raw = yield* Effect.tryPromise({
+            try: () => s.handle.getFile(),
+            catch: (e) => e,
+          });
+          const out = yield* Effect.tryPromise({
+            try: () => fixWebmDuration(raw, durationMs),
+            catch: (e) => e,
+          }).pipe(
+            // The patch is cosmetic — an unpatched file still plays, so its
+            // failure warns and hands back the raw blob rather than losing the
+            // recording.
+            Effect.catch((err) =>
+              Effect.sync((): Blob => {
+                toast.warning(`Duration patch failed: ${errMsg(err)}`);
+                return raw;
+              }),
+            ),
+          );
+          const patched = yield* Effect.tryPromise({
+            try: () => s.handle.createWritable(),
+            catch: (e) => e,
+          });
+          yield* Effect.tryPromise({
+            try: () => patched.write(out),
+            catch: (e) => e,
+          });
+          yield* Effect.tryPromise({
+            try: () => patched.close(),
+            catch: (e) => e,
+          });
+
+          toast.success(`Recording saved · ${formatElapsed(durationMs)}`, {
+            description: s.handle.name,
+          });
+        }).pipe(
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(`Save failed: ${errMsg(err)}`);
+            }),
+          ),
+        ),
+      ),
+    );
   });
-
-  // Race-safe recorder shutdown. If `state` is already "inactive" (e.g.
-  // the display track ended and re-entered stopRecording after
-  // MediaRecorder auto-stopped), calling stop() throws AND the stop
-  // event has already fired — a naive `await new Promise(...)` would
-  // hang forever, blocking cleanup and leaking the mic stream.
-  if (s.recorder.state !== "inactive") {
-    await new Promise<void>((resolve) => {
-      s.recorder.addEventListener("stop", () => resolve(), { once: true });
-      try {
-        s.recorder.stop();
-      } catch {
-        resolve();
-      }
-    });
-  }
-  for (const t of s.tracks) t.stop();
-  closeMicPreview();
-  closeWebcam();
-
-  try {
-    await s.writable.close();
-
-    // Chrome's MediaRecorder streams WebM without a SegmentInfo.Duration
-    // header — players show ~1 second. Read back, patch, rewrite.
-    const raw = await s.handle.getFile();
-    let out: Blob = raw;
-    try {
-      out = await fixWebmDuration(raw, durationMs);
-    } catch (err) {
-      toast.warning(`Duration patch failed: ${errMsg(err)}`);
-    }
-    const patched = await s.handle.createWritable();
-    await patched.write(out);
-    await patched.close();
-
-    toast.success(`Recording saved · ${formatElapsed(durationMs)}`, {
-      description: s.handle.name,
-    });
-  } catch (err) {
-    toast.error(`Save failed: ${errMsg(err)}`);
-  }
 }
 
 export function formatElapsed(ms: number): string {

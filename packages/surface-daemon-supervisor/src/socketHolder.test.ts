@@ -14,12 +14,19 @@ import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
-import { readSocketHoldersForKoluTests as readHolders } from "./createEndpoint.kolu.testlib.ts";
+import { readSocketHoldersForKoluTests } from "./createEndpoint.kolu.testlib.ts";
+import type { SocketOccupancy } from "./socketHolder.ts";
+
+/** The reader is an Effect now, and a test IS a process edge — so the run lives
+ *  here once rather than at each of the six asks below. */
+const readHolders = (socketPath: string): Promise<SocketOccupancy> =>
+  Effect.runPromise(readSocketHoldersForKoluTests(socketPath));
 
 const children: number[] = [];
 afterEach(async () => {

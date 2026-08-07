@@ -38,6 +38,9 @@
  */
 
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
+import { directDispatch } from "@kolu/surface/links/direct";
+import type { SurfaceHandlers } from "@kolu/surface/server";
+import { Effect } from "effect";
 import {
   convergeAdmit,
   createConnectorDrainBudget,
@@ -158,7 +161,30 @@ type ServeOpts = {
 };
 type SpawnSpec =
   | ({ kind: "serve"; hello: Hello } & ServeOpts)
-  | { kind: "reject"; cause: "remote" | "network"; reason: string };
+  | { kind: "reject"; cause: "remote" | "network"; reason: string }
+  /**
+   * POST-FIX: the ssh connector's readiness gate refused before it built any
+   * client (juspay/kolu#2101). The remote front converged, could not settle, and
+   * said so on the wire; `sshConnector` turns that banner into a `"remote"`
+   * `ConnectError` carrying the front's typed anomaly opaquely.
+   *
+   * The byte-level trigger is NOT expressible here — this file mocks
+   * `sshConnector` entirely, so there is no stream to put a banner on. What is
+   * modelled is the connector's OUTCOME, which is exactly the seam the binder
+   * owns: decode the anomaly, stand it up, count it `"remote"`.
+   */
+  | { kind: "gate-refused"; reason: string; anomaly: unknown }
+  /**
+   * PRE-FIX: the incident's own shape. The link is built with no epoch check, the
+   * previous-epoch daemon accepts it and answers nothing, and Effect RPC's pinger
+   * kills the transport ~10s later. The admit hook sees a hello that never
+   * returns, classifies the death `"network"`, and `"network"` is never counted
+   * and never terminal — the infinite loop, by construction.
+   *
+   * Used ONLY by the falsifier below, which asserts the loop; the arm above is
+   * what replaced it.
+   */
+  | { kind: "silent-peer" };
 
 interface SpawnHandle {
   /** How many times THIS spawn's `drain()` was invoked. */
@@ -183,19 +209,58 @@ interface Arm {
   enqueue: (spec: SpawnSpec) => void;
   /** The per-spawn handles, in dial order. */
   handles: SpawnHandle[];
+  /** How many dials the connector has served — the loop's own tempo, which is
+   *  what the pre-fix falsifier measures. */
+  dialCount: () => number;
 }
+
+/** How long a pre-fix blind attach survived before Effect RPC's pinger killed it:
+ *  two unanswered 5s pings. The measured number from the incident gist, used only
+ *  to give the falsifier the incident's real tempo. */
+const PINGER_KILL_MS = 10_000;
 
 function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
   const queue: SpawnSpec[] = [];
   const handles: SpawnHandle[] = [];
+  let dials = 0;
 
   hoisted.nextConnector = async (
     ctx: ConnectContext,
   ): Promise<Connection<unknown>> => {
+    dials += 1;
     const spec = queue.shift();
     if (spec === undefined)
       throw new ConnectError("no more spawns queued (test)", "network");
     if (spec.kind === "reject") throw new ConnectError(spec.reason, spec.cause);
+    if (spec.kind === "gate-refused") {
+      throw new ConnectError(spec.reason, "remote", false, spec.anomaly);
+    }
+    if (spec.kind === "silent-peer") {
+      // A connection that LOOKS fine — the pre-fix blind attach. Its control-core
+      // hello never answers (the peer speaks another epoch), and the transport
+      // dies shortly after, which is what the pinger did in production.
+      let killSilent!: (info: ClosedInfo) => void;
+      const silentClosed = new Promise<ClosedInfo>((r) => {
+        killSilent = r;
+      });
+      setTimeout(
+        () => killSilent({ kind: "transport-failed" }),
+        PINGER_KILL_MS,
+      );
+      const mute = () => new Promise<never>(() => {});
+      const silentHandlers: SurfaceHandlers = Object.assign(
+        Object.create(null) as SurfaceHandlers,
+        { "surface/control/core/hello": () => Effect.promise(mute) },
+      );
+      ctx.connecting();
+      return {
+        client: { surface: { control: { core: { hello: mute } } } },
+        dispatch: directDispatch({ handlers: silentHandlers }),
+        closed: silentClosed,
+        isAlive: mute,
+        teardown: () => killSilent({ kind: "transport-failed" }),
+      };
+    }
 
     const hello = spec.hello;
     const dies = spec.diesOnDrain ?? true;
@@ -250,7 +315,6 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
           },
         },
         padi: {
-          marker: "padi-scoped",
           // The framework-reserved `system.*` members the padi-scoped session client
           // probes: `identity` (the identity poll) and `clockNow` (the clock-offset
           // poll `makeSession` fires at admit) — real padi auto-answers both via
@@ -263,6 +327,26 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
       },
     };
 
+    // The link's DISPATCH — what the binder actually builds both padi faces over
+    // now (`padiClientOver(conn.dispatch)`), since a sibling is a tag PREFIX on one
+    // flat wire rather than a nested namespace on one client. Binding the fake
+    // bodies at their real wire tags and routing them through the framework's own
+    // `directDispatch` keeps this a fake DAEMON rather than a fake CLIENT: the face
+    // the binder holds is production's, built by production's walk.
+    const fakeHandlers: SurfaceHandlers = Object.assign(
+      Object.create(null) as SurfaceHandlers,
+      {
+        "surface/control/core/hello": () =>
+          Effect.promise(() => combined.surface.control.core.hello()),
+        "surface/control/core/drain": () =>
+          Effect.promise(() => combined.surface.control.core.drain()),
+        "surface/padi/system/identity": () =>
+          Effect.promise(() => combined.surface.padi.system.identity()),
+        "surface/padi/system/clockNow": () =>
+          Effect.promise(() => combined.surface.padi.system.clockNow()),
+      },
+    );
+
     let resolveClosed!: (info: ClosedInfo) => void;
     const closed = new Promise<ClosedInfo>((r) => {
       resolveClosed = r;
@@ -273,6 +357,7 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
     ctx.connecting();
     return {
       client: combined,
+      dispatch: directDispatch({ handlers: fakeHandlers }),
       closed,
       isAlive: () =>
         combined.surface.control.core.hello().then(() => undefined),
@@ -282,7 +367,29 @@ function makeArm(deps: RemotePadiSessionDeps = {}): Arm {
 
   const session = ensureRemotePadiBinding({ host: "rmt" }, deps);
   sessions.push(session);
-  return { session, enqueue: (s) => queue.push(s), handles };
+  return {
+    session,
+    enqueue: (s) => queue.push(s),
+    handles,
+    dialCount: () => dials,
+  };
+}
+
+/** The session hands back PADI's face, not the frozen control core's — the
+ *  flat-wire successor of the fake's old `marker` field.
+ *
+ *  Under oRPC the scoped view was a nested object a marker could be hung on. A
+ *  sibling is a TAG PREFIX now and the face is built by production's own walk over
+ *  padi's spec, so the proof is the MEMBER SET that walk mints: padi's members are
+ *  present, and the control core's `core` namespace — the other sibling's only
+ *  member — is not. A regression that handed back the control face (or the raw
+ *  combined value) fails on both halves. */
+function expectPadiScoped(scoped: unknown): void {
+  const face = (scoped as { surface: Record<string, unknown> }).surface;
+  expect(Object.keys(face)).toEqual(
+    expect.arrayContaining(["lifecycle", "terminals", "system"]),
+  );
+  expect(face.core).toBeUndefined();
 }
 
 /** Narrow a `SessionState` snapshot to its DOWN arm (`disconnected`/`failed`) —
@@ -311,14 +418,12 @@ const RECONNECT = 2600;
 
 /** Pin a session that is expected to ADOPT (possibly after a drain that did not take),
  *  advance past the drain ceiling + the identity poll, and return the scoped client. */
-async function pinAdopt(session: PadiSession): Promise<{
-  surface: { marker?: string };
-}> {
+async function pinAdopt(session: PadiSession): Promise<unknown> {
   const p = session.pin();
   p.catch(() => {});
   await flush(CEIL);
   await flush();
-  return (await p) as { surface: { marker?: string } };
+  return await p;
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────
@@ -342,10 +447,10 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     // generation before convergeAdmit enacts the resulting mismatch decision.
     await Promise.resolve(helloVals({ buildId: "build-old" }));
     const generation = new AbortController();
-    const fireDrain = vi.fn(async () => {});
+    const fireDrain = vi.fn(() => {});
     const plugs = generationBoundAdmitDrainPlugs(generation.signal, {
-      drain: fireDrain,
-      awaitExit: async () => {},
+      drain: Effect.sync(fireDrain),
+      awaitExit: Effect.void,
     });
     generation.abort();
 
@@ -357,18 +462,20 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
       }),
     );
     await expect(
-      convergeAdmit({
-        running: {
-          contractVersion: PADI_SURFACE_VERSION,
-          build: daemonBuild("build-old"),
-          instanceKey: instanceKeyFromStartedAt(1),
-        },
-        budget,
-        drain: plugs.drain,
-        awaitExit: plugs.awaitExit,
-        ceilingMs: CEIL,
-        log: collectLogger(() => {}),
-      }),
+      Effect.runPromise(
+        convergeAdmit({
+          running: {
+            contractVersion: PADI_SURFACE_VERSION,
+            build: daemonBuild("build-old"),
+            instanceKey: instanceKeyFromStartedAt(1),
+          },
+          budget,
+          drain: plugs.drain,
+          awaitExit: plugs.awaitExit,
+          ceilingMs: CEIL,
+          log: collectLogger(() => {}),
+        }),
+      ),
     ).rejects.toThrow(/superseded/i);
     expect(fireDrain).not.toHaveBeenCalled();
   });
@@ -380,9 +487,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals({ commit: "deadbee", startedAt: 4242 })));
 
     const scoped = await pinAdopt(session);
-    // scopePadiSurface = { surface: combined.surface.padi } — the scoped client's
-    // `.surface` IS padi's sibling (the re-serve mirrors `.surface.padi.<member>`).
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    // The scoped client's members address `surface/padi/*` (the re-serve mirrors
+    // `.surface.<member>` at that prefix).
+    expectPadiScoped(scoped);
 
     // Identity graduates to the base `identity()` off padi's `system.identity` (the old
     // padiSurfaceVersion / padiBuildCommit / padiStartedAt readouts, now one sum).
@@ -462,6 +569,114 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     expect(conv?.detail).toMatch(/nix build|exited with code/i);
   });
 
+  // ── The epoch gate, at the binder seam (juspay/kolu#2101) ──────────────────
+  //
+  // These two are a matched pair and must be read together. The first pins what
+  // the fix DOES; the second pins what it replaced, so the first cannot silently
+  // stop testing anything. Both drive the same production scenario — a remote
+  // host whose padi speaks a previous protocol epoch — and they end in opposite
+  // places, which is the whole claim.
+
+  it("a gate REFUSAL counts as `remote`, goes terminal within the give-up budget, and stands up the typed epoch verdict", async () => {
+    // The front on that host converged, met a daemon it cannot decode, could not
+    // take it over, and refused on the wire. `sshConnector` never built a client,
+    // so no pinger ever ran; the refusal arrives as a `"remote"` ConnectError
+    // carrying the front's anomaly.
+    const anomaly = {
+      kind: "unconverged",
+      running: null,
+      expected: {
+        contractVersion: PADI_SURFACE_VERSION,
+        build: { kind: "off-nix" },
+      },
+      cause: {
+        kind: "unspeakable-protocol",
+        socketPath: "/run/user/1000/padi-abc/padi.sock",
+        gatePath: "/run/user/1000/padi-abc/padi.pid",
+        pid: 25494,
+      },
+      detail:
+        "the daemon at this rendezvous speaks a protocol epoch this supervisor cannot decode",
+    };
+    const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
+    // One more than the budget, so "it stopped at five" is a real observation and
+    // not the queue running dry.
+    for (let i = 0; i < 6; i++) {
+      enqueue({
+        kind: "gate-refused",
+        reason:
+          "padi on rmt: the peer refused to serve — this host's padi speaks a previous protocol epoch",
+        anomaly,
+      });
+    }
+
+    const p = session.pin();
+    p.catch(() => {});
+    await expect(p).rejects.toThrow(/previous protocol epoch/i);
+    // Walk the exponential backoff (2s+4s+8s+16s) to the give-up.
+    await flush(60_000);
+
+    // TERMINAL — the inverse of the incident. `"remote"` counts; five is the
+    // EXISTING budget, not a new one invented for this path.
+    expect(session.currentState().phase).toBe("failed");
+    expect(dialCount()).toBeLessThanOrEqual(5);
+    expect(session.currentClient()).toBeNull();
+
+    // The typed verdict is STANDING, decoded from the front's opaque payload with
+    // the wire schema — no string parsing anywhere on this path.
+    const conv = session.convergence();
+    expect(conv?.kind).toBe("unconverged");
+    expect(conv?.kind === "unconverged" && conv.cause).toMatchObject({
+      kind: "unspeakable-protocol",
+      pid: 25494,
+    });
+
+    // …and the host map gets its OWN cause, so the card says "previous protocol
+    // epoch" instead of the generic unconverged copy or an eternal spinner.
+    expect(session.entryFailedDetail()).toMatchObject({
+      cause: "previous-protocol-epoch",
+    });
+  });
+
+  it("FALSIFIER: the PRE-FIX blind attach never goes terminal — a silent peer loops forever (the incident's signature)", async () => {
+    // This is the give-up test INVERTED, and it is the reason the arm above is a
+    // real test rather than a tautology. Model the pre-fix path exactly: the link
+    // is attached with no epoch check, the previous-epoch daemon answers nothing,
+    // the pinger kills the transport ~10s later. The admit hook's catch hard-codes
+    // `"network"` for a dead handshake, `"network"` never counts toward
+    // MAX_CONSECUTIVE_FAILURES, and so the session redials forever.
+    //
+    // Every assertion below FAILS against the fixed path (which reaches `failed`
+    // within five dials) and PASSES against the incident — which is what the gist
+    // recorded: connecting → dead at :15, :25, :37, :51, :09, without end.
+    const { session, enqueue, dialCount } = makeArm({ binderBuildId: "" });
+    // Far more than the give-up budget: if this path counted at all, it would be
+    // terminal long before the queue ran out.
+    for (let i = 0; i < 20; i++) enqueue({ kind: "silent-peer" });
+    const seenDownCauses = new Set<string>();
+    session.onState((s) => {
+      if (s.phase === "disconnected" || s.phase === "failed") {
+        seenDownCauses.add(down(s).cause);
+      }
+    });
+
+    const p = session.pin();
+    p.catch(() => {});
+    // TEN MINUTES of fake time — an order of magnitude past the give-up budget,
+    // and past the exponential backoff's 60s ceiling several times over.
+    await flush(600_000);
+
+    // Never terminal, however long it runs.
+    expect(session.currentState().phase).not.toBe("failed");
+    // And it really did keep dialing — past the budget that should have stopped it.
+    expect(dialCount()).toBeGreaterThan(5);
+    // Worst of all, every down frame it ever published said "network" — nothing
+    // here distinguishes a previous-epoch daemon from a box that is simply off,
+    // which is exactly what the incident log looked like.
+    expect(seenDownCauses).toEqual(new Set(["network"]));
+    expect(session.entryFailedDetail()).toBeNull();
+  });
+
   it("P1: a fresh spawn under a STANDING link-failed does not float an unhandled handshake rejection (no fatal process.exit)", async () => {
     const { session, enqueue } = makeArm({ binderBuildId: "" });
     for (let i = 0; i < 5; i++)
@@ -505,7 +720,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals())); // dies on drain (graceHellos 0)
     await pinAdopt(session); // adopt → bound
 
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(200);
     await r; // resolves only after the modelled link death
@@ -543,7 +758,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush();
     await expect(firstPin).rejects.toThrow(/superseded/i);
 
-    const renewed = session.renew();
+    const renewed = Effect.runPromise(session.renew());
     renewed.catch(() => {});
     await flush(200);
     await renewed;
@@ -560,7 +775,7 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     enqueue(serve(helloVals(), { diesOnDrain: false }));
     await pinAdopt(session);
 
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(80);
     await expect(r).rejects.toThrow(/did not (complete|exit)/i);
@@ -571,7 +786,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     const { session } = makeArm({ binderBuildId: "" });
     // Never pinned → no combined client → renew throws honestly (the arm's message is
     // "not bound — cannot drain", the new spelling of the old "no adopted daemon").
-    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
+    await expect(Effect.runPromise(session.renew())).rejects.toThrow(
+      /not bound|cannot drain/i,
+    );
   });
 
   it("refuses to drain a padi it only REFUSED for a skew — honors the bind verdict, never downgrades it", async () => {
@@ -584,7 +801,9 @@ describe("remote padi arm — the ssh arm's handshake + scope + drain", () => {
     await flush(); // let the disconnect frame null `combined`
     // The restart verb must NOT reach the raw host client for a padi we never adopted —
     // an older binder draining a refused newer padi would DOWNGRADE it (anti-monotonic).
-    await expect(session.renew()).rejects.toThrow(/not bound|cannot drain/i);
+    await expect(Effect.runPromise(session.renew())).rejects.toThrow(
+      /not bound|cannot drain/i,
+    );
   });
 
   it("re-handshakes a NEW spawn on reconnect, refreshing identity", async () => {
@@ -657,7 +876,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     });
     enqueue(serve(helloVals({ buildId: "build-X" })));
     const scoped = await pinAdopt(session);
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(scoped);
     expect(handles[0]!.drainCount).toBe(0);
   });
 
@@ -680,10 +899,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const scoped = (await session.currentClient()) as {
-      surface: { marker?: string };
-    };
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(await session.currentClient());
     expect(handles[1]!.drainCount).toBe(0);
   });
 
@@ -707,10 +923,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
     enqueue(serve(helloVals({ buildId: "build-NEW", startedAt: 2000 })));
     await flush(RECONNECT);
     await flush();
-    const scoped = (await session.currentClient()) as {
-      surface: { marker?: string };
-    };
-    expect(scoped.surface.marker).toBe("padi-scoped");
+    expectPadiScoped(await session.currentClient());
     expect(handles[1]!.drainCount).toBe(0);
 
     // 3. LATER a NEW instance of the ALREADY-DRAINED build-OLD appears (3000). That is
@@ -827,7 +1040,7 @@ describe("remote padi arm — build/contract convergence at the bind (over ssh)"
 
     // Restart the resident: renew must DRAIN it (it exits), not reject "not bound" —
     // adopted-stale is a live adopted daemon.
-    const r = session.renew();
+    const r = Effect.runPromise(session.renew());
     r.catch(() => {});
     await flush(CEIL);
     await r;

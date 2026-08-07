@@ -8,9 +8,10 @@
  *     process an agent's `claude mcp add` runs;
  *   - **ssh-shaped stdio**: a `padi --stdio` child (the byte path `ssh <host>
  *     padi --stdio` carries — ssh adds no framing) dialed through the SAME
- *     gate composition the `--host` arm uses (stdioLink → control-core hello →
- *     `assertPadiSurfaceCompatible` → scope → STREAM_RETRY mount), served
- *     in-process over an in-memory MCP pair.
+ *     gate composition the `--host` arm uses (stdioLink → both sibling faces
+ *     over its one dispatch → control-core hello →
+ *     `assertPadiSurfaceCompatible` → scope), served in-process over an
+ *     in-memory MCP pair.
  *
  * The flow each leg proves: create → sendInput (text, then Enter as its OWN
  * send) → wait_outputSettled (consuming the terminalAttach stream — watched,
@@ -31,18 +32,18 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  assertPadiSurfaceCompatible,
   connectPadi,
+  padiClientOver,
   padiSocketPath,
   resolvePadiStateRoot,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
-import type { PadiDaemonContract } from "@kolu/padi/surface";
+import { padiDaemonGroup } from "@kolu/padi/surface";
+import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -52,10 +53,10 @@ import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { Effect } from "effect";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
-import { assertPadiSurfaceCompatible } from "@kolu/padi/dial";
-import { mountStreamRetry } from "./connect.ts";
-import { guardedMcpConnect } from "./mcp.ts";
+import { classifyDialFailure } from "./connect.ts";
+import { guardedMcpDial } from "./mcp.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const PADI_BIN = resolve(SRC, "../../padi/src/daemonBoot/bin.ts");
@@ -140,19 +141,25 @@ function spawnPadi(stateRoot: string): Padi {
   return padi;
 }
 
+/** A dialed link over padi's WHOLE daemon group — one wire, both sibling faces
+ *  built over its single tag-keyed dispatch by `padiClientOver`. */
+type PadiLink = Awaited<ReturnType<typeof unixSocketLink>>;
+
 /** Poll-connect until padi answers a control-core `hello`, or fail loudly. */
 async function waitForPadi(socketPath: string, ms = 20000): Promise<void> {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    let conn: UnixSocketConnection<PadiDaemonContract> | undefined;
+    let link: PadiLink | undefined;
     try {
-      conn = await unixSocketLink<PadiDaemonContract>({ socketPath });
-      await conn.client.surface.control.core.hello();
+      link = await unixSocketLink({ group: padiDaemonGroup, socketPath });
+      await Effect.runPromise(
+        padiClientOver(link.dispatch).control.surface.core.hello(),
+      );
       return;
     } catch {
       await sleep(150);
     } finally {
-      await conn?.dispose();
+      await link?.dispose();
     }
   }
   throw new Error(`padi socket never came up: ${socketPath}`);
@@ -348,21 +355,37 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // The --host arm's gate composition, verbatim minus the nix provisioning
     // (dialAgentOnce's ssh/realise plumbing is proven in surface-remote):
-    // stdioLink over the child's stdio → frozen hello → the SAME
-    // compatibility gate → scope → STREAM_RETRY mount.
+    // stdioLink over the child's stdio → both sibling faces over its ONE
+    // dispatch → frozen hello → the SAME compatibility gate → scope.
     if (child.stdout === null || child.stdin === null) {
       throw new Error("padi --stdio child has no stdio pipes");
     }
-    const combined = stdioLink<PadiDaemonContract>({
+    // The REAL gate over the REAL front (juspay/kolu#2101): `padi --stdio`
+    // converges its durable daemon and only then greets, so this proof is
+    // evidence the far side settled — exactly what the `--host` arm now awaits.
+    const readiness = await awaitStdioReadiness({
+      read: child.stdout,
+      deadlineMs: 60_000,
+      describe: "padi --stdio child",
+    });
+    const link = await stdioLink({
+      group: padiDaemonGroup,
       read: child.stdout,
       write: child.stdin,
+      readiness,
     });
+    // The link owns protocol fibers now — releasing it is the ONLY thing that
+    // frees them, so it is a cleanup, not something the child's death covers.
+    cleanups.push(async () => {
+      await link.dispose();
+    });
+    const combined = padiClientOver(link.dispatch);
     const hello = await (async () => {
       // padi --stdio waits for its durable daemon to come up; poll hello.
       const deadline = Date.now() + 20000;
       for (;;) {
         try {
-          return await combined.surface.control.core.hello();
+          return await Effect.runPromise(combined.control.surface.core.hello());
         } catch (err) {
           if (Date.now() > deadline) throw err;
           await sleep(200);
@@ -370,7 +393,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
       }
     })();
     assertPadiSurfaceCompatible(hello.surfaceVersion);
-    const client = mountStreamRetry(scopePadiSurface(combined));
+    const client = scopePadiSurface(combined);
 
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -399,13 +422,18 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // The REAL local connect composition (guarded): re-dials the SAME
     // digest-keyed path each invocation — the adapter's redial hook.
-    const connect = guardedMcpConnect(async () => {
-      const conn = await connectPadi(socketPath);
-      return {
-        client: mountStreamRetry(scopePadiSurface(conn.client)),
-        dispose: conn.dispose,
-      };
-    });
+    const dial = guardedMcpDial(
+      Effect.map(
+        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
+        (conn) => ({
+          client: scopePadiSurface(conn.client),
+          dispose: conn.dispose,
+        }),
+      ),
+    );
+    // The adapter's face is a Promise thunk it owns the lifetime behind, so
+    // the crossing happens here exactly as it does in `runKoluMcp`.
+    const connect = () => Effect.runPromise(dial);
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluMcp({
@@ -437,11 +465,16 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
 
     // (a) kaval recycle — session-preserving by contract: the id survives.
     {
-      const supervisor = await unixSocketLink<PadiDaemonContract>({
+      const supervisor = await unixSocketLink({
+        group: padiDaemonGroup,
         socketPath,
       });
       try {
-        await supervisor.client.surface.padi.lifecycle.recycleKaval(undefined);
+        await Effect.runPromise(
+          padiClientOver(
+            supervisor.dispatch,
+          ).padi.surface.lifecycle.recycleKaval(undefined),
+        );
       } finally {
         await supervisor.dispose();
       }

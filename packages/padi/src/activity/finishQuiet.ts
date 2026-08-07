@@ -30,6 +30,7 @@
 
 import { source } from "@kolu/surface/reactor";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import { Effect, Stream } from "effect";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
 import type { PadiTerminal, PadiUrgency } from "../surface.ts";
@@ -72,17 +73,20 @@ export function waitingIdsOf(
   return ids;
 }
 
-/** Wrap an async iterable so `onEnd` runs when it drains or throws (after the
- *  consumer sees the error). Used to latch feed-down before the resubscribe delay. */
-async function* withEndHook<T>(
-  source: AsyncIterable<T>,
+/** Latch `onStart` when the stream actually begins running and `onEnd` when it
+ *  drains, fails, or is interrupted. A kaval stream member is LAZY, so "the feed
+ *  is up" is the moment the stream STARTS — not the moment the value was built
+ *  (which registers nothing). `ensuring` runs after the stream's own finalizers,
+ *  which is what latches feed-down before the resubscribe delay. */
+function withFeedHooks<T>(
+  source: Stream.Stream<T, unknown>,
+  onStart: () => void,
   onEnd: () => void,
-): AsyncGenerator<T> {
-  try {
-    for await (const item of source) yield item;
-  } finally {
-    onEnd();
-  }
+): Stream.Stream<T, unknown> {
+  return Stream.ensuring(
+    Stream.onStart(source, Effect.sync(onStart)),
+    Effect.sync(onEnd),
+  );
 }
 
 /**
@@ -220,13 +224,12 @@ export function createFinishQuiet(opts: {
     void resubscribeStream({
       signal: sig,
       delayMs: ACTIVITY_RESUBSCRIBE_DELAY_MS,
-      getStream: () => {
-        const stream = ptyHostClient.surface.activity.get({}, { signal: sig });
-        return Promise.resolve(stream).then((s) => {
-          markFeedUp();
-          return withEndHook(s, markFeedDown);
-        });
-      },
+      getStream: () =>
+        withFeedHooks(
+          ptyHostClient.surface.activity.get({}),
+          markFeedUp,
+          markFeedDown,
+        ),
       onEvent: (edge) => noteEdge(edge.id as TerminalId),
       onDrop: (err) => {
         markFeedDown();

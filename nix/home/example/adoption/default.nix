@@ -33,8 +33,14 @@ let
   # pty-host.sock` — to model the pre-W2.2 daemon a W2.2 upgrade must ADOPT, not leak.
   kavalBin = "${kolu.packages.${system}.kaval}/bin/kaval";
 
+  # The harness caller on kolu-server's own RPC wire — ONE call, by wire tag, over
+  # the `/rpc/ws` ndjson socket (packages/server/src/wireCall.ts). It replaces the
+  # `curl -X POST /rpc/...` reach-ins these probes used until the Effect port
+  # deleted oRPC's HTTP arm; lib.nix's `rpc` is the one place it is spelled.
+  koluRpc = "${kolu.packages.${system}.kolu-rpc}/bin/kolu-rpc";
+
   lib = import ./lib.nix {
-    inherit pkgs home-manager nixosModule port kavalTui;
+    inherit pkgs home-manager nixosModule port kavalTui koluRpc;
   };
 
   args = { inherit pkgs kolu system port kavalTui kavalBin lib; };
@@ -49,6 +55,12 @@ in
   adoption-skew = import ./skew.nix args;
   adoption-currency = import ./currency.nix args;
   adoption-padi-upgrade = import ./padi-upgrade.nix args;
+  # I1 (juspay/kolu#2101) — the only TWO-node member of this family: a binder
+  # plus a bare ssh/nix remote, dialled with substitution forced off, proving a
+  # connect ships the agent closure out of the deployed generation instead of
+  # fetching or compiling it. Named for what it asserts rather than for the
+  # adoption stem, because it is not an adoption outcome.
+  offline-provision = import ./offline-provision.nix args;
 }
   # The W2.2 UPGRADE-migration path (TWO checks — `adoption-upgrade` for adopt+converge,
   # `adoption-upgrade-reboot` for the reboot bound): a pre-W2.2 port-keyed kaval

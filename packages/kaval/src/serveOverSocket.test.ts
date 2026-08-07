@@ -1,47 +1,66 @@
 /**
- * Falsifiability test for the R-4 Phase 1 transport: the pty-host router
+ * Falsifiability test for the R-4 Phase 1 transport: the pty-host handlers
  * served over a REAL unix socket and consumed over a REAL `net.Socket` via
  * `unixSocketLink` — the exact path kaval-tui uses, minus the CLI formatting
- * (covered by kaval-tui's render test). A green run proves the
- * pty-host's contract-wrapped router holds over the socket transport, not
- * just the in-process loopback. The transport hardening itself (stale-inode
- * clearing, regular-file/EACCES refusals, dir privacy) is pinned generically
- * in `@kolu/surface`'s `unix-socket.test.ts`; here we pin the kolu wrapper's
- * promise — a usable listener on success, a harmless no-op on refusal.
+ * (covered by kaval-tui's render test). A green run proves the pty-host's served
+ * wire holds over the socket transport, not just the in-process loopback. The
+ * transport hardening itself (stale-inode clearing, regular-file/EACCES
+ * refusals, dir privacy) is pinned generically in `@kolu/surface`'s
+ * `unix-socket.test.ts`; here we pin the kolu wrapper's promise — a usable
+ * listener on success, a harmless no-op on refusal.
  */
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { describeDaemon } from "@kolu/daemon-test-gate";
+import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { Effect } from "effect";
 import { drainForOverflow, spawnInput } from "./contractCorpus.testlib.ts";
-import { createInProcessPtyHost } from "./inProcessPtyHost.ts";
 import {
-  PTY_HOST_CONTRACT_VERSION,
-  type ptyHostSurface,
-} from "./ptyHostSurface.ts";
+  createInProcessPtyHost,
+  type PtyHostServed,
+} from "./inProcessPtyHost.ts";
+import { type PtyHostClient, ptyHostClientOver } from "./ptyHostClient.ts";
+import { PTY_HOST_CONTRACT_VERSION, ptyHostSurface } from "./ptyHostSurface.ts";
 import {
   type PtyHostSocketListener,
   servePtyHostOverUnixSocket,
 } from "./serveOverSocket.ts";
-import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
+import { closeStream, openStream } from "./streamFrame.testlib.ts";
 
-function makeRouter(opts?: { dataMaxQueue?: number }) {
-  const { servedRouter } = createInProcessPtyHost({
+function makeServed(opts?: { dataMaxQueue?: number }): PtyHostServed {
+  const { served } = createInProcessPtyHost({
     log: silentLog,
     rcDir: mkdtempSync(join(tmpdir(), "kolu-pty-shell-")),
     dataMaxQueue: opts?.dataMaxQueue,
     lifetime: { kind: "forever" },
   });
-  return servedRouter;
+  return served;
 }
 
-const connect = () =>
-  unixSocketLink<typeof ptyHostSurface.contract>({ socketPath });
+/** Dial `path` and build the pty-host FACE over the link's dispatch — the two
+ *  halves a wire consumer now assembles itself (`unixSocketLink` hands back a
+ *  transport-neutral `{ dispatch, dispose }`, and `ptyHostClientOver` types it
+ *  from the surface's own spec). Exactly what kaval-tui assembles. */
+async function connectTo(
+  path: string,
+): Promise<{ client: PtyHostClient; dispose: () => Promise<void> }> {
+  const link = await unixSocketLink({
+    group: ptyHostSurface.group,
+    socketPath: path,
+  });
+  return {
+    client: ptyHostClientOver(link.dispatch),
+    dispose: () => link.dispose(),
+  };
+}
 
 let listener: PtyHostSocketListener;
 let socketPath: string;
+
+const connect = () => connectTo(socketPath);
 
 describeDaemon(
   "servePtyHostOverUnixSocket — real unix-socket round-trip",
@@ -53,7 +72,7 @@ describeDaemon(
       );
       listener = await servePtyHostOverUnixSocket({
         socketPath,
-        router: makeRouter(),
+        served: makeServed(),
         log: silentLog,
       });
     });
@@ -66,26 +85,32 @@ describeDaemon(
 
     it("serves terminal.list over the socket (empty before any spawn)", async () => {
       const { client, dispose } = await connect();
-      const { entries } = await client.surface.terminal.list({});
+      const { entries } = await Effect.runPromise(
+        client.surface.terminal.list({}),
+      );
       expect(entries).toEqual([]);
-      dispose();
+      await dispose();
     });
 
     it("serves the version handshake over the socket", async () => {
       const { client, dispose } = await connect();
-      const v = await client.surface.system.version({});
+      const v = await Effect.runPromise(client.surface.system.version({}));
       expect(v.contractVersion).toBe(PTY_HOST_CONTRACT_VERSION);
       expect(v.pid).toBe(process.pid);
-      dispose();
+      await dispose();
     });
 
     it("accepts more than one independent client connection", async () => {
       const a = await connect();
       const b = await connect();
-      expect((await a.client.surface.terminal.list({})).entries).toEqual([]);
-      expect((await b.client.surface.terminal.list({})).entries).toEqual([]);
-      a.dispose();
-      b.dispose();
+      expect(
+        (await Effect.runPromise(a.client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
+      expect(
+        (await Effect.runPromise(b.client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
+      await a.dispose();
+      await b.dispose();
     });
 
     it("degrades to a no-op (never throws) when the path is already served", async () => {
@@ -94,19 +119,21 @@ describeDaemon(
       // resolves to a harmless no-op while the original keeps serving.
       const second = await servePtyHostOverUnixSocket({
         socketPath,
-        router: makeRouter(),
+        served: makeServed(),
         log: silentLog,
       });
       expect(() => second.close()).not.toThrow();
       // the original listener is untouched and still serving
       const { client, dispose } = await connect();
-      expect((await client.surface.terminal.list({})).entries).toEqual([]);
-      dispose();
+      expect(
+        (await Effect.runPromise(client.surface.terminal.list({}))).entries,
+      ).toEqual([]);
+      await dispose();
     });
   },
 );
 
-// The `overflow` control frame must survive the REAL socket + oRPC
+// The `overflow` control frame must survive the REAL socket + ndjson
 // serialization boundary — not just the in-process loopback that
 // `inProcessPtyHost.test.ts` exercises. This is the exact attach transport
 // kaval-tui / pulam / kolu-server consume, so a serialization or schema mistake
@@ -126,7 +153,7 @@ describeDaemon(
       );
       ovfListener = await servePtyHostOverUnixSocket({
         socketPath: ovfSocketPath,
-        router: makeRouter({ dataMaxQueue: 1 }),
+        served: makeServed({ dataMaxQueue: 1 }),
         log: silentLog,
       });
     });
@@ -139,28 +166,22 @@ describeDaemon(
       // stream. They must not share a socket: a saturated attach stream
       // backpressures its whole connection, so a shared-socket `getScreenText`
       // would deadlock behind the very stream we are deliberately not reading.
-      const ctrl = await unixSocketLink<typeof ptyHostSurface.contract>({
-        socketPath: ovfSocketPath,
-      });
-      const attachConn = await unixSocketLink<typeof ptyHostSurface.contract>({
-        socketPath: ovfSocketPath,
-      });
+      const ctrl = await connectTo(ovfSocketPath);
+      const attachConn = await connectTo(ovfSocketPath);
       const cwd = mkdtempSync(join(tmpdir(), "kolu-pty-ovf-cwd-"));
-      const { id } = await ctrl.client.surface.terminal.spawn(spawnInput(cwd));
+      const { id } = await Effect.runPromise(
+        ctrl.client.surface.terminal.spawn(spawnInput(cwd)),
+      );
 
-      // Pull the snapshot — that starts the source generator (it subscribes to
-      // the data channel) — then STOP reading. Unlike the in-process loopback, a
+      // Pull the snapshot — that runs the subscription (it subscribes to the
+      // data channel) — then STOP reading. Unlike the in-process loopback, a
       // few chunks won't trip the drop here: the server drains the 1-deep channel
       // straight into the socket's kernel buffer. We need a CONTINUOUS flood so
       // the kernel buffer fills, the server's socket write backpressures, and the
       // channel then overflows its 1-deep bound while we look away.
-      const ac = new AbortController();
-      const iter = (
-        await attachConn.client.surface.terminalAttach.get(
-          { id },
-          { signal: ac.signal },
-        )
-      )[Symbol.asyncIterator]();
+      const iter = openStream(
+        attachConn.client.surface.terminalAttach.get({ id }),
+      );
       const snap = await iter.next();
       expect(snap.done).toBe(false);
       if (!snap.done) expect(snap.value.kind).toBe("snapshot");
@@ -168,10 +189,14 @@ describeDaemon(
       // `yes` floods the PTY without bound; the drop sheds the wedged attach
       // subscriber while the screen mirror (a separate, always-drained consumer)
       // keeps flowing, so `getScreenText` over `ctrl` still answers.
-      await ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" });
+      await Effect.runPromise(
+        ctrl.client.surface.terminal.write({ id, data: "yes OVFLINE\n" }),
+      );
       let text = "";
       for (let i = 0; i < 120; i++) {
-        ({ text } = await ctrl.client.surface.terminal.getScreenText({ id }));
+        ({ text } = await Effect.runPromise(
+          ctrl.client.surface.terminal.getScreenText({ id }),
+        ));
         if (text.includes("OVFLINE")) break;
         await new Promise((r) => setTimeout(r, 50));
       }
@@ -186,10 +211,10 @@ describeDaemon(
       const kinds = await drainForOverflow(iter, 5000);
       expect(kinds).toContain("overflow");
 
-      ac.abort();
-      await ctrl.client.surface.terminal.kill({ id });
-      ctrl.dispose();
-      attachConn.dispose();
+      closeStream(iter);
+      await Effect.runPromise(ctrl.client.surface.terminal.kill({ id }));
+      await ctrl.dispose();
+      await attachConn.dispose();
     }, 20000);
   },
 );

@@ -14,13 +14,14 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@kolu/padi": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-mcp": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.3.6"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -12,7 +12,7 @@ description: >-
 
 # Using @kolu/surface (downstream consumer guide)
 
-Declare a typed reactive surface once; the framework derives the oRPC contract, wires the
+Declare a typed reactive surface once; the framework derives the Effect RPC group, wires the
 server, and binds the Solid client hooks. **This is the consumer guide** — *changing* the
 framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
@@ -34,7 +34,7 @@ framework needs a paired drishti PR (`.claude/rules/surface.md`).
 
 ## Links (transport, swappable)
 
-`websocketLink(ws)` (`/links/websocket`) · `stdioLink` (`/links/stdio`) · `unixSocketLink({socketPath})` (`/links/unix-socket`) · `directLink(router)` (`/links/direct`, in-process identity, for tests). Serve side: `serveOverStdio` (`/peer-server`), `serveOverUnixSocket` (`/unix-socket`), oRPC `RPCHandler` (`@orpc/server/ws`, `.upgrade(ws)`) for browsers. CLIs keep ONE transport-blind `Connection = {client, dispose}` so every command is written once across local vs ssh.
+`websocketLink(ws)` (`/links/websocket`) · `stdioLink` (`/links/stdio`) · `unixSocketLink({socketPath})` (`/links/unix-socket`) · `directLink(router)` (`/links/direct`, in-process identity, for tests). Serve side: `serveOverStdio` (`/peer-server`), `serveOverUnixSocket` (`/unix-socket`), and `@kolu/surface-app`'s `acceptSurfaceSocket` + `serveSurfaceSocket` (an Effect `RpcServer` hand-wired behind the accepted `ws`, so the stale-tab gate and the reaper stay in front of dispatch) for browsers. CLIs keep ONE transport-blind `Connection = {client, dispose}` so every command is written once across local vs ssh.
 
 ## Mirror a remote surface (drishti / pulam-web / odu)
 

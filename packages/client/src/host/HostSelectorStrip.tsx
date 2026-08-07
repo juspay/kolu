@@ -74,13 +74,17 @@ import { focusOnMount } from "./focusOnMount";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
+import { activeKavalPresence } from "../kaval/useDaemonStatus";
 import {
   chipStatusDot,
   hostDisplayName,
   hostGlance,
   hostHue,
   hostLabel,
+  kavalChainOf,
 } from "./hostChipTone";
+import { useHostKavalChain } from "./useHostKaval";
+import { runAction } from "../runAction";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
@@ -138,10 +142,13 @@ const HostChip: Component<{
   // string (`sameHost`) — a `HostKey` is an object with no reference identity across
   // independent decodes, so `===` would silently never match a logically-equal remote.
   const isActive = () => sameHost(activeHost(), props.host);
-  const glance = () => hostGlance(state());
+  // #2101 N4: the presented state composes the daemon chain — a padi-up host
+  // whose kaval is down must not paint the connected green.
+  const kaval = useHostKavalChain(props.host);
+  const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
   // Always-on connection status — also the diagnostics open control.
-  const statusDot = () => chipStatusDot(props.host, state());
+  const statusDot = () => chipStatusDot(props.host, state(), kaval());
   const { hostname } = useServerIdentity();
   const name = () => hostDisplayName(props.host, hostname());
   // Strip-owned open key — only ONE diagnostics panel mounts at a time.
@@ -275,9 +282,10 @@ const HostSwitcherRow: Component<{
   const isLocal = () => host.kind === "local";
   const isActive = () => sameHost(activeHost(), host);
   const state = () => padiMap.entry(host).state();
-  const glance = () => hostGlance(state());
+  const kaval = useHostKavalChain(host);
+  const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
-  const statusDot = () => chipStatusDot(host, state());
+  const statusDot = () => chipStatusDot(host, state(), kaval());
   const marks = hostMarks(props.hostKey);
   const pickHost = () => {
     if (!isActive()) setActiveHost(host);
@@ -366,7 +374,7 @@ const HostSwitcherRow: Component<{
           data-testid={`${props.testIdPrefix}-remove-${props.hostKey}`}
           aria-label={`Remove host ${hostLabel(host)}`}
           title={`Remove ${hostLabel(host)}`}
-          onClick={() => removeHost(host)}
+          onClick={() => runAction("remove host", removeHost(host))}
         >
           ✕
         </button>
@@ -470,9 +478,14 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
   const state = () => padiMap.entry(active()).state();
-  const glance = () => hostGlance(state());
+  // The ACTIVE host's chain, read through the active-host memo rather than a
+  // per-host subscription: this switcher re-points at whatever host is active, and
+  // a `useHostKavalChain(active())` would have pinned the subscription to whichever
+  // host happened to be active when the component mounted.
+  const kaval = () => kavalChainOf(activeKavalPresence());
+  const glance = () => hostGlance(state(), kaval());
   const down = () => glance().down;
-  const statusDot = () => chipStatusDot(active(), state());
+  const statusDot = () => chipStatusDot(active(), state(), kaval());
   const hostKeys = () => props.hosts.map(encodeHostKey);
 
   return (
@@ -557,11 +570,15 @@ const AddHostAffordance: Component = () => {
   });
   // The add MECHANISM (parse · hosts.add · activate-on-join · error toast) is
   // the shared `addHost`; this popover supplies only its own cleanup on success.
-  const submit = (): void =>
-    addHost(draft(), () => {
-      setDraft("");
-      setOpen(false);
-    });
+  const submit = (): void => {
+    runAction(
+      "add host",
+      addHost(draft(), () => {
+        setDraft("");
+        setOpen(false);
+      }),
+    );
+  };
   return (
     <>
       <button

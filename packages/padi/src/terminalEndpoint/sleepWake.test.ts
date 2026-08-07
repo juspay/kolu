@@ -33,6 +33,7 @@ import type {
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "anyagent/cli";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import {
@@ -59,7 +60,7 @@ import {
   seedSleepingTerminal,
   wakeLocalTerminal,
 } from "./local.ts";
-import { installSnapshot } from "./metadata.ts";
+import { installSnapshot, updateMemory } from "./metadata.ts";
 
 // discardSleeping drives `cleanupTerminalScratch`, which reads the per-instance
 // scratch root. Boot injects the server id before any of this runs; mirror that
@@ -249,6 +250,53 @@ describe("beginSleep — flip active → sleeping in place", () => {
   });
 });
 
+describe("beginSleep after the fold's authored write — the sleeping decode", () => {
+  // `beginSleep` re-DECODES the authored record it spreads
+  // (`decodeAuthoredSleeping({...entry.meta, state:"sleeping", sleptAt})`), so any
+  // producer that leaves a PRESENT `undefined` on an `optionalKey` field takes the
+  // sleep flip down — the tile stays live forever and the user's ☾ silently does
+  // nothing (`sleeping-terminals.feature`'s agent journeys, which sleep a terminal
+  // the fold has already written memory for). The fold's `updateMemory` is that
+  // producer, and this pins the flip THROUGH it rather than through a hand-built
+  // meta, so a re-introduced field-by-field copy fails HERE and not only in the
+  // autosave (`metadata.test.ts`'s disk-persist twin).
+  const MEM_ID = "55555555-5555-4555-8555-555555555555";
+  let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
+
+  beforeEach(() => {
+    __resetPadiSurfaceCtxForTest();
+    upserts = [];
+    setPadiSurfaceCtx(recordingPadiCtx(upserts));
+  });
+
+  afterEach(() => {
+    unregisterTerminal(MEM_ID);
+  });
+
+  it("flips and PUBLISHES sleeping for a terminal whose fold remembered no launch line", () => {
+    const entry = authoredActive({ restoreTarget: { kind: "none" } });
+    entry.info = { id: MEM_ID, pid: 4242 };
+    // A terminal that never ran a KNOWN agent has no remembered launch line —
+    // the absent-key shape, the only one `Schema.optionalKey` accepts.
+    delete (entry.meta as { lastAgentCommand?: string }).lastAgentCommand;
+    registerTerminal(MEM_ID, entry);
+    installSnapshot(MEM_ID);
+
+    // The fold's ONE authored writer, exactly as the first agent observation
+    // drives it: recency stamped, nothing remembered, target `none`.
+    updateMemory(MEM_ID, { lastActivityAt: 456 }, { kind: "none" });
+    expect(getTerminal(MEM_ID)?.meta.lastActivityAt).toBe(456);
+
+    upserts.length = 0;
+    expect(beginSleepLocal(MEM_ID)).toBe(true);
+    expect(getTerminal(MEM_ID)?.meta.state).toBe("sleeping");
+    // The flip must reach the WIRE — a swallowed publish is the same dead tile.
+    expect(upserts).toContainEqual({ id: MEM_ID, state: "sleeping" });
+    // And the absent fact stays absent, never a present `undefined`.
+    expect("lastAgentCommand" in (getTerminal(MEM_ID)?.meta ?? {})).toBe(false);
+  });
+});
+
 describe("snapshotSession — a slept terminal serializes through the sleeping arm", () => {
   it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + lastAgentCommand + restoreTarget", () => {
     seedActive();
@@ -265,7 +313,9 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     // Round-trips through the saved discriminated union — agent/foreground don't
     // leak, but the `pr` SNAPSHOT persists (a dormant tile keeps its last-known
     // PR across a daemon restart, like cwd/branch — restore-relevant now).
-    expect(() => SavedTerminalSchema.parse(saved)).not.toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(SavedTerminalSchema)(saved),
+    ).not.toThrow();
     const raw = saved as Record<string, unknown>;
     expect(raw.agent).toBeUndefined();
     expect(raw.foreground).toBeUndefined();

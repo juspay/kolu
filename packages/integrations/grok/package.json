@@ -17,10 +17,10 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
+    "effect": "catalog:",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
-    "kolu-transcript-core": "workspace:*",
-    "zod": "^4.3.6"
+    "kolu-transcript-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

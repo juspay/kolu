@@ -5,6 +5,7 @@
  *  shortcuts help, terminal search), so it takes NO deps — the fan-in that used
  *  to live inline in App.tsx now composes itself. */
 
+import { Effect } from "effect";
 import { toggleRailCards } from "./canvas/dock/Dock";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { useViewPosture } from "./canvas/useViewPosture";
@@ -14,6 +15,7 @@ import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useRecorder } from "./recorder/useRecorder";
+import { runAction } from "./runAction";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import { shortcutsHelp } from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
@@ -42,18 +44,18 @@ export function useActionContext(): ActionContext {
     activate: store.activate,
     mruOrder: store.mruOrder,
     activeMeta: store.activeMeta,
-    // Fire-and-forget create: `handleCreate` surfaces its own toasts and
-    // re-throws so the awaited restore loop aborts; this void caller (keyboard /
-    // palette / Dock `+`) has nothing to await, so swallow the rejection rather
-    // than leak an unhandled promise rejection — a `Cmd+T` during a restart's
-    // warming window would otherwise trip the e2e page-error guard.
+    // Fire-and-forget create: `handleCreate` surfaces its own toasts and FAILS
+    // so the composing restore loop aborts; this edge (keyboard / palette /
+    // Dock `+`) has nothing waiting on the id, so it `Effect.ignore`s the
+    // refusal — a `Cmd+T` during a restart's warming window is an ordinary
+    // no-op here, not an error to report twice.
     handleCreate: (cwd?: string) =>
-      void crud.handleCreate(cwd).catch(() => {
-        /* error already surfaced by handleCreate's own toast; this catch only
-           absorbs the re-throw so the void caller leaks no unhandled rejection */
-      }),
+      runAction("create terminal", crud.handleCreate(cwd).pipe(Effect.ignore)),
     handleCreateSubTerminal: (parentId, cwd) =>
-      void crud.handleCreateSubTerminal(parentId, cwd),
+      runAction(
+        "create split",
+        crud.handleCreateSubTerminal(parentId, cwd).pipe(Effect.ignore),
+      ),
     openNewTerminalMenu: () => commandPalette.openGroup(NEW_TERMINAL_GROUP),
     openWorkspaceSwitcher: () => {
       // ⌘⇧K → Terminals host list (type to pierce all hosts). Dock search
@@ -65,7 +67,8 @@ export function useActionContext(): ActionContext {
     togglePalette: commandPalette.toggle,
     toggleShortcutsHelp: shortcutsHelp.toggle,
     toggleSearch: terminalSearch.toggleActive,
-    toggleSubPanel: crud.toggleSubPanel,
+    toggleSubPanel: (parentId) =>
+      runAction("toggle split", crud.toggleSubPanel(parentId)),
     cycleSubTab: (parentId, direction) =>
       subPanel.cycleSubTab(
         parentId,
@@ -77,7 +80,11 @@ export function useActionContext(): ActionContext {
     handleShuffleTheme,
     handleScreenshotTerminal: () => {
       const id = store.activeId();
-      if (id !== null) void screenshotTerminal(id, store.getMetadata(id));
+      if (id !== null)
+        runAction(
+          "screenshot terminal",
+          screenshotTerminal(id, store.getMetadata(id)),
+        );
     },
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,

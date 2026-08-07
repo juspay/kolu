@@ -20,6 +20,7 @@
  *  can't give. `.testlib.ts` is test-only: dropped from the build fileset and not
  *  matched by the vitest `*.test.ts` include. */
 
+import { Stream } from "effect";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -98,11 +99,11 @@ export const mockPadiMap = {
     const cell = { use: () => instrumentedSub(k) };
     // The `terminals` collection also exposes the un-enrolled keys-stream ref
     // `createHostWire` now reaches (`entry.collections.terminals.unenrolledKeys`,
-    // fed to `unenrolledStreamCall`) — a no-op async iterable, like the old
+    // fed to `unenrolledStreamCall`) — a `Stream` that never yields, like the old
     // `mockPadiRpcOf`'s `terminals.keys` stub it replaces.
     const collection = {
       use: () => instrumentedSub(k),
-      unenrolledKeys: () => emptyAsyncIterable(),
+      unenrolledKeys: () => idleKeysStream(),
     };
     return {
       cells: { session: cell, activityFeed: cell },
@@ -131,12 +132,13 @@ export const mockPadiMap = {
 export const mockGroundedActiveHost = (active: Accessor<HostKey>) => () =>
   groundActiveHost(active(), mockPadiMap.entries.use().keys());
 
-/** An async iterable that completes immediately (yields nothing) — the mock
- *  `terminals.keys` stream `createHostWire` opens through `unenrolledStreamCall`. */
-async function* emptyAsyncIterable(): AsyncGenerator<never> {
-  // Intentionally empty: completes at once, so the keys subscription settles
-  // without yielding — the retention test asserts lifecycle, not carried ids.
-}
+/** The mock `terminals.keys` stream `createHostWire` opens through
+ *  `unenrolledStreamCall`: it yields nothing and stays OPEN, so the subscription
+ *  neither carries ids nor ENDS. Staying open matters — a stream that reached its
+ *  typed end here would latch `complete` on the retained sub, which is a different
+ *  fact from the one these tests pin (lifecycle: opened once, disposed on
+ *  membership exit). */
+const idleKeysStream = (): Stream.Stream<never> => Stream.never;
 
 /** Add a host to `entries` (idempotent) — a switch's ADD-AS-MEMBER half. */
 export function addHost(host: HostKey): void {

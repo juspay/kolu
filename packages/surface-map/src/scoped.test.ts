@@ -36,7 +36,7 @@ function trackingBuild() {
   return { build, builds, disposed };
 }
 
-const link = () => makeEntry({ awaiting: 0, awaitingIds: [] }).link;
+const link = () => makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch;
 
 describe("scopedByEntry — per-key ownership by entries membership", () => {
   it("(1) lazy: a member is not built until it is first activated", async () => {

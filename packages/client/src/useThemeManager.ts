@@ -4,6 +4,8 @@
  *  state via the typed RPC client directly. Callers (App.tsx, palette,
  *  pill swatches) just call `useThemeManager()` — no deps to wire. */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { shuffleMode } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
@@ -18,6 +20,7 @@ import {
   resolveThemeBgs,
 } from "terminal-themes";
 import { createSharedRoot } from "./createSharedRoot";
+import { runAction } from "./runAction";
 import { useColorScheme } from "./settings/useColorScheme";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { activePadiRpc, preferences } from "./wire";
@@ -63,11 +66,16 @@ function init() {
   }
 
   function setThemeName(id: TerminalId, name: string) {
-    void activePadiRpc.chrome
-      .setTheme({ id, themeName: name })
-      .catch((err: Error) =>
-        toast.error(`Failed to set theme: ${err.message}`),
-      );
+    runAction(
+      "set theme",
+      activePadiRpc.chrome.setTheme({ id, themeName: name }).pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(`Failed to set theme: ${toError(err).message}`);
+          }),
+        ),
+      ),
+    );
   }
 
   function handleSetTheme(themeName: string) {

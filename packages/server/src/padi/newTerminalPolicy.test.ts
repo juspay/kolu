@@ -9,11 +9,13 @@
  * the policy.
  */
 
+import { Effect } from "effect";
 import type { Logger } from "@kolu/log";
 import type { NewTerminalPolicy } from "kolu-common/surface";
 import { describe, expect, it, vi } from "vitest";
 import {
   installNewTerminalPolicyPusher,
+  type NewTerminalPolicyClient,
   type NewTerminalPolicySession,
 } from "./newTerminalPolicy.ts";
 
@@ -40,10 +42,14 @@ function fakeSession(opts: { client?: "none"; failSet?: boolean } = {}) {
   const client = {
     surface: {
       newTerminalPolicy: {
-        set: async (policy: NewTerminalPolicy) => {
-          if (opts.failSet === true) throw new Error("contract skew");
-          pushed.push(policy);
-        },
+        set: (policy: NewTerminalPolicy) =>
+          Effect.suspend(() => {
+            if (opts.failSet === true) {
+              return Effect.fail(new Error("contract skew"));
+            }
+            pushed.push(policy);
+            return Effect.void;
+          }),
       },
     },
   };
@@ -286,14 +292,17 @@ describe("installNewTerminalPolicyPusher — a failing push", () => {
     // A `set` that refuses once, then accepts — the skew-fence-then-upgrade shape.
     const cell = local.session.currentClient();
     if (cell === null) throw new Error("fake session must have a client");
-    const client = await cell;
+    // The session role types its client `unknown` (the surface READ face names no
+    // write verb — see `NewTerminalPolicySession.currentClient`), so the fake is
+    // re-narrowed here to the same slice the pusher narrows to.
+    const client = (await cell) as NewTerminalPolicyClient;
     const real = client.surface.newTerminalPolicy.set.bind(
       client.surface.newTerminalPolicy,
     );
-    client.surface.newTerminalPolicy.set = async (policy) => {
-      if (listeners.fail) throw new Error("contract skew");
-      return real(policy);
-    };
+    client.surface.newTerminalPolicy.set = (policy) =>
+      Effect.suspend(() =>
+        listeners.fail ? Effect.fail(new Error("contract skew")) : real(policy),
+      );
     pool.add("local", local.session);
     const pusher = installNewTerminalPolicyPusher({
       pool: pool.pool,

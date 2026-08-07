@@ -9,6 +9,8 @@
  *  before `setCopied(true)`, so the clipboard write stays inside the
  *  user-activation gesture window (see clipboard.ts:28-34). */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import {
   type Component,
   createSignal,
@@ -17,6 +19,7 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { runAction } from "../runAction";
 import { writeTextToClipboard } from "./clipboard";
 
 const CopyCommandButton: Component<{
@@ -50,9 +53,17 @@ const CopyCommandButton: Component<{
 
   // Fire the clipboard write first, inside the gesture, then flash "copied".
   const copy = () => {
-    writeTextToClipboard(props.copyText ?? props.command)
-      .then(flashCopied)
-      .catch((err: Error) => toast.error(`Couldn't copy: ${err.message}`));
+    runAction(
+      "copy command",
+      writeTextToClipboard(props.copyText ?? props.command).pipe(
+        Effect.tap(() => Effect.sync(flashCopied)),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(`Couldn't copy: ${toError(err).message}`);
+          }),
+        ),
+      ),
+    );
   };
 
   return (

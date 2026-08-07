@@ -34,8 +34,6 @@ const home = daemonHome({ app: "fleet-top", placement: "state" });
 
 const readIdentity = readBakedIdentity("FLEET_TOP");
 
-// The example surface's flattened router — the same `router` a browser or a
-// unix-socket client reaches; the daemon just serves it durably.
 export function runDaemon(
   controller: AbortController,
   processIdentity: ProcessIdentity,
@@ -44,7 +42,10 @@ export function runDaemon(
   // #region control-core
   // Serve these deps beside the versioned application surface. `hello` remains
   // readable even when that application contract is skewed; `drain` waits for
-  // the daemon's own persistence/shutdown hook.
+  // the daemon's own persistence/shutdown hook. `implementSurfaces` mints ONE
+  // flat group covering both siblings — each member at
+  // `surface/<key>/<member>/<verb>`, so the two cannot collide (not even on the
+  // three framework-reserved `system/*` members every surface carries).
   const control = controlCoreFragment({
     stateRoot: home.dir,
     surfaceVersion: "1.0",
@@ -53,11 +54,11 @@ export function runDaemon(
     buildId: readIdentity.staleKey,
     onDrain: () => controller.abort(),
   });
-  const router = implementSurfaces(
+  const { group, handlers } = implementSurfaces(
     { app: surface, control: controlCoreSurface },
     {},
     { app: deps, control },
-  ).router as Parameters<typeof daemonMain>[0]["router"];
+  );
   // #endregion control-core
   // #region lifecycle
   daemonProcessMain({
@@ -68,7 +69,8 @@ export function runDaemon(
         home,
         processIdentity, // injected (pid, startUnixUs) for this process
         readProcessIdentity, // injected OS fact reader; the spine only compares
-        router, // runtime.router — already the final flattened router
+        group, // the flat RPC group the runtime serves…
+        handlers, // …and its tag-keyed handlers: one pair, no router
         lifetime: { kind: "forever" }, // or { kind: "idleTimeout", ms, isIdle }
         log: stderrLogger(),
         signal: controller.signal,

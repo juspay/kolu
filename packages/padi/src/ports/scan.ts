@@ -7,6 +7,7 @@
  * baked `KOLU_OSFACTS_BIN` path. The cadence is `./sampler.ts`.
  */
 
+import { Effect } from "effect";
 import {
   type ListenerRow,
   type ProcessRow,
@@ -15,7 +16,6 @@ import {
   type SnapshotSourceErrorRow,
   type SnapshotSourceFacet,
   type UnreadableRow,
-  OsfactsClientError,
   bakedOsFactsBin,
   snapshotFacetNames,
   snapshotSubtree,
@@ -298,51 +298,95 @@ export function portScanSupported(): boolean {
  * Scan once via osfacts and return listening ports per requested ROOT PID.
  *
  * Every requested pid is present in the result (empty array when its subtree
- * serves nothing). Throws `PortScanError` — `"blind"` for a pass that could
- * not see; `"unsupported-platform"` for a host that never can.
+ * serves nothing). **Fails** with `PortScanError` — `"blind"` for a pass that
+ * could not see; `"unsupported-platform"` for a host that never can. Both are
+ * on the DECLARED error channel, so the sampler's two-way permanent/transient
+ * fold below is reading a type rather than guessing at a rejection.
+ *
+ * The osfacts arm is a `mapError`, not a `catch`: the client declares exactly
+ * three failures, every one of them means this pass could not see, and the
+ * scan's own vocabulary for that is `blind` — so the translation is total and
+ * the original rides along as `cause`. There is no `instanceof` left to write,
+ * and nothing this scan is not the judge of can reach the arm: a defect stays
+ * a defect, which is what the old `throw err` re-raise bought by hand.
  */
-export async function scanSubtreePorts(
+export function scanSubtreePorts(
   rootPids: readonly number[],
-): Promise<Map<number, PortInfo[]>> {
-  if (rootPids.length === 0) return new Map();
-  if (!portScanSupported()) {
-    throw new PortScanError(
-      "unsupported-platform",
-      `port scan: unsupported platform '${process.platform}' — this reader supports linux and darwin only`,
-    );
-  }
-
-  const bin = osfactsBinPath();
-  let reading: SnapshotReading;
-  try {
-    reading = await snapshotSubtree(bin, rootPids, SCAN_ASK);
-  } catch (err) {
-    if (err instanceof OsfactsClientError) {
-      throw new PortScanError("blind", `port scan: ${err.message}`, {
-        cause: err,
-      });
+): Effect.Effect<Map<number, PortInfo[]>, PortScanError> {
+  return Effect.suspend(() => {
+    if (rootPids.length === 0)
+      return Effect.succeed(new Map<number, PortInfo[]>());
+    if (!portScanSupported()) {
+      return Effect.fail(
+        new PortScanError(
+          "unsupported-platform",
+          `port scan: unsupported platform '${process.platform}' — this reader supports linux and darwin only`,
+        ),
+      );
     }
-    throw err;
-  }
 
+    // `osfactsBinPath` is a sync throw (it wraps the client's sync-island
+    // `bakedOsFactsBin`), and it throws the scan's OWN error type — so it is
+    // lifted onto the declared channel rather than left to become a defect the
+    // sampler's permanent/transient fold could not read.
+    const resolveBin = Effect.try({
+      try: osfactsBinPath,
+      catch: (err) => {
+        if (err instanceof PortScanError) return err;
+        throw err;
+      },
+    });
+
+    return Effect.flatMap(resolveBin, (bin) =>
+      Effect.flatMap(
+        Effect.mapError(
+          snapshotSubtree(bin, rootPids, SCAN_ASK),
+          (err) =>
+            new PortScanError("blind", `port scan: ${err.message}`, {
+              cause: err,
+            }),
+        ),
+        (reading) => foldScan(reading, rootPids),
+      ),
+    );
+  });
+}
+
+/** One osfacts reading → this scan's answer, or the `blind` refusals the
+ *  reading itself justifies. Separated from the spawn so the policy reads as
+ *  policy, and Effect-returning rather than throwing so BOTH refusals sit on
+ *  the same declared channel the spawn arm does — a `blind` the sampler must
+ *  hold its last sample through is not a defect. */
+function foldScan(
+  reading: SnapshotReading,
+  rootPids: readonly number[],
+): Effect.Effect<Map<number, PortInfo[]>, PortScanError> {
   const sourceFailure = sourceErrorsMessage(reading.errors);
   if (sourceFailure !== null) {
-    throw new PortScanError(
-      "blind",
-      `port scan: osfacts source failure (${sourceFailure})`,
+    return Effect.fail(
+      new PortScanError(
+        "blind",
+        `port scan: osfacts source failure (${sourceFailure})`,
+      ),
     );
   }
 
-  const rootSet = new Set(rootPids);
-  const { fatal, skipPids } = unreadablePolicy(reading.unreadable, rootSet);
+  const { fatal, skipPids } = unreadablePolicy(
+    reading.unreadable,
+    new Set(rootPids),
+  );
   if (fatal !== null) {
-    throw new PortScanError(
-      "blind",
-      `port scan: cannot inspect requested root pid ${fatal.pid} (${fatal.errno})`,
+    return Effect.fail(
+      new PortScanError(
+        "blind",
+        `port scan: cannot inspect requested root pid ${fatal.pid} (${fatal.errno})`,
+      ),
     );
   }
 
   const names = new Map(reading.procs.map((row) => [row.pid, row.name]));
   const listeners = classifyListeners(reading.ports);
-  return joinSubtreePorts(reading.procs, listeners, names, rootPids, skipPids);
+  return Effect.succeed(
+    joinSubtreePorts(reading.procs, listeners, names, rootPids, skipPids),
+  );
 }

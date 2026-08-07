@@ -11,7 +11,9 @@ authoritative record of the public API — they are only trustworthy if they mov
 with the code.
 
 **Any public-API change** to one of these packages — an exported type or function
-signature, the oRPC contract shape, package `exports`, a member added to or
+signature, the Effect RPC contract (the `defineSurface` spec, the wire tags an
+`RpcGroup` mints from it, a member's payload/success/error `Schema`), package
+`exports`, a member added to or
 removed from `defineSurface`, or any runtime behaviour a documented consumer
 wires against — **must update the matching Reference page in the same PR.**
 

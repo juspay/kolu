@@ -161,7 +161,7 @@ now.
 
 | # | Opportunity | Lever | Surface | Impact | Effort | The fix, in one line |
 |---|---|---|---|---|---|---|
-| 1 | **Serve the client bundle compressed** <Pill variant="done">shipped</Pill> | <Pill variant="run">C·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | **Done** <PrLink pr={1643} /> — build-time `.br`/`.gz` + serve-static negotiation; the 2.56 MB main chunk → **571 kB brotli (4.6×)** on every cold / remote / phone load. |
+| 1 | **Serve the client bundle compressed** <Pill variant="done">shipped</Pill> | <Pill variant="run">C·U</Pill> | Bundle | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | **Done** <PrLink pr={1643} /> — build-time `.br`/`.gz` + precompressed-sibling negotiation; the 2.56 MB main chunk → **571 kB brotli (4.6×)** on every cold / remote / phone load. |
 | 2 | Per-key collection deltas on the wire | <Pill variant="run">C·N</Pill> | Wire | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | Publish `{added/changed/removed}` keys, not the full key array, on every upsert/remove. |
 | 3 | Heartbeat: hidden-tab probe interval | <Pill variant="dx">N</Pill> | Mobile | <Pill variant="md">med</Pill> | <Pill variant="md">med</Pill> | **Lengthen** the background probe (30–60s), don't stop it (that blinds the watchdog). Reconnect-on-resume already shipped <PrLink pr={1598} />. |
 | 4 | Workspace-level test parallelism | <Pill variant="dx">U</Pill> | Dev-loop | <Pill variant="md">med</Pill> | <Pill variant="ok">low</Pill> | Add `--workspace-concurrency` so ~44 packages don't test one-at-a-time. |
@@ -194,7 +194,7 @@ within …"*.
 - <span id="banked-children-index" />**Parent→children resolved in one walk** <Pill variant="dx">N</Pill> <PrLink pr={2019} /> — `getSubTerminalIds` was `keys().filter(…)`, a full scan of every terminal *per call*, and `buildTerminalDisplayInfos` calls it once per top-level terminal: O(T²) collection reads per display rebuild, on every metadata update. One `childrenByParent` memo now serves both it and that display pass, whose own comment had flagged this exact shape for the relation.<Footnote>Complexity-by-construction, not a captured profile — the honest label. At 3–20 terminals it sits under the perception floor the callout below describes; the reason to take it anyway was that the fix removed a quadratic walk rather than adding a cache.</Footnote>
 - **Markdown toggle keep-alive** <Pill variant="dx">N</Pill> <PrLink pr={1446} /> — `FileView` keeps both Source ⇄ Rendered modes alive, so toggling a `.md` preview is a visibility flip, not a remount + full re-sanitize (the marked→DOMPurify→Shiki→`innerHTML` pipeline runs 0× per toggle, was 1×).<Footnote>A per-slot `heldFile` snapshot keeps reload-on-edit intact with no `render(file)` API change. The companion *"stabilize the markdown image resolver reference"* claim was [refuted as a measured no-op](https://github.com/juspay/kolu/blob/master/docs/perf-investigations/markdown-image-resolver-and-toggle.md).</Footnote>
 - <span id="banked-scrollback" />**Per-attach scrollback share** <Pill variant="dx">N</Pill> <PrLink pr={1573} /> — an already-aborted attach does zero `serialize()`, and a burst of attaches to one PTY within a publish-epoch shares one memoized snapshot; the reconnect-storm transient dropped from a measured **2–3.2 GB** of concurrent full serializes to O(live-terminal count).<Footnote>Bounding each snapshot to a viewport is the follow-up — [kaval memory](./kaval-memory-architecture.html).</Footnote>
-- **Client bundle compression** <Pill variant="dx">C·U</Pill> <PrLink pr={1643} /> — the client build emits `.br`/`.gz` for the immutable `/assets/*` and `installFreshStatic` serves them via serve-static `precompressed`; the 2.56 MB main chunk crosses the wire as **571 kB brotli (4.6×)** on every cold / remote / phone load.<Footnote>The `no-store` shell stays uncompressed (its commit stamp is seded post-build); zero per-request CPU, compression time-shifted to build.</Footnote>
+- **Client bundle compression** <Pill variant="dx">C·U</Pill> <PrLink pr={1643} /> — the client build emits `.br`/`.gz` for the immutable `/assets/*` and `freshStaticLayer` negotiates them; the 2.56 MB main chunk crosses the wire as **571 kB brotli (4.6×)** on every cold / remote / phone load.<Footnote>The `no-store` shell stays uncompressed (its commit stamp is seded post-build); zero per-request CPU, compression time-shifted to build.</Footnote>
 - **OpenCode-derived wins** <Pill variant="dx">N·U</Pill> — `@pierre/diffs` 1.2.10 + Shiki 4.2.0 <PrLink pr={1360} />, <span id="banked-diff" />off-thread diff highlighting <PrLink pr={1363} /> (the lone banked **U** win), <span id="banked-canvas" />the canvas gesture-p99 harness + rAF-coalesced pan/zoom <PrLink pr={1368} />. Full write-up: [opencode-perf](./opencode-perf.html).
 - **WebGL context cap** <Pill variant="dx">U</Pill> <PrLink pr={1416} /> <Issue n={1399} /> — admit the whole working set under a 12-context cap; killed the focus-churn VRAM leak on Chrome+AMD.
 - **Compositor paint storms** <Pill variant="dx">C</Pill> — canvas tile-aura + dock CSS animations moved to compositor-friendly properties <PrLink pr={1354} /> <Issue n={1308} />.
@@ -331,8 +331,8 @@ is now served `.br`/`.gz` — a 4.6× cut on every cold load <PrLink pr={1643} /
 rest is open wire work (payload shapes) plus one forced layout read.
 
 <Finding sev="low" id="c-compression" title="Serve the client bundle compressed — ✓ shipped (2.56 MB → 571 kB)">
-The production Hono server shipped the client build through `@hono/node-server`'s
-`serveStatic` (`installFreshStatic`) with **no compression in the pipeline**, so
+The production server shipped the client build through a static file handler with
+**no compression in the pipeline**, so
 the ~**2.56 MB** eager `index` bundle went out with **no `Content-Encoding`** even
 though every browser offers `gzip, deflate, br`. Caching was already right, so it
 only bit the **cold load** — but that's exactly the **remote / Tailscale / phone**
@@ -340,9 +340,8 @@ path kolu markets, where bytes over a slow radio dominate first
 paint.<Footnote>Immutable hashed `/assets/*` with `max-age` a year, so the miss is
 first visit, cache-miss, and every post-deploy hash change.</Footnote> **Done**
 <PrLink pr={1643} /> — the client Vite build now emits `.br`/`.gz` siblings for the
-immutable `/assets/*` at build time (brotli q11), and `installFreshStatic` turns on
-serve-static's `precompressed`, which negotiates `Accept-Encoding` and serves the
-sibling at **zero per-request CPU** — the compression *time-shifted* to build, a U
+immutable `/assets/*` at build time (brotli q11), and the static layer negotiates
+`Accept-Encoding` against those siblings, serving one at **zero per-request CPU** — the compression *time-shifted* to build, a U
 "pre-compute in idle" move on top of the C byte cut.
 
 **Measured on the main chunk: 2.56 MB → 571 kB brotli (4.58×) / 726 kB gzip** —
@@ -354,8 +353,8 @@ stale stamp — the build emits siblings for `/assets/*` only. A per-request
 zero).</Footnote> This was row 1 and the only item on the map **not bounded at
 today's scale** — it fires on every cold load — and it settled the Code-tab
 lazy-load debate: compressing ships ~2 MB less on the *whole* eager load,
-unconditionally, dwarfing that deferred 171 kB slice. Covered by an
-`installFreshStatic` negotiation test; the remaining trace is on-device cold-start
+unconditionally, dwarfing that deferred 171 kB slice. Covered by a
+`freshStaticLayer` negotiation test; the remaining trace is on-device cold-start
 LCP over Tailscale (see [coverage gaps](#from-static-reads-to-live-traces)).
 </Finding>
 
