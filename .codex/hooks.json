@@ -9,6 +9,15 @@
             "command": ".codex/hooks/agency/scripts/do-stop-guard.sh"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".codex/hooks/agency/scripts/do-stop-guard.sh"
+          }
+        ]
       }
     ]
   }

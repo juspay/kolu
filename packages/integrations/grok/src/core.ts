@@ -166,23 +166,69 @@ export interface GrokSession {
   startedAt: number | null;
 }
 
+/** Pid → the session that pid was last seen owning in `active_sessions.json`.
+ *
+ *  Grok rewrites that file WHOLESALE from a process-local snapshot, so a
+ *  *concurrent* grok starting or exiting erases the rows of every other live
+ *  grok — observed in the 2026-08-07 incident as `[]` on disk while a grok was
+ *  mid-turn. The map is therefore how a pid ACQUIRES its session, never how it
+ *  loses it; the release signal is the process itself dying (swept below) or the
+ *  foreground moving off it (the caller stops asking).
+ *
+ *  Without this binding, a clobbered row read as "the session ended": padi tore
+ *  down the session watcher under a still-foreground grok and — because the
+ *  foreground was a defined non-shell pid, the deliberate keep-last `unknown`
+ *  arm — held the last published state for the life of the process. A finished
+ *  agent read as still working, and `padi-tui wait --until waiting` hung. */
+const sessionByPid = new Map<number, GrokSession>();
+
+/** Drop bindings whose process is gone. Runs on every pid resolve, which is
+ *  cheap (one `kill(pid, 0)` over a handful of entries) and keeps the window
+ *  where a recycled pid could inherit a stale session down to nothing: grok's
+ *  own exit rewrites `active_sessions.json`, which wakes a reconcile, so a dead
+ *  pid is swept within milliseconds of the death that ended it. `EPERM` means
+ *  the pid exists under another user — alive for our purposes. */
+function sweepDeadBindings(): void {
+  for (const pid of sessionByPid.keys()) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EPERM") {
+        sessionByPid.delete(pid);
+      }
+    }
+  }
+}
+
 /** Resolve the Grok session for a terminal. Prefers an
- *  `active_sessions.json` entry whose `pid` matches `foregroundPid`.
- *  When the pid is known but absent from the map, returns null — wait
- *  for the external active_sessions rewake rather than attaching a
- *  previous cwd session. When pid is unknown (preexec-only match),
- *  falls back to the most-recently-updated session under the
- *  cwd-encoded path. */
+ *  `active_sessions.json` entry whose `pid` matches `foregroundPid`, and
+ *  remembers that binding: once a pid has been matched, a later rewrite of the
+ *  map that drops its row does NOT unmatch it (see {@link sessionByPid}).
+ *  A pid that was never in the map still resolves to null — wait for the
+ *  external active_sessions rewake rather than attaching a previous cwd
+ *  session. When pid is unknown (preexec-only match), falls back to the
+ *  most-recently-updated session under the cwd-encoded path. */
 export function resolveGrokSession(
   foregroundPid: number | undefined,
   cwd: string,
   log?: Logger,
 ): GrokSession | null {
   if (foregroundPid !== undefined) {
+    sweepDeadBindings();
     const active = readActiveSessions(log).find((e) => e.pid === foregroundPid);
-    // Known process, unknown map row → wait for externalChanges rewake;
-    // do not attach a previous cwd session (would flash the wrong state).
-    return active ? sessionFromIds(active.cwd, active.session_id, log) : null;
+    if (active) {
+      // A present row is still authoritative — it re-binds, so a pid moved to a
+      // different session follows the map rather than the memory.
+      const session = sessionFromIds(active.cwd, active.session_id, log);
+      sessionByPid.set(foregroundPid, session);
+      return session;
+    }
+    // Known process, no row. Either the map was clobbered out from under a
+    // session we already hold (keep it), or this pid was never in the map —
+    // the arrival race, where the TUI is foreground and its row lands later.
+    // The latter stays null: guessing a previous cwd session would flash the
+    // wrong state, and externalChanges rewakes us when the row appears.
+    return sessionByPid.get(foregroundPid) ?? null;
   }
   // No pid sample yet: recency under cwd is the only signal.
   return findLatestSessionByCwd(cwd, log);
