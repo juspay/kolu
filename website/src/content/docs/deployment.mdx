@@ -132,3 +132,11 @@ retains the growing objects.
 Diagnostics are disabled by default and add no overhead until `dir` is set.
 Browser-tab or GPU growth has a different checklist in
 [Troubleshooting](/troubleshooting#kolu-is-using-a-lot-of-memory).
+
+## Stop it, roll it back, or test beside it
+
+Stopping the whole stack by hand — the daemons included — is not `systemctl stop`
+alone, and it is what a rollback to an older release needs. Running a second kolu
+on a machine that already has one needs its own state directories, or the test
+instance takes production's daemons over. Both procedures, and the vocabulary
+they share, are in [Operations](/operations).
