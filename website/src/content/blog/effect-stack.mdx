@@ -83,7 +83,7 @@ The rest of this post is those three claims, cashed out.
   <text x="540" y="257" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Atom</text>
 </svg>
 
-## The wire
+## The wire: RpcGroups over ndjson
 
 The RPC contract is a flat [`RpcGroup`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) — a typed map from slash-tagged method names to request/response schemas, the moral equivalent of a [Servant](https://docs.servant.dev/) API type. (It lives at [`effect/unstable/rpc`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc); being unstable, its documentation is the source.) Frames are [ndjson](https://github.com/ndjson/ndjson-spec) — one JSON value per line — over an Effect [`Socket`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/socket):
 
@@ -103,7 +103,7 @@ The [surface framework](/blog/surface-framework) kept its [five shapes](/surface
 
 Reconnect — [partysocket](https://github.com/partykit/partysocket)'s old job — is now a [`Schedule`](https://effect.website/docs/scheduling/introduction/) handed to the client protocol as a retry policy. A [`Schedule`](https://effect.website/docs/scheduling/introduction/) is a first-class value describing "when to try again" (think the [retry](https://hackage.haskell.org/package/retry) package's [`RetryPolicy`](https://hackage.haskell.org/package/retry/docs/Control-Retry.html#t:RetryPolicyM), composable with `.pipe`), so backoff logic is data you test, not a config knob on somebody's WebSocket wrapper.
 
-## Schemas that carry their types, and their errors
+## Schemas: types and errors from one codec
 
 Every [zod](https://zod.dev) schema is now [Effect Schema](https://effect.website/docs/schema/introduction/). A [`Schema`](https://effect.website/docs/schema/introduction/) is one value that is simultaneously the decoder, the encoder, and the source of the TypeScript type — [`FromJSON`](https://hackage.haskell.org/package/aeson/docs/Data-Aeson.html#t:FromJSON), [`ToJSON`](https://hackage.haskell.org/package/aeson/docs/Data-Aeson.html#t:ToJSON), and the data declaration fused (Haskellers: it's [autodocodec](https://hackage.haskell.org/package/autodocodec), not [aeson](https://hackage.haskell.org/package/aeson)):
 
@@ -136,7 +136,7 @@ export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
 
 One bound does a lot of quiet work: every wire schema must satisfy [`Schema.Codec<T, unknown, never, never>`](https://effect.website/docs/schema/introduction/) — decode `unknown` to `T`, where the two `never`s say decoding needs no services from the environment and fails into no untyped channel. It's a purity annotation on the codec. [zod](https://zod.dev) had no way to even state that — and its habit of tolerating a key that's present but `undefined` (where [Effect Schema](https://effect.website/docs/schema/introduction/) refuses) had let eight producer/schema mismatches into the tree, two of them live in production paths. The bugs were ours all along. The strictness found them.
 
-## Daemons on Layers
+## Daemons: boot as a Layer graph
 
 Kolu runs on two daemons: [padi](/padi), the workspace daemon that remembers your sessions, and [kaval](/kaval), the PTY daemon that owns the live terminals underneath. A daemon's boot is the classic init litany: take the lock so two copies can't run, open the on-disk stores, establish the process identity, build the live state, and only then listen on a socket. Shutdown has to undo all of that in reverse — including when boot only got halfway. The imperative version of that is a pyramid of `try`/`finally` and a prayer.
 
@@ -169,7 +169,7 @@ Swap two of those lines and the missing dependency is a compile error, not a 3am
 
 [hono](https://hono.dev/) went the same way: the HTTP app is [`HttpRouter`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/http) layers (from [`effect/unstable/http`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/http)) merged together, and since that router ranks routes by specificity instead of registration order, the old "register the preview route before the static catch-all or it silently loses" footgun died with it.
 
-## The agent angle
+## Agents: code that cannot silently no-op
 
 Here's the part nobody prints on the box. [Kolu](https://github.com/juspay/kolu) is built mostly by coding agents, and an agent's nastiest failure mode isn't a crash — it's code that compiles and silently does nothing. `await` on a function that now returns an [`Effect`](https://effect.website/docs/getting-started/the-effect-type/) typechecks fine and never runs, because an [`Effect`](https://effect.website/docs/getting-started/the-effect-type/) is an inert description until something executes it — exactly like an [`IO`](https://wiki.haskell.org/Introduction_to_IO) action you built and never bound. That pattern bit us eleven times across kolu and its consumers before we closed it.[^eleven]
 
@@ -177,7 +177,7 @@ Here's the part nobody prints on the box. [Kolu](https://github.com/juspay/kolu)
 
 [Effect](https://effect.website/) moves that class of wrong to where an agent actually sees it: into the compiler. And where types can't reach, scanners do — every `Effect.run*` edge in the tree (the [`unsafePerformIO`](https://hackage.haskell.org/package/base/docs/System-IO-Unsafe.html#v:unsafePerformIO) of this world) is a [named allowlist row](https://github.com/juspay/kolu/blob/master/packages/tests/governance/runEdges.ts), 109 sites in 54 files at merge, and the await-an-Effect and build-but-never-run patterns are banned by CI checks that were themselves tested against the known dodges. A human reviewer skims. The compiler and the scanners don't.
 
-## The beta, then
+## The beta: sharp edges, fenced
 
 Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.103)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
 
