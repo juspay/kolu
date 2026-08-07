@@ -16,9 +16,10 @@
  *  comment decision because it has to pick a capture mode at this seam:
  *
  *    - `kind: "text"`   → a `FileData` with `content`; FileView renders the
- *      injected pierre source renderer (`BrowseFileView`). Markdown (`.md`)
- *      additionally gets a rendered appliance, so FileView shows a Source ⇄
- *      Rendered toggle (defaulting to rendered); other text stays source-only.
+ *      injected pierre source renderer (`BrowseFileView`). Markdown-family
+ *      paths (`isMarkdown` / `MARKDOWN_EXTENSIONS`) additionally get a
+ *      rendered appliance, so FileView shows a Source ⇄ Rendered toggle
+ *      (defaulting to rendered); other text stays source-only.
  *    - `kind: "binary"` → a `FileData` with `url`; FileView picks a rendered
  *      appliance by extension (raster `<img>`, `<video>` player, native PDF
  *      viewer, or sandboxed iframe). Rendered-only — no source on the wire to
@@ -386,19 +387,18 @@ const BrowseFileDispatcher: Component<BrowseFileDispatcherProps> = (props) => {
     },
   ];
 
-  // Kolu's rendered appliances for *text* files — just Markdown today. A
-  // `.md` file carries source (the text on the wire) AND a rendered form (the
-  // same text as a document), so FileView offers a Source ⇄ Rendered toggle,
-  // defaulting to rendered. The rendered document is `"prose"`: selectable
-  // light DOM, so it's commentable — anchored against its own host subtree
-  // (not the whole page) and with no source `lineRange` (a rendered line isn't
-  // a source line). It records `surface: "prose"` so the tray jump flips the
-  // toggle back to Rendered before re-finding (the rendered quote "Hello Doc"
-  // needn't appear in source "# Hello Doc", so landing on Source would fail
-  // the re-find); the comment re-anchors within the preview. Non-markdown text
-  // matches nothing here and stays source-only (no toggle). Markdown renders
-  // from `content`, not a URL — so these never appear in the binary
-  // `renderedRenderers` list above.
+  // Text appliances — markdown-family paths (`isMarkdown`) carry source on
+  // the wire AND a rendered document form, so FileView offers a Source ⇄
+  // Rendered toggle, defaulting to rendered. The rendered document is
+  // `"prose"`: selectable light DOM, so it's commentable — anchored against
+  // its own host subtree (not the whole page) and with no source `lineRange`
+  // (a rendered line isn't a source line). It records `surface: "prose"` so
+  // the tray jump flips the toggle back to Rendered before re-finding (the
+  // rendered quote "Hello Doc" needn't appear in source "# Hello Doc", so
+  // landing on Source would fail the re-find); the comment re-anchors within
+  // the preview. Non-markdown text matches nothing here and stays source-only
+  // (no toggle). Markdown-family content renders from `content`, not a URL —
+  // so these never appear in the binary `renderedRenderers` list above.
   const textRenderers: RenderedRenderer<FileWithSource>[] = [
     {
       match: isMarkdown,

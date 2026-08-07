@@ -156,9 +156,13 @@ plus a once-a-minute "… still running" heartbeat when piped.
 nix run github:juspay/odu -- dump            # resolved pipeline as JSON
 nix run github:juspay/odu -- graph           # dependency graph (Mermaid)
 nix run github:juspay/odu -- protect --dry-run   # the (recipe × platform) contexts
-nix run github:juspay/odu -- protect             # PATCH branch protection to them
+nix run github:juspay/odu -- protect             # require exactly those on the branch
+nix run github:juspay/odu -- protect --create    # …making the ruleset if absent
 # --platform P (repeatable) pins the repo's platform set with no hosts config;
 # omitted, the set derives from the machine's hosts file (warned on stderr).
+# The contexts land in the GitHub ruleset governing the branch; classic branch
+# protection is not written. Without a ruleset protect refuses — `--create`
+# makes one holding only the required checks, enforcing, exempting nobody.
 ```
 
 ## Live introspection (attach to a run in progress)
@@ -174,6 +178,12 @@ nix run github:juspay/odu -- attach          # live TUI dashboard on a tty
                                              #  r rerun · q quit); -o json
                                              # = transition stream
 nix run github:juspay/odu -- logs -f e2e@x86_64-linux
+nix run github:juspay/odu -- wait            # fail-fast JSON verdict (MCP wait_for_settle)
+nix run github:juspay/odu -- wait --settle   # block until the whole run settles
+nix run github:juspay/odu -- wait --expected-sha SHA [--timeout-ms N]
+nix run github:juspay/odu -- rerun ci::unit@x86_64-linux   # one node
+nix run github:juspay/odu -- rerun @x86_64-linux           # recipe nodes on that lane (not _ci-setup)
+nix run github:juspay/odu -- rerun unit                    # that recipe on every lane
 nix run github:juspay/odu -- cancel          # stop the live run, cleanly
 nix run github:juspay/odu -- cancel @aarch64-darwin   # drop one platform lane
 nix run github:juspay/odu -- cancel ci::fmt@x86_64-linux  # cancel one node
@@ -183,6 +193,13 @@ nix run github:juspay/odu -- runs            # durable history (flags unposted s
 No run in progress ⇒ exit non-zero with `no run in progress in this
 checkout (no live socket at .ci/odu.sock)`. One run per checkout — a
 second `odu run` refuses while the socket is live.
+
+**Wait / rerun (plain-CLI agent loop).** `odu wait` is the CLI twin of MCP
+`wait_for_settle`: default fail-fast (return the instant a node goes red),
+`--settle` for the full run; prints one JSON verdict line; exit 0 only on a
+fully-settled all-green run. `odu rerun <selector>` is the headless face of
+surface `node.rerun` (and of the attach TUI's `r` key) — restart node(s) on
+the still-live run by fan-in id, `@platform`, or bare recipe name.
 
 **Cancel / supersede / linger.** Bare `odu cancel` drives the live run's teardown
 from a second process (finalize posted statuses, close lanes, drop the socket)
