@@ -64,15 +64,32 @@ see [Remote Access](/remote-access).
 Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
 ships next week works the moment you run it.
 
-Four agents get first-class state today: `claude`, `codex`, `opencode`, and
-`grok` (Grok Build). For these, kolu reads live agent state into the dock
+Five agents get first-class state today: `claude`, `codex`, `opencode`,
+`grok` (Grok Build), and `xyne`. For these, kolu reads live agent state into the dock
 (thinking · tools · waiting · **awaiting you** — including Grok's
-`ask_user_question` prompts). Claude, Codex, OpenCode, and Grok can also export
+`ask_user_question` prompts). Xyne's on-disk transcript carries no live phase,
+so a Xyne tile lights up with its badge, session title, and last-used
+model, but stays in the plain waiting state. Claude, Codex, OpenCode, and Grok can also export
 the session as a self-contained HTML chat log or full transcript. Other agents
 still run in tiles; they just do not light up the dock.
 
-For launching the first one, see [First Five Minutes](/first-five-minutes). For
-running many and exporting transcripts, see [Power Features](/power-features).
+For launching the first one, see [First Five Minutes](/first-five-minutes).
+For running many and exporting transcripts, see [Power Features](/power-features).
+
+## `xyne` runs but no Xyne badge lights up?
+
+Three checks, in order:
+
+1. **A session must exist on disk.** Say at least one thing to Xyne, then look
+   under `~/.xyne/agent/sessions/` for a directory named after your working
+   directory with `/` folded to `-` (e.g. `/home/me/proj` → `-home-me-proj`),
+   containing a `<timestamp>_<uuid>.jsonl` transcript. No file, no badge.
+2. **Xyne must be the terminal's foreground process** (or be named by the
+   shell's OSC 633;E preexec hint). If it's running as a background job or
+   inside another TUI, detection stays off.
+3. **kolu only scans `~/.xyne`.** If you point Xyne's home elsewhere through a
+   wrapper, detection can't follow it. Tests and development overrides use
+   `KOLU_XYNE_DIR`, which mirrors the same tree shape.
 
 ## How do I update kolu?
 

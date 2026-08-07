@@ -53,6 +53,7 @@ import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { claudeCodeAdapter } from "kolu-claude-code";
 import { codexAdapter } from "kolu-codex";
+import { xyneAdapter } from "kolu-xyne";
 import { grokAdapter } from "kolu-grok";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
@@ -1041,10 +1042,19 @@ export function startSensors(
       log,
       commandRooted,
     );
-  const stopClaude = startAgent(claudeCodeAdapter);
-  const stopCodex = startAgent(codexAdapter);
-  const stopOpenCode = startAgent(opencodeAdapter);
-  const stopGrok = startAgent(grokAdapter);
+  // The heterogeneous adapter list — per-kind generics erased the way
+  // anyagent's own heterogeneous tables erase them. A union of the five
+  // concrete instantiations doesn't generalize to the sixth agent (the
+  // F4 volatility this list owns), so `any` is the honest type here.
+  // biome-ignore lint/suspicious/noExplicitAny: the heterogeneous adapter list erases the per-kind generics; anyagent's own tables share the shape.
+  const AGENTS: AgentAdapter<unknown, any>[] = [
+    claudeCodeAdapter,
+    codexAdapter,
+    opencodeAdapter,
+    grokAdapter,
+    xyneAdapter,
+  ];
+  const agentStops = AGENTS.map(startAgent);
   const stopProcess = startForegroundSensor(terminalId, signals, emit, log);
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   return () => {
@@ -1052,10 +1062,7 @@ export function startSensors(
     stopAgentCommand();
     stopGit();
     stopPr();
-    stopClaude();
-    stopCodex();
-    stopOpenCode();
-    stopGrok();
+    for (const stop of agentStops) stop();
     stopProcess();
     stopPorts();
   };

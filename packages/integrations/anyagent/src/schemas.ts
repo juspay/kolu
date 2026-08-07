@@ -26,6 +26,7 @@ export const AgentKindSchema = Schema.Literals([
   "codex",
   "opencode",
   "grok",
+  "xyne",
 ]);
 export type AgentKind = typeof AgentKindSchema.Type;
 

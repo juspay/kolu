@@ -83,6 +83,7 @@ let
     "kolu-io" = ../packages/integrations/io;
     "kolu-opencode" = ../packages/integrations/opencode;
     "kolu-pty" = ../packages/integrations/pty;
+    "kolu-xyne" = ../packages/integrations/xyne;
     "nonempty" = ../packages/nonempty;
     "kolu-shared" = ../packages/shared;
     "terminal-themes" = ../packages/terminal-themes;

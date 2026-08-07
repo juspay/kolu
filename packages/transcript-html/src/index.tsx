@@ -40,6 +40,7 @@ const AGENT_LABEL: Record<Transcript["agentKind"], string> = {
   opencode: "OpenCode",
   codex: "Codex",
   grok: "Grok",
+  xyne: "Xyne",
 };
 
 const mdProse = makeMarked({ breaks: false });

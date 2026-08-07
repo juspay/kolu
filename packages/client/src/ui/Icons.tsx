@@ -127,6 +127,19 @@ export const GrokIcon: Component<{ class?: string }> = (props) => (
   </svg>
 );
 
+/** Xyne mark — a simple filled "X" monogram that reads at 12–16px beside
+ *  the other agent icons. `currentColor` so chrome theme inherits. */
+export const XyneIcon: Component<{ class?: string }> = (props) => (
+  <svg
+    class={props.class ?? "w-3 h-3"}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <path d="M5.04 3h4.05L12 9.27 14.91 3h4.05l-4.74 9L18.96 21h-4.05L12 14.73 9.09 21H5.04l4.74-9L5.04 3z" />
+  </svg>
+);
+
 /** Local diff: pencil icon — uncommitted working-tree edits. */
 export const DiffLocalIcon: Component<{ class?: string }> = (props) => (
   <svg

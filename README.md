@@ -6,7 +6,8 @@
 
 kolu is a terminal app built for scale: real `xterm.js` tiles on an infinite
 2D canvas, with a dock that never loses one — for `claude`, `codex`,
-`opencode`, `grok`, or anything you run in a shell, especially many at once.
+`opencode`, `grok`, `xyne`, or anything you run in a shell, especially many
+at once.
 
 <p align="center">
   <a href="https://kolu.dev">
