@@ -8,7 +8,7 @@ author: "Sridhar Ratnakumar"
 
 import PR from "../../components/PR.astro";
 
-[Kolu](https://github.com/juspay/kolu)'s plumbing used to be five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
+[Kolu](https://github.com/juspay/kolu) — a terminal app for running many coding agents at once — used to do its plumbing with five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
 
 This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is what's there now, and why. And if you read Haskell but only basic TypeScript, you're closer to home here than in most TS codebases: [Effect](https://effect.website/) is the [monad-transformer stack](https://en.wikibooks.org/wiki/Haskell/Monad_transformers) you already know, shipped as a library with a runtime attached.
 
@@ -53,7 +53,7 @@ That type is the whole bet, three ways:
 2. **Types with teeth.** Errors and dependencies live in the type and survive across the wire, so "this call can fail this way" is checked, not documented.
 3. **Agents write most of this code**, and [Effect](https://effect.website/) turns their nastiest failure mode — code that compiles and silently does nothing — into compile errors and CI scans.
 
-The rest of this post is those three claims, cashed out.
+The rest of this post cashes those claims out, one piece of the stack at a time. The map:
 
 <svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.103." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
   <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">five dependencies, one library</text>
@@ -85,7 +85,7 @@ The rest of this post is those three claims, cashed out.
 
 ## The wire: RpcGroups over ndjson
 
-The RPC contract is a flat [`RpcGroup`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) — a typed map from slash-tagged method names to request/response schemas, the moral equivalent of a [Servant](https://docs.servant.dev/) API type. (It lives at [`effect/unstable/rpc`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc); being unstable, its documentation is the source.) Frames are [ndjson](https://github.com/ndjson/ndjson-spec) — one JSON value per line — over an Effect [`Socket`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/socket):
+Kolu's client and its daemons speak one RPC contract, and that contract is a flat [`RpcGroup`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) — a typed map from slash-tagged method names to request/response schemas, the moral equivalent of a [Servant](https://docs.servant.dev/) API type. (It lives at [`effect/unstable/rpc`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc); being unstable, its documentation is the source.) Frames are [ndjson](https://github.com/ndjson/ndjson-spec) — one JSON value per line — over an Effect [`Socket`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/socket):
 
 ```ts
 // packages/common/src/contract.ts
@@ -99,7 +99,7 @@ export const koluRootGroup = RpcGroup.make(
 export const contract = koluSurfaceGroup.merge(koluRootGroup);
 ```
 
-The [surface framework](/blog/surface-framework) kept its [five shapes](/surface) — cell, collection, stream, event, procedure — and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the [oRPC](https://orpc.io/): the boundary held, and swapping the wire vendor never touched a domain module.
+The [surface framework](/blog/surface-framework) — the typed reactive-state layer everything in Kolu is served through — kept its [five shapes](/surface) (cell, collection, stream, event, procedure), and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. Its client-side reactivity moved too: Effect's `Atom` sits where [`@preact/signals-core`](https://github.com/preactjs/signals) used to. And [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the [oRPC](https://orpc.io/): the boundary held, and swapping the wire vendor never touched a domain module.
 
 Reconnect — [partysocket](https://github.com/partykit/partysocket)'s old job — is now a [`Schedule`](https://effect.website/docs/scheduling/introduction/) handed to the client protocol as a retry policy. A [`Schedule`](https://effect.website/docs/scheduling/introduction/) is a first-class value describing "when to try again" (think the [retry](https://hackage.haskell.org/package/retry) package's [`RetryPolicy`](https://hackage.haskell.org/package/retry/docs/Control-Retry.html#t:RetryPolicyM), composable with `.pipe`), so backoff logic is data you test, not a config knob on somebody's WebSocket wrapper.
 
@@ -179,6 +179,6 @@ Here's the part nobody prints on the box. [Kolu](https://github.com/juspay/kolu)
 
 ## The beta: sharp edges, fenced
 
-Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.103)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
+About that beta. Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.103)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
 
-The wire, the schemas, the HTTP app, both daemons ([padi](/padi) and [kaval](/kaval)), the reactive engine, the CLIs — 489 files import [`effect`](https://effect.website/), one library speaking one semantics, and 509/509 e2e scenarios rode it green the day it merged. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
+The wire, the schemas, the HTTP app, both daemons ([padi](/padi) and [kaval](/kaval)), the reactive engine, the CLIs — 489 files import [`effect`](https://effect.website/), one library speaking one semantics, and 509/509 e2e scenarios rode it green the day the migration landed. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
