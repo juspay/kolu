@@ -7,7 +7,6 @@ const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-xyne-tx-"));
 process.env.KOLU_XYNE_DIR = tmpHome;
 
 const {
-  contentToText,
   eventsFromXyneLine,
   loadXyneTranscript,
   normalizeXyneToolInput,
