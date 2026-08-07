@@ -27,18 +27,21 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
+import { Effect, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
-import { createLoopbackPair } from "./loopback";
+import { awaitStdioReadiness } from "./links/readiness";
 import { stdioLink } from "./links/stdio";
+import { createLoopbackPair } from "./loopback";
 import { serveOverStdio } from "./peer-server";
-import type { lifetimeContract } from "./peer-server.lifetime.contract";
+import {
+  LIFETIME_TICK_TAG,
+  lifetimeSurface,
+} from "./peer-server.lifetime.contract";
+import { implementSurface } from "./server";
 
 const FIXTURE = fileURLToPath(
   new URL("./peer-server.lifetime.fixture.testlib.ts", import.meta.url),
@@ -162,12 +165,29 @@ describeDaemon(
       // then kill the parent's read side only: the agent's next push EPIPEs
       // while its stdin never sees EOF — clean teardown from the write
       // direction, which must exit 0 exactly like the EOF leg.
-      const client = stdioLink<typeof lifetimeContract>({
+      // The REAL gate over a REAL child: the fixture calls `serveOverStdio`
+      // with no transport override, so the process IS the agent and greets
+      // before its first frame. Nothing here fabricates a proof.
+      const readiness = await awaitStdioReadiness({
+        read: child.stdout,
+        deadlineMs: 10_000,
+        describe: "lifetime fixture agent",
+      });
+      const link = await stdioLink({
+        group: lifetimeSurface.group,
         read: child.stdout,
         write: child.stdin,
+        readiness,
       });
-      const ticks = await client.tick();
-      await ticks[Symbol.asyncIterator]().next(); // one yield roundtripped
+      const first = await Effect.runPromise(
+        Stream.runHead(
+          link.dispatch.stream(LIFETIME_TICK_TAG, undefined) as Stream.Stream<
+            { n: number },
+            unknown
+          >,
+        ),
+      );
+      expect(first).toBeDefined(); // one push round-tripped
 
       child.stdout.destroy(); // parent read side gone
 
@@ -194,11 +214,17 @@ describe("serveOverStdio lifetime — explicit transport override (caller owns l
       throw new Error(`process.exit(${code}) called on the override arm`);
     }) as never);
     try {
-      const t = implement({ ping: oc.output(z.string()) });
-      const router = t.router({ ping: t.ping.handler(() => "pong") });
+      const runtime = implementSurface(lifetimeSurface, {
+        procedures: { sys: { ping: () => Effect.succeed("pong") } },
+        streams: { tick: { source: () => Stream.empty } },
+      });
 
       const pair = createLoopbackPair();
-      const serving = serveOverStdio({ router, transport: pair.server });
+      const serving = serveOverStdio({
+        group: runtime.group,
+        handlers: runtime.handlers,
+        transport: pair.server,
+      });
 
       pair.client.write.end();
       pair.server.write.end();

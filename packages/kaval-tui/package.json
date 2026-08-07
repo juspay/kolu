@@ -10,12 +10,14 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "catalog:",
     "@kolu/shell-quote": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/surface-remote": "workspace:*",
     "@kolu/terminal-protocol": "workspace:*",
     "cleye": "^2.3.0",
     "columnify": "^1.6.0",
+    "effect": "catalog:",
     "kaval": "workspace:*",
     "kolu-pty": "workspace:*"
   },

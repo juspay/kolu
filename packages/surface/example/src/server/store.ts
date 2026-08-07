@@ -6,21 +6,23 @@
  * singleton.
  *
  * Swap to disk-backed persistence by replacing `inMemoryStore` calls
- * in `router.ts` with `confStore` (see `@kolu/surface/server`) — wire
+ * in `serve.ts` with `confStore` (see `@kolu/surface/server`) — wire
  * format is identical, only the storage adapter changes.
  */
 
-import { publisherChannel } from "@kolu/surface/server";
-import { MemoryPublisher } from "@orpc/experimental-publisher/memory";
+import { inMemoryPublisher, publisherChannel } from "@kolu/surface/server";
 import { DEFAULT_PREFS, type EditorPrefs, type Note } from "../common/surface";
 
 // ── Publisher ─────────────────────────────────────────────────────────
 
-// `MemoryPublisher`'s `Record<string, object>` generic is too strict for
-// our primitive payloads (we publish `string` keys arrays etc.). Real
-// type safety lives on the typed channels below.
-// biome-ignore lint/suspicious/noExplicitAny: see comment above
-export const publisher = new MemoryPublisher<Record<string, any>>();
+/** The framework's own name-keyed publisher (`@kolu/surface/server`). A
+ *  publisher is just "the same `Channel<T>` for the same name" — the surface
+ *  derives channel names from its own keys, so both the publish site and the
+ *  subscribe site must land on ONE instance. `inMemoryPublisher` is that
+ *  registry, and it is also what plain `implementSurface` owns internally; we
+ *  hold the reference here only because `autosaveChannel` (below) publishes on
+ *  it too. */
+export const publisher = inMemoryPublisher();
 
 // ── Singleton state: preferences ──────────────────────────────────────
 let prefs: EditorPrefs = { ...DEFAULT_PREFS };
@@ -54,7 +56,7 @@ export const removeNote = (id: string): void => {
 };
 
 // ── Domain-owned channel ──────────────────────────────────────────────
-/** Per-note autosave channel — written by `scheduleAutosave` (router.ts),
+/** Per-note autosave channel — written by `scheduleAutosave` (serve.ts),
  *  read as the source for the `autosave` event. The surface doesn't own
  *  event channels; this one is domain-managed and shared between the
  *  publish (debounce timer) and subscribe (event source) paths.

@@ -51,7 +51,12 @@ When(
 );
 
 When(
-  "I drop an {int} MiB file named {string} onto the terminal",
+  // `a/an` is Cucumber-expression alternation, not decoration: the sizes this
+  // step is used with straddle the article ("an 11 MiB", "a 20 MiB"), and a
+  // step matching only one of them fails as UNDEFINED at runtime rather than at
+  // author time — which is exactly how the 20 MiB frame-cap scenario reached CI
+  // red. Accept both so the feature file can read as English.
+  "I drop a/an {int} MiB file named {string} onto the terminal",
   async function (this: KoluWorld, sizeMiB: number, name: string) {
     await dropFile(this, { name, sizeMiB });
   },

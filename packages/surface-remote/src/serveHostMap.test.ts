@@ -6,16 +6,17 @@
  * WITHOUT a membership change (the fused membership + `onState` subscribe).
  */
 
+import { buildSurfaceFace } from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
-import { directLink } from "@kolu/surface/links/direct";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import {
   defineSurfaceMap,
   type EntryStatus,
   type KeyCodec,
 } from "@kolu/surface-map";
-import type { AnyContractRouter } from "@orpc/contract";
+import { Cause, Effect, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   type ConnectionInfo,
   ConnectionInfoSchema,
@@ -35,23 +36,27 @@ import type { SshProv } from "./sshConnector";
 const entrySurface = defineSurface({
   cells: {
     info: {
-      schema: z.object({ v: z.number() }),
+      schema: Schema.Struct({ v: Schema.Number }),
       default: { v: 0 },
       verbs: ["get"],
     },
   },
 });
-const HostKey = z.string().brand("HostKey");
+const HostKey = Schema.String.pipe(Schema.brand("HostKey"));
+type HostKey = typeof HostKey.Type;
 // The test's own key IS already a plain (branded) string, so its codec is the
 // identity pair — see `hostKeyCodec` in `kolu-common/hostKey` for the real,
 // object-keyed case this codec seam exists for.
-const identityCodec: KeyCodec<z.infer<typeof HostKey>> = {
+const identityCodec: KeyCodec<HostKey> = {
   encode: (k) => k,
-  decode: (s) => s as z.infer<typeof HostKey>,
+  decode: (s) => s as HostKey,
 };
 // A minimal domain failure schema (PR4) — the map's `failed` arm validates against it.
-const failureSchema = z.object({ cause: z.string(), reason: z.string() });
-type TestFailure = z.infer<typeof failureSchema>;
+const failureSchema = Schema.Struct({
+  cause: Schema.String,
+  reason: Schema.String,
+});
+type TestFailure = typeof failureSchema.Type;
 const map = defineSurfaceMap({
   key: HostKey,
   entry: entrySurface,
@@ -182,14 +187,82 @@ function fakePool() {
   };
 }
 
+/** The membership surface the map's `entries` collection is served at — exactly
+ *  what `connectSurfaceMap` builds its own membership face from, so a drift would
+ *  404 here the same way it would in production. */
+const entriesSurface = defineSurface({
+  collections: { entries: map.entriesSpec },
+});
+
+/** The served map's `entries` face over its in-process dispatch. `serveHostMap`
+ *  returns `{ group, handlers }` now (was an oRPC `router`), so a node-side reader
+ *  builds the face the same way any consumer does. */
+function entriesFace(served: { handlers: Record<string, unknown> }) {
+  return buildSurfaceFace(
+    entriesSurface,
+    directDispatch(served as never),
+  ) as unknown as {
+    surface: {
+      entries: {
+        keys: (i: unknown) => Stream.Stream<readonly string[], unknown>;
+        get: (i: { key: string }) => Stream.Stream<EntryStatus, unknown>;
+      };
+    };
+  };
+}
+
+/** A pull-driven reader over a member stream — the Effect successor of the old
+ *  `iterable[Symbol.asyncIterator]()`, kept because several pins below take frames
+ *  ONE AT A TIME across an interleaved mutation (and one asserts that no further
+ *  frame arrives at all). `next()` resolves with the next frame, or REJECTS with
+ *  the stream's failure — the same two outcomes an async iterator had. */
+function reader<T>(stream: Stream.Stream<T, unknown>) {
+  const frames: T[] = [];
+  const waiters: Array<{
+    resolve: (v: { value: T }) => void;
+    reject: (e: unknown) => void;
+  }> = [];
+  let failure: unknown = null;
+  const fiber = Effect.runFork(
+    Stream.runForEach(stream, (item: T) =>
+      Effect.sync(() => {
+        const w = waiters.shift();
+        if (w) w.resolve({ value: item });
+        else frames.push(item);
+      }),
+    ),
+  );
+  fiber.addObserver((exit) => {
+    if (exit._tag === "Success") return;
+    failure = exit.cause;
+    for (const w of waiters.splice(0)) w.reject(squash(failure));
+  });
+  return {
+    next(): Promise<{ value: T }> {
+      const buffered = frames.shift();
+      if (buffered !== undefined) return Promise.resolve({ value: buffered });
+      if (failure !== null) return Promise.reject(squash(failure));
+      return new Promise((resolve, reject) =>
+        waiters.push({ resolve, reject }),
+      );
+    },
+    stop: () => fiber.interruptUnsafe(),
+  };
+}
+
+/** Squash a fiber `Cause` down to the value a `rejects.toThrow(Class)` matcher
+ *  reads. Local to this suite — every failure here is a producer defect the
+ *  `entries` read surfaces. */
+function squash(cause: unknown): unknown {
+  return Cause.squash(cause as Cause.Cause<unknown>);
+}
+
 /** Consume the served `entries.get({key})` stream node-side. */
-async function entriesGet(
-  link: unknown,
+function entriesGet(
+  served: { handlers: Record<string, unknown> },
   key: string,
-): Promise<AsyncIterator<EntryStatus>> {
-  // biome-ignore lint/suspicious/noExplicitAny: walk the served oRPC link by string
-  const iterable = await (link as any).surface.entries.get({ key });
-  return iterable[Symbol.asyncIterator]();
+): ReturnType<typeof reader<EntryStatus>> {
+  return reader(entriesFace(served).surface.entries.get({ key }));
 }
 
 describe("projectState — SessionState → EntryConnectionState", () => {
@@ -224,13 +297,10 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     const p = fakePool();
     p.add("remote", fakeSession(st("provisioning"), true)); // provisions: true — legitimate
     const served = serveHostMap(map, p.pool, {
-      linkFor: () => directLink<AnyContractRouter>({} as never),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const iter = await entriesGet(
-      directLink<AnyContractRouter>(served.router as never),
-      "remote",
-    );
+    const iter = entriesGet(served, "remote");
     // The remote entry warms-via-copy honestly — no throw, status is 'warming'.
     await expect(iter.next()).resolves.toMatchObject({
       value: { kind: "warming" },
@@ -245,13 +315,10 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     // regression / a wrong widening.
     p.add("local", fakeSession(st("provisioning"), false));
     const served = serveHostMap(map, p.pool, {
-      linkFor: () => directLink<AnyContractRouter>({} as never),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const iter = await entriesGet(
-      directLink<AnyContractRouter>(served.router as never),
-      "local",
-    );
+    const iter = entriesGet(served, "local");
     await expect(iter.next()).rejects.toThrow(/never inhabit|1716/);
     served.dispose();
   });
@@ -263,12 +330,12 @@ describe("serveHostMap belt — a non-provisioning session can never project 'co
     p.add("local-a", fakeSession(st("provisioning"), false));
     p.add("local-b", fakeSession(st("provisioning"), false));
     const served = serveHostMap(map, p.pool, {
-      linkFor: () => directLink<AnyContractRouter>({} as never),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
-    const iterA = await entriesGet(link, "local-a");
-    const iterB = await entriesGet(link, "local-b");
+    const link = served;
+    const iterA = entriesGet(link, "local-a");
+    const iterB = entriesGet(link, "local-b");
     await expect(iterA.next()).rejects.toThrow(/never inhabit|1716/);
     await expect(iterB.next()).rejects.toThrow(/never inhabit|1716/);
     served.dispose();
@@ -300,18 +367,15 @@ describe("serveHostMap — entries authority", () => {
   it("THE PIN: a warming→connected STATUS transition republishes entries with NO membership change", async () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      // dummy entry link — this pin exercises `entries`, not member forwarding
-      linkFor: () => ({ surface: {} }),
+      // dummy entry dispatch — this pin exercises `entries`, not member forwarding
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const link = directLink<AnyContractRouter>(
-      // biome-ignore lint/suspicious/noExplicitAny: served router
-      served.router as any,
-    );
+    const link = served;
     const s = fakeSession(st("connecting"));
     pf.add("a", s);
 
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     // `toMatchObject` (not `toEqual`): a published `EntryStatus` also carries the
     // surface-map membership rider's opaque `membershipId`, orthogonal to the status
     // this test pins — assert the status shape, ignore that field.
@@ -330,20 +394,15 @@ describe("serveHostMap — entries authority", () => {
   it("membership add drives entries.keys()", async () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const link = directLink<AnyContractRouter>(
-      // biome-ignore lint/suspicious/noExplicitAny: served router
-      served.router as any,
-    );
-    // biome-ignore lint/suspicious/noExplicitAny: walk the served link by string
-    const keysIter = (await (link as any).surface.entries.keys(undefined))[
-      Symbol.asyncIterator
-    ]();
+    const link = served;
+    const keysIter = reader(entriesFace(link).surface.entries.keys(undefined));
     expect((await keysIter.next()).value).toEqual([]); // no members yet
     pf.add("a", fakeSession(connected(0)));
     expect((await keysIter.next()).value).toEqual(["a"]);
+    keysIter.stop();
     served.dispose();
   });
 });
@@ -361,16 +420,16 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
   it("a TERMINAL failed session publishes the session frame's retained log as `evidence`", async () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
       connection,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
+    const link = served;
     pf.add(
       "a",
       fakeSession(st("failed", "remote store build failed", buildTail)),
     );
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     const status = (await iter.next()).value;
     expect(status).toMatchObject({
       kind: "failed",
@@ -383,18 +442,18 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
   it("a STANDING REFUSE (disconnected + a classified failure) gets the SAME stapling", async () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       // A `disconnected` frame the domain DOES classify — the refuse that publishes as
       // `failed` (cross-supervisor / contract skew), not the transient drop below.
       failureOf: (_h, _s, state) => ({ cause: "refused", reason: state.error }),
       connection,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
+    const link = served;
     pf.add(
       "a",
       fakeSession(st("disconnected", "version skew — refused", buildTail)),
     );
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     expect((await iter.next()).value).toMatchObject({
       kind: "failed",
       failure: { cause: "refused", reason: "version skew — refused" },
@@ -410,13 +469,13 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
     // absence explicitly.)
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: () => null, // "not a standing failure — keep it warming"
       connection,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
+    const link = served;
     pf.add("a", fakeSession(st("disconnected", "link dropped", buildTail)));
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     const status = (await iter.next()).value as Record<string, unknown>;
     expect(status.kind).toBe("warming");
     expect("evidence" in status).toBe(false);
@@ -427,13 +486,13 @@ describe("serveHostMap — failure EVIDENCE is minted at the classification seam
   it("an episode that genuinely produced no output publishes `[]` — a real value, not an absence", async () => {
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
       connection,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
+    const link = served;
     pf.add("a", fakeSession(st("failed", "connection refused")));
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     expect((await iter.next()).value).toMatchObject({
       kind: "failed",
       evidence: [],
@@ -456,11 +515,11 @@ describe("serveHostMap — a re-classified failure does not re-publish", () => {
     // of them being asked to build a cache.
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
       connection,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
+    const link = served;
     pf.add(
       "a",
       fakeSession(
@@ -470,7 +529,7 @@ describe("serveHostMap — a re-classified failure does not re-publish", () => {
     const b = fakeSession(connected(0));
     pf.add("b", b);
 
-    const iter = await entriesGet(link, "a");
+    const iter = entriesGet(link, "a");
     expect((await iter.next()).value).toMatchObject({ kind: "failed" });
 
     // A sibling's own session frame fires the family: every member is re-resolved and
@@ -497,11 +556,11 @@ describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () 
       subscribe: () => () => {},
     } as unknown as ReturnType<typeof fakePool>["pool"];
     const served = serveHostMap(map, ghostPool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
-    const iter = await entriesGet(link, "ghost");
+    const link = served;
+    const iter = entriesGet(link, "ghost");
     await expect(iter.next()).rejects.toThrow(UnclassifiedHostSessionError);
     served.dispose();
   });
@@ -525,7 +584,7 @@ describe("serveHostMap — the fail-loud seam (PR4: no fabricated failure)", () 
     process.on("uncaughtException", collect);
     const pf = fakePool();
     const served = serveHostMap(map, pf.pool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: () => null, // declines to classify — the producer defect
     });
     try {
@@ -571,13 +630,13 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
     it(`${c.name}: dot-connected ⟺ word-connected (one arm, one frame)`, async () => {
       const pf = fakePool();
       const served = serveHostMap(map, pf.pool, {
-        linkFor: () => ({ surface: {} }),
+        dispatchFor: () => ({}) as unknown as SurfaceDispatch,
         failureOf: classify,
         connection,
       });
-      const link = directLink<AnyContractRouter>(served.router as never);
+      const link = served;
       pf.add("h", fakeSession(c.state));
-      const iter = await entriesGet(link, "h");
+      const iter = entriesGet(link, "h");
       const value = (await iter.next()).value as EntryStatus & {
         connection?: { phase?: string };
       };
@@ -604,7 +663,7 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
       subscribe: () => () => {},
     } as unknown as ReturnType<typeof fakePool>["pool"];
     const served = serveHostMap(map, staticPool, {
-      linkFor: () => ({ surface: {} }),
+      dispatchFor: () => ({}) as unknown as SurfaceDispatch,
       failureOf: classify,
       connection: {
         project: () =>
@@ -617,8 +676,8 @@ describe("the joint connection-authority invariant (SR9, drishti#102)", () => {
         isConnected: (c) => c.phase === "connected",
       },
     });
-    const link = directLink<AnyContractRouter>(served.router as never);
-    const iter = await entriesGet(link, "h"); // dot → connected, word → connecting: a lie
+    const link = served;
+    const iter = entriesGet(link, "h"); // dot → connected, word → connecting: a lie
     await expect(iter.next()).rejects.toThrow(ConnectionAuthorityMismatchError);
     served.dispose();
   });

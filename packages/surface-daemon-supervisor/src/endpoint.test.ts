@@ -3,15 +3,19 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
+import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import {
   type DaemonConnection,
   DaemonContractSkewError,
+  ENDPOINT_STATES,
   type EndpointStatus,
   isSocketSquatterForeignError,
   SocketSquatterForeignError,
+  underRestartHold,
 } from "./endpoint.ts";
+import { fromAsync } from "./createEndpoint.testlib.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 
 import { endpointPrivate } from "./endpoint.private.ts";
@@ -153,15 +157,15 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: () => fake.listen() },
-      connect: async (_socketPath) => conn,
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => fake.listen()) },
+      connect: (_socketPath) => fromAsync(async () => conn),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
     const connected = statuses.find((s) => s.state === "connected");
     expect(connected?.identity).toEqual({ staleKey: "abc" });
@@ -204,25 +208,26 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawns += 1;
-        },
+        }),
       },
       // Never completes: the holder cannot be proven a daemon we can serve
       // through, so the recovery has no actionable arm left.
-      connect: async () => {
-        throw new Error("unreachable");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("unreachable");
+        }),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    await expect(endpointPrivate(endpoint).ensure()).rejects.toSatisfy(
-      isSocketSquatterForeignError,
-    );
+    await expect(
+      Effect.runPromise(endpointPrivate(endpoint).ensure),
+    ).rejects.toSatisfy(isSocketSquatterForeignError);
     expect(spawns).toBe(0);
   });
 
@@ -247,23 +252,24 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: () => fake.listen() },
-      connect: async (_socketPath) => ({
-        client: "C",
-        identity: { staleKey: "k" },
-        startedAt: 1,
-        dispose() {},
-        onClose(cb) {
-          closeCb = cb;
-        },
-      }),
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => fake.listen()) },
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "C",
+          identity: { staleKey: "k" },
+          startedAt: 1,
+          dispose() {},
+          onClose(cb) {
+            closeCb = cb;
+          },
+        })),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
     closeCb?.();
     expect(statuses.map((s) => s.state)).toEqual([
       "connecting",
@@ -293,17 +299,20 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: () => fake.listen() },
-      connect: async (_socketPath) => {
-        throw new Error("skew");
-      },
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => fake.listen()) },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw new Error("skew");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("skew");
+    await expect(
+      Effect.runPromise(endpointPrivate(endpoint).ensure),
+    ).rejects.toThrow("skew");
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
   });
 
@@ -326,23 +335,26 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       // A bad binPath / un-forkable systemd-run surfaces as a rejecting spawn.
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error("ENOENT: kaval binary not found");
-        },
+        }),
       },
-      connect: async (_socketPath) => {
-        connectCalled = true;
-        throw new Error("connect should never run after a failed spawn");
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connectCalled = true;
+          throw new Error("connect should never run after a failed spawn");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await expect(endpointPrivate(endpoint).ensure()).rejects.toThrow("ENOENT");
+    await expect(
+      Effect.runPromise(endpointPrivate(endpoint).ensure),
+    ).rejects.toThrow("ENOENT");
     // The contract: failures publish `dead` before they throw, so the UI never
     // sticks at `connecting`. And a failed spawn must not reach the handshake.
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "dead"]);
@@ -385,26 +397,27 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           // The recycle must have killed the survivor before we spawn.
           spawned = true;
-        },
+        }),
       },
-      connect: async (_socketPath) => ({
-        client: "C",
-        identity: { staleKey: "fresh" },
-        startedAt: 2,
-        dispose() {},
-        onClose() {},
-      }),
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "C",
+          identity: { staleKey: "fresh" },
+          startedAt: 2,
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
     await survivorExited; // the boot policy killed it
     expect(spawned).toBe(true);
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
@@ -441,22 +454,23 @@ describeDaemon("createEndpoint — boot, status, death", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       // The fresh daemon brings the socket up — the stranger's pid is untouched.
-      driver: { spawn: () => fake.listen() },
-      connect: async (_socketPath) => ({
-        client: "C",
-        identity: { staleKey: "fresh" },
-        startedAt: 3,
-        dispose() {},
-        onClose() {},
-      }),
+      driver: { spawn: fromAsync(async () => fake.listen()) },
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "C",
+          identity: { staleKey: "fresh" },
+          startedAt: 3,
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
     expect(strangerSignalled).toBe(false);
@@ -496,37 +510,38 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: async () => {} }, // the fake is already serving
-      connect: async (_socketPath) => {
-        connects += 1;
-        return {
-          client: `C${connects}`,
-          identity: { staleKey: `k${connects}` },
-          startedAt: connects,
-          dispose() {},
-          onClose() {},
-        };
-      },
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => {}) }, // the fake is already serving
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connects += 1;
+          return {
+            client: `C${connects}`,
+            identity: { staleKey: `k${connects}` },
+            startedAt: connects,
+            dispose() {},
+            onClose() {},
+          };
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await endpointPrivate(endpoint).ensure(); // boot: connecting → connected
+    await Effect.runPromise(endpointPrivate(endpoint).ensure); // boot: connecting → connected
     statuses.length = 0; // focus the assertions on the restart
     return { endpoint, statuses, connectCount: () => connects };
   }
 
   const noopSteps = {
-    capture: async () => {},
-    drain: async () => {},
-    reattach: async () => {},
+    capture: Effect.void,
+    drain: () => Effect.void,
+    reattach: () => Effect.void,
   };
 
   it("reports one `restarting` across the recycle then `connected` — never a bare `connecting`", async () => {
     const { endpoint, statuses } = await bootedEndpoint();
 
-    await serializeRestart(endpoint)(noopSteps);
+    await Effect.runPromise(serializeRestart(endpoint)(noopSteps));
 
     const seq = statuses.map((s) => s.state);
     // The emit-guard coerced the recycle's `connecting` to `restarting`.
@@ -543,12 +558,33 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const trigger = serializeRestart(endpoint);
     // Two callers fire in the same tick — the second must ride the first's
     // in-flight restart, not launch a second recycle.
-    await Promise.all([trigger(noopSteps), trigger(noopSteps)]);
+    await Effect.runPromise(
+      Effect.all([trigger(noopSteps), trigger(noopSteps)], {
+        concurrency: "unbounded",
+      }),
+    );
 
     // boot connected once; the coalesced restart connected exactly once more.
     expect(connectCount()).toBe(2);
     // One restarting, one connected — not two of each.
     expect(statuses.filter((s) => s.state === "connected")).toHaveLength(1);
+  });
+
+  /**
+   * The other half of coalescing, and the half that had no pin: the in-flight
+   * token must be RELEASED when the restart ends, or the very coalescing that
+   * makes a second concurrent caller ride the first would make every LATER
+   * caller ride a finished one — a restart button that works once per process.
+   */
+  it("releases the in-flight token: a SECOND, later trigger really recycles again", async () => {
+    const { endpoint, connectCount } = await bootedEndpoint();
+
+    const trigger = serializeRestart(endpoint);
+    await Effect.runPromise(trigger(noopSteps));
+    await Effect.runPromise(trigger(noopSteps));
+
+    // boot + two separate restarts — not boot + one restart ridden twice.
+    expect(connectCount()).toBe(3);
   });
 
   it("a failed recycle ends the hold at `dead` (a real failure is not coerced)", async () => {
@@ -573,26 +609,27 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: async () => {} },
-      connect: async (_socketPath) => {
-        connects += 1;
-        if (connects === 1) {
-          return {
-            client: "C",
-            identity: { staleKey: "k1" },
-            startedAt: 1,
-            dispose() {},
-            onClose() {},
-          };
-        }
-        throw new Error("skew");
-      },
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => {}) },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connects += 1;
+          if (connects === 1) {
+            return {
+              client: "C",
+              identity: { staleKey: "k1" },
+              startedAt: 1,
+              dispose() {},
+              onClose() {},
+            };
+          }
+          throw new Error("skew");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
-    await endpointPrivate(endpoint).ensure(); // boot ok
+    await Effect.runPromise(endpointPrivate(endpoint).ensure); // boot ok
     statuses.length = 0;
 
     // WHICH error surfaces is scaffolding, not the guarantee: this fake's
@@ -601,7 +638,9 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     // handshake is this very process's own in-process server. The guarantee
     // under test is that a failed recycle ENDS — reported `dead`, rejected to
     // the caller — instead of being coerced into a stuck `restarting`.
-    await expect(serializeRestart(endpoint)(noopSteps)).rejects.toThrow();
+    await expect(
+      Effect.runPromise(serializeRestart(endpoint)(noopSteps)),
+    ).rejects.toThrow();
 
     const seq = statuses.map((s) => s.state);
     expect(seq[0]).toBe("restarting");
@@ -616,13 +655,13 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     // untouched, so the honest state is still `connected`. Without recovery the
     // surface would stick at `restarting` forever (rail/buttons in-flight).
     await expect(
-      serializeRestart(endpoint)({
-        capture: async () => {
-          throw new Error("snapshot write failed");
-        },
-        drain: async () => {},
-        reattach: async () => {},
-      }),
+      Effect.runPromise(
+        serializeRestart(endpoint)({
+          capture: Effect.fail(new Error("snapshot write failed")),
+          drain: () => Effect.void,
+          reattach: () => Effect.void,
+        }),
+      ),
     ).rejects.toThrow("snapshot write failed");
 
     const seq = statuses.map((s) => s.state);
@@ -636,13 +675,13 @@ describe("serializeRestart — the emit-guard + coalescing (B3.2)", () => {
     const { endpoint, statuses } = await bootedEndpoint();
 
     await expect(
-      serializeRestart(endpoint)({
-        capture: async () => {},
-        drain: async () => {
-          throw new Error("killAll failed");
-        },
-        reattach: async () => {},
-      }),
+      Effect.runPromise(
+        serializeRestart(endpoint)({
+          capture: Effect.void,
+          drain: () => Effect.fail(new Error("killAll failed")),
+          reattach: () => Effect.void,
+        }),
+      ),
     ).rejects.toThrow("killAll failed");
 
     const seq = statuses.map((s) => s.state);
@@ -688,26 +727,29 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawnCalled = true;
-        },
+        }),
       },
       // The handshake succeeds → the survivor is compatible → adopt it.
-      connect: async (_socketPath) => ({
-        client: "SURVIVOR",
-        identity: { staleKey: "survivor" },
-        startedAt: 99,
-        dispose() {},
-        onClose() {},
-      }),
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "SURVIVOR",
+          identity: { staleKey: "survivor" },
+          startedAt: 99,
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     // Give any (erroneous) SIGTERM a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
@@ -756,30 +798,33 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawnCalled = true;
-        },
+        }),
       },
-      connect: async (_socketPath) => {
-        connectCount += 1;
-        if (connectCount === 1) throw new Error("ECONNRESET (transient)");
-        return {
-          client: "SURVIVOR",
-          identity: { staleKey: "survivor" },
-          startedAt: 7,
-          dispose() {},
-          onClose() {},
-        };
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connectCount += 1;
+          if (connectCount === 1) throw new Error("ECONNRESET (transient)");
+          return {
+            client: "SURVIVOR",
+            identity: { staleKey: "survivor" },
+            startedAt: 7,
+            dispose() {},
+            onClose() {},
+          };
+        }),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
       adoptConnectRetryMs: 1, // keep the test fast
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(adopted.kind).toBe("adopted-resident"); // adopted on the retry, not recycled
@@ -822,29 +867,30 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawned = true;
-        },
+        }),
       },
-      connect: async (_socketPath) => {
-        connectCount += 1;
-        // A genuine skew (the typed error) is TERMINAL: it proves the contract is
-        // incompatible, so the endpoint must recycle on the FIRST one — never
-        // burn retries re-dialing a daemon that can't become compatible. Only the
-        // post-recycle fresh spawn connects.
-        if (connectCount === 1) {
-          throw skewError();
-        }
-        return {
-          client: "FRESH",
-          identity: { staleKey: "fresh" },
-          startedAt: 2,
-          dispose() {},
-          onClose() {},
-        };
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connectCount += 1;
+          // A genuine skew (the typed error) is TERMINAL: it proves the contract is
+          // incompatible, so the endpoint must recycle on the FIRST one — never
+          // burn retries re-dialing a daemon that can't become compatible. Only the
+          // post-recycle fresh spawn connects.
+          if (connectCount === 1) {
+            throw skewError();
+          }
+          return {
+            client: "FRESH",
+            identity: { staleKey: "fresh" },
+            startedAt: 2,
+            dispose() {},
+            onClose() {},
+          };
+        }),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
@@ -852,7 +898,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     await survivorExited; // the skewed survivor was killed before the fresh spawn
 
     expect(adopted.kind).toBe("spawned-fresh"); // recycled, not adopted
@@ -900,13 +948,14 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: async () => {} },
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => {}) },
       // EVERY connect skews — the survivor AND the fresh spawn: the closure on
       // this host cannot speak the required contract, whoever runs it.
-      connect: async (_socketPath) => {
-        throw skewError();
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw skewError();
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -915,7 +964,7 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
     });
 
     await expect(
-      endpointPrivate(endpoint).adoptOrEnsure(),
+      Effect.runPromise(endpointPrivate(endpoint).adoptOrEnsure),
     ).rejects.toMatchObject({
       isContractSkew: true,
     });
@@ -960,21 +1009,20 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: async () => {} },
-      connect: async (_socketPath) => {
-        throw skewError();
-      },
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => {}) },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw skewError();
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await endpoint.holdRestarting(async () => {
-      await endpointPrivate(endpoint)
-        .ensure()
-        .catch(() => {});
-    });
+    await Effect.runPromise(
+      endpoint.holdRestarting(Effect.ignore(endpointPrivate(endpoint).ensure)),
+    );
 
     // `connecting` was coerced into the hold's `restarting`; the skew verdict
     // passed through UN-coerced and stands as the last word (never `dead`,
@@ -1023,18 +1071,19 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           spawnCalled = true;
-        },
+        }),
       },
-      connect: async (_socketPath) => {
-        connectCount += 1;
-        // Plain Error (NOT a DaemonContractSkewError) → non-skew, possibly
-        // transient. Here it persists across every attempt.
-        throw new Error("ECONNRESET (persistent transport failure)");
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          connectCount += 1;
+          // Plain Error (NOT a DaemonContractSkewError) → non-skew, possibly
+          // transient. Here it persists across every attempt.
+          throw new Error("ECONNRESET (persistent transport failure)");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -1042,7 +1091,9 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
       adoptConnectRetryMs: 1,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(adopted.kind).toBe("refused-or-failed"); // nothing adopted, nothing to reconcile
@@ -1073,21 +1124,24 @@ describeDaemon("adoptOrEnsure — adopt-or-recycle boot (B3.3)", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
-      driver: { spawn: () => fake.listen() },
-      connect: async (_socketPath) => ({
-        client: "FRESH",
-        identity: { staleKey: "fresh" },
-        startedAt: 1,
-        dispose() {},
-        onClose() {},
-      }),
+      probe: () => fromAsync(async () => null),
+      driver: { spawn: fromAsync(async () => fake.listen()) },
+      connect: (_socketPath) =>
+        fromAsync(async () => ({
+          client: "FRESH",
+          identity: { staleKey: "fresh" },
+          startedAt: 1,
+          dispose() {},
+          onClose() {},
+        })),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     expect(adopted.kind).not.toBe("adopted-resident");
     expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
   });
@@ -1134,20 +1188,21 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             spawnCalled = true;
-          },
+          }),
         },
-        connect: async (_socketPath) => {
-          connectCount += 1;
-          throw skewError({
-            subject: "padiSurface",
-            daemonVersion: "3.0",
-            requiredVersion: "4.0",
-          });
-        },
+        connect: (_socketPath) =>
+          fromAsync(async () => {
+            connectCount += 1;
+            throw skewError({
+              subject: "padiSurface",
+              daemonVersion: "3.0",
+              requiredVersion: "4.0",
+            });
+          }),
         log: silentLog,
         onStatus: (_h, s) => statuses.push(s),
         socketPollMs: 5,
@@ -1155,7 +1210,9 @@ describeDaemon(
         adoptConnectRetryMs: 1,
       });
 
-      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(endpoint).adoptOrSpawnOrRefuse,
+      );
       // Give any (erroneous) SIGTERM a tick to land.
       await new Promise((r) => setTimeout(r, 50));
 
@@ -1210,25 +1267,28 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             spawnCalled = true;
-          },
+          }),
         },
-        connect: async (_socketPath) => ({
-          client: "SURVIVOR",
-          identity: { staleKey: "survivor" },
-          startedAt: 42,
-          dispose() {},
-          onClose() {},
-        }),
+        connect: (_socketPath) =>
+          fromAsync(async () => ({
+            client: "SURVIVOR",
+            identity: { staleKey: "survivor" },
+            startedAt: 42,
+            dispose() {},
+            onClose() {},
+          })),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
       });
 
-      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(endpoint).adoptOrSpawnOrRefuse,
+      );
       await new Promise((r) => setTimeout(r, 50));
 
       expect(adopted.kind).toBe("adopted-resident");
@@ -1256,21 +1316,24 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
-        driver: { spawn: () => fake.listen() },
-        connect: async (_socketPath) => ({
-          client: "FRESH",
-          identity: { staleKey: "fresh" },
-          startedAt: 1,
-          dispose() {},
-          onClose() {},
-        }),
+        probe: () => fromAsync(async () => null),
+        driver: { spawn: fromAsync(async () => fake.listen()) },
+        connect: (_socketPath) =>
+          fromAsync(async () => ({
+            client: "FRESH",
+            identity: { staleKey: "fresh" },
+            startedAt: 1,
+            dispose() {},
+            onClose() {},
+          })),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
       });
 
-      const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(endpoint).adoptOrSpawnOrRefuse,
+      );
       expect(adopted.kind).not.toBe("adopted-resident");
       expect(endpoint.current()?.identity).toEqual({ staleKey: "fresh" });
     });
@@ -1348,22 +1411,23 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             driverSpawnCalled = true;
-          },
+          }),
         },
-        connect: async (_socketPath) => conn("primary", 99),
+        connect: (_socketPath) => fromAsync(async () => conn("primary", 99)),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => {
-            hintConnectCalled = true;
-            return conn("legacy", 5);
-          },
+          connect: (_socketPath) =>
+            fromAsync(async () => {
+              hintConnectCalled = true;
+              return conn("legacy", 5);
+            }),
           onAdopted: () => {
             onAdoptedCalled = true;
           },
@@ -1371,7 +1435,9 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(ep).adoptOrEnsure,
+      );
       await tick();
 
       expect(adopted.kind).toBe("adopted-resident");
@@ -1410,19 +1476,19 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             driverSpawnCalled = true;
-          },
+          }),
         },
-        connect: async (_socketPath) => conn("primary-fresh"),
+        connect: (_socketPath) => fromAsync(async () => conn("primary-fresh")),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => conn("legacy", 5),
+          connect: (_socketPath) => fromAsync(async () => conn("legacy", 5)),
           onAdopted: () => {
             onAdoptedCalled = true;
           },
@@ -1430,7 +1496,9 @@ describeDaemon(
         onSpawned: () => {},
       });
 
-      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(ep).adoptOrEnsure,
+      );
       await tick();
 
       expect(adopted.kind).toBe("adopted-resident");
@@ -1470,27 +1538,28 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             driverSpawnCalled = true;
             await fakePrimary.listen(); // the fresh (digest) kaval comes up
-          },
+          }),
         },
-        connect: async (_socketPath) => conn("primary-fresh"),
+        connect: (_socketPath) => fromAsync(async () => conn("primary-fresh")),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptConnectRetryMs: 1,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => {
-            throw skewError({
-              subject: "pty-host",
-              daemonVersion: "1.0",
-              requiredVersion: "5.2",
-            });
-          },
+          connect: (_socketPath) =>
+            fromAsync(async () => {
+              throw skewError({
+                subject: "pty-host",
+                daemonVersion: "1.0",
+                requiredVersion: "5.2",
+              });
+            }),
           onAdopted: () => {},
         },
         onSpawned: () => {
@@ -1498,7 +1567,9 @@ describeDaemon(
         },
       });
 
-      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(ep).adoptOrEnsure,
+      );
       await tick();
 
       expect(adopted.kind).toBe("spawned-fresh");
@@ -1544,34 +1615,36 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             await fakePrimary.listen();
-          },
+          }),
         },
         // The PRIMARY handshake skews too — the whole closure on this host is
         // incompatible, whoever runs it.
-        connect: async (_socketPath) => {
-          throw skewError({
-            subject: "pty-host",
-            daemonVersion: "1.0",
-            requiredVersion: "5.2",
-          });
-        },
+        connect: (_socketPath) =>
+          fromAsync(async () => {
+            throw skewError({
+              subject: "pty-host",
+              daemonVersion: "1.0",
+              requiredVersion: "5.2",
+            });
+          }),
         log: silentLog,
         onStatus: (_h, st) => statuses.push(st),
         socketPollMs: 5,
         adoptConnectRetryMs: 1,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => {
-            throw skewError({
-              subject: "pty-host",
-              daemonVersion: "1.0",
-              requiredVersion: "5.2",
-            });
-          },
+          connect: (_socketPath) =>
+            fromAsync(async () => {
+              throw skewError({
+                subject: "pty-host",
+                daemonVersion: "1.0",
+                requiredVersion: "5.2",
+              });
+            }),
           onAdopted: () => {},
         },
         onSpawned: () => {
@@ -1579,7 +1652,9 @@ describeDaemon(
         },
       });
 
-      await expect(endpointPrivate(ep).adoptOrEnsure()).rejects.toMatchObject({
+      await expect(
+        Effect.runPromise(endpointPrivate(ep).adoptOrEnsure),
+      ).rejects.toMatchObject({
         isContractSkew: true,
       });
       await tick();
@@ -1621,18 +1696,19 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
-        driver: { spawn: () => fakePrimary.listen() },
-        connect: async (_socketPath) => conn("primary-fresh"),
+        probe: () => fromAsync(async () => null),
+        driver: { spawn: fromAsync(async () => fakePrimary.listen()) },
+        connect: (_socketPath) => fromAsync(async () => conn("primary-fresh")),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => {
-            hintConnectCalled = true;
-            return conn("legacy");
-          },
+          connect: (_socketPath) =>
+            fromAsync(async () => {
+              hintConnectCalled = true;
+              return conn("legacy");
+            }),
           onAdopted: () => {
             onAdoptedCalled = true;
           },
@@ -1642,7 +1718,9 @@ describeDaemon(
         },
       });
 
-      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(ep).adoptOrEnsure,
+      );
       expect(adopted.kind).not.toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "primary-fresh" });
       expect(hintConnectCalled).toBe(false); // no live daemon at the hint gate to connect to
@@ -1681,20 +1759,21 @@ describeDaemon(
           onContractSkew: { kind: "recycle" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             driverSpawnCalled += 1;
             await fakePrimary.listen();
-          },
+          }),
         },
-        connect: async (_socketPath) => conn("primary-fresh", 42),
+        connect: (_socketPath) =>
+          fromAsync(async () => conn("primary-fresh", 42)),
         log: silentLog,
         onStatus: () => {},
         socketPollMs: 5,
         adoptHint: {
           home: hint,
-          connect: async (_socketPath) => conn("legacy", 5),
+          connect: (_socketPath) => fromAsync(async () => conn("legacy", 5)),
           onAdopted: () => {
             onAdoptedCalled = true;
           },
@@ -1705,7 +1784,9 @@ describeDaemon(
       });
 
       // Boot: no digest survivor, adopt the legacy hint.
-      const adopted = await endpointPrivate(ep).adoptOrEnsure();
+      const adopted = await Effect.runPromise(
+        endpointPrivate(ep).adoptOrEnsure,
+      );
       expect(adopted.kind).toBe("adopted-resident");
       expect(ep.current()?.identity).toEqual({ staleKey: "legacy" });
       expect(onAdoptedCalled).toBe(true);
@@ -1714,7 +1795,7 @@ describeDaemon(
       // A Restart-kaval recycle (`ensure()`) probes the HELD rendezvous — the adopted
       // legacy socket, not the primary — so it SIGTERMs the legacy daemon and spawns
       // fresh at the PRIMARY (digest). The bounded migration converges here.
-      await endpointPrivate(ep).ensure();
+      await Effect.runPromise(endpointPrivate(ep).ensure);
       await tick();
 
       expect(legacy.exited()).toBe(true); // the adopted legacy kaval was killed by the recycle
@@ -1724,3 +1805,30 @@ describeDaemon(
     });
   },
 );
+
+describe("underRestartHold — the emit-guard's rule, without an endpoint", () => {
+  const hold = (state: EndpointStatus<unknown>["state"]) =>
+    underRestartHold(true, { state } as EndpointStatus<unknown>).state;
+
+  it("folds the recycle's transients into one `restarting`", () => {
+    expect(hold("connecting")).toBe("restarting");
+    expect(hold("degraded")).toBe("restarting");
+  });
+
+  it("never coerces a terminal verdict — including a proven skew (SK4)", () => {
+    // `incompatible` is the case worth stating on its own: repainting a skew as
+    // "restarting" would show progress against a daemon a restart cannot fix.
+    expect(hold("incompatible")).toBe("incompatible");
+    expect(hold("connected")).toBe("connected");
+    expect(hold("dead")).toBe("dead");
+    expect(hold("restarting")).toBe("restarting");
+  });
+
+  it("is the identity when no restart is held", () => {
+    for (const state of ENDPOINT_STATES) {
+      expect(
+        underRestartHold(false, { state } as EndpointStatus<unknown>).state,
+      ).toBe(state);
+    }
+  });
+});

@@ -15,9 +15,13 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { buildSurfaceFace, type SurfaceFace } from "@kolu/surface/client";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type { AnyContractRouter, ContractRouterClient } from "@orpc/contract";
+import {
+  awaitStdioReadiness,
+  isStdioReadinessError,
+} from "@kolu/surface/links/readiness";
 import {
   buildAgentCommand,
   forEachLine,
@@ -29,22 +33,24 @@ import type { AgentDerivation } from "./agentDerivation";
 import { makeProvisionBudgets, provisionAgent } from "./nixCopy";
 import {
   type ClosedInfo,
+  classifyClosed,
   ConnectError,
   type Connection,
   type Connector,
   surfaceLiveProbe,
 } from "./session";
 
-/** The typed RPC client an ssh agent yields — a contract-router client carrying the
- *  retry plugin's context. Generic so consumers can name their own:
+/** What an ssh agent's dial yields: the surface FACE —
+ *  `client.surface.<member>.<verb>` — re-nested over the stdio link's erased
+ *  dispatch by `buildSurfaceFace`.
  *
- *  ```ts
- *  type MyClient = AgentClient<typeof myContract>;
- *  ``` */
-export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
-  C,
-  ClientRetryPluginContext
->;
+ *  NON-generic now, and deliberately STRUCTURAL (PLAN D2): the wire namespace is
+ *  flat, and per-member precision lives in the spec-derived bound faces a consumer
+ *  builds ON TOP of this one, never in a second precise mapped type over the same
+ *  spec. It is the same value `probeSurfaceLive` / `probeSurfaceIdentity` /
+ *  `measureSurfaceClockOffset` / `mirrorRemoteSurface` already walk structurally,
+ *  so nothing in the session or the mirror changed shape. */
+export type AgentClient = SurfaceFace;
 
 /** The ssh connector's OWN provisioning-phase vocabulary — the `Prov` a
  *  `makeSession` over {@link sshConnector} carries. Each phase names what is
@@ -60,13 +66,53 @@ export type AgentClient<C extends AnyContractRouter> = ContractRouterClient<
  *  the first potentially long Nix operation or mandatory root commit. */
 export type SshProv = "probing" | "provisioning";
 
+/**
+ * How long a freshly-spawned `--stdio` agent has to announce readiness before
+ * the dial gives up on it (juspay/kolu#2101).
+ *
+ * **This is a BUDGET, and it has a terminal verdict** — the review's definition
+ * of done for any new wait. Expiry raises a `"remote"` `ConnectError`, which
+ * counts toward the session's bounded remote budget (five consecutive remote
+ * failures — an interleaved `"network"` failure means the host went away and
+ * starts the count over), so a host that is UP yet never greets reaches `failed`
+ * in five attempts. There is no path here that waits forever and none that
+ * silently degrades to "assume ready".
+ *
+ * **The number is derived from OUR ceilings, not from Effect's ping cadence** —
+ * which is the whole point of gating *before* the protocol layer exists, and why
+ * this needs no `BETA-ASSUMPTION` marker. A daemon-owning front (`padi --stdio`,
+ * `kaval --stdio`) does its full convergence BEFORE it greets, so the worst
+ * honest case is the sum of that convergence's own bounds:
+ *
+ *   - `REAP_TERM_CEILING_MS` 120_000 + `REAP_KILL_CEILING_MS` 5_000 = 125_000ms
+ *     — a cross-epoch TAKEOVER: SIGTERM, wait, SIGKILL, wait.
+ *   -  30_000ms — the endpoint's `socketReadyMs`: the replacement daemon binding
+ *     its socket.
+ *   -   8_000ms — `UNSPEAKABLE_SILENCE_MS`: the probe's silence deadline, the
+ *     longest a single classification pass can take before it decides.
+ *   -  10_000ms — `frontDaemonOverStdio`'s `DEFAULT_DAEMON_WAIT_MS`: the front
+ *     polling for the daemon's socket after it spawns one.
+ *
+ * = 173_000ms worst case, rounded up to 180_000 for the ssh round-trips and
+ * process-start latency that sit between them. Anything slower than three
+ * minutes is not a slow takeover, it is a host that is not going to converge —
+ * and saying so terminally beats an eternal spinner.
+ */
+const AGENT_READINESS_DEADLINE_MS = 180_000;
+
 /** The owning dial context a deferred derivation resolver may consume. */
 export interface ResolveDrvPathContext extends AgentResolutionContext {
   signal: AbortSignal;
   localProgress: (line: string) => void;
 }
 
-export interface SshConnectorOptions {
+export interface SshConnectorOptions<S extends SurfaceSpec> {
+  /** The surface the remote agent SERVES. Required, and a VALUE rather than the
+   *  old type parameter: Effect RPC builds its client from the surface's flat
+   *  `RpcGroup` (`surface.group`), and the face is re-nested from `surface.spec`
+   *  at `surface.tagPrefix` — neither is recoverable from a type alone. It is also
+   *  what keeps the dialled face and the served group provably the same tag set. */
+  surface: Surface<S>;
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
   /** Executable name inside the realised closure — the full spawn path is
@@ -106,16 +152,16 @@ export interface SshConnectorOptions {
  *  resolves the drv (fail → classified `ConnectError`), provisions the closure,
  *  spawns the ssh child, and returns a {@link Connection} whose `closed` resolves on
  *  the child's exit/error and whose `isAlive` is the reserved `system.live` probe. */
-export function sshConnector<C extends AnyContractRouter>(
-  opts: SshConnectorOptions,
-): Connector<AgentClient<C>, SshProv> {
+export function sshConnector<S extends SurfaceSpec>(
+  opts: SshConnectorOptions<S>,
+): Connector<AgentClient, SshProv> {
   // The fused per-step progress-liveness budgets, owned HERE (the connector closure) so
   // their doubling + kill-budget persist across a campaign's retry-dials (#1908 C5). The
   // campaign reset is `budgets.onCampaign(ctx.campaignEpoch)` at the top of each dial
   // (below) — provisionAgent is campaign-ignorant; the connector is the only caller.
   const budgets = makeProvisionBudgets();
 
-  return async (ctx): Promise<Connection<AgentClient<C>>> => {
+  return async (ctx): Promise<Connection<AgentClient>> => {
     // Reconcile the per-campaign budget reset HERE — the session↔nixCopy bridge, where the
     // campaign generation is known — so `provisionAgent` stays campaign-ignorant. Monotonic
     // (`onCampaign` ignores an epoch `<= last`), so a stale/superseded dial can't roll a
@@ -242,19 +288,98 @@ export function sshConnector<C extends AnyContractRouter>(
       }
       throw new Error("ssh subprocess has no stdin/stdout — unreachable");
     }
-    const client = stdioLink<C>({
+    // ── The epoch gate: read the agent's readiness banner BEFORE attaching ────
+    //
+    // juspay/kolu#2101. Everything below this point builds an `RpcClient`, and
+    // building one starts Effect RPC's pinger. A remote daemon from a PREVIOUS
+    // protocol epoch accepts the splice and then says nothing — it is waiting
+    // for a greeting in a protocol we no longer speak — so the pinger kills the
+    // link ~10s later with `SocketOpenError: timeout waiting for "open"`, the
+    // session classifies that as `"network"`, and `"network"` retries forever.
+    // That is the incident: every remote host wedged in a permanent loop, with a
+    // log line indistinguishable from an unreachable box.
+    //
+    // So the banner is read FIRST, and the proof it mints is the only way to
+    // construct the link at all (see `@kolu/surface/links/readiness`).
+    //
+    // Raced against the child's own death, because both are real outcomes and
+    // the wait must not outlive the process it is waiting on: a genuinely-down
+    // host fails at ssh spawn / exit 255 BEFORE any banner, and that arm keeps
+    // its existing `closed` classification untouched (`"network"`, retry
+    // forever) — nothing changes for a host that is merely off.
+    const readiness = await Promise.race([
+      awaitStdioReadiness({
+        read: child.stdout,
+        deadlineMs: AGENT_READINESS_DEADLINE_MS,
+        describe: `${opts.binary} on ${opts.host}`,
+      }),
+      closed.then((info): never => {
+        // The child left before greeting. Classify it with the LOOP'S OWN
+        // authority (`classifyClosed`), never a verdict invented here: a child
+        // that exits before it greets is the same fact as a child that exits
+        // before its first RPC — bounded `"remote"` — while an ssh transport
+        // failure stays the unbounded `"network"` a merely-unreachable host has
+        // always been. Restating that rule here is how the gate would quietly
+        // un-bound a broken agent or condemn a sleeping laptop.
+        const { reason, cause } = classifyClosed(info, false);
+        throw new ConnectError(
+          `${opts.binary} on ${opts.host} exited before it announced readiness — ${reason}`,
+          cause,
+        );
+      }),
+    ]).catch((err: unknown) => {
+      // A gate REFUSAL / expiry / undecodable prelude is a REMOTE fault, not a
+      // network one: the host answered, and what it said (or failed to say) is
+      // about the daemon there, not the wire in between. `"remote"` is what
+      // counts toward the session's BOUNDED remote budget (five consecutive
+      // remote failures — an interleaved `"network"` failure means the host went
+      // away and starts the count over), so a host that is UP yet keeps refusing
+      // reaches a terminal `failed` in a bounded number of attempts through the
+      // EXISTING budget — no new budget invented, and no retry-forever left
+      // standing.
+      // The app's typed anomaly rides along verbatim so the binder can render a
+      // real verdict instead of string-parsing this message.
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* best-effort — a child already exiting is fine */
+      }
+      if (isStdioReadinessError(err)) {
+        throw new ConnectError(err.message, "remote", false, err.anomaly);
+      }
+      throw err;
+    });
+    // The wire link is ASYNC now (building the protocol layer and its fibers is
+    // an effect) and owns a `Scope` holding those fibers — so `teardown` must
+    // dispose it, not just kill the child, or every dial leaks a protocol fiber.
+    const link = await stdioLink({
+      group: opts.surface.group,
       read: child.stdout,
       write: child.stdin,
+      readiness,
     });
+    const client = buildSurfaceFace(opts.surface, link.dispatch);
 
     return {
       client,
+      // The link's own dispatch, handed back so a consumer can build a SECOND
+      // sibling's face over the same wire without re-dialing (a two-sibling daemon
+      // — padi's versioned surface plus the frozen control core — is one link with
+      // two faces, and `client` is only the first).
+      dispatch: link.dispatch,
       closed,
       // The framework-reserved `system.live` round-trip — contract-agnostic, so no
       // consumer probe is needed. A rejection still counts as alive (the round-trip
       // completed); only a true non-answer (the loop's watchdog timeout) cycles.
       isAlive: surfaceLiveProbe(client),
       teardown: () => {
+        // Release the link's scope FIRST (its protocol fibers, its response
+        // handlers), then kill the child. `dispose` is async and idempotent; a
+        // teardown fault must not replace the reason the caller is tearing down,
+        // so it is swallowed the same way the kill already is.
+        void link.dispose().catch(() => {
+          /* best-effort — a link already disposed is fine */
+        });
         try {
           child.kill("SIGTERM");
         } catch {

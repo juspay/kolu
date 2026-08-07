@@ -36,6 +36,7 @@ import {
   resumableCommand,
 } from "anyagent/schemas";
 import { PrInfoSchema } from "anyforge/schemas";
+import { Effect, Schema } from "effect";
 import { ClaudeCodeInfoSchema } from "kolu-claude-code/schemas";
 import { CodexInfoSchema } from "kolu-codex/schemas";
 import { type GitInfo, GitInfoSchema } from "kolu-git/schemas";
@@ -43,12 +44,11 @@ import { GhUnavailableSchema, reasonForGhCode } from "kolu-github/schemas";
 import { GrokInfoSchema } from "kolu-grok/schemas";
 import { OpenCodeInfoSchema } from "kolu-opencode/schemas";
 import { match, P } from "ts-pattern";
-import { z } from "zod";
 
 // ── Terminal identity ─────────────────────────────────────────────────
 
-export const TerminalIdSchema = z.string().uuid();
-export type TerminalId = z.infer<typeof TerminalIdSchema>;
+export const TerminalIdSchema = Schema.String.check(Schema.isUUID());
+export type TerminalId = typeof TerminalIdSchema.Type;
 
 // ── Client scrollback depth ───────────────────────────────────────────
 
@@ -81,7 +81,7 @@ export {
   resumableCommand,
 };
 
-export const AgentInfoSchema = z.discriminatedUnion("kind", [
+export const AgentInfoSchema = Schema.Union([
   ClaudeCodeInfoSchema,
   CodexInfoSchema,
   OpenCodeInfoSchema,
@@ -93,32 +93,30 @@ export const AgentInfoSchema = z.discriminatedUnion("kind", [
 // anyforge owns the forge-neutral, generic shapes (`PrUnavailableSourceBase`,
 // `PrResult<S>`); each forge adapter owns its own arm (`GhUnavailableSchema`
 // in kolu-github). The CLOSED, exhaustively-matchable union over those arms —
-// and the zod wire schema pinned to it — composes here, exactly as
+// and the wire schema pinned to it — composes here, exactly as
 // `AgentInfoSchema` composes the per-agent `*InfoSchema`s above. A new forge's
 // arm joins this union; the anyforge leaf never changes.
 
 /** The closed `PrUnavailableSource` union — one arm per forge adapter.
  *  Discriminated on `provider` so render sites can `match(...).exhaustive()`
  *  and a new forge is a compile error at every dispatch. */
-export const PrUnavailableSourceSchema = z.discriminatedUnion("provider", [
-  GhUnavailableSchema,
-]);
-export type PrUnavailableSource = z.infer<typeof PrUnavailableSourceSchema>;
+export const PrUnavailableSourceSchema = Schema.Union([GhUnavailableSchema]);
+export type PrUnavailableSource = typeof PrUnavailableSourceSchema.Type;
 
 /** The wire `PrResult` — anyforge's generic `PrResult<S>` pinned to the closed
  *  `PrUnavailableSource` union. Lives here (not in the leaf) for the same
  *  reason `AgentInfoSchema` does: the leaf names no forge. */
-export const PrResultSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("pending") }),
-  z.object({ kind: z.literal("ok"), value: PrInfoSchema }),
-  z.object({ kind: z.literal("absent") }),
-  z.object({ kind: z.literal("unsupported") }),
-  z.object({
-    kind: z.literal("unavailable"),
+export const PrResultSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("pending") }),
+  Schema.Struct({ kind: Schema.Literal("ok"), value: PrInfoSchema }),
+  Schema.Struct({ kind: Schema.Literal("absent") }),
+  Schema.Struct({ kind: Schema.Literal("unsupported") }),
+  Schema.Struct({
+    kind: Schema.Literal("unavailable"),
     source: PrUnavailableSourceSchema,
   }),
 ]);
-export type PrResult = z.infer<typeof PrResultSchema>;
+export type PrResult = typeof PrResultSchema.Type;
 
 /** Display reason for a closed-union failure source — exhaustive over every
  *  forge arm. Dispatches the gh arm to kolu-github's `reasonForGhCode`. A new
@@ -143,11 +141,11 @@ export function prUnavailableSource(pr: PrResult): PrUnavailableSource | null {
 // ── Foreground process ────────────────────────────────────────────────
 
 /** Foreground process info from PTY. */
-export const ForegroundSchema = z.object({
+export const ForegroundSchema = Schema.Struct({
   /** Binary name (e.g. "vim", "claude", "opencode"). */
-  name: z.string(),
+  name: Schema.String,
   /** Raw terminal title from OSC 0/2 (e.g. "user@host: ~/code", "vim file.ts"). */
-  title: z.string().nullable(),
+  title: Schema.NullOr(Schema.String),
 });
 
 // ── Listening TCP ports ───────────────────────────────────────────────
@@ -171,6 +169,7 @@ export {
   TcpPortSchema,
   widerScope,
 } from "./ports.ts";
+
 // Imported as well as re-exported: `export … from` re-publishes without binding,
 // and the three below are used right here to build `TerminalPortsSchema` and
 // `portReach`.
@@ -207,11 +206,14 @@ import {
  *  A consumer that only wants ports reads {@link knownPorts}, which answers `[]` for
  *  unknown — but it must do so KNOWINGLY, at a call site, rather than because the
  *  wire quietly said `[]`. */
-export const TerminalPortsSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("known"), list: z.array(PortInfoSchema) }),
-  z.object({ status: z.literal("unknown") }),
+export const TerminalPortsSchema = Schema.Union([
+  Schema.Struct({
+    status: Schema.Literal("known"),
+    list: Schema.Array(PortInfoSchema),
+  }),
+  Schema.Struct({ status: Schema.Literal("unknown") }),
 ]);
-export type TerminalPorts = z.infer<typeof TerminalPortsSchema>;
+export type TerminalPorts = typeof TerminalPortsSchema.Type;
 
 /** The ports a reader can actually name — `[]` when the terminal has never been
  *  successfully scanned. The ONE place "unknown reads as no ports" is spelled, so a
@@ -336,34 +338,34 @@ export function portsEqual(a: TerminalPorts, b: TerminalPorts): boolean {
  *  `pr` and `agent` ride here too — both re-samplable; `pr` is restore-relevant
  *  (true-when-dead, persisted like `git`), the live `agent` detail is RAM-only
  *  (lie-when-dead, re-derived on (re)spawn). */
-export const TerminalSnapshotSchema = z.object({
-  cwd: z.string(),
-  git: GitInfoSchema.nullable(),
+export const TerminalSnapshotSchema = Schema.Struct({
+  cwd: Schema.String,
+  git: Schema.NullOr(GitInfoSchema),
   /** Forge PR resolution — discriminated union (see PrResultSchema). */
   pr: PrResultSchema,
   /** The LIVE agent right now, or null when the user is at the shell. */
-  agent: AgentInfoSchema.nullable(),
+  agent: Schema.NullOr(AgentInfoSchema),
   /** The live foreground process (vim, …) — detected via OSC 2 title events. */
-  foreground: ForegroundSchema.nullable(),
+  foreground: Schema.NullOr(ForegroundSchema),
   /** What this terminal is serving — see {@link TerminalPortsSchema}. */
   ports: TerminalPortsSchema,
 });
-export type TerminalSnapshot = z.infer<typeof TerminalSnapshotSchema>;
+export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
 
 /** The agent IDENTITY kolu persists for restore (`kind` + native session
  *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
  *  both OWNED by anyagent/schemas (the resume vocabulary layer), re-exported here
  *  as the schema home kolu-common/surface and the fold resolve them through. The
  *  fold's `restoreTargetOf` PRODUCES the target; `resumeFormFor` CONSUMES it. */
-export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
-export type RestoreTarget = z.infer<typeof RestoreTargetSchema>;
+export type AgentIdentity = typeof AgentIdentitySchema.Type;
+export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
 /** The two facts a host CANNOT observe — recency is a CLOCK reading, the launch
  *  line is what the user TYPED. Irrecoverable from a screen, so kolu remembers
  *  them; written by kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell
  *  either field). Kept FLAT on kolu's authored record (`updateMemory` is the one
  *  narrowed writer), so the on-disk JSON path for these two is unchanged. */
-export const AgentMemorySchema = z.object({
+export const AgentMemorySchema = Schema.Struct({
   /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
    *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
    *  stamps immediately, and a same-identity OUTPUT tick stamps through the
@@ -377,14 +379,23 @@ export const AgentMemorySchema = z.object({
    *  `0` to avoid forging a garbage offset timestamp). `null` disambiguates all
    *  three: it can never be produced by a real clock reading, so a reader that
    *  needs "is there a recency to compare?" tests `!== null`, not `> 0`.
-   *  A required key (never absent) — always `null` or a real epoch. */
-  lastActivityAt: z.number().nullable().default(null),
+   *  A required key (never absent) — always `null` or a real epoch.
+   *
+   *  The decoding default is a BACKFILL, not a fallback: a record written before
+   *  the field existed decodes to `null` (the honest "never active"), and e2e
+   *  steps rely on it. It is key-level (`withDecodingDefaultKey`) — a MISSING key
+   *  backfills, an explicit `undefined` does not, which is what a wire/disk field
+   *  means. Encoding passes the value through, so a decoded record re-encodes
+   *  WITH the key — the on-disk JSON path for this field is unchanged. */
+  lastActivityAt: Schema.NullOr(Schema.Number).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null)),
+  ),
   /** Normalized agent CLI invocation last observed (e.g. `"claude --model
    *  sonnet"`). Preserved across intervening non-agent input; drives the "resume
    *  agent on restore" offer. Absent for terminals that never ran a known agent. */
-  lastAgentCommand: z.string().optional(),
+  lastAgentCommand: Schema.optionalKey(Schema.String),
 });
-export type AgentMemory = z.infer<typeof AgentMemorySchema>;
+export type AgentMemory = typeof AgentMemorySchema.Type;
 
 /** kolu's stored value: the last-seen `TerminalSnapshot` + the two remembered facts.
  *  NESTED, not merged, so the half published to the snapshots collection is
@@ -464,12 +475,12 @@ export function seedMemory(): AgentMemory {
  *  kolu-server's memory sampler folds padi's reading into its own `processMemory`
  *  cell — and the package-boundary seal forbids either importing the other. One
  *  declaration, imported both sides: no lockstep copy held together by a comment. */
-export const ProcessRssSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("ok"), rssBytes: z.number() }),
-  z.object({ status: z.literal("absent") }),
-  z.object({ status: z.literal("error") }),
+export const ProcessRssSchema = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("ok"), rssBytes: Schema.Number }),
+  Schema.Struct({ status: Schema.Literal("absent") }),
+  Schema.Struct({ status: Schema.Literal("error") }),
 ]);
-export type ProcessRss = z.infer<typeof ProcessRssSchema>;
+export type ProcessRss = typeof ProcessRssSchema.Type;
 
 // ── Live-output cadence ────────────────────────────────────────────────────
 
@@ -489,18 +500,18 @@ export const TERMINAL_IDLE_AFTER_MS = 1000;
 
 // ── Schema-derived sub-types ──────────────────────────────────────────
 
-export type AgentKind = z.infer<typeof AgentKindSchema>;
-export type AgentInfo = z.infer<typeof AgentInfoSchema>;
-export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
-export type CodexInfo = z.infer<typeof CodexInfoSchema>;
-export type OpenCodeInfo = z.infer<typeof OpenCodeInfoSchema>;
-export type GrokInfo = z.infer<typeof GrokInfoSchema>;
-export type Foreground = z.infer<typeof ForegroundSchema>;
+export type AgentKind = typeof AgentKindSchema.Type;
+export type AgentInfo = typeof AgentInfoSchema.Type;
+export type ClaudeCodeInfo = typeof ClaudeCodeInfoSchema.Type;
+export type CodexInfo = typeof CodexInfoSchema.Type;
+export type OpenCodeInfo = typeof OpenCodeInfoSchema.Type;
+export type GrokInfo = typeof GrokInfoSchema.Type;
+export type Foreground = typeof ForegroundSchema.Type;
 
 // ── fs/git wire schemas (the Code tab's raw reads + change-pulses) ─────────
 //
 // These three shapes back the host-side fs/git reads and their live watcher
-// streams. They live on this browser-safe zod-only leaf (beside the terminal
+// streams. They live on this browser-safe schema-only leaf (beside the terminal
 // vocabulary) because `@kolu/padi/surface` composes them — the Code tab's
 // `fs.readFile` / `subscribeRepoChange` / `subscribeFileChange` members — and the
 // package-boundary seal forbids padi importing them from a node-coupled module.
@@ -512,26 +523,26 @@ export type Foreground = z.infer<typeof ForegroundSchema>;
  *  The monotonic `seq` (per subscription, starting at 0 for the snapshot frame)
  *  is that distinguisher. A consumer reacts to a new pulse by re-querying the
  *  `fs.*` / `git.*` procedures — the pulse carries no fs/git data itself. */
-export const RepoChangePulseSchema = z.object({
-  seq: z.number().int().nonnegative(),
+export const RepoChangePulseSchema = Schema.Struct({
+  seq: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 });
-export type RepoChangePulse = z.infer<typeof RepoChangePulseSchema>;
+export type RepoChangePulse = typeof RepoChangePulseSchema.Type;
 
 /** Input for the per-file fs procedures (`readFile`, `filePreviewTag`) and the
  *  `subscribeFileChange` watcher. Deliberately NOT kolu-git's
  *  `FsReadFileInputSchema` (which carries a `terminalId`) — the library reads a
  *  file in a repo; the terminal/iframe-preview orchestration that needs the id
  *  stays kolu-server's. */
-export const FsFileInputSchema = z.object({
-  repoPath: z.string(),
-  filePath: z.string(),
+export const FsFileInputSchema = Schema.Struct({
+  repoPath: Schema.String,
+  filePath: Schema.String,
 });
 
 /** Output of `fs.readFile` — the raw text read. Deliberately NOT kolu-git's
  *  `FsReadFileOutputSchema` (the text|binary discriminated union): the
  *  binary-preview/iframe-URL branch is kolu-server orchestration layered on top
  *  of this raw read, never library code. */
-export const FsReadFileTextOutputSchema = z.object({
-  content: z.string(),
-  truncated: z.boolean(),
+export const FsReadFileTextOutputSchema = Schema.Struct({
+  content: Schema.String,
+  truncated: Schema.Boolean,
 });

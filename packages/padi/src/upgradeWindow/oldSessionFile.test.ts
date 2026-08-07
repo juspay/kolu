@@ -7,19 +7,28 @@
  *   1. The on-disk conf store (`openPadiStateStores`) returns the raw blob —
  *      conf does not re-validate session shape on read. A previous-shape
  *      payload is therefore still PRESENT after open (not wiped).
- *   2. The recovery path (`backfillSavedSession` + `SavedSessionSchema.parse`)
- *      — the same composition `importSession` uses — brings a known previous
- *      shape up to current, and THROWS on irrecoverable garbage (fail-fast).
+ *   2. The recovery path (`backfillSavedSession` + a `SavedSessionSchema`
+ *      decode) — the same composition `importSession` uses — brings a known
+ *      previous shape up to current, and THROWS on irrecoverable garbage
+ *      (fail-fast).
  *
  * Mutate-to-prove: drop `backfillSavedSession` and the pre-discriminant blob
- * fails `SavedSessionSchema.parse` (missing `state` / `location` / …); a test
- * that only checked "store returns something" would still pass — the parse
- * pin is the bite.
+ * fails the decode (missing `state` / `location` / …); a test that only checked
+ * "store returns something" would still pass — the decode pin is the bite.
+ *
+ * The decode is `Schema.decodeUnknownSync`, zod `.parse`'s successor. It matters
+ * to THIS file that the swap is exact: `activeTerminalId` carries a KEY-level
+ * decoding default (PLAN #17), so a blob that OMITS the key still backfills to
+ * `null` — which is the previous shape planted below — while an in-process
+ * caller that SPELLED `activeTerminalId: undefined` would now be rejected.
+ * `backfillSavedSession` spreads only keys that are present and never writes an
+ * explicit `undefined`, so the named-recovery law holds unchanged.
  */
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   pinPreviousShapeRecovery,
@@ -28,6 +37,10 @@ import {
 import { requirePadiStateStores as openPadiStateStores } from "../session/stateStore.ts";
 import { backfillSavedSession, SavedSessionSchema } from "../vocab.ts";
 import { padiYesterdayDaemonOptions } from "./yesterdayDaemon.fixture.testlib.ts";
+
+/** `SavedSessionSchema.parse`'s Effect successor — compiled once, exactly as the
+ *  production readers bind theirs (padi-B1 §6). */
+const decodeSavedSession = Schema.decodeUnknownSync(SavedSessionSchema);
 
 /** A pre-discriminant, pre-location, pre-remoteUrl session — the shape a
  *  session saved before those schema bumps would have on disk. Every field
@@ -96,7 +109,7 @@ describe("old session file under new padi (upgrade-window)", () => {
       previous: previousShapeSession(),
       irrecoverable: { terminals: "not-an-array", savedAt: "nope" },
       recover: backfillSavedSession,
-      parse: (value) => SavedSessionSchema.parse(value),
+      parse: (value) => decodeSavedSession(value),
       assertRecovered: (recovered) => {
         expect(recovered.terminals).toHaveLength(1);
         expect(recovered.terminals[0]).toMatchObject({
@@ -117,9 +130,7 @@ describe("old session file under new padi (upgrade-window)", () => {
       savedAt: "nope",
     };
     // backfill leaves non-array terminals untouched; parse then throws.
-    expect(() =>
-      SavedSessionSchema.parse(backfillSavedSession(garbage)),
-    ).toThrow();
+    expect(() => decodeSavedSession(backfillSavedSession(garbage))).toThrow();
 
     // Planting via the real conf store does not invent a valid empty session —
     // the raw value stays, and any consumer that validates (importSession,

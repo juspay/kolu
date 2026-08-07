@@ -150,7 +150,13 @@ export interface StepBudget {
  *  is the terminal count. The maximum silence it ever asks for is `base × 2^(maxExpiries
  *  − 1)` (the last non-terminal grant), which MUST stay under the session's pre-connected
  *  backstop bound so the step's own kill always fires first during provisioning — see
- *  `PROVISION_STEP_*` and `DEFAULT_PRE_CONNECTED_LIVENESS_MS`. */
+ *  `PROVISION_STEP_*` and `DEFAULT_PRE_CONNECTED_LIVENESS_MS`.
+ *
+ *  RATIFIED hand-rolled (juspay/kolu#2101): this budget is SINGLE-CLASS — its one
+ *  `recordExpiry` and its one ceiling share the one predicate by construction, so the
+ *  conflated-counter disease is already unrepresentable here, and folding in the
+ *  progress-policy + campaign-epoch machinery would buy no impossibility. Reach for
+ *  `@kolu/surface`'s `makeFailureLedger` when a budget has MORE THAN ONE failure class. */
 export function makeStepBudget(
   baseMs: number,
   maxExpiries: number,

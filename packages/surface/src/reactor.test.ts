@@ -10,21 +10,20 @@
  * `reactorEngineLaws.test.ts`.
  */
 
+import { Cause, Effect, Exit, Schema, Scope, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
-import { directLink } from "./links/direct";
 import {
   batch,
   computed,
-  derived,
   type DerivedCell,
   type DerivedComputeCell,
+  derived,
   everyMsOr,
   scan,
   source,
 } from "./reactor";
-import type { CellStore } from "./server";
+import type { CellStore, SurfaceHandlers } from "./server";
 import { implementSurface, inMemoryStore } from "./server";
 
 /** A recorder that mirrors `server.ts`'s `ctxApply` write gate exactly — the
@@ -50,13 +49,81 @@ function recordingCtx<T>(
 const flush = (): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, 0));
 
-async function take<T>(iterable: AsyncIterable<T>, n: number): Promise<T[]> {
-  const out: T[] = [];
-  for await (const v of iterable) {
-    out.push(v);
-    if (out.length >= n) break;
-  }
-  return out;
+/** What `runtime.done` has done by the time the queue drains: `"pending"` is the
+ *  load-bearing answer — the #2101 ruling is that a poll read's failure leaves the
+ *  runtime's fault channel UNSETTLED, so every future genuine fault is still
+ *  observable. Racing against a real timer tick is the only honest way to say
+ *  "still pending" about a promise. */
+async function doneState(
+  done: Promise<void>,
+): Promise<"pending" | "resolved" | { rejected: unknown }> {
+  return Promise.race([
+    done.then(
+      () => "resolved" as const,
+      (rejected: unknown) => ({ rejected }),
+    ),
+    new Promise<"pending">((r) => setTimeout(() => r("pending"), 0)),
+  ]);
+}
+
+/** Run a derived member's SCOPED connector exactly as `implementSurface` does —
+ *  fork it into a scope of its own — and expose the two things a test asks about.
+ *
+ *  `settled` is the connector's own completion: a synchronous (push/compute)
+ *  connector has already resolved by the time this returns, because Effect runs a
+ *  `sync` acquire on THIS stack — which is the publish-ordering invariant the
+ *  bridge rests on, asserted directly in "installs on the caller's stack". A POLL
+ *  connector suspends until its T+0 seed lands; a seed FAILURE does not reject here
+ *  (it is cell-local since #2101) — only the poll's own WIRING failing does, the way
+ *  it faults the runtime's `done`.
+ *
+ *  `release()` is the runtime's `close()`: interrupt, then close the scope, then
+ *  await both — so a test observes teardown having actually finished. */
+function openConnector(connected: Effect.Effect<void, unknown, Scope.Scope>): {
+  settled: Promise<void>;
+  release: () => Promise<void>;
+} {
+  const scope = Scope.makeUnsafe();
+  const fiber = Effect.runFork(Scope.provide(connected, scope));
+  const settled = new Promise<void>((resolve, reject) => {
+    fiber.addObserver((exit) => {
+      if (exit._tag === "Success" || Cause.hasInterruptsOnly(exit.cause)) {
+        resolve();
+        return;
+      }
+      reject(Cause.squash(exit.cause));
+    });
+  });
+  // The rejection is the test's to observe through `settled`; a `release()` that
+  // has to await it must not turn it into an unhandled rejection here.
+  settled.catch(() => {});
+  return {
+    settled,
+    release: async () => {
+      fiber.interruptUnsafe();
+      await settled.catch(() => {});
+      await Effect.runPromise(Scope.close(scope, Exit.void));
+    },
+  };
+}
+
+/** The first `n` frames a streaming member serves, read straight off the
+ *  handler record at its full wire tag — no transport, no client face (Stage 3
+ *  owns that). Starts consuming EAGERLY, so a caller can `await flush()` to let
+ *  the subscription establish and then drive the producer. */
+function takeFrames<T>(
+  handlers: SurfaceHandlers,
+  tag: string,
+  n: number,
+  /** The member's input, for a KEYED member (an event's subscription key).
+   *  Omitted — the common case here — means the input-less `undefined`. */
+  input?: unknown,
+): Promise<T[]> {
+  const handler = handlers[tag];
+  if (!handler) throw new Error(`no handler bound at ""`);
+  return Effect.runPromise(
+    Stream.runCollect(Stream.take(handler(input) as Stream.Stream<T>, n)),
+  ) as Promise<T[]>;
 }
 
 describe("source", () => {
@@ -306,7 +373,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    void dc.connect(ctx);
+    openConnector(dc.connect(ctx));
     // The first (synchronous) connect run pushes the seed, deduped against the
     // identical store seed → nothing published at wiring.
     expect(ctx.published).toEqual([]);
@@ -314,6 +381,35 @@ describe("derived.cell", () => {
     emit(0);
     emit(0);
     expect(ctx.published).toEqual([1, 2]); // each genuine change publishes once
+    dc.dispose();
+  });
+
+  it("installs on the caller's stack, and every publish rides the WRITER's (the ordering invariant)", () => {
+    // THE invariant B4b had to carry across the connector-seam retirement, stated
+    // as a test rather than as prose: the graph→wire publish is SYNCHRONOUS with
+    // respect to the writer. `Effect.acquireRelease`'s acquire runs on the forking
+    // stack, so the subscription is live the instant the connector is started —
+    // and Atom notifies synchronously, so an emission publishes before `emit`
+    // returns. Route the connector's publish through a forked fiber or a queue
+    // instead and BOTH assertions below go red, which is exactly how
+    // `streamOrdering.test.ts` (a) and `kill.feature` would have failed.
+    let emit!: (n: number) => void;
+    const src = source<number>((e) => {
+      emit = e;
+    });
+    const count = scan(src, 0, (n) => n + 1);
+    const dc = derived.cell(count);
+    const ctx = recordingCtx(
+      inMemoryStore(dc.store.get()),
+      (a: number, b: number) => a === b,
+    );
+
+    // No await anywhere in this test — that is the point.
+    openConnector(dc.connect(ctx));
+    emit(0);
+    expect(ctx.published).toEqual([1]);
+    emit(0);
+    expect(ctx.published).toEqual([1, 2]);
     dc.dispose();
   });
 
@@ -332,7 +428,7 @@ describe("derived.cell", () => {
       inMemoryStore(dc.store.get()),
       (a: { level: string }, b: { level: string }) => a.level === b.level,
     );
-    void dc.connect(ctx);
+    openConnector(dc.connect(ctx));
     expect(ctx.published).toEqual([]); // seed deduped
 
     emit(85); // ok -> alert
@@ -353,20 +449,18 @@ describe("derived.cell", () => {
       cells: {
         // wire-read-only derived cell
         count: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
       },
     });
-    const { router } = implementSurface(surface, {
+    const { handlers } = implementSurface(surface, {
       cells: { count: derived.cell(count) },
     });
-    const client = directLink<typeof surface.contract>(router as never);
 
-    const iter = await client.surface.count.get(undefined);
-    const collected = take(iter, 3);
+    const collected = takeFrames(handlers, "surface/count/get", 3);
     await flush(); // let the get subscribe to the bus before we emit deltas
     emit(0); // -> 1
     emit(0); // -> 2
@@ -385,7 +479,7 @@ describe("derived.cell", () => {
       cells: {
         // A derived cell must be wire-read-only; the default no-patch verbs
         // (`["get","set"]`) declare a second writer → boot crash.
-        count: { schema: z.number(), default: 0 },
+        count: { schema: Schema.Number, default: 0 },
       },
     });
     expect(() =>
@@ -395,7 +489,7 @@ describe("derived.cell", () => {
     ).toThrow(/wire-read-only/);
   });
 
-  it("fail-fast: connect() AFTER a standalone dispose() throws (no silent leaked effect)", () => {
+  it("fail-fast: connect() AFTER a standalone dispose() throws (no silent leaked effect)", async () => {
     let emit!: (n: number) => void;
     const src = source<number>((e) => {
       emit = e;
@@ -407,11 +501,16 @@ describe("derived.cell", () => {
     // Standalone dispose first (a caller that owned its own teardown point) …
     dc.dispose();
     // … then a connect() would install an effect whose teardown is a permanent
-    // no-op (the cell is already torn). Crash loudly rather than leak it.
-    expect(() => dc.connect({ set: () => {} })).toThrow(/after dispose/);
+    // no-op (the cell is already torn). Crash loudly rather than leak it. The
+    // crash lands on the connector's EXIT, not on the builder's stack: the
+    // connector is an effect, so a defect it raises is the runtime's owned fault
+    // reaching `done` — never a throw out of a function that returns a value.
+    await expect(
+      openConnector(dc.connect({ set: () => {} })).settled,
+    ).rejects.toThrow(/after dispose/);
   });
 
-  it("fail-fast: connect() twice throws (a derived cell wires exactly one subscription)", () => {
+  it("fail-fast: connect() twice throws (a derived cell wires exactly one subscription)", async () => {
     let emit!: (n: number) => void;
     const src = source<number>((e) => {
       emit = e;
@@ -420,14 +519,16 @@ describe("derived.cell", () => {
     const count = scan(src, 0, (n) => n + 1);
     const dc = derived.cell(count);
 
-    void dc.connect({ set: () => {} });
-    expect(() => dc.connect({ set: () => {} })).toThrow(/twice/);
+    openConnector(dc.connect({ set: () => {} }));
+    await expect(
+      openConnector(dc.connect({ set: () => {} })).settled,
+    ).rejects.toThrow(/twice/);
     dc.dispose();
   });
 
   it("a non-derived cell with write verbs is unaffected by the narrowing", () => {
     const surface = defineSurface({
-      cells: { count: { schema: z.number(), default: 0 } },
+      cells: { count: { schema: Schema.Number, default: 0 } },
     });
     // Plain authored cell (not derived) — narrowing does not fire.
     expect(() =>
@@ -453,7 +554,7 @@ describe("computed", () => {
     );
     // Eager seed from the computed's current value (count 0 → 0), never a default.
     expect(dc.store.get()).toBe(0);
-    void dc.connect(ctx);
+    openConnector(dc.connect(ctx));
     expect(ctx.published).toEqual([]); // seed deduped at wiring
 
     emit(0); // count → 1 → doubled 2
@@ -472,23 +573,22 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
   it("the post-equals mirror poke edge: a sibling write recomputes a derived compute cell", async () => {
     const surface = defineSurface({
       cells: {
-        a: { schema: z.number(), default: 1 },
+        a: { schema: Schema.Number, default: 1 },
         doubled: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
         },
       },
     });
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         a: { store: inMemoryStore(1) },
         doubled: derived.cell(($) => $.a() * 2),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const collected = take(await client.surface.doubled.get(undefined), 3);
+    const collected = takeFrames(handlers, "surface/doubled/get", 3);
     await flush(); // let the get subscribe before we poke
 
     ctx.cells.a.set(5); // poke a → doubled recomputes → 10
@@ -502,12 +602,12 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const surface = defineSurface({
       cells: {
         a: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y, // a dedups its own writes
         },
         mirror: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
@@ -537,17 +637,17 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const seen: Array<[number, number]> = [];
     const surface = defineSurface({
       cells: {
-        a: { schema: z.number(), default: 0 },
-        b: { schema: z.number(), default: 0 },
+        a: { schema: Schema.Number, default: 0 },
+        b: { schema: Schema.Number, default: 0 },
         sum: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
         },
       },
     });
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         a: { store: inMemoryStore(0) },
         b: { store: inMemoryStore(0) },
@@ -560,8 +660,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         }),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const collected = take(await client.surface.sum.get(undefined), 2);
+    const collected = takeFrames(handlers, "surface/sum/get", 2);
     await flush();
 
     const runsBefore = runs;
@@ -581,9 +680,9 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
   it("$ types each sibling read — a cell is its value, a collection its live map (compile-time)", () => {
     const surface = defineSurface({
       cells: {
-        n: { schema: z.number(), default: 0 },
+        n: { schema: Schema.Number, default: 0 },
         combined: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (x: number, y: number) => x === y,
           verbs: ["get"],
@@ -591,8 +690,8 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ v: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ v: Schema.Number }),
           verbs: ["keys", "get"],
         },
       },
@@ -650,15 +749,15 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // never as mirror" made executable.
     const surface = defineSurface({
       cells: {
-        terminals: { schema: z.number(), default: 0 },
+        terminals: { schema: Schema.Number, default: 0 },
         urgency: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
         overview: {
-          schema: z.object({ t: z.number(), u: z.number() }),
+          schema: Schema.Struct({ t: Schema.Number, u: Schema.Number }),
           default: { t: 0, u: 0 },
           equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
             a.t === b.t && a.u === b.u,
@@ -667,7 +766,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
     });
     const seen: Array<{ t: number; u: number }> = [];
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         terminals: { store: inMemoryStore(0) },
         // Declaration order is irrelevant here — the boot walk builds every derived
@@ -681,8 +780,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         }),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.overview.get(undefined), 3);
+    const frames = takeFrames(handlers, "surface/overview/get", 3);
     await flush();
 
     ctx.cells.terminals.set(1); // → overview {t:1,u:10}
@@ -712,23 +810,23 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // pinned by the DIAMOND test above, which declares upstream-first.)
     const surface = defineSurface({
       cells: {
-        terminals: { schema: z.number(), default: 0 },
+        terminals: { schema: Schema.Number, default: 0 },
         overview: {
-          schema: z.object({ t: z.number(), u: z.number() }),
+          schema: Schema.Struct({ t: Schema.Number, u: Schema.Number }),
           default: { t: 0, u: 0 },
           equals: (a: { t: number; u: number }, b: { t: number; u: number }) =>
             a.t === b.t && a.u === b.u,
           verbs: ["get"],
         },
         urgency: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
         },
       },
     });
-    const { router } = implementSurface(surface, {
+    const { handlers } = implementSurface(surface, {
       cells: {
         terminals: { store: inMemoryStore(3) },
         // Downstream declared FIRST — reads urgency, which is declared LAST.
@@ -736,8 +834,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         urgency: derived.cell(($) => $.terminals() * 10),
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.overview.get(undefined), 1);
+    const frames = takeFrames(handlers, "surface/overview/get", 1);
     await flush();
 
     // Boot did not crash and seeded from the whole graph: overview = {t:3, u:3*10}.
@@ -753,7 +850,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     const surface = defineSurface({
       cells: {
         bigCount: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -761,14 +858,14 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       },
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ n: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ n: Schema.Number }),
           verbs: ["keys", "get"],
         },
       },
     });
     const store = new Map<string, { n: number }>();
-    const { router, ctx } = implementSurface(surface, {
+    const { handlers, ctx } = implementSurface(surface, {
       cells: {
         // count the items whose n > 1 — a fold over the whole collection
         bigCount: derived.cell(
@@ -788,8 +885,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
         },
       },
     });
-    const client = directLink<typeof surface.contract>(router as never);
-    const frames = take(await client.surface.bigCount.get(undefined), 4);
+    const frames = takeFrames(handlers, "surface/bigCount/get", 4);
     await flush();
 
     ctx.collections.items.upsert("a", { n: 5 }); // → 1
@@ -818,7 +914,7 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
       inMemoryStore(dc.store.get()),
       (a: number, b: number) => a === b,
     );
-    void dc.connect(ctx);
+    openConnector(dc.connect(ctx));
 
     emit(0); // count 1 → 2
     expect(ctx.published).toEqual([2]);
@@ -843,9 +939,13 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // collision itself is what must fail.
     expect(() =>
       defineSurface({
-        cells: { same: { schema: z.number(), default: 0, verbs: ["get"] } },
+        cells: { same: { schema: Schema.Number, default: 0, verbs: ["get"] } },
         collections: {
-          same: { keySchema: z.string(), schema: z.number(), verbs: ["keys"] },
+          same: {
+            keySchema: Schema.String,
+            schema: Schema.Number,
+            verbs: ["keys"],
+          },
         },
       }),
     ).toThrow(/declared as BOTH a cell and a collection/);
@@ -857,9 +957,9 @@ describe("derived.cell($) — the SR7 sibling-read face (laws end-to-end)", () =
     // inherited function to `$`). Boots clean and `$.toString()` reads the real cell.
     const surface = defineSurface({
       cells: {
-        toString: { schema: z.number(), default: 7, verbs: ["get"] },
+        toString: { schema: Schema.Number, default: 7, verbs: ["get"] },
         mirror: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: 0,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -896,8 +996,9 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       inMemoryStore<number | undefined>(undefined),
       (a, b) => a === b,
     );
-    // The connect is ASYNC for a poll source — it awaits the T+0 seed read.
-    const dispose = await dc.connect(ctx);
+    // The connector SUSPENDS for a poll source — it awaits the T+0 seed read.
+    const conn = openConnector(dc.connect(ctx));
+    await conn.settled;
     expect(ctx.published).toEqual([1]); // T+0 seed published
 
     value = 2;
@@ -910,8 +1011,8 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     await flush();
     expect(ctx.published).toEqual([1, 2]);
 
-    dispose();
-    expect(uninstalled).toBe(1); // the disposer uninstalls the caller's cadence
+    await conn.release();
+    expect(uninstalled).toBe(1); // releasing the scope uninstalls the caller's cadence
   });
 
   it("a poll source's level is honestly T | undefined; the dedicated overload recovers the served T (compile-time)", () => {
@@ -952,16 +1053,55 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     expect(typeof src).toBe("object");
   });
 
-  it("first-read failure PROPAGATES — the connect rejects (a boot crash)", async () => {
-    const src = source<number>({
-      label: "test source",
-      read: () => Promise.reject(new Error("sensor down")),
-      install: () => () => {},
-    });
-    const dc = derived.cell(src);
-    const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
-    await expect(dc.connect(ctx)).rejects.toThrow("sensor down");
-    expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+  it("a failed T+0 SEED is CELL-LOCAL: connect SUCCEEDS, cadence held, next tick converges", async () => {
+    // The #2101 ruling: a poll read's failure is cell-local at EVERY tick, T+0
+    // included. Pre-fix this rejected the connector (and so faulted `runtime.done`)
+    // AND rolled the cadence back — the cell was then dead for the process's life.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "boom" | "ok" = "boom";
+      let tick!: () => void;
+      let installed = 0;
+      let uninstalled = 0;
+      const src = source<number>({
+        label: "test source",
+        read: () =>
+          mode === "boom"
+            ? Promise.reject(new Error("sensor down"))
+            : Promise.resolve(5),
+        install: (t) => {
+          installed++;
+          tick = t;
+          return () => {
+            uninstalled++;
+          };
+        },
+      });
+      const dc = derived.cell(src);
+      const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
+      // The connector SETTLES CLEANLY — the seed failure never reaches `done`.
+      await openConnector(dc.connect(ctx)).settled;
+      expect(ctx.published).toEqual([]); // nothing served — never a fabricated default
+      // Loud, and the log NAMES the cell.
+      expect(spy).toHaveBeenCalledOnce();
+      expect(String(spy.mock.calls[0]?.[0])).toContain(
+        '"test source" SEED threw',
+      );
+      // The cadence is HELD (installed, not rolled back) — that is what makes the
+      // retry below possible at all.
+      expect(installed).toBe(1);
+      expect(uninstalled).toBe(0);
+
+      // The next tick converges: the cell heals without a restart.
+      mode = "ok";
+      tick();
+      await flush();
+      expect(ctx.published).toEqual([5]);
+      dc.dispose();
+      expect(uninstalled).toBe(1); // and the held cadence still tears down cleanly
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("a LATER read that throws is log-skip-continue (holds the last value)", async () => {
@@ -985,7 +1125,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
         inMemoryStore<number | undefined>(undefined),
         (a, b) => a === b,
       );
-      await dc.connect(ctx);
+      await openConnector(dc.connect(ctx)).settled;
       expect(ctx.published).toEqual([5]);
 
       mode = "boom";
@@ -1023,7 +1163,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
           published.push(v);
         },
       };
-      await dc.connect(throwingCell);
+      await openConnector(dc.connect(throwingCell)).settled;
       expect(published).toEqual([5]); // seed published
 
       boom = true;
@@ -1066,10 +1206,10 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     });
     const dc = derived.cell(src);
     const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
-    const connectP = dc.connect(ctx); // T+0 seed read in flight (reads === 1)
+    const conn = openConnector(dc.connect(ctx)); // T+0 seed read in flight (reads === 1)
     expect(reads).toBe(1);
     resolveRead(1);
-    await connectP;
+    await conn.settled;
 
     // `tick` sets `inFlight` synchronously, then defers the read a microtask (so a
     // SYNCHRONOUS throw from `read` takes the logged-skip path, not the callback).
@@ -1113,7 +1253,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
         inMemoryStore<number | undefined>(undefined),
         (a, b) => a === b,
       );
-      await dc.connect(ctx);
+      await openConnector(dc.connect(ctx)).settled;
       expect(ctx.published).toEqual([5]);
 
       mode = "throw";
@@ -1164,11 +1304,11 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       inMemoryStore<number | undefined>(undefined),
       (a, b) => a === b,
     );
-    const connectP = dc.connect(ctx); // installs, then the seed goes in flight
+    const conn = openConnector(dc.connect(ctx)); // installs, then the seed goes in flight
     tick(); // an edge fires WHILE the seed is in flight — latched as `dirty`
     value = 2; // the state that edge signalled
     resolveSeed(1); // the seed lands = the now-stale 1
-    await connectP;
+    await conn.settled;
     await flush(); // the trailing read for the during-seed edge runs
     // The seed published 1, then the latched trailing read corrected it to 2 at once
     // — the mid-seed edge is honoured, not deferred to the next cadence.
@@ -1176,39 +1316,56 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     dc.dispose();
   });
 
-  it("a throwing seed PUBLISHER tears down the cadence before connect rejects — no leak (F8)", async () => {
-    // Install-before-seed puts the cadence into the seed's publication lifetime, so a
-    // publisher throw (a cell write hook / a collection reconcile publisher) at
-    // `set(seed)` — the SAME fault class as a read failure — must roll the cadence
-    // back immediately, not leave it polling a failed publisher until an external
-    // dispose.
-    let installed = 0;
-    let uninstalled = 0;
-    const src = source<number>({
-      label: "test source",
-      read: () => Promise.resolve(1),
-      install: (t) => {
-        installed++;
-        void t;
-        return () => {
-          uninstalled++;
-        };
-      },
-    });
-    const dc = derived.cell(src);
-    // A cell whose seed publish THROWS.
-    const throwingCell = {
-      set: () => {
-        throw new Error("publisher boom");
-      },
-    };
-    await expect(dc.connect(throwingCell)).rejects.toThrow("publisher boom");
-    // Cadence rolled back at once — no dispose() call, no leaked interval.
-    expect(installed).toBe(1);
-    expect(uninstalled).toBe(1);
+  it("a throwing seed PUBLISHER is cell-local too — connect succeeds, cadence held, later publish lands (F8)", async () => {
+    // A publisher throw (a cell write hook / a collection reconcile publisher) at
+    // `set(seed)` is the SAME fault class as a seed read failure — and since #2101
+    // that class is cell-local at T+0 exactly as it already was at tick N>0. The
+    // cadence is HELD (the retry path), and `dispose()` is what tears it down.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let installed = 0;
+      let uninstalled = 0;
+      let tick!: () => void;
+      const src = source<number>({
+        label: "test source",
+        read: () => Promise.resolve(1),
+        install: (t) => {
+          installed++;
+          tick = t;
+          return () => {
+            uninstalled++;
+          };
+        },
+      });
+      const dc = derived.cell(src);
+      // A cell whose SEED publish throws; later publishes succeed.
+      const published: number[] = [];
+      let boom = true;
+      const throwingCell = {
+        set: (v: number) => {
+          if (boom) throw new Error("publisher boom");
+          published.push(v);
+        },
+      };
+      await openConnector(dc.connect(throwingCell)).settled;
+      expect(published).toEqual([]);
+      expect(spy).toHaveBeenCalledOnce();
+      // Held, not rolled back — no leak either: `dispose()` below is the one owner.
+      expect(installed).toBe(1);
+      expect(uninstalled).toBe(0);
+
+      boom = false;
+      tick();
+      await flush();
+      expect(published).toEqual([1]); // the poll was never wedged by the failed seed
+      dc.dispose();
+      expect(uninstalled).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
-  it("close during a LATER in-flight read: no failure log, no late publish (owned abort is silent)", async () => {
+  it("close during a LATER in-flight read: no failure log, no late publish (interruption is silent)", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       let tick!: () => void;
@@ -1234,13 +1391,16 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
       });
       const dc = derived.cell(src);
       const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
-      const ctl = new AbortController();
-      await dc.connect(ctx, { signal: ctl.signal });
+      const conn = openConnector(dc.connect(ctx));
+      await conn.settled;
       expect(ctx.published).toEqual([1]);
 
       tick(); // a later read starts and is in flight
       await flush();
-      ctl.abort(); // close() aborts the in-flight read cooperatively
+      // close() releases the connector's scope, which aborts the poll's own
+      // signal — the ONE job that AbortSignal has left, now that interruption
+      // (not a threaded `{ signal }` parameter) is what triggers it.
+      await conn.release();
       await flush();
       // The read rejects with the OWNED abort reason — clean shutdown, NOT a poll
       // failure: nothing logged, nothing published.
@@ -1271,11 +1431,12 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     });
     const dc = derived.cell(src);
     const ctx = recordingCtx(inMemoryStore<number | undefined>(undefined));
-    const ctl = new AbortController();
-    const connectP = dc.connect(ctx, { signal: ctl.signal }); // installs, seed in flight
-    ctl.abort(); // close() races the seed
-    resolveRead(7); // seed resolves AFTER the abort
-    await connectP; // must SETTLE (not hang)
+    const conn = openConnector(dc.connect(ctx)); // installs, seed in flight
+    // close() races the seed: interruption aborts the fiber's own signal, which
+    // the connector forwards to the poll's read signal.
+    const released = conn.release();
+    resolveRead(7); // seed resolves AFTER the interruption
+    await released; // must SETTLE (not hang)
     expect(ctx.published).toEqual([]); // no late publish over a closing runtime
     // The cadence is installed BEFORE the seed (so a during-seed edge isn't lost),
     // so a close-during-seed must TEAR IT DOWN — no live listener leaks.
@@ -1297,7 +1458,7 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     const surface = defineSurface({
       cells: {
         temp: {
-          schema: z.number(),
+          schema: Schema.Number,
           default: -1,
           equals: (a: number, b: number) => a === b,
           verbs: ["get"],
@@ -1307,7 +1468,6 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     const { ctx, done } = implementSurface(surface, {
       cells: { temp: derived.cell(src) },
     });
-    void done;
     // The seed read resolves on a microtask; before it lands the cell serves the
     // spec DEFAULT (behavior-neutral with the hand-rolled sampler), never undefined.
     await flush();
@@ -1317,6 +1477,83 @@ describe("source (poll shape) — derived.cell(source({ read, install }))", () =
     tick();
     await flush();
     expect(ctx.cells.temp.get()).toBe(200);
+    // The fault channel is UNSETTLED throughout a healthy poll's life — `done`
+    // settles on a fault or a `close()`, and neither happened.
+    expect(await doneState(done)).toBe("pending");
+  });
+
+  it("THE STAMPEDE SHAPE: a failing poll read leaves `runtime.done` UNSETTLED and a sibling stream flowing", async () => {
+    // The reactor-level statement of the #2101 incident: one poll cell's read
+    // fails at T+0 (a probe timing out under load) while a stream member is being
+    // consumed. Pre-fix, `done` REJECTED here — which is what the daemon's
+    // log-and-continue observer turned into a zombie. The bystander assertions are
+    // the reviewer's mandated shape: every live stream keeps flowing.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let mode: "stampede" | "recovered" = "stampede";
+      let tick!: () => void;
+      const src = source({
+        label: "hostInventory",
+        read: () =>
+          mode === "stampede"
+            ? Promise.reject(new Error("timed out after 1500ms"))
+            : Promise.resolve(7),
+        install: (t) => {
+          tick = t;
+          return () => {};
+        },
+      });
+      const surface = defineSurface({
+        cells: {
+          inventory: {
+            schema: Schema.Number,
+            default: -1,
+            equals: (a: number, b: number) => a === b,
+            verbs: ["get"],
+          },
+        },
+        events: {
+          attach: {
+            inputSchema: Schema.String,
+            outputSchema: Schema.String,
+          },
+        },
+      });
+      const { ctx, handlers, done } = implementSurface(surface, {
+        cells: { inventory: derived.cell(src) },
+        events: { attach: {} },
+      });
+      // A live "attach stream" being consumed across the fault.
+      const frames = takeFrames<string>(
+        handlers,
+        "surface/attach/get",
+        2,
+        "t1",
+      );
+      await flush();
+      ctx.events.attach.publish("t1", "before");
+
+      await flush(); // the seed read rejects here
+      // The runtime is ALIVE: `done` unsettled, so a future genuine fault is still
+      // observable — the property the incident destroyed.
+      expect(await doneState(done)).toBe("pending");
+      // The cell serves its spec DEFAULT (never a fabricated reading), loudly.
+      expect(ctx.cells.inventory.get()).toBe(-1);
+      expect(spy).toHaveBeenCalledOnce();
+
+      // The bystander stream kept flowing straight through the fault.
+      ctx.events.attach.publish("t1", "after");
+      expect(await frames).toEqual(["before", "after"]);
+
+      // And the cell converges on the next tick — no restart, no manual repair.
+      mode = "recovered";
+      tick();
+      await flush();
+      expect(ctx.cells.inventory.get()).toBe(7);
+      expect(await doneState(done)).toBe("pending");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 
@@ -1324,8 +1561,8 @@ describe("derived.collection — the keyed reconciler", () => {
   const surface = defineSurface({
     collections: {
       items: {
-        keySchema: z.string(),
-        schema: z.object({ n: z.number() }),
+        keySchema: Schema.String,
+        schema: Schema.Struct({ n: Schema.Number }),
         // per-key value equality — the reconciler's diff predicate
         equals: (a: { n: number }, b: { n: number }) => a.n === b.n,
         verbs: ["keys", "get"],
@@ -1377,8 +1614,9 @@ describe("derived.collection — the keyed reconciler", () => {
     await runtime.close();
   });
 
-  it("immediate same-turn close is clean — the deferred connect never runs on a torn collection (F4)", async () => {
+  it("immediate same-turn close is clean — the connector cannot be raced by it (F4)", async () => {
     let seedStarted = false;
+    let uninstalled = 0;
     const runtime = implementSurface(surface, {
       collections: {
         items: derived.collection(
@@ -1386,22 +1624,32 @@ describe("derived.collection — the keyed reconciler", () => {
             label: "test source",
             read: () => {
               seedStarted = true;
-              return Promise.resolve(new Map<string, { n: number }>());
+              // Parks forever: the seed is IN FLIGHT when close() lands.
+              return new Promise<Map<string, { n: number }>>(() => {});
             },
-            install: () => () => {},
+            install: () => () => {
+              uninstalled++;
+            },
           }),
         ),
       },
     });
-    // Close in the SAME TURN — this synchronously aborts the connector and disposes
-    // the collection BEFORE the deferred connect microtask runs. That microtask must
-    // observe the abort and no-op; otherwise it calls `connect()` on a torn
-    // collection ("connect() after dispose()") and faults `done` on a clean close.
+    // The connector ran on the CONSTRUCTING stack, so there is no window in which
+    // it is scheduled-but-not-yet-started for a close to race. (This test used to
+    // assert the opposite — that the seed had NOT started — because the connect
+    // was deferred a microtask purely so a synchronous fault could not escape
+    // `start()`. Inside a fiber that is free, so the deferral, and the same-turn
+    // guard it forced, are both gone.)
+    expect(seedStarted).toBe(true);
+
+    // Close in the SAME TURN. The load-bearing property is unchanged: a close
+    // that lands on a seed still in flight is CLEAN — it interrupts the
+    // connector, rolls the cadence back, and never faults `done`.
     const closeP = runtime.close();
-    await flush(); // drain the deferred connect microtask
+    await flush();
     await expect(closeP).resolves.toBeUndefined();
     await expect(runtime.done).resolves.toBeUndefined(); // clean, not a fault
-    expect(seedStarted).toBe(false); // connect was skipped — the seed never started
+    expect(uninstalled).toBe(1); // the cadence installed before the seed is rolled back
   });
 
   it("is graph-owned: ctx upsert/remove throw (the reconciler is the one writer)", async () => {
@@ -1433,8 +1681,8 @@ describe("derived.collection — the keyed reconciler", () => {
     const writeSurface = defineSurface({
       collections: {
         items: {
-          keySchema: z.string(),
-          schema: z.object({ n: z.number() }),
+          keySchema: Schema.String,
+          schema: Schema.Struct({ n: Schema.Number }),
           verbs: ["keys", "get", "upsert", "delete"],
         },
       },

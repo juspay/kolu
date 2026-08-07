@@ -11,10 +11,13 @@
  *  the App-root call site, which was an unenforceable convention
  *  ("deps never change identity") held together by a comment. */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
+import { runAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activePadiRpc } from "../wire";
 
@@ -44,11 +47,16 @@ function init() {
   const close = () => setSession(null);
 
   const writeIntent = (id: TerminalId, intent: string) => {
-    void activePadiRpc.chrome
-      .setIntent({ id, intent })
-      .catch((err: Error) =>
-        toast.error(`Failed to save intent: ${err.message}`),
-      );
+    runAction(
+      "save intent",
+      activePadiRpc.chrome.setIntent({ id, intent }).pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(`Failed to save intent: ${toError(err).message}`);
+          }),
+        ),
+      ),
+    );
   };
 
   function openTerminal(id: TerminalId) {

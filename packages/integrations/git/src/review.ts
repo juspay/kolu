@@ -20,6 +20,7 @@
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { Result, Schema } from "effect";
 import type { Logger } from "kolu-shared";
 import type { SimpleGit } from "simple-git";
 import { backgroundGit, backgroundGitEnv } from "./background.ts";
@@ -52,14 +53,16 @@ const execFileP = promisify(execFile);
  *  local and branch paths) sit inside its try/catch, so this throw comes
  *  out the other end as a loud `GIT_FAILED` result, not a corrupted file
  *  list. */
+const decodeChangeStatus = Schema.decodeUnknownResult(GitChangeStatusSchema);
+
 function toChangeStatus(letter: string): GitChangeStatus {
-  const parsed = GitChangeStatusSchema.safeParse(letter);
-  if (!parsed.success) {
+  const parsed = decodeChangeStatus(letter);
+  if (Result.isFailure(parsed)) {
     throw new Error(
       `git-review: unrecognized change-status letter ${JSON.stringify(letter)}`,
     );
   }
-  return parsed.data;
+  return parsed.success;
 }
 
 /** True if the repo has an `origin` remote configured. A repo with no

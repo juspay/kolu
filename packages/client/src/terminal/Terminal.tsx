@@ -31,6 +31,7 @@ import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { activeArm } from "@kolu/padi/surface";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
+import { toError } from "@kolu/surface/run-stream";
 import {
   isTerminalQueryResponse,
   wrapBracketedPaste,
@@ -46,6 +47,7 @@ import {
   Xterm,
   type XtermHandle,
 } from "@kolu/xterm-kit/solid";
+import { Effect, type Fiber } from "effect";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
@@ -58,25 +60,43 @@ import { matchesKeybind } from "../input/keyboard";
 import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
+import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
+import {
+  runAction,
+  runActionPromise,
+  runOwnedAction,
+  type UiAction,
+} from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
-import { activePadiRpc, activePadiStreams, preferences } from "../wire";
+import {
+  activeHost,
+  activePadiRpc,
+  activePadiStreams,
+  padiMap,
+  preferences,
+} from "../wire";
+import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
 import {
   createFileRefLinkProvider,
   fileRefAtCell,
 } from "./fileRefLinkProvider";
+import { installTerminalFocusProvenance } from "./focusProvenance";
 import { handleWebLink } from "./handleWebLink";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
-import { consumeReattachingStream } from "./reattachingStream";
-import { createAttemptGate, onlyWhenCurrent } from "./attachAttempts";
+import { createGridPublisher } from "./publishGrid";
+import {
+  consumeReattachingStream,
+  REATTACH_BACKOFF_MS,
+  StaleSnapshotGrid,
+} from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
 import { useTerminalStore } from "./useTerminalStore";
-import { installTerminalFocusProvenance } from "./focusProvenance";
 import {
   trackCreate,
   trackDispose,
@@ -127,7 +147,19 @@ const Terminal: Component<{
   // kit disposes the terminal itself; we release only our own references).
   let linkProviderDisposable: { dispose(): void } | null = null;
   let backfill: BackfillController | null = null;
-  let streamAbort: AbortController | null = null;
+  /** The LIVE attach attempt's fiber — interrupting it ends that attempt's
+   *  consume loop and any backoff it is sleeping through. Component-lifetime,
+   *  because the teardown below is the component's. */
+  let attachFiber: Fiber.Fiber<unknown, never> | null = null;
+  /** Component teardown latch. Interruption stops the fiber, but it is
+   *  ASYNCHRONOUS, and xterm can still invoke a stashed write callback after the
+   *  pane is gone — so "am I torn down" stays a synchronous fact, exactly as the
+   *  `signal.aborted` it replaces was. */
+  let attachTornDown = false;
+  /** The pending {@link REATTACH_BACKOFF_MS} pause of a stale-grid reopen — the
+   *  fourth reopen lane (kolu#2101 K5). Held so teardown can cancel it, the same
+   *  way interrupting `attachFiber` cancels the loop's own sleeping backoff. */
+  let staleGridReopenTimer: ReturnType<typeof setTimeout> | null = null;
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -209,38 +241,39 @@ const Terminal: Component<{
     return false;
   };
 
+  /** The host entry's state KIND for this pane's host — the same fact that
+   *  paints the host pip. A terminal is bound to the ACTIVE host (there is no
+   *  host prop; that IS the existing mapping), and `padiMap.entry` is the pure,
+   *  owner-free point lens (`wire.ts`). */
+  const hostEntryKind = () => padiMap.entry(activeHost()).state().kind;
+
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
-   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through. */
-  async function publishDimensions(size: TerminalGrid) {
-    const { cols, rows } = size;
-    // A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint no
-    // longer needs suppressing here: kaval excludes resize repaints from its
-    // meaningful-output edge at the source, so the live dot (mirrored off padi's
-    // `activity` set) never lights on a reveal/resize in the first place.
-    try {
-      await activePadiRpc.lifecycle.resize({
+   *  `XtermHandle.grid` — the one door a measured grid leaves the kit through.
+   *
+   *  The POLICY (H1's not-connected suppression, K4's latch, and the convergence
+   *  argument for both) lives in `publishGrid.ts`; this binds the three real
+   *  facts. A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint
+   *  no longer needs suppressing here: kaval excludes resize repaints from its
+   *  meaningful-output edge at the source, so the live dot (mirrored off padi's
+   *  `activity` set) never lights on a reveal/resize in the first place.
+   *
+   *  ONE publisher per tile, built at component scope so the suppression latch
+   *  lives exactly as long as the pane does. */
+  const gridPublisher = createGridPublisher({
+    terminalId: props.terminalId,
+    hostState: hostEntryKind,
+    ptyLive: () =>
+      activeArm(terminalStore.getMetadata(props.terminalId)) !== undefined,
+    resize: (grid) =>
+      activePadiRpc.lifecycle.resize({
         id: props.terminalId,
-        cols,
-        rows,
-      });
-    } catch (err) {
-      // The call is ACKNOWLEDGED through padi to kaval — padi awaits kaval's
-      // reply rather than logging server-side and resolving — so a REJECTION
-      // here means the grid claim did not land: the PTY kept its old size while
-      // this pane renders against the new one. That is a wrong-grid screen with
-      // no other symptom, so it must not collapse to a no-op
-      // (`.agency/code-police.md` → caught-error-must-not-collapse-to-empty).
-      // A PTY that has ALREADY EXITED is not that case: kaval reports `ok: false`
-      // and padi returns quietly by design, so nothing reaches here — and the
-      // tile tears down via terminalExit anyway. The extra guard below covers the
-      // same race one hop earlier (the arm is already gone locally). One STABLE
-      // toast id keeps a flurry of failed resizes to a single message.
-      if (activeArm(terminalStore.getMetadata(props.terminalId)) === undefined)
-        return;
-      toast.error(`Terminal resize to ${cols}×${rows} failed: ${errMsg(err)}`, {
-        id: `terminal-resize-failed-${props.terminalId}`,
-      });
-    }
+        cols: grid.cols,
+        rows: grid.rows,
+      }),
+  });
+
+  function publishDimensions(size: TerminalGrid): UiAction {
+    return gridPublisher.publish(size);
   }
 
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
@@ -268,7 +301,11 @@ const Terminal: Component<{
     // bridge cleared BEFORE the terminal is disposed — the old single-function
     // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
     onCleanup(() => {
-      streamAbort?.abort();
+      attachTornDown = true;
+      attachFiber?.interruptUnsafe();
+      attachFiber = null;
+      if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
+      staleGridReopenTimer = null;
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -359,12 +396,28 @@ const Terminal: Component<{
         e.preventDefault();
         const selection = term.getSelection();
         if (selection)
-          writeTextToClipboard(selection)
-            .then(() => toast.success("Copied selection to clipboard"))
-            .catch((err: Error) => {
-              console.error("Failed to copy selection:", err);
-              toast.error(`Failed to copy selection: ${err.message}`);
-            });
+          // Forked SYNCHRONOUSLY inside the keystroke's gesture window — the
+          // execCommand leg of `writeTextToClipboard` needs an active user
+          // activation, and `runAction` runs on this stack until the effect
+          // first suspends.
+          runAction(
+            "copy selection",
+            writeTextToClipboard(selection).pipe(
+              Effect.tap(() =>
+                Effect.sync(() =>
+                  toast.success("Copied selection to clipboard"),
+                ),
+              ),
+              Effect.catch((err) =>
+                Effect.sync(() => {
+                  console.error("Failed to copy selection:", err);
+                  toast.error(
+                    `Failed to copy selection: ${toError(err).message}`,
+                  );
+                }),
+              ),
+            ),
+          );
         return false;
       }
 
@@ -402,23 +455,38 @@ const Terminal: Component<{
       () => props.visible,
     );
 
-    streamAbort = new AbortController();
-    const signal = streamAbort.signal;
-
     // Scrollback backfill: attach paints only the recent screenful; as the user
     // scrolls up, fetch older chunks from kaval and prepend them into this
     // terminal's own scrollback. Seeded from the attach snapshot's `topLine`
     // (below); self-manages the near-top trigger and the reset/resize races.
     backfill = createBackfillController(term, {
+      // `@kolu/xterm-kit`'s `fetch` seam is Promise-shaped by contract (the kit
+      // is deliberately outside Effect), so this is a run edge — through the
+      // package's one named bridge, which rejects with the SQUASHED failure so
+      // the `_tag` narrowing in `isTerminalGone` below stays honest.
       fetch: (before, max, epoch) =>
-        activePadiRpc.screen.history({
-          id: props.terminalId,
-          before,
-          max,
-          epoch,
-        }),
-      // A killed terminal's NOT_FOUND is swallowed inside the controller; any
-      // OTHER backfill fetch fault (transport, schema, server) surfaces here
+        runActionPromise(
+          activePadiRpc.screen.history({
+            id: props.terminalId,
+            before,
+            max,
+            // SPREAD, never `epoch` outright (#17): the field is
+            // `Schema.optionalKey` on the wire, so an ABSENT key is accepted and
+            // a present-but-`undefined` one is REJECTED — where zod's
+            // `.optional()` took either. A snapshot that carried no
+            // `reflowEpoch` seeds this `undefined`, which is the ordinary
+            // first-attach case, so spelling it out would throw at the first
+            // backfill fetch.
+            ...(epoch !== undefined && { epoch }),
+          }),
+        ),
+      // The killed-terminal teardown, recognised HERE because the error class is
+      // kolu's, not the kit's: padi declares `TerminalNotFound` on
+      // `screen.history`, and the kit asks this predicate about a `fetch`
+      // rejection only. Matched on the `_tag` (see `rpc/declaredErrors`) so a
+      // wire hop cannot cost us the recognition.
+      isTerminalGone: (err) => isDeclared(err, TERMINAL_NOT_FOUND),
+      // Any OTHER backfill fetch fault (transport, schema, server) surfaces here
       // rather than silently leaving a scrollback hole. A later scroll retries.
       onError: (err) =>
         toast.error(
@@ -482,7 +550,29 @@ const Terminal: Component<{
     // means "who states this pane's size" has a single answer.
     createEffect(
       on(h.grid, (measured) => {
-        if (measured) void publishDimensions(measured);
+        if (measured)
+          runOwnedAction("publish terminal grid", publishDimensions(measured));
+      }),
+    );
+
+    // …and the OTHER thing that can owe the PTY a size: a grid change that
+    // happened while this pane's host was not connected (kolu#2101 K4). The
+    // effect above fires per GRID CHANGE, so nothing re-observes the host coming
+    // back — and if the open attach stays silent through the outage there is no
+    // re-attach to restate it either, leaving the PTY at its old size with no
+    // symptom but wrong output. This watches the host entry instead, and leans
+    // on the latch for idempotence: with nothing owed the action is
+    // `Effect.void`, and a restatement that lands clears the latch, so the
+    // effect's re-runs (and a tile that mounts while the host is already up)
+    // cost nothing. Reachable on the LOCAL host too — `daemon.restart` drains
+    // it out of `connected`.
+    createEffect(
+      on(hostEntryKind, (kind) => {
+        if (kind === "connected")
+          runOwnedAction(
+            "publish terminal grid",
+            gridPublisher.republishSuppressed(),
+          );
       }),
     );
 
@@ -500,17 +590,22 @@ const Terminal: Component<{
     // `unenrolledStreamCall` (`@kolu/surface/client`) — the bare, un-enrolled
     // call — rather than `padi.rawStream`'s structural health enrolment, and the
     // `unenrolled-` name makes that a visible decision at the call site.
+    //
+    // The carve-out STAYS after kolu#2101, and it is not what let the frozen
+    // panes go unreported: it decides which indicator a re-attach lights (the
+    // GLOBAL connection dot — not this one), never whether a dead attach is
+    // noticed at all. That fact is this loop's own, and it now has a verdict —
+    // an unexpected clean end re-attaches and, if the chain keeps manufacturing
+    // ends, dies through the run edge (console + toast). Enrolling here instead
+    // would flicker the fleet's health on every ordinary overflow re-attach and
+    // still not answer "is THIS pane alive".
     function openAttachStream() {
       // ALL of this attempt's state lives here, in its closure — never in a
       // binding a successor could overwrite. `attempt` decides whether this
-      // loop's work still counts; `abort` ends this loop and no other.
+      // loop's work still counts; `superseded` is this attempt's own teardown
+      // latch, set BEFORE its fiber is interrupted.
       const attempt = attempts.open();
-      const abort = new AbortController();
-      // The whole loop — not just its RPC — is scoped to this attempt: aborting
-      // it ends this consumer's `while`, so a superseded attempt cannot keep
-      // re-subscribing on the successor's behalf. Component unmount still ends
-      // every attempt through the same signal.
-      const attemptSignal = AbortSignal.any([signal, abort.signal]);
+      let superseded = false;
       /** The grid THIS attach attempt asked the host to serialize at. Written by
        *  the thunk on every open, read by the snapshot frame that answers it — so
        *  an attempt and the grid it is only valid for are one thing, not two. */
@@ -518,8 +613,15 @@ const Terminal: Component<{
 
       /** Live = still the current attempt AND not torn down. `isCurrent()` alone
        *  stays true forever when no successor opens, so an unmounted pane's
-       *  scroll-lock-stashed callback would still act. */
-      const attemptLive = () => attempt.isCurrent() && !attemptSignal.aborted;
+       *  scroll-lock-stashed callback would still act.
+       *
+       *  Both latches are SYNCHRONOUS, and they must be: fiber interruption
+       *  stops the loop but is asynchronous, so a frame or a stashed xterm write
+       *  callback already past its last suspension can still arrive. Stopping
+       *  the work and refusing a stale result are two jobs — the same law
+       *  `attachAttempts.ts` states for the generation gate. */
+      const attemptLive = () =>
+        attempt.isCurrent() && !superseded && !attachTornDown;
 
       // Every effect this attempt can still fire after supersession, guarded in
       // one place — keyed on the LIVE predicate, so it is inert after unmount
@@ -542,16 +644,44 @@ const Terminal: Component<{
         return !requestedGrid || !current || sameGrid(requestedGrid, current);
       };
 
-      /** End this loop and start exactly one replacement. Guarded by
-       *  `attemptLive()` at every call site, so several superseded callbacks
-       *  reaching here produce ONE successor, not a cascade. */
+      /** End this loop and start exactly one replacement — the FOURTH reopen
+       *  lane, named in `reattachingStream.ts`'s module-header taxonomy along
+       *  with the other three (kolu#2101 K5).
+       *
+       *  It cannot go through the loop's own error channel and that is why it
+       *  exists: the second grid check runs in an xterm WRITE CALLBACK, not in
+       *  the iterator, so there is no return value the loop would read. Routing
+       *  it through the loop proper would mean plumbing a refusal back out of a
+       *  callback the loop has no handle on — surgery, not a cheap re-route — so
+       *  what it takes instead is the loop's DISCIPLINE: the same
+       *  {@link REATTACH_BACKOFF_MS} pause, in the same order the loop uses
+       *  (reset now, re-subscribe after the pause), rather than reopening
+       *  instantly and letting one lane jump the queue. Its episode accounting
+       *  needs no special case: it fires only after a snapshot has actually been
+       *  WRITTEN, and a delivered frame refills both budgets, so the fresh loop
+       *  legitimately starts a fresh episode instead of escaping an old one's.
+       *
+       *  Guarded by `attemptLive()` at every call site, so several superseded
+       *  callbacks reaching here produce ONE successor, not a cascade. */
       const reopenForStaleGrid = () => {
-        abort.abort();
+        // Latch first, interrupt second — the window between them is exactly
+        // where a late frame of this attempt would otherwise land.
+        superseded = true;
+        attachFiber?.interruptUnsafe();
         resetForFreshSnapshot();
-        openAttachStream();
+        // The pause is a timer rather than a sleeping fiber because there is no
+        // fiber left to sleep in — this attempt's was just interrupted. It is
+        // cancelled by the component teardown, which is the same lifetime the
+        // interrupt above respects.
+        if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
+        staleGridReopenTimer = setTimeout(() => {
+          staleGridReopenTimer = null;
+          if (attachTornDown) return;
+          openAttachStream();
+        }, REATTACH_BACKOFF_MS);
       };
 
-      consumeReattachingStream(
+      const consume = consumeReattachingStream(
         () => {
           // Read the grid at the moment this stream is opened, and REMEMBER it:
           // the snapshot that comes back is only meaningful at this exact grid,
@@ -563,25 +693,27 @@ const Terminal: Component<{
           // recorded here even if the pane has resized since.
           // `consumeReattachingStream`'s own outer re-attach DOES re-enter this
           // thunk and picks up a fresh grid — which is why the frame handler's
-          // response to a stale answer is to fail the attempt and let that outer
-          // loop reopen, rather than to paint and correct afterwards.
+          // response to a stale answer is to REFUSE the frame (returning a
+          // `StaleSnapshotGrid`, channel 2) and let that outer loop reopen,
+          // rather than to paint and correct afterwards.
           //
           // Absent is unreachable — `onceMeasured` opens the stream only once a
           // grid exists, and a measured grid is never un-measured.
           //
-          // A bare `throw` here would NOT fail loud: this thunk's throws are
-          // caught by `consumeReattachingStream`, classified as an abnormal end,
-          // console.warn'd and retried every 300ms — and each retry runs
-          // `resetForFreshSnapshot`, which WIPES the user's screen. So the
-          // assertion aborts the stream FIRST: the outer `while (!signal.aborted)`
-          // then exits after one pass, and the breach surfaces where a user can
-          // see it instead of turning into a blank pane blinking 3×/second.
+          // So a throw here is a DEFECT (channel 1 in `reattachingStream`'s
+          // header) and that is what makes it fail loud: the re-attach loop
+          // retries FAILURES, so a defect is not retried — it reaches the run
+          // edge, which reports it (console + toast) and ends the attach.
+          // Retrying it would instead run `resetForFreshSnapshot` every 300ms,
+          // blanking the user's pane three times a second. This is the ONE throw
+          // on the attach path that means it: the unreachable-by-construction
+          // breach, with no repair to attempt. Every recoverable condition on
+          // this path is a returned value, never a throw.
           const measured = h.grid();
           if (!measured) {
-            const msg = `terminal ${props.terminalId}: attach opened without a measured grid`;
-            toast.error(msg);
-            streamAbort?.abort();
-            throw new Error(msg);
+            throw new Error(
+              `terminal ${props.terminalId}: attach opened without a measured grid`,
+            );
           }
           requestedGrid = measured;
           return unenrolledStreamCall(
@@ -590,10 +722,17 @@ const Terminal: Component<{
             // shared PTY to it before serializing.
             { id: props.terminalId, resizeTo: measured },
             {
-              // This attempt's own signal — ending this loop, never a
-              // successor's. Its reset hook is guarded for the same reason: a
-              // superseded attempt's retry must not wipe the successor's screen.
-              signal: attemptSignal,
+              // Names the PANE, in the framework's `<key>[<id>]` spelling and
+              // with the same terminal id the attach loop's log lines carry — a
+              // canvas of panes attaches the same member N times, and a
+              // liveness table that could not tell them apart would name none
+              // of them (kolu#2101 J2).
+              label: `terminalAttach[${props.terminalId}]`,
+              // The attempt's lifetime IS its fiber — interrupting it tears the
+              // subscription down through the stream's own finalizers, so there
+              // is no signal to thread into the call (D10/#18). The reset hook
+              // stays guarded for the same reason as before: a superseded
+              // attempt's retry must not wipe the successor's screen.
               onRetry: resetIfLive,
             },
           );
@@ -607,28 +746,40 @@ const Terminal: Component<{
           // REFUSE a snapshot that answers a grid this pane no longer has.
           //
           // A snapshot is bytes laid out for the grid it was serialized at, and
-          // two paths can make that grid stale between the ask and the answer: a
-          // resize while the request is in flight, and a STREAM_RETRY, which
-          // re-subscribes by replaying the ORIGINAL captured input. Painting it
-          // anyway and correcting the PTY afterwards does NOT undo the damage —
-          // a later SIGWINCH repaints a full-screen app, but nothing rebuilds
-          // scrollback that has already been wrapped at the wrong width. That is
-          // this bug, reachable again by a different route, so the answer is to
-          // not paint at all: throwing here fails the attempt, and
-          // `consumeReattachingStream` resets the screen and reopens through the
-          // thunk above, which reads the CURRENT grid. Its 300ms backoff bounds
-          // the loop, and a pane that has stopped resizing converges on its first
-          // reopen.
+          // THREE paths can make that grid stale between the ask and the answer:
+          // a resize while the request is in flight (a reload's one-column
+          // layout settle is the common one), a STREAM_RETRY, which re-subscribes
+          // by replaying the ORIGINAL captured input, and another client
+          // attaching at its own size — `resizeTo` is last-attach-wins on a
+          // SHARED pty (`@kolu/padi/surface`'s `PadiTerminalAttachInputSchema`),
+          // so a phone joining this terminal resizes it under this pane. Painting
+          // the answer anyway and correcting the PTY afterwards does NOT undo the
+          // damage — a later SIGWINCH repaints a full-screen app, but nothing
+          // rebuilds scrollback that has already been wrapped at the wrong width.
+          //
+          // So: do not paint at all. RETURNING the refusal fails the attempt in
+          // the recoverable channel, and `consumeReattachingStream` resets the
+          // screen and reopens through the thunk above, which reads the CURRENT
+          // grid. Its 300ms backoff bounds the loop, and a pane that has stopped
+          // resizing converges on its first reopen.
+          //
+          // It is a RETURN and not a throw because that promise has to be true.
+          // Spelled as a throw, this refusal was a defect the failure-only retry
+          // never saw: the loop died, the pane went permanently blank over a live
+          // agent, and the toast said "reopening" (kolu#2101 deploy #2 incident
+          // #3 — three panes at once on a 66→65 column settle, and again from a
+          // phone attaching mid-session). The channel is now in the type.
           //
           // This is the FIRST of two checks — the cheap guard that stops the
           // common case before a single byte is written or any backfill state is
           // touched. Receipt is not when the bytes LAND, so the write callback
           // re-checks; the why is stated in full there.
           if (frame.kind === "snapshot" && !answersCurrentGrid()) {
-            const current = h.grid();
-            throw new Error(
-              `terminal ${props.terminalId}: snapshot answered ${requestedGrid?.cols}x${requestedGrid?.rows}, pane is now ${current?.cols}x${current?.rows} — reopening`,
-            );
+            return new StaleSnapshotGrid({
+              terminalId: props.terminalId,
+              requested: requestedGrid,
+              current: h.grid(),
+            });
           }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
           // MID-STREAM overflow re-attach). Consume it as one indivisible act:
@@ -704,10 +855,13 @@ const Terminal: Component<{
               // seed computed from those bytes must not be committed (it would
               // anchor backfill to a layout the buffer no longer has) and the
               // screen must be repainted from a snapshot for the grid it now is.
-              // The frame handler's throw is unavailable here — this runs in an
-              // xterm callback, not the iterator — so the attempt is aborted and
-              // reopened explicitly instead. The first stale callback installs
-              // the one replacement; the rest are superseded by the guard above.
+              // The frame handler's REFUSAL channel is unavailable here — this
+              // runs in an xterm callback, not the iterator, so there is no
+              // return value the loop will read — and the attempt is aborted and
+              // reopened explicitly instead. Same repair, same promise (a reopen
+              // really does follow), reached by the one route this callsite has.
+              // The first stale callback installs the one replacement; the rest
+              // are superseded by the guard above.
               if (commitSeed && !answersCurrentGrid()) {
                 reopenForStaleGrid();
                 return;
@@ -720,9 +874,39 @@ const Terminal: Component<{
           }
         },
         resetIfLive,
-        attemptSignal,
-        "Terminal attach",
+        // Names the PANE, not just the surface: this label prefixes every line
+        // the loop logs AND keys the verdict's toast id, so an un-labelled one
+        // would collapse a canvas of separately-wedged panes into a single
+        // message naming none of them (kolu#2101 K1/K3-client).
+        `Terminal attach ${props.terminalId}`,
+        {
+          // The tile's OWN exit fact, for classifying a CLEAN stream end
+          // (kolu#2101): a clean end is a real PTY exit only if this tile knows
+          // the PTY is gone — otherwise it is a manufactured end and the loop
+          // re-attaches once instead of waiting forever for an exit event that
+          // is never coming.
+          //
+          // `activeArm` is the same local liveness fact the resize toast and the
+          // scratch paste already read (the metadata arm, `state === "active"`),
+          // reused rather than re-derived. RESOLVED metadata that is not active
+          // is the positive "it exited" answer; ABSENT metadata is UNKNOWN and
+          // deliberately reads as still-live — a wrong "live" costs one attach
+          // RPC that padi answers `TerminalNotFound` (which ends the loop), a
+          // wrong "exited" costs the blank pane this change exists to kill.
+          hasExited: () => {
+            const meta = terminalStore.getMetadata(props.terminalId);
+            return meta !== undefined && activeArm(meta) === undefined;
+          },
+        },
       );
+      // One fiber per attempt. Interrupting it ends this consumer AND any
+      // backoff it is sleeping through, so a superseded attempt cannot keep
+      // re-subscribing on the successor's behalf — what the per-attempt
+      // `AbortController` fused with `AbortSignal.any` used to buy, minus the
+      // fusing. `orDie`: the retry schedule is infinite, so a failure reaching
+      // here is unreachable by construction and says so loudly rather than
+      // silently ending the attach.
+      attachFiber = runAction("Terminal attach", consume.pipe(Effect.orDie));
     }
 
     // Initial focus, mirroring the old post-fit focus on first mount.
@@ -737,8 +921,11 @@ const Terminal: Component<{
     // a terminal that is no longer active, so `deliverScratchPaste` re-checks
     // liveness between the write and the send and throws otherwise — the caller's
     // catch turns that into a toast.error instead of a silent drop.
-    async function writeScratchAndPaste(name: string, base64: string) {
-      await deliverScratchPaste({
+    function writeScratchAndPaste(
+      name: string,
+      base64: string,
+    ): Effect.Effect<void, unknown> {
+      return deliverScratchPaste({
         terminalId: props.terminalId,
         name,
         base64,
@@ -750,18 +937,33 @@ const Terminal: Component<{
       });
     }
 
-    async function uploadPastedImage(file: File) {
+    /** Read a dropped/pasted file and deliver it — the shared body behind the
+     *  two upload paths, which differ only in their size rule and their toast. */
+    function uploadFile(
+      file: File,
+      name: string,
+      failed: (message: string) => string,
+    ): UiAction {
+      return Effect.tryPromise(() => file.arrayBuffer()).pipe(
+        Effect.flatMap((buf) =>
+          writeScratchAndPaste(name, bufferToBase64(buf)),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            toast.error(failed(errMsg(err)));
+          }),
+        ),
+      );
+    }
+
+    function uploadPastedImage(file: File): UiAction {
       const reason = sizeRejectionFor("clipboard image", file.size);
-      if (reason !== null) {
-        toast.error(reason);
-        return;
-      }
-      try {
-        const base64 = bufferToBase64(await file.arrayBuffer());
-        await writeScratchAndPaste("image.png", base64);
-      } catch (err) {
-        toast.error(`Failed to upload clipboard image: ${errMsg(err)}`);
-      }
+      if (reason !== null) return Effect.sync(() => toast.error(reason));
+      return uploadFile(
+        file,
+        "image.png",
+        (m) => `Failed to upload clipboard image: ${m}`,
+      );
     }
 
     makeEventListener(
@@ -781,7 +983,7 @@ const Terminal: Component<{
         // xterm's paste handler would paste the image as garbled text.
         e.stopPropagation();
         e.preventDefault();
-        void uploadPastedImage(file);
+        runAction("upload clipboard image", uploadPastedImage(file));
       },
       { capture: true },
     );
@@ -790,18 +992,14 @@ const Terminal: Component<{
     // the server, which saves them under the terminal's clipboard directory and
     // bracketed-pastes the path into the PTY — the same shape as Ctrl+V image
     // paste, just sourced from DataTransfer instead of ClipboardData.
-    async function uploadDroppedFile(file: File) {
+    function uploadDroppedFile(file: File): UiAction {
       const reason = rejectionFor(file.name, file.size);
-      if (reason !== null) {
-        toast.error(reason);
-        return;
-      }
-      try {
-        const base64 = bufferToBase64(await file.arrayBuffer());
-        await writeScratchAndPaste(file.name, base64);
-      } catch (err) {
-        toast.error(`Failed to upload "${file.name}": ${errMsg(err)}`);
-      }
+      if (reason !== null) return Effect.sync(() => toast.error(reason));
+      return uploadFile(
+        file,
+        file.name,
+        (m) => `Failed to upload "${file.name}": ${m}`,
+      );
     }
 
     makeEventListener(h.container, "dragover", (e: DragEvent) => {
@@ -829,7 +1027,7 @@ const Terminal: Component<{
       e.preventDefault();
       delete (h.container as HTMLElement).dataset.dropTarget;
       for (const file of files) {
-        void uploadDroppedFile(file);
+        runAction("upload dropped file", uploadDroppedFile(file));
       }
     });
   };
@@ -969,10 +1167,17 @@ const Terminal: Component<{
         // desktop, where nothing is ever armed).
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
-          void activePadiRpc.lifecycle.sendInput({
-            id: props.terminalId,
-            data: applyStickyModifiers(data),
-          });
+          runAction(
+            "send input",
+            activePadiRpc.lifecycle
+              .sendInput({
+                id: props.terminalId,
+                data: applyStickyModifiers(data),
+              })
+              // A keystroke has no UI to report to — the terminal is the
+              // feedback — which is what the old bare `void` meant.
+              .pipe(Effect.ignore),
+          );
         }}
         onReady={onReady}
         onTap={onTap}

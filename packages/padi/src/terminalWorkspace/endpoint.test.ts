@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ORPCError } from "@orpc/server";
 import pino from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FileGone, GitFailed } from "../errors.ts";
 import { createTerminalWorkspaceEndpoint } from "./endpoint.ts";
 import { makeTempRepo } from "./gitRepo.testlib.ts";
 
@@ -78,20 +78,20 @@ describe("createTerminalWorkspaceEndpoint", () => {
    *  value stream, which simply stopped yielding). Anything else is a visible
    *  error over a file the user merely deleted.
    *
-   *  These pin the whole chain — `kolu-git` err → `unwrapGit` → `ORPCError` —
-   *  rather than any single link, because the regression they exist for lived
-   *  precisely in the seam: `filePreviewTag` used to return `GIT_FAILED` for a
-   *  gone file and rely on the errno text surviving into the `ORPCError`
-   *  message. Once `isFileGoneError` was narrowed to treat a present `code` as
-   *  authoritative, the wrapper's own `INTERNAL_SERVER_ERROR` answered first and
-   *  the preserved message was never read. A unit test of the predicate alone
-   *  cannot see that; only the assembled chain can. */
-  describe("a gone file surfaces as NOT_FOUND, through every read", () => {
-    const orpcCode = async (fn: () => Promise<unknown>): Promise<string> => {
+   *  These pin the whole chain — `kolu-git` err → `unwrapGit` → the DECLARED
+   *  `FileGone` — rather than any single link, because the regression they exist
+   *  for lived precisely in the seam: `filePreviewTag` used to return
+   *  `GIT_FAILED` for a gone file and rely on the errno text surviving into the
+   *  thrown error's message. Once `isFileGoneError` was narrowed to treat a
+   *  present `code` as authoritative, the wrapper's own generic failure answered
+   *  first and the preserved message was never read. A unit test of the
+   *  predicate alone cannot see that; only the assembled chain can. */
+  describe("a gone file surfaces as the declared FileGone, through every read", () => {
+    const tagOf = async (fn: () => Promise<unknown>): Promise<string> => {
       try {
         await fn();
       } catch (e) {
-        if (e instanceof ORPCError) return e.code;
+        if (e instanceof FileGone || e instanceof GitFailed) return e._tag;
         throw e;
       }
       throw new Error("expected the read to reject");
@@ -99,34 +99,46 @@ describe("createTerminalWorkspaceEndpoint", () => {
 
     it("fs.readFile", async () => {
       const { fs: f } = createTerminalWorkspaceEndpoint(log);
-      expect(await orpcCode(() => f.readFile(repo, "never-existed.txt"))).toBe(
-        "NOT_FOUND",
+      expect(await tagOf(() => f.readFile(repo, "never-existed.txt"))).toBe(
+        "FileGone",
       );
     });
 
     it("fs.filePreviewTag — the binary-preview path", async () => {
       const { fs: f } = createTerminalWorkspaceEndpoint(log);
       expect(
-        await orpcCode(() => f.filePreviewTag(repo, "never-existed.bin")),
-      ).toBe("NOT_FOUND");
+        await tagOf(() => f.filePreviewTag(repo, "never-existed.bin")),
+      ).toBe("FileGone");
     });
 
     it("fs.listDirectory — a build output cleaned under an open row", async () => {
       const { fs: f } = createTerminalWorkspaceEndpoint(log);
-      expect(await orpcCode(() => f.listDirectory(repo, "never-existed"))).toBe(
-        "NOT_FOUND",
+      expect(await tagOf(() => f.listDirectory(repo, "never-existed"))).toBe(
+        "FileGone",
+      );
+    });
+
+    it("the gone PATH rides as DATA, so no reader re-parses the message", async () => {
+      const { fs: f } = createTerminalWorkspaceEndpoint(log);
+      await expect(f.readFile(repo, "never-existed.txt")).rejects.toMatchObject(
+        {
+          _tag: "FileGone",
+          path: expect.stringContaining("never-existed.txt"),
+        },
       );
     });
   });
 
-  it("fail-fast: a non-repo path THROWS an ORPCError, never resolves to empty", async () => {
+  it("fail-fast: a non-repo path THROWS the declared GitFailed, never resolves to empty", async () => {
     const { git } = createTerminalWorkspaceEndpoint(log);
     const notRepo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-tw-notrepo-"));
     try {
       // The lifted `unwrapGit` must surface the git error, not swallow it into
       // an empty `{ files: [] }` — the no-fallbacks contract that moved with it.
+      // It stays DECLARED (rather than becoming a defect) because the message is
+      // what the user reads in the toast.
       await expect(git.getStatus(notRepo, "local")).rejects.toBeInstanceOf(
-        ORPCError,
+        GitFailed,
       );
     } finally {
       fs.rmSync(notRepo, { recursive: true, force: true });

@@ -8,17 +8,30 @@
  *  write itself lives. */
 
 import type { CanvasLayout } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { toast } from "solid-sonner";
+import { runAction } from "../runAction";
 import { activePadiRpc } from "../wire";
 
+/** Persist a tile's canvas geometry.
+ *
+ *  Runs at the seam rather than returning an `Effect`, because its caller is the
+ *  canvas's SYNCHRONOUS drag/resize commit — a `void` echo of a local write that
+ *  has already happened, with no continuation to compose into. */
 export function persistCanvasLayout(
   id: TerminalId,
   layout: CanvasLayout,
 ): void {
-  void activePadiRpc.chrome
-    .setCanvasLayout({ id, layout })
-    .catch((err: Error) =>
-      toast.error(`Failed to save canvas layout: ${err.message}`),
-    );
+  runAction(
+    "save canvas layout",
+    activePadiRpc.chrome.setCanvasLayout({ id, layout }).pipe(
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(`Failed to save canvas layout: ${toError(err).message}`);
+        }),
+      ),
+    ),
+  );
 }

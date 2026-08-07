@@ -9,6 +9,7 @@
  */
 
 import { shellJoin } from "@kolu/shell-quote";
+import { Effect } from "effect";
 import type { PadiTuiClient } from "./connect.ts";
 
 /** What `create` did — the new terminal's id, the worktree it materialized (if
@@ -30,7 +31,7 @@ export interface CreateResult {
  *      `<argv>\r` so the shell runs it at its first prompt — the same
  *      initial-command path the canvas worktree flow uses.
  */
-export async function runCreate(
+export function runCreate(
   client: PadiTuiClient,
   opts: {
     parentId?: string;
@@ -38,38 +39,43 @@ export async function runCreate(
     cwd?: string;
     argv: readonly string[];
   },
-): Promise<CreateResult> {
-  let cwd = opts.cwd;
-  let worktree: CreateResult["worktree"];
-  if (opts.worktree !== undefined) {
-    const wt = await client.surface.git.worktreeCreate({
-      repoPath: opts.worktree.repoPath,
-      name: opts.worktree.name,
+): Effect.Effect<CreateResult, unknown> {
+  return Effect.gen(function* () {
+    let cwd = opts.cwd;
+    let worktree: CreateResult["worktree"];
+    if (opts.worktree !== undefined) {
+      const wt = yield* client.surface.git.worktreeCreate({
+        repoPath: (opts.worktree as { repoPath: string }).repoPath,
+        name: (opts.worktree as { name: string }).name,
+      });
+      cwd = wt.path;
+      worktree = { path: wt.path, branch: wt.branch };
+    }
+
+    const { id } = yield* client.surface.lifecycle.create({
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(opts.parentId !== undefined ? { parentId: opts.parentId } : {}),
     });
-    cwd = wt.path;
-    worktree = { path: wt.path, branch: wt.branch };
-  }
 
-  const { id } = await client.surface.lifecycle.create({
-    ...(cwd !== undefined ? { cwd } : {}),
-    ...(opts.parentId !== undefined ? { parentId: opts.parentId } : {}),
+    let ran: string | undefined;
+    if (opts.argv.length > 0) {
+      // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's
+      // POSIX-quote source of truth), not a bare `argv.join(" ")`: a `join` would let
+      // the shell re-split a single argv token that carries spaces / quotes / `$` /
+      // `*` / `;` (e.g. one `claude "review this PR"` prompt argument would shatter
+      // into three words). `shellJoin` re-quotes each token so `shellSplit` — and a
+      // POSIX shell — reproduce the exact argv the user passed.
+      ran = shellJoin(opts.argv);
+      // PTY input is buffered — the shell reads `<ran>\r` at its first prompt once
+      // rc init completes (the same latent slow-rc race the canvas flow accepts;
+      // promote to a shell-ready-gated create parameter only if it bites, a contract
+      // change deliberately out of scope here).
+      yield* client.surface.lifecycle.sendInput({
+        id,
+        data: `${ran as string}\r`,
+      });
+    }
+
+    return { id, worktree, ran };
   });
-
-  let ran: string | undefined;
-  if (opts.argv.length > 0) {
-    // The shell RE-PARSES this line, so rebuild it with `shellJoin` (the repo's
-    // POSIX-quote source of truth), not a bare `argv.join(" ")`: a `join` would let
-    // the shell re-split a single argv token that carries spaces / quotes / `$` /
-    // `*` / `;` (e.g. one `claude "review this PR"` prompt argument would shatter
-    // into three words). `shellJoin` re-quotes each token so `shellSplit` — and a
-    // POSIX shell — reproduce the exact argv the user passed.
-    ran = shellJoin(opts.argv);
-    // PTY input is buffered — the shell reads `<ran>\r` at its first prompt once
-    // rc init completes (the same latent slow-rc race the canvas flow accepts;
-    // promote to a shell-ready-gated create parameter only if it bites, a contract
-    // change deliberately out of scope here).
-    await client.surface.lifecycle.sendInput({ id, data: `${ran}\r` });
-  }
-
-  return { id, worktree, ran };
 }

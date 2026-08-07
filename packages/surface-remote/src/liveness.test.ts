@@ -16,10 +16,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { defineSurface } from "@kolu/surface/define";
 import { createLoopbackPair } from "@kolu/surface/loopback";
+import { writeStdioReadiness } from "@kolu/surface/links/readiness";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { directAgentDerivation } from "./agentDerivation";
 import { provisionAgent } from "./nixCopy";
 import {
@@ -41,18 +42,24 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
 // `implementSurface` auto-answers it, so the healthy child below responds to the
 // watchdog's probe with no hand-wiring.
 const surface = defineSurface({
-  cells: { v: { schema: z.object({ n: z.number() }), default: { n: 0 } } },
+  cells: {
+    v: { schema: Schema.Struct({ n: Schema.Number }), default: { n: 0 } },
+  },
 });
-type SurfaceContract = typeof surface.contract;
 
 /** A child serving the real surface over a loopback pair — it ANSWERS
  *  `system.live` — and stays alive until killed. */
 function healthyChild() {
   const pair = createLoopbackPair();
-  const { router } = implementSurface(surface, {
+  const { group, handlers } = implementSurface(surface, {
     cells: { v: { store: inMemoryStore({ n: 0 }) } },
   });
-  void serveOverStdio({ router: router as never, transport: pair.server });
+  void serveOverStdio({ group, handlers, transport: pair.server });
+  // The agent GREETS before its first frame (juspay/kolu#2101) — `serveOverStdio`
+  // does it itself when the process is the agent; over an explicit loopback
+  // transport this fake child plays that part, exactly as a real `--stdio` front
+  // does after it converges.
+  writeStdioReadiness(pair.server.write, { verdict: "ready" });
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = pair.client.write;
   child.stdout = pair.client.read;
@@ -74,8 +81,16 @@ function healthyChild() {
 function wedgedChild() {
   const child = new EventEmitter() as unknown as Record<string, unknown>;
   child.stdin = new PassThrough(); // requests buffer; nobody reads them
-  child.stdout = new PassThrough(); // open, but nothing is ever written back
+  const stdout = new PassThrough(); // open, but nothing is ever written back
+  child.stdout = stdout;
   child.stderr = new PassThrough();
+  // It GREETS, then wedges — which is the only wedge the watchdog still owns
+  // (juspay/kolu#2101). A peer that never speaks AT ALL no longer reaches the
+  // watchdog: the readiness gate catches it before a client exists, classifies it
+  // as a remote fault, and the session goes terminal instead of relying on a
+  // liveness probe to notice. What is left here — and what this pin measures — is
+  // a daemon that proved its epoch at boot and hung afterwards.
+  writeStdioReadiness(stdout, { verdict: "ready" });
   child.pid = 4321;
   const kill = vi.fn(() => {
     (child as unknown as EventEmitter).emit("exit", null, "SIGTERM");
@@ -86,9 +101,10 @@ function wedgedChild() {
 }
 
 function buildSession(extra: Record<string, unknown> = {}) {
-  return makeSession<AgentClient<SurfaceContract>, SshProv>({
+  return makeSession<AgentClient, SshProv>({
     initialConnection: "probing",
-    connectOnce: sshConnector<SurfaceContract>({
+    connectOnce: sshConnector({
+      surface,
       host: "testhost",
       binary: "agent",
       localEnv: {},
@@ -128,7 +144,12 @@ describe("HostSession liveness watchdog", () => {
     });
     const session = buildSession();
     session.pin().catch(() => {});
-    await vi.advanceTimersByTimeAsync(1);
+    // The wire link is ASYNC now (building the RPC protocol layer and its fibers is
+    // an effect), so the connector resolves a few ticks after the spawn. Advance far
+    // enough that the session actually HOLDS a connection before marking connected —
+    // the watchdog only probes while `current !== null`, so a birth with no
+    // connection would make this test measure nothing.
+    await vi.advanceTimersByTimeAsync(20);
     expect(session.currentState().phase).toBe("connecting");
     // The bridge marks `connected` after the first RPC — simulate it (the watchdog
     // is born here, so it can never probe before the first connect).
@@ -136,11 +157,17 @@ describe("HostSession liveness watchdog", () => {
     expect(session.currentState().phase).toBe("connected");
     expect(spawn).toHaveBeenCalledTimes(1);
 
-    // The watchdog probes at +15s; the wedged remote never answers.
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(kills[0]).not.toHaveBeenCalled(); // probe armed, not yet timed out
-    // At +10s the probe times out ⇒ the link is wedged ⇒ force-cycle.
-    await vi.advanceTimersByTimeAsync(10_000);
+    // The LAW: a wedged link is force-cycled within one watchdog cycle
+    // (interval + timeout), never left reporting `connected` over a corpse. The
+    // MECHANISM moved and the test is deliberately stated on the law, not on it:
+    // Effect RPC's protocol carries its own ping/pong keepalive, so the wedged peer
+    // now fails the LINK at ~10s and the watchdog's first probe REJECTS with
+    // `SurfaceStdioTransportClosed` rather than hanging until the probe deadline.
+    // (Under oRPC nothing pinged, so the probe hung and the heartbeat's own timeout
+    // was the only signal.) Either way the verdict and the deadline are the same.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(kills[0]).not.toHaveBeenCalled(); // before the first probe: untouched
+    await vi.advanceTimersByTimeAsync(20_000); // one full interval + timeout
     expect(kills[0]).toHaveBeenCalledTimes(1);
 
     // …and the killed child routes through the reconnect loop → a fresh child.
@@ -178,7 +205,7 @@ describe("HostSession liveness watchdog", () => {
     // reset the give-up budget so a deliberate drain-exit isn't counted as a connect
     // failure), and reServeSurface ALSO marks on the first folded frame — so
     // markConnected fires from two sites per spawn. Pin that the second call is a
-    // no-op: exactly ONE `connected` transition (so the consecutiveFailures reset +
+    // no-op: exactly ONE `connected` transition (so the give-up budget refill +
     // the liveness-watchdog birth happen once, never twice).
     vi.mocked(spawn).mockImplementation(() => healthyChild().child as never);
     const session = buildSession();

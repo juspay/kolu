@@ -10,8 +10,9 @@ caching service worker, ever.
 ```ts
 import { connectSurface } from "@kolu/surface-app/solid";
 
-const { ws, client, status, dispose } = connectSurface({ surface, url });
-// client.cells.X.use(...) — the socket, link, and half-open heartbeat are wired for you.
+const { link, client, status, dispose } = await connectSurface({ surface, url });
+// client.cells.X.use(...) — the dial, the dispatch, and the half-open heartbeat
+// are wired for you (the dial is an effect, so the seam is async).
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-app": "workspace:*"`.

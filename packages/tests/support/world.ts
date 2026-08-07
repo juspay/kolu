@@ -84,6 +84,11 @@ export class KoluWorld extends World {
    *  verbatim on self-heal re-POSTs so assertions always exercise the
    *  originally-persisted session, not a fresh one. */
   savedSessionSavedAt?: number;
+  /** The saved session's `activeTerminalId`, stashed on the first POST for the
+   *  same reason as `savedSessionSavedAt` — `test__set` writes the WHOLE blob and
+   *  an omitted key decodes to `null`, so a self-heal re-POST that dropped it
+   *  would ERASE the marker the scenario is about to assert on. */
+  savedSessionActiveId?: string;
   savedCanvas?: { x: number; y: number; width: number; height: number };
   previousCanvas?: { x: number; y: number; width: number; height: number };
   savedFontSize?: number;

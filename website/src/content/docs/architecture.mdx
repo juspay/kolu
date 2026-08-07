@@ -309,9 +309,11 @@ dir that's wiped on every boot. The port is config; the folder is the daemon.
 ## Talking over the wire
 
 Everything the browser does flows over a **single WebSocket** (`/rpc/ws`) via
-[oRPC](https://orpc.dev/). The contract lives in one package both sides share, so
-calls are type-checked at compile time and their payloads validated by
-[Zod](https://zod.dev/) at runtime. Two patterns cover all of it:
+[Effect RPC](https://effect.website/), framed as newline-delimited JSON. The
+contract lives in one package both sides share, so calls are type-checked at
+compile time and their payloads decoded by [Effect
+Schema](https://effect.website/docs/schema/introduction/) at runtime. Two
+patterns cover all of it:
 
 <div class="doc-scroll">
 
@@ -325,11 +327,11 @@ calls are type-checked at compile time and their payloads validated by
 A subscription becomes a fine-grained SolidJS signal on the client, so a single
 row changing repaints only that row. The shell CLIs are the one exception to the
 websocket: [`kaval-tui`](/kaval) and [`padi-tui`](/padi) reach their daemon over
-its **local unix socket** — same oRPC framing, a different transport.
+its **local unix socket** — same ndjson framing, a different transport.
 
 <Aside type="caution" title="The RPC surface is unauthenticated — so origin is gated">
   Loopback binding doesn't defend the socket: an attacker's page runs in your own
-  browser. So a <strong>same-origin gate</strong> runs before oRPC on both
+  browser. So a <strong>same-origin gate</strong> runs before RPC dispatch on both
   browser-reachable paths — it rejects a cross-site <code>Origin</code> at the
   websocket upgrade and 403s a cross-site HTTP call. A reverse proxy or
   <code>tailscale serve</code> front-end, whose origin differs from the forwarded
@@ -407,8 +409,9 @@ hides — decide where code lives, so a capability that hides transport, or GPU
 context, or persistence is its own package with the dependency arrow pointing
 _out_. The map, grouped:
 
-- **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Hono web
-  shell that serves the SPA, the preview route, and the websocket, and binds padi),
+- **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Effect
+  HTTP shell that serves the SPA, the preview route, and the websocket, and binds
+  padi),
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
   subcommand dispatch, the padi connect layer, and boots whichever face was
   asked for), and `kolu-mcp` (the `kolu mcp` agent face — `padiSurface`
@@ -439,7 +442,7 @@ _out_. The map, grouped:
   `solid-pierre` (file tree + diffs), `solid-markdown`, `solid-fileview`,
   `solid-browser`, `serve-dir`, and `artifact-sdk` (comments-on-files). Several are
   shared with a sibling app, [drishti](https://github.com/srid/drishti).
-- **Contracts & small leaves** — `common` (the oRPC contract), `terminal-vocab`,
+- **Contracts & small leaves** — `common` (the shared surface contract), `terminal-vocab`,
   `terminal-protocol`, `transcript-core` / `transcript-html`, and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, …).
 

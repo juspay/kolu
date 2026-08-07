@@ -13,13 +13,7 @@
  * `UseCellOptions` union, just with `source` / `mutate` already filled in.
  */
 
-import type { ClientPromiseResult } from "@orpc/client";
-import type { ClientRetryPluginContext } from "@orpc/client/plugins";
-import type {
-  AnyContractRouter,
-  ContractRouterClient,
-  ErrorFromErrorMap,
-} from "@orpc/contract";
+import { Effect } from "effect";
 import {
   type Accessor,
   createMemo,
@@ -29,8 +23,14 @@ import {
   onCleanup,
 } from "solid-js";
 import type { SetStoreFunction } from "solid-js/store";
-import type { ZodType, z } from "zod";
-import { type StreamingProcedure, unenrolledStreamCall } from "../client";
+import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+  type SurfaceCallFailure,
+  type SurfaceFace,
+  type UnaryEffect,
+  unenrolledStreamCall,
+} from "../client";
 import type {
   CellHasPatchVerb,
   CellIsMutable,
@@ -40,13 +40,19 @@ import type {
   CollectionVerbsOf,
   EventSpec,
   ProcedureSpec,
-  ProcedureSpecErrors,
+  ProcedureSpecError,
   StreamSpec,
   Surface,
   SurfaceSpec,
+  WireSchemaAny,
 } from "../define";
-import { collectionHasDeltas, resolveCellVerbs, scopeSibling } from "../define";
-import { isHalfOpenLink } from "../links/_wire";
+import {
+  collectionHasDeltas,
+  resolveCellVerbs,
+  scopeSiblingTag,
+} from "../define";
+import { isHalfOpenDispatch, type SurfaceDispatch } from "../link";
+import { runStreamScoped } from "../runStream";
 import type { ReactiveSubscriptionOptions } from "./createReactiveSubscription";
 import {
   createSubscription,
@@ -90,75 +96,71 @@ import { useStream } from "./useStream";
 export type OnClientError = (policy: unknown, err: Error) => void;
 
 /** Resolve the transport argument `surfaceClient`/`surfaceClients` were handed into
- *  the `{ link, live }` the bundle is built over — collapsing the pair at the API so
- *  there is nothing to re-prove at runtime:
+ *  the `{ dispatch, live }` the bundle is built over — collapsing the pair at the API
+ *  so there is nothing to re-prove at runtime:
  *
- *   - A {@link LiveSignalHandle} (the only honest shape over a half-openable
- *     websocket): read `.link` and `.live` straight off it. They were minted together
- *     by `createLiveSignal` (which builds the link over the socket it watches and
- *     wires the watchdog first), so the live↔link pairing holds BY CONSTRUCTION — the
- *     "watch ws1, build over ws2" forge is unspellable because no caller supplies a
- *     separate link.
- *   - A bare half-openable WIRE link (`websocketLink`, `stdioLink`, `unixSocketLink`):
- *     CRASH. Any wire transport can half-open silently (a websocket socket stays
- *     `open` with no bytes flowing; a stdio/ssh pipe wedges or partitions with no
- *     FIN), so its `health().live` is a LIE unless a watchdog probes it — and the
- *     watchdog rides on the handle. Passing the bare link drops the watchdog, so
- *     refuse it: pass the `LiveSignalHandle` `createLiveSignal`/`connectSurface`/
- *     `connectSurfaces` returns instead. (The brand is applied at `wireClient` — the
- *     one seam every wire link crosses — so a future wire link is refused too.)
- *   - Any link NOT branded by `wireClient`: constant-`true`. The honest member is the
- *     in-process `directLink` (`createRouterClient`, no transport, can't half-open) —
- *     honest by construction. This branch is reached BY EXCLUSION, though, so it also
- *     covers any other unbranded value: a test stub link, or — discouraged — a
- *     hand-rolled foreign oRPC client over a websocket (one that bypasses
- *     `websocketLink` and so skips the `wireClient` brand). That last spelling is a
- *     deliberate, documented RESIDUAL (#1580): every blessed link factory
- *     (`websocketLink`/`stdioLink`/`unixSocketLink`) brands via the one `wireClient`
- *     chokepoint, so no realistic consumer reaches this with a half-openable link;
- *     closing it structurally (a positive in-process-only brand + throw on anything
- *     else) would refuse the legitimate stub-link health-fold tests consumers build
- *     over `surfaceClient` — whose only other build path, `buildSurfaceClient`, is
- *     deliberately package-private — so it stays a by-exclusion fallback the chokepoint
- *     plus the "build through `websocketLink`" convention discourage.
+ *   - A {@link LiveSignalHandle} (the only honest shape over a half-openable wire):
+ *     read `.dispatch` and `.live` straight off it. They were minted together by
+ *     `createLiveSignal`, which refuses any pairing a wire link factory did not mint
+ *     and wires the watchdog before branding, so the live↔dispatch pairing holds BY
+ *     CONSTRUCTION — the "watch wire A, dispatch over wire B" forge is unspellable
+ *     because no caller supplies a separate dispatch.
+ *   - A bare half-openable WIRE dispatch (websocket, stdio, unix socket): CRASH. Any
+ *     wire transport can half-open silently (a websocket socket stays `open` with no
+ *     bytes flowing; a stdio/ssh pipe wedges or partitions with no FIN), so its
+ *     `health().live` is a LIE unless a watchdog probes it — and the watchdog rides
+ *     on the handle. Passing the bare dispatch drops the watchdog, so refuse it: pass
+ *     the `LiveSignalHandle` `createLiveSignal`/`connectSurface`/`connectSurfaces`
+ *     returns instead. (The brand is applied at the ONE seam every wire link crosses,
+ *     so a future wire link is refused too.)
+ *   - Any dispatch NOT branded half-open: constant-`true`. The honest member is the
+ *     in-process `directDispatch` (no transport, can't half-open) — honest by
+ *     construction, and positively branded as such. This branch is reached BY
+ *     EXCLUSION, though, so it also covers any other unbranded value: a test stub
+ *     dispatch, or — discouraged — a hand-rolled foreign dispatch over a websocket
+ *     (one that bypasses the link factories and so skips the brand). That last
+ *     spelling is a deliberate, documented RESIDUAL (#1580): every blessed link
+ *     factory brands via the one chokepoint, so no realistic consumer reaches this
+ *     with a half-openable dispatch; closing it structurally (accepting ONLY a
+ *     direct-branded dispatch) would refuse the legitimate stub-dispatch health-fold
+ *     tests consumers build over `surfaceClient` — whose only other build path,
+ *     `buildSurfaceClient`, is deliberately framework-composition-only — so it stays
+ *     a by-exclusion fallback the chokepoint plus convention discourage.
  *
  *  Fail-fast per the repo's "no silent fallback / crash loudly" philosophy: a
- *  half-open-blind transport leg is unspellable over every wire link built through the
- *  blessed factories (all of which brand via `wireClient`) — there is no `{ live }`
- *  knob to pass a blind accessor through (the #1564 lie, one seam upstream of the
- *  dot). */
+ *  half-open-blind transport leg is unspellable over every wire dispatch built through
+ *  the blessed factories — there is no `{ live }` knob to pass a blind accessor
+ *  through (the #1564 lie, one seam upstream of the dot). */
 export function resolveTransport(transport: unknown): {
-  link: unknown;
+  dispatch: SurfaceDispatch;
   live: Accessor<boolean>;
 } {
   if (isLiveSignalHandle(transport)) {
-    return { link: transport.link, live: transport.live };
+    return { dispatch: transport.dispatch, live: transport.live };
   }
-  if (isHalfOpenLink(transport)) {
+  if (isHalfOpenDispatch(transport)) {
     throw new Error(
-      "surfaceClient: this link crosses a wire transport that can silently " +
+      "surfaceClient: this dispatch crosses a wire transport that can silently " +
         "half-open (a websocket socket stays `open` with no bytes flowing; a stdio " +
         "or unix-socket pipe wedges or partitions with no FIN), so its transport " +
-        "liveness must be a watchdog-backed `LiveSignalHandle`, not a bare link. " +
+        "liveness must be a watchdog-backed `LiveSignalHandle`, not a bare dispatch. " +
         "For a WEBSOCKET, build the client through `connectSurface`/`connectSurfaces` " +
-        "— or, hand-built, use `createLiveSignal(ws)` from `@kolu/surface/solid` and " +
-        "pass the WHOLE handle it returns: it builds the link over `ws` itself (so " +
-        "the watchdog probes the socket it reconnects via a real `system.live` " +
-        "round-trip) AND wires the watchdog, with `link` and `live` paired on one " +
-        "object; the handle has no other minter. For a STDIO/UNIX-SOCKET link, wire a " +
-        "`createHeartbeat` + `probeSurfaceLive` watchdog over `system.live` as " +
-        "`surface-remote`'s `hostSession.startLiveness` does. A bare `() => true` " +
-        "or an open/close-only `() => socketStatus() === 'live'` is half-open-blind " +
-        "— it would paint a green/ready dot over a dead backend↔remote link (#1564).",
+        "— or, hand-built, use `createLiveSignal(transport)` from `@kolu/surface/solid` " +
+        "and pass the WHOLE handle it returns: it probes the reserved `system/live` " +
+        "member over the very dispatch it guards AND wires the watchdog, with " +
+        "`dispatch` and `live` paired on one object; the handle has no other minter. " +
+        "For a STDIO/UNIX-SOCKET dispatch, wire a `createHeartbeat` + " +
+        "`probeSurfaceLive` watchdog over `system/live` as `surface-remote`'s " +
+        "`hostSession.startLiveness` does. A bare `() => true` or an open/close-only " +
+        "`() => wireStatus() === 'open'` is half-open-blind — it would paint a " +
+        "green/ready dot over a dead backend↔remote link (#1564).",
     );
   }
-  // Unbranded by `wireClient`: the honest member is the in-process `directLink` (no
-  // wire transport, a microtask `createRouterClient` handler call), whose constant-
-  // `true` leg is honest by construction. Reached BY EXCLUSION, so it also covers any
-  // other unbranded value (a test stub link, or — discouraged — a hand-rolled foreign
-  // oRPC client); see the docstring's residual note. The blessed wire factories all
-  // brand via `wireClient`, so no realistic half-openable link reaches here.
-  return { link: transport, live: () => true };
+  // Unbranded as half-open: the honest member is the in-process `directDispatch` (no
+  // wire transport, a microtask-deferred handler call), whose constant-`true` leg is
+  // honest by construction. Reached BY EXCLUSION, so it also covers any other
+  // unbranded value (a test stub dispatch); see the docstring's residual note.
+  return { dispatch: transport as SurfaceDispatch, live: () => true };
 }
 
 // ── Bound-primitive option shapes ──────────────────────────────────────
@@ -216,8 +218,8 @@ export interface ReadOnlyBoundCell<T> {
  *  health FACT alongside every per-key sub's error, instead of a parallel
  *  per-collection accessor a consumer has to remember to read. */
 export interface BoundCollectionResult<K, T> extends UseCollectionResult<K, T> {
-  upsert: (key: K, value: T) => Promise<void>;
-  delete: (key: K) => Promise<void>;
+  upsert: (key: K, value: T) => Effect.Effect<void, unknown>;
+  delete: (key: K) => Effect.Effect<void, unknown>;
 }
 
 export interface BoundCollection<K, T> {
@@ -232,10 +234,12 @@ export interface BoundCollection<K, T> {
     keys?: Accessor<K[]>;
     onError?: SubscriptionOptions<unknown>["onError"];
   }): BoundCollectionResult<K, T>;
-  /** Imperative wire mutations. Available outside any component
-   *  lifecycle — call from command handlers, route loaders, anywhere. */
-  upsert(key: K, value: T): Promise<void>;
-  delete(key: K): Promise<void>;
+  /** Imperative wire mutations, as `Effect`s. Available outside any component
+   *  lifecycle — compose them into a command handler's program, a route loader,
+   *  anywhere. A Solid event handler runs one at its own UI edge (kolu spells that
+   *  `runAction`), which is where the Effect→DOM boundary belongs. */
+  upsert(key: K, value: T): Effect.Effect<void, unknown>;
+  delete(key: K): Effect.Effect<void, unknown>;
 }
 
 /** The raw keys-stream ref for a DELIBERATELY UN-ENROLLED reach —
@@ -328,85 +332,77 @@ export interface BoundEvent<I, T> {
   ): void;
 }
 
-/** The per-call options a bound procedure accepts as its optional second argument.
- *  Just an abort `signal` (the code-tab git/fs reads pass `{ signal }`): a declared
- *  procedure is a UNARY call, so the retry-plugin `context` — a streaming concern
- *  (`STREAM_RETRY`) — has no procedure-side meaning and is deliberately NOT exposed
- *  here; a caller who needs the raw callable's full option set reaches `.rpc`. */
-export interface BoundProcedureOptions {
-  signal?: AbortSignal;
-}
+/** The bound face's declared-FAILURE type: the decoded union of the spec's
+ *  `error` schema, or `never` when the procedure declares no failures (define.ts's
+ *  shared {@link ProcedureSpecError} extractor resolves `Schema.Never` there). A
+ *  declared error travels as a `Schema.TaggedErrorClass` INSTANCE — `_tag` and data
+ *  intact across every hop — so a caller narrows it with `Effect.catchTag`, a `_tag`
+ *  switch or an `instanceof`, never a magic-code compare. */
+type BoundProcedureError<S> = ProcedureSpecError<S>["Type"];
 
-/** The bound face's REJECTION type (SK6): the spec's declared error union —
- *  `ORPCError<code, data>` per declared code, plus `ThrowableError` for the
- *  undeclared crash-loudly channel — carried as `ClientPromiseResult`'s
- *  phantom, exactly oRPC's own contract-client shape. A caller feeds the call
- *  to `safe(...)` / narrows with `isDefinedError` to read `{ code, data }`
- *  typed; a spec with no `errors` resolves the plain `ThrowableError` phantom
- *  (via define.ts's shared {@link ProcedureSpecErrors} extractor) and the
- *  face reads as an ordinary `Promise`, so existing callers are untouched. */
-type BoundProcedureError<S> = ErrorFromErrorMap<ProcedureSpecErrors<S>>;
-
-// The narrowing VERBS for that declared union (SK6), re-exported so a consumer
-// reads a typed rejection through the SAME receptacle that declares and types
-// it: `const { error } = await safe(client.procedures.ns.verb(...))` then
-// `isDefinedError(error)` narrows to the declared `{ code, data }`. Without
-// this, every app-side read of a declared error imports the transport vendor
-// (`@orpc/client`) past the surface boundary — exactly the volatility this
-// package exists to encapsulate.
-export { isDefinedError, safe } from "@orpc/client";
+/** A bound procedure's result — an `Effect` carrying the spec's declared error
+ *  union in a real channel the compiler tracks through every `catchTag`,
+ *  `catchAll` and `orDie`.
+ *
+ *  `E` is the spec's DECLARED union alone; {@link SurfaceCallFailure} — Effect
+ *  RPC's transport error plus the framework's own tagged vocabulary — is unioned
+ *  in here, because a call CAN fail that way and a channel that omitted it would
+ *  let a consumer believe `catchTag`-ing its declared tags left nothing to handle.
+ *  A caller that genuinely wants "any failure is fatal" writes `Effect.orDie`, and
+ *  says so. */
+export type ProcedureEffect<T, E> = Effect.Effect<T, E | SurfaceCallFailure>;
 
 /** A bound imperative procedure — a declaration-typed callable at
- *  `client.procedures.<ns>.<verb>(input, options?)`. It IS the underlying oRPC
- *  procedure call at the wire path `surface.<ns>.<verb>`, re-exposed off the
- *  `surface` prefix so the bound face is symmetric with `cells`/`collections`/
- *  `streams`/`events`. Input/output are inferred from the {@link ProcedureSpec}
- *  schemas — absent `input` ⇒ input-less, absent `output` ⇒ `Promise<void>` — the
- *  exact arms the contract derivation (`ProcedureContract`) uses, so the bound
- *  signature and the wire shape can't drift. The optional second arg mirrors the
- *  oRPC client's `{ signal? }` (see {@link BoundProcedureOptions}). Deliberately a
- *  NARROW mapped type (not oRPC's full `ContractRouterClient` union): recovering the
- *  callable shape by hand is what lets a generically-`unknown` map-entry `.rpc` gain
- *  a typed procedure face WITHOUT tripping the TS2590 "union too complex" that the
- *  wide client type does under a generic entry spec.
+ *  `client.procedures.<ns>.<verb>(input)`. It IS the member call at the wire tag
+ *  `surface/<ns>/<verb>`, re-exposed so the bound face is symmetric with
+ *  `cells`/`collections`/`streams`/`events`. Input/output are inferred from the
+ *  {@link ProcedureSpec} schemas — absent `input` ⇒ input-less, absent `output` ⇒
+ *  `Effect<void>` — the exact arms the runtime `Rpc` derivation resolves through
+ *  `ProcedureInputSchema`/`ProcedureOutputSchema`, so the bound signature and the
+ *  wire shape can't drift. Deliberately a NARROW mapped type: recovering the
+ *  callable shape by hand is what lets a generically-`unknown` map-entry face gain
+ *  a typed procedure surface WITHOUT tripping the TS2590 "union too complex" a wide
+ *  client type does under a generic entry spec. `effectProcedure.test-d.ts` pins the
+ *  ladder against `SurfaceRpcsFor` — the type-level image of the runtime `Rpc` walk
+ *  — so the two cannot drift.
  *
- *  The input arm uses `z.input<Schema>` (the ACCEPTED wire type), NOT the parsed
- *  output: a schema with a `.default()` / `.transform()` makes those keys optional
- *  on the wire, so the callable must accept the raw input — inferring the output
- *  would wrongly REQUIRE a defaulted key the server fills in. The result arm uses
- *  `z.output<Schema>` (the parsed value the wire returns). This matches oRPC's
- *  `.input(schema)` client, which accepts `z.input` and resolves `z.output`. */
-export type BoundProcedure<
-  // biome-ignore lint/suspicious/noExplicitAny: the ProcedureSpec constraint takes `any` type args like define.ts's own `ProcedureContract` — the concrete arms below narrow via `infer`.
+ *  **The input arm is the ENCODED side (`Schema["Encoded"]`), the success arm the
+ *  DECODED side (`Schema["Type"]`)** — D2/#13. A schema carrying a decoding default
+ *  makes a key OMITTABLE on the wire but REQUIRED after decode, and a transforming
+ *  schema changes the type across the parse; typing the input decoded would demand
+ *  arguments the wire does not need and reject the raw ones it does. The face
+ *  decodes the argument at its edge (`buildSurfaceFace`), which is exactly where
+ *  zod's `.parse`-at-input used to run.
+ *
+ *  There is no second `options` argument. A unary call carries no `signal` under
+ *  Effect (cancellation is fiber interruption, D10/#18) and no retry context (a
+ *  write is never retried), so the only honest signature is `(input) => …`.
+ *
+ *  This is the face a caller COMPOSES with: a deadline, a race, a
+ *  supersede-on-new-input or a Ctrl-C are combinators here, where the Promise-shaped
+ *  row this replaced needed a hand-rolled `AbortController` alongside it that an
+ *  `await` could not honour anyway. */
+export type EffectProcedure<
+  // biome-ignore lint/suspicious/noExplicitAny: mirrors `BoundProcedure`'s constraint — the concrete arms below narrow via `infer`.
   S extends ProcedureSpec<any, any>,
 > = S extends {
-  input: infer In extends ZodType;
-  output: infer Out extends ZodType;
+  input: infer In extends WireSchemaAny;
+  output: infer Out extends WireSchemaAny;
 }
   ? (
-      input: z.input<In>,
-      options?: BoundProcedureOptions,
-    ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
-  : S extends { input: infer In extends ZodType }
-    ? (
-        input: z.input<In>,
-        options?: BoundProcedureOptions,
-      ) => ClientPromiseResult<void, BoundProcedureError<S>>
-    : S extends { output: infer Out extends ZodType }
+      input: In["Encoded"],
+    ) => ProcedureEffect<Out["Type"], BoundProcedureError<S>>
+  : S extends { input: infer In extends WireSchemaAny }
+    ? (input: In["Encoded"]) => ProcedureEffect<void, BoundProcedureError<S>>
+    : S extends { output: infer Out extends WireSchemaAny }
       ? (
           input?: undefined,
-          options?: BoundProcedureOptions,
-        ) => ClientPromiseResult<z.output<Out>, BoundProcedureError<S>>
-      : (
-          input?: undefined,
-          options?: BoundProcedureOptions,
-        ) => ClientPromiseResult<void, BoundProcedureError<S>>;
+        ) => ProcedureEffect<Out["Type"], BoundProcedureError<S>>
+      : (input?: undefined) => ProcedureEffect<void, BoundProcedureError<S>>;
 
-type BoundProceduresFor<S extends SurfaceSpec> = {
+type EffectProceduresFor<S extends SurfaceSpec> = {
   [NS in keyof S["procedures"] & string]: {
-    // `SurfaceSpec.procedures` already pins each member to a `ProcedureSpec`, so it
-    // satisfies `BoundProcedure`'s constraint directly — no guard/`any` needed here.
-    [V in keyof NonNullable<S["procedures"]>[NS] & string]: BoundProcedure<
+    [V in keyof NonNullable<S["procedures"]>[NS] & string]: EffectProcedure<
       NonNullable<S["procedures"]>[NS][V]
     >;
   };
@@ -473,49 +469,63 @@ type BoundCollectionsFor<S extends SurfaceSpec> = {
     : never;
 };
 
+// A stream's / event's INPUT is the one position on these two primitives that is a
+// pure ARGUMENT — the client never holds it, only forwards it — so it is typed on
+// the ENCODED side and decoded at the face edge (D2/#13), exactly like a
+// procedure's input. The OUTPUT is decoded: it is the value the consumer renders.
 type BoundStreamsFor<S extends SurfaceSpec> = {
   [K in keyof S["streams"] & string]: NonNullable<
     S["streams"]
-  >[K] extends StreamSpec<infer I, infer T>
-    ? BoundStream<I, T>
+    // biome-ignore lint/suspicious/noExplicitAny: the spec constraint erases the decoded input type; the encoded side is read off the schema instead.
+  >[K] extends StreamSpec<any, infer T>
+    ? BoundStream<NonNullable<S["streams"]>[K]["inputSchema"]["Encoded"], T>
     : never;
 };
 
 type BoundEventsFor<S extends SurfaceSpec> = {
   [K in keyof S["events"] & string]: NonNullable<
     S["events"]
-  >[K] extends EventSpec<infer I, infer T>
-    ? BoundEvent<I, T>
+    // biome-ignore lint/suspicious/noExplicitAny: see BoundStreamsFor.
+  >[K] extends EventSpec<any, infer T>
+    ? BoundEvent<NonNullable<S["events"]>[K]["inputSchema"]["Encoded"], T>
     : never;
 };
 
-export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
-  /** The typed oRPC client — the link this bundle was built over. Reserved for
-   *  the RESERVED framework procedures (`system.live` / `system.identity`,
-   *  contract-only) and the link-root escape hatch. DECLARED imperative procedures
-   *  ride the bound `.procedures.<ns>.<verb>(input)` face below (typed straight from
-   *  the spec, no cast) — reach `.rpc` only for a member the bound shape can't model.
+export interface SurfaceClient<S extends SurfaceSpec> {
+  /** The nested member face this bundle was built over — `rpc.surface.<ns>.<verb>`.
+   *  Reserved for the RESERVED framework members (`system.live` / `system.identity`
+   *  / `system.clockNow`, which the three probes walk structurally) and as the
+   *  escape hatch for a member the bound shapes can't model. DECLARED imperative
+   *  procedures ride the bound `.procedures.<ns>.<verb>(input)` face below (typed
+   *  straight from the spec, no cast).
    *
-   *  Typing note: `Rpc` is inferred from the link passed in rather than
-   *  computed from `S`, because TS's union-resolution budget can't expand
-   *  both `SurfaceContractFor<S>` and oRPC's `ContractRouterClient<...>`
-   *  mapped types in the same evaluation pass. The link constructor
-   *  (`websocketLink<typeof contract>(ws)`) pins the contract concretely at
-   *  the call site, so the bundle just carries that type through. */
-  readonly rpc: Rpc;
+   *  Typing note: this face is STRUCTURAL, not spec-derived — per-member precision
+   *  lives in the bound `.cells`/`.collections`/`.streams`/`.events`/`.procedures`
+   *  faces, which is D2's rule ("type the face from the spec"). Materialising a
+   *  second precise mapped type over the same spec, in the same evaluation pass, is
+   *  the union-budget blowup D2 exists to avoid. */
+  readonly rpc: SurfaceFace;
   readonly cells: BoundCellsFor<S>;
   readonly collections: BoundCollectionsFor<S>;
   readonly streams: BoundStreamsFor<S>;
   readonly events: BoundEventsFor<S>;
   /** The declared imperative procedures, bound to the link and typed from the
-   *  declaration — `client.procedures.<ns>.<verb>(input)`. The typed dual of the
-   *  reactive `.use()` primitives for the surface's non-descriptor RPCs: a
+   *  declaration — `client.procedures.<ns>.<verb>(input)`, each a composable
+   *  `Effect` carrying the spec's DECLARED error union (plus the framework's own
+   *  {@link SurfaceCallFailure}) in a channel the compiler tracks. The typed dual
+   *  of the reactive `.use()` primitives for the surface's non-descriptor RPCs: a
    *  consumer reaches a declared procedure here WITHOUT casting the raw `.rpc`
-   *  client or copying its callable shape. Reserved framework procedures
-   *  (`system.live` / `system.identity`) are contract-only — never in
-   *  `spec.procedures` — so they do NOT appear here; reach them (and the
-   *  link-root escape hatch) through `.rpc`. */
-  readonly procedures: BoundProceduresFor<S>;
+   *  client or copying its callable shape.
+   *
+   *  Because the call is a description rather than a running promise, everything a
+   *  consumer used to hand-roll around it is a combinator: a deadline, a fold over
+   *  several members, a request superseded by the next one, a Ctrl-C that must
+   *  actually stop the wait.
+   *
+   *  Reserved framework procedures (`system.live` / `system.identity`) are
+   *  contract-only — never in `spec.procedures` — so they do NOT appear here; reach
+   *  them (and the link-root escape hatch) through `.rpc`. */
+  readonly procedures: EffectProceduresFor<S>;
   /** The subscription-health FACT — the `system.live` twin (`./health`). Reads
    *  every enrolled subscription's self-clearing `error()`/`pending()` plus the
    *  transport `live`, so a consumer reads ONE fact instead of hand-folding the
@@ -563,57 +573,66 @@ export interface SurfaceClient<S extends SurfaceSpec, Rpc = unknown> {
 
 // ── Builder ────────────────────────────────────────────────────────────
 
+/** Read one member's verb map off the nested face, or CRASH.
+ *
+ *  The face is built by `buildSurfaceFace` from the SAME `surface.spec` these
+ *  binds walk, so an absent member cannot be a runtime condition — it can only mean
+ *  the two walks disagree, i.e. a framework bug. Fail loudly rather than hand back
+ *  `undefined` and surface it three frames later as "ns.get is not a function".
+ *  (The oRPC-era binds deferred this deref behind lazy getters so a hand-built
+ *  PARTIAL mock link was tolerated; the face is no longer caller-supplied, so there
+ *  is nothing partial to tolerate — a test stubs the DISPATCH, one layer down.) */
+function memberOf(face: SurfaceFace, key: string): Record<string, unknown> {
+  const ns = face.surface[key];
+  if (ns === undefined) {
+    throw new Error(
+      `surfaceClient: the face carries no member "${key}", but ` +
+        "the spec declares it — the face walk and the bind walk disagree, which " +
+        "is a framework bug.",
+    );
+  }
+  return ns;
+}
+
 /** Build the Solid client-side bundle for a surface over a **transport** — either
- *  a {@link LiveSignalHandle} (a half-openable wire link — `websocketLink`,
- *  `stdioLink`, `unixSocketLink` — plus the watchdog that makes its liveness honest,
- *  as ONE object) OR a bare in-process `directLink` (`createRouterClient`, no
- *  transport, the ONE link that can't half-open). A bare `stdioLink`/`unixSocketLink`
- *  is a wire link that CAN half-open and is REFUSED bare (it throws — pass the handle,
- *  or hand-wire a watchdog as `surface-remote`'s `hostSession.startLiveness` does).
- *  Walks the spec once and pre-binds each primitive to its oRPC procedure refs,
- *  producing `.use(policy)` hooks that drop the wire-identity args from the per-call
- *  signature.
+ *  a {@link LiveSignalHandle} (a half-openable wire dispatch plus the watchdog that
+ *  makes its liveness honest, as ONE object) OR a bare in-process `directDispatch`
+ *  (no transport, the ONE dispatch that can't half-open). A bare wire dispatch —
+ *  websocket, stdio, unix socket — CAN half-open and is REFUSED bare (it throws:
+ *  pass the handle, or hand-wire a watchdog as `surface-remote`'s
+ *  `hostSession.startLiveness` does). Walks the spec once and pre-binds each
+ *  primitive to its member refs, producing `.use(policy)` hooks that drop the
+ *  wire-identity args from the per-call signature.
  *
  *  ```ts
- *  // In-process directLink (no transport, can't half-open) — pass the bare link:
- *  const app = surfaceClient(surface, directLink(server));
+ *  // In-process dispatch (no transport, can't half-open) — pass it bare:
+ *  const app = surfaceClient(surface, directDispatch(served));
  *
- *  // Websocket link (CAN half-open) — pass the watchdog-backed handle WHOLE.
+ *  // Websocket (CAN half-open) — pass the watchdog-backed handle WHOLE.
  *  // Reach for `connectSurface` (`@kolu/surface-app`), which wires it for you; or,
- *  // hand-built, use `createLiveSignal`, which BUILDS the link over `ws` (so the
- *  // watchdog probes the socket it reconnects) and returns the handle:
- *  const transport = createLiveSignal<typeof contract>(ws, {});
+ *  // hand-built, use `createLiveSignal`, which validates the `{dispatch, wire}`
+ *  // pairing a link factory minted and returns the handle:
+ *  const transport = createLiveSignal(websocketTransport, {});
  *  const app = surfaceClient(surface, transport);
  *  ```
  *
- *  Collapsing link+live into ONE handle argument is what makes the pairing hold by
- *  construction: there is no separate `{ live }` seam to pass a half-open-blind
- *  accessor through, and no way to pair a live with a DIFFERENT, self-rolled link.
+ *  Collapsing dispatch+live into ONE handle argument is what makes the pairing hold
+ *  by construction: there is no separate `{ live }` seam to pass a half-open-blind
+ *  accessor through, and no way to pair a live with a DIFFERENT, self-rolled
+ *  dispatch.
  *
  *  This is the unification: the bundle no longer bakes in the WebSocket transport —
  *  it consumes whatever transport it's handed, so the same hooks work over a socket,
- *  a subprocess, or an in-process direct link. `Rpc` flows from the handle's contract
- *  `C` (or the bare link's type) through to `.rpc`. */
-export function surfaceClient<
-  const S extends SurfaceSpec,
-  C extends AnyContractRouter,
->(
-  surface: Surface<S>,
-  handle: LiveSignalHandle<C>,
-): SurfaceClient<S, ContractRouterClient<C, ClientRetryPluginContext>>;
-export function surfaceClient<const S extends SurfaceSpec, Rpc = unknown>(
-  surface: Surface<S>,
-  link: Rpc,
-): SurfaceClient<S, Rpc>;
+ *  a subprocess, or an in-process dispatch. */
 export function surfaceClient<const S extends SurfaceSpec>(
   surface: Surface<S>,
-  transport: unknown,
-): SurfaceClient<S, unknown> {
-  // Collapse the transport to its `{ link, live }` — a `LiveSignalHandle` carries
-  // both (paired by construction); a bare half-openable link CRASHES here; a bare
-  // in-process link gets a constant-`true` leg (sound — it can't half-open).
-  const { link, live } = resolveTransport(transport);
-  return buildSurfaceClient(surface, link, live);
+  transport: LiveSignalHandle | SurfaceDispatch,
+): SurfaceClient<S> {
+  // Collapse the transport to its `{ dispatch, live }` — a `LiveSignalHandle` carries
+  // both (paired by construction); a bare half-openable dispatch CRASHES here; a bare
+  // in-process dispatch gets a constant-`true` leg (sound — it can't half-open).
+  const { dispatch, live } = resolveTransport(transport);
+  return buildSurfaceClient(surface, dispatch, live);
 }
 
 /** Open the eager `liveWhen` readiness leg for a mirror-shaped cell — the
@@ -639,7 +658,7 @@ function openReadinessLeg<S extends SurfaceSpec>(
   let standing!: ReadOnlyUseCellResult<unknown>;
   const dispose = createRoot((disposeRoot) => {
     const s = useCell(
-      // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+      // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
       (surface.descriptors.cells as any)[key],
       // Route a spec-declared `client.onError` policy for a read-only `liveWhen` cell
       // through its ONE standing subscription — the sub a read-only `.use()` shares, so
@@ -686,15 +705,14 @@ function readOnlyCellView(src: {
 function bindCell<S extends SurfaceSpec>(
   key: string,
   cellSpec: CellSpec<unknown, unknown>,
-  link: unknown,
+  face: SurfaceFace,
   registry: ReturnType<typeof createSurfaceHealthRegistry>,
   subs: KeyedSubscriptionCache,
   surface: Surface<S>,
   onClientError?: OnClientError,
 ): { cell: BoundCell<unknown, unknown>; disposeRoot?: () => void } {
-  // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
-  const ns = (link as any).surface[key];
-  const source: StreamingProcedure<undefined, unknown> = ns.get;
+  const ns = memberOf(face, key);
+  const source = ns.get as StreamingProcedure<undefined, unknown>;
   // The OPAQUE, app-declared client error policy for this cell (design §B), reified
   // into a `useCell` `onError` handler. Read the policy as `unknown` — the value is
   // app-typed and the framework never inspects it, only threads it to `onClientError`.
@@ -820,7 +838,7 @@ function bindCell<S extends SurfaceSpec>(
           `cell:${key}`,
           (onComplete) =>
             useCell(
-              // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+              // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
               (surface.descriptors.cells as any)[key],
               // `onError: policyOnError` threads the spec-declared policy into the SHARED
               // slot's ONE subscription (once per slot, never once per consumer).
@@ -886,7 +904,7 @@ function bindCell<S extends SurfaceSpec>(
         `cell:${key}:${stableOptsKey(keyOpts)}`,
         (onComplete) =>
           useCell(
-            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only at runtime
+            // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
             (surface.descriptors.cells as any)[key],
             // `onError: policyOnError` routes the spec-declared policy through the shared
             // subscription's ONE `useCell` funnel — covering BOTH the subscription drop
@@ -925,13 +943,18 @@ function bindCell<S extends SurfaceSpec>(
  *  PUBLIC boundary ({@link resolveTransport} / `surfaceClient`), not here; a caller
  *  reaching for this raw builder owns that guarantee, exactly as the `resolveTransport`
  *  by-exclusion fallback does (#1580). */
-export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
+export function buildSurfaceClient<const S extends SurfaceSpec>(
   surface: Surface<S>,
-  link: Rpc,
+  dispatch: SurfaceDispatch,
   live: Accessor<boolean>,
   onClientError?: OnClientError,
-): SurfaceClient<S, Rpc> {
+): SurfaceClient<S> {
   const spec = surface.spec;
+  // Re-nest the flat tag namespace ONCE, here, so every bind below reads a member
+  // the same way (`face.surface[key][verb]`) whether it is a cell's `get`, a
+  // collection's `deltas` or a declared procedure — and so `.rpc` and the bound
+  // faces hand out the SAME refs, never two walks that could disagree.
+  const face = buildSurfaceFace(surface, dispatch);
 
   // FAIL-FAST (design §D / F5): a member that DECLARES a `client.onError` policy but
   // whose client was built with NO interpreter would route that policy nowhere — a
@@ -1044,7 +1067,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     const { cell, disposeRoot } = bindCell(
       key,
       cellSpec,
-      link,
+      face,
       registry,
       subs,
       surface,
@@ -1065,8 +1088,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       UnenrolledDeltas<unknown, unknown>
   > = {};
   for (const [key, rawColl] of Object.entries(spec.collections ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (link as any).surface[key];
+    const ns = memberOf(face, key);
     // Whether this collection opted into batched `deltas` delivery — read from
     // the SPEC (the authoritative verb set the server also gates on), NEVER from
     // `(ns as any).deltas`: an oRPC wire client is a lazy Proxy whose every
@@ -1078,8 +1100,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     const hasDeltas = collectionHasDeltas(
       rawColl as CollectionSpec<unknown, unknown>,
     );
-    const upsert = (k: unknown, v: unknown) => ns.upsert({ key: k, value: v });
-    const del = (k: unknown) => ns.delete({ key: k });
+    const upsertRef = ns.upsert as UnaryEffect<unknown, unknown, never>;
+    const deleteRef = ns.delete as UnaryEffect<unknown, unknown, never>;
+    const upsert = (k: unknown, v: unknown): Effect.Effect<void, unknown> =>
+      Effect.asVoid(upsertRef({ key: k, value: v }));
+    const del = (k: unknown): Effect.Effect<void, unknown> =>
+      Effect.asVoid(deleteRef({ key: k }));
     // The OPAQUE, app-declared client error policy for this collection (design §B),
     // reified into an error handler that threads the declared value to `onClientError`.
     // Read as `unknown` — the framework never inspects it. A collection has no
@@ -1122,11 +1148,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
         // runs inside a Solid owner so each per-key sub disposes with the component.
         if (opts?.keys) {
           const view = useCollection(
-            // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+            // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
             (surface.descriptors.collections as any)[key],
             {
               keys: opts.keys,
-              valueSource: ns.get,
+              valueSource: ns.get as StreamingProcedure<
+                { key: unknown },
+                unknown
+              >,
               keyToInput: (k) => ({ key: k }),
               onError: narrowedOnError,
               enroll: (k, sub) => registry.enroll(`${key}[${String(k)}]`, sub),
@@ -1221,11 +1250,17 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
           return hasDeltas
             ? // ONE coalesced `deltas` stream folded into a per-key store.
               useCollectionDeltas(
-                // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
                 (surface.descriptors.collections as any)[key],
                 {
-                  source: (signal) =>
-                    unenrolledStreamCall(ns.deltas, undefined, { signal }),
+                  source: unenrolledStreamCall(
+                    ns.deltas as StreamingProcedure<
+                      undefined,
+                      CollectionDeltasMsg<unknown, unknown>
+                    >,
+                    undefined,
+                    { label: `${key}.deltas` },
+                  ),
                   onError: dispatchError,
                   onComplete,
                   enroll: (sub) => registry.enroll(`${key}.deltas`, sub),
@@ -1234,8 +1269,11 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
             : // The server keys stream + one value stream per key.
               (() => {
                 const keysSub = createSubscription<unknown[]>(
-                  (signal) =>
-                    unenrolledStreamCall(ns.keys, undefined, { signal }),
+                  unenrolledStreamCall(
+                    ns.keys as StreamingProcedure<undefined, unknown[]>,
+                    undefined,
+                    { label: `${key}.keys` },
+                  ),
                   { onError: dispatchError, onComplete },
                 );
                 // Leak B: enrol the keys-stream itself. A failing keys stream collapses
@@ -1244,11 +1282,14 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
                 registry.enroll(`${key}.keys`, keysSub);
                 const keys = createMemo<unknown[]>(() => keysSub() ?? []);
                 return useCollection(
-                  // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+                  // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
                   (surface.descriptors.collections as any)[key],
                   {
                     keys,
-                    valueSource: ns.get,
+                    valueSource: ns.get as StreamingProcedure<
+                      { key: unknown },
+                      unknown
+                    >,
                     keyToInput: (k) => ({ key: k }),
                     onError: dispatchError,
                     // Enrol each per-key value sub as `<key>[<id>]`; the callback runs in
@@ -1269,7 +1310,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       // getter, like the `.use()`/`upsert` closures' own `ns` deref — so a partial
       // mock link (no `ns`) is tolerated until the ref is reached, never at build.
       get unenrolledKeys() {
-        return ns.keys;
+        return ns.keys as StreamingProcedure<undefined, unknown[]>;
       },
       // The raw batched deltas-stream ref for the deliberately un-enrolled reach (see
       // BoundCollection docs) — the SAME `ns.deltas` the enrolled `.use()` opens for a
@@ -1277,22 +1318,24 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       // `unenrolledStreamCall`. A LAZY getter, like `unenrolledKeys` — so a partial
       // mock link (no `ns`) is tolerated until the ref is reached, never at build.
       get unenrolledDeltas() {
-        return ns.deltas;
+        return ns.deltas as StreamingProcedure<
+          undefined,
+          CollectionDeltasMsg<unknown, unknown>
+        >;
       },
     };
   }
 
   const streams: Record<string, BoundStream<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.streams ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (link as any).surface[key];
+    const ns = memberOf(face, key);
     streams[key] = {
       use: (inputFn, streamOpts) => {
         const sub = useStream(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+          // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
           (surface.descriptors.streams as any)[key],
           inputFn,
-          ns.get,
+          ns.get as StreamingProcedure<unknown, unknown>,
           streamOpts,
         );
         registry.enroll(key, sub);
@@ -1304,22 +1347,21 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
       // like `.use()`'s own `ns.get` deref — so a partial mock link (no `ns`) is
       // tolerated until the ref is actually reached, never at build.
       get unenrolled() {
-        return ns.get;
+        return ns.get as StreamingProcedure<unknown, unknown>;
       },
     };
   }
 
   const events: Record<string, BoundEvent<unknown, unknown>> = {};
   for (const [key] of Object.entries(spec.events ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string
-    const ns = (link as any).surface[key];
+    const ns = memberOf(face, key);
     events[key] = {
       use: (inputFn, handler, eventOpts) =>
         useEvent(
-          // biome-ignore lint/suspicious/noExplicitAny: descriptor is type-discriminator only
+          // biome-ignore lint/suspicious/noExplicitAny: the descriptor types the hook; only its `name` is read at runtime
           (surface.descriptors.events as any)[key],
           inputFn,
-          ns.get,
+          ns.get as StreamingProcedure<unknown, unknown>,
           handler,
           eventOpts,
         ),
@@ -1333,12 +1375,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   // types and never casts the raw `.rpc`. Pure structural walk-by-string, like the
   // primitive binds above — no `.use()` wrapper (a procedure is a one-shot call,
   // not a subscription), so nothing to enrol into `health()`.
+  //
   const procedures: Record<string, Record<string, unknown>> = {};
   for (const [ns, verbs] of Object.entries(spec.procedures ?? {})) {
-    // biome-ignore lint/suspicious/noExplicitAny: walk-by-string of the typed client
-    const nsLink = (link as any).surface[ns];
+    const nsFace = memberOf(face, ns);
     const bound: Record<string, unknown> = {};
-    for (const verb of Object.keys(verbs)) bound[verb] = nsLink[verb];
+    for (const verb of Object.keys(verbs)) bound[verb] = nsFace[verb];
     procedures[ns] = bound;
   }
 
@@ -1368,12 +1410,12 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     const source: HealthSource = { pending, error };
     // Owner asserted above, so this auto-drops when the owner unwinds.
     registry.enroll(name, source);
-    const ctl = new AbortController();
-    onCleanup(() => ctl.abort());
-    void (async () => {
-      try {
-        const stream = await unenrolledStreamCall(procedure, input, {
-          signal: ctl.signal,
+    onCleanup(
+      runStreamScoped<O>(
+        unenrolledStreamCall(procedure, input, {
+          // The caller's enrolment name IS the label — one name for the health
+          // fact and the liveness registry (kolu#2101 J2).
+          label: name,
           onRetry: () => {
             // A reconnect: back to pending, drop the stale error, and let the
             // caller clear any derived view before the fresh snapshot lands.
@@ -1381,29 +1423,37 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
             setError(undefined);
             opts.onRetry?.();
           },
-        });
-        for await (const item of stream) {
-          // Self-clearing edge: each frame proves the stream is live, so a
-          // transient failure heals the instant it re-delivers (no latch).
-          if (pending()) setPending(false);
-          if (error()) setError(undefined);
-          opts.onItem(item);
-        }
-        // Clean completion (the server ended the stream): no longer pending.
-        setPending(false);
-      } catch (err) {
-        if (ctl.signal.aborted || opts.isExpectedStop?.(err)) return;
-        // A real failure: clear pending so an errored-on-first-frame sub reads
-        // `degraded`, never a stuck `connecting`, then record the error.
-        setPending(false);
-        setError(err instanceof Error ? err : new Error(String(err)));
-      }
-    })();
+        }),
+        {
+          onFrame: (item) => {
+            // Self-clearing edge: each frame proves the stream is live, so a
+            // transient failure heals the instant it re-delivers (no latch).
+            if (pending()) setPending(false);
+            if (error()) setError(undefined);
+            opts.onItem(item);
+          },
+          // Clean completion (the server ended the stream): no longer pending.
+          // An interruption (the owner unwound) reports nothing — `runStreamScoped`
+          // holds that rule, so the old `ctl.signal.aborted` check is gone.
+          onEnd: () => setPending(false),
+          onFailure: (err) => {
+            // A deliberate teardown the CALLER classifies (xterm's
+            // `isExpectedCleanupError`) must not register as a health error. The
+            // owner's own teardown is already silent one layer down.
+            if (opts.isExpectedStop?.(err)) return;
+            // A real failure: clear pending so an errored-on-first-frame sub reads
+            // `degraded`, never a stuck `connecting`, then record the error.
+            setPending(false);
+            setError(err);
+          },
+        },
+      ),
+    );
     return source;
   }
 
   return {
-    rpc: link,
+    rpc: face,
     cells: cells as BoundCellsFor<S>,
     // The runtime object ALWAYS carries `unenrolledKeys` + `unenrolledDeltas`; the
     // public `BoundCollectionsFor` mapped type narrows each OUT for a collection that
@@ -1412,7 +1462,7 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
     collections: collections as unknown as BoundCollectionsFor<S>,
     streams: streams as BoundStreamsFor<S>,
     events: events as BoundEventsFor<S>,
-    procedures: procedures as BoundProceduresFor<S>,
+    procedures: procedures as EffectProceduresFor<S>,
     health: registry.health,
     enroll: registry.enroll,
     rawStream,
@@ -1422,11 +1472,35 @@ export function buildSurfaceClient<const S extends SurfaceSpec, Rpc>(
   };
 }
 
-// ── surfaceClients — sibling surfaces over one link ─────────────────────
+// ── surfaceClients — sibling surfaces over one dispatch ─────────────────
+
+/** Scope a COMBINED dispatch to one sibling by splicing the sibling key into every
+ *  tag: `surface/<member>/<verb>` → `surface/<key>/<member>/<verb>`.
+ *
+ *  This is the runtime dual of the deleted `scopeSibling(link, key)` link re-wrap,
+ *  and it is what lets a sibling's face be built from the STANDALONE surface value
+ *  (whose `tagPrefix` is the bare `surface/`) while still addressing the composed
+ *  server. The face therefore never learns it is scoped — the same property the
+ *  server side has, where `composeSurfaceContracts` re-walks each sibling through
+ *  the same `buildSurface`, so a sibling's tags and a standalone surface's tags can
+ *  never be derived by two different rules.
+ *
+ *  `scopeSiblingTag` THROWS on a non-surface tag, so a mis-scoped dispatch fails at
+ *  this seam rather than 404-ing at the far end. */
+function scopeSiblingDispatch(
+  dispatch: SurfaceDispatch,
+  key: string,
+): SurfaceDispatch {
+  return {
+    unary: (tag, payload) => dispatch.unary(scopeSiblingTag(tag, key), payload),
+    stream: (tag, payload) =>
+      dispatch.stream(scopeSiblingTag(tag, key), payload),
+  };
+}
 
 /** The per-key client bundle returned by `surfaceClients`. Each value is a
  *  full `SurfaceClient` for that key's surface, scoped to the key's slice of
- *  the combined link. */
+ *  the combined dispatch. */
 export type SurfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   E extends Record<string, Surface<any>>,
@@ -1438,21 +1512,19 @@ export type SurfaceClients<
  *  transport (the counterpart to `implementSurfaces` / `composeSurfaceContracts`).
  *
  *  Pass the WHOLE transport — a {@link LiveSignalHandle} for the half-openable
- *  combined websocket (the watchdog-backed live and the combined link arrive as ONE
- *  object), or a bare combined in-process link for a direct/stdio transport. The
- *  combined link is shaped `{ surface: { <key>: innerLink } }` — i.e. the same
- *  `{ surface: { <key>: ... } }` namespacing `composeSurfaceContracts` produces. Each
- *  per-key client is built over a SCOPED link `{ surface: link.surface[key] }`, so the
- *  bundle's internal walk (`(link as any).surface[<prim>]`) resolves at
- *  `link.surface[key].<prim>` — i.e. the wire path `/surface/<key>/<prim>/<verb>`
- *  that `implementSurfaces` serves. The siblings ride ONE combined socket, so they
- *  share the handle's ONE watchdog-backed `live` — every sibling reports it, so
+ *  combined wire (the watchdog-backed live and the combined dispatch arrive as ONE
+ *  object), or a bare combined in-process dispatch. Each per-key client is built
+ *  over a TAG-SCOPED dispatch ({@link scopeSiblingDispatch}), so the bundle's
+ *  internal face walk mints STANDALONE tags (`surface/<member>/<verb>`) and the
+ *  wrapper splices the key in (`surface/<key>/<member>/<verb>`) — exactly the tags
+ *  `implementSurfaces` binds. The siblings ride ONE combined wire, so they share the
+ *  handle's ONE watchdog-backed `live` — every sibling reports it, so
  *  `surfaceClientsHealth`'s AND-reduce flips the merged fact `live: false` when that
- *  socket dies.
+ *  wire dies.
  *
- *  Reaching a primitive through a returned client therefore goes through
- *  that client's `.rpc` (the scoped link), e.g. for a probe procedure under
- *  surface key `surfaceApp` with namespace `identity` and verb `info`:
+ *  Reaching a member through a returned client therefore goes through that client's
+ *  `.rpc` (the scoped face), e.g. for a probe procedure under surface key
+ *  `surfaceApp` with namespace `identity` and verb `info`:
  *
  *      clients.surfaceApp.rpc.surface.identity.info(...)
  *
@@ -1462,27 +1534,25 @@ export function surfaceClients<
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous map of surfaces, each pinning its own spec.
   const E extends Record<string, Surface<any>>,
 >(
-  // biome-ignore lint/suspicious/noExplicitAny: a LiveSignalHandle over the combined websocket, or a dynamic combined ContractRouterClient; scoping is walk-by-string.
-  transport: any,
+  transport: LiveSignalHandle | SurfaceDispatch,
   entries: E,
   onClientError?: OnClientError,
 ): SurfaceClients<E> {
   // Collapse the combined transport ONCE, at the public boundary: a
-  // `LiveSignalHandle` yields the combined `link` and the shared watchdog-backed
-  // `live` (paired by construction); a bare half-openable combined link CRASHES
-  // (the green-over-dead-link lie for EVERY sibling); a bare in-process link gets a
-  // constant-`true` leg. The per-sibling slices below are fresh `{ surface }`
-  // wrappers that no longer carry the half-open marker, so each child is built via
-  // the internal `buildSurfaceClient` with the shared `live` — no per-slice brand
-  // check (the guard already ran here, on the combined transport).
-  const { link, live } = resolveTransport(transport);
+  // `LiveSignalHandle` yields the combined `dispatch` and the shared watchdog-backed
+  // `live` (paired by construction); a bare half-openable combined dispatch CRASHES
+  // (the green-over-dead-link lie for EVERY sibling); a bare in-process dispatch gets
+  // a constant-`true` leg. The per-sibling wrappers below are fresh unbranded
+  // dispatches, so each child is built via the internal `buildSurfaceClient` with the
+  // shared `live` — no per-wrapper brand check (the guard already ran here, on the
+  // combined transport).
+  const { dispatch, live } = resolveTransport(transport);
   return Object.fromEntries(
     Object.entries(entries).map(([k, surface]) => [
       k,
       buildSurfaceClient(
         surface,
-        // biome-ignore lint/suspicious/noExplicitAny: the scoped sibling slice is dynamic; the per-surface spec carries call-site safety.
-        scopeSibling(link, k) as any,
+        scopeSiblingDispatch(dispatch, k),
         live,
         // Threaded to EVERY sibling client — the app spells ONE interpreter at the
         // `connectSurfaces` seam, never re-registered per internal build (design §A/m4).

@@ -1,8 +1,8 @@
 /** Unit coverage for the two parent-edge guards that any tree model needs:
  *  no self-parent, no cycle. Nested depth is allowed (#2059). */
 
-import { ORPCError } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TerminalParentCycle } from "./errors.ts";
 
 const getTerminal = vi.fn();
 
@@ -22,11 +22,33 @@ describe("requireAcyclicParent", () => {
     getTerminal.mockReset();
   });
 
-  it("refuses self-parent", () => {
-    expect(() => requireAcyclicParent(T("A"), T("A"))).toThrow(ORPCError);
+  it("refuses self-parent with the DECLARED tagged error", () => {
+    expect(() => requireAcyclicParent(T("A"), T("A"))).toThrow(
+      TerminalParentCycle,
+    );
     expect(() => requireAcyclicParent(T("A"), T("A"))).toThrow(
       /cannot be its own parent/,
     );
+  });
+
+  it("the refusal carries the two ids and its reason as DATA, not prose", () => {
+    // The point of the tagged error: a consumer narrows on `_tag` and reads the
+    // fields, instead of re-parsing a message the way an `ORPCError` code +
+    // sentence forced.
+    let raised: unknown;
+    try {
+      requireAcyclicParent(T("A"), T("A"));
+    } catch (err) {
+      raised = err;
+    }
+    expect(raised).toBeInstanceOf(TerminalParentCycle);
+    const e = raised as TerminalParentCycle;
+    expect(e._tag).toBe("TerminalParentCycle");
+    expect({
+      childId: e.childId,
+      parentId: e.parentId,
+      reason: e.reason,
+    }).toEqual({ childId: "A", parentId: "A", reason: "self" });
   });
 
   it("allows a nested parent (depth is not limited)", () => {

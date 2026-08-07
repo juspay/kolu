@@ -25,13 +25,14 @@
  * Mirrors `BootStalledCanvas.test.tsx` (render through `solid-js/web`, mock
  * `../wire` so the socket stack never boots).
  */
+import { Effect } from "effect";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const h = vi.hoisted(() => ({
   host: { kind: "remote", target: "zest" } as HostKey,
-  reconnect: vi.fn(() => Promise.resolve()),
+  reconnect: vi.fn((): Effect.Effect<void, Error> => Effect.void),
   resetBootDeadline: vi.fn(),
 }));
 vi.mock("../wire", () => ({
@@ -122,7 +123,8 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
     expect(reload).not.toHaveBeenCalled();
     // …and once the reconnect RESOLVES it resets THIS host's boot deadline, so the card dismisses
     // (a fresh window) rather than staying up on a same-class retry (#1908 R8a, codex F1). Gated on
-    // success — a rejected reconnect must NOT reset (codex F9), which the `.then()` chaining ensures.
+    // success — a failed reconnect must NOT reset (codex F9), which `Effect.tap`
+    // (the success channel only) ensures.
     await vi.waitFor(() =>
       expect(h.resetBootDeadline).toHaveBeenCalledWith(encodeHostKey(h.host)),
     );
@@ -130,7 +132,7 @@ describe("D2 — boot-stalled connector card is honest + recovers via the connec
   });
 
   it("a REJECTED reconnect does NOT reset the boot deadline (the card must stay — codex F9)", async () => {
-    h.reconnect.mockImplementationOnce(() => Promise.reject(new Error("nope")));
+    h.reconnect.mockImplementationOnce(() => Effect.fail(new Error("nope")));
     dispose = render(
       () => (
         <BootStalledCanvas

@@ -10,14 +10,13 @@
  *  New features should go in the appropriate module (or a new one),
  *  not back into this composition root. See #221, #242. */
 
-import { ORPCError } from "@orpc/client";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createMemo } from "solid-js";
 import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
 import { listIsAuthoritative } from "../kaval/useDaemonStatus";
-import { isExpectedCleanupError } from "../rpc/streamCleanup";
+import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
 import { activeHost, padiMap } from "../wire";
 import { terminalSubject } from "./terminalSubject";
 import { useActiveReconcile } from "./useActiveReconcile";
@@ -51,9 +50,9 @@ export function useTerminals() {
    *  collapse, panel + MRU eviction, focus auto-switch) is therefore list-driven
    *  via `useActiveReconcile` (installed below), independent of this event. So a
    *  missed exit event costs at most the toast, never correctness — matching the
-   *  socket-down `NOT_FOUND` race below (swallowed in `onError`; not retried, per
-   *  shouldRetry in rpc.ts), where the terminal is still removed via the list
-   *  subscription. */
+   *  stale-session `TerminalNotFound` race below (swallowed in `onError`; the
+   *  retry fence never retries a non-transport failure), where the terminal is
+   *  still removed via the list subscription. */
   function subscribeExit(id: TerminalId) {
     padiMap.useEntry(activeHost).events.terminalExit.use(
       () => ({ id }),
@@ -70,13 +69,21 @@ export function useTerminals() {
       {
         onError: (err) => {
           // Stale-session re-subscribe to a terminal the restarted server no
-          // longer has: the source throws a typed NOT_FOUND. Expected (the list
+          // longer has: padi raises `TerminalNotFound`. Expected (the list
           // subscription already removed it), so swallow it rather than log a
           // scary fault. Everything else is a real error worth surfacing.
-          if (err instanceof ORPCError && err.code === "NOT_FOUND") return;
-          if (!isExpectedCleanupError(err)) {
-            console.error("Exit stream error:", err);
-          }
+          //
+          // Matched STRUCTURALLY on the `_tag` (see `rpc/declaredErrors`): on a
+          // STREAM member this failure is undeclared, so it can arrive as a bare
+          // defect rather than a decoded class instance.
+          //
+          // There is no unmount-abort arm any more: teardown is a fiber
+          // interrupt, and `runStreamScoped` reports NOTHING once a subscription
+          // is stopped — so an unmount can no longer reach this callback at all
+          // (D10/#18). The old `isExpectedCleanupError` guard is deleted with the
+          // `AbortController` that raised it.
+          if (isDeclared(err, TERMINAL_NOT_FOUND)) return;
+          console.error("Exit stream error:", err);
         },
       },
     );

@@ -1,7 +1,7 @@
 /**
  * `@kolu/padi/surface` — the BROWSER-SAFE face of `@kolu/padi`: `padiSurface`
- * 1.0 (the zod contract the client will import), the per-member forwarding-policy
- * annotations, and the frozen control-core types.
+ * (the Effect Schema contract the client imports), the per-member
+ * forwarding-policy annotations, and the frozen control-core types.
  *
  * `@kolu/padi` is BORN in W1.C (the padi plan of record, PR #1649): location is
  * structure — code destined for the per-host workspace daemon must not camp in
@@ -45,9 +45,10 @@
  * `version` and `clock.now` members.
  *
  * BROWSER-SAFE face: like `koluSurface` this imports
- * only `@kolu/surface/define`, zod-only schema modules (its own `./vocab.ts` +
- * `./transcriptSchema.ts`, `kolu-git/schemas`, `@kolu/terminal-vocab/schema`),
- * and `zod` — no `node:`/kaval runtime (that lives beside this, in the node-only
+ * only `@kolu/surface/define`, schema-only modules (its own `./vocab.ts` +
+ * `./errors.ts` + `./transcriptSchema.ts`, `kolu-git/schemas`,
+ * `@kolu/terminal-vocab/schema`),
+ * and `effect` — no `node:`/kaval runtime (that lives beside this, in the node-only
  * side the motion stage adds). The terminal VOCABULARY now lives HERE (`./vocab.ts`,
  * re-exported below): the arrow points `kolu-common → @kolu/padi`, never back. The
  * one remaining edge into kolu-common is the `surfaces` config registry (the
@@ -58,6 +59,7 @@ import {
   composeSurfaceContracts,
   defineSurface,
   defineSurfaceWithPolicy,
+  type Surface,
   type SurfaceTypes,
 } from "@kolu/surface/define";
 import {
@@ -66,18 +68,13 @@ import {
   ControlCoreHelloSchema,
   controlCoreProcedureSpec,
 } from "@kolu/surface-daemon/control-core";
-import type { ClientErrorPolicy } from "./clientPolicy.ts";
-import {
-  DEFAULT_NEW_TERMINAL_POLICY,
-  newTerminalPolicyEqual,
-  NewTerminalPolicySchema,
-} from "./newTerminalPolicy.ts";
 import {
   FsFileInputSchema,
   FsReadFileTextOutputSchema,
   RepoChangePulseSchema,
   TerminalIdSchema,
 } from "@kolu/terminal-vocab/schema";
+import { Effect, Schema } from "effect";
 import {
   FsListAllInputSchema,
   FsListAllOutputSchema,
@@ -93,23 +90,38 @@ import {
   WorktreeCreateOutputSchema,
   WorktreeRemoveInputSchema,
 } from "kolu-git/schemas";
-import { z } from "zod";
+import {
+  CanvasLayoutSchema,
+  RightPanelPerTerminalStateSchema,
+} from "./chromeVocab.ts";
+import type { ClientErrorPolicy } from "./clientPolicy.ts";
+import {
+  FsGitReadErrorSchema,
+  KavalContractSkew,
+  PreviewTooLarge,
+  ScratchWriteRejected,
+  TerminalNotFound,
+  TerminalParentCycle,
+  TranscriptNoAgent,
+  TranscriptNotFound,
+  WorktreeCreateErrorSchema,
+} from "./errors.ts";
+import {
+  DEFAULT_NEW_TERMINAL_POLICY,
+  NewTerminalPolicySchema,
+  newTerminalPolicyEqual,
+} from "./newTerminalPolicy.ts";
 import {
   ExportTranscriptHtmlInputSchema,
   ExportTranscriptHtmlOutputSchema,
 } from "./transcript/transcriptSchema.ts";
 import {
-  CanvasLayoutSchema,
-  RightPanelPerTerminalStateSchema,
-} from "./chromeVocab.ts";
-import {
   ActiveTerminalSchema,
   ActivityFeedSchema,
-  DaemonStatusSchema,
-  DEFAULT_PADI_PROCESS_MEMORY,
   CreateTerminalInputSchema,
   DaemonLifetimeInfoSchema,
-  KavalSkewVersionsSchema,
+  DaemonStatusSchema,
+  DEFAULT_PADI_PROCESS_MEMORY,
   KoluAuthoredFieldsSchema,
   PadiProcessMemorySchema,
   ParkedDiscriminantSchema,
@@ -127,12 +139,15 @@ import {
 // (`./chromeVocab.ts`, split out in L17) rides the same entry, so the export set is
 // unchanged — a chrome schema is still `@kolu/padi/surface`'s to give.
 export * from "./chromeVocab.ts";
-export * from "./vocab.ts";
 // kolu's app-owned client-error-policy union (SR11) — declared here (not kolu-common)
 // so `padiSurface`'s per-host members below can reference it without `@kolu/padi`
 // importing `kolu-common` (the seal forbids that arrow); `kolu-common/surface`
 // re-exports it for `koluSurface` and the client. See `./clientPolicy.ts`.
 export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
+// The DECLARED error vocabulary (PLAN D4) rides the same entry: the classes are
+// both the wire schema this surface declares and the value a client narrows on,
+// so a consumer reaches them where it reaches the members that raise them.
+export * from "./errors.ts";
 // The RESOLVED new-terminal theme policy the binding kolu-server pushes — declared
 // here for the same seal reason as the client-error policy above, and re-exported
 // by `kolu-common/surface` for `koluSurface` and the client. See
@@ -140,9 +155,10 @@ export type { ClientErrorPolicy, ToastOnlyPolicy } from "./clientPolicy.ts";
 export {
   DEFAULT_NEW_TERMINAL_POLICY,
   type NewTerminalPolicy,
-  newTerminalPolicyEqual,
   NewTerminalPolicySchema,
+  newTerminalPolicyEqual,
 } from "./newTerminalPolicy.ts";
+export * from "./vocab.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -323,12 +339,44 @@ export {
  *  reason: a 4.7 binder — which CALLS `newTerminalPolicy.set` — fails
  *  `isContractVersionCompatible`'s minor rule against a 4.6 padi and DRAINS it
  *  before consuming its surface, so the write never lands on a padi that has
- *  no such member. */
-export const PADI_SURFACE_VERSION = "4.7";
+ *  no such member.
+ *
+ *  5.0 is the PROTOCOL-EPOCH flag day (PLAN D6). No payload shape moved — every
+ *  member encodes byte-for-byte as it did under zod, which `surface.test.ts`
+ *  now asserts as literal JSON strings rather than assumes. What moved is the
+ *  framing beneath them: the oRPC peer protocol became Effect RPC ndjson, and
+ *  the declared error channel stopped being a code map and became the tagged
+ *  classes in `./errors.ts`. Two mutually undecodable epochs must never report
+ *  the same version string — a "4.7"-reporting survivor would compare EQUAL to
+ *  this build and be adopted as wire-compatible, silently disarming the very
+ *  lever the break most needed to name — so the constant bumps even though the
+ *  lever is inert across the one boundary that actually changed. The
+ *  in-epoch skew mechanism (`isContractVersionCompatible`, the binder's
+ *  drain-newer-else-refuse) keeps working unchanged from this epoch forward;
+ *  CROSS-epoch peers are the supervisor's `unspeakable-protocol` domain (D6/#3),
+ *  which this module never claims to classify.
+ *
+ *  5.1 (additive · minor): `session.restore` gains an OUTPUT — the active-terminal
+ *  marker as of the end of the restore ({@link PadiSessionRestoreOutputSchema}).
+ *  The procedure answered `void` before, and the client read the restored active
+ *  tile off the `session` cell's NEXT snapshot instead; that is a race the client
+ *  cannot win (the cell publishes behind a synchronous disk write, the terminals
+ *  do not), and it cost the wrong tile whenever a loaded box lost it. A new
+ *  emitted field on an existing procedure, so the same rule 4.1/4.2 state applies:
+ *  the shape padi emits changed, therefore the version says so. The minor suffices
+ *  for the usual reason — a newer binder against a 5.0 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming its
+ *  surface, and an older binder against a 5.1 padi is build-mismatched and drains
+ *  it first, so no parser meets a frame of the other shape. `session.import` is
+ *  UNTOUCHED: it restores a blob the client just handed over and seeds no view, so
+ *  giving it an answer nothing reads would be shape for its own sake. */
+export const PADI_SURFACE_VERSION = "5.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
-export const PadiVersionSchema = z.object({ contractVersion: z.string() });
-export type PadiVersion = z.infer<typeof PadiVersionSchema>;
+export const PadiVersionSchema = Schema.Struct({
+  contractVersion: Schema.String,
+});
+export type PadiVersion = typeof PadiVersionSchema.Type;
 
 /** The value a fresh `version` subscriber sees — this build's version. */
 export const DEFAULT_PADI_VERSION: PadiVersion = {
@@ -361,18 +409,18 @@ export const DEFAULT_PADI_VERSION: PadiVersion = {
  *  before computing an uptime (never `browserNow − rawRemoteEpoch`, the
  *  metadata-boundary bug `useDaemonStatus.ts`'s `localDaemonStatus` already fixed
  *  for `daemonStatus.startedAt` — this cell's consumer must mirror it). */
-export const PadiIdentitySchema = z.object({
-  commit: z.string().nullable(),
-  surfaceVersion: z.string(),
-  startedAt: z.number(),
+export const PadiIdentitySchema = Schema.Struct({
+  commit: Schema.NullOr(Schema.String),
+  surfaceVersion: Schema.String,
+  startedAt: Schema.Number,
   /** padi's lifetime policy (`forever` in production; `boundToPid` under a
    *  test/smoke run) — surfaced for the Padi dialog's lifetime row. A live padi
    *  seeds it synchronously at boot, so a subscriber sees the real value from the
    *  first frame; OPTIONAL only so a binder reading a survivor padi that predates
    *  the field parses without a forced drain (the reader falls back to "—"). */
-  lifetime: DaemonLifetimeInfoSchema.optional(),
+  lifetime: Schema.optionalKey(DaemonLifetimeInfoSchema),
 });
-export type PadiIdentity = z.infer<typeof PadiIdentitySchema>;
+export type PadiIdentity = typeof PadiIdentitySchema.Type;
 
 /** The pre-boot placeholder — practically unobservable: padi computes the real
  *  identity synchronously (no I/O) at surface-deps construction and seeds the
@@ -398,10 +446,10 @@ export const DEFAULT_PADI_IDENTITY: PadiIdentity = {
  *  the id is "" and the field is omitted, so the nudge stays silent. This is the
  *  member that lets the last kaval read leave `packages/server` (W1.R7 — the
  *  expected identity was the surface-app `buildInfo` cell's extra axis before). */
-export const PadiStatusSchema = z.object({
-  expectedKaval: PtyHostIdentitySchema.optional(),
+export const PadiStatusSchema = Schema.Struct({
+  expectedKaval: Schema.optionalKey(PtyHostIdentitySchema),
 });
-export type PadiStatus = z.infer<typeof PadiStatusSchema>;
+export type PadiStatus = typeof PadiStatusSchema.Type;
 
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
@@ -426,27 +474,27 @@ export const DEFAULT_PADI_STATUS: PadiStatus = {};
 // Honesty (#1034): every field the probe couldn't read is an honest `null` (rendered
 // "—"), never a fabricated zero/version.
 
-export const RunningKavalSchema = z.object({
+export const RunningKavalSchema = Schema.Struct({
   /** The rendezvous socket path — the pasteable `--socket` value. */
-  socket: z.string(),
+  socket: Schema.String,
   /** Discovery's human label ("standalone kaval" | "kolu @ <state-root>" |
    *  "kolu-server on port <port>"), decided at discovery's matching branch. */
-  label: z.string(),
+  label: Schema.String,
   /** The structural kind: `stateRoot` (a padi's kaval — carries a state-root
    *  manifest, incl. an ADOPTED legacy-address kaval), `port` (an UN-adopted legacy
    *  `kaval-<port>/` with NO manifest — a genuine stray/leak), `standalone`, or
    *  `unknown`. */
-  kind: z.enum(["stateRoot", "port", "standalone", "unknown"]),
+  kind: Schema.Literals(["stateRoot", "port", "standalone", "unknown"]),
   /** The gate-holder pid (`kaval.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
+  gatePid: Schema.NullOr(Schema.Int),
   /** Live terminal count from `terminal.list`, or null when the listener is honestly
    *  absent (never a fake 0 and never a swallowed protocol failure). */
-  terminalCount: z.number().int().nullable(),
+  terminalCount: Schema.NullOr(Schema.Int),
   /** The kaval's build commit from the frozen `control.core.hello` identity fragment,
    *  or null for honest unknown (pre-fragment/off-Nix) or an absent listener. */
-  buildCommit: z.string().nullable(),
+  buildCommit: Schema.NullOr(Schema.String),
   /** The pty-host contract version, or null when the listener is honestly absent. */
-  contractVersion: z.string().nullable(),
+  contractVersion: Schema.NullOr(Schema.String),
   /** Whether the scanning host's kolu ACTIVELY owns this kaval ("in use by kolu"), and —
    *  when it does — whether it sits at the pre-padi LEGACY `kaval-<port>/` address (padi
    *  ADOPTED a live pre-W2.2 kaval on upgrade rather than leaking it — a KNOWN converging
@@ -456,45 +504,48 @@ export const RunningKavalSchema = z.object({
    *  the `active` arm, so the nonsense "legacy-but-not-owned" state is UNREPRESENTABLE
    *  (P4). Only the host serving its OWN `hostInventory` marks `active` — a local-machine
    *  scan under a remote binding is always `{ active: false }` (kolu is bound elsewhere). */
-  held: z.discriminatedUnion("active", [
-    z.object({ active: z.literal(false) }),
-    z.object({ active: z.literal(true), atLegacyAddress: z.boolean() }),
+  held: Schema.Union([
+    Schema.Struct({ active: Schema.Literal(false) }),
+    Schema.Struct({
+      active: Schema.Literal(true),
+      atLegacyAddress: Schema.Boolean,
+    }),
   ]),
 });
-export type RunningKaval = z.infer<typeof RunningKavalSchema>;
+export type RunningKaval = typeof RunningKavalSchema.Type;
 
-export const RunningPadiSchema = z.object({
+export const RunningPadiSchema = Schema.Struct({
   /** padi's rendezvous socket path. */
-  socket: z.string(),
+  socket: Schema.String,
   /** padi's state-root (from the digest→root manifest), or null if unreadable. */
-  stateRoot: z.string().nullable(),
+  stateRoot: Schema.NullOr(Schema.String),
   /** The gate-holder pid (`padi.pid`), or null if unreadable. */
-  gatePid: z.number().int().nullable(),
+  gatePid: Schema.NullOr(Schema.Int),
   /** True iff this is the padi the scanning host's kolu owns ("in use by kolu"). The
    *  active padi's contract version + build commit do NOT ride this row — padi cannot
    *  probe a foreign padi, so every non-active row would carry nulls; the one bound
    *  padi's identity is published once on `daemonInventory.boundPadi` (the honest
    *  fresh-each-tick live read that also works over ssh). */
-  active: z.boolean(),
+  active: Schema.Boolean,
 });
-export type RunningPadi = z.infer<typeof RunningPadiSchema>;
+export type RunningPadi = typeof RunningPadiSchema.Type;
 
 /** One host's daemon inventory — every running kaval + padi on a single machine. The ONE
  *  container both `padiSurface.hostInventory` (the bound host's own scan) and
  *  `kolu-common/surface`'s `daemonInventory.localScan` (kolu-server's local-machine scan)
  *  compose, so the scanner returns one neutral shape, not two lockstep copies. */
-export const HostDaemonInventorySchema = z.object({
-  kavals: z.array(RunningKavalSchema),
-  padis: z.array(RunningPadiSchema),
+export const HostDaemonInventorySchema = Schema.Struct({
+  kavals: Schema.Array(RunningKavalSchema),
+  padis: Schema.Array(RunningPadiSchema),
 });
-export type HostDaemonInventory = z.infer<typeof HostDaemonInventorySchema>;
+export type HostDaemonInventory = typeof HostDaemonInventorySchema.Type;
 
 /** The `hostInventory` cell payload — the bound padi's scan of its OWN host, riding the
  *  re-served surface so the dialog's bound-host list works identically local and remote.
  *  Structurally {@link HostDaemonInventorySchema} (the same shape kolu-server's local
  *  scan uses). */
 export const PadiHostInventorySchema = HostDaemonInventorySchema;
-export type PadiHostInventory = z.infer<typeof PadiHostInventorySchema>;
+export type PadiHostInventory = typeof PadiHostInventorySchema.Type;
 
 /** The honest pre-sample value — empty lists, so a fresh subscriber renders no
  *  fabricated daemons until padi's first scan lands. */
@@ -510,51 +561,56 @@ export const DEFAULT_PADI_HOST_INVENTORY: PadiHostInventory = {
  *  contract from 1.0 so the cross-host dock (W4) — foreign hosts' rows in the
  *  dock, click = switch + focus — lands without a contract break. Merged onto
  *  every arm so the dock projection reads one field regardless of record state. */
-export const PadiHostAxisSchema = z.object({
+export const PadiHostAxisSchema = Schema.Struct({
   /** The host a dock row belongs to, for the cross-host dock. Undefined on a
    *  single-host canvas (W1–W3) — never populated until the W4 aggregation. */
-  host: z.string().optional(),
+  host: Schema.optionalKey(Schema.String),
 });
 
 /** The active arm — the full live `TerminalMetadata` active record + the
  *  reserved host axis. */
-export const PadiActiveTerminalSchema =
-  ActiveTerminalSchema.merge(PadiHostAxisSchema);
+export const PadiActiveTerminalSchema = Schema.Struct({
+  ...ActiveTerminalSchema.fields,
+  ...PadiHostAxisSchema.fields,
+});
 
 /** The sleeping arm — the restore-relevant sleeping record + the host axis. */
-export const PadiSleepingTerminalSchema =
-  SleepingTerminalSchema.merge(PadiHostAxisSchema);
+export const PadiSleepingTerminalSchema = Schema.Struct({
+  ...SleepingTerminalSchema.fields,
+  ...PadiHostAxisSchema.fields,
+});
 
 /** The parked arm — the restore-relevant persisted projection + the shared
  *  authored fields + the `parked` discriminant + the host axis. Built from the
  *  SAME `PersistedSnapshotSchema` + `KoluAuthoredFieldsSchema` base the
  *  `sleeping` arm uses, so the three arms can't drift on the authored shape. */
-export const PadiParkedTerminalSchema = PersistedSnapshotSchema.merge(
-  KoluAuthoredFieldsSchema,
-)
-  .merge(ParkedDiscriminantSchema)
-  .merge(PadiHostAxisSchema);
+export const PadiParkedTerminalSchema = Schema.Struct({
+  ...PersistedSnapshotSchema.fields,
+  ...KoluAuthoredFieldsSchema.fields,
+  ...ParkedDiscriminantSchema.fields,
+  ...PadiHostAxisSchema.fields,
+});
 
 /** The `parked` arm as a standalone type — the reboot-killed active record padi
  *  parks at boot. Exported so a client type-guard (`isParked` in
  *  `useTerminalMetadata.ts`) can narrow the composed `PadiTerminal` union to it
  *  at the single client bridge, instead of re-deriving a widened `.state` cast. */
-export type PadiParkedTerminal = z.infer<typeof PadiParkedTerminalSchema>;
+export type PadiParkedTerminal = typeof PadiParkedTerminalSchema.Type;
 
 /** The composed terminal record padi serves — `active | sleeping | parked`,
  *  discriminated on `state`. The server-side `authored ⋈ snapshot` join
  *  (`composeTerminalMetadata`) produces the `active`/`sleeping` arms; `parked`
  *  is reserved (W1.R produces it). Supersedes the client-side reader-join: one
  *  writer composes both halves, so no fold crosses a wire. */
-export const PadiTerminalSchema = z.discriminatedUnion("state", [
+export const PadiTerminalSchema = Schema.Union([
   PadiActiveTerminalSchema,
   PadiSleepingTerminalSchema,
   PadiParkedTerminalSchema,
 ]);
-export type PadiTerminal = z.infer<typeof PadiTerminalSchema>;
+export type PadiTerminal = typeof PadiTerminalSchema.Type;
 
 /** The active arm as a standalone type — the live record a WIRE reader gets. */
-export type PadiActiveTerminal = z.infer<typeof PadiActiveTerminalSchema>;
+export type PadiActiveTerminal = typeof PadiActiveTerminalSchema.Type;
 
 /** Narrow a WIRE terminal record to its ACTIVE arm, or `undefined` when it is
  *  sleeping / parked / absent — `activePadiTerminal(rec)?.ports`.
@@ -583,11 +639,11 @@ export function activePadiTerminal(
  *  truth for one fact, so the count is DERIVED at every read site as
  *  `awaitingIds.length` (see `HostSelectorStrip.tsx`'s `awaiting()`), never
  *  carried on the wire. */
-export const PadiUrgencySchema = z.object({
+export const PadiUrgencySchema = Schema.Struct({
   /** The ids of the terminals whose agent is awaiting the user
    *  (`awaiting_user`) — for a badge deep-link to focus one, and for the badge
    *  COUNT (`.length`), read at the consumer, never duplicated here. */
-  awaitingIds: z.array(TerminalIdSchema),
+  awaitingIds: Schema.Array(TerminalIdSchema),
   /** The ids of the terminals whose agent just FINISHED its turn and is idling
    *  (`waiting`) — the other half of the attention model. Carried so the ONE
    *  cross-host attention owner (`useAttention`) applies the SAME rules to a
@@ -595,18 +651,30 @@ export const PadiUrgencySchema = z.object({
    *  unseen, quiet host-tab mark), instead of a finish being legible only on the
    *  host you're looking at. Recency-free like `awaitingIds`.
    *
-   *  `.default([])` for ROLLING-DEPLOY safety: a newer client reading an OLDER
-   *  padi's `urgency` frame (which predates this field) parses it as `[]` rather
-   *  than failing validation and breaking the whole cell — asking keeps working,
-   *  and finishes light up the moment that host's padi catches up. */
-  finishedIds: z.array(TerminalIdSchema).default([]),
+   *  A DECODING DEFAULT for ROLLING-DEPLOY safety: a newer client reading an
+   *  OLDER padi's `urgency` frame (which predates this field) parses it as `[]`
+   *  rather than failing validation and breaking the whole cell — asking keeps
+   *  working, and finishes light up the moment that host's padi catches up.
+   *
+   *  KEY-level (`withDecodingDefaultKey`, PLAN #17), which reproduces zod's
+   *  `.default([])` in BOTH directions and is pinned by a byte fixture: a
+   *  MISSING key decodes to `[]`, an explicit `undefined` is REJECTED (an older
+   *  padi omits the key, it never sends `undefined`), and ENCODING always emits
+   *  the key — so a frame this build serves is byte-identical to the zod-era
+   *  one. `Effect.sync` (not `Effect.succeed`) so each decode gets its OWN
+   *  array rather than one shared mutable instance. */
+  finishedIds: Schema.Array(TerminalIdSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.sync(() => [])),
+  ),
   /** The ids of the terminals whose agent is WORKING (thinking / tools /
    *  background) — the third leg of the host-tab attention summary (working ·
    *  needs-you · unseen), carried so a background host's tab can say "3 agents
    *  in flight" without mirroring its full terminals collection. Ids, not a
    *  count, per the no-second-source law above (`.length` at the consumer).
-   *  `.default([])` for the same rolling-deploy safety as `finishedIds`. */
-  workingIds: z.array(TerminalIdSchema).default([]),
+   *  The same rolling-deploy decoding default as `finishedIds`. */
+  workingIds: Schema.Array(TerminalIdSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.sync(() => [])),
+  ),
   /** The ids of the terminals whose agent ended its turn but has NOT yet gone
    *  effectively quiet (`waiting` ∧ ¬EF2) — the lingering tail an agent leaves
    *  while its last output is still landing. Carried because ACTIVITY, not
@@ -616,10 +684,12 @@ export const PadiUrgencySchema = z.object({
    *  still going — the exact paint/count disagreement this cell exists to
    *  prevent. Disjoint from `finishedIds` by construction (a waiting agent is
    *  in exactly one of the two), so a consumer can add the lists without
-   *  de-duplicating. `.default([])` for the same rolling-deploy safety. */
-  lingerIds: z.array(TerminalIdSchema).default([]),
+   *  de-duplicating. The same rolling-deploy decoding default. */
+  lingerIds: Schema.Array(TerminalIdSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.sync(() => [])),
+  ),
 });
-export type PadiUrgency = z.infer<typeof PadiUrgencySchema>;
+export type PadiUrgency = typeof PadiUrgencySchema.Type;
 
 /** Two urgency readings are equal when they carry the same ids in ALL FOUR
  *  lists, each in the same order — the urgency cell's `equals`, so the ~150 ms
@@ -670,22 +740,32 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
  *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
  *  them from its own observation); `session.restore` threads them from the saved blob
  *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input. */
-export const PadiCreateInputSchema = z
-  .object({
-    cwd: z.string().optional(),
-    parentId: TerminalIdSchema.optional(),
-  })
-  .merge(CreateTerminalInputSchema);
+export const PadiCreateInputSchema = Schema.Struct({
+  cwd: Schema.optionalKey(Schema.String),
+  parentId: Schema.optionalKey(TerminalIdSchema),
+  ...CreateTerminalInputSchema.fields,
+});
 
 /** A bare terminal-id input — kill/sleep/wake/discardSleeping/screen.state. */
-export const PadiTerminalIdInputSchema = z.object({ id: TerminalIdSchema });
+export const PadiTerminalIdInputSchema = Schema.Struct({
+  id: TerminalIdSchema,
+});
+
+/** A whole positive count — the `z.number().int().positive()` of this wire.
+ *  Named once so every grid dimension and bound is the SAME check rather than
+ *  a re-derivation per member that can drift. */
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
+
+/** A whole non-negative count/index — the `z.number().int().nonnegative()` of
+ *  this wire (line cursors, scrollback extents). */
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 
 /** A terminal grid — cols AND rows, together or not at all. The ONE grid rule
  *  on this surface: every member carrying a grid reuses it, so tightening the
  *  rule is one edit instead of a re-derivation per member. */
-export const EndpointGridSchema = z.object({
-  cols: z.number().int().positive(),
-  rows: z.number().int().positive(),
+export const EndpointGridSchema = Schema.Struct({
+  cols: PositiveInt,
+  rows: PositiveInt,
 });
 
 /** Attach input: the terminal, plus — optionally — a grid to RESIZE it to
@@ -697,6 +777,31 @@ export const EndpointGridSchema = z.object({
  *  other attached client's backfill cursor). Attaching is a WRITE to shared
  *  state whenever it is present and differs from the terminal's current grid;
  *  the policy is last-attach-wins.
+ *
+ *  **The multi-client contract, stated (kolu#2101 G8e).** Last-attach-wins is
+ *  the WHOLE policy — there is no follow-the-viewer, no smallest-wins, no
+ *  ownership. Two viewers on one terminal therefore ping-pong its width, and a
+ *  production recording shows exactly that: content re-wrapping 136 → ~65 → 136
+ *  mid-session as a desktop and a resumed iOS tab alternately assert. The
+ *  consequences each side sees, so nobody has to re-derive them:
+ *    - The asserting client gets a snapshot serialized at ITS grid. Correct.
+ *    - Every OTHER attached client keeps its own xterm dimensions and receives
+ *      the reflowed bytes, so it renders N columns of content inside its own
+ *      2N-column pane until something makes it re-attach.
+ *    - A client that re-measures mid-request refuses the stale answer and
+ *      reopens at its current grid (`client/src/terminal/reattachingStream.ts`'s
+ *      `StaleSnapshotGrid`), so contention costs a repaint — never the attach
+ *      loop, which is the property kolu#2101 G8 restored and pins.
+ *
+ *  **What is NOT settled: telling the viewer.** A client cannot currently DETECT
+ *  that another viewer holds the terminal at a different size. It knows its own
+ *  grid and the grid it asked at; nothing on this wire carries the pty's CURRENT
+ *  grid, and the tempting proxy — a `reflowEpoch` bump — is not one, because the
+ *  epoch also bumps on a RIS re-anchor (`xterm-kit/src/mirrorAnchor.ts`), so an
+ *  indicator driven by it would light on every `clear`. Closing that gap is an
+ *  ADDITIVE minor on this contract (the pty's current grid on the snapshot frame,
+ *  or on the terminal record) plus a pane affordance; until it lands, the
+ *  re-wrap is silent by construction, and no code should pretend otherwise.
  *
  *  The fusion is the point. The snapshot is bytes laid out for a specific
  *  cols×rows — cursor moves and wraps only mean anything at the width they were
@@ -714,7 +819,7 @@ export const EndpointGridSchema = z.object({
  *  carries without a bump, not the emitted-variant class that must recycle. A
  *  bump here would force-recycle a surviving daemon (killing live PTYs) to buy
  *  a graceful improvement. */
-export const PadiTerminalAttachInputSchema = z.object({
+export const PadiTerminalAttachInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   // ONE optional composite, never two optional scalars: a grid is a cols AND a
   // rows, so `{ cols }` with no `rows` must not be a sendable request. Splitting
@@ -724,7 +829,11 @@ export const PadiTerminalAttachInputSchema = z.object({
   // remove. Optional as a UNIT is also what keeps the no-bump property: no schema
   // here is strict, so an older peer strips an unknown `resizeTo` exactly as it
   // would strip unknown `cols`/`rows`.
-  resizeTo: EndpointGridSchema.optional(),
+  //
+  // `optionalKey`, never `optional` (PLAN #17): absent means ABSENT on this
+  // wire — `Schema.optional` would round-trip an explicit `undefined` through
+  // `null`, which is a value no peer ever sent.
+  resizeTo: Schema.optionalKey(EndpointGridSchema),
 });
 
 // The SAME grid rule the attach carries. `resize` and `attach` describe one
@@ -734,71 +843,74 @@ export const PadiTerminalAttachInputSchema = z.object({
 // one that didn't enforce it. Tightening rejects only values kaval already
 // refused, so no working call changes behaviour; the loud failure just moves to
 // the boundary that owns the concept.
-export const PadiResizeInputSchema = EndpointGridSchema.extend({
+export const PadiResizeInputSchema = Schema.Struct({
+  ...EndpointGridSchema.fields,
   id: TerminalIdSchema,
 });
 
-export const PadiSendInputSchema = z.object({
+export const PadiSendInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  data: z.string(),
+  data: Schema.String,
 });
 
-export const PadiSetThemeInputSchema = z.object({
+export const PadiSetThemeInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  themeName: z.string().min(1),
+  themeName: Schema.String.check(Schema.isMinLength(1)),
 });
 
-export const PadiSetIntentInputSchema = z.object({
+export const PadiSetIntentInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   /** Empty string clears the intent; any non-empty string sets it. */
-  intent: z.string(),
+  intent: Schema.String,
 });
 
-export const PadiSetParentInputSchema = z.object({
+export const PadiSetParentInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  parentId: TerminalIdSchema.nullable(),
+  parentId: Schema.NullOr(TerminalIdSchema),
 });
 
-export const PadiSetActiveInputSchema = z.object({
-  id: TerminalIdSchema.nullable(),
+export const PadiSetActiveInputSchema = Schema.Struct({
+  id: Schema.NullOr(TerminalIdSchema),
 });
 
-export const PadiSetCanvasLayoutInputSchema = z.object({
+export const PadiSetCanvasLayoutInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   layout: CanvasLayoutSchema,
 });
 
-export const PadiSetSubPanelInputSchema = z.object({
+export const PadiSetSubPanelInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  collapsed: z.boolean(),
-  panelSize: z.number(),
+  collapsed: Schema.Boolean,
+  panelSize: Schema.Number,
 });
 
-export const PadiSetRightPanelInputSchema =
-  RightPanelPerTerminalStateSchema.extend({ id: TerminalIdSchema });
+export const PadiSetRightPanelInputSchema = Schema.Struct({
+  ...RightPanelPerTerminalStateSchema.fields,
+  id: TerminalIdSchema,
+});
 
-export const PadiScreenTextInputSchema = z.object({
+export const PadiScreenTextInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   /** First line to capture (0-based, inclusive). Defaults to start of scrollback. */
-  startLine: z.number().int().nonnegative().optional(),
+  startLine: Schema.optionalKey(NonNegativeInt),
   /** Last line to capture (exclusive). Defaults to buffer length. */
-  endLine: z.number().int().nonnegative().optional(),
+  endLine: Schema.optionalKey(NonNegativeInt),
 });
 
 /** `screen.history` — the client's scrollback-backfill read. `before` is the
  *  caller's absolute mirror-line cursor (the attach snapshot's `topLine`, then
  *  each reply's `topLine`); the host serves up to `max` older rows above it. */
-export const PadiScreenHistoryInputSchema = z.object({
+export const PadiScreenHistoryInputSchema = Schema.Struct({
   id: TerminalIdSchema,
-  before: z.number().int().nonnegative().optional(),
-  max: z.number().int().positive(),
+  before: Schema.optionalKey(NonNegativeInt),
+  max: PositiveInt,
   // `epoch` (3.1 · additive · optional) — the reflow generation the caller's
   // `before` cursor was seeded under (the attach snapshot's `reflowEpoch`). The
   // host returns an empty `stale` reply when a width reflow has since renumbered
   // absolute rows, so a client whose shared mirror a foreign resize reflowed
   // HALTS backfill rather than splices a duplicated/skipped band (F3). Omitted
   // by an older client — fail-open.
-  epoch: z.number().int().nonnegative().optional(),
+  epoch: Schema.optionalKey(NonNegativeInt),
 });
 
 /** What `screen.history` returns — mirrors kaval's `getHistory` output as a
@@ -807,29 +919,45 @@ export const PadiScreenHistoryInputSchema = z.object({
  *  replayed at the live width with the next `topLine` cursor and an `exhausted`
  *  flag; the `stale` arm (reachable only when the caller sent `epoch`) says the
  *  mirror reflowed and the caller must HALT until re-seed (F3). */
-export const PadiScreenHistoryOutputSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("chunk"),
-    chunk: z.string(),
-    topLine: z.number().int().nonnegative(),
-    exhausted: z.boolean(),
+export const PadiScreenHistoryOutputSchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("chunk"),
+    chunk: Schema.String,
+    topLine: NonNegativeInt,
+    exhausted: Schema.Boolean,
   }),
-  z.object({ kind: z.literal("stale") }),
+  Schema.Struct({ kind: Schema.Literal("stale") }),
 ]);
 
 /** `scratch.write` — write base64 bytes into a terminal's on-disk scratch dir
  *  (the write half the paste/upload procedures build on). Returns the on-disk
- *  path so the caller can bracketed-paste it into the PTY. */
-export const PadiScratchWriteInputSchema = z.object({
+ *  path so the caller can bracketed-paste it into the PTY.
+ *
+ *  CHUNKED. A whole file used to ride one call, which made the request frame
+ *  scale with the dropped file: a 26 MB drop became a ~35 MB frame, and the
+ *  ndjson decoder answers an oversized frame by CLOSING THE SOCKET (1009),
+ *  taking every other subscription on that tab's multiplexed wire with it. So
+ *  the file arrives as a sequence of `UPLOAD_CHUNK_BYTES`-bounded calls: the
+ *  first omits `appendTo` and creates the file, each subsequent one passes back
+ *  the path it was given and appends. No single frame scales with user data. */
+export const PadiScratchWriteInputSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
   /** Filename as dropped; sanitized to its safe basename before writing. */
-  name: z.string().min(1),
-  /** Base64-encoded file bytes. */
-  data: z.string(),
+  name: Schema.String.check(Schema.isMinLength(1)),
+  /** Base64-encoded file bytes — ONE CHUNK, not necessarily the whole file.
+   *  Chunk boundaries are 4-character-aligned so each chunk decodes on its own
+   *  (see `chunkBase64`). */
+  data: Schema.String,
+  /** Absent on the FIRST chunk: create a fresh (collision-suffixed) file.
+   *  Present on every subsequent chunk: the path the first call returned,
+   *  appended to. The server re-derives the terminal's scratch dir and REFUSES
+   *  a path outside it, so this carries no authority the caller did not already
+   *  have — it is a continuation token that happens to be readable. */
+  appendTo: Schema.optionalKey(Schema.String),
 });
-export const PadiScratchWriteOutputSchema = z.object({
+export const PadiScratchWriteOutputSchema = Schema.Struct({
   /** The on-disk path the bytes landed at, inside the terminal's scratch dir. */
-  path: z.string(),
+  path: Schema.String,
 });
 
 /** `preview.read` — SERVE-DIR-SHAPED byte read for the iframe binary preview,
@@ -843,14 +971,14 @@ export const PadiScratchWriteOutputSchema = z.object({
  *  slice / 416 unsatisfiable / 200 full read behave exactly as the retired raw
  *  `@kolu/serve-dir` HTTP bypass did. The `..`/`%2f`/symlink 403 guards are
  *  re-enforced at the backing (W1.R). */
-export const PadiPreviewReadInputSchema = z.object({
-  repoPath: z.string(),
-  filePath: z.string(),
+export const PadiPreviewReadInputSchema = Schema.Struct({
+  repoPath: Schema.String,
+  filePath: Schema.String,
   /** Raw HTTP `Range` header value (e.g. `"bytes=0-1023"`); omitted = whole
    *  file. Parsed exactly as `@kolu/serve-dir`'s `parseByteRange`, so a
    *  satisfiable single range answers 206, an unsatisfiable one 416, and a
    *  multi-range / malformed header collapses to a full 200. */
-  range: z.string().optional(),
+  range: Schema.optionalKey(Schema.String),
 });
 /** `preview.repoRootForTerminal` — resolve a TERMINAL's git repo root from padi's
  *  OWN in-process registry (`snapshotFor(id)?.git?.repoRoot`), the single source of
@@ -862,27 +990,27 @@ export const PadiPreviewReadInputSchema = z.object({
  *  forced whole through a base64 procedure. So the mapping stays in padi while the
  *  byte read stays a bounded stream. Null when the terminal is unknown or has no
  *  git repo. */
-export const PadiRepoRootForTerminalInputSchema = z.object({
+export const PadiRepoRootForTerminalInputSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
 });
-export const PadiRepoRootForTerminalOutputSchema = z.object({
+export const PadiRepoRootForTerminalOutputSchema = Schema.Struct({
   /** The terminal's git repo root, or `null` when it has none / is unknown. */
-  repoRoot: z.string().nullable(),
+  repoRoot: Schema.NullOr(Schema.String),
 });
 
-export const PadiPreviewReadOutputSchema = z.object({
+export const PadiPreviewReadOutputSchema = Schema.Struct({
   /** HTTP status — `200` | `206` (ranged) | `400` | `403` | `404` | `416` |
    *  `500`, verbatim from `serveFile`. */
-  status: z.number().int(),
+  status: Schema.Int,
   /** Response headers verbatim from serve-dir (`Content-Type`, `Accept-Ranges`,
    *  `X-Content-Type-Options`, `Cache-Control`, a strong `ETag` on every 200/206,
    *  and `Content-Range` on a 206/416). The client replays them onto the
    *  reconstructed `Response`; the re-serving preview arm reads the `ETag` back to
    *  pin the file snapshot across a multi-chunk reassembly. */
-  headers: z.record(z.string(), z.string()),
+  headers: Schema.Record(Schema.String, Schema.String),
   /** Base64-encoded response body — the (possibly ranged) file bytes on a
    *  200/206, the plain-text reason on a 400/403/404/416/500. */
-  bodyBase64: z.string(),
+  bodyBase64: Schema.String,
 });
 
 /** `session.restore` — restore the persisted session server-side (padi's boot
@@ -892,21 +1020,46 @@ export const PadiPreviewReadOutputSchema = z.object({
  *  resumable set (stamped on the saved session as `resumableIds`) and the client
  *  may only subtract from it (opt-outs). Resume yes/no + opt-outs of the
  *  host-served set — never a client-filtered membership list. */
-export const PadiSessionRestoreInputSchema = z.object({
+export const PadiSessionRestoreInputSchema = Schema.Struct({
   /** When true, resume every host-resumable agent except those in `optOutIds`.
-   *  Default true so import / bare restore resume all. */
-  resumeAgents: z.boolean().default(true),
+   *  Default true so import / bare restore resume all. KEY-level decoding
+   *  default (PLAN #17): an omitted key means "resume all"; a caller that
+   *  builds this input in-process must OMIT the key rather than pass
+   *  `undefined`, which is rejected. */
+  resumeAgents: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(true)),
+  ),
   /** Subset of the host-served resumable set the user opted out of. */
-  optOutIds: z.array(z.string()).optional(),
+  optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
+/** `session.restore`'s ANSWER — the active-terminal marker as of the end of the
+ *  restore (the saved marker mapped onto the freshly-spawned ids), or `null` when
+ *  the host holds none.
+ *
+ *  The client seeds its active tile from THIS, not from the `session` cell's next
+ *  snapshot. The two are not interchangeable: the restored terminals publish as
+ *  they spawn, while the cell's snapshot publishes only after `saveSession` has
+ *  been through padi's Conf — a synchronous DISK write — so on a loaded box the
+ *  client sees the full restored set while still holding the blob it CONSUMED,
+ *  whose `activeTerminalId` names pre-restore ids that no longer exist. Riding the
+ *  call makes the ordering structural: the answer cannot arrive after the
+ *  terminals it describes. The id is still only a MARKER — it can name a terminal
+ *  whose respawn failed and re-parked — so the client re-validates membership
+ *  before seeding, exactly as it does for the persisted marker. */
+export const PadiSessionRestoreOutputSchema = Schema.Struct({
+  activeTerminalId: Schema.NullOr(Schema.String),
 });
 
 /** `session.import` — replace the persisted session with an imported blob (the
  *  diagnostic "Import session" flow, moved host-side), then restore it. */
-export const PadiSessionImportInputSchema = z.object({
+export const PadiSessionImportInputSchema = Schema.Struct({
   session: SavedSessionSchema,
   /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
-  resumeAgents: z.boolean().default(true),
-  optOutIds: z.array(z.string()).optional(),
+  resumeAgents: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(true)),
+  ),
+  optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
 // ── The surface ───────────────────────────────────────────────────────────
@@ -1000,9 +1153,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  `test__set` is the e2e-fixture reset verb. */
     activityFeed: {
       schema: ActivityFeedSchema,
-      default: { recentRepos: [], recentAgents: [] } satisfies z.infer<
-        typeof ActivityFeedSchema
-      >,
+      default: {
+        recentRepos: [],
+        recentAgents: [],
+      } satisfies typeof ActivityFeedSchema.Type,
       verbs: ["get", "test__set"],
       client: {
         onError: {
@@ -1018,8 +1172,8 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  `setPadiSessionStore`, see `confStores.ts`). `test__set` is the e2e-fixture
      *  reset verb. */
     session: {
-      schema: SavedSessionSchema.nullable(),
-      default: null as z.infer<typeof SavedSessionSchema> | null,
+      schema: Schema.NullOr(SavedSessionSchema),
+      default: null as typeof SavedSessionSchema.Type | null,
       verbs: ["get", "test__set"],
       client: {
         onError: {
@@ -1041,7 +1195,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     /** Per-host pty-host daemon (kaval) status — padi supervises its kaval, so
      *  the daemon-liveness cell is padi's to serve. Read-only on the client. */
     daemonStatus: {
-      keySchema: z.string(),
+      keySchema: Schema.String,
       schema: DaemonStatusSchema,
       verbs: ["keys", "get"],
       // 4C RULING: `hostToast` (not the old per-subscription split) — the chip gains
@@ -1056,13 +1210,13 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  each frame the full current live set. DELTA/fail-through: a mid-chain
      *  disconnect terminates the downstream stream so a fresh snapshot re-seeds. */
     activity: {
-      inputSchema: z.object({}),
-      outputSchema: z.array(TerminalIdSchema),
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Array(TerminalIdSchema),
     },
     /** Live change-pulses for a repo's working tree + git dir. Value-bearing
      *  pulse-then-requery: a `{seq}` distinguisher, no fs/git data on the pulse. */
     subscribeRepoChange: {
-      inputSchema: z.object({ repoPath: z.string() }),
+      inputSchema: Schema.Struct({ repoPath: Schema.String }),
       outputSchema: RepoChangePulseSchema,
     },
     /** Live change-pulses narrowed to one file. Value-bearing pulse-then-requery. */
@@ -1082,17 +1236,34 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // and every overflow re-attach) also carries the absolute mirror-line
       // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
-      outputSchema: z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("delta"), data: z.string() }),
-        z.object({
-          kind: z.literal("snapshot"),
-          data: z.string(),
-          topLine: z.number().int().nonnegative(),
+      outputSchema: Schema.Union([
+        Schema.Struct({
+          kind: Schema.Literal("delta"),
+          data: Schema.String,
+        }),
+        Schema.Struct({
+          kind: Schema.Literal("snapshot"),
+          data: Schema.String,
+          topLine: NonNegativeInt,
           // `reflowEpoch` (3.1 · additive · optional) — the mirror's reflow
           // generation this snapshot was serialized under; the client re-seeds
           // its backfill epoch from it so a foreign-resize reflow halts backfill
           // rather than corrupts it (F3). Absent from a kaval predating 5.2.
-          reflowEpoch: z.number().int().nonnegative().optional(),
+          //
+          // `Schema.optional`, NOT `optionalKey` — the one place on this wire
+          // that reads the way zod's `.optional()` did, and deliberately. This
+          // value is FORWARDED VERBATIM across five hops of optional-typed
+          // records before it is encoded: kaval's decoded attach frame →
+          // `OpenedAttach.reflowEpoch?` → `TerminalAttachment.reflowEpoch?` →
+          // `reattachingDeltas`' re-attach frame → this frame. Reading an absent
+          // optional key yields `undefined`, so EVERY hop re-creates the key
+          // present-with-`undefined`, and no amount of conditional-spread
+          // discipline at one hop survives the next (`exactOptionalPropertyTypes`
+          // is not set, so the compiler never objects). `optional` is
+          // `optionalKey` + `UndefinedOr`, so the emitted BYTES are unchanged —
+          // the key is omitted, never nulled — and a non-integer is still
+          // rejected. Pinned by a byte fixture in `surface.test.ts`.
+          reflowEpoch: Schema.optional(NonNegativeInt),
         }),
       ]),
     },
@@ -1109,11 +1280,30 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     /** Terminal lifecycle — create · kill · killAll · sleep · wake ·
      *  discardSleeping · resize · sendInput · recycleKaval. */
     lifecycle: {
-      create: { input: PadiCreateInputSchema, output: TerminalInfoSchema },
-      kill: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
+      // A SPLIT names its parent, and that parent must be a LIVE terminal — so
+      // `create` carries the same declared not-found as the per-terminal verbs.
+      create: {
+        input: PadiCreateInputSchema,
+        output: TerminalInfoSchema,
+        error: TerminalNotFound,
+      },
+      kill: {
+        input: PadiTerminalIdInputSchema,
+        output: TerminalInfoSchema,
+        error: TerminalNotFound,
+      },
       killAll: {},
+      // `sleep` is a no-op on anything that is not a live local terminal, and
+      // `resize`/`sendInput` QUIET-DROP a write that lands just after a kill
+      // (#1628 — an expected race). None of the three can refuse, so none
+      // declares an error: an absent error channel is a statement, not an
+      // omission.
       sleep: { input: PadiTerminalIdInputSchema },
-      wake: { input: PadiTerminalIdInputSchema, output: TerminalInfoSchema },
+      wake: {
+        input: PadiTerminalIdInputSchema,
+        output: TerminalInfoSchema,
+        error: TerminalNotFound,
+      },
       discardSleeping: { input: PadiTerminalIdInputSchema },
       resize: { input: PadiResizeInputSchema },
       sendInput: { input: PadiSendInputSchema },
@@ -1127,72 +1317,129 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
        *  resolves once the fresh kaval is connected (or rejects, session safe on
        *  disk to retry/restore). */
       recycleKaval: {
-        // The DECLARED error union (SK6): a proven contract skew is the one
-        // failure this procedure can translate — versions ride as TYPED data
-        // (the client narrows with `isDefinedError`; nothing re-parses prose),
-        // shaped by the ONE skew-payload spelling (`KavalSkewVersionsSchema`,
-        // shared with the `incompatible` status arm). An undeclared throw
-        // still crosses as INTERNAL_SERVER_ERROR — the fail-fast channel for
-        // genuinely unexpected failures.
-        errors: {
-          KAVAL_CONTRACT_SKEW: {
-            data: KavalSkewVersionsSchema,
-          },
-        },
+        // The DECLARED error (SK6): a proven contract skew is the one failure
+        // this procedure can translate — versions ride as TYPED fields on the
+        // error itself (the client narrows on `_tag === "KavalContractSkew"`;
+        // nothing re-parses prose). An undeclared throw stays a DEFECT — the
+        // fail-fast channel for genuinely unexpected failures.
+        //
+        // Under oRPC this was an `errors: { KAVAL_CONTRACT_SKEW: { data } }`
+        // map keyed by a magic code, constructed through an injected
+        // `errors.<CODE>(...)` factory. `Rpc.make` takes ONE error schema, so
+        // the code map collapses into the tagged class itself and the handler
+        // simply FAILS with an instance.
+        error: KavalContractSkew,
       },
     },
-    /** Terminal chrome — the client-owned per-terminal UI record. */
+    /** Terminal chrome — the client-owned per-terminal UI record. Every setter
+     *  but `setActive` narrows to a MUTABLE terminal first, so every one of
+     *  them declares {@link TerminalNotFound}; `setParent` additionally refuses
+     *  an edge that would close a cycle. `setActive` takes a nullable id and
+     *  simply records it, so it can't refuse. */
     chrome: {
-      setTheme: { input: PadiSetThemeInputSchema },
-      setIntent: { input: PadiSetIntentInputSchema },
-      setParent: { input: PadiSetParentInputSchema },
+      setTheme: { input: PadiSetThemeInputSchema, error: TerminalNotFound },
+      setIntent: { input: PadiSetIntentInputSchema, error: TerminalNotFound },
+      setParent: {
+        input: PadiSetParentInputSchema,
+        error: Schema.Union([TerminalNotFound, TerminalParentCycle]),
+      },
       setActive: { input: PadiSetActiveInputSchema },
-      setCanvasLayout: { input: PadiSetCanvasLayoutInputSchema },
-      setSubPanel: { input: PadiSetSubPanelInputSchema },
-      setRightPanel: { input: PadiSetRightPanelInputSchema },
+      setCanvasLayout: {
+        input: PadiSetCanvasLayoutInputSchema,
+        error: TerminalNotFound,
+      },
+      setSubPanel: {
+        input: PadiSetSubPanelInputSchema,
+        error: TerminalNotFound,
+      },
+      setRightPanel: {
+        input: PadiSetRightPanelInputSchema,
+        error: TerminalNotFound,
+      },
     },
-    /** Screen reads — the serialized screen + a scrollback text slice. */
+    /** Screen reads — the serialized screen + a scrollback text slice. All
+     *  three narrow to an ACTIVE terminal (a dormant record has no live mirror
+     *  to read), so all three declare {@link TerminalNotFound}. */
     screen: {
-      state: { input: PadiTerminalIdInputSchema, output: z.string() },
-      text: { input: PadiScreenTextInputSchema, output: z.string() },
+      state: {
+        input: PadiTerminalIdInputSchema,
+        output: Schema.String,
+        error: TerminalNotFound,
+      },
+      text: {
+        input: PadiScreenTextInputSchema,
+        output: Schema.String,
+        error: TerminalNotFound,
+      },
       history: {
         input: PadiScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
+        error: TerminalNotFound,
       },
     },
-    /** Filesystem reads scoped to a repo on the serving host. */
+    /** Filesystem reads scoped to a repo on the serving host. Each declares
+     *  {@link FsGitReadErrorSchema} — `FileGone` is the arm the Code tab's
+     *  delete-while-viewing handling swallows, and it is the reason these are
+     *  DECLARED rather than left to the defect channel. */
     fs: {
-      listAll: { input: FsListAllInputSchema, output: FsListAllOutputSchema },
+      listAll: {
+        input: FsListAllInputSchema,
+        output: FsListAllOutputSchema,
+        error: FsGitReadErrorSchema,
+      },
       listIgnored: {
         input: FsListIgnoredInputSchema,
         output: FsListIgnoredOutputSchema,
+        error: FsGitReadErrorSchema,
       },
       listDirectory: {
         input: FsListDirectoryInputSchema,
         output: FsListDirectoryOutputSchema,
+        error: FsGitReadErrorSchema,
       },
       readFile: {
         input: FsFileInputSchema,
         output: FsReadFileTextOutputSchema,
+        error: FsGitReadErrorSchema,
       },
-      filePreviewTag: { input: FsFileInputSchema, output: z.string() },
+      filePreviewTag: {
+        input: FsFileInputSchema,
+        output: Schema.String,
+        error: FsGitReadErrorSchema,
+      },
     },
     /** Git reads + worktree mutations scoped to a repo on the serving host — a
      *  worktree materializing on the wrong machine is unspellable. */
     git: {
-      getStatus: { input: GitStatusInputSchema, output: GitStatusOutputSchema },
-      getDiff: { input: GitDiffInputSchema, output: GitDiffOutputSchema },
+      getStatus: {
+        input: GitStatusInputSchema,
+        output: GitStatusOutputSchema,
+        error: FsGitReadErrorSchema,
+      },
+      getDiff: {
+        input: GitDiffInputSchema,
+        output: GitDiffOutputSchema,
+        error: FsGitReadErrorSchema,
+      },
       worktreeCreate: {
         input: WorktreeCreateInputSchema,
         output: WorktreeCreateOutputSchema,
+        error: WorktreeCreateErrorSchema,
       },
-      worktreeRemove: { input: WorktreeRemoveInputSchema },
+      worktreeRemove: {
+        input: WorktreeRemoveInputSchema,
+        error: FsGitReadErrorSchema,
+      },
     },
-    /** Byte writes — the scratch write half of paste/upload. */
+    /** Byte writes — the scratch write half of paste/upload. The AUTHORITATIVE
+     *  upload gate: it needs an ACTIVE terminal to write under
+     *  ({@link TerminalNotFound}) and re-enforces the extension allowlist +
+     *  size cap ({@link ScratchWriteRejected}). */
     scratch: {
       write: {
         input: PadiScratchWriteInputSchema,
         output: PadiScratchWriteOutputSchema,
+        error: Schema.Union([TerminalNotFound, ScratchWriteRejected]),
       },
     },
     /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped),
@@ -1204,6 +1451,10 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       read: {
         input: PadiPreviewReadInputSchema,
         output: PadiPreviewReadOutputSchema,
+        // Fail-fast, never a silent truncation: an unranged read whose body
+        // would exceed the inline cap is REFUSED, and the refusal names the
+        // cap so the caller can compute a range from it.
+        error: PreviewTooLarge,
       },
       repoRootForTerminal: {
         input: PadiRepoRootForTerminalInputSchema,
@@ -1216,17 +1467,25 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       exportHtml: {
         input: ExportTranscriptHtmlInputSchema,
         output: ExportTranscriptHtmlOutputSchema,
+        error: Schema.Union([
+          TerminalNotFound,
+          TranscriptNoAgent,
+          TranscriptNotFound,
+        ]),
       },
     },
     /** Session restore/import/forfeit — executes host-side (padi as one writer). */
     session: {
-      restore: { input: PadiSessionRestoreInputSchema },
+      restore: {
+        input: PadiSessionRestoreInputSchema,
+        output: PadiSessionRestoreOutputSchema,
+      },
       import: { input: PadiSessionImportInputSchema },
       /** Explicitly discard the pending restore — drop the parked restore-card
        *  entries AND clear the saved session together. The deliberate "start fresh"
        *  act (the restore card's dismiss), distinct from `restore` (consumes) and
        *  `lifecycle.create` (which no longer forfeits). Takes no input. */
-      forfeit: { input: z.object({}) },
+      forfeit: { input: Schema.Struct({}) },
     },
   },
 });
@@ -1325,16 +1584,16 @@ export type PadiHello = ControlCoreHello;
 
 /** `version` — the control core's own version probe (just the frozen core
  *  version), distinct from the surface `version` cell. */
-export const PadiControlVersionSchema = z.object({
-  controlCoreVersion: z.string(),
+export const PadiControlVersionSchema = Schema.Struct({
+  controlCoreVersion: Schema.String,
 });
-export type PadiControlVersion = z.infer<typeof PadiControlVersionSchema>;
+export type PadiControlVersion = typeof PadiControlVersionSchema.Type;
 
 /** `clock.now` — padi's current clock, RTT-halved by the binder to measure a
  *  once-per-bind offset (owner-clock display; deliberately NOT a served ticking
  *  cell). */
-export const PadiClockNowSchema = z.object({ epochMs: z.number() });
-export type PadiClockNow = z.infer<typeof PadiClockNowSchema>;
+export const PadiClockNowSchema = Schema.Struct({ epochMs: Schema.Number });
+export type PadiClockNow = typeof PadiClockNowSchema.Type;
 
 /** The frozen control-core SURFACE — hello · version · drain · clock.now.
  *  Defined as pure schema shapes in W1.C; W2.2 serves them for real, BESIDE
@@ -1389,10 +1648,51 @@ export const padiDaemonSurfaces = {
   control: padiControlSurface,
 } as const;
 
-/** The combined wire contract a binder / dial-test client types its link off —
- *  `{ surface: { padi, control } }`. */
+/** The combined wire the padi daemon serves — ONE flat `RpcGroup` carrying both
+ *  siblings' tags (`surface/padi/*` + `surface/control/*`), plus the per-sibling
+ *  `Surface` values a client builds its faces from.
+ *
+ *  Composition is the framework's SIBLING algebra (S1/D1): each surface is
+ *  re-walked under its own `surface/<key>/` tag prefix, never `RpcGroup.merge`d
+ *  — a bare merge is a last-writer-wins `Map.set`, and both siblings carry the
+ *  same three reserved `system/*` tags, so merging would silently leave one
+ *  sibling's liveness probe answering for the other's. The prefix makes that
+ *  collision class unrepresentable; {@link PADI_DAEMON_TAG_COUNT} makes the
+ *  absence of any OTHER collision an assertion rather than an assumption. */
 export const padiDaemonContract = composeSurfaceContracts(padiDaemonSurfaces);
 export type PadiDaemonContract = typeof padiDaemonContract;
+
+/** The flat tag map a padi daemon serves — what `implementSurfaces` binds and
+ *  what a dial's link is opened over. */
+export const padiDaemonGroup = padiDaemonContract.group;
+
+/** `padiSurface` as its SIBLING — the same members at `surface/padi/*`. This is
+ *  the value a client builds the padi face from (see `dial.ts`'s
+ *  `scopePadiSurface`), so the serving side and the dialing side derive the
+ *  sibling's tags from ONE expression rather than two rules that can drift. */
+export const padiSurfaceSibling: Surface<typeof padiSurface.spec> =
+  padiDaemonContract.siblings.padi;
+
+/** The frozen control core as its SIBLING — `surface/control/*`. A binder
+ *  reaches `core.hello` / `core.drain` here even at a `padiSurface` skew. */
+export const padiControlSibling: Surface<typeof padiControlSurface.spec> =
+  padiDaemonContract.siblings.control;
+
+/** The exact number of tags a padi daemon serves — the D1/#16 collision assert.
+ *  `RpcGroup.make`/`merge` are silent last-writer-wins `Map.set`s, so a tag
+ *  minted twice would vanish without a word; comparing the composed group's
+ *  size against the two siblings' own sizes is what PROVES the composition
+ *  dropped nothing. Asserted at IMPORT (below) so a collision is a boot crash,
+ *  never a 404 discovered in production, and pinned as a literal key set by
+ *  `surface.test.ts`. */
+export const PADI_DAEMON_TAG_COUNT =
+  padiSurface.group.requests.size + padiControlSurface.group.requests.size;
+
+if (padiDaemonGroup.requests.size !== PADI_DAEMON_TAG_COUNT) {
+  throw new Error(
+    `padiDaemonContract: composed ${padiDaemonGroup.requests.size} tags but the two siblings declare ${PADI_DAEMON_TAG_COUNT} — a tag was minted twice and silently overwritten`,
+  );
+}
 
 // The composed sibling registry (`surfacesWithPadi = { ...surfaces, padi }`)
 // lives in `kolu-common/surface` now, NOT here: composing the app's `surfaces`

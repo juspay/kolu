@@ -10,9 +10,9 @@
 import { describe, expect, it } from "vitest";
 import {
   foldPorts,
+  type PortFamily,
   type PortInfo,
   PortInfoSchema,
-  type PortFamily,
   type PortScope,
   preferredFamily,
   samePortList,
@@ -226,7 +226,7 @@ describe("samePortList", () => {
   });
 
   it("compares EVERY schema field, not a hand-listed subset", () => {
-    // The reason the key list is read off `PortInfoSchema.shape`: a field added to
+    // The reason the key list is read off `PortInfoSchema.fields`: a field added to
     // `PortInfo` without a matching edit here would be a field whose changes are
     // silently swallowed by the dedup gate. Asserting the derivation directly
     // means adding a field cannot quietly go uncompared — this fails the moment
@@ -239,7 +239,7 @@ describe("samePortList", () => {
     ];
     // Counted against the SCHEMA, not a literal: adding a field to `PortInfo`
     // reds this line until a pair covering it is added, which is the whole point.
-    expect(differing).toHaveLength(Object.keys(PortInfoSchema.shape).length);
+    expect(differing).toHaveLength(Object.keys(PortInfoSchema.fields).length);
     for (const [a, b] of differing) {
       expect(samePortList([a], [b])).toBe(false);
     }

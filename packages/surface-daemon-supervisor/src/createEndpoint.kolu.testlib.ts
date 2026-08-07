@@ -38,6 +38,16 @@ export const readSocketHoldersForKoluTests =
  * reaches past this adapter for the general `createEndpointForTest` and passes
  * its own, which is also the honest signal that it is not exercising kolu's
  * bake.
+ *
+ * The holder reader is real; the IDENTITY reader is not. `createEndpointForTest`
+ * supplies `testReadProcessIdentity` — synthetic start times (`pid * 1000`) that
+ * agree only with gates a suite plants itself (`testStartUnixUs`). A suite that
+ * meets a gate written by a REAL daemon must not come through here: the fake
+ * disagrees with every genuine start instant, so a two-field gate naming a
+ * provably-live holder reads as "no gate of ours names a verified holder" and
+ * the takeover silently becomes a refusal. Those suites compose `createEndpoint`
+ * with the production injects (`processIdentityAsync` / `osfactsSocketHolders`
+ * over `bakedOsFactsBin`), exactly as the daemon's own composition root does.
  */
 export function createEndpointForKoluTest<C, I, M = undefined>(
   spec: Omit<

@@ -8,7 +8,8 @@
  * `system.identity`, which padi's daemon declares; see `@kolu/padi` daemonMain), so
  * a padi arm adds ONLY supervision: `convergence()` (a standing anomaly, or null when
  * healthy), `preservation` (padi's children survive a renew — its PTYs live in kaval),
- * and `renew()` (the "restart" drain). The two arms share this spread + the ONE
+ * and `renew()` (the "restart" drain, an Effect — see {@link PadiSession}). The two
+ * arms share this spread + the ONE
  * `padiConvergencePolicy`/`decide()` table + the ONE `drainAndAwaitExit` skeleton
  * (each arm plugs in its own transport exit signal — the local socket-close, the
  * remote hello-poll); they differ only in their transport (a self-converging local
@@ -17,6 +18,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
+import type { Effect } from "effect";
 import type {
   DaemonSession,
   DownSessionState,
@@ -106,7 +108,7 @@ export function padiFailureOf(
  *  silent one buried inside this alias. */
 export type PadiSession<Prov extends string = SshProv> = Omit<
   DaemonSession<PadiSurfaceClient, PadiConvergence>,
-  "onState" | "currentState"
+  "onState" | "currentState" | "renew"
 > &
   Pick<Session<PadiSurfaceClient, Prov>, "onState" | "currentState"> & {
     /** The D1+D2 domain-cause detail for the map's `EntryStatus` (see
@@ -116,6 +118,19 @@ export type PadiSession<Prov extends string = SshProv> = Omit<
      *  nothing to classify (the local arm always; the remote arm outside a
      *  classifiable down state). */
     entryFailedDetail(): PadiEntryFailedDetail | null;
+    /** Replace the running padi per its {@link PADI_PRESERVATION} strategy — the
+     *  "restart" verb, as an EFFECT.
+     *
+     *  NARROWED off `DaemonSession.renew(): Promise<void>` by the `Omit` above, for
+     *  the same reason `onState`/`currentState` are: the generic role in
+     *  `@kolu/surface-remote` is the widest shape every daemon session could have,
+     *  and kolu-server's padi arms have a narrower, truer one. Both arms' drains are
+     *  built on the supervisor's Effect-native `drainAndAwaitExit`, and both of this
+     *  member's callers (`index.ts`'s `drainBoundPadi` / `renewHostDaemon`) are
+     *  reached from `router.ts`'s procedure handlers, which are Effects — so a
+     *  `Promise` here would be a face nothing on either side of it wanted. It fails
+     *  when the drain does not take; that failure IS the procedure's rejection. */
+    renew(): Effect.Effect<void, unknown>;
   };
 
 /** padi's preservation strategy: its PTYs live in a SEPARATE kaval process, so a
@@ -139,7 +154,7 @@ export function asPadiSession<Prov extends string = SshProv>(
   base: Session<PadiSurfaceClient, Prov>,
   members: {
     convergence: () => PadiConvergence | null;
-    renew: () => Promise<void>;
+    renew: () => Effect.Effect<void, unknown>;
     /** See {@link PadiSession.entryFailedDetail}. */
     entryFailedDetail: () => PadiEntryFailedDetail | null;
   },

@@ -11,10 +11,13 @@
  * must not be able to change which doors are open.
  */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { ForwardOrigin, Forwards } from "kolu-common/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { createMemo, createResource, createRoot } from "solid-js";
 import { toast } from "solid-sonner";
+import { runActionPromise } from "../runAction";
 import { app, client } from "../wire";
 
 // An app-lifetime subscription, for the same reason `useDaemonInventory`'s is:
@@ -59,7 +62,7 @@ export function createForward(input: {
   return app.procedures.forwards.create(input);
 }
 
-/** Take one down. Rejects on a key the server does not hold. */
+/** Take one down. FAILS on a key the server does not hold. */
 export function cancelForward(key: string) {
   return app.procedures.forwards.cancel({ key });
 }
@@ -89,13 +92,17 @@ export function cancelForward(key: string) {
  *  is invisible outside DevTools) even though the render behaviour it feeds
  *  stays identical either way. */
 const viewerHostQuery = createRoot(() =>
-  createResource(async () =>
-    client.hosts.viewer().then(
-      (r) => r.host,
-      (err: Error) => {
-        toast.warning(`Viewer-host lookup failed: ${err.message}`);
-        return null;
-      },
+  createResource(() =>
+    runActionPromise(
+      client.hosts.viewer().pipe(
+        Effect.map((r): HostKey | null => r.host),
+        Effect.catch((err) =>
+          Effect.sync((): HostKey | null => {
+            toast.warning(`Viewer-host lookup failed: ${toError(err).message}`);
+            return null;
+          }),
+        ),
+      ),
     ),
   ),
 );

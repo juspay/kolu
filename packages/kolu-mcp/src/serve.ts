@@ -29,7 +29,13 @@ import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
 
 /** A live, padi-scoped connection the injected factory produces. `dispose`
  *  closes the socket/pipe the factory opened — the adapter calls it on
- *  teardown and before every re-dial. */
+ *  teardown and before every re-dial.
+ *
+ *  `PadiSurfaceClient` is now the `buildSurfaceFace` shape: a streaming member
+ *  hands back a lazy `Stream` and a procedure returns a `Promise`, with no
+ *  `AbortSignal` option anywhere (D10/#18 — cancellation is fiber
+ *  interruption). That is exactly what `@kolu/surface-mcp`'s
+ *  `ClientOrConnection` now asks for, so this interface needs no adapter. */
 export interface KoluMcpConnection {
   client: PadiSurfaceClient;
   dispose: () => void;

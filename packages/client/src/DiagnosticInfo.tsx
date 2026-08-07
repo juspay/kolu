@@ -3,12 +3,19 @@
  *  info. Content split into `<DiagnosticInfoContent/>` so a future
  *  always-visible dev inspector can reuse it without the modal chrome. */
 
+import { runAction, type UiAction } from "./runAction";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import Dialog from "@corvu/dialog";
 import { encodeHostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
+import type { KoluBuildInfo } from "kolu-common/surface";
 import { attentionDiagnostic } from "./attention/attentionDiagnostics";
+import CopyDiagnosticsButton from "./CopyDiagnosticsButton";
+import WireDiagnosticsSection from "./WireDiagnosticsSection";
 import { frameClassOf, hostActiveIds } from "./attention/attentionFacts";
 import { hostFrame } from "./attention/attentionMarks";
 import { useAttentionFacts } from "./attention/useAttentionFacts";
@@ -73,6 +80,10 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
   const browser = browserFacts();
   const store = useTerminalStore();
   const facts = useAttentionFacts();
+  // The server's build identity, off the cell the provider already subscribes —
+  // read here and handed down, so the snapshot builder opens no subscription of
+  // its own (it promises to make no network call).
+  const pwa = useSurfaceApp<KoluBuildInfo>();
 
   /** The attention snapshot — every terminal's paint inputs beside the counts'
    *  inputs, plus this host's mirrored urgency frame, so a "why does the tab
@@ -219,14 +230,22 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
     };
   });
 
-  async function copyJson() {
-    try {
-      await writeTextToClipboard(JSON.stringify(snapshot(), null, 2));
-      toast.success("Diagnostic info copied");
-    } catch (err) {
-      console.error("Failed to copy diagnostic info:", err);
-      toast.error(`Failed to copy diagnostic info: ${(err as Error).message}`);
-    }
+  function copyJson(): UiAction {
+    return Effect.suspend(() =>
+      writeTextToClipboard(JSON.stringify(snapshot(), null, 2)),
+    ).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => toast.success("Diagnostic info copied")),
+      ),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          console.error("Failed to copy diagnostic info:", err);
+          toast.error(
+            `Failed to copy diagnostic info: ${toError(err).message}`,
+          );
+        }),
+      ),
+    );
   }
 
   const chrome = surface({ portalled: true });
@@ -248,9 +267,13 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
           >
             Docs →
           </DocLink>
+          {/* The wire's own account of itself, as plain text (kolu#2101 J2) —
+              beside, not instead of, the JSON dump: the JSON is the whole
+              runtime state, this is the block that proves a wire incident. */}
+          <CopyDiagnosticsButton serverBuild={pwa.server()} />
           <button
             type="button"
-            onClick={copyJson}
+            onClick={() => runAction("copy diagnostic info", copyJson())}
             class="text-[11px] px-2 py-0.5 rounded bg-surface-2 hover:bg-surface-3 text-fg-2 hover:text-fg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           >
             Copy JSON
@@ -570,6 +593,8 @@ const DiagnosticInfoContent: Component<{ activeId: TerminalId | null }> = (
             </div>
           </Show>
         </Section>
+
+        <WireDiagnosticsSection serverBuild={pwa.server()} />
 
         {/* Debug-only instrumentation for #591 (WebGL zombie-context leak).
             Remove this section when the leak is root-caused and fixed. */}

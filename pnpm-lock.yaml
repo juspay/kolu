@@ -5,6 +5,10 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  effect: 4.0.0-beta.103
+  '@effect/platform-node': 4.0.0-beta.103
+  '@effect/platform-browser': 4.0.0-beta.103
+  '@effect/vitest': 4.0.0-beta.103
   '@babel/core': ^7.29.6
   esbuild: ^0.28.1
   serialize-javascript: ^7.0.3
@@ -31,11 +35,18 @@ importers:
 
   .:
     devDependencies:
+      '@effect/vitest':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
 
   osfacts-client:
+    dependencies:
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -52,12 +63,12 @@ importers:
       '@kolu/solid-browser':
         specifier: workspace:*
         version: link:../solid-browser
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
@@ -86,6 +97,9 @@ importers:
       '@corvu/tooltip':
         specifier: ^0.2.2
         version: 0.2.2(solid-js@1.9.11)
+      '@effect/platform-browser':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -140,12 +154,6 @@ importers:
       '@kolu/xterm-kit':
         specifier: workspace:*
         version: link:../xterm-kit
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@pierre/diffs':
         specifier: ^1.2.12
         version: 1.2.12(@shikijs/themes@4.2.0)(react@19.2.8)
@@ -182,6 +190,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       fix-webm-duration:
         specifier: ^1.0.6
         version: 1.0.6
@@ -194,9 +205,6 @@ importers:
       nonempty:
         specifier: workspace:*
         version: link:../nonempty
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -279,15 +287,15 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -312,9 +320,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -372,15 +377,15 @@ importers:
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../../shell-quote
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       nonempty:
         specifier: workspace:*
         version: link:../../nonempty
       string-argv:
         specifier: ^0.3.2
         version: 0.3.2
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -397,12 +402,12 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -422,6 +427,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -434,9 +442,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -456,6 +461,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -465,9 +473,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -484,6 +489,9 @@ importers:
       '@parcel/watcher':
         specifier: ^2.5.1
         version: 2.5.6
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -502,9 +510,6 @@ importers:
       simple-git:
         specifier: ^3.36.0
         version: 3.36.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -521,15 +526,15 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../anyforge
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -546,6 +551,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-io:
         specifier: workspace:*
         version: link:../io
@@ -555,9 +563,6 @@ importers:
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../../transcript-core
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -590,6 +595,9 @@ importers:
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-shared:
         specifier: workspace:*
         version: link:../../shared
@@ -599,9 +607,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -630,6 +635,9 @@ importers:
 
   packages/kaval:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/heap-diag':
         specifier: workspace:*
         version: link:../heap-diag
@@ -642,33 +650,30 @@ importers:
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon
+      '@kolu/surface-daemon-supervisor':
+        specifier: workspace:*
+        version: link:../surface-daemon-supervisor
       '@kolu/terminal-protocol':
         specifier: workspace:*
         version: link:../terminal-protocol
       '@kolu/xterm-kit':
         specifier: workspace:*
         version: link:../xterm-kit
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
       '@xterm/headless':
         specifier: ^6.0.0
         version: 6.0.0
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       node-pty:
         specifier: github:juspay/node-pty#feat/foreground-pid-dist
         version: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -691,6 +696,9 @@ importers:
 
   packages/kaval-tui:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
@@ -709,6 +717,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -737,6 +748,9 @@ importers:
 
   packages/kolu-cli:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -752,6 +766,9 @@ importers:
       cleye:
         specifier: ^2.3.0
         version: 2.3.0
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-mcp:
         specifier: workspace:*
         version: link:../kolu-mcp
@@ -789,6 +806,9 @@ importers:
 
   packages/kolu-mcp:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -807,9 +827,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -848,6 +868,9 @@ importers:
 
   packages/padi:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/serve-dir':
         specifier: workspace:*
         version: link:../serve-dir
@@ -866,18 +889,6 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -887,6 +898,9 @@ importers:
       conf:
         specifier: ^15.1.0
         version: 15.1.0
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -935,9 +949,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -966,6 +977,9 @@ importers:
 
   packages/padi-tui:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/padi':
         specifier: workspace:*
         version: link:../padi
@@ -987,6 +1001,9 @@ importers:
       columnify:
         specifier: ^1.6.0
         version: 1.6.0
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1027,6 +1044,9 @@ importers:
 
   packages/serve-dir:
     dependencies:
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       mrmime:
         specifier: ^2.0.1
         version: 2.0.1
@@ -1043,12 +1063,9 @@ importers:
 
   packages/server:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
-      '@hono/node-ws':
-        specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/artifact-sdk':
         specifier: workspace:*
         version: link:../artifact-sdk
@@ -1088,21 +1105,6 @@ importers:
       '@kolu/terminal-vocab':
         specifier: workspace:*
         version: link:../terminal-vocab
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-pino':
-        specifier: ^1.13.13
-        version: 1.13.13(pino@10.3.1)(ws@8.21.0)
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1112,12 +1114,9 @@ importers:
       conf:
         specifier: ^15.1.0
         version: 15.1.0
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      hono-pino:
-        specifier: ^0.10.3
-        version: 0.10.3(hono@4.12.31)(pino@10.3.1)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kaval:
         specifier: workspace:*
         version: link:../kaval
@@ -1169,9 +1168,6 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -1179,6 +1175,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1391,36 +1390,27 @@ importers:
 
   packages/surface:
     dependencies:
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      '@orpc/standard-server':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/standard-server-peer':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@preact/signals-core':
-        specifier: ^1.8.0
-        version: 1.14.4
+      '@effect/platform-browser':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@solid-primitives/rootless':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
       '@solid-primitives/scheduled':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1446,28 +1436,25 @@ importers:
 
   packages/surface-app:
     dependencies:
+      '@effect/platform-browser':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1477,39 +1464,24 @@ importers:
 
   packages/surface-app/example:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../surface
       '@kolu/surface-app':
         specifier: workspace:*
         version: link:..
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1535,21 +1507,21 @@ importers:
 
   packages/surface-daemon:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
@@ -1569,12 +1541,18 @@ importers:
 
   packages/surface-daemon-supervisor:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
       '@kolu/surface-daemon':
         specifier: workspace:*
         version: link:../surface-daemon
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       osfacts-client:
         specifier: workspace:*
         version: link:../../osfacts-client
@@ -1588,6 +1566,9 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
+      '@kolu/log':
+        specifier: workspace:*
+        version: link:../log
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1603,30 +1584,21 @@ importers:
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@solid-primitives/keyed':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.11)
       dequal:
         specifier: ^2.0.3
         version: 2.0.3
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1649,9 +1621,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1665,6 +1637,9 @@ importers:
 
   packages/surface-remote:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
@@ -1677,12 +1652,9 @@ importers:
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -1695,16 +1667,10 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1723,42 +1689,24 @@ importers:
 
   packages/surface/example:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
-      '@hono/node-ws':
-        specifier: ^1.1.0
-        version: 1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:..
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/experimental-publisher':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../../surface-app
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -1790,36 +1738,24 @@ importers:
 
   packages/surface/example/fleet-top/part-1:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../../../../surface-app
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1854,21 +1790,12 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../../../../surface-daemon-supervisor
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       osfacts-client:
         specifier: workspace:*
         version: link:../../../../../osfacts-client
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1882,33 +1809,24 @@ importers:
 
   packages/surface/example/fleet-top/part-3:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../../..
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../../../../surface-app
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../../../../surface-map
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
@@ -1918,9 +1836,6 @@ importers:
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1952,18 +1867,9 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -1980,9 +1886,9 @@ importers:
 
   packages/surface/example/remote-process-monitor:
     dependencies:
-      '@hono/node-server':
-        specifier: ^2.0.10
-        version: 2.0.10(hono@4.12.31)
+      '@effect/platform-node':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)
       '@kolu/surface':
         specifier: workspace:*
         version: link:../..
@@ -1992,30 +1898,15 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
-      '@orpc/server':
-        specifier: ^1.13.13
-        version: 1.13.13(ws@8.21.0)
-      hono:
-        specifier: ^4.12.27
-        version: 4.12.31
-      partysocket:
-        specifier: ^1.1.16
-        version: 1.1.16(react@19.2.8)
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ws:
         specifier: ^8.21.0
         version: 8.21.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.0
@@ -2068,18 +1959,15 @@ importers:
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../../../surface-remote
-      '@orpc/contract':
-        specifier: ^1.13.13
-        version: 1.13.13
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       solid-js:
         specifier: ^1.9.0
         version: 1.9.11
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2130,6 +2018,9 @@ importers:
       anyforge:
         specifier: workspace:*
         version: link:../integrations/anyforge
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       kolu-claude-code:
         specifier: workspace:*
         version: link:../integrations/claude-code
@@ -2151,9 +2042,6 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2182,9 +2070,18 @@ importers:
       '@kolu/shell-quote':
         specifier: workspace:*
         version: link:../shell-quote
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      '@kolu/surface-app':
+        specifier: workspace:*
+        version: link:../surface-app
       '@kolu/surface-map':
         specifier: workspace:*
         version: link:../surface-map
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
       get-port:
         specifier: ^7.2.0
         version: 7.2.0
@@ -2214,9 +2111,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../log
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -2301,9 +2198,6 @@ importers:
 
   packages/xterm-kit:
     dependencies:
-      '@orpc/client':
-        specifier: ^1.13.13
-        version: 1.13.13
       '@solid-primitives/event-listener':
         specifier: ^2.4.5
         version: 2.4.5(solid-js@1.9.11)
@@ -2337,6 +2231,9 @@ importers:
       '@xterm/xterm':
         specifier: 6.1.0-beta.289
         version: 6.1.0-beta.289
+      effect:
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103
     devDependencies:
       '@babel/parser':
         specifier: ^7.29.2
@@ -2647,6 +2544,30 @@ packages:
   '@cucumber/tag-expressions@9.1.0':
     resolution: {integrity: sha512-bvHjcRFZ+J1TqIa9eFNO1wGHqwx4V9ZKV3hYgkuK/VahHx73uiP4rKV3JVrvWSMrwrFvJG6C8aEwnCWSvbyFdQ==}
 
+  '@effect/platform-browser@4.0.0-beta.103':
+    resolution: {integrity: sha512-3GXGzjv+dB5E9sCCj/JhPVyNB2NrBquGY2tYQ8VQqGK4uOpME6I5oLqRt+MmB7BWqWYPXUqvXj0wvMJRlQC4fw==}
+    peerDependencies:
+      effect: 4.0.0-beta.103
+
+  '@effect/platform-node-shared@4.0.0-beta.103':
+    resolution: {integrity: sha512-0aCZMBid5ifqmY55TkfCDLaGTIM8qu3bNFUW7qL9vh/7jFOkaIAMX2MA8muG4deqW17XWxawddWu4v0fK+UW3g==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: 4.0.0-beta.103
+
+  '@effect/platform-node@4.0.0-beta.103':
+    resolution: {integrity: sha512-VD8fbpendwFokMwzC7/MxazjhEVDihPC5NZtomYEyZwGaA1LXMvwP1y8pfXwfshUkG56TN4EMQqzu72c0B9FhA==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      effect: 4.0.0-beta.103
+      ioredis: ^5.7.0
+
+  '@effect/vitest@4.0.0-beta.103':
+    resolution: {integrity: sha512-Kz3gemVuJNAZ3e4V6A7BwAP87x2Av8LyHOlCjy9jbZzlncwJXO7Olk1Sje3hdKaet3wEl51A/0/89xJ2IYSgNg==}
+    peerDependencies:
+      effect: 4.0.0-beta.103
+      vitest: ^4.1.0
+
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
 
@@ -2836,14 +2757,6 @@ packages:
     peerDependencies:
       hono: ^4.12.27
 
-  '@hono/node-ws@1.3.0':
-    resolution: {integrity: sha512-ju25YbbvLuXdqBCmLZLqnNYu1nbHIQjoyUqA8ApZOeL1k4skuiTcw5SW77/5SUYo2Xi2NVBJoVlfQurnKEp03Q==}
-    engines: {node: '>=18.14.1'}
-    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
-    peerDependencies:
-      '@hono/node-server': ^1.19.2
-      hono: ^4.12.27
-
   '@img/sharp-darwin-arm64@0.34.5':
     resolution: {integrity: sha512-imtQ3WMJXbMY4fxb/Ndp6HBTNVtWCUI0WdobyheGf5+ad6xX8VIDO8u2xE4qc/fr08CKG/7dDseFtn6M6g/r3w==}
     engines: {node: ^18.17.0 || ^20.3.0 || >=21.0.0}
@@ -2943,6 +2856,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@ioredis/commands@1.10.0':
+    resolution: {integrity: sha512-UmeW7z4LfctwoQ5wkhVzgq8tXkreED2xZGpX+Bg+zA+WJFZCT6c062AfCK/Dfk81xZnnwdhJCUMkitihRaoC2Q==}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -2978,6 +2894,36 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
+  '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
+    resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@msgpackr-extract/msgpackr-extract-darwin-x64@3.0.4':
+    resolution: {integrity: sha512-zExlW9zUJKZH/tOtVMttwjKa4Xm/3KcNjnE3dPN92uCktwavMxpgCA3MoJK/DOnTWsQgo224OaST27/mPNAf+w==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm64@3.0.4':
+    resolution: {integrity: sha512-dgX0P/9wGPJeHFBG+ZmhgE6bmtMt7NP5CRBGyyktpopdk/mW4POnrpQsSLtKI1dwpc+pPLuXHDh6vvskyQE/sw==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm@3.0.4':
+    resolution: {integrity: sha512-Tg3yX65f5GbtXLkrYEHE5oibZG9epyYWas7FogTTEJeDEF9JlXJzKgXaNhT3UXlTOeA+AfZpYZYZ0uPj7Cfquw==}
+    cpu: [arm]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-linux-x64@3.0.4':
+    resolution: {integrity: sha512-8TNXMEjJc3QEy7R/x1INhgiU+XakDAFUzBhaz7+Rbrs8NH5UQeHQxxmzsSBJGyV6I1jW79undiQm8tOI+D+8FQ==}
+    cpu: [x64]
+    os: [linux]
+
+  '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
+    resolution: {integrity: sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==}
+    cpu: [x64]
+    os: [win32]
+
   '@napi-rs/wasm-runtime@1.1.5':
     resolution: {integrity: sha512-AWPoBRJ9tsnVhor4sjO7rkni+7p+2IAEFj6cx06UgP10jkQHqay/36uRV/bFkgrh18D9vb4cr8Q0Pthskgzy+Q==}
     peerDependencies:
@@ -2987,73 +2933,6 @@ packages:
   '@noble/hashes@1.4.0':
     resolution: {integrity: sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==}
     engines: {node: '>= 16'}
-
-  '@orpc/client@1.13.13':
-    resolution: {integrity: sha512-jagx/Sa+9K4HEC5lBrUlMSrmR/06hvZctWh93/sKZc8GBk4zM0+71oT1kXQVw1oRYFV2XAq3xy3m6NdM6gfKYA==}
-
-  '@orpc/contract@1.13.13':
-    resolution: {integrity: sha512-md6iyrYkePBSJNs1VnVEEnAUORMDPHIf3JGRSHxyssIcNakev/iOjP0HvpH0Sx0MlTBhihAJo6uFL8Vpth58Nw==}
-
-  '@orpc/experimental-pino@1.13.13':
-    resolution: {integrity: sha512-Jfjzv24tkkOdjNsnzCO0vw70dB75Qm5NAuJxv9Mog4BOjiYnCUjNkAEnUqpLI4SZrOL/BJnGWe0uXTB0FlycDA==}
-    peerDependencies:
-      pino: '>=10.1.0'
-
-  '@orpc/experimental-publisher@1.13.13':
-    resolution: {integrity: sha512-Tuj2+X/44papyh1fsGMgzfCy3Tqz/EBNIQDqQPL6KqfOpFgpkd9xvRDa6JsN/nEZbUZFsQK0TM5eHBAhRrDIxQ==}
-    peerDependencies:
-      '@upstash/redis': '>=1.35.6'
-      ioredis: '>=5.8.1'
-    peerDependenciesMeta:
-      '@upstash/redis':
-        optional: true
-      ioredis:
-        optional: true
-
-  '@orpc/interop@1.13.13':
-    resolution: {integrity: sha512-S8edIRA7ekD3/gHx5MrsO9CxZ0QvCaVDkVbNf42SZbLYPXuvxtdH0CYwaB1q9uQg2Jk0PBP8AquLH6WFwjMSbQ==}
-
-  '@orpc/server@1.13.13':
-    resolution: {integrity: sha512-l3OfiaqfLiLQqamXufKiEzT8K9Zq8VHvijADV5eDJOaz6sFzK1Mg6q2D8l9wcmuyG7ga0HfMT+cf3JQsh5WDIA==}
-    peerDependencies:
-      crossws: '>=0.3.4'
-      ws: '>=8.18.1'
-    peerDependenciesMeta:
-      crossws:
-        optional: true
-      ws:
-        optional: true
-
-  '@orpc/shared@1.13.13':
-    resolution: {integrity: sha512-kNpYOBjHvmgKHla6munWOaEeA0utEfAvoiZpXjiRjjt1RxTibdwQvVHgxRIBNMXfQsb+ON3Q/wDkoaUhvvSnIw==}
-    peerDependencies:
-      '@opentelemetry/api': '>=1.9.0'
-    peerDependenciesMeta:
-      '@opentelemetry/api':
-        optional: true
-
-  '@orpc/standard-server-aws-lambda@1.13.13':
-    resolution: {integrity: sha512-e7310DnN6FSpRgR5gQpwvwg2B3uR+NoT7qlnyQWsjxQGr95L4GST3hRNSsQdQyXmFx1jvCCp0i3kAE9SJyvU6A==}
-
-  '@orpc/standard-server-fastify@1.13.13':
-    resolution: {integrity: sha512-G5Sq+rZDPwHvWJHsAA6bYWoJ7LcGyBby+SjjEGwz+viRdBk/inZnZafKpM+pL89aDdq6iw99Bcbug5WFPP6KdA==}
-    peerDependencies:
-      fastify: '>=5.6.1'
-    peerDependenciesMeta:
-      fastify:
-        optional: true
-
-  '@orpc/standard-server-fetch@1.13.13':
-    resolution: {integrity: sha512-Lffy26+WtCQkwOUacsrdyeJF1GNzrhm75O3LXKVFXqmSdyVVdyI6zuqLn/YKGODU2L9IqGxZ2CwsV2tE298SSA==}
-
-  '@orpc/standard-server-node@1.13.13':
-    resolution: {integrity: sha512-wI45h/bVWn7lgvqqm5aM7vj5BblmmBdFG2wbEhmpY85DslbCtMNJrIw/x+zxm1XgYAzsKLExLp6L01hzjeHmEA==}
-
-  '@orpc/standard-server-peer@1.13.13':
-    resolution: {integrity: sha512-FeWAbXfnZDPYQRajM0hD6GJvHeC3DZILngAjdcLHy5zt3riu6nL2lLPSWDv5yNWWscmYU+CfKmXWd0Z01BOeWA==}
-
-  '@orpc/standard-server@1.13.13':
-    resolution: {integrity: sha512-9pgS8XvauuRQElkyuD8F3om+nN0KBEnTkhblDHCBzkZERjWkmfirJmshQrWHoFaDTk+nnXHIaY6d7TBTxXdPRw==}
 
   '@oxc-project/types@0.137.0':
     resolution: {integrity: sha512-WT+Gb24i8hmvo85AIv2oEYouEXkRlKAlT9WaCa3TfLgNCN+GhrJOGZuIlMouAh38Qe4QOx26eUOVsq70qXrywA==}
@@ -3248,9 +3127,6 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
-
-  '@preact/signals-core@1.14.4':
-    resolution: {integrity: sha512-HNB6HYeYKhQbJ1aKl+YRjrS4+QWHLKX6qKoUsfS/m0vqzsVaEBiZiaKbG/e+NKk2ch5ALQr/ihWaMHxiCuuWHA==}
 
   '@rolldown/binding-android-arm64@1.1.2':
     resolution: {integrity: sha512-2cZ+7xRS+DBcuJBJKnfzsbleumJhBqSlJVpuzHC0nTqfd3QQ7Vx2/x5YR/D7cBamKSeWplwo82Fn9lqYUDEMfA==}
@@ -4010,6 +3886,10 @@ packages:
     resolution: {integrity: sha512-JQHZ2QMW6l3aH/j6xCqQThY/9OH4D/9ls34cgkUBiEeocRTU04tHfKPBsUK1PqZCUQM7GiA0IIXJSuXHI64Kbg==}
     engines: {node: '>=0.8'}
 
+  cluster-key-slot@1.1.1:
+    resolution: {integrity: sha512-rwHwUfXL40Chm1r08yrhU3qpUvdVlgkKNeyeGPOxnW8/SyVDvgRaed/Uz54AqWNaTCAThlj6QAs3TZcKI0xDEw==}
+    engines: {node: '>=0.10.0'}
+
   code-excerpt@4.0.0:
     resolution: {integrity: sha512-xxodCmBen3iy2i0WtAK8FlFNrRzjUqjRsMfho58xT/wvZU1YTM3fCnRjcy1gJPMepaRlgm/0e6w8SpWHpn3/cA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
@@ -4082,10 +3962,6 @@ packages:
     resolution: {integrity: sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==}
     engines: {node: '>= 0.6'}
 
-  cookie@1.1.1:
-    resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
-    engines: {node: '>=18'}
-
   cors@2.8.6:
     resolution: {integrity: sha512-tJtZBBHA6vjIAaF6EnIaq6laBBP9aq/Y3ouVJjEfoHbRBcHBAHYcMh/w8LDrk2PvIMMq8gmopa5D4V8RmbrxGw==}
     engines: {node: '>= 0.10'}
@@ -4130,8 +4006,9 @@ packages:
   defaults@1.0.4:
     resolution: {integrity: sha512-eFuaLoy/Rxalv2kr+lqMlUnrDWV+3j4pljOIJgLIhI058IQfWJ7vXhyEIHu+HtC738klGALYxOKDO0bQP3tg8A==}
 
-  defu@6.1.7:
-    resolution: {integrity: sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==}
+  denque@2.1.0:
+    resolution: {integrity: sha512-HVQE3AAb/pxF8fQAoiqpvg9i3evqug3hoiwakOyZAwJm+6vZehbkYXZ0l4JxS+I3QxM97v5aaRNhj8v5oBhekw==}
+    engines: {node: '>=0.10'}
 
   depd@2.0.0:
     resolution: {integrity: sha512-g7nH6P6dyDioJogAAGprGpCtVImJhpPk/roCzdb3fIh61/s/nPsfR6onyMwkCAR/OlC3yBC0lESvUoQEAssIrw==}
@@ -4169,6 +4046,9 @@ packages:
 
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+
+  effect@4.0.0-beta.103:
+    resolution: {integrity: sha512-pE8TxF4m2tQzVI+77dIlm3s+81TACV1AiX1JEkvY+zVuxgQQ8aGSkqXNJF6b/ST+coCSk5cUdbULpQ7sm4oHyw==}
 
   electron-to-chromium@1.5.334:
     resolution: {integrity: sha512-mgjZAz7Jyx1SRCwEpy9wefDS7GvNPazLthHg8eQMJ76wBdGQQDW33TCrUTvQ4wzpmOrv2zrFoD3oNufMdyMpog==}
@@ -4258,9 +4138,6 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  event-target-polyfill@0.0.4:
-    resolution: {integrity: sha512-Gs6RLjzlLRdT8X9ZipJdIZI/Y6/HhRLyq9RdDlCsnpxr/+Nn6bU2EFGuC94GjxqhM+Nmij2Vcq98yoHrU8uNFQ==}
-
   eventsource-parser@3.0.6:
     resolution: {integrity: sha512-Vo1ab+QXPzZ4tCa8SwIHJFaSzy4R6SHf7BY79rFBDf0idraZWAkYrDjDj8uWaSm3S2TK+hJ7/t1CEmZ7jXw+pg==}
     engines: {node: '>=18.0.0'}
@@ -4282,6 +4159,10 @@ packages:
   express@5.2.1:
     resolution: {integrity: sha512-hIS4idWWai69NezIdRt2xFVofaF4j+6INOpJlVOLDO8zXGpUVEVzIYk12UUi2JzjEzWL3IOAxcTubgz9Po0yXw==}
     engines: {node: '>= 18'}
+
+  fast-check@4.9.0:
+    resolution: {integrity: sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==}
+    engines: {node: '>=12.17.0'}
 
   fast-copy@4.0.2:
     resolution: {integrity: sha512-ybA6PDXIXOXivLJK/z9e+Otk7ve13I4ckBvGO5I2RRmBU1gMHLVDJYEuJYhGwez7YNlYji2M2DvVU+a9mSFDlw==}
@@ -4311,6 +4192,9 @@ packages:
   finalhandler@2.1.1:
     resolution: {integrity: sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA==}
     engines: {node: '>= 18.0.0'}
+
+  find-my-way-ts@0.1.6:
+    resolution: {integrity: sha512-a85L9ZoXtNAey3Y6Z+eBWW658kO/MwR7zIafkIUPUMf3isZG0NCs2pjW2wtjxAKuJPxMAsHUIP4ZPGv0o5gyTA==}
 
   find-up-simple@1.0.1:
     resolution: {integrity: sha512-afd4O7zpqHeRyg4PfDQsXmlDe2PfdHtJt6Akt8jOWaApLOZk5JXs6VMR29lz03pRe9mpykrRCYIYxaJYcfpncQ==}
@@ -4414,13 +4298,6 @@ packages:
   help-me@5.0.0:
     resolution: {integrity: sha512-7xgomUX6ADmcYzFik0HzAxh/73YlKR9bmFzf51CZwR+b6YtzU2m0u49hQCqV6SvlqIqsaxovfwdvbnsw3b/zpg==}
 
-  hono-pino@0.10.3:
-    resolution: {integrity: sha512-n0RNPIFOoq25Fg8b4D5gus4sVqI0z+8I17ibl96+p43d07UnZ0EMM/It0qSgfc7UtaC+XP5FkFmRHwBp6owsNA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      hono: ^4.12.27
-      pino: '>=7.1.0'
-
   hono@4.12.31:
     resolution: {integrity: sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg==}
     engines: {node: '>=16.9.0'}
@@ -4466,6 +4343,10 @@ packages:
     resolution: {integrity: sha512-7PnF4oN3CvZF23ADhA5wRaYEQpJ8qygSkbtTXWBeXWXmEVRXK+1ITciHWwHhsjv1TmW0MgacIv6hEi5pX5NQdA==}
     engines: {node: '>=10'}
 
+  ini@7.0.0:
+    resolution: {integrity: sha512-ifK0CgjALofS5bkrcTy4RaQ9Vx2Knf/eLeIO+NaswQEpH1UblrtTSCIvN71qQDMq0PeQ/SSPojvEJp9vvvfr+w==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
+
   ink-testing-library@4.0.0:
     resolution: {integrity: sha512-yF92kj3pmBvk7oKbSq5vEALO//o7Z9Ck/OaLNlkzXNeYdwfpxMQkSowGTFUCS5MSu9bWfSZMewGpp7bFc66D7Q==}
     engines: {node: '>=18'}
@@ -4494,6 +4375,10 @@ packages:
         optional: true
       react-devtools-core:
         optional: true
+
+  ioredis@5.11.1:
+    resolution: {integrity: sha512-ehuGcf94bQXhfagULNXrJdfnWO38v070jxSx/qE87Kjzmu2fU7ro5EFAb+OPituLqgfyuQaym5DlrNydW2sJ9A==}
+    engines: {node: '>=12.22.0'}
 
   ip-address@10.1.1:
     resolution: {integrity: sha512-1FMu8/N15Ck1BL551Jf42NYIoin2unWjLQ2Fze/DXryJRl5twqtwNHlO39qERGbIOcKYWHdgRryhOC+NG4eaLw==}
@@ -4597,6 +4482,9 @@ packages:
 
   knuth-shuffle-seeded@1.0.6:
     resolution: {integrity: sha512-9pFH0SplrfyKyojCLxZfMcvkhf5hH0d+UwR9nTVJ/DDQJGuzcXjTwB7TP7sDfehSudlGGaOLblmEWqv04ERVWg==}
+
+  kubernetes-types@1.30.0:
+    resolution: {integrity: sha512-Dew1okvhM/SQcIa2rcgujNndZwU8VnSapDgdxlYoB84ZlpAD43U6KLAFqYo17ykSFGHNPrg0qry0bP+GJd9v7Q==}
 
   lightningcss-android-arm64@1.32.0:
     resolution: {integrity: sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg==}
@@ -4775,6 +4663,11 @@ packages:
     engines: {node: '>=10.0.0'}
     hasBin: true
 
+  mime@4.1.0:
+    resolution: {integrity: sha512-X5ju04+cAzsojXKes0B/S4tcYtFAJ6tTMuSPBEn9CPGlrWr8Fiw7qYeLT0XyH80HSoAoqWCaz+MWKh22P7G1cw==}
+    engines: {node: '>=16'}
+    hasBin: true
+
   mimic-fn@2.1.0:
     resolution: {integrity: sha512-OqbOk5oEQeAZ8WXWydlu9HJjz9WVdEIvamMCcXmuqUYjTknH/sqsWvhQ3vgwKFRR1HpjvNBKQ37nbJgYzGqGcg==}
     engines: {node: '>=6'}
@@ -4806,6 +4699,16 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  msgpackr-extract@3.0.4:
+    resolution: {integrity: sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==}
+    hasBin: true
+
+  msgpackr@2.0.5:
+    resolution: {integrity: sha512-cef05H/dSYpLpqp3sj/qyZh5vhUYCalnaLO7j1yOmpsR0y/XwLVtK7r5gn+U/F7CTEfMowcGhlUQJDLcLf7jcA==}
+
+  multipasta@0.2.8:
+    resolution: {integrity: sha512-ZPWuMKyv0cSO29f7hozp+k6+crZbQijV8ipMvxNxRf2SwtYGTX1ZX89Kd20VV4H9Znonx+EQn+iy1wGQsJ+b+Q==}
+
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
 
@@ -4827,6 +4730,10 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
+
+  node-gyp-build-optional-packages@5.2.2:
+    resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
+    hasBin: true
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
     resolution: {gitHosted: true, tarball: https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d}
@@ -4871,9 +4778,6 @@ packages:
   oniguruma-to-es@4.3.6:
     resolution: {integrity: sha512-csuQ9x3Yr0cEIs/Zgx/OEt9iBw9vqIunAPQkx19R/fiMq2oGVTgcMqO/V3Ybqefr1TBvosI6jU539ksaBULJyA==}
 
-  openapi-types@12.1.3:
-    resolution: {integrity: sha512-N4YtSYJqghVu4iek2ZUvcN/0aqH1kRDuNqzcycDxhOUpg7GdvLa2F3DgS6yBNhInhv2r/6I0Flkn7CqL8+nIcw==}
-
   p-limit@7.3.1:
     resolution: {integrity: sha512-0trZaiG7Y7kN/Egy9a8j47t9osC0Tch4PaIWd9yGF6bvmlk7muExRvGNYb8sXBwEKMoNKsbNN9P8EefuQekE4Q==}
     engines: {node: '>=20'}
@@ -4895,14 +4799,6 @@ packages:
   parseurl@1.3.3:
     resolution: {integrity: sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ==}
     engines: {node: '>= 0.8'}
-
-  partysocket@1.1.16:
-    resolution: {integrity: sha512-d7xFv+ZC7x0p/DAHWJ5FhxQhimIx+ucyZY+kxL0cKddLBmK9c4p2tEA/L+dOOrWm6EYrRwrBjKQV0uSzOY9x1w==}
-    peerDependencies:
-      react: '>=17'
-    peerDependenciesMeta:
-      react:
-        optional: true
 
   patch-console@2.0.0:
     resolution: {integrity: sha512-0YNdUceMdaQwoKce1gatDScmMo5pu/tfABfnzEqeG0gtTmd7mh/WcwgUjtAeOU7N8nFFlbQBnFK2gXW5fGvmMA==}
@@ -5000,6 +4896,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pure-rand@8.4.2:
+    resolution: {integrity: sha512-vvuOGgcuPJAirlHvuQw1TrOiw7ptaIXXmIbNuiNOY6lNGJJH49PQ1Kj4nd783nPdQhQdicgOjVI2yI/9BD6/Ng==}
+
   pvtsutils@1.3.6:
     resolution: {integrity: sha512-PLgQXQ6H2FWCaeRak8vvk1GW462lMxB5s3Jm673N82zI4vqtVUPuZdffdZbPDFRoU8kAhItWFtPCWiPpp4/EDg==}
 
@@ -5017,10 +4916,6 @@ packages:
   quick-lru@7.3.0:
     resolution: {integrity: sha512-k9lSsjl36EJdK7I06v7APZCbyGT2vMTsYSRX1Q2nbYmnkBqgUhRkAuzH08Ciotteu/PLJmIF2+tti7o3C/ts2g==}
     engines: {node: '>=18'}
-
-  radash@12.1.1:
-    resolution: {integrity: sha512-h36JMxKRqrAxVD8201FrCpyeNuUY9Y5zZwujr20fFO77tpUtGa6EZzfKw/3WaiBX95fq7+MpsuMLNdSnORAwSA==}
-    engines: {node: '>=14.18.0'}
 
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
@@ -5051,6 +4946,14 @@ packages:
   real-require@0.2.0:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
+
+  redis-errors@1.2.0:
+    resolution: {integrity: sha512-1qny3OExCf0UvUV/5wpYKf2YwPcOqXzkwKKSmKHiE6ZMQs5heeE/c8eXK+PNllPvmjgAbfnsbpkGZWy8cBpn9w==}
+    engines: {node: '>=4'}
+
+  redis-parser@3.0.0:
+    resolution: {integrity: sha512-DJnGAeenTdpMEH6uAJRK/uiyEIH9WVsUmoLwzudwGJUwZPp80PDBWPHXSAGNPwNvIXAbe7MSUB1zQFugFml66A==}
+    engines: {node: '>=4'}
 
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
@@ -5282,6 +5185,9 @@ packages:
   stackframe@1.3.4:
     resolution: {integrity: sha512-oeVtt7eWQS+Na6F//S4kJ2K2VbRlS9D43mAlMyVpVWovy9o+jfgH8O9agzANzaiLjclA0oYzUXEM4PurhSUChw==}
 
+  standard-as-callback@2.1.0:
+    resolution: {integrity: sha512-qoRRSyROncaz1z0mvYqIE4lCd9p2R90i6GxW3uZv5ucSu8tU7B5HXUP1gG8pVZsYNVaXjk8ClXHPttLyxAL48A==}
+
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
@@ -5402,6 +5308,10 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
+
+  toml@4.3.0:
+    resolution: {integrity: sha512-lVb8X9BsPVuH0M4BKeS91tXAmJvCjQ5UIyAbQFaxkKGyUFK2RPkhwaFSQH8vbpl1d23eu/IBH+dwVMHWaq9A5A==}
+    engines: {node: '>=20'}
 
   toposort@2.0.2:
     resolution: {integrity: sha512-0a5EOkAUp8D4moMi2W8ZF8jcga7BgZd91O/yabJCFY8az+XSzeGyTKs0Aoo897iV1Nj6guFq8orWDS96z91oGg==}
@@ -5529,6 +5439,10 @@ packages:
 
   util-arity@1.1.0:
     resolution: {integrity: sha512-kkyIsXKwemfSy8ZEoaIz06ApApnWsk5hQO0vLjZS6UkBiGiW++Jsyb8vSBoc0WKlffGoGs5yYy/j5pp8zckrFA==}
+
+  uuid@14.0.1:
+    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
+    hasBin: true
 
   validate-npm-package-license@3.0.4:
     resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
@@ -6153,6 +6067,36 @@ snapshots:
 
   '@cucumber/tag-expressions@9.1.0': {}
 
+  '@effect/platform-browser@4.0.0-beta.103(effect@4.0.0-beta.103)':
+    dependencies:
+      effect: 4.0.0-beta.103
+      multipasta: 0.2.8
+
+  '@effect/platform-node-shared@4.0.0-beta.103(effect@4.0.0-beta.103)':
+    dependencies:
+      '@types/ws': 8.18.1
+      effect: 4.0.0-beta.103
+      ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1)':
+    dependencies:
+      '@effect/platform-node-shared': 4.0.0-beta.103(effect@4.0.0-beta.103)
+      effect: 4.0.0-beta.103
+      ioredis: 5.11.1
+      mime: 4.1.0
+      undici: 8.9.0
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  '@effect/vitest@4.0.0-beta.103(effect@4.0.0-beta.103)(vitest@4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3)))':
+    dependencies:
+      effect: 4.0.0-beta.103
+      vitest: 4.1.0(@types/node@22.19.15)(happy-dom@20.8.9)(jsdom@30.0.1)(vite@8.1.0(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
   '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
@@ -6264,15 +6208,6 @@ snapshots:
     dependencies:
       hono: 4.12.31
 
-  '@hono/node-ws@1.3.0(@hono/node-server@2.0.10(hono@4.12.31))(hono@4.12.31)':
-    dependencies:
-      '@hono/node-server': 2.0.10(hono@4.12.31)
-      hono: 4.12.31
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-
   '@img/sharp-darwin-arm64@0.34.5':
     optionalDependencies:
       '@img/sharp-libvips-darwin-arm64': 1.2.4
@@ -6335,6 +6270,8 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
+  '@ioredis/commands@1.10.0': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -6390,6 +6327,24 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-darwin-x64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-arm@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-linux-x64@3.0.4':
+    optional: true
+
+  '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
+    optional: true
+
   '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
       '@emnapi/core': 1.11.1
@@ -6398,115 +6353,6 @@ snapshots:
     optional: true
 
   '@noble/hashes@1.4.0': {}
-
-  '@orpc/client@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-peer': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/contract@1.13.13':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@standard-schema/spec': 1.1.0
-      openapi-types: 12.1.3
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/experimental-pino@1.13.13(pino@10.3.1)(ws@8.21.0)':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/server': 1.13.13(ws@8.21.0)
-      '@orpc/shared': 1.13.13
-      pino: 10.3.1
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - crossws
-      - fastify
-      - ws
-
-  '@orpc/experimental-publisher@1.13.13':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/interop@1.13.13': {}
-
-  '@orpc/server@1.13.13(ws@8.21.0)':
-    dependencies:
-      '@orpc/client': 1.13.13
-      '@orpc/contract': 1.13.13
-      '@orpc/interop': 1.13.13
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-aws-lambda': 1.13.13
-      '@orpc/standard-server-fastify': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-      '@orpc/standard-server-peer': 1.13.13
-      cookie: 1.1.1
-    optionalDependencies:
-      ws: 8.21.0
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-      - fastify
-
-  '@orpc/shared@1.13.13':
-    dependencies:
-      radash: 12.1.1
-      type-fest: 5.5.0
-
-  '@orpc/standard-server-aws-lambda@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-fastify@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-node': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-fetch@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-node@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-      '@orpc/standard-server-fetch': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server-peer@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-      '@orpc/standard-server': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
-
-  '@orpc/standard-server@1.13.13':
-    dependencies:
-      '@orpc/shared': 1.13.13
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
 
   '@oxc-project/types@0.137.0': {}
 
@@ -6703,8 +6549,6 @@ snapshots:
       - shiki
 
   '@pinojs/redact@0.4.0': {}
-
-  '@preact/signals-core@1.14.4': {}
 
   '@rolldown/binding-android-arm64@1.1.2':
     optional: true
@@ -7358,6 +7202,8 @@ snapshots:
 
   clone@1.0.4: {}
 
+  cluster-key-slot@1.1.1: {}
+
   code-excerpt@4.0.0:
     dependencies:
       convert-to-spaces: 2.0.1
@@ -7421,8 +7267,6 @@ snapshots:
 
   cookie@0.7.2: {}
 
-  cookie@1.1.1: {}
-
   cors@2.8.6:
     dependencies:
       object-assign: 4.1.1
@@ -7468,7 +7312,7 @@ snapshots:
     dependencies:
       clone: 1.0.4
 
-  defu@6.1.7: {}
+  denque@2.1.0: {}
 
   depd@2.0.0: {}
 
@@ -7499,6 +7343,19 @@ snapshots:
       gopd: 1.2.0
 
   ee-first@1.1.1: {}
+
+  effect@4.0.0-beta.103:
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      fast-check: 4.9.0
+      find-my-way-ts: 0.1.6
+      ini: 7.0.0
+      kubernetes-types: 1.30.0
+      msgpackr: 2.0.5
+      multipasta: 0.2.8
+      toml: 4.3.0
+      uuid: 14.0.1
+      yaml: 2.8.3
 
   electron-to-chromium@1.5.334: {}
 
@@ -7586,8 +7443,6 @@ snapshots:
 
   etag@1.8.1: {}
 
-  event-target-polyfill@0.0.4: {}
-
   eventsource-parser@3.0.6: {}
 
   eventsource@3.0.7:
@@ -7634,6 +7489,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  fast-check@4.9.0:
+    dependencies:
+      pure-rand: 8.4.2
+
   fast-copy@4.0.2: {}
 
   fast-deep-equal@3.1.3: {}
@@ -7660,6 +7519,8 @@ snapshots:
       statuses: 2.0.2
     transitivePeerDependencies:
       - supports-color
+
+  find-my-way-ts@0.1.6: {}
 
   find-up-simple@1.0.1: {}
 
@@ -7767,12 +7628,6 @@ snapshots:
 
   help-me@5.0.0: {}
 
-  hono-pino@0.10.3(hono@4.12.31)(pino@10.3.1):
-    dependencies:
-      defu: 6.1.7
-      hono: 4.12.31
-      pino: 10.3.1
-
   hono@4.12.31: {}
 
   hosted-git-info@9.0.2:
@@ -7810,6 +7665,8 @@ snapshots:
   inherits@2.0.4: {}
 
   ini@2.0.0: {}
+
+  ini@7.0.0: {}
 
   ink-testing-library@4.0.0(@types/react@19.2.17):
     optionalDependencies:
@@ -7855,6 +7712,18 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  ioredis@5.11.1:
+    dependencies:
+      '@ioredis/commands': 1.10.0
+      cluster-key-slot: 1.1.1
+      debug: 4.4.3(supports-color@8.1.1)
+      denque: 2.1.0
+      redis-errors: 1.2.0
+      redis-parser: 3.0.0
+      standard-as-callback: 2.1.0
+    transitivePeerDependencies:
+      - supports-color
 
   ip-address@10.1.1: {}
 
@@ -7943,6 +7812,8 @@ snapshots:
   knuth-shuffle-seeded@1.0.6:
     dependencies:
       seed-random: 2.2.0
+
+  kubernetes-types@1.30.0: {}
 
   lightningcss-android-arm64@1.32.0:
     optional: true
@@ -8083,6 +7954,8 @@ snapshots:
 
   mime@3.0.0: {}
 
+  mime@4.1.0: {}
+
   mimic-fn@2.1.0: {}
 
   mimic-function@5.0.1: {}
@@ -8100,6 +7973,24 @@ snapshots:
   mrmime@2.0.1: {}
 
   ms@2.1.3: {}
+
+  msgpackr-extract@3.0.4:
+    dependencies:
+      node-gyp-build-optional-packages: 5.2.2
+    optionalDependencies:
+      '@msgpackr-extract/msgpackr-extract-darwin-arm64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-darwin-x64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-arm': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-arm64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-linux-x64': 3.0.4
+      '@msgpackr-extract/msgpackr-extract-win32-x64': 3.0.4
+    optional: true
+
+  msgpackr@2.0.5:
+    optionalDependencies:
+      msgpackr-extract: 3.0.4
+
+  multipasta@0.2.8: {}
 
   mz@2.7.0:
     dependencies:
@@ -8121,6 +8012,11 @@ snapshots:
       tslib: 2.8.1
 
   node-addon-api@7.1.1: {}
+
+  node-gyp-build-optional-packages@5.2.2:
+    dependencies:
+      detect-libc: 2.1.2
+    optional: true
 
   node-pty@https://codeload.github.com/juspay/node-pty/tar.gz/999e2bdae2aeed45008bd34d8e886258f34eae8d:
     dependencies:
@@ -8162,8 +8058,6 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  openapi-types@12.1.3: {}
-
   p-limit@7.3.1:
     dependencies:
       yocto-queue: 1.2.2
@@ -8187,12 +8081,6 @@ snapshots:
       entities: 8.0.0
 
   parseurl@1.3.3: {}
-
-  partysocket@1.1.16(react@19.2.8):
-    dependencies:
-      event-target-polyfill: 0.0.4
-    optionalDependencies:
-      react: 19.2.8
 
   patch-console@2.0.0: {}
 
@@ -8303,6 +8191,8 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pure-rand@8.4.2: {}
+
   pvtsutils@1.3.6:
     dependencies:
       tslib: 2.8.1
@@ -8316,8 +8206,6 @@ snapshots:
   quick-format-unescaped@4.0.4: {}
 
   quick-lru@7.3.0: {}
-
-  radash@12.1.1: {}
 
   range-parser@1.2.1: {}
 
@@ -8350,6 +8238,12 @@ snapshots:
       unicorn-magic: 0.4.0
 
   real-require@0.2.0: {}
+
+  redis-errors@1.2.0: {}
+
+  redis-parser@3.0.0:
+    dependencies:
+      redis-errors: 1.2.0
 
   reflect-metadata@0.2.2: {}
 
@@ -8622,6 +8516,8 @@ snapshots:
 
   stackframe@1.3.4: {}
 
+  standard-as-callback@2.1.0: {}
+
   statuses@2.0.2: {}
 
   std-env@4.1.0: {}
@@ -8724,6 +8620,8 @@ snapshots:
       tldts-core: 7.4.9
 
   toidentifier@1.0.1: {}
+
+  toml@4.3.0: {}
 
   toposort@2.0.2: {}
 
@@ -8857,6 +8755,8 @@ snapshots:
       tslib: 2.8.1
 
   util-arity@1.1.0: {}
+
+  uuid@14.0.1: {}
 
   validate-npm-package-license@3.0.4:
     dependencies:

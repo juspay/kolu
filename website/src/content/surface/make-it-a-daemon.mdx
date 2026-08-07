@@ -28,7 +28,8 @@ does not change at all — only how it is reached and kept alive.
 ## Wrap the engine in a daemon
 
 `daemonMain` is the entire **gate → serve → teardown** lifecycle. It claims an
-atomic single-instance gate, serves the router over a socket, waits for the
+atomic single-instance gate, serves the surface's `{ group, handlers }` over a
+socket, waits for the
 lifetime to end, then closes the socket and releases the gate — returning a
 `DaemonExit` rather than calling `process.exit`, so the whole thing is drivable
 from a test. The *bin* wraps it in `daemonProcessMain`, which owns the process
@@ -38,8 +39,10 @@ interval can't keep a finished daemon alive.
 <Snippet src="packages/surface/example/fleet-top/part-2/src/daemon/main.ts" />
 
 We choose `{ kind: "forever" }`: an idle `top` still watches your machine, so an
-idle timeout would wrongly kill it. Note the router is the *same* `createTop()`
-from part 1, served verbatim. (`forever` is one of three lifetimes — the
+idle timeout would wrongly kill it. Note the daemon hands the spine the *same*
+two fields every transport takes — the flat `group` and the tag-keyed `handlers`
+— from the *same* `createTop()` runtime as part 1, served verbatim. (`forever` is
+one of three lifetimes — the
 [Reference](/surface/ref-surface-daemon) lists `idleTimeout` for a quiet
 coordinator and `boundToPid` for a daemon a test/smoke run wants to die with it.)
 
@@ -84,13 +87,13 @@ holding unlinked gate/socket inodes.
 
 A daemon you cannot spawn, watch, and replace is not much use. `createEndpoint`
 is the supervisor half of the spine — it runs in the *client*, never the daemon.
-`ensure()` is an always-recycle boot: kill any live survivor, wait for its pid to
-be reaped, spawn a fresh daemon so it outlives us, connect, and handshake. Every
-transition is reported.
+`converge(endpoint)` is the only boot verb — an always-recycle boot: kill any
+live survivor, wait for its pid to be reaped, spawn a fresh daemon so it outlives
+us, connect, and handshake. Every transition is reported.
 
 <Snippet src="packages/surface/example/fleet-top/part-2/src/supervisor/main.ts" />
 
-The finale is the payoff: `restart` runs the fixed
+The finale is the payoff: `recycle` runs the fixed
 `capture → drain → recycle → reattach` sequence — a **live recycle**. The daemon
 is killed and a fresh one stood up underneath, while the connection we hold
 reconnects on the far side. This demo has nothing to preserve, so it passes the
@@ -115,8 +118,8 @@ carries real per-host state.
    ```
 
    The second `connecting` / `connected` pair is the live recycle itself:
-   `restart` re-runs `ensure()`, so the endpoint reconnects to the fresh daemon
-   and re-fires its status. (`stderrLogger` also emits a structured JSON line per
+   `recycle` re-runs the endpoint's boot sequence, so the endpoint reconnects to
+   the fresh daemon and re-fires its status. (`stderrLogger` also emits a structured JSON line per
    event to stderr; the `[supervisor]`-prefixed lines above are the ones to
    read.)
 

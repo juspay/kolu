@@ -13,11 +13,8 @@
     "@kolu/surface": "workspace:*",
     "@kolu/surface-daemon": "workspace:*",
     "@kolu/surface-daemon-supervisor": "workspace:*",
-    "@orpc/client": "^1.13.13",
-    "@orpc/contract": "^1.13.13",
-    "@orpc/server": "^1.13.13",
-    "osfacts-client": "workspace:*",
-    "zod": "^4.3.6"
+    "effect": "catalog:",
+    "osfacts-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

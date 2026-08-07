@@ -18,6 +18,7 @@
  * and every test reaps the padi AND the detached kaval it spawned.
  */
 
+import { Effect } from "effect";
 import { type ChildProcess, spawn } from "node:child_process";
 import type { TerminalAttachFrame } from "./endpoint.ts";
 import { mkdtempSync, readFileSync } from "node:fs";
@@ -26,24 +27,28 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isContractVersionCompatible } from "@kolu/surface/define";
+import { awaitStdioReadiness } from "@kolu/surface/links/readiness";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import { DaemonContractSkewError } from "@kolu/surface-daemon-supervisor";
+import { Stream } from "effect";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { assertPadiSurfaceCompatible } from "./dial.ts";
+import { probeKavalStatus } from "./hostInventory.ts";
+import {
+  assertPadiSurfaceCompatible,
+  type PadiDaemonClient,
+  padiClientOver,
+} from "./dial.ts";
 import {
   padiGatePath,
   padiKavalSocketPath,
   padiSocketPath,
 } from "./stateRoot.ts";
-import { PADI_SURFACE_VERSION, type PadiDaemonContract } from "./surface.ts";
+import { PADI_SURFACE_VERSION, padiDaemonGroup } from "./surface.ts";
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 // Kept in step with the `padi` bin `package.json` declares — #2000 moved the
@@ -84,7 +89,13 @@ async function waitUntil(
   throw new Error(msg);
 }
 
-type Conn = UnixSocketConnection<PadiDaemonContract>;
+/** A dialed padi: the two typed faces over one link, plus that link's release.
+ *  `dispose` is ASYNC now and is the ONLY thing that frees the link's protocol
+ *  fibers — destroying the socket alone leaks one per dial. */
+interface Conn {
+  client: PadiDaemonClient;
+  dispose: () => Promise<void>;
+}
 
 interface Padi {
   child: ChildProcess;
@@ -148,8 +159,12 @@ function spawnPadi(stateRoot: string, bindPid: number = process.pid): Padi {
   return padi;
 }
 
-function connect(socketPath: string): Promise<Conn> {
-  return unixSocketLink<PadiDaemonContract>({ socketPath });
+async function connect(socketPath: string): Promise<Conn> {
+  const link = await unixSocketLink({ group: padiDaemonGroup, socketPath });
+  return {
+    client: padiClientOver(link.dispatch),
+    dispose: () => link.dispose(),
+  };
 }
 
 /** Poll-connect until padi answers a control-core `hello`, or fail loudly. */
@@ -158,7 +173,7 @@ async function waitForPadi(socketPath: string, ms = 15000): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const conn = await connect(socketPath);
-      await conn.client.surface.control.core.hello();
+      await Effect.runPromise(conn.client.control.surface.core.hello());
       await conn.dispose();
       return;
     } catch {
@@ -269,14 +284,31 @@ function spawnPadiStdioFront(stateRoot: string): PadiStdioFront {
   return front;
 }
 
-/** The combined-contract client speaking straight through a front's byte relay. */
-function stdioClient(front: PadiStdioFront) {
+/** The combined daemon client speaking straight through a front's byte relay.
+ *  Opened over the WHOLE daemon group, so both siblings' tags are reachable —
+ *  the same one-link-two-faces shape `dialPadiHello` builds. */
+async function stdioClient(front: PadiStdioFront): Promise<Conn> {
   if (!front.child.stdout || !front.child.stdin)
     throw new Error("stdio front child has no piped stdio");
-  return stdioLink<PadiDaemonContract>({
+  // The REAL gate over the REAL front (juspay/kolu#2101): `runPadiStdioBridge`
+  // converges the durable padi FIRST and only then greets, so a proof here is
+  // evidence that convergence succeeded on the far side — not merely that a
+  // process started.
+  const readiness = await awaitStdioReadiness({
+    read: front.child.stdout,
+    deadlineMs: 60_000,
+    describe: `padi --stdio front (${front.stateRoot})`,
+  });
+  const link = await stdioLink({
+    group: padiDaemonGroup,
     read: front.child.stdout,
     write: front.child.stdin,
+    readiness,
   });
+  return {
+    client: padiClientOver(link.dispatch),
+    dispose: () => link.dispose(),
+  };
 }
 
 /** Reap a stdio front AND the durable padi it fronted AND that padi's kaval — the
@@ -314,7 +346,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    const hello = await conn.client.surface.control.core.hello();
+    const hello = await Effect.runPromise(
+      conn.client.control.surface.core.hello(),
+    );
     // padi echoes its own identity — the resolved state-root it anchored to.
     expect(hello.stateRoot).toBe(resolve(stateRoot));
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
@@ -322,7 +356,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     // …and its boot time, stamped once at daemon init (honest uptime source).
     expect(hello.startedAt).toBeGreaterThan(0);
 
-    const clock = await conn.client.surface.control.core.clockNow();
+    const clock = await Effect.runPromise(
+      conn.client.control.surface.core.clockNow(),
+    );
     expect(clock.epochMs).toBeGreaterThan(0);
 
     await conn.dispose();
@@ -334,16 +370,18 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    const { id } = await conn.client.surface.padi.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
+    const { id } = await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.create({
+        cwd: makeStateRoot(),
+      }),
+    );
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
     // terminalAttach is the per-subscriber byte stream — its first frame is the
     // snapshot, straight through the socket (proving the delta/fail-through hop).
-    const attach = (await conn.client.surface.padi.terminalAttach.get({ id }))[
-      Symbol.asyncIterator
-    ]();
+    const attach = Stream.toAsyncIterable(
+      conn.client.padi.surface.terminalAttach.get({ id }),
+    )[Symbol.asyncIterator]();
     const first = await attach.next();
     // The first frame is a `snapshot` (contract 3.0 union): the snapshot bytes
     // plus the absolute backfill seed `topLine` the snapshot frame carries.
@@ -358,13 +396,17 @@ describeDaemon("padi the process — dial acceptance", () => {
 
     // Drive the PTY through the lifecycle procedure and read it back off the
     // screen procedure — a full round-trip through padi's OWN kaval.
-    await conn.client.surface.padi.lifecycle.sendInput({
-      id,
-      data: "echo DIALMARK\r",
-    });
+    await Effect.runPromise(
+      conn.client.padi.surface.lifecycle.sendInput({
+        id,
+        data: "echo DIALMARK\r",
+      }),
+    );
     let screen = "";
     for (let i = 0; i < 120 && !screen.includes("DIALMARK"); i++) {
-      screen = await conn.client.surface.padi.screen.state({ id });
+      screen = await Effect.runPromise(
+        conn.client.padi.surface.screen.state({ id }),
+      );
       if (!screen.includes("DIALMARK")) await sleep(50);
     }
     expect(screen).toContain("DIALMARK");
@@ -385,16 +427,20 @@ describeDaemon("padi the process — dial acceptance", () => {
     const connA = await connect(a.socketPath);
     const connB = await connect(b.socketPath);
 
-    const { id } = await connA.client.surface.padi.lifecycle.create({
-      cwd: makeStateRoot(),
-    });
-    // A's terminal is live on A…
-    expect(typeof (await connA.client.surface.padi.screen.state({ id }))).toBe(
-      "string",
+    const { id } = await Effect.runPromise(
+      connA.client.padi.surface.lifecycle.create({
+        cwd: makeStateRoot(),
+      }),
     );
+    // A's terminal is live on A…
+    expect(
+      typeof (await Effect.runPromise(
+        connA.client.padi.surface.screen.state({ id }),
+      )),
+    ).toBe("string");
     // …and INVISIBLE to B — its own kaval never saw it (a typed NOT_FOUND).
     await expect(
-      connB.client.surface.padi.screen.state({ id }),
+      Effect.runPromise(connB.client.padi.surface.screen.state({ id })),
     ).rejects.toThrow();
 
     await connA.dispose();
@@ -414,13 +460,19 @@ describeDaemon("padi the process — dial acceptance", () => {
     const p = await startPadi(stateRoot);
     const conn = await connect(p.socketPath);
 
-    // A binder NEWER than this padi (it requires padiSurface 5.0; padi serves 4.x)
-    // reads the running version from the FROZEN control-core `hello` — the call
-    // that must work at a mismatch — and finds it INCOMPATIBLE, so it REFUSES to
-    // bind the versioned surface.
-    const hello = await conn.client.surface.control.core.hello();
+    // A binder NEWER than this padi — it requires a hypothetical padiSurface 6.0
+    // while this padi serves 5.0 — reads the running version from the FROZEN
+    // control-core `hello` (the call that must work at a mismatch) and finds it
+    // INCOMPATIBLE, so it REFUSES to bind the versioned surface. The required
+    // version is spelled one MAJOR above `PADI_SURFACE_VERSION` deliberately: a
+    // literal that happened to equal the current constant would silently turn
+    // this into an assertion that compatibility HOLDS the day the constant
+    // caught up to it, which is exactly how the old "5.0" spelling rotted.
+    const hello = await Effect.runPromise(
+      conn.client.control.surface.core.hello(),
+    );
     expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
-    expect(isContractVersionCompatible(hello.surfaceVersion, "5.0")).toBe(
+    expect(isContractVersionCompatible(hello.surfaceVersion, "6.0")).toBe(
       false,
     );
 
@@ -430,7 +482,9 @@ describeDaemon("padi the process — dial acceptance", () => {
     // the socket CLOSE", so the drain call may resolve OR reject as the socket tears
     // down mid-response — either way the load-bearing proof is that padi exits
     // cleanly (0), i.e. drain reached the frozen core and did its job.
-    await conn.client.surface.control.core.drain().catch(() => {});
+    await Effect.runPromise(conn.client.control.surface.core.drain()).catch(
+      () => {},
+    );
     expect(await p.exited).toBe(0);
 
     try {
@@ -489,6 +543,86 @@ describeDaemon("padi the process — dial acceptance", () => {
       }
     }
   }, 60000);
+
+  /**
+   * The juspay/kolu#2101 N1 field reproduction, with a REAL padi and a REAL
+   * kaval: **a comatose kaval must not be survivable.**
+   *
+   * `SIGSTOP` is the honest reproduction of the incident's presentation, and the
+   * reason no existing guard caught it. The process stays ALIVE (`Ss`, 0% CPU),
+   * its listening socket stays bound and keeps ACCEPTING connections, and it
+   * answers nothing — no rejection, no close, no in-process error, no exit. G2's
+   * fault arm sees no fault; the client-silence deadlines (H3/K1/J1) are about a
+   * peer that stopped talking to a client, not a daemon that stopped talking at
+   * all. In the field this survived a full night: padi diagnosed it in ten
+   * seconds and handed the user a card and a button.
+   *
+   * Post-N1 the streak exhausts the ledger and padi recycles the daemon itself —
+   * observed here as the gate file coming to hold a DIFFERENT pid, i.e. a
+   * genuinely new kaval process at the same rendezvous.
+   */
+  it("REPAIRS a comatose kaval by itself — SIGSTOP, no human (#2101 N1)", async () => {
+    const stateRoot = makeStateRoot();
+    const p = await startPadi(stateRoot);
+    const kavalGate = join(dirname(p.kavalSocket), "kaval.pid");
+    await waitUntil(
+      () => gatePid(kavalGate) !== undefined,
+      15000,
+      "kaval never came up under the padi",
+    );
+    const comatose = gatePid(kavalGate);
+    if (comatose === undefined) throw new Error("no kaval pid to freeze");
+
+    process.kill(comatose, "SIGSTOP");
+    try {
+      // The DERIVED bound, summed rather than picked:
+      //   ≈45 s  three consecutive probes at the 10 s inventory cadence, each
+      //          spending its full 5 s deadline against a peer that never answers;
+      //   ≤10 s  the bounded drain (`restartLocal`'s killAll deadline);
+      //   ≤125 s `reapHolder`'s ladder — REAP_TERM_CEILING_MS (120 s) is spent in
+      //          full here BY DESIGN, because a SIGSTOP'd process cannot handle
+      //          SIGTERM and the graceful window is deliberately generous for a
+      //          daemon that might be draining gigabytes of scrollback (#1034),
+      //          plus REAP_KILL_CEILING_MS (5 s) for the kernel;
+      //   ≈10 s  respawn + the fresh daemon's handshake.
+      // ≈190 s, so 240 s is that sum with headroom on a loaded box. The claim
+      // under test is that repair happens AT ALL with no human — the thing that
+      // was false before N1, at any window.
+      await waitUntil(
+        () => {
+          const now = gatePid(kavalGate);
+          return now !== undefined && now !== comatose;
+        },
+        240_000,
+        "padi never repaired the comatose kaval — the #2101 field incident, reproduced",
+      );
+    } finally {
+      // A stopped process ignores SIGTERM until continued, so CONTINUE first and
+      // only then kill: otherwise the reaper's graceful leg is wasted on a
+      // process that cannot receive it. Both are best-effort — padi's own reap
+      // ladder has usually already taken it by here.
+      try {
+        process.kill(comatose, "SIGCONT");
+      } catch {
+        // Already reaped by padi — which is the happy path.
+      }
+      try {
+        process.kill(comatose, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+
+    // ...and the daemon that replaced it actually SERVES — the repair is not
+    // merely "a new pid exists". A recycled-but-wedged kaval would satisfy the
+    // pid check and fail here, which is exactly the distinction the supervisor's
+    // own `unrepaired` budget is built on.
+    // The SAME probe the supervisor watches through — three read-only verbs over
+    // a fresh link — so "repaired" means the identical thing here and in
+    // production, rather than a second, weaker definition written for the test.
+    const probe = await Effect.runPromise(probeKavalStatus(p.kavalSocket));
+    expect(probe.contractVersion).not.toBeNull();
+  }, 300_000);
 });
 
 describeDaemon(
@@ -506,15 +640,19 @@ describeDaemon(
       // The durable padi comes up behind the front (which adopt-or-spawns it); wait
       // on its digest socket directly, then drive the front's relayed client.
       await waitForPadi(front.socketPath);
-      const client = stdioClient(front);
+      const { client } = await stdioClient(front);
 
-      const hello = await client.surface.control.core.hello();
+      const hello = await Effect.runPromise(
+        client.control.surface.core.hello(),
+      );
       expect(hello.stateRoot).toBe(resolve(stateRoot));
       expect(hello.surfaceVersion).toBe(PADI_SURFACE_VERSION);
       expect(hello.controlCoreVersion).toBe("1.0");
       expect(hello.startedAt).toBeGreaterThan(0);
 
-      const clock = await client.surface.control.core.clockNow();
+      const clock = await Effect.runPromise(
+        client.control.surface.core.clockNow(),
+      );
       expect(clock.epochMs).toBeGreaterThan(0);
 
       await reapStdioFront(front);
@@ -524,18 +662,20 @@ describeDaemon(
       const stateRoot = makeStateRoot();
       const front = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front.socketPath);
-      const client = stdioClient(front);
+      const { client } = await stdioClient(front);
 
-      const { id } = await client.surface.padi.lifecycle.create({
-        cwd: makeStateRoot(),
-      });
+      const { id } = await Effect.runPromise(
+        client.padi.surface.lifecycle.create({
+          cwd: makeStateRoot(),
+        }),
+      );
       expect(id).toMatch(/^[0-9a-f-]{36}$/);
 
       // terminalAttach is the per-subscriber byte stream (delta/fail-through) — its
       // first frame is the snapshot, relayed straight through the front.
-      const attach = (await client.surface.padi.terminalAttach.get({ id }))[
-        Symbol.asyncIterator
-      ]();
+      const attach = Stream.toAsyncIterable(
+        client.padi.surface.terminalAttach.get({ id }),
+      )[Symbol.asyncIterator]();
       const first = await attach.next();
       // `snapshot` union frame (contract 3.0) relayed straight through the front.
       // The stream iterator's value type erases to `{}`, so name the REAL frame
@@ -547,13 +687,17 @@ describeDaemon(
       expect(typeof firstFrame.data).toBe("string");
       expect(typeof firstFrame.topLine).toBe("number");
 
-      await client.surface.padi.lifecycle.sendInput({
-        id,
-        data: "echo FRONTMARK\r",
-      });
+      await Effect.runPromise(
+        client.padi.surface.lifecycle.sendInput({
+          id,
+          data: "echo FRONTMARK\r",
+        }),
+      );
       let screen = "";
       for (let i = 0; i < 120 && !screen.includes("FRONTMARK"); i++) {
-        screen = await client.surface.padi.screen.state({ id });
+        screen = await Effect.runPromise(
+          client.padi.surface.screen.state({ id }),
+        );
         if (!screen.includes("FRONTMARK")) await sleep(50);
       }
       expect(screen).toContain("FRONTMARK");
@@ -568,14 +712,18 @@ describeDaemon(
       const stateRoot = makeStateRoot();
       const front1 = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front1.socketPath);
-      const client1 = stdioClient(front1);
-      const { id } = await client1.surface.padi.lifecycle.create({
-        cwd: makeStateRoot(),
-      });
-      await client1.surface.padi.lifecycle.sendInput({
-        id,
-        data: "echo SURVIVOR\r",
-      });
+      const { client: client1 } = await stdioClient(front1);
+      const { id } = await Effect.runPromise(
+        client1.padi.surface.lifecycle.create({
+          cwd: makeStateRoot(),
+        }),
+      );
+      await Effect.runPromise(
+        client1.padi.surface.lifecycle.sendInput({
+          id,
+          data: "echo SURVIVOR\r",
+        }),
+      );
 
       // Drop the first front (SIGTERM the proxy only) — the detached daemon lives.
       front1.child.kill("SIGTERM");
@@ -585,10 +733,12 @@ describeDaemon(
       // and the terminal created through the first front is still there.
       const front2 = spawnPadiStdioFront(stateRoot);
       await waitForPadi(front2.socketPath);
-      const client2 = stdioClient(front2);
+      const { client: client2 } = await stdioClient(front2);
       let screen = "";
       for (let i = 0; i < 120 && !screen.includes("SURVIVOR"); i++) {
-        screen = await client2.surface.padi.screen.state({ id });
+        screen = await Effect.runPromise(
+          client2.padi.surface.screen.state({ id }),
+        );
         if (!screen.includes("SURVIVOR")) await sleep(50);
       }
       expect(screen).toContain("SURVIVOR");

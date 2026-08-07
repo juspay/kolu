@@ -9,15 +9,14 @@
  *   - the `nodes` cell holds the whole pipeline state; every transition is
  *     one `ctx.cells.nodes.set(next)` (snapshot + delta in one call).
  *   - each node has a log buffer (the snapshot) and a per-node channel (the
- *     deltas); the `nodeLog` stream yields the buffer then forwards the
+ *     deltas); the `nodeLog` stream emits the buffer then forwards the
  *     channel.
  *   - `node.rerun` resets a node and its transitive dependents to pending
  *     and reschedules — the input mutation.
  *
- * `createRunner` returns the wrapped router plus `start`/`dispose`, so the
- * same engine is driven by `main.ts` over real stdio *and* by the unit test
- * over an in-process loopback pair — identical code, only the transport
- * differs.
+ * `createRunner` returns the whole `SurfaceRuntime` plus `start`/`dispose`, so
+ * the same engine is driven by `main.ts` over real stdio *and* by the unit test
+ * over an in-process loopback pair — identical code, only the transport differs.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -26,7 +25,10 @@ import {
   implementSurface,
   inMemoryChannel,
   inMemoryStore,
+  streamFromAbortableSource,
+  type SurfaceRuntime,
 } from "@kolu/surface/server";
+import { Effect, Stream } from "effect";
 import { type PipelineSpec, validatePipeline } from "../common/pipeline";
 import {
   clampLog,
@@ -38,10 +40,9 @@ import {
 } from "../common/surface";
 
 export interface Runner {
-  /** Top-level router — `implementSurface`'s `.router` is already the FINAL
-   *  flattened router, ready to pass to `serveOverStdio({ router })`. */
-  // biome-ignore lint/suspicious/noExplicitAny: implementSurface's Lazy<Router> spread isn't accepted by oRPC's Router<any, T> input type; the runtime shape is valid (the remote-process-monitor agent uses the same `as any`).
-  router: any;
+  /** The served surface — hand `runtime.group` + `runtime.handlers` to any
+   *  transport (`serveOverStdio` here, `directDispatch` in-process). */
+  readonly runtime: SurfaceRuntime<typeof surface.spec>;
   /** Kick the scheduler — runs every task whose deps are already `ok`. */
   start(): void;
   /** Kill any running children and stop scheduling. */
@@ -106,17 +107,35 @@ export function createRunner(
       nodes: { store: stateStore },
     },
     streams: {
+      // Snapshot-then-deltas, author-owned. `Stream.suspend` defers the buffer
+      // read to SUBSCRIBE time (a stream value held un-run reads nothing), and
+      // `Stream.concat` opens the channel only once the snapshot frame is out —
+      // the same ordering the old snapshot-then-`for await` generator had.
+      //
+      // `Channel<T>.subscribe` is an AbortSignal-shaped producer;
+      // `streamFromAbortableSource` is the ONE sanctioned bridge to a `Stream`.
+      // It scopes an `AbortController` to the stream, so a consumer walking away
+      // (fiber interruption) unsubscribes — there is no signal to thread and
+      // none to forget.
       nodeLog: {
-        source: async function* ({ id }, signal) {
-          const log = logFor(id);
-          yield { kind: "snapshot", text: log.buffer } satisfies NodeLogMessage;
-          for await (const msg of log.bus.subscribe(signal)) yield msg;
-        },
+        source: ({ id }) =>
+          Stream.suspend(() => {
+            const log = logFor(id);
+            return Stream.concat(
+              Stream.succeed({
+                kind: "snapshot",
+                text: log.buffer,
+              } satisfies NodeLogMessage),
+              streamFromAbortableSource<NodeLogMessage>((signal) =>
+                log.bus.subscribe(signal),
+              ),
+            );
+          }),
       },
     },
     procedures: {
       node: {
-        rerun: async ({ input }) => ({ ok: rerun(input.id) }),
+        rerun: ({ input }) => Effect.sync(() => ({ ok: rerun(input.id) })),
       },
     },
   });
@@ -259,10 +278,8 @@ export function createRunner(
     return true;
   };
 
-  const router = runtime.router;
-
   return {
-    router,
+    runtime,
     start: () => tick(),
     dispose: () => {
       disposed = true;

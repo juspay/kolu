@@ -5,8 +5,8 @@
  *  source of truth. kolu-common re-exports it for consumer convenience
  *  (the client and server both already import from kolu-common). */
 
+import { Schema } from "effect";
 import { TRANSCRIPT_HTML_MODES } from "kolu-transcript-core";
-import { z } from "zod";
 
 export {
   MODE_LABEL,
@@ -21,26 +21,24 @@ export {
 
 /** Derived from the canonical mode list in kolu-transcript-core so the RPC
  *  contract and the renderer provably agree on one value set. */
-export const TranscriptHtmlModeSchema = z.enum(TRANSCRIPT_HTML_MODES);
+export const TranscriptHtmlModeSchema = Schema.Literals(TRANSCRIPT_HTML_MODES);
 
-export const ExportTranscriptHtmlInputSchema = z.object({
-  id: z.string().uuid(),
+export const ExportTranscriptHtmlInputSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isUUID()),
   /** `chat` is the lightweight conversation document; `full` includes
    *  collapsed tool/reasoning audit details. */
   mode: TranscriptHtmlModeSchema,
 });
 
-export const ExportTranscriptHtmlOutputSchema = z.object({
+export const ExportTranscriptHtmlOutputSchema = Schema.Struct({
   /** Self-contained HTML document for the requested mode. The client wraps it
    *  in a Blob and opens/downloads it — no server-side file write. */
-  html: z.string(),
+  html: Schema.String,
   /** Suggested filename, derived from agent kind + session id + mode. */
-  filename: z.string(),
+  filename: Schema.String,
 });
 
-export type ExportTranscriptHtmlInput = z.infer<
-  typeof ExportTranscriptHtmlInputSchema
->;
-export type ExportTranscriptHtmlOutput = z.infer<
-  typeof ExportTranscriptHtmlOutputSchema
->;
+export type ExportTranscriptHtmlInput =
+  typeof ExportTranscriptHtmlInputSchema.Type;
+export type ExportTranscriptHtmlOutput =
+  typeof ExportTranscriptHtmlOutputSchema.Type;

@@ -8,11 +8,6 @@
  *  COMPACTION: resting state is icon + status dot only. Steady versions,
  *  memory, and update detail live in the Tip / dialogs. */
 
-import {
-  type DaemonStatus,
-  encodeHostLocation,
-  LOCAL_LOCATION,
-} from "@kolu/padi/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { type HostKey, hostKeysEqual as sameHost } from "kolu-common/hostKey";
 import type { PadiLink, ProcessRss } from "kolu-common/surface";
@@ -21,7 +16,6 @@ import type { Component, Setter } from "solid-js";
 import { createEffect, createMemo, createSignal, Show } from "solid-js";
 import { match, P } from "ts-pattern";
 import {
-  channelLive,
   DAEMON_UNKNOWN_LABEL,
   type KavalPresence,
   kavalPresencePresentation,
@@ -35,7 +29,6 @@ import {
   daemonTransportLive,
   formatUptime,
   type PadiEntry,
-  reprojectDaemonStatus,
 } from "../kaval/useDaemonStatus";
 import PadiInfoDialog, { PADI_LOGO_URL } from "../padi/PadiInfoDialog";
 import {
@@ -55,7 +48,8 @@ import { joinTip } from "../ui/joinTip";
 import { formatMBCompact } from "../ui/memory";
 import Tip from "../ui/Tip";
 import { activeHost, padiMap, setActiveHost } from "../wire";
-import { hostGlance, hostLabel } from "./hostChipTone";
+import { hostGlance, hostLabel, KAVAL_CHAIN_UNKNOWN } from "./hostChipTone";
+import { useHostKaval } from "./useHostKaval";
 
 /** Map entry → dialog's legacy `PadiLink` vocabulary. Exhaustive on kind. */
 const ENTRY_AS_PADI_LINK: Record<EntryState["kind"], PadiLink | undefined> = {
@@ -100,38 +94,9 @@ function useHostPadi(host: HostKey): {
   return { live, entry, link };
 }
 
-/** The ONE per-host reader for Kaval liveness + daemon status — the receptacle
- *  for "how do I read a given host's Kaval status from `padiMap`". `daemon`
- *  reprojects `startedAt` onto the browser clock via `clock.toLocal` UNIFORMLY
- *  (the static mark used to skip this — that silent divergence is gone now that
- *  both marks read through this single reader). */
-function useHostKaval(host: HostKey): {
-  live: () => boolean;
-  daemon: () => DaemonStatus | undefined;
-} {
-  const entryConnected = (): boolean =>
-    padiMap.entry(host).state().kind === "connected";
-  const live = (): boolean =>
-    channelLive(daemonTransportLive(), entryConnected());
-  // Each remote/local padi serves its kaval under the LOCAL location key
-  // (that host's own "local" kaval — not the browser's host key).
-  const daemonKey = encodeHostLocation(LOCAL_LOCATION);
-  const daemonSub = padiMap.entry(host).collections.daemonStatus.use({
-    keys: () => [daemonKey],
-  });
-  // Memoized: this host's KavalSubChip reads `daemon()` ~8× per render pass
-  // (mark dot, version, state, uptime ×2, memory, update) — each an unmemoized
-  // call would redo the `byKey` lookup AND mint a fresh `{...status}` spread.
-  // One reprojection per `daemonStatus` change, shared by every consumer
-  // (`solidjs.md`: memo a multi-consumer derivation). Runs for every mounted
-  // host chip (active and inactive), so it sits on the per-host-status path.
-  // Reprojection body is the shared `reprojectDaemonStatus` (useDaemonStatus.ts)
-  // — the local-daemon memo there reprojects through the SAME function.
-  const daemon = createMemo((): DaemonStatus | undefined =>
-    reprojectDaemonStatus(host, daemonSub.byKey(daemonKey)?.()),
-  );
-  return { live, daemon };
-}
+// `useHostKaval` — the ONE per-host reader for kaval liveness + daemon status —
+// moved to `./useHostKaval.ts` when the host DOT became its second consumer
+// (#2101 N4). Imported above; the docs for it live at the new home.
 
 /** The ONE per-host `processMemory` reader — the Padi and Kaval sub-chips read
  *  `.padi` and `.kaval` off the SAME cell, so sharing one subscription means a single
@@ -276,7 +241,11 @@ const PadiSubChip: Component<{
   const padiTip = (): string => {
     const skew = skewPairFor(props.host);
     return joinTip(
-      `padi ${padi.live() ? hostGlance(padi.entry()).title : DAEMON_UNKNOWN_LABEL}`,
+      // The PADI sub-chip is about padi ALONE: the kaval sub-chip beside it
+      // already carries the kaval verdict, so composing the chain in here would
+      // say the same thing twice in the one place the two are deliberately told
+      // apart.
+      `padi ${padi.live() ? hostGlance(padi.entry(), KAVAL_CHAIN_UNKNOWN).title : DAEMON_UNKNOWN_LABEL}`,
       skew
         ? `contract skew v${skew.running} → v${skew.expected}`
         : padiVersion()

@@ -5,10 +5,16 @@
  * Public handles are **opaque** (no `admit` / dual `drainBudget` on the type).
  * Enactment reaches internals via package-owned storage keyed by the handle.
  *
+ * The memory itself is one {@link Ref} over an immutable {@link BudgetMemory},
+ * transitioned by the pure {@link admitAgainst} under {@link Ref.modify}, so an
+ * admission is one atomic step rather than three separate writes to three
+ * mutable containers.
+ *
  * Instance keys are {@link InstanceKey}: named instances or `pre-instance`.
  */
 
 import type { DaemonBuild } from "@kolu/surface-daemon";
+import { type Effect, Ref } from "effect";
 import type {
   ConnectorPolicy,
   ConvergencePolicy,
@@ -61,10 +67,21 @@ export type ConnectorDrainBudget = DrainBudgetHandle & {
 };
 
 type BudgetInternal = {
-  admit(lineage: DrainLineage, axisHint: string): DrainAdmission;
+  admit(lineage: DrainLineage, axisHint: string): Effect.Effect<DrainAdmission>;
   readonly policy: ConvergencePolicy<"drainable"> | ConnectorPolicy;
 };
 
+/**
+ * The handle → internals table.
+ *
+ * It stays a `WeakMap`, and that is a verdict rather than an oversight. This is
+ * not the budget's volatile state — that lives in the three {@link Ref}s
+ * {@link mintBudget} creates — it is the **unforgeable-handle brand table**: the
+ * mechanism that makes `DrainBudgetHandle` opaque, so `admit` is unspellable on
+ * the public type (F7). A `Ref` cannot be weak, so turning this into one would
+ * retain every budget ever minted for the life of the process, keyed by a handle
+ * whose owner is long gone.
+ */
 const BUDGET_INTERNALS = new WeakMap<DrainBudgetHandle, BudgetInternal>();
 
 /** Package-internal: resolve a handle (throws if forged). Not a public export. */
@@ -116,6 +133,83 @@ function buildKey(build: DaemonBuild): string {
   }
 }
 
+/** Everything one budget remembers, as a value. */
+type BudgetMemory = {
+  /** Lineages this supervisor has itself drained. */
+  readonly drainedLineages: ReadonlySet<string>;
+  /** Per build, the ONE instance this supervisor drained — the cross-supervisor
+   *  witness: a different instance of a build we already drained means someone
+   *  else is respawning it. */
+  readonly drainedInstanceByBuild: ReadonlyMap<string, InstanceKey>;
+  /** Attempts spent per lineage. */
+  readonly attemptsByLineage: ReadonlyMap<string, number>;
+};
+
+const EMPTY_MEMORY: BudgetMemory = {
+  drainedLineages: new Set(),
+  drainedInstanceByBuild: new Map(),
+  attemptsByLineage: new Map(),
+};
+
+/**
+ * The admission rule, as a pure transition: memory in, verdict + next memory
+ * out. Keeping it a function of the two inputs is what lets {@link Ref.modify}
+ * apply it as ONE step — a give-up can never be decided against memory a
+ * concurrent enactment has already moved past, and the three writes of an
+ * admitted drain can never be observed half-applied.
+ */
+function admitAgainst(
+  memory: BudgetMemory,
+  budget: DrainBudget,
+  lineage: DrainLineage,
+  axisHint: string,
+): readonly [DrainAdmission, BudgetMemory] {
+  const lkey = lineageKey(lineage);
+  const bkey = buildKey(lineage.build);
+
+  const priorDrained = memory.drainedInstanceByBuild.get(bkey);
+  if (priorDrained !== undefined && !memory.drainedLineages.has(lkey)) {
+    return [
+      {
+        kind: "giveUp",
+        why: "cross-supervisor",
+        drained: priorDrained,
+        observed: lineage.instanceKey,
+        axisHint,
+      },
+      memory,
+    ];
+  }
+
+  const attempts = memory.attemptsByLineage.get(lkey) ?? 0;
+  if (attempts >= budget.maxAttempts) {
+    return [
+      {
+        kind: "giveUp",
+        why: "budget",
+        axisHint,
+        attempts,
+        maxAttempts: budget.maxAttempts,
+        instanceKey: lineage.instanceKey,
+      },
+      memory,
+    ];
+  }
+
+  const next = attempts + 1;
+  return [
+    { kind: "drain", attempt: next },
+    {
+      drainedLineages: new Set(memory.drainedLineages).add(lkey),
+      drainedInstanceByBuild: new Map(memory.drainedInstanceByBuild).set(
+        bkey,
+        lineage.instanceKey,
+      ),
+      attemptsByLineage: new Map(memory.attemptsByLineage).set(lkey, next),
+    },
+  ];
+}
+
 function mintBudget(
   policy: ConvergencePolicy<"drainable"> | ConnectorPolicy,
 ): DrainBudgetHandle {
@@ -128,46 +222,15 @@ function mintBudget(
       `drainBudget.maxAttempts must be a positive integer, got ${drainBudget.maxAttempts}`,
     );
   }
-  const drainedLineages = new Set<string>();
-  const drainedInstanceByBuild = new Map<string, InstanceKey>();
-  const attemptsByLineage = new Map<string, number>();
+  const memory = Ref.makeUnsafe<BudgetMemory>(EMPTY_MEMORY);
 
   const handle = { [budgetBrand]: true as const };
   BUDGET_INTERNALS.set(handle, {
     policy,
-    admit(lineage, axisHint) {
-      const lkey = lineageKey(lineage);
-      const bkey = buildKey(lineage.build);
-
-      const priorDrained = drainedInstanceByBuild.get(bkey);
-      if (priorDrained !== undefined && !drainedLineages.has(lkey)) {
-        return {
-          kind: "giveUp",
-          why: "cross-supervisor",
-          drained: priorDrained,
-          observed: lineage.instanceKey,
-          axisHint,
-        };
-      }
-
-      const attempts = attemptsByLineage.get(lkey) ?? 0;
-      if (attempts >= drainBudget.maxAttempts) {
-        return {
-          kind: "giveUp",
-          why: "budget",
-          axisHint,
-          attempts,
-          maxAttempts: drainBudget.maxAttempts,
-          instanceKey: lineage.instanceKey,
-        };
-      }
-
-      const next = attempts + 1;
-      attemptsByLineage.set(lkey, next);
-      drainedLineages.add(lkey);
-      drainedInstanceByBuild.set(bkey, lineage.instanceKey);
-      return { kind: "drain", attempt: next };
-    },
+    admit: (lineage, axisHint) =>
+      Ref.modify(memory, (m) =>
+        admitAgainst(m, drainBudget, lineage, axisHint),
+      ),
   });
   return handle;
 }

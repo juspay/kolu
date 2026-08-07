@@ -10,16 +10,17 @@
  * exists; SR8.c gave every member ONE home HERE. `implementKoluSurface` takes plain
  * domain-named deps (reads + a projected `onState`) and assembles EVERY member's
  * framework node in this file — so `index.ts` imports no reactor primitive — and
- * RETURNS just `{ router }` (there are no module-level `koluSurfaceRouter`/
- * `koluSurfaceCtx` exports, and NO ctx-write path: the reactor graph is every derived
- * member's one writer). `index.ts` only splices the re-served `padi` sibling into
- * `router.surface`. What stays at module load is the `t` builder `router.ts` binds
- * kolu-server's remaining raw RPCs (`server`/`daemon`/`hosts`) against — a pure oRPC
- * contract builder that fires no connects, so the app-router assembly is unaffected by
- * the serve moving. The surface is finalized by `implementSurfacesOnPublisher`, not by
- * a local `implement(servedContract)` (retired at SRT-PR1 — the runtime returns a final
- * router; routing is by the assembled object, so the padi splice needs no widened
- * contract).
+ * RETURNS just a {@link ServedFragment} (`{ group, handlers }` — there are no
+ * module-level router/ctx exports, and NO ctx-write path: the reactor graph is every
+ * derived member's one writer).
+ *
+ * What stays at module load is the WIDENING SEAM: {@link servedGroup}, the flat
+ * superset group kolu-server serves (the root procedures + its own two siblings + the
+ * padi host map), asserted tag-complete at IMPORT. Its boot-time twin
+ * {@link assembleServedHandlers} merges the three fragments' handlers and proves the
+ * bound tag set matches that group exactly, in both directions — the successor of the
+ * oRPC-era `implement(servedContract)` re-adaptation, which existed to attach the
+ * `/surface/padi/*` routes a padi-less builder silently dropped.
  *
  *   - kolu's four live members: `processMemory` + `daemonInventory` are DERIVED POLL
  *     cells (a fused `everyMsOr` cadence); `padiLink` + `processStartedAt` are DERIVED
@@ -44,16 +45,16 @@
 import { publisher } from "@kolu/padi/assembly";
 import {
   type CellStore,
-  composeSurfaceContracts,
   confStore,
   type ImplementSurfaceDeps,
   implementSurfacesOnPublisher,
   publisherChannel,
+  type SurfaceHandlers,
 } from "@kolu/surface/server";
 import { surfaceAppServer } from "@kolu/surface-app/server";
-import { oc } from "@orpc/contract";
-import { implement } from "@orpc/server";
-import { contract } from "kolu-common/contract";
+import { Effect } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { koluRootGroup, koluSurfaceGroup } from "kolu-common/contract";
 import type { PadiProcessMemory } from "@kolu/padi/surface";
 import { derived, everyMsOr, scan, source } from "@kolu/surface/reactor";
 import type {
@@ -74,11 +75,7 @@ import {
   resolveNewTerminalPolicy,
   surfaces,
 } from "kolu-common/surface";
-import {
-  PADI_SURFACE_NAME,
-  padiHostMap,
-  surfacesWithPadi,
-} from "kolu-common/surfacesWithPadi";
+import { padiHostMap } from "kolu-common/surfacesWithPadi";
 import {
   serverCommit,
   serverProcessId,
@@ -94,48 +91,124 @@ import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { store } from "./state.ts";
 
-// kolu-server serves a SUPERSET contract locally: the padi-less kolu-common
-// `contract` (which the client consumes, byte-for-byte unchanged) PLUS the
-// `padi` sibling. Spreading the already-built `contract` carries over its root
-// namespaces (`server`/`daemon`/`hosts`) and its 2-sibling `surface`
-// (kolu + surfaceApp); the second spread of
-// `composeSurfaceContracts(surfacesWithPadi)` then WIDENS `surface` to three
-// siblings (adds `padi`), and `padi` is overwritten with the host MAP's own
-// contract (the key-folded members + the `entries` membership collection) so the
-// served wire shape matches what `serveHostMap` serves (in `index.ts`).
+// ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
 //
-// This contract widening is LOAD-BEARING for the WIRE MATCHER, not just for
-// surface finalization. `implement(contract).router(obj)` ADAPTS `obj` against
-// the contract and DROPS any key the contract doesn't declare — and the
-// re-served `padi` sibling is a `serveSurfaceMap` FRAGMENT (structurally
-// navigable by `directLink`, but carrying no `/surface/padi/*` matcher meta of
-// its own). So the `padi`-widened `servedContract` builder is what RE-ADAPTS the
-// map fragment under the `padi` key, attaching the `/surface/padi/*` routes the
-// HTTP/ws `RPCHandler` matcher needs. Building `t` against the padi-LESS
-// `contract` silently drops every `/surface/padi/*` route → a boot-time 404 the
-// `directLink`-based `padiBinding` test can't see (directLink bypasses the
-// matcher). Pinned by `router.test.ts`. (The SURFACE FINALIZATION did move to
-// `implementSurfacesOnPublisher` below — this `t` binds the raw root RPCs and
-// re-adapts the spliced siblings for the wire, it no longer finalizes the kolu
-// surface.)
-const servedContract = oc.router({
-  ...contract,
-  surface: {
-    ...composeSurfaceContracts(surfacesWithPadi).surface,
-    // Overwrite the plain `padi` sibling with the keyed MAP's folded surface fragment.
-    // The value is the map's TYPED `surfaceContract` field — no `as any` reaching into
-    // `.contract` (PR3); the map owns the single library-side cast, so this connection
-    // site stays cast-free. The key is {@link PADI_SURFACE_NAME}, the SAME const the map's
-    // `name` and every other mount reference.
-    [PADI_SURFACE_NAME]: padiHostMap.surfaceContract,
-  },
-});
+// kolu-server serves a SUPERSET of the shared `kolu-common` contract: the root
+// procedures PLUS the two siblings it owns (`kolu`, `surfaceApp`) PLUS the padi
+// HOST MAP — the key-folded `surface/padi/*` members + the `entries` membership
+// collection that `serveHostMap` serves in `index.ts`. Under Effect RPC the wire
+// namespace is FLAT (PLAN D1), so a "sibling" is a tag PREFIX and the superset is
+// one `RpcGroup.merge` of three DISJOINT halves:
+//
+//   koluRootGroup    → `server/*`, `daemon/*`, `hosts/*`     (7 tags)
+//   koluSurfaceGroup → `surface/kolu/*`, `surface/surfaceApp/*`
+//   padiHostMap.group→ `surface/padi/*` (folded members + `entries`)
+//
+// **Why the padi-LESS `koluSurfaceGroup`, not `composeSurfaceContracts(surfacesWithPadi)`.**
+// The oRPC original spread the padi-FUL composition and then OVERWROTE the `padi`
+// key with the map's own contract, because the two describe the same wire paths
+// with different payloads (the map folds every member behind a `{mapKey, input}`
+// envelope). A flat `merge` cannot express "overwrite" honestly: it is a
+// last-writer-wins `Map.set` (#16), so merging BOTH would silently drop one
+// spelling of every shared tag AND leave the plain sibling's three reserved
+// `surface/padi/system/*` tags ADVERTISED with nothing bound to them — an
+// advertised-but-unhandled tag, which is exactly the silent-404 class this seam
+// exists to prevent. So the padi half enters ONCE, as the map, and the two
+// remaining halves are provably disjoint from it.
+//
+// **The assertion is the proof.** `RpcGroup.make`/`.merge` have zero collision
+// detection, so disjointness is only real if it is counted: the tag total must
+// equal the sum of the three halves. It runs at IMPORT — a boot crash, never a
+// production 404 on `/surface/padi/*` (the regression `router.test.ts` was written
+// for, restated on the tag axis now that there is no matcher tree to inspect).
+//
+// The one cast: `RpcGroup<in out R>` is INVARIANT in its element union, so a group
+// whose elements are precisely-typed `Rpc`s (the root procedures, spelled member by
+// member in `kolu-common/contract`) is not assignable to the erased
+// `RpcGroup<Rpc.Any>` every serving seam takes — even though every element IS an
+// `Rpc.Any`. The framework's own dynamically-assembled groups (`Surface.group`,
+// `SurfaceMap.group`) are born erased and need no cast; this one is not, and no
+// typed alternative exists short of erasing the contract's precision, which is what
+// makes the client face precise. Same structural constraint the retired
+// `RPCHandler(appRouter as any)` carried.
+export const servedGroup = koluRootGroup.merge(
+  koluSurfaceGroup,
+  padiHostMap.group,
+) as unknown as RpcGroup.RpcGroup<Rpc.Any>;
 
-// `t` is the host router builder against the SERVED (superset) contract; both
-// the spliced surface siblings and the raw oRPC handlers in `router.ts` plug into
-// it. Exported so `router.ts` binds `t.server.info` / `t.daemon.restart` /
-// `t.hosts.*` and re-adapts the assembled surface against the same builder.
-export const t = implement(servedContract);
+/** Every tag the served superset carries, in the three halves it is assembled
+ *  from — exported so the wire-shape test asserts the exact key set against the
+ *  same sources the server merges, rather than a hand-copied literal that could
+ *  drift. */
+export const SERVED_TAG_COUNTS = {
+  root: koluRootGroup.requests.size,
+  koluSurfaces: koluSurfaceGroup.requests.size,
+  padiMap: padiHostMap.group.requests.size,
+} as const;
+
+const EXPECTED_SERVED_TAGS =
+  SERVED_TAG_COUNTS.root +
+  SERVED_TAG_COUNTS.koluSurfaces +
+  SERVED_TAG_COUNTS.padiMap;
+
+if (servedGroup.requests.size !== EXPECTED_SERVED_TAGS) {
+  throw new Error(
+    `kolu-server: the served group carries ${servedGroup.requests.size} tag(s), expected ` +
+      `${EXPECTED_SERVED_TAGS} (root ${SERVED_TAG_COUNTS.root} + kolu surfaces ` +
+      `${SERVED_TAG_COUNTS.koluSurfaces} + padi map ${SERVED_TAG_COUNTS.padiMap}) — ` +
+      `an RpcGroup merge dropped a colliding tag.`,
+  );
+}
+
+/** A served fragment: one flat group and the handlers bound at its tags. Every
+ *  producer kolu-server assembles — `implementSurfacesOnPublisher`, `serveHostMap`,
+ *  and {@link buildAppRouter}'s root procedures — hands back this same pair. */
+export interface ServedFragment {
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  readonly handlers: SurfaceHandlers;
+}
+
+/** Merge the three halves' HANDLERS into the one record the transport dispatches,
+ *  and prove the result covers {@link servedGroup} EXACTLY — in both directions:
+ *
+ *   - a tag the group advertises with no handler bound is a silent 404 at the far
+ *     end (the `/surface/padi/*` regression, on the tag axis);
+ *   - a handler at a tag the group never minted is dead code no client can reach.
+ *
+ *  This is the successor of `assertHandlersMatchGroup`, applied at the ONE place
+ *  three independently-built fragments become one served surface. Called once from
+ *  the async boot; a mismatch crashes the boot rather than shipping a hole. */
+export function assembleServedHandlers(parts: {
+  /** kolu-server's own two siblings — {@link implementKoluSurface}. */
+  readonly kolu: ServedFragment;
+  /** The padi host map — `serveHostMap(padiHostMap, pool, …)`. */
+  readonly padiMap: ServedFragment;
+  /** The root procedures — `buildAppRouter(...)`. */
+  readonly root: ServedFragment;
+}): SurfaceHandlers {
+  // Null-prototype, exactly as the framework's own handler records are (S2): a
+  // member named `toString` must not collide with an inherited property.
+  const handlers: SurfaceHandlers = Object.assign(
+    Object.create(null) as SurfaceHandlers,
+    parts.kolu.handlers,
+    parts.padiMap.handlers,
+    parts.root.handlers,
+  );
+  const bound = new Set(Object.keys(handlers));
+  const advertised = new Set(servedGroup.requests.keys());
+  const missing = [...advertised].filter((tag) => !bound.has(tag));
+  const orphaned = [...bound].filter((tag) => !advertised.has(tag));
+  if (missing.length > 0 || orphaned.length > 0) {
+    throw new Error(
+      `kolu-server: the served handler set does not match the served group — ` +
+        `${missing.length} advertised tag(s) with no handler (${missing.slice(0, 8).join(", ")}` +
+        `${missing.length > 8 ? ", …" : ""}), ` +
+        `${orphaned.length} handler(s) at unminted tag(s) (${orphaned.slice(0, 8).join(", ")}` +
+        `${orphaned.length > 8 ? ", …" : ""}).`,
+    );
+  }
+  return handlers;
+}
 
 // ── Stores (Conf-backed; one slot per persisted cell) ──────────────────
 //
@@ -403,9 +476,17 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     procedures: {
       // Thin by design: each is one call into `forwards.ts`, which owns every rule.
       // A handler that decided anything here would be a second home for the policy.
+      //
+      // `Effect.promise`, not a declared failure: neither procedure declares an
+      // `error` on the spec, so a rejection is an UNDECLARED fault ⇒ a DEFECT (D4).
+      // That is the honest translation of what these two rejections are — "the door
+      // could not be opened" carries the mechanism's own message and nothing
+      // downstream branches on it — and the framework's own rule, not a local choice.
       forwards: {
-        create: ({ input }) => deps.forwards.create(input),
-        cancel: ({ input }) => deps.forwards.cancel(input.key),
+        create: ({ input }) =>
+          Effect.promise(() => deps.forwards.create(input)),
+        cancel: ({ input }) =>
+          Effect.promise(() => deps.forwards.cancel(input.key)),
       },
     },
   };
@@ -501,14 +582,17 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // a dead knob, and awaiting it inside the sync signal handler would add a
   // shutdown-hang risk (a parked connector) for zero real benefit. `done` (above) is
   // still observed — the fault channel is what matters here, not teardown.
-  // The kolu+surfaceApp FINAL surface router. Its `.surface` is the built
-  // `{ kolu, surfaceApp }` sibling map — `index.ts`'s async boot splices the RE-SERVED
-  // `padi` sibling in beside them (`{ surface: { ...router.surface, padi } }`) and
-  // assembles the final host router. padi is async (an `await`ed binding), so it can't be
+  // The kolu+surfaceApp FINAL served fragment: the padi-less `koluSurfaceGroup` (by
+  // identity — `implementSurfaces` re-walks the same `surfaces` map) and its bound
+  // handlers, keyed by full wire tag. `index.ts`'s async boot merges it with the
+  // re-served padi MAP fragment and the root procedures through
+  // {@link assembleServedHandlers}; a tag carries its own route, so there is nothing
+  // to splice or re-prefix. padi is async (an `await`ed binding), so it cannot be
   // composed here. Every member is the reactor graph's own writer now (the poll cells'
   // reads + the push cells' `scan`s over the shared `onState` source), so NO ctx is
-  // returned — the caller only splices the router.
+  // returned — the caller only merges the fragment.
   return {
-    router: koluSurfaces.router as { surface: Record<string, unknown> },
-  };
+    group: koluSurfaces.group,
+    handlers: koluSurfaces.handlers,
+  } satisfies ServedFragment;
 }

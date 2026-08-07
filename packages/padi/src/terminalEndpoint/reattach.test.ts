@@ -22,7 +22,9 @@
  */
 
 import type { PtyHostListEntry } from "kaval";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { unreachableDispatch } from "../ptyHost/dispatch.testlib.ts";
 
 // The boot reconcile reads the surviving daemon's live PTYs off `ptyHostClient`.
 // There is no kaval in the unit env, so stub the ONE call the empty-daemon path
@@ -39,7 +41,10 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
     ...actual,
     ptyHostClient: {
       surface: {
-        terminal: { list: async () => ({ entries: listEntries.value }) },
+        terminal: {
+          list: () => Effect.succeed({ entries: listEntries.value }),
+          kill: () => Effect.void,
+        },
       },
     },
   };
@@ -158,7 +163,7 @@ describe("adoptSurvivingSession — the session-clobber regression (PATH A)", ()
 
     // The adopted daemon is EMPTY (a replaced kaval) — the zest incident.
     listEntries.value = [];
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
     await new Promise((r) => setTimeout(r, 0));
 
     // The saved session must SURVIVE — on the pre-fix converge this is erased to
@@ -170,7 +175,7 @@ describe("adoptSurvivingSession — the session-clobber regression (PATH A)", ()
     setSavedSession(savedSession());
     listEntries.value = [];
 
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getTerminal(A_ID)?.meta.state).toBe("parked");
@@ -184,7 +189,7 @@ describe("adoptSurvivingSession — currency diagnostics", () => {
     vi.stubEnv("KAVAL_COMMIT_HASH", "expected-commit");
     connectDaemon(1000);
 
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
 
     expect(logCalls.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -209,7 +214,11 @@ function connectDaemon(startedAt: number): void {
     state: "connected",
     identity: undefined,
     startedAt,
-    metadata: { contractVersion: "test", pid: 4242 },
+    metadata: {
+      contractVersion: "test",
+      pid: 4242,
+      dispatch: unreachableDispatch,
+    },
   });
 }
 
@@ -225,7 +234,7 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
     setSavedSession(savedSession());
     listEntries.value = [];
 
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getSavedSession()?.terminals.length).toBe(2);
@@ -259,7 +268,7 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
     });
     listEntries.value = [];
 
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
     await new Promise((r) => setTimeout(r, 0));
 
     // A (active, no live PTY) is an exited shell — pruned; NOT parked.
@@ -282,7 +291,7 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
     setSavedSession(savedSession());
     listEntries.value = [];
 
-    await adoptSurvivingSession();
+    await Effect.runPromise(adoptSurvivingSession);
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getSavedSession()).toBeNull();
@@ -304,7 +313,9 @@ describe("adoptSurvivingSession — daemon-identity gate (PATH A, by startedAt)"
     setSavedSession(savedSession());
     listEntries.value = [];
 
-    await expect(adoptSurvivingSession()).resolves.toBeUndefined();
+    await expect(
+      Effect.runPromise(adoptSurvivingSession),
+    ).resolves.toBeUndefined();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(getSavedSession()?.terminals.length).toBe(2);

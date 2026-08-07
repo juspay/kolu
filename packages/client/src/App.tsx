@@ -13,6 +13,7 @@
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
 import Resizable from "@corvu/resizable";
+import { Effect } from "effect";
 import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
@@ -51,6 +52,7 @@ import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
 import { createImportSessionAction } from "./importSessionAction";
+import { runAction } from "./runAction";
 import { useShortcuts } from "./input/useShortcuts";
 import IntentEditorDialog from "./intent/IntentEditorDialog";
 import { useIntentEditor } from "./intent/useIntentEditor";
@@ -198,7 +200,7 @@ const App: Component = () => {
     const meta = store.getMetadata(id);
     if (!meta) return;
     if (meta.parentId) {
-      void crud.handleKill(id);
+      runAction("close terminal", crud.handleKill(id));
       return;
     }
     const splitCount = store.getDisplayInfo(id)?.subCount ?? 0;
@@ -228,9 +230,12 @@ const App: Component = () => {
 
   const commands = createCommands({
     ...actionContext,
-    handleCopyTerminalText: () => void crud.handleCopyTerminalText(),
-    handleCopyTerminalId: () => void crud.handleCopyTerminalId(),
-    handleRunInActiveTerminal: (cmd) => crud.handleRunInActiveTerminal(cmd),
+    handleCopyTerminalText: () =>
+      runAction("copy terminal text", crud.handleCopyTerminalText()),
+    handleCopyTerminalId: () =>
+      runAction("copy terminal ID", crud.handleCopyTerminalId()),
+    handleRunInActiveTerminal: (cmd) =>
+      runAction("prefill command", crud.handleRunInActiveTerminal(cmd)),
     handleExportScrollbackAsPdf: crud.exportScrollbackPdf,
     handleExportSessionAsHtml: () => exportSessionDialog.openDialog(),
     committedThemeName,
@@ -238,7 +243,10 @@ const App: Component = () => {
     handleSetTheme,
     handleEditActiveIntent: intentEditor.openActive,
     handleCreateWorktree: (repoPath, name, initialCommand) =>
-      void worktree.handleCreateWorktree(repoPath, name, initialCommand),
+      runAction(
+        "create worktree",
+        worktree.handleCreateWorktree(repoPath, name, initialCommand),
+      ),
     handleClose: () => {
       const id = store.activeId();
       if (id) closeTerminal(id);
@@ -249,7 +257,7 @@ const App: Component = () => {
     },
     handleResetActiveTileSize: arrange.resetActiveTileSize,
     handleExportSession: () => exportSession(serverSavedSession()),
-    handleImportSession: () => void runImportSession(),
+    handleImportSession: () => runAction("import session", runImportSession()),
     simulateAlert: attention.simulateAlert,
     canvasCenterActive: arrange.centerActive,
     canvasAutoArrange: arrange.handleCanvasAutoArrange,
@@ -398,13 +406,24 @@ const App: Component = () => {
           // active terminal) restore focus to the right place after the kill.
           // A sleeping terminal has no PTY to kill: DISCARD its record instead.
           if (!target) return;
-          if (sleepingArm(target.meta)) void crud.handleDiscard(target.id);
-          else void crud.handleKillWithSubs(target.id);
+          if (sleepingArm(target.meta))
+            // `Effect.ignore`: a discard failure is already toasted by
+            // `handleDiscard`, and this caller — unlike the worktree-removal
+            // path — has nothing that must not happen afterwards.
+            runAction(
+              "discard terminal",
+              crud.handleDiscard(target.id).pipe(Effect.ignore),
+            );
+          else runAction("close terminal", crud.handleKillWithSubs(target.id));
         }}
         onCloseAndRemove={() => {
           const target = closeConfirmTarget();
           setCloseConfirmTarget(null);
-          if (target) void worktree.handleKillWorktree(target.id);
+          if (target)
+            runAction(
+              "close terminal and remove worktree",
+              worktree.handleKillWorktree(target.id),
+            );
         }}
       />
       {/* Desktop chrome — docked top bar carrying identity and global
@@ -541,8 +560,15 @@ const App: Component = () => {
                 install={pwaInstall}
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
-                onRestore={(opts) => void session.handleRestoreSession(opts)}
-                onForfeit={() => void session.handleForfeitSession()}
+                onRestore={(opts) =>
+                  runAction(
+                    "restore session",
+                    session.handleRestoreSession(opts),
+                  )
+                }
+                onForfeit={() =>
+                  runAction("start fresh", session.handleForfeitSession())
+                }
                 onCreate={dockPalette.onCreate}
               />
             </div>

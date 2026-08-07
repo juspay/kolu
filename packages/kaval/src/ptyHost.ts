@@ -13,7 +13,7 @@
  *   - **exit**        — child exit code
  *   - **foregroundPid** — `tcgetpgrp(3)` of the pty, sampled on demand
  *
- * Each tap fans out through a bounded {@link Channel} so any number of
+ * Each tap fans out through a bounded {@link FanOut} so any number of
  * consumers can attach. The host knows nothing about git, PRs, agent
  * detection, the file tree, or any wire protocol — those live above it.
  * It also knows nothing about shell-env preparation: callers hand it a
@@ -34,9 +34,10 @@ import {
   type MirrorAnchor,
   snapToWrapHead,
 } from "@kolu/xterm-kit";
+import { Effect, type Scope, Stream } from "effect";
 import * as pty from "node-pty";
-import { Channel } from "./channel.ts";
-import type { PtyGrid } from "./ptyHostSurface.ts";
+import { FanOut, type SubscriberOverflow } from "./fanOut.ts";
+import { type PtyGrid, PtyNotFound } from "./ptyHostSurface.ts";
 
 /** Default terminal grid dimensions (matches xterm/VT100 standard). */
 const DEFAULT_COLS = 80;
@@ -69,7 +70,7 @@ export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
  *  is a perf knob, not a correctness one. */
 export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
- *  `exitPromise(id)` resolves with the real code rather than a fabricated
+ *  `exit(id)` succeeds with the real code rather than a fabricated
  *  one. Bounded so the map can't grow without limit. */
 const MAX_EXIT_TOMBSTONES = 1024;
 
@@ -229,10 +230,12 @@ export interface PtyAttachment {
    *  (this or another attach's resize) makes the stale absolute cursor a
    *  no-splice `stale` reply rather than a duplicated/skipped band (F3). */
   reflowEpoch: number;
-  /** Live output deltas after the snapshot. Ends on iterator return,
-   *  signal abort, PTY exit, or a slow-subscriber drop (which also fires
-   *  `attach`'s `onOverflow`, so the serving layer can tell that end apart). */
-  deltas: AsyncIterable<string>;
+  /** Live output deltas after the snapshot. Ends when the attachment's scope
+   *  closes (unsubscribing IS interrupting the consuming fiber) or the PTY
+   *  exits, and FAILS with {@link SubscriberOverflow} when this attachment
+   *  lagged past the bound — so the serving layer tells a slow-consumer drop
+   *  apart from a graceful end by the channel it arrives on, not by a flag. */
+  deltas: Stream.Stream<string, SubscriberOverflow>;
 }
 
 /** One older-history chunk from {@link PtyHost.getHistory}: a serialized slice
@@ -339,9 +342,9 @@ export interface PtyHostOptions {
   defaultScrollback?: number;
   /** Id generator (defaults to `randomUUID`). */
   generateId?: () => PtyId;
-  /** Per-attach-subscriber buffered-chunk cap for the data (attach) channel
+  /** Per-attach-subscriber buffered-chunk cap for the data (attach) fan-out
    *  before a slow consumer is dropped (and an `overflow` frame emitted).
-   *  Defaults to the {@link Channel} default (10,000). Lowered in tests to drive
+   *  Defaults to the {@link FanOut} default (10,000). Lowered in tests to drive
    *  the slow-subscriber drop deterministically. */
   dataMaxQueue?: number;
 }
@@ -351,12 +354,9 @@ export interface PtyHostOptions {
  *  rule are one statement rather than two independently-editable ones. */
 export type { PtyGrid };
 
-/** The optional halves of an {@link PtyHost.attach}. */
+/** The optional half of an {@link PtyHost.attach} — a bag rather than a trailing
+ *  positional, so the write it carries is named at every call site. */
 export interface PtyAttachOpts {
-  /** Fires (once) if THIS attachment's delta subscriber is dropped for lagging
-   *  past the bound — the serving layer turns it into an `overflow` frame so the
-   *  consumer re-attaches rather than mistaking the drop for a PTY exit. */
-  onOverflow?: () => void;
   /** RESIZES the PTY to this grid before serializing — a real `resize()`:
    *  SIGWINCH to the child, a reflow of the SHARED mirror, snapshot-memo
    *  invalidation, an activity mute, and (on a width change) a reflow-epoch bump
@@ -373,40 +373,96 @@ export interface PtyAttachOpts {
   resizeTo?: PtyGrid;
 }
 
+/** The command a PTY has already run, retained so a late subscriber still learns
+ *  it, with the QUOTING DIALECT it was written in (`true` = the command-rooted
+ *  `shellJoin` seed, reparse with `shellSplit`; `false` = a raw OSC 633;E line,
+ *  reparse with `string-argv`). */
+export interface RetainedCommand {
+  readonly command: string;
+  readonly shellJoin: boolean;
+}
+
+/** {@link PtyHost.subscribeCommandRun}'s two halves, taken in ONE synchronous
+ *  step so a mark published between them can neither be lost nor delivered
+ *  twice. */
+export interface CommandRunSubscription {
+  /** The command retained at subscribe time, or `undefined` before the first
+   *  mark. A consumer replays it as its snapshot frame. */
+  readonly retained: RetainedCommand | undefined;
+  /** Live OSC 633;E marks published AFTER the reading. */
+  readonly marks: Stream.Stream<string, SubscriberOverflow>;
+}
+
+/** {@link PtyHost.subscribeForeground}'s two halves, taken in ONE synchronous
+ *  step. */
+export interface ForegroundSubscription {
+  /** The foreground reading at subscribe time — a fresh `tcgetpgrp` sample, not
+   *  a cached one, so a freshly-wired consumer warms its cache immediately. */
+  readonly current: ForegroundSample;
+  /** Live samples published AFTER the reading. */
+  readonly samples: Stream.Stream<ForegroundSample, SubscriberOverflow>;
+}
+
+/** {@link PtyHost.subscribeInventory}'s two halves, taken in ONE synchronous
+ *  step — which is what makes a spawn racing the subscribe arrive as a delta
+ *  instead of falling into a gap. */
+export interface InventorySubscription {
+  /** Every PTY live at subscribe time. */
+  readonly entries: PtyListEntry[];
+  /** Membership deltas published AFTER the reading. A `created` also present in
+   *  `entries` is impossible; a consumer's adoption is idempotent regardless. */
+  readonly deltas: Stream.Stream<PtyInventoryEvent, SubscriberOverflow>;
+}
+
 /** The multi-client PTY-owner primitive. */
 export interface PtyHost {
   /** Spawn a PTY; returns its id + pid immediately. */
   spawn(opts: PtySpawnOpts): PtySpawnResult;
   /** **Resizes the PTY to `opts.resizeTo` first** (a real `resize()` — see
    *  {@link PtyAttachOpts.resizeTo}, which mutates state every other attached
-   *  client can see), then subscribe-before-serialize: returns a race-free
-   *  snapshot + delta stream for a late-joining client.
+   *  client can see), then subscribe-before-serialize: a race-free snapshot +
+   *  delta stream for a late-joining client, the two taken in ONE synchronous
+   *  step (see {@link FanOut.subscribeWith}).
    *
-   *  The two optional behaviours ride in ONE bag rather than trailing
-   *  positionals, so a caller that wants only the later one never has to write a
-   *  positional `undefined` past the one it doesn't care about — the shape most
-   *  callers need (a grid, no overflow handler) stays spellable. */
-  attach(id: PtyId, signal?: AbortSignal, opts?: PtyAttachOpts): PtyAttachment;
+   *  Scoped: the delta subscription is released when the caller's `Scope` closes
+   *  — for a served member, when the consuming fiber is interrupted. There is no
+   *  `AbortSignal` to pass and none to forget; an attach issued on an ALREADY
+   *  interrupted fiber never runs at all, which is what used to need an explicit
+   *  already-aborted fast path (no serialize, and no resize of the shared PTY,
+   *  for a subscriber that has gone). */
+  attach(
+    id: PtyId,
+    opts?: PtyAttachOpts,
+  ): Effect.Effect<PtyAttachment, never, Scope.Scope>;
   /** Per-PTY cwd update stream (OSC 7). */
-  subscribeCwd(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
+  subscribeCwd(id: PtyId): Stream.Stream<string, SubscriberOverflow>;
   /** Per-PTY title update stream (OSC 0/2). */
-  subscribeTitle(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
-  /** Per-PTY preexec command stream (OSC 633 ; E payloads). */
-  subscribeCommandRun(id: PtyId, signal?: AbortSignal): AsyncIterable<string>;
-  /** Per-PTY foreground-sample stream — `{process, foregroundPid}` pushed
-   *  whenever it changes (sampled on title / command-run + a post-command
-   *  burst, deduped). The socket equivalent of reading `PtyHandle.process` /
-   *  `.foregroundPid` synchronously. */
+  subscribeTitle(id: PtyId): Stream.Stream<string, SubscriberOverflow>;
+  /** Per-PTY preexec command marks (OSC 633 ; E payloads), with the RETAINED
+   *  command read in the same synchronous step (see
+   *  {@link CommandRunSubscription}) so a late subscriber learns the command
+   *  that was already marked without a mark in between going missing or double. */
+  subscribeCommandRun(
+    id: PtyId,
+  ): Effect.Effect<CommandRunSubscription, never, Scope.Scope>;
+  /** Per-PTY foreground samples — `{process, foregroundPid}` pushed whenever it
+   *  changes (sampled on title / command-run + a post-command burst, deduped),
+   *  with the CURRENT sample read in the same synchronous step (see
+   *  {@link ForegroundSubscription}). The socket equivalent of reading
+   *  `PtyHandle.process` / `.foregroundPid` synchronously. */
   subscribeForeground(
     id: PtyId,
-    signal?: AbortSignal,
-  ): AsyncIterable<ForegroundSample>;
-  /** Resolves with the exit code when the child exits; resolves immediately
-   *  for an already-exited PTY. If `signal` aborts first, the registered
-   *  waiter is removed and the promise rejects — so a long-lived host doesn't
-   *  retain a waiter per abandoned subscription (e.g. one per kolu-server
-   *  restart). */
-  exitPromise(id: PtyId, signal?: AbortSignal): Promise<number>;
+  ): Effect.Effect<ForegroundSubscription, never, Scope.Scope>;
+  /** Succeeds with the exit code when the child exits; immediately for an
+   *  already-exited PTY (the tombstone keeps the real code). Interrupting the
+   *  waiting fiber deregisters the waiter, so a long-lived host doesn't retain
+   *  one per abandoned subscription (e.g. one per kolu-server restart).
+   *
+   *  FAILS with {@link PtyNotFound} for an id this host has no entry and no
+   *  tombstone for — never spawned, or exited far enough back to be evicted past
+   *  {@link MAX_EXIT_TOMBSTONES}. "I don't know this PTY's exit code" is not an
+   *  exit code, so it is not spelled as one. */
+  exit(id: PtyId): Effect.Effect<number, PtyNotFound>;
   /** Write input (keystrokes, pasted text). No-op if the PTY is gone. */
   write(id: PtyId, data: string): void;
   /** Resize the PTY grid + the headless mirror. Returns TRUE when the entry
@@ -415,20 +471,24 @@ export interface PtyHost {
    *  exited or never spawned), which is the one way a caller's grid claim can
    *  fail to land here. */
   resize(id: PtyId, cols: number, rows: number): boolean;
-  /** Kill the PTY. Teardown (channels, mirror, onDispose) runs from the
-   *  child's exit, so `exitPromise` still resolves. No-op if gone. */
+  /** Kill the PTY. Teardown (fan-outs, mirror, onDispose) runs from the
+   *  child's exit, so {@link exit} still resolves. No-op if gone. */
   kill(id: PtyId, signal?: NodeJS.Signals): void;
   /** Snapshot of every live PTY. */
   list(): PtyListEntry[];
-  /** Subscribe to membership deltas — a `created` / `exited` for EVERY PTY this
-   *  host owns, including ones spawned by other clients. Eager-subscribe (the
-   *  {@link Channel} contract), so a spawn racing the subscribe is captured, not
-   *  dropped. Does NOT replay the current set — the serving layer prepends a
-   *  {@link list} snapshot (snapshot-then-deltas). */
-  subscribeInventory(signal?: AbortSignal): AsyncIterable<PtyInventoryEvent>;
+  /** Membership deltas — a `created` / `exited` for EVERY PTY this host owns,
+   *  including ones spawned by other clients — with the current {@link list}
+   *  read in the SAME synchronous step (see {@link InventorySubscription}), so a
+   *  spawn racing the subscribe arrives as a delta rather than falling in the
+   *  gap between a snapshot and a subscription. */
+  subscribeInventory(): Effect.Effect<
+    InventorySubscription,
+    never,
+    Scope.Scope
+  >;
   /** Host-global meaningful-output edges — every PTY's resize-excluded output
    *  bursts. A consumer subscribes ONCE and hears the whole host. */
-  subscribeActivity(signal?: AbortSignal): AsyncIterable<PtyActivityEdge>;
+  subscribeActivity(): Stream.Stream<PtyActivityEdge, SubscriberOverflow>;
   /** Whether this host still owns a PTY with `id` (an existence check, not a
    *  data read — distinct from `getCwd(id) !== undefined`, which happens to
    *  coincide today only because cwd is always set at spawn). */
@@ -513,12 +573,15 @@ interface Entry {
    *  `ACTIVITY_EDGE_THROTTLE_MS`). */
   lastActivityEdgeAt: number;
   exitCode: number | undefined;
-  exitWaiters: ((code: number) => void)[];
+  /** Fibers parked in {@link PtyHost.exit}. A `Set` so an interrupted waiter
+   *  deregisters in O(1) — a long-lived host accumulates and sheds these one per
+   *  kolu-server restart. */
+  exitWaiters: Set<(code: number) => void>;
   disposables: { dispose(): void }[];
-  data: Channel<string>;
-  cwdChannel: Channel<string>;
-  titleChannel: Channel<string>;
-  commandRunChannel: Channel<string>;
+  data: FanOut<string>;
+  cwdFanOut: FanOut<string>;
+  titleFanOut: FanOut<string>;
+  commandRunFanOut: FanOut<string>;
   /** Last command line seen on an OSC 633;E mark (`undefined` until the first),
    *  retained so the `commandRun` source can replay it snapshot-first to a late
    *  subscriber — mirroring how `foreground` replays the current process. */
@@ -534,7 +597,7 @@ interface Entry {
    *  seed source for `lastCommand` at spawn, and the fact reported on the
    *  inventory row so the sensors read `foreground === root` as busy. */
   commandRooted: boolean;
-  foregroundChannel: Channel<ForegroundSample>;
+  foregroundFanOut: FanOut<ForegroundSample>;
   /** Dedup key (`process\0foregroundPid`) of the last sample published, so
    *  a steady foreground doesn't spam the channel across burst samples. */
   lastForegroundKey: string | undefined;
@@ -614,20 +677,31 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   const generateId = opts.generateId ?? (() => randomUUID());
   const entries = new Map<PtyId, Entry>();
   // Bounded tombstone of exit codes for PTYs that have exited and been torn
-  // down — lets exitPromise() honour its "already-exited" contract with the
+  // down — lets exit() honour its "already-exited" contract with the
   // real code instead of a fabricated 0.
   const exitCodes = new Map<PtyId, number>();
-  // Host-global membership feed — one channel for the whole host (not per-PTY,
+  // Host-global membership feed — one fan-out for the whole host (not per-PTY,
   // like the taps), broadcasting a `created`/`exited` from the two `entries`
   // mutation sites (spawn / teardown). Eager-subscribe, so a spawn racing a
   // subscriber is captured; never closed except on dispose (host shutdown).
-  const inventoryChannel = new Channel<PtyInventoryEvent>();
+  const inventoryFanOut = new FanOut<PtyInventoryEvent>();
   // Host-global meaningful-output edges — every PTY's resize-excluded output bursts.
-  const activityChannel = new Channel<PtyActivityEdge>();
+  const activityFanOut = new FanOut<PtyActivityEdge>();
 
+  /** The entry, or the host's DECLARED "no such PTY" — never an anonymous
+   *  `Error`.
+   *
+   *  The serving layer checks liveness once (`requirePtySync`, which raises this
+   *  same class) and this function checks it again one Effect step later, so a
+   *  PTY that exits in the gap surfaces HERE. A consumer recognises a healthy
+   *  exit structurally, by `_tag` (padi's re-open loop is the one that matters:
+   *  tag ⇒ "the PTY is gone, end cleanly"; anything else ⇒ "the chain broke,
+   *  raise a failure"). An untagged `Error` therefore turned a normal exit into a
+   *  spurious loud failure — the producer is the honest place to fix that, not a
+   *  classify-at-the-catch downstream. */
   function requireEntry(id: PtyId): Entry {
     const entry = entries.get(id);
-    if (!entry) throw new Error(`pty-host: no PTY with id ${id}`);
+    if (!entry) throw new PtyNotFound({ id });
     return entry;
   }
 
@@ -646,16 +720,24 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     };
   }
 
-  /** Sample `{process, foregroundPid}` and publish to the entry's foreground
-   *  channel iff it changed since the last publish (dedup by a compound key).
-   *  Cheap: a property read + a `tcgetpgrp` syscall. */
+  /** Read `{process, foregroundPid}` at the tty. Cheap: a property read + a
+   *  `tcgetpgrp` syscall — so a subscriber's snapshot takes a FRESH reading
+   *  rather than replaying whatever the dedup below last let through. */
+  function readForeground(entry: Entry): ForegroundSample {
+    return {
+      process: entry.proc.process,
+      foregroundPid: readForegroundPid(entry.proc),
+    };
+  }
+
+  /** Sample `{process, foregroundPid}` and publish it on the entry's foreground
+   *  tap iff it changed since the last publish (dedup by a compound key). */
   function sampleForeground(entry: Entry): void {
-    const foregroundPid = readForegroundPid(entry.proc);
-    const process = entry.proc.process;
-    const key = `${process}\u0000${foregroundPid ?? ""}`;
+    const sample = readForeground(entry);
+    const key = `${sample.process}\u0000${sample.foregroundPid ?? ""}`;
     if (key === entry.lastForegroundKey) return;
     entry.lastForegroundKey = key;
-    entry.foregroundChannel.publish({ process, foregroundPid });
+    entry.foregroundFanOut.publishUnsafe(sample);
   }
 
   /** Re-sample foreground across the post-command settle window — the agent
@@ -679,11 +761,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.disposables = [];
     for (const t of entry.foregroundTimers) clearTimeout(t);
     entry.foregroundTimers = [];
-    entry.data.close();
-    entry.cwdChannel.close();
-    entry.titleChannel.close();
-    entry.commandRunChannel.close();
-    entry.foregroundChannel.close();
+    entry.data.closeUnsafe();
+    entry.cwdFanOut.closeUnsafe();
+    entry.titleFanOut.closeUnsafe();
+    entry.commandRunFanOut.closeUnsafe();
+    entry.foregroundFanOut.closeUnsafe();
     entry.headless.dispose();
     if (entry.onDispose) {
       try {
@@ -700,7 +782,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entries.delete(entry.id);
     // Announce the membership change AFTER the delete, so a consumer reacting to
     // `exited` that re-checks `has`/`list` sees the PTY already gone.
-    inventoryChannel.publish({ kind: "exited", id: entry.id });
+    inventoryFanOut.publishUnsafe({ kind: "exited", id: entry.id });
   }
 
   function spawn(spawnOpts: PtySpawnOpts): PtySpawnResult {
@@ -776,16 +858,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       title: "",
       lastActivity: Date.now(),
       exitCode: undefined,
-      exitWaiters: [],
+      exitWaiters: new Set(),
       disposables: [],
-      data: new Channel<string>({ maxQueue: dataMaxQueue }),
-      cwdChannel: new Channel<string>(),
-      titleChannel: new Channel<string>(),
-      commandRunChannel: new Channel<string>(),
+      data: new FanOut<string>({ maxQueue: dataMaxQueue }),
+      cwdFanOut: new FanOut<string>(),
+      titleFanOut: new FanOut<string>(),
+      commandRunFanOut: new FanOut<string>(),
       lastCommand: undefined,
       lastCommandShellJoin: false,
       commandRooted: spawnOpts.commandRooted ?? false,
-      foregroundChannel: new Channel<ForegroundSample>(),
+      foregroundFanOut: new FanOut<ForegroundSample>(),
       lastForegroundKey: undefined,
       lastForegroundSampleAt: 0,
       foregroundTimers: [],
@@ -811,7 +893,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
       entry.lastCommandShellJoin = true;
-      entry.commandRunChannel.publish(command);
+      entry.commandRunFanOut.publishUnsafe(command);
     }
 
     // Dispose the anchor's live `onTrim` subscription on teardown. The anchor
@@ -828,7 +910,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           if (url.protocol === "file:") {
             entry.cwd = decodeURIComponent(url.pathname);
             log.debug({ id, cwd: entry.cwd }, "cwd changed (OSC 7)");
-            entry.cwdChannel.publish(entry.cwd);
+            entry.cwdFanOut.publishUnsafe(entry.cwd);
           }
         } catch {
           // Ignore malformed OSC 7 data.
@@ -843,7 +925,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       headless.onTitleChange((title: string) => {
         entry.title = title;
         log.debug({ id, title }, "title changed (OSC 0/2)");
-        entry.titleChannel.publish(title);
+        entry.titleFanOut.publishUnsafe(title);
         // OSC 2 signals the foreground process may have changed — sample now.
         sampleForeground(entry);
       }),
@@ -866,7 +948,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // even if it overwrites a command-rooted PTY's seed (precedence).
         entry.lastCommand = command;
         entry.lastCommandShellJoin = false;
-        entry.commandRunChannel.publish(command);
+        entry.commandRunFanOut.publishUnsafe(command);
         // The agent process forks AFTER this mark — re-sample foreground
         // across the settle window so detection sees the real foreground.
         scheduleForegroundBurst(entry);
@@ -930,7 +1012,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           )
         ) {
           entry.lastActivityEdgeAt = now;
-          activityChannel.publish({ id });
+          activityFanOut.publishUnsafe({ id });
         }
         // Output-driven foreground sample (throttled) — the fallback for a
         // hook-less terminal that emits no OSC title/633 to trigger the samplers
@@ -958,7 +1040,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // the discarded rows, re-subscribe the trim pin, bump the generation so
           // every outstanding cursor re-seeds — F3 halt-not-corrupt).
           entry.anchor.reanchorIfReset();
-          entry.data.publish(data);
+          entry.data.publishUnsafe(data);
         });
       }),
     );
@@ -967,8 +1049,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       proc.onExit(({ exitCode }) => {
         log.debug({ id, exitCode }, "exited");
         entry.exitCode = exitCode;
-        const waiters = entry.exitWaiters;
-        entry.exitWaiters = [];
+        const waiters = [...entry.exitWaiters];
+        entry.exitWaiters.clear();
         for (const resolve of waiters) resolve(exitCode);
         teardown(entry);
       }),
@@ -978,7 +1060,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // feed so a consumer that reacts to `created` and immediately attaches /
     // lists finds a live, fully-tapped entry. Published last, so the snapshot a
     // racing inventory subscriber takes is consistent with this delta.
-    inventoryChannel.publish({ kind: "created", entry: listEntryOf(entry) });
+    inventoryFanOut.publishUnsafe({
+      kind: "created",
+      entry: listEntryOf(entry),
+    });
 
     return { id, pid: proc.pid };
   }
@@ -1007,14 +1092,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       normal,
       Math.max(0, normal.length - SNAPSHOT_SCROLLBACK - entry.headless.rows),
     );
-  }
-  /** Absolute mirror-line index of the row the bounded attach snapshot starts
-   *  at — the client's backfill seed cursor. The wrap-safe local start shifted
-   *  by the eviction origin to make it absolute. Cheap (a handful of `getLine`
-   *  reads, no serialize), so the aborted-attach fast path can seed a cursor
-   *  without paying for a snapshot it won't send. */
-  function snapshotTopLineOf(entry: Entry): number {
-    return entry.anchor.baseLine() + snapshotStartLocal(entry);
   }
   /** Bounded attach snapshot (recent screenful) + its seed cursor, memoized per
    *  publish-epoch just like {@link snapshotOf}. The `{scrollback}` form keeps
@@ -1051,93 +1128,89 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
 
   function attach(
     id: PtyId,
-    signal?: AbortSignal,
     opts?: PtyAttachOpts,
-  ): PtyAttachment {
-    const { onOverflow, resizeTo } = opts ?? {};
-    const entry = requireEntry(id);
-    // An attach whose signal is ALREADY aborted — the re-issued half of a
-    // reconnect storm, whose client has gone — must do NOTHING, and that
-    // includes the resize below. `resizeTo` mutates the SHARED PTY: it
-    // SIGWINCHes the child, reflows the mirror every other client reads, and on
-    // a width change bumps the reflow epoch that stales their backfill cursors.
-    // Letting a subscriber that will never read a byte inflict that on everyone
-    // else would contradict the no-op contract this fast path exists to keep —
-    // so it is taken BEFORE the write, not after it.
-    if (signal?.aborted)
-      return {
-        snapshot: "",
-        topLine: snapshotTopLineOf(entry),
-        reflowEpoch: entry.anchor.reflowEpoch(),
-        deltas: entry.data.subscribe(signal, onOverflow),
-      };
-    // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
-    // bytes laid out for the grid that will paint them. This is the whole point
-    // of carrying the grid on the attach: the resize and the serialize become
-    // ONE act, and "a snapshot for a size the consumer isn't" stops being a
-    // reachable state. Doing it through `resize()` — not a private path — keeps
-    // the single mutator: same-dimensions stays a no-op (so a second viewer at
-    // the same size costs nothing and staleness the reflow epoch guards is not
-    // spuriously bumped), and a genuine change reflows the mirror, invalidates
-    // the snapshot memo, and SIGWINCHes the process exactly as a user resize
-    // does — which is what makes the process repaint into the new grid. This is
-    // the WRITE the `resizeTo` name advertises: it is visible to every other
-    // client attached to this PTY, not private to this attachment.
-    if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
-    // Subscribe BEFORE serializing, both synchronously: no headless parse
-    // (and thus no post-parse publish) can interleave between the two, so
-    // every chunk lands in exactly one of snapshot / deltas.
-    const deltas = entry.data.subscribe(signal, onOverflow);
-    // Coalesce within the publish-epoch: the first attach serializes and
-    // memoizes via boundedSnapshotOf(); the rest of a burst reuse the identical
-    // immutable string. Race-free — the memo is set through boundedSnapshotOf()
-    // and cleared through invalidateSnapshot() in every mirror mutator, all
-    // synchronous, and publish only fires from a later task; so a present cache
-    // means the mirror is unchanged since it was taken, and every reusing
-    // attacher's deltas (subscribed just above) begin at the next publish,
-    // exactly where the shared snapshot ends. No gap, no overlap. `topLine`
-    // rides with the snapshot from the same serialize, so the backfill seed can
-    // never drift from the bytes the client received.
-    const { snapshot, topLine } = boundedSnapshotOf(entry);
-    return {
-      snapshot,
-      topLine,
-      reflowEpoch: entry.anchor.reflowEpoch(),
-      deltas,
-    };
+  ): Effect.Effect<PtyAttachment, never, Scope.Scope> {
+    const { resizeTo } = opts ?? {};
+    // An attach on a fiber that is ALREADY interrupted — the re-issued half of a
+    // reconnect storm, whose client has gone — does NOTHING, because an
+    // interrupted fiber never runs this effect at all. That includes the resize:
+    // `resizeTo` mutates the SHARED PTY (it SIGWINCHes the child, reflows the
+    // mirror every other client reads, and on a width change bumps the reflow
+    // epoch that stales their backfill cursors), and a subscriber that will never
+    // read a byte must not inflict that on everyone else. Under the AbortSignal
+    // face this needed an explicit already-aborted fast path in front of the
+    // write; under interruption it is structural.
+    return Effect.suspend(() => {
+      const entry = requireEntry(id);
+      // Size the PTY to the consumer's grid BEFORE serializing, so the snapshot is
+      // bytes laid out for the grid that will paint them. This is the whole point
+      // of carrying the grid on the attach: the resize and the serialize become
+      // ONE act, and "a snapshot for a size the consumer isn't" stops being a
+      // reachable state. Doing it through `resize()` — not a private path — keeps
+      // the single mutator: same-dimensions stays a no-op (so a second viewer at
+      // the same size costs nothing and staleness the reflow epoch guards is not
+      // spuriously bumped), and a genuine change reflows the mirror, invalidates
+      // the snapshot memo, and SIGWINCHes the process exactly as a user resize
+      // does — which is what makes the process repaint into the new grid. This is
+      // the WRITE the `resizeTo` name advertises: it is visible to every other
+      // client attached to this PTY, not private to this attachment.
+      if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
+      // Subscribe and serialize in ONE synchronous step (`subscribeWith` — the
+      // two halves are not separately spellable): no headless parse, and thus no
+      // post-parse publish, can interleave between them, so every chunk lands in
+      // exactly one of snapshot / deltas.
+      //
+      // The serialize coalesces within the publish-epoch: the first attach
+      // serializes and memoizes via boundedSnapshotOf(); the rest of a burst reuse
+      // the identical immutable string. Race-free — the memo is set through
+      // boundedSnapshotOf() and cleared through invalidateSnapshot() in every
+      // mirror mutator, all synchronous, and publish only fires from a later task;
+      // so a present cache means the mirror is unchanged since it was taken, and
+      // every reusing attacher's deltas begin at the next publish, exactly where
+      // the shared snapshot ends. No gap, no overlap. `topLine` rides with the
+      // snapshot from the same serialize, so the backfill seed can never drift
+      // from the bytes the client received.
+      return Effect.map(
+        entry.data.subscribeWith(() => ({
+          ...boundedSnapshotOf(entry),
+          reflowEpoch: entry.anchor.reflowEpoch(),
+        })),
+        ({ stream, reading }): PtyAttachment => ({
+          snapshot: reading.snapshot,
+          topLine: reading.topLine,
+          reflowEpoch: reading.reflowEpoch,
+          deltas: stream,
+        }),
+      );
+    });
   }
 
-  function exitPromise(id: PtyId, signal?: AbortSignal): Promise<number> {
-    const entry = entries.get(id);
-    if (entry) {
-      if (entry.exitCode !== undefined) return Promise.resolve(entry.exitCode);
-      return new Promise<number>((resolve, reject) => {
-        const waiter = (code: number): void => {
-          cleanup();
-          resolve(code);
-        };
-        const onAbort = (): void => {
-          const i = entry.exitWaiters.indexOf(waiter);
-          if (i >= 0) entry.exitWaiters.splice(i, 1);
-          cleanup();
-          reject(new Error("exitPromise aborted"));
-        };
-        const cleanup = (): void =>
-          signal?.removeEventListener("abort", onAbort);
-        if (signal?.aborted) {
-          reject(new Error("exitPromise aborted"));
-          return;
-        }
-        entry.exitWaiters.push(waiter);
-        signal?.addEventListener("abort", onAbort, { once: true });
-      });
-    }
-    const cached = exitCodes.get(id);
-    if (cached !== undefined) return Promise.resolve(cached);
-    // Unknown id — never spawned, or exited long enough ago to be evicted
-    // from the tombstone. Defensive: the in-process caller registers its
-    // waiter while the PTY is live, so this path isn't hit in practice.
-    return Promise.resolve(0);
+  function exit(id: PtyId): Effect.Effect<number, PtyNotFound> {
+    return Effect.suspend(() => {
+      const entry = entries.get(id);
+      if (entry) {
+        if (entry.exitCode !== undefined) return Effect.succeed(entry.exitCode);
+        return Effect.callback<number>((resume) => {
+          const waiter = (code: number): void => resume(Effect.succeed(code));
+          entry.exitWaiters.add(waiter);
+          // Interrupting the waiting fiber deregisters the waiter — a long-lived
+          // host must not retain one per abandoned subscription.
+          return Effect.sync(() => {
+            entry.exitWaiters.delete(waiter);
+          });
+        });
+      }
+      const cached = exitCodes.get(id);
+      if (cached !== undefined) return Effect.succeed(cached);
+      // Unknown id — never spawned, or exited long enough ago to be evicted from
+      // the tombstone. The host does not KNOW this PTY's exit code, and the one
+      // answer it must never give is `0`: a fabricated SUCCESS that a consumer
+      // reports to the user as "the command finished fine". So it fails with the
+      // host's declared "no such PTY" and the caller decides — `terminate` reads
+      // it as "already gone, nothing to wait for", the `exit` stream member as a
+      // defect (see `inProcessPtyHost`).
+      return Effect.fail(new PtyNotFound({ id }));
+    });
   }
 
   function getForegroundPid(id: PtyId): number | undefined {
@@ -1212,7 +1285,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // "start from the top of the VISIBLE screen" (local `length - rows`) — the
     // self-seeding entry point a plain pager (`kaval-tui history`) uses instead
     // of first reading an attach snapshot's `topLine`. It must NOT be the
-    // bounded-snapshot top (`snapshotTopLineOf`), which sits ~SNAPSHOT_SCROLLBACK
+    // bounded-snapshot top (`snapshotStartLocal`), which sits ~SNAPSHOT_SCROLLBACK
     // rows ABOVE the screen: self-seeding there would skip the newest older lines
     // (the ones between the snapshot top and the screen) the CLI is asked to dump.
     const cursor =
@@ -1310,20 +1383,58 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
   return {
     spawn,
     attach,
-    subscribeCwd: (id, signal) => requireEntry(id).cwdChannel.subscribe(signal),
-    subscribeTitle: (id, signal) =>
-      requireEntry(id).titleChannel.subscribe(signal),
-    subscribeCommandRun: (id, signal) =>
-      requireEntry(id).commandRunChannel.subscribe(signal),
-    subscribeForeground: (id, signal) =>
-      requireEntry(id).foregroundChannel.subscribe(signal),
-    exitPromise,
+    subscribeCwd: (id) =>
+      Stream.suspend(() => requireEntry(id).cwdFanOut.stream),
+    subscribeTitle: (id) =>
+      Stream.suspend(() => requireEntry(id).titleFanOut.stream),
+    // The retention is read in the SAME step as the registration, so the mark
+    // that a late subscriber replays and the marks it then hears live partition
+    // the feed exactly once.
+    subscribeCommandRun: (id) =>
+      Effect.suspend(() => {
+        const entry = requireEntry(id);
+        return Effect.map(
+          entry.commandRunFanOut.subscribeWith(() =>
+            entry.lastCommand === undefined
+              ? undefined
+              : {
+                  command: entry.lastCommand,
+                  shellJoin: entry.lastCommandShellJoin,
+                },
+          ),
+          ({ stream, reading }): CommandRunSubscription => ({
+            retained: reading,
+            marks: stream,
+          }),
+        );
+      }),
+    subscribeForeground: (id) =>
+      Effect.suspend(() => {
+        const entry = requireEntry(id);
+        return Effect.map(
+          entry.foregroundFanOut.subscribeWith(() => readForeground(entry)),
+          ({ stream, reading }): ForegroundSubscription => ({
+            current: reading,
+            samples: stream,
+          }),
+        );
+      }),
+    exit,
     write,
     resize,
     kill: (id, signal) => entries.get(id)?.proc.kill(signal),
     list: () => [...entries.values()].map(listEntryOf),
-    subscribeInventory: (signal) => inventoryChannel.subscribe(signal),
-    subscribeActivity: (signal) => activityChannel.subscribe(signal),
+    subscribeInventory: () =>
+      Effect.map(
+        inventoryFanOut.subscribeWith(() =>
+          [...entries.values()].map(listEntryOf),
+        ),
+        ({ stream, reading }): InventorySubscription => ({
+          entries: reading,
+          deltas: stream,
+        }),
+      ),
+    subscribeActivity: () => activityFanOut.stream,
     has: (id) => entries.has(id),
     size: () => entries.size,
     getForegroundPid,
@@ -1353,8 +1464,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // Host shutdown — end every inventory subscription gracefully. The async
       // `onExit` → teardown `exited` publishes from the kills above land on a
       // closed channel (a no-op), which is fine: the host is going away.
-      inventoryChannel.close();
-      activityChannel.close();
+      inventoryFanOut.closeUnsafe();
+      activityFanOut.closeUnsafe();
     },
   };
 }

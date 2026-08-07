@@ -59,24 +59,23 @@ export {
 export {
   buildLabel,
   buildsMatch,
+  type ConvergenceIdentity,
   contractIsCompatible,
   contractIsNewer,
-  type ConvergenceIdentity,
   type DaemonBuild,
   daemonBuild,
 } from "./convergenceIdentity.ts";
 export {
-  daemonHome,
-  resolveDaemonHome,
   type DaemonHome,
   type DaemonHomeOptions,
   type DaemonHomePaths,
   type DaemonHomePlacement,
   type DaemonHomeRuntimeRoot,
+  daemonHome,
   type ResolveDaemonHomeOptions,
   type ResolvedDaemonHome,
+  resolveDaemonHome,
 } from "./daemonHome.ts";
-export { isPrivateOwnedDir } from "./privateOwnedDir.ts";
 export {
   anchorGone,
   DAEMON_BIND_PID_ENV,
@@ -114,9 +113,15 @@ export {
   SOCKET_SERVE_PROBE_MS,
   type SocketServeState,
   START_TIME_TOLERANCE_US,
-  startTimesMatch,
   socketServeState,
+  startTimesMatch,
   throwIfGateUnreadable,
 } from "./pidGate.ts";
+export { isPrivateOwnedDir } from "./privateOwnedDir.ts";
+export {
+  armRuntimeFaultExit,
+  DAEMON_RUNTIME_FAULT_MARKER,
+  type RuntimeFaultExitOptions,
+} from "./runtimeFault.ts";
 export type { SharedArtifact } from "./sharedArtifact.ts";
 export { daemonProcessMain } from "./tenure.ts";

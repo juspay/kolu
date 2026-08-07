@@ -16,6 +16,7 @@ import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { isHolderLive } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import { afterEach, expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
@@ -31,7 +32,7 @@ import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.ko
 // The ONE pin in this file that does not want kolu's real osfacts reader: it
 // fakes the OS answer, so it reaches past the kolu adapter for the general
 // helper and supplies `readSocketHolders` itself.
-import { createEndpointForTest } from "./createEndpoint.testlib.ts";
+import { createEndpointForTest, fromAsync } from "./createEndpoint.testlib.ts";
 
 import { endpointPrivate } from "./endpoint.private.ts";
 
@@ -97,9 +98,11 @@ function spawnSocketHolder(socketPath: string): Promise<number> {
  *  clears any stale socket file first (as `serveOverUnixSocket` does), then binds.
  *  This is the successor that must survive: the squatter is already reaped, so no
  *  later `close()` can unlink it (F1 dissolved by removal). */
-function freshDaemon(socketPath: string): { spawn: () => Promise<void> } {
+function freshDaemon(socketPath: string): {
+  spawn: Effect.Effect<void, Error>;
+} {
   return {
-    spawn: async () => {
+    spawn: fromAsync(async () => {
       try {
         unlinkSync(socketPath);
       } catch {
@@ -111,7 +114,7 @@ function freshDaemon(socketPath: string): { spawn: () => Promise<void> } {
         server.once("error", reject);
         server.listen(socketPath, () => resolve());
       });
-    },
+    }),
   };
 }
 
@@ -150,26 +153,27 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(socketPath),
-      connect: async (_socketPath) => {
-        if (isHolderLive(holderPid)) {
-          throw new DaemonContractSkewError({
-            subject: "pty-host",
-            daemonVersion: "5.0",
-            requiredVersion: "5.2",
-            pid: holderPid, // the orphan names its own pid over the socket
-          });
-        }
-        return compatibleConn();
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          if (isHolderLive(holderPid)) {
+            throw new DaemonContractSkewError({
+              subject: "pty-host",
+              daemonVersion: "5.0",
+              requiredVersion: "5.2",
+              pid: holderPid, // the orphan names its own pid over the socket
+            });
+          }
+          return compatibleConn();
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
       adoptConnectRetryMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
 
     // The squatter is GONE (SIGTERM + waitForPidGone actually reaped it).
     expect(isHolderLive(holderPid)).toBe(false);
@@ -203,13 +207,14 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(socketPath),
       // Never completes the kaval handshake — a plain (non-skew) failure, the way
       // a foreign speaker (or a schema-invalid version response) presents.
-      connect: async (_socketPath) => {
-        throw new Error("not kaval: connection reset");
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw new Error("not kaval: connection reset");
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
@@ -217,14 +222,12 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const err = await endpointPrivate(endpoint)
-      .ensure()
-      .then(
-        () => {
-          throw new Error("expected the foreign socket holder to be rejected");
-        },
-        (caught: unknown) => caught,
-      );
+    const err = await Effect.runPromise(endpointPrivate(endpoint).ensure).then(
+      () => {
+        throw new Error("expected the foreign socket holder to be rejected");
+      },
+      (caught: unknown) => caught,
+    );
     expect(isSocketSquatterForeignError(err)).toBe(true);
     if (!isSocketSquatterForeignError(err)) return;
 
@@ -264,7 +267,8 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       hostId: "local",
       home: { dir: dirname(socketPath), gatePath, socketPath },
       // The OS answers `unattributed`, exactly as darwin's denied fd walk does.
-      readSocketHolders: async () => ({ kind: "unattributed", detail: blind }),
+      readSocketHolders: () =>
+        Effect.succeed({ kind: "unattributed" as const, detail: blind }),
       policy: {
         capability: "not-drainable",
         baked: {
@@ -274,11 +278,12 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(socketPath),
-      connect: async () => {
-        throw new Error("not kaval: connection reset");
-      },
+      connect: () =>
+        fromAsync(async () => {
+          throw new Error("not kaval: connection reset");
+        }),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
@@ -286,14 +291,12 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const err = await endpointPrivate(endpoint)
-      .ensure()
-      .then(
-        () => {
-          throw new Error("expected an unattributable holder to be refused");
-        },
-        (caught: unknown) => caught,
-      );
+    const err = await Effect.runPromise(endpointPrivate(endpoint).ensure).then(
+      () => {
+        throw new Error("expected an unattributable holder to be refused");
+      },
+      (caught: unknown) => caught,
+    );
 
     expect(isSocketSquatterForeignError(err)).toBe(true);
     if (!isSocketSquatterForeignError(err)) return;
@@ -325,15 +328,16 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(socketPath),
       // A schema-invalid version response surfaces as a plain handshake error
       // (oRPC output validation throws) — the same non-skew path as foreign.
-      connect: async (_socketPath) => {
-        throw new Error(
-          "pty-host handshake failed — could not read system.version",
-        );
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw new Error(
+            "pty-host handshake failed — could not read system.version",
+          );
+        }),
       log: silentLog,
       onStatus: () => {},
       socketPollMs: 5,
@@ -341,9 +345,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await expect(endpointPrivate(endpoint).ensure()).rejects.toSatisfy(
-      isSocketSquatterForeignError,
-    );
+    await expect(
+      Effect.runPromise(endpointPrivate(endpoint).ensure),
+    ).rejects.toSatisfy(isSocketSquatterForeignError);
     expect(isHolderLive(holderPid)).toBe(true); // never killed
   });
 
@@ -381,22 +385,25 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(primarySock),
-      connect: async (_socketPath) =>
-        isHolderLive(primaryPid)
-          ? Promise.reject(skew(primaryPid))
-          : compatibleConn(),
+      connect: (_socketPath) =>
+        fromAsync(async () =>
+          isHolderLive(primaryPid)
+            ? Promise.reject(skew(primaryPid))
+            : compatibleConn(),
+        ),
       adoptHint: {
         home: {
           dir: dirname(hintSock),
           gatePath: join(d, "hint.pid"),
           socketPath: hintSock,
         },
-        connect: async (_socketPath) => {
-          hintDialed = true;
-          return compatibleConn();
-        },
+        connect: (_socketPath) =>
+          fromAsync(async () => {
+            hintDialed = true;
+            return compatibleConn();
+          }),
       },
       log: silentLog,
       onStatus: () => {},
@@ -404,7 +411,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     expect(isHolderLive(primaryPid)).toBe(false); // primary squatter recycled...
     expect(hintDialed).toBe(false); // ...before the hint was ever consulted (not masked)
     expect(adopted.kind).toBe("spawned-fresh"); // fresh spawn at the primary
@@ -432,19 +441,21 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(primarySock),
-      connect: async (_socketPath) => compatibleConn(), // the fresh primary spawn
+      connect: (_socketPath) => fromAsync(async () => compatibleConn()), // the fresh primary spawn
       adoptHint: {
         home: {
           dir: dirname(hintSock),
           gatePath: join(d, "hint.pid"),
           socketPath: hintSock,
         },
-        connect: async (_socketPath) =>
-          isHolderLive(hintPid)
-            ? Promise.reject(skew(hintPid))
-            : compatibleConn(),
+        connect: (_socketPath) =>
+          fromAsync(async () =>
+            isHolderLive(hintPid)
+              ? Promise.reject(skew(hintPid))
+              : compatibleConn(),
+          ),
       },
       log: silentLog,
       onStatus: () => {},
@@ -452,7 +463,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
       adoptConnectRetryMs: 5,
     });
 
-    await endpointPrivate(endpoint).adoptOrEnsure();
+    await Effect.runPromise(endpointPrivate(endpoint).adoptOrEnsure);
     // The gate-less hint skew is RECYCLED (kaval policy) — not left abandoned; the
     // follow-on spawn lands at the primary, converging the migration.
     expect(isHolderLive(hintPid)).toBe(false);
@@ -486,19 +497,21 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(primarySock),
-      connect: async (_socketPath) => compatibleConn(), // the primary fresh spawn
+      connect: (_socketPath) => fromAsync(async () => compatibleConn()), // the primary fresh spawn
       adoptHint: {
         home: {
           dir: dirname(hintSock),
           gatePath: join(d, "hint.pid"),
           socketPath: hintSock,
         },
-        connect: async (_socketPath) =>
-          hintSkews && isHolderLive(hintPid)
-            ? Promise.reject(skew(hintPid))
-            : compatibleConn(),
+        connect: (_socketPath) =>
+          fromAsync(async () =>
+            hintSkews && isHolderLive(hintPid)
+              ? Promise.reject(skew(hintPid))
+              : compatibleConn(),
+          ),
         onAdopted: () => {
           onAdoptedCalled = true;
         },
@@ -510,7 +523,9 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     });
 
     // 1) adopt the compatible gate-less hint (primary is free).
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     expect(adopted.kind).toBe("adopted-resident");
     expect(onAdoptedCalled).toBe(true);
     expect(isHolderLive(hintPid)).toBe(true); // adopted, not killed
@@ -519,7 +534,7 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
     //    recycle it — killing the hint child. If `held` had wrongly stayed the
     //    primary, ensure would spawn at the free primary and ABANDON the hint daemon.
     hintSkews = true;
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
     expect(isHolderLive(hintPid)).toBe(false);
   });
 
@@ -542,23 +557,26 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       driver: freshDaemon(socketPath),
-      connect: async (_socketPath) => {
-        throw new DaemonContractSkewError({
-          subject: "padiSurface",
-          daemonVersion: "5.0",
-          requiredVersion: "5.2",
-          pid: holderPid,
-        });
-      },
+      connect: (_socketPath) =>
+        fromAsync(async () => {
+          throw new DaemonContractSkewError({
+            subject: "padiSurface",
+            daemonVersion: "5.0",
+            requiredVersion: "5.2",
+            pid: holderPid,
+          });
+        }),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
       adoptConnectRetryMs: 5,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrSpawnOrRefuse();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrSpawnOrRefuse,
+    );
     expect(adopted.kind).not.toBe("adopted-resident");
     // A client NEVER SIGTERMs a running (padi) daemon, even a skewed gate-less one.
     expect(isHolderLive(holderPid)).toBe(true);
@@ -588,22 +606,24 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       // Never spawns — the recovery adopts the proven connection directly.
       driver: {
-        spawn: async () => {
+        spawn: fromAsync(async () => {
           throw new Error(
             "should not spawn: compatible holder is adopted in place",
           );
-        },
+        }),
       },
-      connect: async (_socketPath) => compatibleConn(),
+      connect: (_socketPath) => fromAsync(async () => compatibleConn()),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    const adopted = await endpointPrivate(endpoint).adoptOrEnsure();
+    const adopted = await Effect.runPromise(
+      endpointPrivate(endpoint).adoptOrEnsure,
+    );
     expect(adopted.kind).toBe("adopted-resident"); // NOT a blind false → converge reconciles the session
     expect(isHolderLive(holderPid)).toBe(true); // never killed
     expect(statuses.map((s) => s.state)).toEqual(["connecting", "connected"]);
@@ -629,17 +649,17 @@ describeDaemon("SQUAT1 — gate-less socket-squatter recovery", () => {
         onContractSkew: { kind: "recycle" },
         onBuildMismatch: { kind: "nudge-human" },
       },
-      probe: async () => null,
+      probe: () => fromAsync(async () => null),
       // The socket is already held by the compatible orphan, so the "spawn" is a
       // no-op that leaves the holder's socket up (as a real fail-to-bind exit does).
-      driver: { spawn: async () => {} },
-      connect: async (_socketPath) => compatibleConn(),
+      driver: { spawn: fromAsync(async () => {}) },
+      connect: (_socketPath) => fromAsync(async () => compatibleConn()),
       log: silentLog,
       onStatus: (_h, s) => statuses.push(s),
       socketPollMs: 5,
     });
 
-    await endpointPrivate(endpoint).ensure();
+    await Effect.runPromise(endpointPrivate(endpoint).ensure);
 
     // The compatible holder is preserved (its PTYs survive) — NOT recycled.
     expect(isHolderLive(holderPid)).toBe(true);

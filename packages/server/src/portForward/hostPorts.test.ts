@@ -16,6 +16,7 @@
  */
 
 import type { Logger } from "@kolu/log";
+import { Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   type HostPorts,
@@ -43,25 +44,28 @@ const log = {
   debug: vi.fn(),
 } as unknown as Logger;
 
-/** An async iterable that yields the given frames and then stays OPEN — the
- *  shape a live surface stream actually has (it does not end when it runs out
- *  of things to say). */
-function stream<T>(frames: readonly T[]): AsyncIterable<T> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const f of frames) yield f;
-      await new Promise<never>(() => {});
-    },
-  };
+/** A member stream that yields the given frames and then stays OPEN — the shape
+ *  a live surface stream actually has (it does not end when it runs out of things
+ *  to say). A `Stream`, returned synchronously, because that is what the
+ *  spec-derived client face mints now. */
+function stream<T>(frames: readonly T[]): Stream.Stream<T> {
+  return Stream.concat(Stream.fromArray(frames), Stream.never);
+}
+
+/** An async generator as a member stream — for the cases whose whole point is
+ *  the TIMING between frames. */
+function timed<T>(gen: () => AsyncIterable<T>): Stream.Stream<T> {
+  // The fake never throws, so the error channel is uninhabited — `die` keeps it
+  // that way rather than widening every fake stream to a failure type the face
+  // does not have.
+  return Stream.fromAsyncIterable(gen(), (err) => {
+    throw err;
+  });
 }
 
 /** The one that never speaks: `get` for a key that is not a member. */
-function silent(): AsyncIterable<never> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      await new Promise<never>(() => {});
-    },
-  };
+function silent(): Stream.Stream<never> {
+  return Stream.never;
 }
 
 function terminalRecord(ports: readonly { port: number; family: string }[]) {
@@ -91,8 +95,8 @@ describe("makeHostPortsReader", () => {
     // yields. The bound has to come from MEMBERSHIP (a later keys frame without
     // it), which is what the framework's collection-item reader races against.
     const terminals: TerminalsFace = {
-      keys: async () => stream([["alive", "gone"], ["alive"]]),
-      get: async ({ key }) =>
+      keys: () => stream([["alive", "gone"], ["alive"]]),
+      get: ({ key }) =>
         key === "alive"
           ? stream([terminalRecord([{ port: 5173, family: "v4" }])])
           : silent(),
@@ -119,9 +123,8 @@ describe("makeHostPortsReader", () => {
 
   it("reports `unknown` when no terminal has ever been scanned", async () => {
     const terminals: TerminalsFace = {
-      keys: async () => stream([["a"]]),
-      get: async () =>
-        stream([{ state: "active", ports: { status: "unknown" } }]),
+      keys: () => stream([["a"]]),
+      get: () => stream([{ state: "active", ports: { status: "unknown" } }]),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
     await expect(read(host, TEST_DEADLINE_MS)).resolves.toEqual({
@@ -134,8 +137,8 @@ describe("makeHostPortsReader", () => {
     // by the same rule the per-terminal fold uses, not by last-write, because
     // the family decides which loopback address the door dials.
     const terminals: TerminalsFace = {
-      keys: async () => stream([["a", "b"]]),
-      get: async ({ key }) =>
+      keys: () => stream([["a", "b"]]),
+      get: ({ key }) =>
         stream([
           terminalRecord([{ port: 3000, family: key === "a" ? "v6" : "v4" }]),
         ]),
@@ -165,8 +168,8 @@ describe("a partial read is not an observation", () => {
     const QUIET_MS = 150;
     const terminals: TerminalsFace = {
       // Both keys stay members for the whole read — nothing departs.
-      keys: async () => stream([["answered", "wedged"]]),
-      get: async ({ key }) =>
+      keys: () => stream([["answered", "wedged"]]),
+      get: ({ key }) =>
         key === "answered" ? stream([terminalRecord([])]) : silent(),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
@@ -185,15 +188,14 @@ describe("the cost of a host is ONE slow read, not one per terminal", () => {
     // bounded, so they run together and the host costs one wait.
     const QUIET_MS = 200;
     const terminals: TerminalsFace = {
-      keys: async () => ({
-        async *[Symbol.asyncIterator]() {
+      keys: () =>
+        timed(async function* () {
           yield ["a", "b", "c"];
           await new Promise((r) => setTimeout(r, QUIET_MS));
           yield [];
           await new Promise<never>(() => {});
-        },
-      }),
-      get: async () => silent(),
+        }),
+      get: () => silent(),
     };
     const read = makeHostPortsReader({ terminalsOf: () => terminals, log });
 

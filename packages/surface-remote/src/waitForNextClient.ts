@@ -76,7 +76,7 @@ interface NextClient {
  *  cursor rather than threading `previous` themselves.
  *
  *  **Compare the promise, never the awaited client.** The client is an
- *  oRPC proxy that intercepts every property — including `.then` — as a
+ *  client proxy that intercepted every property — including `.then` — as a
  *  procedure path, which makes it *thenable*: `await clientPromise`
  *  re-invokes the proxy and yields a fresh object on every call, so a
  *  resolved-client identity check (`client !== previous`) is *always*

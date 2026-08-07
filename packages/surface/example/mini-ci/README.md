@@ -1,8 +1,8 @@
 # @kolu/surface-example-mini-ci
 
-A minimal CI-runner **TUI over oRPC stdio**. A long-lived **runner** owns a task DAG — each node a child process with a per-node log buffer — and serves it as a `@kolu/surface` over stdio. An ephemeral **TUI** attaches, paints a live node-status table plus the attached node's log tail, and exercises three surface primitives. Deliberately _not_ the real [justci](https://github.com/juspay/justci): no Haskell, no GitHub statuses, no multi-platform fan-out — just a DAG of shell commands, runnable locally or on a remote host.
+A minimal CI-runner **TUI over a surface stdio link**. A long-lived **runner** owns a task DAG — each node a child process with a per-node log buffer — and serves it as a `@kolu/surface` over stdio. An ephemeral **TUI** attaches, paints a live node-status table plus the attached node's log tail, and exercises three surface primitives. Deliberately _not_ the real [justci](https://github.com/juspay/justci): no Haskell, no GitHub statuses, no multi-platform fan-out — just a DAG of shell commands, runnable locally or on a remote host.
 
-This is **Phase 0** of [`kolu-tui`](../../../../docs/atlas/src/content/atlas/pty-daemon-tui.mdx): the falsifiability test (lesson #3) for the "interactive TUI over oRPC stdio" pattern, the way the [notes app](../README.md) and the [remote-process-monitor](../remote-process-monitor/README.md) (→ [drishti](https://github.com/srid/drishti)) validated the earlier patterns. It is a clean structural twin of kolu-tui — if the surface primitives express it cleanly, the seam is at the right altitude for kolu-tui to inherit; if it were awkward, that's a framework finding to fix _before_ kolu-tui adopts it.
+This is **Phase 0** of [`kolu-tui`](../../../../docs/atlas/src/content/atlas/pty-daemon-tui.mdx): the falsifiability test (lesson #3) for the "interactive TUI over a surface stdio link" pattern, the way the [notes app](../README.md) and the [remote-process-monitor](../remote-process-monitor/README.md) (→ [drishti](https://github.com/srid/drishti)) validated the earlier patterns. It is a clean structural twin of kolu-tui — if the surface primitives express it cleanly, the seam is at the right altitude for kolu-tui to inherit; if it were awkward, that's a framework finding to fix _before_ kolu-tui adopts it.
 
 ## Architecture
 
@@ -11,7 +11,7 @@ The runner is provisioned on the host through [`@kolu/surface-remote`](../../../
 ```
 ┌──────────────────────┐                                              ┌──────────────────────────────────┐
 │      mini-ci TUI     │                                              │   mini-ci-runner (on the host)   │
-│   (ephemeral client) │                                              │   serveOverStdio({ router })     │
+│   (ephemeral client) │                                              │  serveOverStdio({group,handlers})│
 │                      │  makeSession + sshConnector                  │                                  │
 │  session = make-     │  ── nix build (eval/transfer/realise) ─────▶│   task DAG: per-node child proc  │
 │   Session({ host,    │  ── required GC-root commit ────────────────▶│   runs `pnpm --filter … type-    │

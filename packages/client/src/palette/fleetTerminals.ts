@@ -142,11 +142,15 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
       const terminalKeys: Subscription<TerminalId[]> =
         createReactiveSubscription(
           () => host,
-          (_h, signal) =>
+          () =>
             unenrolledStreamCall(
               entry.collections.terminals.unenrolledKeys,
               undefined,
-              { signal },
+              // Scoped by host, and named for the consumer: the fleet index and
+              // the per-host wire open the SAME member for different reasons,
+              // and a table that merged them would report one park as two
+              // (kolu#2101 J2).
+              { label: `terminals.keys[${encHost}] (fleet)` },
             ),
           {
             onError: (err) =>

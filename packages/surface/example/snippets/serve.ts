@@ -1,8 +1,11 @@
 /**
  * Serving the example surface — the `implementSurface` block the
  * `@kolu/surface` reference embeds. `implementSurface` wires every handler and
- * returns a runtime whose `.router` is already the FINAL top-level router,
- * ready to serve over a wire transport.
+ * returns a `SurfaceRuntime`: the flat `group` (one `Rpc` per wire tag,
+ * `surface/<member>/<verb>`) and the tag-keyed `handlers`. That PAIR is what
+ * every transport takes — `serveOverStdio`, `serveOverUnixSocket`,
+ * `serveSurfaceSocket`, or `directDispatch` in-process. There is no router to
+ * finalize: a tag carries its own route.
  */
 
 import {
@@ -10,6 +13,7 @@ import {
   implementSurface,
   inMemoryStore,
 } from "@kolu/surface/server";
+import { Effect, Stream } from "effect";
 import { type LogFrame, type Pid, type Proc, surface, ZERO } from "./surface";
 
 // Persistence is supplied as plain dependencies — the surface wraps publish.
@@ -21,10 +25,14 @@ const upsert = (pid: Pid, proc: Proc): void => {
 const remove = (pid: Pid): void => {
   table.delete(pid);
 };
-async function* source(nodeId: string): AsyncIterable<LogFrame> {
-  // The first frame of every stream is a fresh full snapshot (the invariant).
-  yield { kind: "snapshot", text: `opened ${nodeId}`, done: false };
-}
+// A stream member's source is Effect-native: it returns a `Stream`, and
+// cancellation is fiber INTERRUPTION — no `AbortSignal` to thread, none to
+// forget. `Stream.suspend` defers the work to subscribe time.
+const source = (nodeId: string): Stream.Stream<LogFrame> =>
+  Stream.suspend(() =>
+    // The first frame of every stream is a fresh full snapshot (the invariant).
+    Stream.succeed({ kind: "snapshot", text: `opened ${nodeId}`, done: false }),
+  );
 
 // #region implement
 export const deps: ImplementSurfaceDeps<typeof surface.spec> = {
@@ -33,19 +41,18 @@ export const deps: ImplementSurfaceDeps<typeof surface.spec> = {
   streams: { nodeLog: { source } },
   procedures: {
     proc: {
-      kill: async ({ input, ctx }) => {
-        ctx.collections.processes.remove(input.pid);
-        return { ok: true };
-      },
+      // A procedure returns an `Effect`. Its DECLARED failures are the spec's
+      // `error` schema (none here); an undeclared throw stays a DEFECT.
+      kill: ({ input, ctx }) =>
+        Effect.sync(() => {
+          ctx.collections.processes.remove(input.pid);
+          return { ok: true };
+        }),
     },
   },
 };
 const runtime = implementSurface(surface, deps);
+// `runtime.group` + `runtime.handlers` go straight to a transport.
 // #endregion implement
 
-// #region flatten
-// `.router` is already the FINAL flattened router — no re-finalize via oRPC.
-const router = runtime.router;
-// #endregion flatten
-
-export { runtime, router };
+export { runtime };

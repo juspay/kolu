@@ -4,8 +4,10 @@
  *  stream is non-null" is type-enforced rather than maintained by
  *  imperative discipline across three parallel signals. */
 
+import { Effect } from "effect";
 import { createMemo, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
+import type { UiAction } from "../runAction";
 
 export type WebcamState =
   | { kind: "off" }
@@ -49,20 +51,43 @@ function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
-export async function openWebcam(deviceId: string): Promise<void> {
-  closeWebcam();
-  setState({ kind: "loading" });
-  try {
-    const s = await navigator.mediaDevices.getUserMedia({
-      video: deviceId === "default" ? true : { deviceId: { exact: deviceId } },
-      audio: false,
+/** Open the webcam. FAILS with whatever `getUserMedia` rejected, so the caller
+ *  can tell a dismissed permission prompt (`AbortError`) from a real fault. */
+export function openWebcam(deviceId: string): Effect.Effect<void, unknown> {
+  return Effect.suspend(() => {
+    closeWebcam();
+    setState({ kind: "loading" });
+    return Effect.tryPromise({
+      try: () =>
+        navigator.mediaDevices.getUserMedia({
+          video:
+            deviceId === "default" ? true : { deviceId: { exact: deviceId } },
+          audio: false,
+        }),
+      catch: (e) => e,
     });
-    setState({ kind: "active", stream: s });
-  } catch (err) {
-    setState({ kind: "error", message: errMsg(err) });
-    throw err;
-  }
+  }).pipe(
+    Effect.tap((s) =>
+      Effect.sync(() => setState({ kind: "active", stream: s })),
+    ),
+    Effect.tapError((err) =>
+      Effect.sync(() => setState({ kind: "error", message: errMsg(err) })),
+    ),
+    Effect.asVoid,
+  );
 }
+
+/** Report a webcam failure unless it is a dismissed permission prompt — the
+ *  shared recovery both verbs below end in. */
+const toastUnlessDismissed = <A>(
+  self: Effect.Effect<A, unknown>,
+): Effect.Effect<A | undefined, never> =>
+  Effect.catch(self, (err) =>
+    Effect.sync(() => {
+      if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
+      return undefined;
+    }),
+  );
 
 export function closeWebcam(): void {
   const s = state();
@@ -72,26 +97,22 @@ export function closeWebcam(): void {
   setState({ kind: "off" });
 }
 
-export async function toggleWebcam(): Promise<void> {
-  if (enabled()) {
-    closeWebcam();
-    return;
-  }
-  try {
-    await openWebcam(selectedId());
-  } catch (err) {
-    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
-  }
+export function toggleWebcam(): UiAction {
+  return Effect.suspend(() => {
+    if (enabled()) {
+      closeWebcam();
+      return Effect.void;
+    }
+    return openWebcam(selectedId()).pipe(toastUnlessDismissed);
+  });
 }
 
-export async function changeWebcam(deviceId: string): Promise<void> {
-  setSelectedId(deviceId);
-  if (!enabled()) return;
-  try {
-    await openWebcam(deviceId);
-  } catch (err) {
-    if (!isAbort(err)) toast.error(`Webcam: ${errMsg(err)}`);
-  }
+export function changeWebcam(deviceId: string): UiAction {
+  return Effect.suspend(() => {
+    setSelectedId(deviceId);
+    if (!enabled()) return Effect.void;
+    return openWebcam(deviceId).pipe(toastUnlessDismissed);
+  });
 }
 
 export function setWebcamDevices(list: MediaDeviceInfo[]): void {

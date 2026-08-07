@@ -6,7 +6,8 @@
  * key (loud, never a false met), and timeout. Plus the tool's JSON frame.
  */
 import { awaitOutputSettled, type PadiSurfaceClient } from "@kolu/padi/dial";
-import { deadTransportError } from "@kolu/surface/client";
+import { SurfaceStdioTransportClosed } from "@kolu/surface/errors";
+import { type Cause, Effect, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import { waitJson, waitOutputSettledTool } from "./wait.ts";
 
@@ -14,72 +15,60 @@ type AttachFrame =
   | { kind: "snapshot"; data: string; topLine: number }
   | { kind: "delta"; data: string };
 
-/** A pushable stream: subscribers replay queued frames, wait for more, end on
- *  `end()` or signal abort. */
+/** A pushable source: each subscriber replays the queued frames, then receives
+ *  every later `push`, and completes on `end()`.
+ *
+ *  A member verb now hands back a LAZY `Stream` and takes no `AbortSignal`
+ *  (D10/#18), so the fake mints one subscription per call and teardown is the
+ *  consumer INTERRUPTING it (`iterateUntilAborted`'s `iter.return()`) — which
+ *  closes the stream's scope and runs the release below. It is a `Stream.callback`
+ *  rather than an async generator for exactly that reason: a generator parked in
+ *  `await` cannot be resumed by `return()`, so an interrupt would never unwind
+ *  and `runWait` (which awaits its watchers) would hang. `torn` records the
+ *  releases so a test can assert a subscription was actually let go. */
 class FakeStream<T> {
   private readonly frames: T[] = [];
-  private readonly waiters: Array<() => void> = [];
+  private readonly live = new Set<Queue.Queue<T, Cause.Done>>();
   private ended = false;
+  /** How many subscriptions the CONSUMER released (not ended by `end()`). */
+  torn = 0;
   push(v: T): void {
     this.frames.push(v);
-    this.wake();
+    for (const q of this.live) Queue.offerUnsafe(q, v);
   }
   end(): void {
     this.ended = true;
-    this.wake();
+    for (const q of this.live) Queue.endUnsafe(q);
+    this.live.clear();
   }
-  private wake(): void {
-    for (const r of this.waiters.splice(0)) r();
-  }
-  iterable(signal?: AbortSignal): AsyncIterable<T> {
-    const frames = this.frames;
-    const isEnded = (): boolean => this.ended;
-    const waitNext = (): Promise<void> =>
-      new Promise<void>((resolve) => {
-        this.waiters.push(resolve);
-        signal?.addEventListener("abort", () => resolve(), { once: true });
-      });
-    return {
-      async *[Symbol.asyncIterator]() {
-        let i = 0;
-        while (true) {
-          if (signal?.aborted) return;
-          if (i < frames.length) {
-            yield frames[i++] as T;
-            continue;
-          }
-          if (isEnded()) return;
-          await waitNext();
-        }
-      },
-    };
+  /** The lazy `Stream` a member verb hands back. */
+  stream(): Stream.Stream<T> {
+    return Stream.callback<T>((queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          for (const frame of this.frames) Queue.offerUnsafe(queue, frame);
+          if (this.ended) Queue.endUnsafe(queue);
+          else this.live.add(queue);
+        }),
+        () =>
+          Effect.sync(() => {
+            if (this.live.delete(queue)) this.torn += 1;
+          }),
+      ),
+    );
   }
 }
 
-function fakeClient(
-  streams: {
-    attach: FakeStream<AttachFrame>;
-    exit: FakeStream<{ exitCode: number }>;
-    keys: FakeStream<string[]>;
-  },
-  spy?: { keysSawSignal?: boolean },
-): PadiSurfaceClient {
+function fakeClient(streams: {
+  attach: FakeStream<AttachFrame>;
+  exit: FakeStream<{ exitCode: number }>;
+  keys: FakeStream<string[]>;
+}): PadiSurfaceClient {
   return {
     surface: {
-      terminalAttach: {
-        get: async (_input: unknown, opts?: { signal?: AbortSignal }) =>
-          streams.attach.iterable(opts?.signal),
-      },
-      terminalExit: {
-        get: async (_input: unknown, opts?: { signal?: AbortSignal }) =>
-          streams.exit.iterable(opts?.signal),
-      },
-      terminals: {
-        keys: async (_input: unknown, opts?: { signal?: AbortSignal }) => {
-          if (spy) spy.keysSawSignal = opts?.signal !== undefined;
-          return streams.keys.iterable(opts?.signal);
-        },
-      },
+      terminalAttach: { get: () => streams.attach.stream() },
+      terminalExit: { get: () => streams.exit.stream() },
+      terminals: { keys: () => streams.keys.stream() },
     },
   } as unknown as PadiSurfaceClient;
 }
@@ -171,45 +160,40 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     }
   });
 
-  it("PIN: the lost-feed membership read is bounded by ctx.signal", async () => {
-    // settleOnLostFeed's terminals.keys rides the same retry-mounted client as
-    // the attach feed; without the signal a wedged link would retry the
-    // snapshot forever and hang runWait. Assert the signal is threaded.
+  it("PIN: the lost-feed membership read is BOUNDED — a silent keys stream never outlives the wait", async () => {
+    // settleOnLostFeed's `terminals.keys` rides the SAME retry-mounted client as
+    // the attach feed, so a wedged-but-alive link retries the snapshot forever.
+    // Under oRPC the bound was an AbortSignal threaded into the read; a member
+    // verb has no signal any more (D10/#18), so the bound is `ctx.signal`
+    // INTERRUPTING the subscription. Same hazard, restated on the Effect axis:
+    // the feed ends, `keys` never yields a snapshot, and the wait must still
+    // settle on its timeout AND release the keys subscription.
     const s = streams();
-    const spy: { keysSawSignal?: boolean } = {};
     s.attach.push(snapshot);
-    s.keys.push([ID]);
     s.attach.end();
     s.exit.end();
-    await awaitOutputSettled(fakeClient(s, spy), { id: ID, idleMs: 60_000 });
-    expect(spy.keysSawSignal).toBe(true);
+    // `keys` is deliberately never pushed and never ended — the wedged read.
+    const outcome = await awaitOutputSettled(fakeClient(s), {
+      id: ID,
+      idleMs: 60_000,
+      timeoutMs: 50,
+    });
+    expect(outcome).toMatchObject({ kind: "timeout" });
+    expect(s.keys.torn).toBe(1);
   });
 
   it("PIN: a DEAD-transport attach error PROPAGATES (rejects), never folds to closed", async () => {
     // A dead transport poisons the shared connection — it must reject out of
     // awaitOutputSettled so surface-mcp's withClient resets it, not settle a
     // clean `closed` that leaves the caller reusing a dead socket (codex F2).
-    const dead = deadTransportError(
-      "SURFACE_STDIO_TRANSPORT_CLOSED",
-      "pipe closed",
-    );
+    // The dead-transport vocabulary is now the shared TAGGED error (D4), not an
+    // ORPCError code.
+    const dead = new SurfaceStdioTransportClosed({ reason: "pipe closed" });
     const client = {
       surface: {
-        terminalAttach: {
-          get: async () => {
-            throw dead;
-          },
-        },
-        terminalExit: {
-          get: async () => {
-            throw dead;
-          },
-        },
-        terminals: {
-          keys: async () => {
-            throw dead;
-          },
-        },
+        terminalAttach: { get: () => Stream.fail(dead) },
+        terminalExit: { get: () => Stream.fail(dead) },
+        terminals: { keys: () => Stream.fail(dead) },
       },
     } as unknown as PadiSurfaceClient;
     await expect(
@@ -276,10 +260,12 @@ describe("waitOutputSettledTool — the JSON frame", () => {
   it("returns the uniform result frame (id + result + met detail)", async () => {
     const s = streams();
     s.attach.push(snapshot);
-    const result = (await waitOutputSettledTool.handler(
-      { id: ID, idleMs: 25 },
-      fakeClient(s),
-      undefined,
+    const result = (await Effect.runPromise(
+      waitOutputSettledTool.handler(
+        { id: ID, idleMs: 25 },
+        fakeClient(s),
+        undefined,
+      ),
     )) as Record<string, unknown>;
     expect(result).toMatchObject({
       id: ID,

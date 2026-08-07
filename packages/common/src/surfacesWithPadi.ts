@@ -1,9 +1,9 @@
 /**
  * The composed sibling registry: the app's `surfaces` PLUS the `padi`
  * terminal-workspace surface. This is the ONE map kolu-server serves
- * (`composeSurfaceContracts` widens the wire contract; `implementSurfaces`
- * serves the deps) and the client dials (`connectSurfaces<contract, typeof
- * surfacesWithPadi>`).
+ * (`composeSurfaceContracts` widens the served `RpcGroup`; `implementSurfaces`
+ * serves the deps) and the client dials (`surfaceClients(transport,
+ * surfacesWithPadi)`).
  *
  * Composing the app's registry with padi's authored surface is an APP concern,
  * so it lives here in kolu-common and imports `padiSurface` FROM `@kolu/padi`
@@ -28,7 +28,7 @@ import {
   type EntryStatus,
   type KeyCodec,
 } from "@kolu/surface-map";
-import { z } from "zod";
+import { Schema } from "effect";
 import {
   decodeHostKey,
   encodeHostKey,
@@ -83,11 +83,11 @@ const hostKeyCodec: KeyCodec<HostKey> = {
  *  reader all derive from a single source. Both fields are REQUIRED: the sole producer
  *  (`computeEntryFailedDetail` on a `skew-refused` anomaly) always has both contract
  *  versions as typed evidence. */
-const SkewVersionPairSchema = z.object({
-  running: z.string(),
-  expected: z.string(),
+const SkewVersionPairSchema = Schema.Struct({
+  running: Schema.String,
+  expected: Schema.String,
 });
-export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
+export type SkewVersionPair = typeof SkewVersionPairSchema.Type;
 
 /** The padi map's DOMAIN failure — "why did this host's padi entry fail". A
  *  STRUCTURAL classification never parsed from the human `reason` (the W4 types
@@ -115,6 +115,16 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *     this kolu build, rather than launch it through its wrapper).
  *   - `agent-drv-unavailable` — that source cannot resolve padi for the probed arch.
  *   - `unconverged`           — a newer-contract drain never provably took.
+ *   - `previous-protocol-epoch` — the daemon on that host speaks a protocol epoch
+ *     this kolu cannot decode at all, and the takeover could not complete
+ *     (juspay/kolu#2101). A SEPARATE arm from `unconverged` even though the
+ *     framework anomaly is the same `unconverged` kind, because the operator's
+ *     situation is not the same one: nothing drained and nothing timed out — the
+ *     two ends cannot speak. Its remedy (get a current build onto that host) has
+ *     nothing to do with "retry from the host", so rendering the generic
+ *     unconverged card would send an operator down the wrong path. Produced by
+ *     `computeEntryFailedDetail` when the standing convergence is `unconverged`
+ *     with cause `unspeakable-protocol`.
  *   - `auth-required`         — the host refused kolu's ssh credentials. kolu
  *     connects strictly non-interactively (`BatchMode`), so a password /
  *     keyboard-interactive gate can never be answered — terminal until the
@@ -138,31 +148,66 @@ export type SkewVersionPair = z.infer<typeof SkewVersionPairSchema>;
  *     name. `padiFailureOf` mints it for the `detail === null && phase === "failed"`
  *     case, which is uniquely the local arm (the remote arm always carries a
  *     `link-failed` detail on a terminal give-up). */
-export const PadiEntryFailureSchema = z.discriminatedUnion("cause", [
-  z.object({
-    cause: z.literal("contract-skew-refused"),
-    reason: z.string(),
+export const PadiEntryFailureSchema = Schema.Union([
+  Schema.Struct({
+    cause: Schema.Literal("contract-skew-refused"),
+    reason: Schema.String,
     // The skew fields are defined ONCE in `SkewVersionPairSchema` and spread here —
     // one source of truth for the pair's shape and (optional) optionality, so the
     // wire arm can never drift from the `SkewVersionPair` type consumers read.
-    ...SkewVersionPairSchema.shape,
+    // (`Schema.Struct` exposes its field map as `.fields`, zod's `.shape`.)
+    ...SkewVersionPairSchema.fields,
   }),
-  z.object({ cause: z.literal("cross-supervisor"), reason: z.string() }),
-  z.object({ cause: z.literal("agent-source-unbaked"), reason: z.string() }),
-  z.object({ cause: z.literal("agent-cache-unbaked"), reason: z.string() }),
-  z.object({ cause: z.literal("agent-drv-unavailable"), reason: z.string() }),
-  z.object({ cause: z.literal("unconverged"), reason: z.string() }),
-  z.object({ cause: z.literal("auth-required"), reason: z.string() }),
-  z.object({ cause: z.literal("host-key-unverified"), reason: z.string() }),
-  z.object({ cause: z.literal("nix-unavailable"), reason: z.string() }),
-  z.object({ cause: z.literal("link-failed"), reason: z.string() }),
-  z.object({ cause: z.literal("local-start-failed"), reason: z.string() }),
+  Schema.Struct({
+    cause: Schema.Literal("cross-supervisor"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("agent-source-unbaked"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("agent-cache-unbaked"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("agent-drv-unavailable"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("unconverged"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("previous-protocol-epoch"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("auth-required"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("host-key-unverified"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("nix-unavailable"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("link-failed"),
+    reason: Schema.String,
+  }),
+  Schema.Struct({
+    cause: Schema.Literal("local-start-failed"),
+    reason: Schema.String,
+  }),
 ]);
 
 /** The validated padi failure value on a `failed` entry's `EntryStatus` — a
  *  discriminated union over the structural {@link EntryFailedCause}, each arm with
  *  its human `reason` and (for skew) the typed {@link SkewVersionPair}. */
-export type PadiEntryFailure = z.infer<typeof PadiEntryFailureSchema>;
+export type PadiEntryFailure = typeof PadiEntryFailureSchema.Type;
 
 /** The padi map's failure-cause discriminant — DERIVED from
  *  {@link PadiEntryFailureSchema} (ONE source of truth), so the vocabulary and its
@@ -189,8 +234,9 @@ export const padiEntrySurface = padiSurface;
 
 /** The keyed map of padi surfaces — ONE entry surface ({@link padiEntrySurface}) served
  *  N times, keyed by host. kolu-server serves it (`serveHostMap` over the warm ssh pool)
- *  and the client connects it (`connectSurfaceMap`); `padi` on the wire becomes this
- *  map's contract (the key-folded members + the `entries` membership collection). With
+ *  and the client connects it (`connectSurfaceMap`); the wire tags under
+ *  `surface/padi/` become this map's own group (the key-folded members + the `entries`
+ *  membership collection), which a host merges as `{group, handlers}`. With
  *  the host env unset the map has exactly one member (the local host) — pixel-identical.
  *
  *  The `failure` schema ({@link PadiEntryFailureSchema}) is what makes `Failure`

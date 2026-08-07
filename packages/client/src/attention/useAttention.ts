@@ -50,6 +50,7 @@ import {
   type TerminalId,
 } from "kolu-common/surface";
 import "kolu-common/test-hooks";
+import { Effect, Semaphore } from "effect";
 import { createEffect, mapArray, onCleanup } from "solid-js";
 import { createAttentionCore } from "./attentionCore";
 import { isTerminalWatched } from "./attentionWatched";
@@ -61,6 +62,7 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
+import { runAction } from "../runAction";
 import { useAttentionFacts } from "./useAttentionFacts";
 import { nextAfter } from "../ui/nextAfter";
 import { match } from "ts-pattern";
@@ -216,23 +218,37 @@ export function useAttention(deps: AttentionDeps): {
   createEffect(() => core.markHostSeen(encodeHostKey(activeHost())));
 
   // App badge = Σ ASKING over LIVE hosts. A dead host's held count never inflates
-  // it; the active host is live, so its asking agents are counted too. Serialised
-  // through one tail so a rapid set→clear can't land out of order, and de-duped at
-  // apply time against the last confirmed count.
+  // it; the active host is live, so its asking agents are counted too.
+  //
+  // SERIALISED, because the badge is a single OS-owned slot and the two writes
+  // that fill it are independent promises: a rapid set→clear whose clear resolved
+  // first would leave a stale count on the app icon forever. A one-permit
+  // semaphore IS that rule — where the old `badgeTail = badgeTail.then(...)`
+  // chain was a hand-built queue that also had to remember to re-catch on every
+  // link, or one rejection would poison every later write.
+  //
+  // The de-dup reads `acked` INSIDE the critical section, so it compares against
+  // the last CONFIRMED count rather than one a concurrent write is still
+  // applying.
   let acked: number | undefined;
-  let badgeTail: Promise<unknown> = Promise.resolve();
+  const badgeLane = Semaphore.makeUnsafe(1);
   const paintBadge = (count: number): void => {
-    badgeTail = badgeTail
-      .then(async () => {
-        if (count === acked) return;
-        await (count > 0
-          ? navigator.setAppBadge(count)
-          : navigator.clearAppBadge());
-        acked = count;
-      })
-      .catch((err) =>
-        console.warn("useAttention: app-badge write failed", err),
-      );
+    runAction(
+      "update app badge",
+      Effect.suspend(() => {
+        if (count === acked) return Effect.void;
+        return Effect.tryPromise(() =>
+          count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge(),
+        ).pipe(Effect.tap(() => Effect.sync(() => (acked = count))));
+      }).pipe(
+        badgeLane.withPermit,
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.warn("useAttention: app-badge write failed", err);
+          }),
+        ),
+      ),
+    );
   };
   createEffect(() => {
     if (!("setAppBadge" in navigator)) return;

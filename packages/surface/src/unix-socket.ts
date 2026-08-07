@@ -1,10 +1,10 @@
 /**
- * Unix-socket transport — the local-IPC member of the link family. The
- * server half (`serveOverUnixSocket`) accepts connections and pumps each one
- * through `serveOverStdio` (a `net.Socket` is a Duplex, so it IS the
- * `{ read, write }` transport the stdio framing wants); the client half is
- * `unixSocketLink` in `./links/unix-socket`. Same base64+newline framing as
- * the subprocess/ssh path — only the stream pair differs.
+ * Unix-socket transport — the local-IPC member of the link family. The server
+ * half (`serveOverUnixSocket`) binds the path and serves each accepted
+ * connection with its own `RpcServer` over the shared handlers; the client half
+ * is `unixSocketLink` in `./links/unix-socket`. Same ndjson frames as the
+ * subprocess/ssh path — only the transport differs, which is what makes a
+ * daemon's contract-blind stdio↔socket byte splice legal (review #10).
  *
  * Also home to `getRuntimeSocketPath`, the per-user rendezvous-path
  * convention the two halves share: server and client are separate processes,
@@ -21,19 +21,28 @@
 import { lstatSync, mkdirSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { dirname, join } from "node:path";
-import type { Router } from "@orpc/server";
-import { serveOverStdio } from "./peer-server";
+import * as NodeSocket from "@effect/platform-node/NodeSocket";
+import type { Logger } from "@kolu/log";
+import { Effect, Exit, Layer, Scope } from "effect";
+import { SocketServer } from "effect/unstable/socket";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
+import { rpcSerializationLayer } from "./frameLimit";
+import { type SurfaceHandlers, surfaceRpcServerLayer } from "./server";
 
-/** Minimal structured-logging shape this module accepts — structurally
- *  compatible with pino child loggers and kolu's `Logger`, so callers pass
- *  theirs straight in. Used only for *runtime* events after a successful
- *  bind (a client socket error, a peer dying mid-frame, a listener error);
- *  bind-time verdicts are reported via `UnixSocketServeOutcome` instead so
- *  the caller owns the user-facing copy. */
-export type UnixSocketLogger = {
-  debug: (obj: Record<string, unknown>, msg: string) => void;
-  error: (obj: Record<string, unknown>, msg: string) => void;
-};
+// The LISTENER-LIFETIME log seam (juspay/kolu#2101 N3). It is REQUIRED, not
+// `log?:` as master had it: a listening socket that faults with nobody watching
+// is the exact silence the #2101 field incident was made of — a comatose kaval
+// that logged zero error or warn lines for its whole life — and an optional
+// logger is a knob whose default is that silence. Callers all have a logger in
+// scope at this call (`daemonMain`, kaval's socket voice), so requiring it costs
+// nothing and removes the way to opt out.
+//
+// What travels here vs. what the CALLER owns: this seam narrates the LISTENER's
+// own lifetime — bound, post-listen fault, closed — because only this module
+// ever sees those events. BIND-time verdicts stay the caller's: they are
+// `UnixSocketServeOutcome` values, and the app-flavored advice for each ("use
+// --pty-host-socket") is not this module's vocabulary.
 
 /** The per-user rendezvous path for a unix socket two separate processes of
  *  the same app must both compute — `override` verbatim when given (an empty
@@ -218,24 +227,86 @@ export interface UnixSocketListener {
   close(): void;
 }
 
-/** Serve `router` over a unix socket at `socketPath`. NEVER rejects and
+/** A `SocketServer` whose whole population is ONE already-accepted connection.
+ *
+ *  Effect's server-side socket protocol is written against `SocketServer` (it
+ *  wants to accept), while this module accepts for itself — it has to, because
+ *  the bind-time hardening above (dir privacy, live probe, stale-inode
+ *  clearing) and the ordered teardown below are the reasons this function
+ *  exists. Rather than reimplement either half, the accepted `net.Socket` is
+ *  handed to the protocol as a one-connection server: `run` serves it and then
+ *  parks, exactly as `SocketServer.run`'s `Effect<never, …>` contract demands.
+ *
+ *  `NodeSocket.fromDuplex` is the same adapter the stdio/unix LINKS use, so
+ *  both directions of the wire are framed by identical code. */
+function oneConnectionSocketServer(
+  socket: Socket,
+  socketPath: string,
+): Layer.Layer<SocketServer.SocketServer> {
+  return Layer.effect(SocketServer.SocketServer)(
+    Effect.map(
+      NodeSocket.fromDuplex(
+        Effect.acquireRelease(Effect.succeed(socket), (conn) =>
+          Effect.sync(() => {
+            if (!conn.destroyed) conn.destroy();
+          }),
+        ),
+      ),
+      (accepted) =>
+        SocketServer.SocketServer.of({
+          address: { _tag: "UnixAddress", path: socketPath },
+          // `run`'s declared shape is `Effect<never, SocketServerError, R>`:
+          // never returning, failing only the way an ACCEPTING server can. This
+          // one cannot fail that way at all (there is nothing left to accept),
+          // so the cast erases an error channel that is uninhabited here — the
+          // handler's own failures stay in the handler's fiber.
+          run: (handler) =>
+            Effect.flatMap(
+              handler(accepted),
+              () => Effect.never,
+            ) as unknown as Effect.Effect<
+              never,
+              SocketServer.SocketServerError,
+              never
+            >,
+        }),
+    ),
+  );
+}
+
+/** The whole serving stack for ONE accepted connection: the RPC server, the
+ *  shared handlers, ndjson, and that connection as its socket server. */
+function servingLayer(
+  group: RpcGroup.RpcGroup<Rpc.Any>,
+  handlers: SurfaceHandlers,
+  socket: Socket,
+  socketPath: string,
+): Layer.Layer<never, unknown> {
+  return surfaceRpcServerLayer(group, handlers).pipe(
+    Layer.provide(RpcServer.layerProtocolSocketServer),
+    Layer.provide(rpcSerializationLayer),
+    Layer.provide(oneConnectionSocketServer(socket, socketPath)),
+  );
+}
+
+/** Serve `handlers` over a unix socket at `socketPath`. NEVER rejects and
  *  never throws — every failure mode resolves to a no-op listener whose
  *  `outcome` says why, so a host process can treat the socket as purely
  *  additive. The flow: create the parent dir `0700` → verify it's private →
  *  probe the path for a live peer → clear a provably-stale socket inode
- *  (and only that) → listen. Each accepted connection is served
- *  independently over the stdio framing; the router is shared across
- *  connections. */
+ *  (and only that) → listen. Every accepted connection is served by ONE
+ *  `RpcServer` over the shared handlers. */
 export async function serveOverUnixSocket(opts: {
   socketPath: string;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param.
-  router: Router<any, any>;
-  /** Runtime-event logging only (client socket errors, peer mid-frame
-   *  deaths, post-listen listener errors). Bind-time verdicts arrive via
-   *  `outcome` instead. */
-  log?: UnixSocketLogger;
+  /** The served surface's flat `RpcGroup` — `runtime.group`. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
+  handlers: SurfaceHandlers;
+  /** Where this listener's own lifetime is narrated (bound / post-listen fault /
+   *  closed). REQUIRED — see the seam's note at the top of this module. */
+  log: Logger;
 }): Promise<UnixSocketListener> {
-  const { socketPath, router, log } = opts;
+  const { socketPath, group, handlers, log } = opts;
   const refused = (outcome: UnixSocketServeOutcome): UnixSocketListener => ({
     socketPath,
     outcome,
@@ -280,31 +351,43 @@ export async function serveOverUnixSocket(opts: {
 
     // The established-peer index, CLOSURE-scoped per listener — never module
     // scope, where two listeners in one process (a real config: the tests
-    // round-trip several; kaval wraps its own) would alias one Set and
-    // closing listener A would destroy listener B's live connections. An
-    // index only: who is connected. What to do about a disconnect stays the
-    // per-connection settle chain below.
-    const accepted = new Set<Socket>();
+    // round-trip several; kaval wraps its own) would alias one Set and closing
+    // listener A would destroy listener B's live connections. Each entry is
+    // the peer's socket plus the scope its serve lives in.
+    const peers = new Set<{ socket: Socket; scope: Scope.Closeable }>();
     const server = createServer((socket) => {
-      accepted.add(socket);
-      socket.once("close", () => accepted.delete(socket));
-      // A client vanishing mid-frame must not take down the listener.
-      socket.on("error", (err) =>
-        log?.debug({ err }, "unix-socket client error"),
-      );
-      // serveOverStdio never rejects — it resolves with how serving ended,
-      // so a peer dying mid-frame is a debug line, not an unhandled
-      // rejection (see peer-server.ts).
-      void serveOverStdio({
-        router,
-        transport: { read: socket, write: socket },
-      }).then((end) => {
-        if (end.reason === "error") {
-          log?.debug(
-            { err: end.error },
-            "unix-socket peer ended with an error",
-          );
-        }
+      const scope = Scope.makeUnsafe();
+      const peer = { socket, scope };
+      peers.add(peer);
+      const release = () => {
+        if (!peers.delete(peer)) return;
+        Effect.runFork(Scope.close(scope, Exit.void));
+      };
+      socket.once("close", release);
+      // A client vanishing mid-frame must not take down the listener — and an
+      // 'error' with no listener is a hard process crash. DEBUG, as master had
+      // it: a peer dying mid-frame is routine (a kaval-tui closing its window),
+      // so it must not compete with the listener-level lines above for an
+      // operator's attention — but it must not be invisible either.
+      socket.on("error", (err) => {
+        log.debug({ socketPath, err }, "unix-socket peer error");
+        release();
+      });
+      // Serving is per connection (as it was when each peer got its own
+      // `serveOverStdio`), so a peer's teardown closes ONLY its own scope.
+      // That is not merely tidiness: a single shared `NodeSocketServer` puts
+      // the accepting server's own `close()` inside the same scope, and Node's
+      // `server.close()` does not complete until every established connection
+      // has ended — so tearing the listener down while a peer is connected
+      // DEADLOCKS the scope close, and nothing ever destroys the peer.
+      void Effect.runPromise(
+        Scope.provide(
+          Layer.build(servingLayer(group, handlers, socket, socketPath)),
+          scope,
+        ),
+      ).catch(() => {
+        // A per-connection build failure kills that peer, never the listener.
+        release();
       });
     });
 
@@ -315,8 +398,19 @@ export async function serveOverUnixSocket(opts: {
         resolve();
       });
     });
+    log.info({ socketPath }, "unix-socket listener bound");
+    // Post-listen server faults must not crash the host — but they must not be
+    // SWALLOWED either. This handler existed to keep an 'error' with no listener
+    // from being a hard process crash; the Effect port kept the arm and dropped
+    // the line (`server.on("error", () => {})`), which is how #2101's comatose
+    // listening socket produced no trace at all. The whole `err` travels (pino
+    // serializes it with its stack), plus the path, so one grep over a host's
+    // daemon logs answers "which socket faulted, and with what".
     server.on("error", (err) =>
-      log?.error({ err }, "unix-socket server error"),
+      log.error(
+        { socketPath, err },
+        "unix-socket listener error (post-listen)",
+      ),
     );
 
     let closed = false;
@@ -326,17 +420,22 @@ export async function serveOverUnixSocket(opts: {
       close() {
         if (closed) return;
         closed = true;
-        // The ordered teardown (surface-lifetime-audit step 3): stop
-        // accepting → DISCONNECT established peers → release the inode. The
-        // destroy is unconditional — a wedged half-open peer gets no drain
-        // negotiation, and its unflushed outbound frames are dropped
-        // (fail-fast: a host that closed is closed). Each destroy runs the
-        // reused settle chain end-to-end: destroy (no error) → the codec's
-        // resolve-on-'close' edge → that connection's serveOverStdio settles
-        // "end" → peer.close() aborts every handler signal → subscriptions
-        // finalize and their timers clear. No reaper here — only the index.
+        // Narrated BEFORE the teardown, so the line survives even if a destroy
+        // throws — and so the log reads in causal order when a peer's severed
+        // connection logs its own death in the turns behind this call.
+        log.info({ socketPath }, "unix-socket listener closed");
+        // The ordered teardown (surface-lifetime-audit step 3): stop accepting
+        // → DISCONNECT established peers → release the inode, all
+        // SYNCHRONOUSLY, so `close()` stays safe to call from a
+        // `process.on("exit")` handler where no further event-loop turn will
+        // ever come. The destroy is unconditional — a wedged half-open peer
+        // gets no drain negotiation, and its unflushed outbound frames are
+        // dropped (fail-fast: a host that closed is closed). Each destroy runs
+        // that peer's own teardown behind this call: its socket's 'close'
+        // releases the serve scope, which interrupts the peer's in-flight
+        // handlers so their subscriptions finalize and their timers clear.
         server.close();
-        for (const socket of accepted) socket.destroy();
+        for (const peer of [...peers]) peer.socket.destroy();
         rmSync(socketPath, { force: true });
       },
     };

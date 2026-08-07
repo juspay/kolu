@@ -28,7 +28,12 @@ lose, because it isn't lost.
   the workspace record lives in [padi](/padi), not the web server.
 - A **kaval update** keeps your live terminals — shells, scrollback, and running
   agents — running across it (see [Kaval](/kaval)); the only sign is a brief "N
-  terminals reattached" note.
+  terminals reattached" note. The one exception is a release that **changes the
+  wire** the daemons speak: that is a flag day, so the daemon left over from
+  before cannot be adopted and is restarted instead. Live shells end there — the
+  session is restored from disk and agents resume on the conversation they were
+  on, exactly as after a restart. The [changelog](/changelog) says so when a
+  release does this.
 - Even an **unclean crash** of the terminal daemon brings your agents back
   **resumed on their exact prior conversation**, not as bare shells — including
   agents that were running in a **split** (or any parented terminal). The restore

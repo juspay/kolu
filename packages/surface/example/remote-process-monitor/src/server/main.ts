@@ -3,14 +3,14 @@
  *
  * Three-tier bridge:
  *
- *   browser  ─WS oRPC─▶  this server  ─stdio oRPC─▶  remote agent
+ *   browser  ─WS surface─▶  this server  ─stdio surface─▶  remote agent
  *
- * Browser ↔ server uses the framework's existing WebSocket transport
- * (`@orpc/server/ws`). Server ↔ agent uses the Surface Remote session and
- * ssh connector over stdio. The bridge is symmetrical with R-2's
- * `RemoteTerminalBackend`: same transport stack, same lifecycle, same
- * snapshot-then-delta invariant — just with process data instead of
- * terminal data.
+ * Both legs are Effect RPC over ndjson. Browser ↔ server rides one WebSocket
+ * (`serveSurfaceSocket` stands a per-connection RPC server over the shared
+ * handlers); server ↔ agent uses the Surface Remote session and ssh connector
+ * over stdio. The bridge is symmetrical with R-2's `RemoteTerminalBackend`: same
+ * transport stack, same lifecycle, same snapshot-then-delta invariant — just
+ * with process data instead of terminal data.
  *
  * Configuration (env vars):
  *
@@ -24,24 +24,24 @@
  *                                 bundle from this dir (production mode)
  */
 
-import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateWsOrigin,
-  type OriginGateRequest,
-  parseAllowedOrigins,
-  type UpgradeSocket,
-} from "@kolu/surface/ws-origin";
+  freshStaticLayer,
+  type ServableSocket,
+  serveSurfaceSocket,
+} from "@kolu/surface-app/server";
 import {
   makeSession,
   resolveBakedAgentDrv,
   sshConnector,
 } from "@kolu/surface-remote";
-import { RPCHandler } from "@orpc/server/ws";
-import { Hono } from "hono";
+import { Effect, Scope } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
-import type { surface } from "../common/surface";
-import { buildRouter } from "./router";
+import { surface } from "../common/surface";
+import { buildSurface } from "./serve";
 
 const HOST = process.env.HOST ?? "localhost";
 const PORT = Number(process.env.PORT ?? 7720);
@@ -62,7 +62,11 @@ async function main(): Promise<void> {
 
   const session = makeSession({
     initialConnection: "probing",
-    connectOnce: sshConnector<typeof surface.contract>({
+    // The connector takes the SURFACE as a value: Effect RPC builds its client
+    // from `surface.group` and the member face is re-nested from `surface.spec`,
+    // neither of which a type alone carries.
+    connectOnce: sshConnector({
+      surface,
       host: HOST,
       binary: "process-monitor-agent",
       // Policy-free: the CONSUMER composes the localhost arm's spawn env, keeping only
@@ -79,41 +83,53 @@ async function main(): Promise<void> {
     }),
     label: `host:${HOST}`,
   });
-  const { router } = buildRouter({ session });
+  const { runtime } = buildSurface({ session });
 
   // ── HTTP server: serve client bundle in production ─────────────────
-  const app = new Hono();
+  // The http app is a LAYER, not a framework instance. In production
+  // `freshStaticLayer` serves the built bundle (Effect's file engine for the
+  // bytes, surface-app's freshness policy for the headers); in dev vite owns
+  // the UI and this process answers one plain text route.
   const distDir = process.env.KOLU_SURFACE_EXAMPLE_DIST;
-  if (distDir !== undefined && distDir.length > 0) {
-    app.use("*", serveStatic({ root: distDir }));
-    log(`serving client bundle from ${distDir}`);
-  } else {
-    app.get("/", (c) =>
-      c.text(
-        "remote-process-monitor server is up. Start vite (`pnpm run dev:client`) for the UI.",
-      ),
-    );
-  }
-
-  const httpServer = serve(
-    {
-      fetch: app.fetch,
-      port: PORT,
-      hostname: "0.0.0.0",
-    },
-    (info) => {
-      // Print the "listening" line ONLY after the bind completes —
-      // otherwise Vite's WS proxy races the parent's nix-build step
-      // and logs spurious ECONNREFUSED until the bind catches up.
-      log(
-        `listening on http://${info.address}:${info.port} (open http://localhost:${info.port}/)`,
+  const hasDist = distDir !== undefined && distDir.length > 0;
+  if (hasDist) log(`serving client bundle from ${distDir}`);
+  const appLayer = hasDist
+    ? freshStaticLayer({ root: distDir })
+    : HttpRouter.add(
+        "GET",
+        "/",
+        HttpServerResponse.text(
+          "remote-process-monitor server is up. Start vite (`pnpm run dev:client`) for the UI.",
+        ),
       );
-    },
-  );
 
-  // ── WebSocket: oRPC over @orpc/server/ws ───────────────────────────
-  // biome-ignore lint/suspicious/noExplicitAny: same Lazy<Router> spread typing dance as kolu/server.ts uses on its own appRouter.
-  const wsHandler = new RPCHandler(router as any);
+  // We own the `http.Server` so the `upgrade` seam below stays ours alone —
+  // node fans an event out to every listener, and a framework-owned upgrade
+  // handler would try to answer a socket we have already upgraded.
+  const httpServer = createServer();
+  const httpScope = Scope.makeUnsafe();
+  httpServer.on(
+    "request",
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const httpEffect = yield* HttpRouter.toHttpEffect(appLayer);
+        return yield* NodeHttpServer.makeHandler(httpEffect, {
+          scope: httpScope,
+        });
+      }).pipe(
+        Scope.provide(httpScope),
+        Effect.provide(NodeHttpServer.layerHttpServices),
+      ),
+    ),
+  );
+  httpServer.listen({ host: "0.0.0.0", port: PORT }, () => {
+    // Print the "listening" line ONLY after the bind completes —
+    // otherwise Vite's WS proxy races the parent's nix-build step
+    // and logs spurious ECONNREFUSED until the bind catches up.
+    log(`listening on http://0.0.0.0:${PORT} (open http://localhost:${PORT}/)`);
+  });
+
+  // ── WebSocket: the browser's one transport ─────────────────────────
   const wss = new WebSocketServer({
     noServer: true,
     // 8 MiB per inbound frame — the framework's processes-collection
@@ -130,28 +146,28 @@ async function main(): Promise<void> {
       ),
     );
     ws.on("error", (err) => log(`browser ws error: ${err.message}`));
-    void wsHandler.upgrade(
-      ws as unknown as Parameters<typeof wsHandler.upgrade>[0],
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      // `ws`'s socket satisfies `ServableSocket` structurally; its typings
+      // narrow `addEventListener` per event name, which the seam does not.
+      socket: ws as unknown as ServableSocket,
+    });
+    // A serving site OWNS `done`: it resolves on hang-up and REJECTS if the
+    // serving stack failed. An ignored rejection is an unhandled one.
+    serving.done.catch((err) =>
+      log(`browser ws serving failed: ${String(err)}`),
     );
   });
-  (
-    httpServer as unknown as {
-      on: (
-        event: "upgrade",
-        cb: (req: unknown, socket: unknown, head: unknown) => void,
-      ) => void;
-    }
-  ).on("upgrade", (req, socket, head) => {
-    const r = req as OriginGateRequest & { url?: string };
-    const s = socket as UpgradeSocket;
-    if (r.url !== "/rpc/ws") {
-      s.destroy();
+  httpServer.on("upgrade", (req, socket, head) => {
+    if (req.url !== "/rpc/ws") {
+      socket.destroy();
       return;
     }
-    // CSWSH gate — reject a cross-site browser Origin before oRPC upgrades.
+    // CSWSH gate — reject a cross-site browser Origin before we upgrade.
     // Especially load-bearing here: this demo binds all interfaces.
     if (
-      gateWsOrigin({ headers: r.headers ?? {} }, s, {
+      gateWsOrigin(req, socket, {
         allowedOrigins: ALLOWED_ORIGINS,
         onReject: (origin) =>
           log(
@@ -161,11 +177,8 @@ async function main(): Promise<void> {
     ) {
       return;
     }
-    wss.handleUpgrade(
-      req as Parameters<typeof wss.handleUpgrade>[0],
-      socket as Parameters<typeof wss.handleUpgrade>[1],
-      head as Parameters<typeof wss.handleUpgrade>[2],
-      (ws) => wss.emit("connection", ws, req),
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      wss.emit("connection", ws, req),
     );
   });
 
@@ -186,12 +199,8 @@ async function main(): Promise<void> {
         /* already gone */
       }
     }
-    const srv = httpServer as unknown as {
-      closeAllConnections?: () => void;
-      close: (cb?: () => void) => void;
-    };
-    srv.closeAllConnections?.();
-    srv.close(() => process.exit(0));
+    httpServer.closeAllConnections();
+    httpServer.close(() => process.exit(0));
     // Belt-and-braces: if close() still hangs (unexpected stuck
     // socket), exit forcibly after a short grace window.
     setTimeout(() => process.exit(0), 1000).unref();

@@ -11,30 +11,40 @@
  * Pipelines are plain JSON (`--pipeline ci.json`); the built-in
  * `DEFAULT_PIPELINE` is the `build → test → lint` spine the plan's mock
  * shows, so `mini-ci` runs with zero config.
+ *
+ * `name` is OPTIONAL and `needs` is DEFAULTED, and the two spellings are laws:
+ * `Schema.optionalKey` (the key may be ABSENT, never an explicit `undefined` —
+ * `Schema.optional` would round-trip that through `null`) and
+ * `Schema.withDecodingDefaultKey` (a missing key decodes to the default; an
+ * explicit `undefined` is still a decode error).
  */
 
 import { readFileSync } from "node:fs";
-import { z } from "zod";
+import { Effect, Schema } from "effect";
 
-export const TaskIdSchema = z.string().min(1);
+export const TaskIdSchema = Schema.String.check(Schema.isMinLength(1));
 
-export const TaskSpecSchema = z.object({
+export const TaskSpecSchema = Schema.Struct({
   id: TaskIdSchema,
   /** Human label for the dashboard; defaults to `id`. */
-  name: z.string().optional(),
+  name: Schema.optionalKey(Schema.String),
   /** Shell command, run via `sh -c`. */
-  command: z.string().min(1),
+  command: Schema.String.check(Schema.isMinLength(1)),
   /** Ids of tasks that must finish `ok` before this one starts. */
-  needs: z.array(TaskIdSchema).default([]),
+  needs: Schema.Array(TaskIdSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 
-export const PipelineSpecSchema = z.object({
-  name: z.string().default("pipeline"),
-  tasks: z.array(TaskSpecSchema).min(1),
+export const PipelineSpecSchema = Schema.Struct({
+  name: Schema.String.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("pipeline")),
+  ),
+  tasks: Schema.Array(TaskSpecSchema).check(Schema.isMinLength(1)),
 });
 
-export type TaskSpec = z.infer<typeof TaskSpecSchema>;
-export type PipelineSpec = z.infer<typeof PipelineSpecSchema>;
+export type TaskSpec = typeof TaskSpecSchema.Type;
+export type PipelineSpec = typeof PipelineSpecSchema.Type;
 
 /** The zero-config pipeline — **real CI for the remote-process-monitor
  *  example**: type-check its dependency closure (the `@kolu/surface` framework
@@ -116,11 +126,16 @@ function assertAcyclic(spec: PipelineSpec): void {
   }
 }
 
+/** `Schema.decodeUnknownSync` — the fail-fast successor of zod's `.parse`:
+ *  it THROWS a `SchemaError` whose message is the rendered issue tree. Built
+ *  once at module scope because a decoder is a compiled value, not a call. */
+const decodePipeline = Schema.decodeUnknownSync(PipelineSpecSchema);
+
 /** Load a pipeline from a JSON file, or the built-in default when no path
  *  is given. Reads synchronously — the runner calls this once at startup,
  *  before serving. */
 export function loadPipeline(path?: string): PipelineSpec {
   if (path === undefined) return DEFAULT_PIPELINE;
   const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
-  return validatePipeline(PipelineSpecSchema.parse(raw));
+  return validatePipeline(decodePipeline(raw));
 }

@@ -4,9 +4,9 @@
  * Built on the SDK's low-level `Server` (not `McpServer`) for the same two
  * reasons odu's hand-built face was: full control over `resources/subscribe`
  * + `notifications/resources/updated` (McpServer doesn't manage per-resource
- * subscriptions), and JSON-Schema tool inputs driven by the surface's own zod
- * (no coupling to the SDK's schema layer, which has regressed to emitting
- * `$ref`).
+ * subscriptions), and JSON-Schema tool inputs driven by the surface's own
+ * Effect Schemas (no coupling to the SDK's schema layer, which has regressed
+ * to emitting `$ref`).
  *
  * Default-deny: ONLY the primitives/procedures named in `expose`, plus the
  * hand-authored `tools`, reach the host. An omitted primitive is unreachable.
@@ -15,14 +15,25 @@
  *   - `resolveExpose` → the concrete resource/template/tool lists.
  *   - `ResourcePusher` → the subscribe/teardown lifecycle.
  *   - `toInputSchema` (inside `resolveExpose`) → each tool's JSON Schema.
+ *
+ * **The Effect edges, named (PLAN D10/#25).** MCP's SDK is Promise- and
+ * callback-shaped, so this module is a genuine process boundary. Every request
+ * it serves runs its effect through ONE function — {@link runRequest} — and the
+ * `ResourcePusher`'s per-URI subscription fibers are the only other run in the
+ * package (`Effect.runFork`, in `pusher.ts`).
+ *
+ * `runRequest` exists because the SDK hands EVERY request an `AbortSignal` and
+ * every request is answered with a `Promise`, so the crossing is the same fact
+ * twice: `resources/read` opens subscriptions, `tools/call` places a unary
+ * member call, and a cancelled request must interrupt either. Handing the
+ * signal to the RUN (rather than threading it through the calls) is what makes
+ * that one line instead of one per call site — under Effect a member call takes
+ * no `signal`, because cancellation IS fiber interruption (D10/#18).
  */
 
-import { isDeadTransportError } from "@kolu/surface/client";
-import {
-  firstFrameOfCollectionItem,
-  firstFrameOrThrow,
-} from "@kolu/surface/first-frame";
-import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { Surface, SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { isDeadTransportError } from "@kolu/surface/errors";
+import { firstFrameOfCollectionItem } from "@kolu/surface/first-frame";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
@@ -36,7 +47,7 @@ import {
   SubscribeRequestSchema,
   UnsubscribeRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import type { ZodType } from "zod";
+import { Effect, Option, Schema, Stream } from "effect";
 import {
   COLLECTION_PREFIX,
   type ExposeMap,
@@ -48,23 +59,26 @@ import { ResourcePusher } from "./pusher";
 import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
 
 /** The structural shape of a served-surface client the adapter needs. The
- *  concrete client is `ContractRouterClient<typeof surface.contract>` (what
- *  `directLink` / the wire links return) — `.surface.<key>.<verb>(...)`.
+ *  concrete client is what `buildSurfaceFace` mints (`surfaceClientRef`, the
+ *  Solid client's `.rpc`, a wire link's face) — `.surface.<key>.<verb>(...)`,
+ *  where a streaming verb returns a `Stream` and a unary one an `Effect`. Both
+ *  are lazy: nothing dispatches until this module runs the value it was handed,
+ *  which it does once, at {@link runRequest}.
  *
- *  Declared locally rather than reusing `@kolu/surface`'s `SurfaceClientLike`
- *  because dispatch string-indexes then *calls* the leaves
- *  (`client.surface[key].get(...)`), which `SurfaceClientLike`'s `unknown`
- *  leaves forbid; and re-materializing the precise `SurfaceClientOf<S>` here
- *  overflows TS's union budget (the TS2590 dodge — cf. compose.test.ts:70-73).
- *  Hence a callable-leaved structural shape: permissive enough that a concrete
- *  `ContractRouterClient` assigns without a cast, yet callable at the leaf. */
+ *  Declared locally rather than reusing `@kolu/surface`'s `SurfaceFace` because
+ *  dispatch string-indexes then *calls* the leaves
+ *  (`client.surface[key].get(...)`), which `SurfaceFace`'s `unknown` leaves
+ *  forbid; and re-materializing the precise `SurfaceClientOf<S>` here overflows
+ *  TS's union budget (the TS2590 dodge — cf. compose.test.ts). Hence a
+ *  callable-leaved structural shape: permissive enough that a concrete
+ *  `SurfaceClientOf<S>` assigns without a cast, yet callable at the leaf. */
 export type SurfaceClientCallable = {
   // biome-ignore lint/suspicious/noExplicitAny: the per-key call shape is the consumer's typed client; opaque here.
   surface: Record<string, Record<string, (...args: any[]) => any>>;
 };
 
 /** What `opts.client()` may return. Either a bare client (the in-process
- *  `directLink` case — nothing to dispose) or an *owned connection*
+ *  `directDispatch` case — nothing to dispose) or an *owned connection*
  *  `{ client, dispose }` (the bridge case — `unixSocketLink` opens a socket it
  *  owns, so `dispose()` must close it). The adapter normalizes both, disposes
  *  every connection it opens on teardown, and re-dials after a drop. */
@@ -76,7 +90,7 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   surface: Surface<S>;
   /** Live-client factory. Bridge case: dial the served surface (return
    *  `{ client, dispose }` so the adapter can close the socket it owns).
-   *  Serve-fresh case: a `directLink` over an in-process implementation
+   *  Serve-fresh case: a `directDispatch` over an in-process implementation
    *  (return the bare client — nothing to dispose). Re-invoked on retry after
    *  a drop, and re-dialed for reads/tools after a transport failure. */
   client: () => ClientOrConnection<S> | Promise<ClientOrConnection<S>>;
@@ -103,18 +117,18 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // Resolve each bespoke tool to a record carrying its computed `inputSchema`
   // result alongside the tool — the same way `ToolEntry` carries its schema for
   // exposed procedures — so both tools/list and dispatch read one shape. The
-  // `inputSchema(t.input)` pass (zod→JSON-Schema + dereference) runs once here:
-  // `tools/list` reads `schema`, and dispatch reads `wrapped` (a scalar/array/
-  // union input is advertised wrapped under `value`, so dispatch unwraps
-  // `args.value` before parsing). Computing it per request would re-run the full
-  // pass each time.
+  // `inputSchema(t.input)` pass (Schema→JSON-Schema + dereference) runs once
+  // here: `tools/list` reads `schema`, and dispatch reads `wrapped` (a
+  // scalar/array/union input is advertised wrapped under `value`, so dispatch
+  // unwraps `args.value` before decoding). Computing it per request would re-run
+  // the full pass each time.
   const bespokeTools = new Map<
     string,
     { tool: BespokeTool; schema: Record<string, unknown>; wrapped: boolean }
   >(
     Object.entries(bespoke).map(([name, t]) => [
       name,
-      { tool: t, ...inputSchema(t.input) },
+      { tool: t, ...inputSchema(t.input as WireSchemaAny | undefined) },
     ]),
   );
 
@@ -145,7 +159,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   });
 
   // Normalize whatever `opts.client()` returns into an owned connection. The
-  // bare-client (in-process `directLink`) case gets a no-op disposer; the
+  // bare-client (in-process `directDispatch`) case gets a no-op disposer; the
   // `{ client, dispose }` (bridge) case keeps its socket-closing disposer.
   const dial = async (): Promise<{
     client: SurfaceClientCallable;
@@ -176,7 +190,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // socket instead of publishing an orphan nobody will ever tear down (the
   // adapter's promise: dispose every connection it opens).
   let closed = false;
-  // The IN-FLIGHT dial, memoized so two concurrent `getClient()` calls (a
+  // The IN-FLIGHT dial, memoized so two concurrent `getConn()` calls (a
   // long-blocking wait tool beside a read — the kolu-mcp case) share ONE dial
   // instead of each racing `sharedConn === null` across the await and opening
   // (then leaking) a second socket. Cleared once the dial settles.
@@ -241,11 +255,26 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     }
   };
 
+  /** THE request edge: answer one MCP request by running its effect under the
+   *  request's own `AbortSignal`.
+   *
+   *  Every handler below funnels through here, so the package's Promise boundary
+   *  is one function rather than one per request kind. Handing the signal to the
+   *  RUN interrupts the request's fiber on cancellation, and that interrupt tears
+   *  down everything the request opened — a `resources/read`'s subscriptions
+   *  through the streams' own finalizers, a `tools/call`'s in-flight dispatch —
+   *  which is the bound the threaded `AbortSignal` used to give, expressed once
+   *  instead of at every call site. */
+  const runRequest = <A>(
+    effect: Effect.Effect<A, unknown>,
+    signal: AbortSignal,
+  ): Promise<A> => Effect.runPromise(effect, { signal });
+
   // Index resources by URI for O(1) read/subscribe dispatch.
   const byUri = new Map<string, ResourceEntry>();
   for (const r of resolved.resources) byUri.set(r.uri, r);
   // Index collection key schemas by surface key for item-template key decode.
-  const keySchemaByCollection = new Map<string, ZodType>();
+  const keySchemaByCollection = new Map<string, WireSchemaAny>();
   for (const t of resolved.resourceTemplates) {
     keySchemaByCollection.set(t.key, t.keySchema);
   }
@@ -270,8 +299,8 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       pusherDisposers.set(conn.client as object, conn.dispose);
       return conn.client;
     },
-    stream: (client, uri, signal) =>
-      streamForUri(client, uri, byUri, keySchemaByCollection, signal),
+    stream: (client, uri) =>
+      streamForUri(client, uri, byUri, keySchemaByCollection),
     dispose: (client) => {
       const d = pusherDisposers.get(client as object);
       if (d !== undefined) {
@@ -346,16 +375,26 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
               `surface-mcp: client has no procedure "${exposed.ns}.${exposed.verb}"`,
             );
           }
-          // A no-input procedure's contract is `oc.input(z.void())`, which
-          // rejects an empty `{}` — call it with `undefined` instead. A
+          // A no-input procedure's payload schema is `Schema.Void`, which the
+          // face calls with `undefined` — an empty `{}` is not the same value. A
           // scalar/array/union input was advertised wrapped under `value`
           // (`toInputSchema`), so unwrap it back to the bare value the
-          // procedure's zod expects.
+          // procedure's schema expects.
+          //
+          // The face's unary ref DECODES the argument (D2/#13: a procedure input
+          // is a pure argument, so it travels encoded and the face decodes at the
+          // edge) — which is exactly where the old `.parse` ran, and is why the
+          // MCP host's raw JSON arguments can be handed over verbatim.
           const callArgs = exposed.hasInput
             ? unwrapArgs(exposed.wrapped, args)
             : undefined;
-          const out = await proc(callArgs, { signal: extra.signal });
-          return ok(out);
+          // A unary member call is an `Effect`; it runs at the request edge, so
+          // a cancelled `tools/call` interrupts the dispatch instead of leaving
+          // it in flight with nobody to answer. A DECLARED failure rejects with
+          // the squashed error, which the `catch` below turns into the `isError`
+          // tool result the contract promises — the same route a rejecting
+          // procedure took before.
+          return ok(await runRequest(proc(callArgs), extra.signal));
         });
       }
       const entry = bespokeTools.get(name);
@@ -363,14 +402,23 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
         const { tool } = entry;
         // Bespoke inputs are advertised through the same `toInputSchema`, so a
         // scalar/array/union input is also wrapped under `value` — unwrap
-        // before parsing with the tool's own zod.
+        // before decoding with the tool's own schema. `decodeUnknownSync` throws
+        // a `SchemaError` on bad input, which is the fail-fast `.parse` semantic
+        // this branch has always had; the catch below turns it into `isError`.
         const rawInput = unwrapArgs(entry.wrapped, args);
         const parsed =
-          tool.input !== undefined ? tool.input.parse(rawInput) : rawInput;
+          tool.input !== undefined
+            ? Schema.decodeUnknownSync(tool.input)(rawInput)
+            : rawInput;
         // `await` for the same reason as the exposed-procedure branch above: a
-        // rejecting handler must land in `failFrom`, never escape as -32603.
+        // failing handler must land in `failFrom`, never escape as -32603. The
+        // handler DESCRIBES its work; it runs at the same request edge every
+        // other handler does, so a cancelled `tools/call` interrupts it.
         return await withClient(async (client) => {
-          const out = await tool.handler(parsed, client, extra.signal);
+          const out = await runRequest(
+            tool.handler(parsed, client, extra.signal),
+            extra.signal,
+          );
           return ok(out);
         });
       }
@@ -407,13 +455,13 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   }));
 
   // ── resources/read ─────────────────────────────────────────────────────
-  // Thread the MCP request's abort signal all the way to the client calls so a
-  // one-shot read is bounded by request lifetime — cancelling the read tears
-  // down the underlying held-open subscription instead of leaking it.
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
     const result = await withClient((client) =>
-      readSnapshot(client, uri, byUri, keySchemaByCollection, extra.signal),
+      runRequest(
+        readSnapshot(client, uri, byUri, keySchemaByCollection),
+        extra.signal,
+      ),
     );
     if (isMiss(result)) {
       // A not-yet-present collection key is a well-formed but empty resource, NOT
@@ -506,11 +554,9 @@ function isSubscribable(
 }
 
 interface ResolvedCall {
-  proc: (
-    // biome-ignore lint/suspicious/noExplicitAny: an opaque method on the consumer's typed client — args are bivariant here by design.
-    ...args: any[]
-  ) => Promise<AsyncIterable<unknown>> | AsyncIterable<unknown>;
-  input: unknown;
+  /** Open the member's streaming source. LAZY — nothing is dispatched until the
+   *  returned stream is run, and the run's fiber owns its lifetime. */
+  open: () => Stream.Stream<unknown, unknown>;
   mimeType: string;
   /** Which primitive kind backs the URI — `event` has no snapshot, so a
    *  one-shot read must not block on a first frame. */
@@ -522,17 +568,16 @@ interface ResolvedCall {
  *  both the live subscription (`streamForUri`) and the one-shot read
  *  (`readSnapshot`). Returns `undefined` for a URI that doesn't resolve.
  *
- *  Cells/streams/events read via `.get(undefined)` (their contract has either
- *  no input or `z.void()` — an empty `{}` would fail validation); a
- *  collection's key-set via `.keys(undefined)`; a collection item via
- *  `.get({ key })`, where `key` is the URI's `<id>` segment decoded through the
- *  collection's key schema (so a `z.number()` key addresses item `42`, not
- *  `"42"`). */
+ *  Cells/streams/events read via `.get(undefined)` (their input is either absent
+ *  or `Schema.Void` — an empty `{}` is not that value); a collection's key-set
+ *  via `.keys(undefined)`; a collection item via `.get({ key })`, where `key` is
+ *  the URI's `<id>` segment decoded through the collection's key schema (so a
+ *  `Schema.Finite` key addresses item `42`, not `"42"`). */
 function resolveCall<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
-  keySchemaByCollection: Map<string, ZodType>,
+  keySchemaByCollection: Map<string, WireSchemaAny>,
 ): ResolvedCall | undefined {
   const entry = byUri.get(uri);
   if (entry !== undefined) {
@@ -541,8 +586,7 @@ function resolveCall<Client extends SurfaceClientCallable>(
     const proc = entry.kind === "collection" ? ns.keys : ns.get;
     if (proc === undefined) return undefined;
     return {
-      proc,
-      input: undefined,
+      open: () => asStream(proc(undefined), uri, entry.kind),
       mimeType: entry.mimeType,
       kind: entry.kind,
     };
@@ -554,16 +598,15 @@ function resolveCall<Client extends SurfaceClientCallable>(
     if (proc === undefined) return undefined;
     const keySchema = keySchemaByCollection.get(item.key);
     // Decode the URI's string `<id>` into the collection's key type via the one
-    // rule keyed off the schema's type: a string key passes straight through; a
-    // `z.number()` / `z.boolean()` key parses from its JSON form (`"42"` → `42`).
-    // A value that fails its key schema is an addressing error — leave it
-    // `undefined` so the call resolves nothing.
+    // rule keyed off the schema itself: a string key passes straight through; a
+    // numeric/boolean key parses from its JSON form (`"42"` → `42`). A value that
+    // fails its key schema is an addressing error — leave it `undefined` so the
+    // call resolves nothing.
     const key =
       keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
     if (key === undefined) return undefined;
     return {
-      proc,
-      input: { key },
+      open: () => asStream(proc({ key }), uri, "collection-item"),
       mimeType: "application/json",
       kind: "collection-item",
     };
@@ -571,25 +614,54 @@ function resolveCall<Client extends SurfaceClientCallable>(
   return undefined;
 }
 
+/** Assert that a member ref really handed back a `Stream`.
+ *
+ *  Every streaming verb on a real face does. What this catches is a DROPPED
+ *  BRIDGE: a client whose member resolved to nothing (a stale/partial face over
+ *  a dead link) would otherwise reach `Stream.runHead` as `undefined` and blow
+ *  up three frames later with a shapeless error, or worse be coerced into an
+ *  empty read. The surface contract guarantees a snapshot-first open, so "no
+ *  streaming source at all" is a link/protocol failure and is stated as one. */
+function asStream(
+  source: unknown,
+  uri: string,
+  kind: ResolvedCall["kind"],
+): Stream.Stream<unknown, unknown> {
+  if (!Stream.isStream(source)) {
+    return Stream.fail(
+      new Error(
+        `surface-mcp: ${uri} (${kind}) resolved no streaming source — the ` +
+          "surface contract guarantees a snapshot-first open, so this is a link/" +
+          "protocol failure, not an empty value.",
+      ),
+    );
+  }
+  return source as Stream.Stream<unknown, unknown>;
+}
+
 /** Decode a collection item URI's string `<id>` segment into the collection's
  *  declared key type. Always tries the segment verbatim first — this covers
- *  `z.string()`, `z.literal("foo")`, `z.enum(["a","b"])`, and any other
- *  string-accepting schema. If the verbatim parse fails, falls back to
- *  `JSON.parse(id)` and re-validates — this covers numeric (`z.number()`) and
- *  boolean keys whose URI encoding is their JSON form (`"42"` → `42`). A value
- *  that fails both paths returns `undefined` so the caller treats it as an
- *  unaddressable item rather than calling `.get` with a wrong-typed key. */
-function decodeKey(keySchema: ZodType, id: string): unknown {
-  const direct = keySchema.safeParse(id);
-  if (direct.success) return direct.data;
+ *  `Schema.String`, `Schema.Literal("foo")`, `Schema.Literals(["a","b"])`, and
+ *  any other string-accepting schema. If the verbatim decode fails, falls back
+ *  to `JSON.parse(id)` and re-decodes — this covers numeric (`Schema.Finite`)
+ *  and boolean keys whose URI encoding is their JSON form (`"42"` → `42`). A
+ *  value that fails both paths returns `undefined` so the caller treats it as an
+ *  unaddressable item rather than calling `.get` with a wrong-typed key.
+ *
+ *  The DECODED key is what comes back, which is what the face's collection
+ *  payloads are built from (`{ key }` carries decoded keys — client.ts). */
+function decodeKey(keySchema: WireSchemaAny, id: string): unknown {
+  const decode = Schema.decodeUnknownOption(keySchema);
+  const direct = decode(id);
+  if (Option.isSome(direct)) return direct.value;
   let parsed: unknown;
   try {
     parsed = JSON.parse(id);
   } catch {
     return undefined; // not JSON — unaddressable for a non-string key
   }
-  const decoded = keySchema.safeParse(parsed);
-  return decoded.success ? decoded.data : undefined;
+  const decoded = decode(parsed);
+  return Option.isSome(decoded) ? decoded.value : undefined;
 }
 
 /** Open the streaming source for a subscribed URI (the pusher's `StreamFor`).
@@ -598,12 +670,10 @@ function streamForUri<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
-  keySchemaByCollection: Map<string, ZodType>,
-  signal: AbortSignal | undefined,
-): Promise<AsyncIterable<unknown>> | AsyncIterable<unknown> | undefined {
+  keySchemaByCollection: Map<string, WireSchemaAny>,
+): Stream.Stream<unknown, unknown> | undefined {
   const call = resolveCall(client, uri, byUri, keySchemaByCollection);
-  if (call === undefined) return undefined;
-  return call.proc(call.input, { signal });
+  return call === undefined ? undefined : call.open();
 }
 
 interface Snapshot {
@@ -629,18 +699,17 @@ function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
  *    - **cell / collection / stream** are SNAPSHOT-FIRST
  *      (`@kolu/surface/server` opens a cell/collection with a current-value frame,
  *      and `StreamHandlerDeps` REQUIRES "first yield is a fresh full snapshot"), so
- *      an empty open is a dead/dropped bridge link, NOT an empty value — it
- *      `firstFrameOrThrow`s, never collapses to `null` (the green-dot lie in MCP
- *      form; caught-error-must-not-collapse-to-empty).
+ *      an empty open is a dead/dropped bridge link, NOT an empty value — it FAILS,
+ *      never collapses to `null` (the green-dot lie in MCP form;
+ *      caught-error-must-not-collapse-to-empty).
  *    - **collection-item** is snapshot-first ONLY when the key currently EXISTS.
  *      A collection's membership is dynamic (a key can be born later), and the
- *      collection `get` now HOLDS OPEN for an absent key instead of throwing (it
+ *      collection `get` HOLDS OPEN for an absent key instead of throwing (it
  *      yields nothing until the first upsert — the fix for the gray-chip #1681).
  *      That held-open semantic is correct for a LIVE subscription but would make a
- *      one-shot read block forever on a not-yet-born key, so the read resolves
- *      membership from the collection's `keys` snapshot FIRST: an absent key is an
- *      honest not-found (`undefined`), not an indefinite hang; a present key reads
- *      its `get` first frame (which arrives immediately, since present).
+ *      one-shot read block forever on a not-yet-born key, so the read races the
+ *      item's first frame against a live `keys`-absence watch and a hard deadline
+ *      — see {@link readCollectionItemSnapshot}.
  *    - **event** is the ONE kind with no snapshot by contract (`EventHandlerDeps`
  *      explicitly carries no snapshot obligation — it may yield zero frames, and a
  *      late subscriber misses past occurrences — which is what distinguishes Event
@@ -649,20 +718,23 @@ function isMiss(r: Snapshot | ReadMiss): r is ReadMiss {
  *      — its live value is the `notifications/resources/updated` stream, delivered
  *      via `resources/subscribe`, not a readable snapshot.
  *
- *  `signal` (the MCP request's abort signal) bounds every client call to the
- *  request's lifetime so a cancelled read tears down the underlying subscription. */
-async function readSnapshot<Client extends SurfaceClientCallable>(
+ *  Returns an EFFECT: the caller runs it with the MCP request's `AbortSignal`, so
+ *  a cancelled read interrupts every subscription it opened. */
+function readSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   byUri: Map<string, ResourceEntry>,
-  keySchemaByCollection: Map<string, ZodType>,
-  signal: AbortSignal | undefined,
-): Promise<Snapshot | ReadMiss> {
+  keySchemaByCollection: Map<string, WireSchemaAny>,
+): Effect.Effect<Snapshot | ReadMiss, unknown> {
   const call = resolveCall(client, uri, byUri, keySchemaByCollection);
-  if (call === undefined) return { miss: "unresolved" };
+  if (call === undefined)
+    return Effect.succeed<Snapshot | ReadMiss>({ miss: "unresolved" });
   switch (call.kind) {
     case "event":
-      return { value: null, mimeType: call.mimeType };
+      return Effect.succeed<Snapshot | ReadMiss>({
+        value: null,
+        mimeType: call.mimeType,
+      });
     // A collection-item read must not lean on the held-open `get` to signal
     // absence — an absent key yields nothing forever — so it gets a BOUNDED read
     // that races the `get` first frame against a live `keys`-absence watch.
@@ -672,23 +744,24 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
         uri,
         call,
         keySchemaByCollection,
-        signal,
       );
     case "cell":
     case "collection":
     case "stream":
-      return readFirstFrameSnapshot(call, uri, signal);
+      return readFirstFrameSnapshot(call, uri);
     default: {
       // Exhaustiveness guard: a new `ResolvedCall` kind must add its own case
       // rather than silently falling through to the snapshot-first reader.
       const unreachable: never = call.kind;
-      throw new Error(`surface-mcp: unhandled resource kind "${unreachable}"`);
+      return Effect.die(
+        new Error(`surface-mcp: unhandled resource kind "${unreachable}"`),
+      );
     }
   }
 }
 
-/** Open a snapshot-first source (cell / collection / stream / a PRESENT
- *  collection-item) and return its first frame.
+/** Open a snapshot-first source (cell / collection / stream) and return its
+ *  first frame.
  *
  *  cell / collection / collection-item / STREAM are ALL snapshot-first by the
  *  surface contract: `@kolu/surface/server` opens a cell/collection with a
@@ -698,112 +771,108 @@ async function readSnapshot<Client extends SurfaceClientCallable>(
  *  empty value — it is a dead/dropped bridge link, and collapsing it to JSON
  *  `null` would hand an MCP agent `surface://<kind>/<x> => null` as if it were
  *  real (the green-dot lie in MCP form, the snapshot-then-delta class). Fail
- *  loudly per caught-error-must-not-collapse-to-empty: a nullish source (the proc
- *  returned nothing) and an empty stream (no snapshot frame) both throw. */
-async function readFirstFrameSnapshot(
+ *  loudly per caught-error-must-not-collapse-to-empty.
+ *
+ *  `Stream.runHead` takes the first element and then ENDS the stream, which
+ *  releases the subscription through the stream's own finalizers — the Effect
+ *  equivalent of the old `for await … return`. */
+function readFirstFrameSnapshot(
   call: ResolvedCall,
   uri: string,
-  signal: AbortSignal | undefined,
-): Promise<Snapshot> {
-  const source = await call.proc(call.input, { signal });
-  if (source === undefined || source === null) {
-    throw new Error(
-      `surface-mcp: ${uri} (${call.kind}) resolved no streaming source — the ` +
-        `surface contract guarantees a snapshot-first open, so this is a link/` +
-        `protocol failure, not an empty value.`,
-    );
-  }
-  const value = await firstFrameOrThrow(
-    source as AsyncIterable<unknown>,
-    `surface-mcp: ${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
-      `contract opens a cell/collection/stream with a current-value snapshot, so an ` +
-      `empty open means the bridge link dropped, not that the value is null.`,
+): Effect.Effect<Snapshot, unknown> {
+  return Effect.flatMap(Stream.runHead(call.open()), (head) =>
+    Option.isSome(head)
+      ? Effect.succeed({ value: head.value, mimeType: call.mimeType })
+      : Effect.fail(
+          new Error(
+            `surface-mcp: ${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
+              "contract opens a cell/collection/stream with a current-value snapshot, so an " +
+              "empty open means the bridge link dropped, not that the value is null.",
+          ),
+        ),
   );
-  return { value, mimeType: call.mimeType };
 }
 
-/** Hard upper bound on a one-shot collection-item read of a **keys-LESS**
- *  collection — one with no `keys` verb, so there is no membership signal to
- *  resolve an absent key against. The read is bounded by this deadline so an
- *  absent key on such a collection is a prompt, explicit not-present (logged),
- *  never the indefinite hang the held-open `get` would otherwise cause. A
- *  keys-bearing collection is normally bounded by its `keys`-absence watch, which
- *  answers sooner and more precisely — but it is bounded by this too, since the
- *  framework races both and a member whose item stream goes quiet would otherwise
- *  have no bound at all. */
+/** Hard upper bound on a one-shot collection-item read. The read is bounded by
+ *  this deadline so a quiet producer can never hang it: a collection with no
+ *  `keys` verb has no membership signal to resolve an absent key against at all,
+ *  and one WITH a `keys` verb can still keep saying "still a member" while the
+ *  item stream says nothing. Both bounds are always armed — see
+ *  {@link readCollectionItemSnapshot}. */
 const KEYSLESS_ITEM_READ_DEADLINE_MS = 5_000;
 
-/** One-shot read of a collection-item URI. The item `get` HOLDS OPEN for a
- *  not-yet-born key (the #1681 fix), so a one-shot read can't await it blindly —
- *  it delegates to the framework's `firstFrameOfCollectionItem`, which races the
- *  item `get` against a live `keys`-absence watch (or, for a keys-less collection,
- *  a hard deadline) so a present key reads its snapshot and an absent/deleted key
- *  resolves not-found instead of hanging. This wrapper decodes the URI→key, maps
- *  the framework's typed `CollectionItemFrame` onto the MCP `Snapshot | ReadMiss`,
- *  and LOGS the keys-less `"deadline"` absence (an uncertain not-present) so it is
- *  never a silent degrade. */
-async function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
+/** One-shot read of a collection-item URI, BOUNDED against `collectionHandlers.get`'s
+ *  held-open-on-absent semantic (#1681): the item `get` yields nothing until the key
+ *  is a member, so taking its first frame ALONE hangs forever on a not-yet-present
+ *  key.
+ *
+ *  The bounded race itself — the item's first frame against BOTH a live
+ *  `keys`-absence watch AND a deadline, neither subsuming the other — is the
+ *  FRAMEWORK's, `@kolu/surface/first-frame`'s `firstFrameOfCollectionItem`, which
+ *  lives beside the held-open `get` footgun it guards. This function is the MCP
+ *  vocabulary over it: which streams to hand it, and how each outcome reads as a
+ *  `Snapshot` or a `ReadMiss`. It stays an EFFECT all the way down so the whole
+ *  read runs inside the request's fiber — `resources/read` runs it under the MCP
+ *  request's abort signal, and a Promise edge in the middle would detach the
+ *  subscriptions from that interruption. */
+function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
   client: Client,
   uri: string,
   call: ResolvedCall,
-  keySchemaByCollection: Map<string, ZodType>,
-  signal: AbortSignal | undefined,
-): Promise<Snapshot | ReadMiss> {
+  keySchemaByCollection: Map<string, WireSchemaAny>,
+): Effect.Effect<Snapshot | ReadMiss, unknown> {
   const item = parseCollectionItem(uri);
   if (item === null) {
     // Unreachable by construction: `readCollectionItemSnapshot` is called only for
     // a `call.kind === "collection-item"`, which `resolveCall` sets ONLY after
     // `parseCollectionItem(uri)` succeeded on this same URI. Fail LOUD if that
     // invariant is ever broken — never a silent fall-through.
-    throw new Error(
-      `surface-mcp: ${uri} routed as a collection item but does not parse as one`,
+    return Effect.die(
+      new Error(
+        `surface-mcp: ${uri} routed as a collection item but does not parse as one`,
+      ),
     );
   }
-  // `null` (not `undefined`) when the collection exposes no `keys` verb — the
-  // framework then bounds the read with the deadline instead of a membership watch.
-  const keysProc = client.surface[item.key]?.keys ?? null;
+  const keysProc = client.surface[item.key]?.keys;
   const keySchema = keySchemaByCollection.get(item.key);
   const key = keySchema !== undefined ? decodeKey(keySchema, item.id) : item.id;
 
-  const frame = await firstFrameOfCollectionItem<unknown>(
-    (sig) =>
-      call.proc(call.input, { signal: sig }) as Promise<
-        AsyncIterable<unknown> | null | undefined
-      >,
-    keysProc === null
-      ? null
-      : (sig) =>
-          keysProc(undefined, { signal: sig }) as Promise<
-            AsyncIterable<unknown>
-          >,
-    key,
-    `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
-      `collection item opens with a current-value snapshot, so an empty open means ` +
-      `the bridge link dropped, not that the value is null.`,
-    `surface-mcp: ${uri} (collection-item) resolved no streaming source — the ` +
-      `surface contract guarantees a snapshot-first open for a present item, so ` +
-      `this is a link/protocol failure, not an empty value.`,
-    KEYSLESS_ITEM_READ_DEADLINE_MS,
-    signal,
+  return Effect.flatMap(
+    firstFrameOfCollectionItem(
+      call.open(),
+      keysProc === undefined
+        ? null
+        : asStream(keysProc(undefined), uri, "collection"),
+      key,
+      `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
+        "collection item opens with a current-value snapshot, so an empty open means " +
+        "the bridge link dropped, not that the value is null.",
+      KEYSLESS_ITEM_READ_DEADLINE_MS,
+    ),
+    (frame): Effect.Effect<Snapshot | ReadMiss, unknown> => {
+      if (frame.present)
+        return Effect.succeed({ value: frame.value, mimeType: call.mimeType });
+      if (frame.reason === "absent")
+        return Effect.succeed({ miss: "not-present" });
+      // The read ran out of time. Either the collection has no membership
+      // signal to resolve against, or it has one that kept saying "still a
+      // member" while the item stream said nothing — the race arms BOTH
+      // bounds, so a deadline no longer implies keys-lessness and this must
+      // not claim it does. Either way the not-present is UNCERTAIN (the item
+      // may exist but never opened a snapshot in time), so surface it loudly
+      // rather than degrade silently.
+      return Effect.sync(() => {
+        console.error(
+          `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+        );
+        return { miss: "not-present" };
+      });
+    },
   );
-  if (!frame.present && frame.reason === "deadline") {
-    // The read ran out of time. Either the collection has no membership signal
-    // to resolve against, or it has one that kept saying "still a member" while
-    // the item stream said nothing — the framework races BOTH bounds, so a
-    // deadline no longer implies keys-lessness and this must not claim it does.
-    // Either way the not-present is UNCERTAIN (the item may exist but never
-    // opened a snapshot in time), so surface it loudly rather than degrade.
-    console.error(
-      `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
-    );
-  }
-  return frame.present
-    ? { value: frame.value, mimeType: call.mimeType }
-    : { miss: "not-present" };
 }
 
 /** Undo the `enforceObject` wrapping before handing args to a procedure/tool's
- *  zod. A non-object input (scalar/array/union) is advertised wrapped under a
+ *  schema. A non-object input (scalar/array/union) is advertised wrapped under a
  *  single `value` property; `wrapped` is the bit `inputSchema` reports for that
  *  case. The one place this rule lives, called by both dispatch branches. */
 function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {

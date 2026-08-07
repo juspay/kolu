@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# Assert that every remote-agent package a host can be provisioned with is
+# actually SUBSTITUTABLE from the binary caches the agent source itself
+# declares — i.e. that the closure a `--host` dial needs is in the cache before
+# any host asks for it.
+#
+# WHAT THE CACHE IS FOR, NOW THAT THE MODULE CARRIES THE CLOSURE
+# --------------------------------------------------------------
+# A `services.kolu` deploy (nix/home/module.nix) no longer depends on this being
+# green: its generation CARRIES every exposed agent closure and GC-roots it
+# (`services.kolu.agentPackages` → `KOLU_BAKED_AGENT_CLOSURES`, proved by
+# `nix/home/example/`'s `agent-closure-containment` check — I1,
+# juspay/kolu#2101). The cache's job is the flows OUTSIDE that module — a
+# `nix run github:juspay/kolu`, a raw `nix profile install .#default`, a dev
+# checkout, a CI or deploy host that must not compile — where the binder's store
+# genuinely starts empty and the prefetch is the only thing between a first dial
+# and a source realise on the target. Same narrative as `ci/agent-preflight`:
+# **the module deploy is guaranteed by construction; these scripts cover
+# everything else.**
+#
+# WHY THIS EXISTS
+# ---------------
+# `@kolu/surface-remote` provisions a host by resolving
+# `<SURFACE_AGENT_FLAKE_REF>#packages.<system>.<attr>` and prefetching that
+# out-path from the caches baked into the source's `binary-cache.json`
+# (`packages/surface-remote/src/nixCopy.ts:452-476`). When no declared cache
+# has it, provisioning narrates
+#
+#     no agent closure at <url> (…)
+#     no declared cache had the agent closure — realising from source instead
+#
+# (`nixCopy.ts:485-489`) and the target host COMPILES the daemon. That is a
+# 2-second nuisance for a warm closure and an outage for a cold one — it was
+# observed on a real production deploy (juspay/kolu#2101, F5(a)).
+#
+# `.github/workflows/nix-cache.yml` pushes every flake output to that cache, so
+# "the push covers padi-agent" is true by construction. What was NOT true is
+# that the push covered the COMMIT people deploy: on `pull_request` the job
+# checked out `refs/pull/N/merge`, a synthetic tree nobody ever builds, so a
+# branch head's agent closure was never warmed. This script is the assertion
+# that closes the loop — it does not trust the push, it QUERIES the cache.
+#
+# EVERY INPUT IS DERIVED, NOTHING IS SPELLED TWICE
+# ------------------------------------------------
+#   * the source tree     — `.#agent-flake-source`, the same attr the binder
+#                           wrappers bake and `ci::agent-flake-nix` evaluates
+#   * the package list    — `nix/agent-packages.json`'s `expose` (kolu policy)
+#   * the cache list      — the `binary-cache.json` sidecar INSIDE that source,
+#                           derived from the agent flake's own `nixConfig`
+#                           (`packages/surface-daemon/nix/binary-cache.nix`)
+#   * the sidecar's name  — `packages/surface-remote/agent-env.json`, the same
+#                           cross-language registry the TS reader uses
+#                           (`packages/surface-remote/src/agentBinaryCache.ts:28`)
+#
+# So a newly exposed agent attr, or a newly declared cache, is covered the day
+# it lands. A hand-listed `padi-agent` here would be a second source of truth
+# that could go stale exactly the way the push set once did.
+#
+# HOW IT ASKS — AND WHY NOT `nix path-info`
+# -----------------------------------------
+# A direct HTTP GET of `<cache>/<hash>.narinfo`, not `nix path-info --store
+# <cache>`. The first real run of this check FALSE-NEGATIVED off nix's own
+# client state: `path-info` consults the LOCAL narinfo cache, and the build
+# step minutes earlier had already asked for those paths and cached the 404s
+# (`narinfo-cache-negative-ttl`, 3600s by default). The verify therefore
+# answered from a snapshot taken BEFORE the push it existed to verify — it
+# reported `kaval` and `padi` missing while attic's own log showed all three
+# uploaded and every narinfo returned 200 to anyone outside (GHA run
+# 30963447018). `padi-agent` passed only because nothing had poisoned its entry.
+#
+# `--option narinfo-cache-negative-ttl 0` would also clear it, but that tunes
+# away a symptom of consulting a cache we should never have consulted: the
+# question is "what does the SERVER hold", and any client-side answer is a
+# different question that merely agrees most of the time. curl carries no such
+# state, so the failure mode is not disabled — it is unspellable.
+#
+# SCOPE, STATED HONESTLY
+# ----------------------
+# This checks the TOP-LEVEL out-path of each exposed attr, not every closure
+# member, and that is the right granularity for two reasons. It is precisely
+# the condition whose absence produced the incident's log line. And `attic
+# push` uploads CLOSURES by default (`--no-closure` is the opt-out), so a
+# present top-level path implies its non-upstream members went with it; the
+# members it deliberately skips are the ones already substitutable from
+# cache.nixos.org, which every host reaches on its own.
+#
+# A hit on ANY declared cache passes, because that is provisioning's own
+# contract — it tries each substituter in turn and stops at the first that
+# answers. Requiring ALL of them would fail the day someone declares a cache
+# this repo is not the publisher for.
+#
+# WHY THIS IS NOT AN `odu` CI RECIPE
+# -----------------------------------
+# It is deliberately NOT wired into `ci/mod.just`'s DAG. The odu lanes and the
+# GitHub-hosted cache push run concurrently on the same commit, so an odu node
+# asking "is this in the cache yet?" would be asking before the answer can be
+# yes — a check that goes red for a reason unrelated to the change under
+# review. It runs in `nix-cache.yml` AFTER that job's own `attic push`, where
+# the answer is a real verdict about work the same job just did.
+#
+# IT TAKES A FLAKE REF, BECAUSE CI IS NOT WHAT SHIPS
+# ---------------------------------------------------
+# (For a `services.kolu` module deploy this gap is now CLOSED by construction —
+# the generation ships the closures, so the artifact needs no receipt from a
+# gate that speaks about a commit. What follows is about the artifact shapes
+# that do not go through the module.)
+#
+# A green run here proves something about a COMMIT. An operator deploys an
+# ARTIFACT, and the two are not the same event. Deploy #2 of the Effect campaign
+# (juspay/kolu#2101, G7) deployed `beb2f7418` at 21:20:43; the nix-cache run for
+# that very sha was created at 21:25:38 and finished at 21:35:00. The deploy
+# beat its own warm job by fifteen minutes, so remotes source-realised while a
+# gate that could only speak afterwards went green. `nix flake update` costs
+# seconds; a two-platform matrix build costs tens of minutes. The operator will
+# always be able to outrun CI.
+#
+# So the question is parameterised by the thing being deployed, not fixed to the
+# checkout:
+#
+#     bash ci/agent-substitutable github:juspay/kolu/effect   # before switching
+#     bash ci/agent-substitutable path:/home/me/code/kolu     # a local tree
+#     bash ci/agent-substitutable                             # cwd (CI's use)
+#
+# Every input is then read from the RESOLVED agent source rather than from the
+# working directory — the package inventory, the cache list, and the sidecar's
+# own name all travel inside the tree a remote resolves against. The script
+# therefore describes the artifact it was pointed at, and has no opinion about
+# where it was run from.
+#
+# Bash 3.2 compatible (GitHub's macos-latest `/bin/bash`) — no `mapfile`, no
+# namerefs. See `ci/flake-build`'s `nix_args` comment for the history there.
+
+set -euo pipefail
+
+die() {
+  echo "ci/agent-substitutable: $*" >&2
+  exit 1
+}
+
+flake="${1:-.}"
+case "$flake" in
+  -h | --help)
+    echo "usage: ci/agent-substitutable [FLAKE]   (default: .)"
+    exit 2
+    ;;
+esac
+[ $# -le 1 ] || die "one FLAKE argument at most (got $#)"
+
+# The exact tree a remote resolves against — a store path, so this is the same
+# flake ref the shipped wrappers bake, not a re-derivation of it.
+agent_flake_ref="$(nix build "${flake}#agent-flake-source" --no-link --print-out-paths --accept-flake-config)"
+
+env_json="${agent_flake_ref}/packages/surface-remote/agent-env.json"
+[ -f "$env_json" ] || die "the baked agent source has no packages/surface-remote/agent-env.json"
+
+cache_file="$(jq -r '.binaryCacheFile' "$env_json")"
+[ -n "$cache_file" ] && [ "$cache_file" != "null" ] \
+  || die "${env_json} declares no binaryCacheFile"
+
+cache_json="${agent_flake_ref}/${cache_file}"
+[ -f "$cache_json" ] || die "the baked agent source has no ${cache_file} — provisioning would refuse it"
+
+substituters="$(jq -r '.substituters[]' "$cache_json")"
+[ -n "$substituters" ] || die "${cache_json} declares no substituters"
+
+command -v curl > /dev/null || die "curl is required — the cache is asked over HTTP (see the header)"
+
+# A cache this script cannot ask is worse than one it fails on: it would pass
+# by never posing the question. Refuse here, so teaching the script a new
+# scheme is the only way past it.
+while IFS= read -r url; do
+  [ -z "$url" ] && continue
+  case "$url" in
+    http://* | https://*) ;;
+    *) die "cannot query '${url}' — this check speaks HTTP binary caches only; teach it that scheme rather than skipping it" ;;
+  esac
+done <<< "$substituters"
+
+packages_json="${agent_flake_ref}/nix/agent-packages.json"
+[ -f "$packages_json" ] || die "the baked agent source has no nix/agent-packages.json"
+packages="$(jq -r '.expose[]' "$packages_json")"
+[ -n "$packages" ] || die "${packages_json} exposes no agent packages"
+
+system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+
+echo "ci/agent-substitutable: ${flake} · ${system} · source ${agent_flake_ref}"
+echo "caches:"
+# shellcheck disable=SC2086  # word-splitting one-per-line is the intent
+printf '  %s\n' $substituters
+
+missing=""
+while IFS= read -r package; do
+  [ -z "$package" ] && continue
+  # `nix eval …outPath`, not `nix build`: this must report on the path the
+  # cache is expected to hold, and must not quietly REALISE it locally — a
+  # build here would mask the very absence we are testing for.
+  out="$(nix eval --accept-flake-config --raw \
+    "${agent_flake_ref}#packages.${system}.${package}.outPath" < /dev/null)"
+  # The store hash is the basename up to the first dash — the name a binary
+  # cache files its narinfo under. Pure parameter expansion (bash 3.2 safe).
+  base="${out##*/}"
+  hash="${base%%-*}"
+  hit=""
+  while IFS= read -r url; do
+    [ -z "$url" ] && continue
+    if curl -fs --max-time 30 -o /dev/null "${url%/}/${hash}.narinfo" < /dev/null; then
+      hit="$url"
+      break
+    fi
+  done <<< "$substituters"
+  if [ -n "$hit" ]; then
+    echo "  ok      ${package} ${out}  ←  ${hit}"
+  else
+    echo "  MISSING ${package} ${out}" >&2
+    missing="${missing}${package} "
+  fi
+done <<< "$packages"
+
+if [ -n "$missing" ]; then
+  cat >&2 <<EOF
+
+ci/agent-substitutable: NOT SUBSTITUTABLE — ${missing}
+
+Every host provisioned from this build will find no agent closure in any
+declared cache and COMPILE the daemon from source over ssh instead (see
+'no declared cache had the agent closure' in packages/surface-remote/src/nixCopy.ts).
+
+Either the cache push for this rev has not run/succeeded YET, or it built a
+different tree than this one. Check the nix-cache workflow run for THIS sha —
+note it must check out the branch head, not a merge ref, or it warms a closure
+no one deploys.
+
+If you are about to switch a \`services.kolu\` home-manager DEPLOY to this
+artifact, this is not your problem: the generation carries every exposed agent
+closure and GC-roots it, so its remotes cannot source-realise whatever the
+cache holds (I1, juspay/kolu#2101 — see nix/home/module.nix's
+\`agentPackages\`). Nothing to run.
+
+If you are about to run this artifact any OTHER way — \`nix run\`, a raw
+\`nix profile install .#default\`, a dev checkout — do not wait on CI: run
+
+    ci/agent-preflight ${flake}
+
+on the machine that will run kolu-server. That realises the agent closure into
+the binder's own store, which is what provisioning ships from — it makes remote
+source-realise impossible regardless of what any cache holds, and it is the
+only thing that works for a rev CI has not warmed yet or a local tree it will
+never see.
+EOF
+  exit 1
+fi
+
+echo "ci/agent-substitutable: every exposed agent package is substitutable"

@@ -1,25 +1,29 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { RpcCallFailed } from "./rpcWire.ts";
 import {
-  BoundedErrorBody,
-  HttpStatusError,
   retryPadiScenarioReset,
   retryTransient,
 } from "./scenarioSetupRetry.ts";
 
-test("error response capture is bounded and reports truncation", () => {
-  const body = new BoundedErrorBody(5);
-  body.push(Buffer.from("abc"));
-  body.push(Buffer.from("defgh"));
+/** The wire shape `reServeSurface` answers with while its upstream link is down —
+ *  a DEFECT whose `name` survives Effect's defect codec. This is the successor of
+ *  the old HTTP 503. */
+const upstreamDown = (): RpcCallFailed => {
+  const defect = new Error("reServeSurface: … with no live upstream link");
+  defect.name = "UpstreamUnavailableError";
+  return new RpcCallFailed(
+    "surface/padi/activityFeed/test__set",
+    defect,
+    false,
+  );
+};
 
-  assert.equal(body.text(), "abcde\n[response body truncated at 5 bytes]");
-});
-
-test("an HTTP error body cannot masquerade as a transient transport failure", async () => {
-  const failure = new HttpStatusError(
-    500,
-    "activityFeed",
-    "internal detail: ECONNRESET",
+test("an answered wire failure cannot masquerade as a transient transport failure", async () => {
+  const failure = new RpcCallFailed(
+    "surface/padi/activityFeed/test__set",
+    new Error("internal detail: ECONNRESET"),
+    false,
   );
   let attempts = 0;
 
@@ -33,16 +37,14 @@ test("an HTTP error body cannot masquerade as a transient transport failure", as
   assert.equal(attempts, 1);
 });
 
-test("a 503 restarts the whole Padi reset sequence", async () => {
+test("a warming-up padi restarts the whole Padi reset sequence", async () => {
   const operations: string[] = [];
   let attempt = 0;
 
   await retryPadiScenarioReset(1_000, async () => {
     attempt += 1;
     operations.push("killAll", "activityFeed");
-    if (attempt === 1) {
-      throw new HttpStatusError(503, "activityFeed", "link down");
-    }
+    if (attempt === 1) throw upstreamDown();
     operations.push("session");
   });
 
@@ -55,8 +57,12 @@ test("a 503 restarts the whole Padi reset sequence", async () => {
   ]);
 });
 
-test("a non-503 HTTP failure surfaces without another attempt", async () => {
-  const failure = new HttpStatusError(500, "activityFeed", "handler failed");
+test("a declared handler failure surfaces without another attempt", async () => {
+  const failure = new RpcCallFailed(
+    "surface/padi/activityFeed/test__set",
+    new Error("handler failed"),
+    false,
+  );
   let attempts = 0;
 
   await assert.rejects(

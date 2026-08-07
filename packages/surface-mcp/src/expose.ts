@@ -19,8 +19,8 @@
  *                   wire path stays `<ns>.<verb>`)
  */
 
-import type { SurfaceSpec } from "@kolu/surface/define";
-import type { ZodType } from "zod";
+import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import { Option, Schema } from "effect";
 import { inputSchema } from "./jsonschema";
 
 // ── Expose map types ────────────────────────────────────────────────────
@@ -101,10 +101,9 @@ export interface ResourceTemplateEntry {
   mimeType: string;
   /** The collection's key schema — used to decode an item-template URI's
    *  `<id>` segment (a string) back into the collection's actual key type
-   *  before calling `.get({ key })`. A `keySchema: z.number()` collection
+   *  before calling `.get({ key })`. A `keySchema: Schema.Finite` collection
    *  must turn the string `"42"` into `42`, not address item `"42"`. */
-  // biome-ignore lint/suspicious/noExplicitAny: opaque zod schema carried for runtime key decoding.
-  keySchema: ZodType<any>;
+  keySchema: WireSchemaAny;
 }
 
 /** A tool backed by an exposed procedure. */
@@ -116,14 +115,15 @@ export interface ToolEntry {
   verb: string;
   mutates: boolean;
   inputSchema: Record<string, unknown>;
-  /** Whether the procedure declares an input. A no-input procedure's contract
-   *  is `oc.input(z.void())`, which rejects `{}` — so the dispatcher must call
-   *  it with `undefined`, not the empty args object. */
+  /** Whether the procedure declares an input. A no-input procedure's payload
+   *  schema is `Schema.Void`, so the dispatcher must call it with `undefined`,
+   *  not the empty args object. */
   hasInput: boolean;
   /** Whether the input schema wrapped a non-object (scalar/array/union) input
    *  under a `value` property to satisfy MCP. The dispatcher must unwrap
-   *  `args.value` before handing it to the procedure's zod, which expects the
-   *  bare value (a `z.string()` input is advertised as `{ value: string }`). */
+   *  `args.value` before handing it to the procedure's schema, which expects
+   *  the bare value (a `Schema.String` input is advertised as
+   *  `{ value: string }`). */
   wrapped: boolean;
 }
 
@@ -165,16 +165,19 @@ export function toolName(ns: string, verb: string): string {
 /** Reject an input-bearing stream/event exposed as a STATIC resource — the one gate
  *  both the stream and event arms take. A `surface://<kind>s/<key>` URI carries no
  *  input, so the adapter reads/subscribes via `.get(undefined)`; a spec whose
- *  `inputSchema` *requires* an argument (e.g. `z.object({ id })`) can't be a single
- *  static resource. Fail at BOOT rather than register one whose every read/subscribe
- *  fails validation. (An input-bearing one belongs behind a projection that fixes the
- *  input, or a future resource-template encoding.) */
+ *  `inputSchema` *requires* an argument (e.g. `Schema.Struct({ id })`) can't be a
+ *  single static resource. Fail at BOOT rather than register one whose every
+ *  read/subscribe fails validation. (An input-bearing one belongs behind a
+ *  projection that fixes the input, or a future resource-template encoding.) */
 function assertExposableAsResource(
   kind: "stream" | "event",
   key: string,
-  inputSchema: ZodType,
+  inputSchema: WireSchemaAny,
 ): void {
-  if (!inputSchema.safeParse(undefined).success) {
+  // The Effect successor of zod's `.safeParse(undefined).success`: decode the
+  // no-argument value and ask whether the schema admits it. `Schema.Void` (what
+  // a no-input member declares) does; a struct does not.
+  if (Option.isNone(Schema.decodeUnknownOption(inputSchema)(undefined))) {
     throw new Error(
       `surface-mcp: ${kind} "${key}" requires an input, so it can't be exposed as a static resource ` +
         `(surface://${kind}s/${key} carries no input). Project it to a no-input ${kind}, or expose a fixed-input view.`,
@@ -260,7 +263,7 @@ export function resolveExpose<S extends SurfaceSpec>(
         mimeType: "application/json",
       });
     } else if (key in collections) {
-      const collSpec = collections[key] as { keySchema: ZodType };
+      const collSpec = collections[key] as { keySchema: WireSchemaAny };
       resources.push({
         uri: collectionUri(key),
         kind: "collection",
@@ -281,7 +284,7 @@ export function resolveExpose<S extends SurfaceSpec>(
       assertExposableAsResource(
         "stream",
         key,
-        (streams[key] as { inputSchema: ZodType }).inputSchema,
+        (streams[key] as { inputSchema: WireSchemaAny }).inputSchema,
       );
       resources.push({
         uri: streamUri(key),
@@ -298,7 +301,7 @@ export function resolveExpose<S extends SurfaceSpec>(
       assertExposableAsResource(
         "event",
         key,
-        (events[key] as { inputSchema: ZodType }).inputSchema,
+        (events[key] as { inputSchema: WireSchemaAny }).inputSchema,
       );
       resources.push({
         uri: eventUri(key),

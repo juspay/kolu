@@ -43,7 +43,7 @@
 # lib.nix owns the shared scaffold; only the distinguishing data lives here.
 { pkgs, kolu, system, port, kavalTui, lib, ... }:
 let
-  inherit (lib) jq curl gateHelpers configFile openTerminal;
+  inherit (lib) jq gateHelpers configFile openTerminal rpc;
 
   # The OK/FAIL files each script writes and mkAdoptionTest asserts (as root).
   seedResultFile = "/tmp/padi-upgrade-seed-result";
@@ -98,12 +98,12 @@ let
       || fail "PTY for $id never went live (last list: $(${kavalTui} list --json 2>&1 | tr -d '\n' | head -c 300))"
 
     # run a command whose UNIQUE output we re-check after the redeploy (\r is Enter;
-    # jq builds the body so the escaping is correct).
-    body=$(${jq} -nc --arg id "$id" '{json:{mapKey:"local",input:{id:$id,data:"echo ${nonce}\r"}}}') \
+    # jq builds the body so the escaping is correct). The payload carries `$id`, a
+    # RUNTIME value, so it rides the call's trailing positional (adopt.nix note).
+    body=$(${jq} -nc --arg id "$id" '{mapKey:"local",input:{id:$id,data:"echo ${nonce}\r"}}') \
       || fail "jq failed to build the sendInput request body"
-    ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/sendInput" \
-      -H 'content-type: application/json' -d "$body" >/dev/null \
-      || fail "lifecycle.sendInput RPC errored"
+    sendErr=$(${rpc { tag = "surface/padi/lifecycle/sendInput"; }} "$body" 2>&1) \
+      || fail "lifecycle.sendInput RPC errored: $(printf '%s' "$sendErr" | tr '\n' ' ' | tail -c 400)"
 
     # confirm the output reached the scrollback before the redeploy. Plain `grep`
     # (output discarded), NOT `grep -q`: under `pipefail`, `-q` exits on the first

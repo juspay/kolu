@@ -2,25 +2,34 @@
  * @kolu/surface-app/connect — the client transport assembly for a surface app's
  * stale-tab handshake.
  *
- * Both kolu and drishti hand-rolled the SAME two pieces on top of partysocket:
+ * Both kolu and drishti hand-rolled the SAME two pieces:
  *
  *   1. the `pid`-echo mutable + URL-param threading (`lastServerProcessId` +
  *      `rememberServerProcessId` + appending `?pid=` on every reconnect), and
- *   2. the `new PartySocket(urlThunk, …)` construction with that echo'd URL plus
- *      — for a socket NO lifecycle watches — the stale-close → `retireSocket`
- *      listener.
+ *   2. the dial itself, with that echo'd URL and the stale-close handling.
  *
- * This module owns both, so a consumer brings only its URL, its reconnect
- * options, and whether the socket self-retires. The lifecycle + clients assembly
- * stays with the consumer ON PURPOSE: kolu derives its lifecycle in `rpc.ts`,
- * drishti via `<SurfaceAppProvider>`, and drishti runs MANY sockets (per-host +
- * one admin) sharing ONE echo — so a single god-factory bundling socket + clients
- * + lifecycle would fit neither. The shared duplication is the echo and the
- * socket; that is what graduates here.
+ * This module owns both, so a consumer brings only its URL and its close-code
+ * vocabulary. The lifecycle + clients assembly stays with the consumer ON
+ * PURPOSE: kolu derives its lifecycle in `rpc.ts`, drishti via
+ * `<SurfaceAppProvider>`, and drishti runs MANY wires (per-host + one admin)
+ * sharing ONE echo — so a single god-factory bundling wire + clients + lifecycle
+ * would fit neither. The shared duplication is the echo and the dial; that is
+ * what graduates here.
  *
  * Framework-free (no SolidJS): pure transport, like its sibling `./lifecycle`.
- * This is where @kolu/surface-app's commitment to partysocket becomes explicit —
- * the one `new PartySocket(...)` in the package (see the surface-connection note).
+ *
+ * **partysocket is gone** (PLAN D5). The reconnecting socket is now
+ * `@kolu/surface`'s `websocketLink`, which owns the dial, the retry schedule,
+ * the URL thunk re-evaluated on every re-dial (review #6c — the pid echo), and
+ * the TERMINAL-close classifier (review #5). surface-app's only remaining job on
+ * that leg is to supply the app's close-code vocabulary — `STALE_PROCESS_CLOSE_CODE`
+ * is surface-app's constant, and `@kolu/surface` may not import it (the
+ * dependency arrow points the other way), so it travels as the link's
+ * `isTerminalClose` option. The old `retireSocket` send-poisoning and the
+ * `retireOnStaleClose` listener are DELETED with it: a retired wire stops
+ * re-dialling and fails every in-flight and future call with
+ * `SurfaceTransportRetired` by construction, and reports the terminal
+ * `WireStatus` `"retired"`.
  */
 
 import {
@@ -29,9 +38,13 @@ import {
   DEFAULT_HEARTBEAT_TIMEOUT_MS,
   type HeartbeatTuning,
 } from "@kolu/surface/heartbeat";
-import { WebSocket as PartySocket } from "partysocket";
+import type { WatchableWire } from "@kolu/surface/link";
+import {
+  websocketLink,
+  type WebsocketLink,
+} from "@kolu/surface/links/websocket";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { SERVER_PROCESS_ID_PARAM, STALE_PROCESS_CLOSE_CODE } from "./index";
-import { retireSocket } from "./lifecycle";
 
 // The watchdog timing constants live with the lifted primitive in `@kolu/surface`
 // (the cadence is a property of the watchdog, not of either leg); re-exported here
@@ -42,9 +55,9 @@ export { DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS };
 /** The `pid` handshake echo: the client's record of the last server `processId`
  *  it snapshot, threaded back as the `pid` query param on every (re)connect so a
  *  RESTARTED server can recognize and reject a stale tab at the handshake. One
- *  echo per app — kolu has a single socket so it owns one implicitly; drishti
- *  shares ONE echo across its per-host + admin sockets, all fed by the admin
- *  socket's lifecycle. */
+ *  echo per app — kolu has a single wire so it owns one implicitly; drishti
+ *  shares ONE echo across its per-host + admin wires, all fed by the admin
+ *  wire's lifecycle. */
 export interface ProcessIdEcho {
   /** Record the latest observed server `processId`. Wire this to
    *  `createServerLifecycle`'s `onProcessId` (or `<SurfaceAppProvider onProcessId>`)
@@ -58,8 +71,8 @@ export interface ProcessIdEcho {
 }
 
 /** A fresh `pid` echo. Pass the SAME instance to every `createSurfaceSocket` that
- *  must echo one server's identity (drishti's per-host + admin sockets); omit it
- *  and `createSurfaceSocket` builds a private one (kolu's single socket). */
+ *  must echo one server's identity (drishti's per-host + admin wires); omit it
+ *  and `createSurfaceSocket` builds a private one (kolu's single wire). */
 export function createProcessIdEcho(): ProcessIdEcho {
   let last: string | null = null;
   return {
@@ -74,115 +87,94 @@ export function createProcessIdEcho(): ProcessIdEcho {
   };
 }
 
-/** The structural socket `retireOnStaleClose` drives — a partysocket, reduced to
- *  the verbs it touches (observe `close`, then `retireSocket`'s `{ close, send }`). */
-type RetireableSocket = {
-  addEventListener: (
-    type: "close",
-    listener: (event: { code?: number }) => void,
-  ) => void;
-} & Parameters<typeof retireSocket>[0];
-
-/** Retire a socket the server closed as stale — for a socket NO lifecycle watches
- *  (drishti's per-host sockets, which have no provider/`createServerLifecycle`).
- *  On a close whose code is `restartCloseCode`, run `retireSocket(ws)` so neither
- *  partysocket's offline buffer nor oRPC's pending peers grow unbounded; other
- *  close codes are ordinary transient drops partysocket reconnects through. A
- *  socket OWNED by `createServerLifecycle` / `<SurfaceAppProvider>` leaves this
- *  off and lets the lifecycle's `onStaleRestart` do the retiring (one decode
- *  site, no double-retire). Exported for direct testing; `createSurfaceSocket`
- *  wires it when `retireOnStaleClose` is set. */
-export function retireOnStaleClose(
-  ws: RetireableSocket,
-  restartCloseCode: number,
-): void {
-  ws.addEventListener("close", (event) => {
-    if (event.code === restartCloseCode) retireSocket(ws);
-  });
-}
-
 /** Options for `createSurfaceSocket`. */
 export interface SurfaceSocketOptions {
+  /** The served surface's flat `RpcGroup` — `surface.group` for a single
+   *  surface, `composeSurfaceContracts(...).group` for a sibling bundle. The
+   *  link needs it to build its typed client; it is the ONE piece of the
+   *  contract the transport sees. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
   /** Base WS URL — a string (kolu's fixed `/rpc/ws`), or a thunk re-evaluated on
    *  every reconnect when the base itself varies (drishti's per-host `?host=`).
    *  The `pid` echo is appended on top, so don't add it here. */
   url: string | (() => string);
   /** The shared `pid` echo. Omit to build a private one (returned as `.echo`);
-   *  pass a shared instance when several sockets echo one server (drishti). */
+   *  pass a shared instance when several wires echo one server (drishti). */
   echo?: ProcessIdEcho;
-  /** partysocket reconnect options (e.g. a longer `connectionTimeout` for a
-   *  cold-starting server — drishti's 60s agent-provision window). */
-  socketOptions?: ConstructorParameters<typeof PartySocket>[2];
-  /** Self-retire on the server's stale-close (a socket with no lifecycle/provider
-   *  watching it). See `retireOnStaleClose`. */
-  retireOnStaleClose?: boolean;
-  /** The stale-close code to match when `retireOnStaleClose` is set. Defaults to
-   *  `STALE_PROCESS_CLOSE_CODE` (the code surface-app's server gate closes with). */
-  restartCloseCode?: number;
+  /** The platform's WebSocket constructor. Omitted in a browser (the link uses
+   *  `globalThis.WebSocket`); supplied by a Node host or a test that has none. */
+  connect?: (url: string) => WebSocket;
 }
 
-/** A constructed surface socket and the echo feeding its `pid` param. */
+/** A constructed surface wire and the echo feeding its `pid` param. */
 export interface SurfaceSocket {
-  /** The reconnecting partysocket. Build the oRPC link over it
-   *  (`websocketLink(ws as unknown as WebSocket)`) and, if it carries the
-   *  lifecycle, hand it to `createServerLifecycle` / `<SurfaceAppProvider>`. */
-  ws: PartySocket;
-  /** The echo this socket reads. When the caller passed one in, this is that same
+  /** The reconnecting wire: the branded `dispatch` a surface client is built
+   *  over, the `WatchableWire` a watchdog observes, and `dispose`. Hand the
+   *  WHOLE value to `createLiveSignal` — it is the `{ dispatch, wire }` pairing
+   *  (`WireTransport`) minted together, which is what makes "the watchdog probes
+   *  the transport it reconnects" hold by construction. */
+  link: WebsocketLink;
+  /** The echo this wire reads. When the caller passed one in, this is that same
    *  instance; otherwise it's the private one created here — wire its `remember`
    *  to the lifecycle's `onProcessId`. */
   echo: ProcessIdEcho;
 }
 
-/** Construct a surface app's reconnecting WebSocket with the `pid` handshake
- *  wired in: the URL thunk appends the echo'd `pid` on every reconnect, and (when
- *  `retireOnStaleClose` is set) a stale-close retires the socket. Owns the one
- *  `new PartySocket(...)` both consumers used to hand-roll; the link + clients +
- *  lifecycle stay with the caller. */
-export function createSurfaceSocket(opts: SurfaceSocketOptions): SurfaceSocket {
+/** Is this close code the server RETIRING a stale tab? The one place surface-app's
+ *  close-code vocabulary meets `@kolu/surface`'s transport: the link stops its
+ *  retry schedule on a `true` verdict and fails every in-flight and future call
+ *  with `SurfaceTransportRetired`, so a tab bound to a dead process settles
+ *  instead of re-presenting the same stale `pid` in a reconnect storm. Every
+ *  other code is an ordinary transient drop the link re-dials through. */
+export function isStaleProcessClose(code: number): boolean {
+  return code === STALE_PROCESS_CLOSE_CODE;
+}
+
+/** Dial a surface app's reconnecting wire with the `pid` handshake wired in: the
+ *  URL thunk appends the echo'd `pid` on EVERY re-dial (so a tab that was live
+ *  across a restart re-presents the now-stale id and is re-rejected until a fresh
+ *  page resets it), and the server's stale-close retires the wire for good.
+ *
+ *  Async because building the protocol and its fibers is an effect — the whole
+ *  link family is Promise-shaped at this edge. The clients + lifecycle stay with
+ *  the caller. */
+export async function createSurfaceSocket(
+  opts: SurfaceSocketOptions,
+): Promise<SurfaceSocket> {
   const echo = opts.echo ?? createProcessIdEcho();
   const resolveBase =
     typeof opts.url === "function" ? opts.url : () => opts.url as string;
-  // The URL is a THUNK so partysocket re-reads the latest echo'd `pid` on every
-  // reconnect — that's how a tab that was live across a restart re-presents the
-  // (now stale) id and is re-rejected until a fresh page resets it.
-  const ws = new PartySocket(
-    () => echo.appendTo(resolveBase()),
-    undefined,
-    opts.socketOptions,
-  );
-  if (opts.retireOnStaleClose) {
-    retireOnStaleClose(ws, opts.restartCloseCode ?? STALE_PROCESS_CLOSE_CODE);
-  }
-  return { ws, echo };
+  const link = await websocketLink({
+    group: opts.group,
+    // The URL is a THUNK the link re-evaluates on every (re)dial, so the latest
+    // echo'd `pid` rides each reconnect (review #6c).
+    url: () => echo.appendTo(resolveBase()),
+    isTerminalClose: isStaleProcessClose,
+    connect: opts.connect,
+  });
+  return { link, echo };
 }
 
-/** The structural socket `createHeartbeat` drives — a partysocket reduced to the
- *  two verbs the watchdog touches: read `readyState`/`OPEN` (only probe a live
- *  socket) and `reconnect()` (abandon a half-open one and connect fresh). */
-export type HeartbeatSocket = {
-  readyState: number;
-  readonly OPEN: number;
-  reconnect: () => void;
-};
-
-/** Options for `createHeartbeat` — the partysocket-shaped face of the lifted
- *  `@kolu/surface/heartbeat` primitive. This leg supplies the socket; the
+/** Options for `createHeartbeat` — the wire-shaped face of the lifted
+ *  `@kolu/surface/heartbeat` primitive. This leg supplies the wire; the
  *  primitive owns the race/settle/skip-overlap/dispose algorithm. */
 export interface HeartbeatOptions {
-  /** The socket to watch — the `createSurfaceSocket` partysocket. */
-  ws: HeartbeatSocket;
+  /** The wire to watch — `createSurfaceSocket(...).link.wire`. The watchdog
+   *  reads its `status()` for the live gate and calls its `forceReconnect()` to
+   *  recover a silently half-open wire. */
+  wire: WatchableWire;
   /** A cheap server round-trip whose RESOLUTION is the liveness signal (its value
    *  is ignored) — the framework-reserved `system.live` verb. A REJECTION still
    *  counts as alive: the round-trip completed (the server answered, even with an
-   *  error) and a genuine transport drop surfaces as a `close` partysocket already
+   *  error) and a genuine transport drop surfaces as a close the link already
    *  reconnects through — so only a TIMEOUT (no answer at all) means half-open. A
    *  SYNCHRONOUS throw is treated DIFFERENTLY: it means no round-trip happened
    *  (the probe is miswired), so it's reported via `onProbeError` rather than
    *  silently counted as liveness, and does NOT force a reconnect. */
   probe: () => Promise<unknown>;
-  /** How often to probe while the socket is OPEN. Default 15s. */
+  /** How often to probe while the wire is OPEN. Default 15s. */
   intervalMs?: number;
-  /** How long to wait for a probe before declaring the socket half-open and
+  /** How long to wait for a probe before declaring the wire half-open and
    *  forcing a reconnect. Default 10s. */
   timeoutMs?: number;
   /** Report a forced reconnect (a missed probe). Defaults to a `console.warn` so
@@ -192,11 +184,15 @@ export interface HeartbeatOptions {
    *  from an async rejection). Defaults to a `console.error` so the heartbeat
    *  going inert is never silent; pass your own logger. */
   onProbeError?: (error: unknown) => void;
+  /** Observe every DEFINITIVE probe verdict (alive or stale) with the wall clock
+   *  it settled at — additive observability, never policy. See
+   *  `HeartbeatTuning.onProbeSettled` (`@kolu/surface/heartbeat`). */
+  onProbeSettled?: (ok: boolean, atMs: number) => void;
 }
 
 const warnStale = () =>
   console.warn(
-    "surface-app: heartbeat probe timed out — forcing reconnect (half-open socket)",
+    "surface-app: heartbeat probe timed out — forcing reconnect (half-open wire)",
   );
 
 // `error` level, not `warn` (matching `@kolu/surface`'s `liveSignal` reporter): a
@@ -211,23 +207,22 @@ const warnProbeThrew = (error: unknown) =>
     error,
   );
 
-/** A heartbeat watchdog for a reconnecting WebSocket — the partysocket-shaped
- *  WRAPPER over the lifted `@kolu/surface/heartbeat` primitive. It turns a
- *  SILENTLY half-open socket — the TCP died with no FIN/RST (laptop sleep, Wi-Fi
- *  roam, NAT/proxy idle eviction) — into a real `close` + reconnect, so the
- *  transport's EXISTING recovery (partysocket auto-reconnect + oRPC stream
- *  re-subscribe via the retry plugin) takes over. partysocket ships NO
- *  ping/keepalive, and a half-open socket fires neither `error` nor `close`, so
- *  without this the socket sits `OPEN` forever: every stream iterator hangs and
- *  the UI freezes until a manual reload. This is the "no-op procedure on an
- *  interval" heartbeat `@kolu/surface`'s peer-server note anticipates.
+/** A heartbeat watchdog for a reconnecting wire — the wire-shaped WRAPPER over
+ *  the lifted `@kolu/surface/heartbeat` primitive. It turns a SILENTLY half-open
+ *  socket — the TCP died with no FIN/RST (laptop sleep, Wi-Fi roam, NAT/proxy
+ *  idle eviction) — into a real close + re-dial, so the transport's EXISTING
+ *  recovery (the link's retry schedule + the face's per-subscription re-subscribe
+ *  fence) takes over. A half-open socket fires neither `error` nor `close`, so
+ *  without this the wire sits `open` forever: every stream hangs and the UI
+ *  freezes until a manual reload.
  *
  *  The race/settle/skip-overlap/late-fire-safe-dispose algorithm is the lifted
- *  primitive's; this wrapper only maps the partysocket's two variation points
- *  onto it: the live GATE is `readyState === OPEN`, and the on-stale ACTION is
- *  `ws.reconnect()` (abandon the half-open socket and connect fresh — with code
- *  1000, NOT the stale-tab 4001, so the retire path is untouched). The public
- *  `onStale` here is a REPORTER (default `console.warn`), run after the reconnect.
+ *  primitive's; this wrapper only maps the wire's two variation points onto it:
+ *  the live GATE is `wire.status() === "open"`, and the on-stale ACTION is
+ *  `wire.forceReconnect()` (sever the half-open socket so the link's schedule
+ *  dials fresh — with close code 1000, NOT the stale-tab 4001, so the terminal
+ *  classifier stays untriggered). The public `onStale` here is a REPORTER
+ *  (default `console.warn`), run after the reconnect.
  *
  *  Returns `dispose()` to stop the interval AND any in-flight probe timeout (wire
  *  it to the consumer's teardown — kolu's `onCleanup`), plus `wake()` — the
@@ -240,22 +235,25 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     probe: opts.probe,
     intervalMs: opts.intervalMs,
     timeoutMs: opts.timeoutMs,
-    // The two partysocket variation points: the live gate and the recovery action.
-    isLive: () => opts.ws.readyState === opts.ws.OPEN,
-    onStale: () => opts.ws.reconnect(),
+    // The two wire variation points: the live gate and the recovery action.
+    isLive: () => opts.wire.status() === "open",
+    onStale: () => opts.wire.forceReconnect(),
     // surface-app's public `onStale` is a REPORTER (not the action), defaulting to
     // a warn so a silent half-open recovery is never invisible.
     onStaleReport: opts.onStale ?? warnStale,
     onProbeError: opts.onProbeError ?? warnProbeThrew,
+    // Pass-through, undefined when the consumer wants none: a tuning field this
+    // wrapper dropped would be a knob that silently does nothing.
+    onProbeSettled: opts.onProbeSettled,
   });
 }
 
 /** The "tune-or-disable the watchdog" knob for `createServerLifecycle` ONLY.
  *  `false` disables the lifecycle's own watchdog — legitimate, because the
  *  lifecycle mints NO brand (it derives connecting/restarted/… for the UI), so a
- *  disabled lifecycle watchdog is watchdog-OWNERSHIP coordination (the socket is
+ *  disabled lifecycle watchdog is watchdog-OWNERSHIP coordination (the wire is
  *  watched by a `createLiveSignal` elsewhere — kolu's `wire.ts`, or the
- *  `connectSurfaces` that built the same admin socket's clients), NOT a path to a
+ *  `connectSurfaces` that built the same admin wire's clients), NOT a path to a
  *  branded-but-blind signal. The brand-minting seams (`connectSurface` /
  *  `connectSurfaces` / `createLiveSignal`) take {@link HeartbeatTuning} instead —
  *  no `false` — so a brand can never be minted without a watchdog. The liveness
@@ -263,20 +261,20 @@ export function createHeartbeat(opts: HeartbeatOptions): {
  *  `system.live` round-trip as the one liveness verb. */
 export type HeartbeatConfig = false | HeartbeatTuning;
 
-/** Normalize a {@link HeartbeatConfig} + the seam's `{ ws, probe }` base into the
- *  {@link HeartbeatOptions} `createHeartbeat` takes — `undefined` when the config
- *  is `false` (watchdog disabled). The base `probe` is the seam's liveness verb
- *  (each seam passes the framework-reserved `system.live` round-trip). This
+/** Normalize a {@link HeartbeatConfig} + the seam's `{ wire, probe }` base into
+ *  the {@link HeartbeatOptions} `createHeartbeat` takes — `undefined` when the
+ *  config is `false` (watchdog disabled). The base `probe` is the seam's liveness
+ *  verb (each seam passes the framework-reserved `system.live` round-trip). This
  *  replaces the per-field `typeof cfg === "object" ? cfg.x : undefined` ternaries
  *  each seam used to hand-roll — one spread, one place. */
 export function normalizeHeartbeat(
   config: HeartbeatConfig | undefined,
-  base: { ws: HeartbeatSocket; probe: () => Promise<unknown> },
+  base: { wire: WatchableWire; probe: () => Promise<unknown> },
 ): HeartbeatOptions | undefined {
   if (config === false) return undefined;
   const tuned = typeof config === "object" ? config : {};
   return {
-    ws: base.ws,
+    wire: base.wire,
     probe: base.probe,
     intervalMs: tuned.intervalMs,
     timeoutMs: tuned.timeoutMs,

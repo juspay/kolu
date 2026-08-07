@@ -1,44 +1,37 @@
+import { Cause, Effect, Exit, Result, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   type CollectionItemFrame,
   firstFrameOfCollectionItem,
+  firstFrameOrThrow,
+  firstFrameOrUndefined,
 } from "./firstFrame";
 
-/** An async iterable that yields `items` then HOLDS OPEN (awaits forever, or
- *  until its signal aborts) — models a held-open surface `get`/`keys` stream. */
-function holdOpen<T>(items: T[], signal?: AbortSignal): AsyncIterable<T> {
-  return {
-    async *[Symbol.asyncIterator]() {
-      for (const item of items) yield item;
-      await new Promise<void>((resolve) => {
-        if (signal)
-          signal.addEventListener("abort", () => resolve(), { once: true });
-      });
-    },
-  };
-}
-
-/** An async iterable that yields `items` then ENDS (empty-completes). */
-async function* ending<T>(items: T[]): AsyncGenerator<T> {
-  for (const item of items) yield item;
+/** A stream that yields `items` then HOLDS OPEN (never ends) — models a
+ *  held-open surface `get`/`keys` subscription. The losing race arms are
+ *  interrupted by `Effect.raceAll`, so nothing has to abort them by hand. */
+function holdOpen<T>(items: T[]): Stream.Stream<T> {
+  return Stream.concat(Stream.fromArray(items), Stream.never);
 }
 
 const NEVER_EMPTY = "item opened empty (should not happen in these tests)";
-const NEVER_NULL = "item resolved no source (should not happen in these tests)";
 // Generous default so a "present" racer always wins before the deadline in the
 // keys-bearing tests; the keys-LESS tests pass a short deadline explicitly.
 const LONG_DEADLINE = 60_000;
 
+const read = <T>(
+  ...args: Parameters<typeof firstFrameOfCollectionItem<T>>
+): Promise<CollectionItemFrame<T>> =>
+  Effect.runPromise(firstFrameOfCollectionItem<T>(...args));
+
 describe("firstFrameOfCollectionItem", () => {
   it("a PRESENT key reads its value (item get wins the race)", async () => {
-    const frame = await firstFrameOfCollectionItem<number>(
-      (sig) => Promise.resolve(holdOpen([42], sig)),
-      (sig) => Promise.resolve(holdOpen([["k"]], sig)),
+    const frame = await read<number>(
+      holdOpen([42]),
+      holdOpen([["k"]]),
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       LONG_DEADLINE,
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: true,
@@ -59,16 +52,14 @@ describe("firstFrameOfCollectionItem", () => {
     // read that never resolves holds the in-flight latch and stops the cell
     // recomputing for the life of the process.
     const began = Date.now();
-    const frame = await firstFrameOfCollectionItem<number>(
+    const frame = await read<number>(
       // The item stream opens and then says nothing, ever.
-      (sig) => Promise.resolve(holdOpen<number>([], sig)),
+      holdOpen<number>([]),
       // …while `keys` keeps insisting the key is a member.
-      (sig) => Promise.resolve(holdOpen([["k"]], sig)),
+      holdOpen([["k"]]),
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       150,
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: false,
@@ -79,14 +70,12 @@ describe("firstFrameOfCollectionItem", () => {
   }, 10_000);
 
   it("an ABSENT key resolves not-present (keys omits it) instead of hanging", async () => {
-    const frame = await firstFrameOfCollectionItem<number>(
-      (sig) => Promise.resolve(holdOpen<number>([], sig)),
-      (sig) => Promise.resolve(holdOpen([[]], sig)),
+    const frame = await read<number>(
+      holdOpen<number>([]),
+      holdOpen([[]]),
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       LONG_DEADLINE,
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: false,
@@ -95,14 +84,12 @@ describe("firstFrameOfCollectionItem", () => {
   });
 
   it("a DELETE RACE (present, then removed) resolves not-present on the removal frame", async () => {
-    const frame = await firstFrameOfCollectionItem<number>(
-      (sig) => Promise.resolve(holdOpen<number>([], sig)),
-      (sig) => Promise.resolve(holdOpen([["k"], []], sig)),
+    const frame = await read<number>(
+      holdOpen<number>([]),
+      holdOpen([["k"], []]),
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       LONG_DEADLINE,
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: false,
@@ -110,47 +97,45 @@ describe("firstFrameOfCollectionItem", () => {
     });
   });
 
-  it("a PRESENT item whose get opens EMPTY throws (a dropped link, never a silent absent)", async () => {
+  it("a PRESENT item whose get opens EMPTY fails (a dropped link, never a silent absent)", async () => {
     await expect(
-      firstFrameOfCollectionItem<number>(
-        () => Promise.resolve(ending<number>([])),
-        (sig) => Promise.resolve(holdOpen([["k"]], sig)),
+      read<number>(
+        Stream.empty,
+        holdOpen([["k"]]),
         "k",
         "boom: item opened empty",
-        NEVER_NULL,
         LONG_DEADLINE,
-        undefined,
       ),
     ).rejects.toThrow("boom: item opened empty");
   });
 
-  it("a null item source throws the DISTINCT no-source message (not the empty message)", async () => {
+  it("an item stream that FAILS surfaces the failure instead of racing on to the deadline", async () => {
+    // `Effect.raceAll` ignores a failing arm and waits for a success, so a
+    // genuinely broken read expressed as a failure would lose to the deadline
+    // and be reported as a benign "not present". The failure rides the race as a
+    // VALUE and is re-raised after it — caught-error-must-not-collapse-to-empty.
     await expect(
-      firstFrameOfCollectionItem<number>(
-        () => Promise.resolve(null),
-        (sig) => Promise.resolve(holdOpen([["k"]], sig)),
+      read<number>(
+        Stream.fail(new Error("boom: link dropped")),
+        holdOpen([["k"]]),
         "k",
-        "boom: item opened empty",
-        "boom: no source",
+        NEVER_EMPTY,
         LONG_DEADLINE,
-        undefined,
       ),
-    ).rejects.toThrow("boom: no source");
+    ).rejects.toThrow("boom: link dropped");
   });
 
-  // Keys-LESS collection (no `keys` verb → openKeys === null): there is no
+  // Keys-LESS collection (no `keys` verb → keys === null): there is no
   // membership signal, so an absent key is bounded by a DEADLINE instead of
   // hanging (#1687 audit — the silent fall-back to `firstFrameOrThrow(get)` that
   // reintroduced the hang is gone).
   it("keys-less + PRESENT key wins before the deadline", async () => {
-    const frame = await firstFrameOfCollectionItem<number>(
-      (sig) => Promise.resolve(holdOpen([7], sig)), // get yields immediately
+    const frame = await read<number>(
+      holdOpen([7]), // get yields immediately
       null, // no keys verb
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       1_000,
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: true,
@@ -160,14 +145,12 @@ describe("firstFrameOfCollectionItem", () => {
 
   it("keys-less + ABSENT key resolves not-present via the DEADLINE, never hangs", async () => {
     const start = Date.now();
-    const frame = await firstFrameOfCollectionItem<number>(
-      (sig) => Promise.resolve(holdOpen<number>([], sig)), // get holds open forever
+    const frame = await read<number>(
+      holdOpen<number>([]), // get holds open forever
       null, // no keys verb → deadline is the only bound
       "k",
       NEVER_EMPTY,
-      NEVER_NULL,
       40, // short deadline for the test
-      undefined,
     );
     expect(frame).toEqual<CollectionItemFrame<number>>({
       present: false,
@@ -175,5 +158,59 @@ describe("firstFrameOfCollectionItem", () => {
     });
     // It actually waited for (roughly) the deadline, not longer — bounded.
     expect(Date.now() - start).toBeLessThan(2_000);
+  });
+});
+
+describe("the one-shot readers", () => {
+  it("read the snapshot frame and interrupt the rest", async () => {
+    expect(
+      await Effect.runPromise(firstFrameOrThrow(holdOpen([1, 2, 3]), "empty")),
+    ).toBe(1);
+    expect(
+      await Effect.runPromise(firstFrameOrUndefined(holdOpen([1, 2, 3]))),
+    ).toBe(1);
+  });
+
+  it("split on the empty-stream POLICY — the only axis that varies — and the strict one FAILS, it does not throw", async () => {
+    expect(
+      await Effect.runPromise(firstFrameOrUndefined(Stream.empty)),
+    ).toBeUndefined();
+
+    // The distinction a rejected Promise could not express: an empty stream is a
+    // recoverable FAILURE in the error channel, not a thrown defect — so a caller
+    // may `Effect.catch` it (a benign "no value yet" at ITS layer) without
+    // catching genuine bugs alongside it.
+    const exit = await Effect.runPromiseExit(
+      firstFrameOrThrow(Stream.empty, "boom: no snapshot"),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Result.isSuccess(Cause.findError(exit.cause))).toBe(true);
+      expect(Result.isSuccess(Cause.findDefect(exit.cause))).toBe(false);
+      expect(Cause.pretty(exit.cause)).toContain("boom: no snapshot");
+    }
+  });
+
+  it("are bounded by INTERRUPTION — no signal to thread, and none to forget", async () => {
+    // What the deleted `signal` seam always translated into. A read that would
+    // wait out a wedged link forever is torn down by the combinator that bounds
+    // it, and `Stream.runHead`'s own interruption of the rest is the unsubscribe.
+    const exit = await Effect.runPromiseExit(
+      Effect.timeout(firstFrameOrThrow(Stream.never, "boom"), 20),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+  });
+
+  it("build a DESCRIPTION — an unrun read subscribes to nothing", async () => {
+    let subscribed = false;
+    const watched = Stream.suspend(() => {
+      subscribed = true;
+      return Stream.make(1);
+    });
+    const unrun = firstFrameOrThrow(watched, "boom");
+    await Effect.runPromise(Effect.sleep(5));
+    expect(subscribed).toBe(false);
+    expect(await Effect.runPromise(unrun)).toBe(1);
+    expect(subscribed).toBe(true);
   });
 });

@@ -32,9 +32,9 @@ import type { TerminalId } from "kolu-common/surface";
 import { activeScope } from "./hostScopes.ts";
 import { windowedSub } from "./windowedSub.ts";
 
-export const recentRepos = (): RecentRepo[] =>
+export const recentRepos = (): readonly RecentRepo[] =>
   activeScope()?.wire.activityFeed.value()?.recentRepos ?? [];
-export const recentAgents = (): RecentAgent[] =>
+export const recentAgents = (): readonly RecentAgent[] =>
   activeScope()?.wire.activityFeed.value()?.recentAgents ?? [];
 
 /** The persisted saved-session for the active host, or null when none exists / no yield

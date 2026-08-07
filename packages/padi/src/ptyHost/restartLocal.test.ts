@@ -17,6 +17,7 @@
  */
 
 import { createEndpointForKoluTest as createEndpoint } from "@kolu/surface-daemon-supervisor/createEndpoint.kolu.testlib";
+import { Effect } from "effect";
 import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import {
   afterAll,
@@ -44,6 +45,7 @@ import {
   getSavedSession,
   saveSession,
   setSavedSession,
+  setSavedSessionFromSnapshot,
 } from "../session/session.ts";
 import {
   type ActiveTerminalProcess,
@@ -69,6 +71,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scriptedDispatch } from "./dispatch.testlib.ts";
 import { __setEndpointForTest } from "./index.ts";
 import { restartLocalDaemon } from "./restartLocal.ts";
 
@@ -192,35 +195,38 @@ async function realEndpoint(recycleMs: number) {
     // Leave the gate empty: free→spawn path only (no SIGTERM of a holder).
   };
 
-  const makeClient = () => ({
-    surface: {
-      terminal: {
-        killAll: async () => {
-          // The PTYs die with the daemon → a genuine dirty arms the autosave.
-          terminalsDirtyChannel.publish({});
-          // …and the daemon goes with them: its listener stops accepting, so
-          // the recycle's `ensure` finds a genuinely free rendezvous and spawns
-          // (the window this whole fixture exists to open). A real recycle gets
-          // this from reaping the gate holder; this fake writes no gate, so it
-          // closes the socket itself rather than relying on the recovery to
-          // mistake an in-process serve for a free socket.
-          for (const s of epServers.splice(0)) {
-            try {
-              s.close();
-            } catch {
-              // already closed
-            }
-          }
-          try {
-            rmSync(socketPath, { force: true });
-          } catch {
-            // absent
-          }
-          return { killed: 2 };
-        },
-      },
-    },
-  });
+  // The drain reaches this fake through `ptyHostClient`, which is ONE face over
+  // the current connection's DISPATCH — so the fake answers by member tag rather
+  // than by handing back a nested object. `killAll` is the only member the
+  // restart path calls; anything else is an unscripted call and dies loudly.
+  const makeDispatch = () =>
+    scriptedDispatch((tag) =>
+      tag.endsWith("terminal/killAll") ? killAll : undefined,
+    );
+
+  const killAll = async () => {
+    // The PTYs die with the daemon → a genuine dirty arms the autosave.
+    terminalsDirtyChannel.publish({});
+    // …and the daemon goes with them: its listener stops accepting, so
+    // the recycle's `ensure` finds a genuinely free rendezvous and spawns
+    // (the window this whole fixture exists to open). A real recycle gets
+    // this from reaping the gate holder; this fake writes no gate, so it
+    // closes the socket itself rather than relying on the recovery to
+    // mistake an in-process serve for a free socket.
+    for (const s of epServers.splice(0)) {
+      try {
+        s.close();
+      } catch {
+        // already closed
+      }
+    }
+    try {
+      rmSync(socketPath, { force: true });
+    } catch {
+      // absent
+    }
+    return { killed: 2 };
+  };
 
   const ep = createEndpoint({
     hostId: "local-kaval-test",
@@ -234,23 +240,31 @@ async function realEndpoint(recycleMs: number) {
       onContractSkew: { kind: "recycle" as const },
       onBuildMismatch: { kind: "nudge-human" as const },
     },
-    probe: async () => null,
+    probe: () => Effect.succeed(null),
     driver: {
-      spawn: async () => {
+      spawn: Effect.promise(async () => {
         spawnN += 1;
         // First spawn warms the endpoint; subsequent ensure (recycle) is the gap.
         if (spawnN > 1) await delay(recycleMs);
         await listen();
-      },
+      }),
     },
-    connect: async () => ({
-      client: makeClient(),
-      identity: { staleKey: "", navigableCommit: "" },
-      startedAt: Date.now(),
-      metadata: { contractVersion: "test", pid: 4242 },
-      dispose: () => {},
-      onClose: () => {},
-    }),
+    connect: () =>
+      Effect.promise(async () => ({
+        // The spine's per-dial typed face is unused by the restart path (every
+        // call the drain makes goes through `ptyHostClient`, i.e. the metadata
+        // dispatch below), so the fake connection carries an empty one.
+        client: {},
+        identity: { staleKey: "", navigableCommit: "" },
+        startedAt: Date.now(),
+        metadata: {
+          contractVersion: "test",
+          pid: 4242,
+          dispatch: makeDispatch(),
+        },
+        dispose: () => {},
+        onClose: () => {},
+      })),
     log: silentLog,
     onStatus: () => {},
     socketReadyMs: 200,
@@ -260,7 +274,7 @@ async function realEndpoint(recycleMs: number) {
   });
 
   // Warm so current() is held before restart (drain's killAll needs it).
-  await recycle(ep, destructiveRecycleSteps());
+  await Effect.runPromise(recycle(ep, destructiveRecycleSteps()));
   // Minimal client shape for the restart path; production Endpoint is wider.
   // biome-ignore lint/suspicious/noExplicitAny: test stand-in for recycle timing
   return ep as any;
@@ -284,6 +298,7 @@ beforeAll(() => {
     },
     isRestorePending: hasParkedTerminals,
     persist: saveSession,
+    persistFinal: setSavedSessionFromSnapshot,
   });
 });
 
@@ -320,7 +335,7 @@ describe("restartLocalDaemon — the in-app Restart kaval path must not lose the
   it("preserves the captured session across the drain→recycle→park window (autosave fires in the gap)", async () => {
     // 2 live terminals; the restart captures them, drains (arming the autosave with an
     // empty registry), recycles (the autosave fires here), then parks.
-    await restartLocalDaemon();
+    await Effect.runPromise(restartLocalDaemon());
 
     // The saved session must SURVIVE the restart — on the current head the autosave
     // fires in the drain→park gap with snapshot=0 and nulls it before park runs.
@@ -332,7 +347,7 @@ describe("restartLocalDaemon — the in-app Restart kaval path must not lose the
 
   it("ORDERING GUARD: the autosave DOES fire in the empty-registry (snapshot=0) drain→park window, and the freeze keeps the session unnulled", async () => {
     autosaveEvals = [];
-    await restartLocalDaemon();
+    await Effect.runPromise(restartLocalDaemon());
 
     // The interleave is REAL, not skipped by luck: the autosave callback fired during
     // the restart with an EMPTY registry (snapshot=0) — the exact drain→park window
@@ -377,7 +392,7 @@ describe("restartLocalDaemon — the in-app Restart kaval path must not lose the
 
     // Restart kaval: capture MERGES (2 pending ∪ 1 live = 3), drain clears the
     // registry, park re-seeds all 3 from the merged blob.
-    await restartLocalDaemon();
+    await Effect.runPromise(restartLocalDaemon());
 
     // No shrink: the saved blob holds ALL three — the two pending PLUS the live one
     // — not the 1-record blob an un-merged capture would have written (which

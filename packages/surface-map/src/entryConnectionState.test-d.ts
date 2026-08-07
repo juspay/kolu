@@ -13,8 +13,11 @@
  * `@ts-expect-error` lines below compile and fail the pin.
  */
 
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import type { FailureEvidence } from "./define";
 import type { EntryConnectionState, EntrySession, MapRegistry } from "./server";
+
+declare const someDispatch: SurfaceDispatch;
 
 // The default (provisioning / mixed) arm still admits "copying" — unchanged.
 const provisioning: EntryConnectionState = { kind: "copying" };
@@ -130,7 +133,7 @@ if (someDisconnected.refuse !== undefined) {
 // resolved session) cannot carry a "copying" `state` either.
 const localSession: EntrySession<never> = {
   kind: "session",
-  link: {},
+  dispatch: someDispatch,
   state: {
     // @ts-expect-error — same cut, carried through `EntrySession<never>`.
     kind: "copying",

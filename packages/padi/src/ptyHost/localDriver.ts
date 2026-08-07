@@ -35,6 +35,7 @@ import {
   scrubDaemonNodeOptions,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { Effect } from "effect";
 import { assertDaemonSpawnAllowed, KAVAL_GATE_FILE, kavalLogPath } from "kaval";
 import { composeSpawnEnv } from "kolu-pty";
 
@@ -158,10 +159,14 @@ export function localKavalDriver(socketPath: string): DaemonDriver {
   // worker can reach `localKavalDriver` through helper indirection, so the guard
   // sits at the driver's OWN spawn, not just in tests. A strict no-op in production
   // (no `VITEST`); the generic `survivableSpawnDriver` stays untouched (odu reuses it).
+  //
+  // `Effect.suspend` so the leash is re-asserted on EVERY spawn (a recycle spawns
+  // again), not once when the driver value was built — the same re-read the
+  // Promise-shaped `spawn()` got for free from being a call.
   return {
-    spawn: () => {
+    spawn: Effect.suspend(() => {
       assertDaemonSpawnAllowed("a real kaval daemon");
-      return driver.spawn();
-    },
+      return driver.spawn;
+    }),
   };
 }

@@ -1,22 +1,43 @@
 /**
- * @kolu/surface-app/server — the Hono glue that serves the shell fresh.
+ * @kolu/surface-app/server — the Effect HTTP layers that serve the shell fresh.
  *
- * `installFreshStatic` is the freshness contract on the wire: no-store shell,
+ * `freshStaticLayer` is the freshness contract on the wire: no-store shell,
  * immutable hashed assets, 404 on an asset miss (never the HTML shell), the
  * `/sw.js` worker (self-destructing by default; the fetch-less notification
- * worker when `serviceWorker: "notify"`), and the SPA fallback. `installPwaManifest` serves
- * the desktop-app manifest. `installSurfaceApp` wires both in the common order.
+ * worker when `serviceWorker: "notify"`), and the SPA fallback. `pwaManifestLayer`
+ * serves the desktop-app manifest. `surfaceAppLayer` merges both.
  * `buildInfoServer` is the buildInfo cell's server impl; `surfaceAppServer`
  * bundles it with the `identity.info` probe impl as the deps a consumer drops
  * into an `implementSurfaces` entry — surface-app is served as a SIBLING surface,
- * not merged into the app surface. Register your `/rpc/*` (surface) routes
- * BEFORE the static installers — the static catch-all is last.
+ * not merged into the app surface.
+ *
+ * These are `HttpRouter` LAYERS, not `app.use(...)` installers: registration
+ * order carries no meaning any more. `HttpRouter` ranks routes by specificity
+ * (find-my-way), so a `/rpc/*` route beats the static `GET /*` catch-all no
+ * matter which layer is merged first — the ordering footgun the Hono installers
+ * documented is gone by construction.
  */
 
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { serveStatic } from "@hono/node-server/serve-static";
-import type { Hono } from "hono";
+import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
+import {
+  type CellConnector,
+  type SurfaceHandlers,
+  surfaceRpcServerLayer,
+} from "@kolu/surface/server";
+import { Effect, Exit, type FileSystem, Layer, type Path, Scope } from "effect";
+import {
+  Headers,
+  type HttpPlatform,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+  HttpStaticServer,
+} from "effect/unstable/http";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
+import { RpcServer } from "effect/unstable/rpc";
+import { Socket, SocketServer } from "effect/unstable/socket";
 import {
   ASSET_MISS_CACHE_CONTROL,
   cacheControlFor,
@@ -59,85 +80,240 @@ export interface ManifestOptions {
   [extra: string]: unknown;
 }
 
-/** Stamp the freshness `Cache-Control` policy onto a Hono app and serve the SPA
- *  from `root`. Serves the `/sw.js` worker itself (no-cache); a `/assets/*` miss
- *  404s; any other unmatched path serves the `no-store` shell so a normal reload
- *  can never replay a stale one. `serviceWorker` picks which worker `/sw.js`
- *  serves (default `"retire"`, the self-destructing one). */
-export function installFreshStatic(
-  app: Hono,
+/** The build-time precompressed siblings, in SERVER preference order — the same
+ *  order (and the same suffixes) the Hono `serve-static` this replaced walked, so
+ *  a client offering several encodings gets the same one it did. */
+const PRECOMPRESSED: readonly (readonly [encoding: string, suffix: string])[] =
+  [
+    ["br", ".br"],
+    ["zstd", ".zst"],
+    ["gzip", ".gz"],
+  ];
+
+/** Content types worth serving a precompressed sibling for. Ported VERBATIM from
+ *  `@hono/node-server`'s `serve-static` (its `COMPRESSIBLE_CONTENT_TYPE_REGEX`),
+ *  because it is the behaviour this layer replaces: without it an
+ *  already-compressed asset (a `woff2`, a `png`) whose build wrongly emitted a
+ *  `.br` sibling would start being served doubly-compressed. Paired with the
+ *  "unknown or `application/octet-stream` also compresses" arm below, exactly as
+ *  the original had it. */
+const COMPRESSIBLE_CONTENT_TYPE =
+  /^\s*(?:text\/[^;\s]+|application\/(?:javascript|json|xml|xml-dtd|ecmascript|dart|postscript|rtf|tar|toml|vnd\.dart|vnd\.ms-fontobject|vnd\.ms-opentype|wasm|x-httpd-php|x-javascript|x-ns-proxy-autoconfig|x-sh|x-tar|x-virtualbox-hdd|x-virtualbox-ova|x-virtualbox-ovf|x-virtualbox-vbox|x-virtualbox-vdi|x-virtualbox-vhd|x-virtualbox-vmdk|x-www-form-urlencoded)|font\/(?:otf|ttf)|image\/(?:bmp|vnd\.adobe\.photoshop|vnd\.microsoft\.icon|vnd\.ms-dds|x-icon|x-ms-bmp)|message\/rfc822|model\/gltf-binary|x-shader\/x-fragment|x-shader\/x-vertex|[^;\s]+?\+(?:json|text|xml|yaml))(?:[;\s]|$)/i;
+
+/** The conditional-request headers this layer refuses to honour. The Hono
+ *  `serve-static` it replaces emitted NO `ETag` and answered NO `304` — a
+ *  `no-store` shell that starts answering `304` is a freshness-contract change of
+ *  exactly the kolu#1319 family, and the platform's weak validator is
+ *  `mtime`+`size`, which in a Nix store (every mtime pinned to the epoch)
+ *  collides across two builds of a same-size shell. So the conditionals are
+ *  stripped off the request before the file engine sees them: every response is a
+ *  full `200`, as before. */
+const CONDITIONAL_HEADERS = ["if-none-match", "if-modified-since"];
+
+/** The request target minus query/fragment, WITHOUT decoding — the classifier
+ *  input (`cacheControlFor` / `isImmutableAssetPath` read a path prefix) and the
+ *  target handed back to the file engine, which owns the single decode. */
+const pathnameOf = (url: string): string => {
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+};
+
+/** Serve the SPA from `root` with the freshness `Cache-Control` policy stamped
+ *  on every response. Serves the `/sw.js` worker itself (no-cache); a
+ *  `/assets/*` miss 404s; any other unmatched path serves the `no-store` shell so
+ *  a normal reload can never replay a stale one. `serviceWorker` picks which
+ *  worker `/sw.js` serves (default `"retire"`, the self-destructing one).
+ *
+ *  The bytes come from `HttpStaticServer` (Effect's own file engine: MIME table,
+ *  byte ranges, directory→index, root containment) so this module owns ONLY the
+ *  freshness policy — the part that is surface-app's, and the part four
+ *  stale-client regressions were fought over. The platform services it needs
+ *  (`FileSystem`, `Path`, `HttpPlatform`) are the consumer's to provide —
+ *  `NodeHttpServer.layerHttpServices` on Node. */
+export function freshStaticLayer(
   opts: { root: string; serviceWorker?: ServiceWorkerMode } & FreshnessPaths,
-): void {
+): Layer.Layer<
+  never,
+  never,
+  | HttpRouter.HttpRouter
+  | FileSystem.FileSystem
+  | Path.Path
+  | HttpPlatform.HttpPlatform
+> {
   const root = resolve(opts.root);
   const swSource = SW_SOURCE_FOR[opts.serviceWorker ?? "retire"];
-  // The `/sw.js` worker, served no-cache — registered first so the static
-  // catch-all never shadows it, and so the app never hand-rolls this route.
-  app.get("/sw.js", (c) => {
-    c.header("Cache-Control", cacheControlFor("/sw.js")!);
-    return c.body(swSource, 200, {
-      "content-type": "text/javascript; charset=utf-8",
-    });
-  });
-  app.use("/*", async (c, next) => {
-    const directive = cacheControlFor(c.req.path, opts);
-    if (directive) c.header("Cache-Control", directive);
-    return next();
-  });
-  // Serve build-time precompressed siblings (`.br`/`.gz`/`.zst`) — but ONLY under
-  // the immutable hashed-asset prefix, never the shell. serve-static negotiates
-  // `Accept-Encoding`, serves the sibling with the right `Content-Encoding`, keeps
-  // the original `Content-Type`, and appends `Vary`; it fires only when a sibling
-  // actually exists. Scoping the `precompressed` route to `assetPrefix` (the same
-  // prefix `isImmutableAssetPath` owns) keeps the "never serve a compressed shell"
-  // half of the freshness contract MECHANICAL and enforced here — even if a
-  // consumer's build wrongly emitted an `index.html.br`, the shell (served by the
-  // identity catch-all below) can never go out compressed and pin returning
-  // browsers to a stale post-build stamp (kolu#1319). The whole payload win is the
-  // `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs nothing. A consumer
-  // that precompresses nothing serves byte-identical identity responses either way.
+  // Precompressed siblings (`.br`/`.zst`/`.gz`) are negotiated ONLY under the
+  // immutable hashed-asset prefix, never the shell. Even if a consumer's build
+  // wrongly emitted an `index.html.br`, the shell can never go out compressed and
+  // pin returning browsers to a stale post-build stamp (kolu#1319). The whole
+  // payload win is the `/assets/*` bundle (~2.56 MB → ~571 kB), so scoping costs
+  // nothing; a consumer that precompresses nothing serves byte-identical identity
+  // responses either way.
   const assetPrefix = opts.assetPrefix ?? DEFAULT_ASSET_PREFIX;
-  // The mechanical guarantee above holds ONLY while `assetPrefix` is disjoint from
-  // the shell — a caller-supplied `assetPrefix: "/"` (or `""`) would scope the
-  // `precompressed` route over `/index.html` too and re-open the exact kolu#1319
-  // stale-stamp footgun. `assetPrefix` is a public, overridable input, so assert
-  // the invariant fail-fast (the file's no-fallback philosophy) rather than trust
-  // its shape: if any shell path is classified as an immutable asset, the prefix
-  // captures the shell and this is a misconfiguration, not a degraded mode.
+  // That guarantee holds ONLY while `assetPrefix` is disjoint from the shell — a
+  // caller-supplied `assetPrefix: "/"` (or `""`) would put `/index.html` under
+  // negotiation too and re-open the exact kolu#1319 stale-stamp footgun.
+  // `assetPrefix` is a public, overridable input, so assert the invariant
+  // fail-fast (the file's no-fallback philosophy) rather than trust its shape: if
+  // any shell path is classified as an immutable asset, the prefix captures the
+  // shell and this is a misconfiguration, not a degraded mode. Thrown from the
+  // layer CONSTRUCTOR, not its build, so a misconfigured app dies where it is
+  // composed rather than mid-boot.
   const shellPaths = opts.shellPaths ?? DEFAULT_SHELL_PATHS;
   if (shellPaths.some((p) => isImmutableAssetPath(p, opts))) {
     throw new Error(
-      `installFreshStatic: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
+      `freshStaticLayer: assetPrefix ${JSON.stringify(assetPrefix)} captures a shell path (${JSON.stringify(shellPaths)}); it must be a non-root sub-path disjoint from the shell, or a compressed index.html sibling could be served and pin returning browsers to a stale post-build stamp (kolu#1319).`,
     );
   }
-  app.use(`${assetPrefix}*`, serveStatic({ root, precompressed: true }));
-  app.use("/*", serveStatic({ root }));
-  app.get(
-    "/*",
-    (c, next) => {
-      if (isImmutableAssetPath(c.req.path, opts)) {
-        c.header("Cache-Control", ASSET_MISS_CACHE_CONTROL);
-        return c.notFound();
-      }
-      c.header("Cache-Control", SHELL_CACHE_CONTROL);
-      return next();
-    },
-    serveStatic({ root, path: "index.html" }),
+  return HttpRouter.use((router) =>
+    Effect.gen(function* () {
+      // `orDie`: a file engine that cannot even be constructed for this root is a
+      // misconfiguration, and a boot that limps on without static serving is the
+      // silent degradation this package exists to refuse.
+      const files = yield* Effect.orDie(HttpStaticServer.make({ root }));
+
+      /** Serve one target under `root`, or `undefined` when there is no such
+       *  file. Anything that is NOT a plain miss (a permission error, an unreadable
+       *  root) is a defect — it must never masquerade as a 404 and fall through to
+       *  the shell. */
+      const serveAt = (
+        request: HttpServerRequest.HttpServerRequest,
+        target: string,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse | undefined> =>
+        files.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            request.modify({ url: target }),
+          ),
+          Effect.catch((error) =>
+            error.reason._tag === "RouteNotFound"
+              ? Effect.succeed(undefined)
+              : Effect.die(error),
+          ),
+        );
+
+      /** Swap in a build-time precompressed sibling when the client accepts one
+       *  and it exists: the sibling's bytes, the ORIGINAL's `Content-Type`, the
+       *  matching `Content-Encoding`, and an appended `Vary`. Identity otherwise —
+       *  no sibling, a declining client, or an already-compressed media type. */
+      const negotiate = (
+        request: HttpServerRequest.HttpServerRequest,
+        target: string,
+        identity: HttpServerResponse.HttpServerResponse,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        Effect.gen(function* () {
+          const contentType = identity.headers["content-type"];
+          if (
+            contentType !== undefined &&
+            contentType !== "application/octet-stream" &&
+            !COMPRESSIBLE_CONTENT_TYPE.test(contentType)
+          ) {
+            return identity;
+          }
+          // Membership in the comma-split token set, in SERVER preference order —
+          // no q-value parsing, matching the `serve-static` this replaced (a
+          // `br;q=0` token is simply not the string `br`, so it never matches).
+          const accepted = new Set(
+            (request.headers["accept-encoding"] ?? "")
+              .split(",")
+              .map((token) => token.trim()),
+          );
+          for (const [encoding, suffix] of PRECOMPRESSED) {
+            if (!accepted.has(encoding)) continue;
+            const sibling = yield* serveAt(request, target + suffix);
+            if (sibling === undefined) continue;
+            const vary = sibling.headers.vary;
+            return HttpServerResponse.setHeaders(sibling, {
+              // The sibling's own name would type it `application/octet-stream`;
+              // the representation is still the original's.
+              "content-type": contentType ?? "application/octet-stream",
+              "content-encoding": encoding,
+              vary:
+                vary === undefined
+                  ? "Accept-Encoding"
+                  : `${vary}, Accept-Encoding`,
+            });
+          }
+          return identity;
+        });
+
+      /** Stamp the freshness directive LAST, so it wins over anything the file
+       *  engine set. `null` (no opinion — a root-level asset that is neither shell
+       *  nor hashed) leaves the response header-free, as before. */
+      const stamp = (
+        path: string,
+        response: HttpServerResponse.HttpServerResponse,
+      ): HttpServerResponse.HttpServerResponse => {
+        const directive = cacheControlFor(path, opts);
+        return directive === null
+          ? response
+          : HttpServerResponse.setHeader(response, "cache-control", directive);
+      };
+
+      const handler = (
+        request: HttpServerRequest.HttpServerRequest,
+      ): Effect.Effect<HttpServerResponse.HttpServerResponse> =>
+        Effect.gen(function* () {
+          const path = pathnameOf(request.url);
+          const plain = request.modify({
+            headers: Headers.removeMany(request.headers, CONDITIONAL_HEADERS),
+          });
+          const hit = yield* serveAt(plain, path);
+          if (isImmutableAssetPath(path, opts)) {
+            // A hashed-asset miss 404s and that 404 is itself uncacheable — it must
+            // NEVER fall through to the HTML shell, which under a `.js` URL is the
+            // wrong MIME and would be pinned `immutable` for a year.
+            if (hit === undefined) {
+              return HttpServerResponse.text("not found", {
+                status: 404,
+                headers: { "cache-control": ASSET_MISS_CACHE_CONTROL },
+              });
+            }
+            return stamp(path, yield* negotiate(plain, path, hit));
+          }
+          if (hit !== undefined) return stamp(path, hit);
+          // Every other unmatched path serves the shell — including one that LOOKS
+          // like a file (`/favicon.png`). The directive is spelled explicitly
+          // because `cacheControlFor` has no opinion about e.g. `/t/abc`, and the
+          // shell must never go out cacheable.
+          const shell = yield* serveAt(plain, "/");
+          return HttpServerResponse.setHeader(
+            shell ?? HttpServerResponse.text("not found", { status: 404 }),
+            "cache-control",
+            SHELL_CACHE_CONTROL,
+          );
+        });
+
+      // The `/sw.js` worker, served no-cache from the shared constant — the app
+      // never hand-rolls this route, and no static file can shadow it (a literal
+      // route outranks the `/*` catch-all).
+      yield* router.add(
+        "GET",
+        "/sw.js",
+        HttpServerResponse.text(swSource, {
+          contentType: "text/javascript; charset=utf-8",
+          headers: { "cache-control": cacheControlFor("/sw.js")! },
+        }),
+      );
+      yield* router.add("GET", "/*", handler);
+    }),
   );
 }
 
 /** Serve a dynamic web app manifest. The app supplies branding; the library
  *  owns assembly + the install-friendly defaults (start_url, display). */
-export function installPwaManifest(
-  app: Hono,
+export function pwaManifestLayer(
   manifest: ManifestOptions,
-  path = "/manifest.webmanifest",
-): void {
+  path: HttpRouter.PathInput = "/manifest.webmanifest",
+): Layer.Layer<never, never, HttpRouter.HttpRouter> {
   const { name, short_name, themeColor, backgroundColor, icons, ...extra } =
     manifest;
-  // `c.body` (not `c.json`) so the spec-mandated `application/manifest+json`
-  // content-type isn't overridden back to `application/json`.
-  app.get(path, (c) =>
-    c.body(
+  // `text` with an explicit `contentType` (not `json`) so the spec-mandated
+  // `application/manifest+json` isn't overridden back to `application/json`.
+  return HttpRouter.add(
+    "GET",
+    path,
+    HttpServerResponse.text(
       JSON.stringify({
         name,
         short_name: short_name ?? name,
@@ -148,30 +324,40 @@ export function installPwaManifest(
         icons: icons ?? [],
         ...extra,
       }),
-      200,
-      { "content-type": "application/manifest+json" },
+      { contentType: "application/manifest+json" },
     ),
   );
 }
 
 /** The greenfield convenience: manifest (if given) + fresh static serving
- *  (incl. `/sw.js`), wired in the right order. Granular pieces are exported for
- *  apps that want to compose them by hand. */
-export function installSurfaceApp(
-  app: Hono,
+ *  (incl. `/sw.js`), in one layer. The granular layers are exported for apps that
+ *  compose them by hand — kolu serves the manifest UNCONDITIONALLY (its dev proxy
+ *  forwards `/manifest.webmanifest` to a server with no built client) and adds
+ *  the static layer only when a dist exists, which is exactly why the two stay
+ *  separable. */
+export function surfaceAppLayer(
   opts: {
     clientDist: string;
     manifest?: ManifestOptions;
     serviceWorker?: ServiceWorkerMode;
   } & FreshnessPaths,
-): void {
-  if (opts.manifest) installPwaManifest(app, opts.manifest);
-  installFreshStatic(app, {
+): Layer.Layer<
+  never,
+  never,
+  | HttpRouter.HttpRouter
+  | FileSystem.FileSystem
+  | Path.Path
+  | HttpPlatform.HttpPlatform
+> {
+  const statics = freshStaticLayer({
     root: opts.clientDist,
     assetPrefix: opts.assetPrefix,
     shellPaths: opts.shellPaths,
     serviceWorker: opts.serviceWorker,
   });
+  return opts.manifest === undefined
+    ? statics
+    : Layer.merge(pwaManifestLayer(opts.manifest), statics);
 }
 
 /** A build-identity source. A plain value or a sync thunk is read at
@@ -208,8 +394,12 @@ export interface BuildInfoCellEntry<T extends BuildInfo> {
    *  consumer serving this fragment via `implementSurfaces` never calls it. The
    *  fragment owns the seed→resolve→set composition; the app never hand-writes
    *  the `{ commit }` seed and a second `ctx.set`. A no-op (deduped) when the
-   *  source was sync — nothing late to push. */
-  connect: (cell: { set: (value: T) => void }) => Promise<void>;
+   *  source was sync — nothing late to push.
+   *
+   *  The framework's {@link CellConnector}: a scoped effect the runtime owns, so
+   *  a `close()` while the async source is still in flight interrupts the wait
+   *  instead of publishing into a torn-down cell. */
+  connect: CellConnector<T>;
 }
 
 /** What `buildInfoServer` returns: a one-cell map, spreadable into `cells`. */
@@ -330,14 +520,18 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
       equals,
       current: () => value,
       ready,
-      connect: async (cell) => {
-        await ready;
-        // Republish through the cell's ctx setter (which the runtime routes to
-        // the bus + the `equals` dedup gate). A sync-sourced fragment has
-        // nothing late to push, but re-asserting the seeded value is harmless
-        // (deduped).
-        cell.set(value);
-      },
+      connect: (cell) =>
+        Effect.flatMap(
+          Effect.promise(() => ready),
+          () =>
+            Effect.sync(() => {
+              // Republish through the cell's ctx setter (which the runtime routes
+              // to the bus + the `equals` dedup gate). A sync-sourced fragment has
+              // nothing late to push, but re-asserting the seeded value is
+              // harmless (deduped).
+              cell.set(value);
+            }),
+        ),
     },
   };
 }
@@ -348,8 +542,13 @@ export function buildInfoServer<T extends BuildInfo = BuildInfo>(
  *  process reads as a restart) — the restart axis's turnkey counterpart to
  *  `buildInfoServer()`. Pass `processId` to override (e.g. a stable id in
  *  tests). Pairs with the surface's `identity.info` procedure and with the
- *  provider's `probe={() => client.rpc.surface.identity.info({})}` (the scoped
- *  sibling client consumes the `surfaceApp` key). */
+ *  provider's `probe={() => surfaceAppProbe(client)}` (the scoped sibling client
+ *  consumes the `surfaceApp` key).
+ *
+ *  The handler returns an `Effect` (PLAN D10 / S2 §5.4): a surface procedure impl
+ *  is `({ input, ctx }) => Effect<O, E>` now, so the probe answers with
+ *  `Effect.succeed`. It has no declared error channel — a `processId` read from a
+ *  closure cannot fail. */
 export function serverIdentity(opts: { processId?: string } = {}): {
   /** The id this process minted (or the injected override). This is the
    *  read-back seam for a consumer that lets `serverIdentity` MINT the id
@@ -359,10 +558,10 @@ export function serverIdentity(opts: { processId?: string } = {}): {
    *  mints its own id externally (like kolu) single-sources by INJECTING it via
    *  `opts.processId` and need not read this field back. */
   processId: string;
-  identity: { info: () => Promise<{ processId: string }> };
+  identity: { info: () => Effect.Effect<{ processId: string }> };
 } {
   const processId = opts.processId ?? randomUUID();
-  return { processId, identity: { info: async () => ({ processId }) } };
+  return { processId, identity: { info: () => Effect.succeed({ processId }) } };
 }
 
 /** The whole surface-app server side in one call — the `buildInfo` cell impl
@@ -389,7 +588,9 @@ export function surfaceAppServer<T extends BuildInfo = BuildInfo>(
    *  externally (like kolu) single-sources by INJECTING it via `opts.processId`
    *  and need not read this field back. */
   processId: string;
-  procedures: { identity: { info: () => Promise<{ processId: string }> } };
+  procedures: {
+    identity: { info: () => Effect.Effect<{ processId: string }> };
+  };
 } {
   const identity = serverIdentity({ processId: opts.processId });
   return {
@@ -509,7 +710,7 @@ export function heartbeatSweep(
  * of `createHeartbeat` (`@kolu/surface-app/connect`) and the liveness sibling of
  * `gateStaleSocket`.
  *
- * `ws` (and partysocket on the client) ship NO application-level ping/pong, so a
+ * `ws` (and the browser leg's own socket) ship NO application-level ping/pong, so a
  * SILENTLY half-open socket — the TCP died with no FIN/RST (a client's laptop
  * slept, Wi-Fi roamed, or a NAT/proxy evicted the idle connection) — never fires
  * `close` on the server either. The dead socket lingers in `clients` holding its
@@ -631,10 +832,248 @@ export function acceptSurfaceSocket(opts: {
         return;
       }
       // Enrol in the liveness reaper, THEN dispatch — sequenced so a socket can't
-      // be dispatched without first being gated and enrolled.
+      // be dispatched without first being gated and enrolled. The DISPATCH is
+      // `serveSurfaceSocket(...)` (below) in the app's closure: the seam keeps the
+      // order, the app keeps the routing (`?host=`, an `__admin__` sentinel) and
+      // the per-connection services.
       heartbeat.register(ws);
       onAccepted();
     },
     stop: heartbeat.stop,
   };
+}
+
+// ── The RPC serving seam (PLAN D5 / review #6) ─────────────────────────────
+
+/** An ACCEPTED server-side WebSocket the RPC serving seam drives — the structural
+ *  subset of the `ws` package's socket (and of the browser `WebSocket`) that
+ *  Effect's `Socket.fromWebSocket` touches. Structural, like `GateableSocket` and
+ *  `HeartbeatableSocket`, so surface-app needn't depend on `ws`. */
+export interface ServableSocket {
+  readonly readyState: number;
+  addEventListener(
+    type: string,
+    listener: (event: Event) => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: string, listener: (event: Event) => void): void;
+  send(data: string | Uint8Array): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** The address a `SocketServer` must declare. Nothing in Effect's socket-server
+ *  protocol reads it (it only calls `run`), and neither `TcpAddress` nor
+ *  `UnixAddress` describes an already-upgraded websocket — so this is a
+ *  placeholder, spelled once here rather than invented per call site. */
+const WEBSOCKET_ADDRESS = {
+  _tag: "TcpAddress",
+  hostname: "websocket",
+  port: 0,
+} as const;
+
+/** A view of an accepted socket that BUFFERS inbound frames until the RPC server
+ *  attaches its own `message` listener, then replays them in order.
+ *
+ *  This exists because the two sides are not in the same tick. `ws` starts
+ *  emitting the moment the upgrade completes, while `Socket.fromWebSocket`
+ *  attaches its listener inside an Effect run — so a client that sends its first
+ *  request in the same tick as the upgrade (every reconnecting client does: the
+ *  link re-issues its subscriptions immediately on open) would have that frame
+ *  dropped on the floor, and the subscription would hang forever with no error
+ *  anywhere. The oRPC handler attached synchronously and so never had the window.
+ *  Subscribing HERE, synchronously inside `serveSurfaceSocket`, closes it. */
+function bufferedSocketView(socket: ServableSocket): {
+  view: ServableSocket;
+  detach: () => void;
+} {
+  const pending: Event[] = [];
+  let downstream: ((event: Event) => void) | undefined;
+  const onMessage = (event: Event): void => {
+    if (downstream === undefined) pending.push(event);
+    else downstream(event);
+  };
+  socket.addEventListener("message", onMessage);
+  const view: ServableSocket = {
+    get readyState() {
+      return socket.readyState;
+    },
+    addEventListener: (type, listener, options) => {
+      if (type !== "message") {
+        socket.addEventListener(type, listener, options);
+        return;
+      }
+      downstream = listener;
+      // Replay in arrival order, on the same turn the listener attaches, so the
+      // decoder sees the frames exactly as they came off the wire.
+      const replay = pending.splice(0, pending.length);
+      for (const event of replay) listener(event);
+    },
+    removeEventListener: (type, listener) => {
+      if (type === "message") {
+        if (downstream === listener) downstream = undefined;
+        return;
+      }
+      socket.removeEventListener(type, listener);
+    },
+    send: (data) => socket.send(data),
+    close: (code, reason) => socket.close(code, reason),
+  };
+  return {
+    view,
+    detach: () => {
+      socket.removeEventListener("message", onMessage);
+      downstream = undefined;
+      pending.length = 0;
+    },
+  };
+}
+
+/** A `SocketServer` whose whole population is ONE already-accepted websocket.
+ *
+ *  Effect's server-side socket protocol is written against `SocketServer` (it
+ *  wants to accept), while an app's WS server accepts for itself — it must, since
+ *  the stale-tab gate and the liveness reaper run in front of RPC dispatch
+ *  (kolu#1231, review #6). Rather than reimplement either half, the accepted
+ *  socket is handed to the protocol as a one-connection server: `run` serves it
+ *  and then parks, exactly as `SocketServer.run`'s `Effect<never, …>` contract
+ *  demands. This is the websocket twin of `@kolu/surface/unix-socket`'s
+ *  one-connection server, and it is why `RpcServer.layerHttp` /
+ *  `layerProtocolWebsocket` (which would own the upgrade, and so own the ordering)
+ *  are not used. */
+function oneConnectionSocketServer(
+  socket: ServableSocket,
+): Layer.Layer<SocketServer.SocketServer> {
+  return Layer.effect(SocketServer.SocketServer)(
+    Effect.map(
+      Socket.fromWebSocket(
+        Effect.acquireRelease(
+          // The socket is ALREADY open (the app accepted it), so
+          // `fromWebSocket`'s open-wait short-circuits.
+          // The cast is structural: `ServableSocket` is exactly the slice of
+          // `WebSocket` this consumes, kept structural so surface-app needn't
+          // depend on `ws` (whose server socket is not nominally a DOM
+          // `WebSocket` either).
+          Effect.succeed(socket as unknown as WebSocket),
+          (ws) =>
+            Effect.sync(() => {
+              // 0 CONNECTING / 1 OPEN — anything else is already closing.
+              if (ws.readyState <= 1) ws.close();
+            }),
+        ),
+      ),
+      (accepted) =>
+        SocketServer.SocketServer.of({
+          address: WEBSOCKET_ADDRESS,
+          // `run`'s declared shape is `Effect<never, SocketServerError, R>`:
+          // never returning, failing only the way an ACCEPTING server can. This
+          // one cannot fail that way at all (there is nothing left to accept), so
+          // the cast erases an error channel that is uninhabited here — the
+          // handler's own failures stay in the handler's fiber. Same constraint,
+          // same shape, as `@kolu/surface/unix-socket`'s one-connection server.
+          run: (handler) =>
+            Effect.flatMap(
+              handler(accepted),
+              () => Effect.never,
+            ) as unknown as Effect.Effect<
+              never,
+              SocketServer.SocketServerError,
+              never
+            >,
+        }),
+    ),
+  );
+}
+
+/** A socket being served: the teardown handle and the fault channel. */
+export interface SurfaceSocketServing {
+  /** Stop serving this socket and release everything the serve owns (the RPC
+   *  server's fibers, every in-flight subscription, the buffered-view listener)
+   *  and close the socket. Idempotent. */
+  close(): void;
+  /** Rejects if the serving stack itself failed; resolves when serving ended
+   *  cleanly (the peer closed, or `close()` was called). A serving site MUST
+   *  observe it — same contract as `SurfaceRuntime.done`: an ignored rejection is
+   *  an unhandled one, which is the loud channel a silently dead connection
+   *  deserves. */
+  done: Promise<void>;
+}
+
+/** Serve one ACCEPTED websocket with the surface's Effect RPC server — the
+ *  dispatch step of `acceptSurfaceSocket`'s gate → enrol → dispatch order.
+ *
+ *  Call it from the `onAccepted` closure, never before: the stale-tab gate must
+ *  close a tab bound to a previous instance BEFORE any RPC dispatch (kolu#1231),
+ *  and the reaper must hold every socket it will later sweep. Keeping the call at
+ *  the app's site is also what lets a multi-host server pick WHICH runtime serves
+ *  this socket (`?host=` routing) — the one thing a generic seam cannot decide.
+ *
+ *  Per-connection by design: each socket gets its own `RpcServer` over the SHARED
+ *  handlers (the same shape `@kolu/surface/unix-socket` serves each accepted
+ *  connection with), so one peer's teardown cannot touch another's — and so
+ *  per-connection SERVICES can be provided, which is how a per-viewer fact
+ *  (`viewerAddress`, the forwarded-for header) reaches a handler now that the
+ *  socket protocol carries no request headers. */
+export function serveSurfaceSocket<Svc = never>(opts: {
+  /** The served surface's flat `RpcGroup` — `runtime.group`. */
+  group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** Every bound member handler keyed by wire tag — `runtime.handlers`. */
+  handlers: SurfaceHandlers;
+  /** The accepted socket (gated and enrolled — see above). */
+  socket: ServableSocket;
+  /** Services this ONE connection's handlers may require — the seam a
+   *  per-viewer fact rides (kolu's `viewerAddress` / `forwardedFor`, which the
+   *  connection's `req.socket.remoteAddress` and headers supply). A layer, not a
+   *  header map: Effect's socket-server protocol has no per-request header
+   *  channel, and a per-connection serving stack can simply provide the service. */
+  services?: Layer.Layer<Svc>;
+}): SurfaceSocketServing {
+  const buffered = bufferedSocketView(opts.socket);
+  const base = surfaceRpcServerLayer(opts.group, opts.handlers).pipe(
+    Layer.provide(RpcServer.layerProtocolSocketServer),
+    Layer.provide(rpcSerializationLayer),
+    Layer.provide(oneConnectionSocketServer(buffered.view)),
+  );
+  const serving =
+    opts.services === undefined
+      ? base
+      : base.pipe(Layer.provide(opts.services));
+
+  let settle!: (err?: unknown) => void;
+  const done = new Promise<void>((resolvePromise, rejectPromise) => {
+    settle = (err) => {
+      if (err === undefined) resolvePromise();
+      else rejectPromise(err);
+    };
+  });
+
+  const scope = Scope.makeUnsafe();
+  let ended = false;
+  const teardown = (err?: unknown): void => {
+    if (ended) return;
+    ended = true;
+    buffered.detach();
+    // Releasing the scope interrupts the RPC server's fibers, which finalizes
+    // every in-flight subscription this connection opened — the server-side
+    // zombie the reaper's `terminate()` exists to prevent, closed from the other
+    // end. The socket's own release (the acquire above) closes it.
+    void Effect.runPromise(Scope.close(scope, Exit.void)).then(
+      () => settle(err),
+      // A teardown fault must not replace the reason we are tearing down.
+      (closeErr) => settle(err ?? closeErr),
+    );
+  };
+  // The peer hanging up ends the serve. Registered on the REAL socket (not the
+  // buffered view, whose `message` channel is the RPC server's) so it fires
+  // whether the close came from the client, the reaper's `terminate()`, or us.
+  opts.socket.addEventListener("close", () => teardown(), { once: true });
+  Effect.runPromise(Scope.provide(Layer.build(serving), scope)).then(
+    // The build resolves once the serving stack is up; the connection then lives
+    // in the scope until a close. Nothing to do here — `done` settles at
+    // teardown, which is what a caller wants to log.
+    () => {},
+    // A per-connection build failure kills THIS connection and reaches the
+    // caller through `done`; it never touches another peer or the listener.
+    (err) => teardown(err),
+  );
+  return { close: () => teardown(), done };
 }

@@ -1,92 +1,116 @@
 /**
- * SK6/D4 — the INCIDENT-HOP pin: a declared procedure error minted by a
- * handler BEHIND a surface-map's keyed proxy arrives at the outer client
- * `defined: true` with its data intact, across REAL wires on BOTH hops.
+ * SK6/D4 — the INCIDENT-HOP pin: a declared procedure error minted by a handler
+ * BEHIND a surface-map's keyed proxy arrives at the outer client as the SAME tagged
+ * error, with its data intact, across REAL wires on BOTH hops.
  *
  * This is the exact path the field failure flattened at
- * (bug-remote-kaval-contract-skew defect A): padi's typed skew rejection
- * crossed its unix socket fine, but the map's unary proxy (server.ts's
- * `makeUnaryHandler`) rethrows the leaf rejection into a SECOND wire encode —
- * and before the error was DECLARED, nothing on that hop could do better than
- * `toORPCError`'s `INTERNAL_SERVER_ERROR` collapse. With the error declared
- * on the entry surface, both hops preserve `{ code, defined, data }` — this
- * test is the incident as a permanent regression test. The undeclared-throw
- * companion pins that the old collapse still exists for genuinely undeclared
- * errors (the crash-loudly channel), so the fix is the DECLARATION, not a
- * blanket rewrite of unknown errors.
+ * (bug-remote-kaval-contract-skew defect A): padi's typed skew rejection crossed its
+ * unix socket fine, but the map's unary forward re-encodes the leaf rejection onto a
+ * SECOND wire — and before the error was DECLARED, nothing on that hop could do better
+ * than an `INTERNAL_SERVER_ERROR` collapse. With the error declared on the entry
+ * surface AND threaded onto the map's folded member (`foldedError`, define.ts), both
+ * hops preserve the `_tag` and the payload. This test is the incident as a permanent
+ * regression test.
+ *
+ * The undeclared-throw companion pins that the crash-loudly channel still exists: an
+ * undeclared failure stays a DEFECT across both hops (D4), so the fix is the
+ * DECLARATION, not a blanket rewrite of unknown errors.
+ *
+ * The map's OWN typed rejections (`MapKeyUnknown` / `MapEntryFailed` /
+ * `MapKeyNonCanonical`, D4) are pinned here too — they ride the same declared channel
+ * and must survive the same wire hop with their `_tag` and fields, which is why they
+ * live in `@kolu/surface/errors` rather than in this package.
+ *
+ * And so are the transport deaths the forward RELAYS from the entry's own link
+ * (`ForwardedTransportDeathSchema`) — the same flattening, one layer down: the map
+ * raises none of them itself, it just hands the call to `session.dispatch`, so a
+ * respawning daemon's `SurfaceStdioTransportClosed` IS this member's failure.
  */
 
-import { defineSurface } from "@kolu/surface/define";
+import { defineSurface, surfaceTag } from "@kolu/surface/define";
+import {
+  MapEntryFailed,
+  MapKeyUnknown,
+  SurfaceRelayTransportLost,
+  SurfaceStdioTransportClosed,
+} from "@kolu/surface/errors";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import { directDispatch } from "@kolu/surface/links/direct";
 import { stdioLink } from "@kolu/surface/links/stdio";
-import { createLoopbackPair } from "@kolu/surface/loopback";
+import { createLoopbackPair, greetLoopback } from "@kolu/surface/loopback";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface } from "@kolu/surface/server";
-import { ORPCError } from "@orpc/client";
-import { implement } from "@orpc/server";
-import type { AnyContractRouter } from "@orpc/contract";
+import { Cause, Effect, Exit, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { defineSurfaceMap } from "./define";
+import { fold } from "./envelope";
 import {
+  A,
+  B,
+  buildTestMap,
   connected,
   HostKeySchema,
   identityCodec,
   makeRegistry,
   settle,
-  testFailureSchema,
 } from "./mapHarness.testlib";
 import { serveSurfaceMap } from "./server";
+
+/** The entry surface's DECLARED domain error (SK6) — a tagged schema class, so it
+ *  crosses a hop by being decoded and re-encoded rather than stringified. */
+class DemoContractSkew extends Schema.TaggedErrorClass<DemoContractSkew>(
+  "surface-map/test/DemoContractSkew",
+)("DemoContractSkew", {
+  daemonVersion: Schema.String,
+  requiredVersion: Schema.String,
+}) {}
 
 const daemonSurface = defineSurface({
   procedures: {
     lifecycle: {
       recycle: {
-        input: z.object({ id: z.string() }),
-        errors: {
-          DEMO_CONTRACT_SKEW: {
-            data: z.object({
-              daemonVersion: z.string(),
-              requiredVersion: z.string(),
-            }),
-          },
-        },
+        input: Schema.Struct({ id: Schema.String }),
+        error: DemoContractSkew,
       },
       boom: {},
     },
   },
 });
 
-/** Serve the leaf over a REAL stdio wire (hop 1 — the padi socket analogue)
- *  and hand back the wire client + teardown. */
-function serveLeafOverWire() {
-  const { router } = implementSurface(daemonSurface, {
+const RECYCLE_TAG = surfaceTag(daemonSurface.tagPrefix, "lifecycle", "recycle");
+const BOOM_TAG = surfaceTag(daemonSurface.tagPrefix, "lifecycle", "boom");
+
+/** Serve the leaf over a REAL stdio wire (hop 1 — the padi socket analogue) and hand
+ *  back the wire dispatch + teardown. */
+async function serveLeafOverWire() {
+  const { group, handlers } = implementSurface(daemonSurface, {
     procedures: {
       lifecycle: {
-        recycle: async ({ input, errors }) => {
-          throw errors.DEMO_CONTRACT_SKEW({
-            message: `daemon ${input.id} speaks 5.0, needs 5.2`,
-            data: { daemonVersion: "5.0", requiredVersion: "5.2" },
-          });
-        },
-        boom: async () => {
-          throw new Error("undeclared kaboom");
-        },
+        recycle: ({ input }) =>
+          Effect.fail(
+            new DemoContractSkew({
+              daemonVersion: "5.0",
+              requiredVersion: `5.2 (${input.id})`,
+            }),
+          ),
+        // An UNDECLARED throw — the crash-loudly channel. `ProcedureSpec.error` is
+        // absent, so this is a DEFECT by construction (D4), not a failure.
+        boom: () => Effect.die(new Error("undeclared kaboom")),
       },
     },
   });
   const pair = createLoopbackPair();
-  const serving = serveOverStdio({
-    // biome-ignore lint/suspicious/noExplicitAny: runtime-valid final router.
-    router: router as any,
-    transport: pair.server,
-  });
-  const client = stdioLink<typeof daemonSurface.contract>({
+  const serving = serveOverStdio({ group, handlers, transport: pair.server });
+  const readiness = await greetLoopback(pair);
+  const link = await stdioLink({
+    group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
   return {
-    client,
+    dispatch: link.dispatch,
     done: async () => {
+      await link.dispose();
       pair.client.write.end();
       pair.server.write.end();
       await serving;
@@ -94,83 +118,237 @@ function serveLeafOverWire() {
   };
 }
 
-const A = HostKeySchema.parse("a");
+/** Run a unary call and hand back its `Exit`, so a DEFECT and a typed FAILURE are
+ *  distinguishable (a `Promise` rejection collapses them). */
+const runExit = <A, E>(eff: Effect.Effect<A, E>) => Effect.runPromiseExit(eff);
 
-describe("a declared error crosses the map's keyed proxy typed (the incident hop)", () => {
-  it("arrives defined:true with code + data intact across BOTH real wires", async () => {
-    const leaf = serveLeafOverWire();
-    const map = defineSurfaceMap({
+describe("a declared error crosses the map's keyed forward typed (the incident hop)", () => {
+  it("arrives as the SAME tagged error with its data intact across BOTH real wires", async () => {
+    const leaf = await serveLeafOverWire();
+    const map = buildTestMap({
       key: HostKeySchema,
       entry: daemonSurface,
       codec: identityCodec,
-      failure: testFailureSchema,
     });
     const reg = makeRegistry();
     const served = serveSurfaceMap(map, reg.registry);
 
-    // Hop 2 — the map itself over a REAL wire (the browser websocket analogue).
-    // The served fragment must be RE-ADAPTED against the map's contract for a
-    // wire matcher (the same re-adaptation kolu's buildAppRouter performs on
-    // the spliced serveHostMap fragment) — a bare fragment has no route meta.
-    // biome-ignore lint/suspicious/noExplicitAny: dynamic re-adaptation, runtime-valid per the map contract.
-    const host = implement(map.contract as any) as any;
-    const wireRouter = host.router({ surface: served.router.surface });
+    // Hop 2 — the map itself over a REAL wire (the browser websocket analogue). The
+    // map hands back `{ group, handlers }`, exactly what a serve path takes, so there
+    // is no fragment to re-adapt against a router's route meta any more: a tag carries
+    // its own route.
     const outerPair = createLoopbackPair();
     const outerServing = serveOverStdio({
-      router: wireRouter,
+      group: served.group,
+      handlers: served.handlers,
       transport: outerPair.server,
     });
-    const mapLink = stdioLink<AnyContractRouter>({
+    const mapLink = await stdioLink({
+      group: served.group,
       read: outerPair.client.read,
       write: outerPair.client.write,
+      readiness: await greetLoopback(outerPair),
     });
 
-    reg.addSession(A, leaf.client, connected(0));
+    reg.addSession(A, leaf.dispatch, connected(0));
     await settle();
 
-    // Call the OUTER wire directly with the map's fold envelope
-    // (`{ mapKey, input }` at `surface.<ns>.<verb>` — envelope.ts): the browser
-    // client's `entry(key).procedures` face encodes exactly this, and errors
-    // pass through it untouched, so the raw wire call IS the error-path pin
-    // (connectSurfaceMap itself refuses a bare test link by design — the
-    // half-open-watchdog law).
-    // biome-ignore lint/suspicious/noExplicitAny: raw wire walk at the map's envelope shape.
-    const wire = mapLink as any;
-
-    const rejection = await wire.surface.lifecycle
-      .recycle({ mapKey: "a", input: { id: "kaval" } })
-      .then(
-        () => {
-          throw new Error("expected a typed rejection");
-        },
-        (err: unknown) => err,
-      );
-    expect(rejection).toBeInstanceOf(ORPCError);
-    const orpc = rejection as ORPCError<string, unknown>;
-    expect(orpc.code).toBe("DEMO_CONTRACT_SKEW");
-    expect(orpc.defined).toBe(true);
-    expect(orpc.data).toEqual({
+    // Call the OUTER wire directly with the map's fold envelope (`{ mapKey, input }` —
+    // envelope.ts): the browser client's `entry(key).procedures` face folds exactly
+    // this, and errors pass through it untouched, so the raw dispatch call IS the
+    // error-path pin (connectSurfaceMap itself refuses a bare test dispatch by design —
+    // the half-open-watchdog law).
+    const skew = await runExit(
+      mapLink.dispatch.unary(RECYCLE_TAG, fold("a", { id: "kaval" })),
+    );
+    expect(Exit.isFailure(skew)).toBe(true);
+    const skewError = Exit.isFailure(skew)
+      ? Cause.squash(skew.cause)
+      : undefined;
+    expect(skewError).toBeInstanceOf(DemoContractSkew);
+    expect(skewError).toMatchObject({
+      _tag: "DemoContractSkew",
       daemonVersion: "5.0",
-      requiredVersion: "5.2",
+      requiredVersion: "5.2 (kaval)",
     });
 
-    // The crash-loudly channel is untouched: an UNDECLARED plain throw from
-    // behind the same two hops still arrives as the generic collapse.
-    const boom = await wire.surface.lifecycle.boom({ mapKey: "a" }).then(
-      () => {
-        throw new Error("expected a rejection");
-      },
-      (err: unknown) => err,
-    );
-    expect(boom).toBeInstanceOf(ORPCError);
-    expect((boom as ORPCError<string, unknown>).code).toBe(
-      "INTERNAL_SERVER_ERROR",
-    );
-    expect((boom as ORPCError<string, unknown>).defined).toBe(false);
+    // The crash-loudly channel is untouched: an UNDECLARED failure from behind the
+    // same two hops arrives as a DEFECT, never as a typed failure a caller could
+    // mistake for a declared one.
+    const boom = await runExit(mapLink.dispatch.unary(BOOM_TAG, fold("a", {})));
+    expect(Exit.isFailure(boom)).toBe(true);
+    if (Exit.isFailure(boom)) {
+      expect(Cause.hasDies(boom.cause)).toBe(true);
+      // …and NOT a typed failure: the declared channel stays empty, so no caller can
+      // mistake an undeclared crash for a domain error it is entitled to branch on.
+      expect(Cause.hasFails(boom.cause)).toBe(false);
+    }
 
+    await mapLink.dispose();
     outerPair.client.write.end();
     outerPair.server.write.end();
     await outerServing;
     await leaf.done();
+    served.dispose();
+  });
+
+  it("the map's OWN rejections cross the same wire typed (D4: MapKeyUnknown / MapEntryFailed)", async () => {
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: daemonSurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    const served = serveSurfaceMap(map, reg.registry);
+    const pair = createLoopbackPair();
+    const serving = serveOverStdio({
+      group: served.group,
+      handlers: served.handlers,
+      transport: pair.server,
+    });
+    const mapLink = await stdioLink({
+      group: served.group,
+      read: pair.client.read,
+      write: pair.client.write,
+      readiness: await greetLoopback(pair),
+    });
+
+    // A never-a-member key: a one-shot call cannot end gracefully, so it REJECTS
+    // typed. The error is declared on the folded member, so the `_tag` and the key
+    // survive the wire rather than collapsing into an opaque defect.
+    const unknown = await runExit(
+      mapLink.dispatch.unary(RECYCLE_TAG, fold("a", { id: "x" })),
+    );
+    const unknownError = Exit.isFailure(unknown)
+      ? Cause.squash(unknown.cause)
+      : undefined;
+    expect(unknownError).toBeInstanceOf(MapKeyUnknown);
+    expect(unknownError).toMatchObject({ _tag: "MapKeyUnknown", mapKey: "a" });
+
+    // A member in a terminal FAULT state: same channel, a different tag, carrying the
+    // RENDERED domain failure (the fault's own shape is app-owned and must not leak
+    // into the framework's wire union).
+    reg.addFault(B, { cause: "drv-missing", reason: "no drv for arch" });
+    await settle();
+    const failedEntry = await runExit(
+      mapLink.dispatch.unary(RECYCLE_TAG, fold("b", { id: "x" })),
+    );
+    const failedError = Exit.isFailure(failedEntry)
+      ? Cause.squash(failedEntry.cause)
+      : undefined;
+    expect(failedError).toBeInstanceOf(MapEntryFailed);
+    expect(failedError).toMatchObject({ _tag: "MapEntryFailed", mapKey: "b" });
+    expect((failedError as MapEntryFailed).failure).toContain("drv-missing");
+
+    await mapLink.dispose();
+    pair.client.write.end();
+    pair.server.write.end();
+    await serving;
+    served.dispose();
+  });
+});
+
+describe("the in-process forward preserves the same tags (no wire, same vocabulary)", () => {
+  it("directDispatch over a served map raises MapKeyUnknown for an absent key", async () => {
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: daemonSurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    const served = serveSurfaceMap(map, reg.registry);
+    const dispatch = directDispatch(served);
+    const exit = await runExit(
+      dispatch.unary(RECYCLE_TAG, fold("a", { id: "x" })),
+    );
+    const err = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+    expect(err).toBeInstanceOf(MapKeyUnknown);
+    served.dispose();
+  });
+});
+
+// ── The entry LINK's transport death, relayed ──────────────────────────────
+//
+// The map raises none of these itself: `unaryHandler` hands the call straight to
+// `session.dispatch`, so a dead entry leg's tagged death IS the folded member's
+// failure. Undeclared, it was encoded against a union that does not contain it and
+// reached the caller as an opaque STRING defect carrying only the parse prose —
+// which is how kolu's e2e `Before` hook read a padi that was merely RESPAWNING as a
+// PERMANENT failure ("Expected MapKeyNonCanonical | MapKeyUnknown | MapEntryFailed,
+// got SurfaceStdioTransportClosed"). A caller that must tell "not yet" from "never"
+// can only do so if the `_tag` survives the hop.
+
+/** A DEAD entry link: every call fails with `err`, exactly as a stdio leg whose
+ *  subprocess is gone (or a re-serve relay whose upstream dropped) does. */
+const deadLink = (err: unknown): SurfaceDispatch => ({
+  unary: () => Effect.fail(err),
+  stream: () => Stream.fail(err),
+});
+
+describe("a DEAD entry link's transport death crosses the map hop typed (not flattened)", () => {
+  it.each([
+    {
+      what: "stdio leg (the daemon behind the entry is respawning)",
+      error: () =>
+        new SurfaceStdioTransportClosed({ reason: "padi respawning" }),
+      ctor: SurfaceStdioTransportClosed,
+      tag: "SurfaceStdioTransportClosed",
+    },
+    {
+      what: "re-serve relay (the middle hop's upstream dropped)",
+      error: () => new SurfaceRelayTransportLost({ reason: "upstream gone" }),
+      ctor: SurfaceRelayTransportLost,
+      tag: "SurfaceRelayTransportLost",
+    },
+  ])("arrives as the same tagged error over a real wire — $what", async ({
+    error,
+    ctor,
+    tag,
+  }) => {
+    const map = buildTestMap({
+      key: HostKeySchema,
+      entry: daemonSurface,
+      codec: identityCodec,
+    });
+    const reg = makeRegistry();
+    const served = serveSurfaceMap(map, reg.registry);
+    const pair = createLoopbackPair();
+    const serving = serveOverStdio({
+      group: served.group,
+      handlers: served.handlers,
+      transport: pair.server,
+    });
+    const mapLink = await stdioLink({
+      group: served.group,
+      read: pair.client.read,
+      write: pair.client.write,
+      readiness: await greetLoopback(pair),
+    });
+    reg.addSession(A, deadLink(error()), connected(0));
+    await settle();
+
+    // BOTH arms of `foldedError`: `recycle` threads an ENTRY-declared error
+    // (`DemoContractSkew`) into the union, `boom` does not — a transport death must
+    // survive either way, or the declaration would only hold for members that
+    // happen to declare a domain error of their own.
+    for (const memberTag of [RECYCLE_TAG, BOOM_TAG]) {
+      const exit = await runExit(
+        mapLink.dispatch.unary(memberTag, fold("a", { id: "x" })),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (!Exit.isFailure(exit)) continue;
+      // A declared FAILURE, not a die: the caller is entitled to branch on it.
+      expect(Cause.hasFails(exit.cause)).toBe(true);
+      expect(Cause.hasDies(exit.cause)).toBe(false);
+      const err = Cause.squash(exit.cause);
+      expect(err).toBeInstanceOf(ctor);
+      expect(err).toMatchObject({ _tag: tag });
+    }
+
+    await mapLink.dispose();
+    pair.client.write.end();
+    pair.server.write.end();
+    await serving;
+    served.dispose();
   });
 });

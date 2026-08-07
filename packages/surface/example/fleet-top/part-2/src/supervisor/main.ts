@@ -23,6 +23,7 @@
  */
 
 import { fileURLToPath } from "node:url";
+import type { StreamingProcedure } from "@kolu/surface/client";
 import { stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
@@ -30,22 +31,37 @@ import {
   recycle,
   survivableSpawnDriver,
 } from "@kolu/surface-daemon-supervisor";
+import { Effect, Option, Stream } from "effect";
 import {
   bakedOsFactsBin,
   osfactsSocketHolders,
   processIdentityAsync,
 } from "osfacts-client";
 import { GATE_PATH, HOME, SOCKET_PATH } from "../common/paths";
+import type { Memory } from "../common/surface";
 import { connectTop, type TopClient, type TopIdentity } from "./connect";
 
-async function firstFrame<T>(
-  source: AsyncIterable<T> | Promise<AsyncIterable<T>>,
-): Promise<T> {
-  for await (const frame of await source) return frame;
-  throw new Error("stream closed before its snapshot frame");
+/** The first frame of a snapshot-then-deltas member. */
+function snapshot<T>(
+  stream: Stream.Stream<T, unknown>,
+  what: string,
+): Effect.Effect<T, Error> {
+  // A member stream fails with `unknown`; the endpoint's `connect` contract is
+  // "a plain Error unless it is the branded skew", so the narrowing happens HERE,
+  // once, rather than at each caller.
+  const head = Effect.mapError(Stream.runHead(stream), (err) =>
+    err instanceof Error ? err : new Error(String(err)),
+  );
+  return Effect.flatMap(head, (head) =>
+    Option.isNone(head)
+      ? Effect.fail(
+          new Error(`${what}: stream closed before its snapshot frame`),
+        )
+      : Effect.succeed(head.value),
+  );
 }
 
-async function main(): Promise<void> {
+const main = Effect.gen(function* () {
   const log = stderrLogger();
 
   // The daemon binary the driver spawns. In a Nix build this is the realised
@@ -63,7 +79,11 @@ async function main(): Promise<void> {
   const endpoint = createEndpoint<TopClient, TopIdentity>({
     hostId: "local",
     home: HOME, // SAME home declaration as the daemon — disagreement impossible
-    // Async on a supervisor path, so the osfacts spawn never blocks the loop.
+    // The Effect twin on a supervisor path, so the osfacts spawn never blocks
+    // the loop — and so a supervisor that gave up mid-read KILLS the child
+    // rather than leaving it to run out its deadline. The daemon half uses the
+    // SYNC reader instead (`common/processIdentity.ts`), because its gate claim
+    // must not reorder against the boot side effects it guards.
     readProcessIdentity: (pid) => processIdentityAsync(osfactsBin, pid),
     // The second OS-fact inject: who holds the rendezvous socket, for the
     // recovery that runs when the gate no longer names the daemon.
@@ -77,7 +97,7 @@ async function main(): Promise<void> {
       onContractSkew: { kind: "recycle" },
       onBuildMismatch: { kind: "nudge-human" },
     },
-    probe: async () => null,
+    probe: () => Effect.succeed(null),
     driver: survivableSpawnDriver({
       binPath: process.execPath, // node
       args: ["--import", "tsx/esm", daemonEntry],
@@ -99,14 +119,19 @@ async function main(): Promise<void> {
       process.stderr.write(`[supervisor] ${hostId}: ${status.state}\n`),
   });
 
-  // Boot: always-recycle → spawn → connect. Throws (after reporting `dead`) if
+  // Boot: always-recycle → spawn → connect. Fails (after reporting `dead`) if
   // it cannot bring the daemon up.
-  await converge(endpoint);
+  yield* converge(endpoint);
 
   const conn = endpoint.current();
   if (conn === undefined)
     throw new Error("endpoint connected but current() is undefined");
-  const mem = await firstFrame(conn.client.surface.memory.get({}));
+  const mem = yield* snapshot(
+    (conn.client.surface.memory?.get as StreamingProcedure<undefined, Memory>)(
+      undefined,
+    ),
+    "memory",
+  );
   process.stderr.write(
     `[supervisor] connected — daemon reports ${conn.identity.cores} cores, ` +
       `${(mem.used / 1e9).toFixed(1)} GB used\n`,
@@ -115,17 +140,17 @@ async function main(): Promise<void> {
   // The LIVE recycle: kill the daemon under us and stand a fresh one up, with
   // the status held at one honest "restarting". Degenerate steps — nothing to
   // preserve in this part.
-  await recycle(endpoint, {
-    capture: async () => undefined,
-    drain: async () => {},
-    reattach: async () => {},
+  yield* recycle(endpoint, {
+    capture: Effect.succeed(undefined),
+    drain: () => Effect.void,
+    reattach: () => Effect.void,
   });
   process.stderr.write("[supervisor] live recycle complete\n");
 
   endpoint.current()?.dispose();
-}
+});
 
-main().catch((err) => {
+Effect.runPromise(main).catch((err) => {
   process.stderr.write(`supervisor fatal: ${(err as Error).message}\n`);
   process.exit(1);
 });

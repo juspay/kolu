@@ -16,6 +16,7 @@
  *
  *  Hidden when the File System Access API isn't available. */
 
+import { runAction } from "../runAction";
 import { type Component, createSignal, Match, Show, Switch } from "solid-js";
 import { match } from "ts-pattern";
 import { ACTIONS } from "../input/actions";
@@ -48,7 +49,7 @@ const RecordButton: Component = () => {
 
   const onIdleClick = () => {
     if (recorder.phase() === "setup") recorder.cancelSetup();
-    else void recorder.openSetup();
+    else runAction("open recorder setup", recorder.openSetup());
   };
 
   const pauseLabel = () =>
@@ -147,7 +148,7 @@ const RecordButton: Component = () => {
                 "text-danger hover:bg-danger/15": isLive(),
                 "text-warning hover:bg-warning/20": isPaused(),
               }}
-              onClick={() => void recorder.stop()}
+              onClick={() => runAction("stop recording", recorder.stop())}
               aria-label="Stop recording"
             >
               <span
@@ -174,7 +175,9 @@ const RecordButton: Component = () => {
               type="button"
               data-testid="record-webcam"
               class={`w-7 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 ${webcamBtnAccent()}`}
-              onClick={() => void recorder.toggleWebcam()}
+              onClick={() =>
+                runAction("toggle webcam", recorder.toggleWebcam())
+              }
               aria-label={webcamLabel()}
               aria-pressed={recorder.webcamEnabled()}
             >

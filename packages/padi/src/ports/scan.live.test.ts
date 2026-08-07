@@ -29,6 +29,7 @@ import {
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { afterEach, expect, it, vi } from "vitest";
+import { Effect } from "effect";
 import { scanSubtreePorts } from "./scan.ts";
 
 const children: ChildProcess[] = [];
@@ -97,7 +98,7 @@ function routableAddress(): string | undefined {
 /** Scan for this process's own subtree — the test process stands in for a
  *  terminal's root shell, which is exactly the relationship padi has to a PTY. */
 async function scanSelf() {
-  const result = await scanSubtreePorts([process.pid]);
+  const result = await Effect.runPromise(scanSubtreePorts([process.pid]));
   const ports = result.get(process.pid);
   if (ports === undefined) {
     throw new Error("the scan returned no sample for the requested root pid");
@@ -262,7 +263,9 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     children.push(stranger);
     await new Promise((done) => setTimeout(done, 200));
 
-    const result = await scanSubtreePorts([child.pid!, stranger.pid!]);
+    const result = await Effect.runPromise(
+      scanSubtreePorts([child.pid!, stranger.pid!]),
+    );
     expect(result.get(child.pid!)).toContainEqual(
       expect.objectContaining({ port }),
     );
@@ -279,7 +282,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
       // a real, unfakeable blind spot. Reporting `[]` here would render byte
       // -identically to "this terminal serves nothing"
       // (`caught-error-must-not-collapse-to-empty`).
-      await expect(scanSubtreePorts([1])).rejects.toThrow(
+      await expect(Effect.runPromise(scanSubtreePorts([1]))).rejects.toThrow(
         /cannot inspect requested root pid 1/,
       );
     },
@@ -289,7 +292,7 @@ describeDaemon(`the port scan on this host (${process.platform})`, () => {
     // The contract the sampler relies on to tell "serves nothing" from "could not
     // see": every requested pid comes back.
     const dead = 0x7f_ff_ff_ff;
-    const result = await scanSubtreePorts([dead]);
+    const result = await Effect.runPromise(scanSubtreePorts([dead]));
     expect(result.has(dead)).toBe(true);
     expect(result.get(dead)).toEqual([]);
   });

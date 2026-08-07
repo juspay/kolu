@@ -1,6 +1,6 @@
 /**
  * The lifted half-open-link watchdog (`@kolu/surface/heartbeat`) — the algorithm
- * both legs share. The browser leg's partysocket-shaped wrapper is exercised
+ * both legs share. The browser leg's wire-status wrapper is exercised
  * end-to-end in `@kolu/surface-app`'s `connect.test.ts`, and the ssh leg in
  * `@kolu/surface-remote`'s `liveness.test.ts`; here we pin the two injected
  * variation points directly — the `isLive` GATE and the `onStale` ACTION — plus
@@ -116,6 +116,33 @@ describe("createHeartbeat (lifted primitive)", () => {
     });
     await vi.advanceTimersByTimeAsync(1000);
     expect(onStale).not.toHaveBeenCalled();
+    dispose();
+  });
+
+  it("reports every DEFINITIVE verdict through onProbeSettled — and nothing else (kolu#2101 J2)", async () => {
+    const onProbeSettled = vi.fn();
+    let answers = true;
+    const { dispose } = createHeartbeat({
+      isLive: () => true,
+      onStale: () => {},
+      onStaleReport: () => {},
+      onProbeSettled,
+      probe: () =>
+        answers ? Promise.resolve("pong") : new Promise<never>(() => {}),
+      intervalMs: 1000,
+      timeoutMs: 500,
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onProbeSettled).toHaveBeenCalledTimes(1);
+    expect(onProbeSettled).toHaveBeenLastCalledWith(true, expect.any(Number));
+
+    // …and the timed-out verdict, which is the one a diagnostic reads as the
+    // fingerprint of a wire that went silently half-open.
+    answers = false;
+    await vi.advanceTimersByTimeAsync(1000); // tick → probe never settles
+    await vi.advanceTimersByTimeAsync(500); // timeout → stale
+    expect(onProbeSettled).toHaveBeenCalledTimes(2);
+    expect(onProbeSettled).toHaveBeenLastCalledWith(false, expect.any(Number));
     dispose();
   });
 

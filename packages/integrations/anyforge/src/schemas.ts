@@ -1,5 +1,5 @@
-/** Zod schemas + pure helpers for forge-neutral PR metadata — and the GENERIC
- *  result/provider shapes that name no forge.
+/** Effect Schemas + pure helpers for forge-neutral PR metadata — and the
+ *  GENERIC result/provider shapes that name no forge.
  *
  *  The wire vocabulary every forge adapter speaks: `PrInfo` (the resolved PR)
  *  and `PrResult` (the resolution state machine), generic over the failure
@@ -16,44 +16,53 @@
  *  base, the gh arm lives in kolu-github, and the closed union composes in the
  *  app. A new forge's arm joins that app-side union; this leaf never changes.
  *
- *  Browser-safe: zod + ts-pattern only, no node APIs. Adapters implement
+ *  Browser-safe: effect + ts-pattern only, no node APIs. Adapters implement
  *  `ForgeAdapter<S>` against these shapes and never import each other. */
 
+import { Effect, Schema } from "effect";
 import { match, P } from "ts-pattern";
-import { z } from "zod";
 
 // --- PR info ---
 
-export const CheckStatusSchema = z.enum(["pending", "pass", "fail"]);
-export type CheckStatus = z.infer<typeof CheckStatusSchema>;
+export const CheckStatusSchema = Schema.Literals(["pending", "pass", "fail"]);
+export type CheckStatus = typeof CheckStatusSchema.Type;
 
-export const PrStateSchema = z.enum(["open", "closed", "merged"]);
-export type PrState = z.infer<typeof PrStateSchema>;
+export const PrStateSchema = Schema.Literals(["open", "closed", "merged"]);
+export type PrState = typeof PrStateSchema.Type;
 
 /** Per-check entry of the PR's CI rollup. The dock pip's tooltip lists
  *  these so a reviewer sees which specific gate is red without opening
  *  the PR. `name` is the check's name as the forge reports it (e.g.
  *  `ci::biome@x86_64-linux`). */
-export const CheckRunSchema = z.object({
-  name: z.string(),
+export const CheckRunSchema = Schema.Struct({
+  name: Schema.String,
   outcome: CheckStatusSchema,
 });
-export type CheckRun = z.infer<typeof CheckRunSchema>;
+export type CheckRun = typeof CheckRunSchema.Type;
 
-export const PrInfoSchema = z.object({
-  number: z.number(),
-  title: z.string(),
-  url: z.string(),
+export const PrInfoSchema = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
+  url: Schema.String,
   /** PR state: open, closed, or merged. */
   state: PrStateSchema,
   /** Combined CI status: pending, pass, or fail. Null if no checks configured. */
-  checks: CheckStatusSchema.nullable(),
+  checks: Schema.NullOr(CheckStatusSchema),
   /** Per-check breakdown — same data `checks` rolls up. Empty when no
-   *  checks are configured. `.default([])` so an older server emitting
-   *  payloads without this field still parses on a newer client. */
-  checkRuns: z.array(CheckRunSchema).default([]),
+   *  checks are configured. The decoding default is rolling-deploy
+   *  tolerance: an older server emitting payloads without this field still
+   *  parses on a newer client. `withDecodingDefaultKey` (not
+   *  `optionalKey` + it) is deliberate — it makes the key optional on the
+   *  ENCODED side only, so decoded `PrInfo` still always carries
+   *  `checkRuns` — wrapping in `optionalKey` as well would wrongly make it
+   *  optional on the decoded side too. Encoding
+   *  passes the value through (never omits), so a fresh server's payload
+   *  is byte-identical to what it emitted before. */
+  checkRuns: Schema.Array(CheckRunSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
-export type PrInfo = z.infer<typeof PrInfoSchema>;
+export type PrInfo = typeof PrInfoSchema.Type;
 
 /** Fold per-check outcomes into one combined status — the rule every forge
  *  shares: `fail` is terminal (one red gate fails the rollup), `pending` is
@@ -61,7 +70,9 @@ export type PrInfo = z.infer<typeof PrInfoSchema>;
  *  `null` for an empty list (no checks configured). Each adapter maps its
  *  forge's raw check vocabulary to `CheckStatus` and hands the list here, so
  *  this combine logic lives once in the leaf rather than once per adapter. */
-export function foldCheckOutcomes(outcomes: CheckStatus[]): PrInfo["checks"] {
+export function foldCheckOutcomes(
+  outcomes: readonly CheckStatus[],
+): PrInfo["checks"] {
   if (outcomes.length === 0) return null;
   let worst: CheckStatus = "pass";
   for (const outcome of outcomes) {
@@ -106,7 +117,7 @@ export type PrUnavailableSourceBase = { provider: string; code: string };
  *  Generic over `S extends PrUnavailableSourceBase` so this leaf names no
  *  forge: a concrete adapter instantiates it at its own tagged source
  *  (`PrResult<GhUnavailableSource>`), and the app pins it to the CLOSED
- *  union (the `PrResultSchema`-inferred type in kolu-common). The wire/zod
+ *  union (the `PrResultSchema`-inferred type in kolu-common). The wire
  *  schema lives in the app for the same reason `AgentInfoSchema` does.
  *
  *  Analogous schemas for git/agent/foreground are not introduced yet — their
@@ -185,7 +196,10 @@ export function prResultEqual<S extends PrUnavailableSourceBase>(
  *  because adapters preserve the order the forge returns — re-fetches
  *  with no real change produce the same sequence, so a `===`-style
  *  identity check survives ordinary polling without false positives. */
-function checkRunsEqual(a: CheckRun[], b: CheckRun[]): boolean {
+function checkRunsEqual(
+  a: readonly CheckRun[],
+  b: readonly CheckRun[],
+): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
   return a.every(

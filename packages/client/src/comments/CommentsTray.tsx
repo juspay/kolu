@@ -6,6 +6,9 @@
  *  Hidden when the queue is empty — no toggle, no mode. Visibility =
  *  `comments.length > 0` by construction. */
 
+import { runAction, type UiAction } from "../runAction";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { writeTextToClipboard } from "../ui/clipboard";
@@ -27,21 +30,27 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
   // stale key (the same trap the previous `const store = ...` form had).
   const store = createMemo(() => useComments(props.terminalId));
 
-  const copy = async (): Promise<void> => {
-    const list = store().comments();
-    if (list.length === 0) return;
-    const text = formatMarkdown(list);
-    try {
-      await writeTextToClipboard(text);
-      toast.success(
-        `Copied ${list.length} comment${list.length === 1 ? "" : "s"} to clipboard`,
+  const copy = (): UiAction =>
+    Effect.suspend(() => {
+      const list = store().comments();
+      if (list.length === 0) return Effect.void;
+      return writeTextToClipboard(formatMarkdown(list)).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            toast.success(
+              `Copied ${list.length} comment${list.length === 1 ? "" : "s"} to clipboard`,
+            );
+            store().clear();
+          }),
+        ),
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.error("Failed to copy comments:", err);
+            toast.error(`Failed to copy: ${toError(err).message}`);
+          }),
+        ),
       );
-      store().clear();
-    } catch (err) {
-      console.error("Failed to copy comments:", err);
-      toast.error(`Failed to copy: ${(err as Error).message}`);
-    }
-  };
+    });
 
   return (
     <Show when={store().comments().length > 0}>
@@ -101,7 +110,7 @@ export const CommentsTray: Component<CommentsTrayProps> = (props) => {
         <div class="flex gap-1.5 items-center mt-2">
           <button
             type="button"
-            onClick={copy}
+            onClick={() => runAction("copy comments", copy())}
             data-testid="kolu-tray-copy"
             class="px-2.5 py-1 text-[11px] rounded-sm border border-accent bg-accent text-white hover:opacity-90"
           >

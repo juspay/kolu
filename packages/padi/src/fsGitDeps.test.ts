@@ -8,6 +8,7 @@
  */
 
 import type { RepoChangePulse } from "@kolu/terminal-vocab/schema";
+import { Stream } from "effect";
 import pino from "pino";
 import { describe, expect, it } from "vitest";
 import type { TerminalEndpoint } from "./endpoint.ts";
@@ -17,13 +18,17 @@ const log = pino({ level: "silent" });
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-/** The `{ source }` arm of a watcher stream's dep (we always build that arm). */
+/** The `{ source }` arm of a watcher stream's dep (we always build that arm).
+ *  Effect-native now: a source returns a lazy `Stream`, and `toAsyncIterable`'s
+ *  iterator is what RUNS it — which is also what installs the watcher, so the
+ *  laziness is visible in these pulls rather than hidden behind an `await`. */
 type PulseSource = {
-  source: (
-    input: { repoPath: string },
-    signal: AbortSignal | undefined,
-  ) => AsyncIterable<RepoChangePulse>;
+  source: (input: { repoPath: string }) => Stream.Stream<RepoChangePulse>;
 };
+
+/** Pull-shaped view of a member stream — one bridge, used by both cases. */
+const pulls = (stream: Stream.Stream<RepoChangePulse>) =>
+  Stream.toAsyncIterable(stream)[Symbol.asyncIterator]();
 
 describe("padiFsGitDeps watcher pulses", () => {
   it("yields a {seq:0} snapshot, then an incrementing seq per change", async () => {
@@ -38,9 +43,11 @@ describe("padiFsGitDeps watcher pulses", () => {
     } as unknown as TerminalEndpoint;
     const deps = padiFsGitDeps(fakeEndpoint, log);
 
-    const itr = (deps.streams.subscribeRepoChange as PulseSource)
-      .source({ repoPath: "/repo" }, undefined)
-      [Symbol.asyncIterator]();
+    const itr = pulls(
+      (deps.streams.subscribeRepoChange as PulseSource).source({
+        repoPath: "/repo",
+      }),
+    );
 
     // First frame is the snapshot pulse (snapshot-then-deltas).
     expect((await itr.next()).value).toEqual({ seq: 0 });
@@ -61,10 +68,11 @@ describe("padiFsGitDeps watcher pulses", () => {
     const deps = padiFsGitDeps(fakeEndpoint, log);
     const firstFrame = async (repoPath: string) =>
       (
-        await (deps.streams.subscribeRepoChange as PulseSource)
-          .source({ repoPath }, undefined)
-          [Symbol.asyncIterator]()
-          .next()
+        await pulls(
+          (deps.streams.subscribeRepoChange as PulseSource).source({
+            repoPath,
+          }),
+        ).next()
       ).value;
 
     // A shared (dep-level) counter would make the second subscription start at

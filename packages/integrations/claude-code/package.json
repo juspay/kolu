@@ -18,11 +18,11 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
     "anyagent": "workspace:*",
+    "effect": "catalog:",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",

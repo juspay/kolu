@@ -218,3 +218,22 @@ describe("parseSavedSession", () => {
     });
   });
 });
+
+/** juspay/kolu#2101 G9a sweep. `session.import` is client→server, the direction
+ *  where an oversized frame closes the socket rather than failing the call. */
+describe("parseSavedSession refuses a file too big for one wire frame", () => {
+  it("rejects before parsing, naming both sizes", () => {
+    // 5 MiB of JSON — past the ~4 MiB cap, and two orders of magnitude past any
+    // real export. Deliberately VALID JSON so the refusal cannot be mistaken
+    // for the malformed-JSON branch: the size gate must run first.
+    const huge = `{"pad":"${"x".repeat(5 * 1024 * 1024)}"}`;
+    expect(() => parseSavedSession(huge)).toThrow(/the limit is/);
+    expect(() => parseSavedSession(huge)).toThrow(/5\.0 MB/);
+  });
+
+  it("still accepts an ordinary export", () => {
+    // Guard the guard: a cap that rejects real sessions would be worse than no
+    // cap. This is the same round-trip the suite above exercises.
+    expect(() => parseSavedSession(JSON.stringify(valid))).not.toThrow();
+  });
+});

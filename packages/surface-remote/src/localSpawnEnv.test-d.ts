@@ -13,7 +13,10 @@ import { dialAgentOnce } from "./dialAgentOnce";
 import { buildAgentCommand } from "./host";
 import { type AgentDerivation, directAgentDerivation } from "./agentDerivation";
 import { sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import {
+  TEST_AGENT_SURFACE,
+  TEST_BINARY_CACHE,
+} from "./agentDerivation.testutil";
 
 // AgentDerivation is nominal: consumers must use the validated direct constructor,
 // and cannot forge a path/installable pair that resolves different agents.
@@ -52,6 +55,7 @@ buildAgentCommand({ host: "localhost", agentPath: "/p", binary: "a" });
 // The connector options carry the same requirement (drishti / kolu callers plug in
 // here, not at `buildAgentCommand`).
 sshConnector({
+  surface: TEST_AGENT_SURFACE,
   host: "h",
   binary: "a",
   resolveDrvPath: () =>
@@ -74,6 +78,7 @@ sshConnector(
 );
 
 sshConnector({
+  surface: TEST_AGENT_SURFACE,
   host: "h",
   binary: "a",
   resolveDrvPath: () =>
@@ -89,6 +94,7 @@ sshConnector({
 // (dialAgentOnce → sshConnector → buildAgentCommand) would otherwise leave the
 // advertised guarantee green while ambient full-inherit became spellable again.
 void dialAgentOnce({
+  surface: TEST_AGENT_SURFACE,
   host: "h",
   package: "a",
   binary: "a",
@@ -97,6 +103,7 @@ void dialAgentOnce({
 });
 
 void dialAgentOnce({
+  surface: TEST_AGENT_SURFACE,
   host: "h",
   package: "a",
   binary: "a",

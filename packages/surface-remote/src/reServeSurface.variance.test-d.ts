@@ -1,46 +1,48 @@
 /**
- * Type-level regression: a SPECIFIC-contract session must remain assignable to the
+ * Type-level regression: a SPECIFIC-surface session must remain assignable to the
  * loose `Session` receptacle `pumpRemoteSurface` / `reServeSurface` consume.
  *
- * `makeSession(sshConnector<C>(...))` yields `Session<AgentClient<C>>` — a session
- * whose reserved `system.live` proc takes `Record<string, never>`. The pump takes
- * the LOOSE `Session` (its `Client` param defaults to `SurfaceClientLike`). `Session`
- * uses `Client` only in RETURN positions (`pin` / `currentClient`), so it is
- * COVARIANT in `Client`, and `AgentClient<C>` structurally satisfies
- * `SurfaceClientLike` (`{ surface: Record<string, unknown> }`) — so a
- * specific-contract session assigns to the general receptacle.
+ * `makeSession(sshConnector({ surface, … }))` yields `Session<AgentClient>` — a
+ * session whose client is the surface FACE. The pump takes the LOOSE `Session` (its
+ * `Client` param defaults to `SurfaceClientLike`). `Session` uses `Client` only in
+ * RETURN positions (`pin` / `currentClient`), so it is COVARIANT in `Client`, and
+ * `AgentClient` structurally satisfies `SurfaceClientLike`
+ * (`{ surface: Record<string, unknown> }`) — so a specific session assigns to the
+ * general receptacle.
  *
- * Narrowing the pump's `session` param back to a specific per-contract client would
- * reintroduce input contravariance (`unknown` not assignable to
- * `Record<string, never>`) and break drishti's un-annotated `pumpRemoteSurface(...)`
- * call — the exact regression kolu gauntlet `5725e8d01` hit under the old
- * `RemoteMirrorSession`. Dropping the dead contract `<C>` at the role boundary (S3)
- * and keeping the receptacle at `SurfaceClientLike` is what keeps it covariant. No
- * runtime; `tsc --noEmit` (part of `just check`) is the check.
+ * Narrowing the pump's `session` param back to a per-surface client type would
+ * reintroduce input contravariance and break drishti's un-annotated
+ * `pumpRemoteSurface(...)` call — the exact regression kolu gauntlet `5725e8d01` hit
+ * under the old `RemoteMirrorSession`. Keeping the receptacle at `SurfaceClientLike`
+ * is what keeps it covariant. No runtime; `tsc --noEmit` (part of `just check`) is
+ * the check.
+ *
+ * The dead contract type parameter is GONE from both ends now (`AgentClient` is the
+ * structural `SurfaceFace`, and `sshConnector` takes the surface as a VALUE), so the
+ * variance this file pins is the only client-typing question left at the seam.
  */
 
 import { defineSurface } from "@kolu/surface/define";
-import { z } from "zod";
-import { pumpRemoteSurface } from "./hostFanout";
-import { directAgentDerivation } from "./agentDerivation";
 import type { SurfaceClientLike } from "@kolu/surface/project";
+import { Schema } from "effect";
+import { directAgentDerivation } from "./agentDerivation";
+import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
+import { pumpRemoteSurface } from "./hostFanout";
 import { makeSession, type Session } from "./session";
 import { type AgentClient, sshConnector } from "./sshConnector";
-import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
 
-// A concrete, app-shaped surface: one cell, whose contract also carries the
-// framework-reserved `system.live` proc (input `Record<string, never>`) — the exact
-// member the old failure pointed at.
+// A concrete, app-shaped surface: one cell, whose group also carries the
+// framework-reserved `system/live` member — the exact member the old failure
+// pointed at.
 const specificSurface = defineSurface({
-  cells: { status: { schema: z.string(), default: "" } },
+  cells: { status: { schema: Schema.String, default: "" } },
 });
-type SpecificContract = typeof specificSurface.contract;
 
-// A specific-client session, the shape `makeSession(sshConnector<Specific>(...))`
+// A specific-client session, the shape `makeSession(sshConnector({ surface }))`
 // produces.
-declare const specificSession: Session<AgentClient<SpecificContract>>;
+declare const specificSession: Session<AgentClient>;
 
-// (1) The specific-contract session assigns to the general receptacle role.
+// (1) The specific session assigns to the general receptacle role.
 const loose: Session = specificSession;
 void loose;
 
@@ -54,16 +56,16 @@ void pumpRemoteSurface({
   makeSink: () => ({}),
 });
 
-// (3) The concrete builder really does yield a specific-client session — the typed
-//     `AgentClient<C>` survives for a direct consumer (odu reads `session.pin()`'s
-//     typed client), while the CLIENT loosening is confined to the receptacle's VIEW.
-//     An ssh builder's session carries `Prov = SshProv` (it provisions); the pump's
-//     loose receptacle is `Session<SurfaceClientLike, string>` (phase-vocabulary TOP),
-//     so it accepts that provisioning `Prov` AND widens the CLIENT (`AgentClient<C>` →
+// (3) The concrete builder really does yield a session whose client is the face —
+//     the CLIENT loosening is confined to the receptacle's VIEW. An ssh builder's
+//     session carries `Prov = SshProv` (it provisions); the pump's loose receptacle
+//     is `Session<SurfaceClientLike, string>` (phase-vocabulary TOP), so it accepts
+//     that provisioning `Prov` AND widens the CLIENT (`AgentClient` →
 //     `SurfaceClientLike`) — the covariance this file pins.
 const built = makeSession({
   initialConnection: "probing",
-  connectOnce: sshConnector<SpecificContract>({
+  connectOnce: sshConnector({
+    surface: specificSurface,
     host: "h",
     binary: "b",
     localEnv: {},
@@ -75,5 +77,5 @@ const built = makeSession({
 });
 const looseBuilt: Session<SurfaceClientLike, string> = built;
 void looseBuilt;
-const typedClient: Promise<AgentClient<SpecificContract>> = built.pin();
+const typedClient: Promise<AgentClient> = built.pin();
 void typedClient;

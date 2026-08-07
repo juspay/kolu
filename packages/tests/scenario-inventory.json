@@ -7406,6 +7406,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "06c8798df62a27b985bf6f5f9b57a6a8cd198ed2"
+    },
+    {
+      "revisionId": "revision-c5baa69bb38fffa5aebf",
+      "scenarioKey": "scenario-6cd5bc9dbba415deb986",
+      "feature": "features/file-drop.feature",
+      "scenario": "a file larger than one wire frame rides chunks, and the socket survives",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d67d5048868c5ec7cc954044c67c4f9c0d4a7c9bd449f1d4a14464da2d28c8bc",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435c55381b24cb325105fee82048c00226818d0e"
     }
   ]
 }

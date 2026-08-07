@@ -34,9 +34,9 @@
 # proof rides the currency VM probe's own padi-reattach, not this one.
 #
 # Only the distinguishing data lives here; lib.nix owns the shared scaffold.
-{ pkgs, port, kavalTui, lib, ... }:
+{ pkgs, kavalTui, lib, ... }:
 let
-  inherit (lib) jq curl gateHelpers openTerminal;
+  inherit (lib) jq gateHelpers openTerminal rpc;
 
   # The OK/FAIL files each script writes and mkAdoptionTest asserts (as root).
   # Declared once so the script's write path and the assertion's read path can
@@ -75,12 +75,13 @@ let
 
     # 3) run a command whose UNIQUE output we re-check after the restart (\r is
     #    Enter, exactly as the client sends it; jq builds the body so the escaping
-    #    is correct).
-    body=$(${jq} -nc --arg id "$id" '{json:{mapKey:"local",input:{id:$id,data:"echo ${nonce}\r"}}}') \
+    #    is correct). The payload is a RUNTIME value (it carries `$id`), so it is
+    #    passed as the call's trailing positional rather than baked into the
+    #    `rpc` helper — `kolu-rpc` reads its positionals independently of the flag.
+    body=$(${jq} -nc --arg id "$id" '{mapKey:"local",input:{id:$id,data:"echo ${nonce}\r"}}') \
       || fail "jq failed to build the sendInput request body"
-    ${curl} -fsS -X POST "http://127.0.0.1:${port}/rpc/surface/padi/lifecycle/sendInput" \
-      -H 'content-type: application/json' -d "$body" >/dev/null \
-      || fail "lifecycle.sendInput RPC errored"
+    sendErr=$(${rpc { tag = "surface/padi/lifecycle/sendInput"; }} "$body" 2>&1) \
+      || fail "lifecycle.sendInput RPC errored: $(printf '%s' "$sendErr" | tr '\n' ' ' | tail -c 400)"
 
     # 4) confirm the output reached the scrollback before we restart.
     #    Plain `grep` (output discarded), NOT `grep -q`: under `pipefail`, `-q`

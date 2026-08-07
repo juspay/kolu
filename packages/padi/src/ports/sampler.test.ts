@@ -319,6 +319,29 @@ describe("the port sampler's cadence", () => {
     expect(h.published).toEqual([]);
   });
 
+  it("STOPS on a permanent failure discovered at a LATER pass too — the verdict is timing-independent", async () => {
+    // The symmetry the old shape could not have: "permanent ⇒ stop" used to be
+    // spelled by letting the T+0 seed rejection kill the connector, so the exact
+    // same error at tick 3 only logged and re-armed — forever. Since #2101 G1 a
+    // poll read's failure is cell-local at EVERY tick, so the sampler makes the
+    // stop decision itself, at whichever pass produces the verdict.
+    const h = harness({ answer: [PORT] });
+    await h.seeded();
+    expect(h.passes()).toBe(1);
+
+    h.setFailure(
+      new PortScanError(
+        "unsupported-platform",
+        "port scan: unsupported platform 'sunos'",
+      ),
+    );
+    await h.advance(PORT_SCAN_INTERVAL_MS);
+    expect(h.passes()).toBe(2); // the pass that learned it
+
+    await h.advance(PORT_SCAN_INTERVAL_MS * 5);
+    expect(h.passes()).toBe(2); // …and the cadence is gone, not looping the error
+  });
+
   it("recovers its cadence after a failed pass", async () => {
     const h = harness({ fail: new Error("nope") });
     await h.seeded();

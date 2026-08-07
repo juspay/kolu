@@ -8,6 +8,7 @@
  * The focus is `updateReady` — the skew-OR-restart predicate the model owns so
  * consumers read it instead of re-deriving `status() === "restarted" || stale()`.
  */
+import { Effect } from "effect";
 
 import {
   type Accessor,
@@ -16,6 +17,7 @@ import {
   createSignal,
 } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+import { fakeWire } from "../fakeSocket.testlib";
 import {
   type ConnectionStatus,
   type ControlPlane,
@@ -23,59 +25,7 @@ import {
   type SurfaceAppModel,
   SurfaceAppProvider,
   useSurfaceApp,
-  type WsLike,
 } from "./index";
-
-/** A minimal transport whose `open`/`close` we fire by hand, with an optional
- *  close code — the turnkey `{ ws, probe }` path's analogue of `lifecycle.test`'s
- *  `fakeWs`. */
-function fakeWs() {
-  const listeners: Record<
-    "open" | "close",
-    Array<(event?: { code?: number }) => void>
-  > = { open: [], close: [] };
-  let closed = 0;
-  let reconnects = 0;
-  // The turnkey `{ ws, probe }` source owns teardown AND liveness, so its `ws` is
-  // `WsLike & { close, send, reconnect, readyState, OPEN }` — the fake carries all
-  // of them so it satisfies the type and the auto-retire / heartbeat-reconnect are
-  // observable. `readyState` starts OPEN (1) so the heartbeat actually probes.
-  const ws: WsLike & {
-    close(): void;
-    send: unknown;
-    reconnect(): void;
-    readyState: number;
-    readonly OPEN: number;
-  } = {
-    addEventListener: (type, fn) => listeners[type].push(fn),
-    close: () => {
-      closed++;
-    },
-    send: (() => {}) as unknown,
-    reconnect: () => {
-      reconnects++;
-    },
-    readyState: 1,
-    OPEN: 1,
-  };
-  return {
-    ws,
-    closedCount: () => closed,
-    reconnectCount: () => reconnects,
-    sendThrows: () => {
-      try {
-        (ws.send as (d: string) => void)("x");
-        return false;
-      } catch {
-        return true;
-      }
-    },
-    fire: (type: "open" | "close", code?: number) => {
-      const event = code === undefined ? undefined : { code };
-      for (const l of listeners[type].slice()) l(event);
-    },
-  };
-}
 
 /** A `controlPlane` whose `buildInfo` cell yields a fixed server commit. */
 function fakeControlPlane(serverCommit: string): ControlPlane {
@@ -109,6 +59,12 @@ function mountModel(opts: {
   return captured;
 }
 
+/** Let a probe EFFECT settle through the lifecycle's run edge — see the twin in
+ *  `lifecycle.test.ts`. A microtask turn no longer covers it: the probe runs on a
+ *  fiber, so the settle lands a scheduler tick later than a bare `Promise` did. */
+const flushProbe = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("SurfaceAppProvider — updateReady", () => {
   it("flips on a `restarted` status (deploy caught live), even when not stale", () => {
     createRoot((dispose) => {
@@ -131,60 +87,54 @@ describe("SurfaceAppProvider — updateReady", () => {
     });
   });
 
-  it("forwards `restartCloseCode` through the turnkey `{ ws, probe }` source", async () => {
-    const t = fakeWs();
+  it("reads a RETIRED wire as `restarted` through the turnkey `{ wire, probe }` source", async () => {
+    const w = fakeWire();
     await createRoot(async (dispose) => {
       let captured!: SurfaceAppModel;
       createComponent(SurfaceAppProvider, {
         controlPlane: fakeControlPlane("0784979"),
         clientCommit: "0784979",
-        ws: t.ws,
-        probe: () => Promise.resolve({ processId: "p1" }),
-        restartCloseCode: 4001,
+        wire: w.wire,
+        probe: () => Effect.succeed({ processId: "p1" }),
         get children() {
           captured = useSurfaceApp();
           return null;
         },
       });
 
-      t.fire("open");
-      await Promise.resolve();
+      w.set("open");
+      await flushProbe();
       expect(captured.status()).toBe("live");
 
-      // The dedicated restart code reaches `createServerLifecycle` and surfaces
-      // as `restarted` — the turnkey path now matches the manual one.
-      t.fire("close", 4001);
+      // The link classified the server's stale close as TERMINAL and retired the
+      // wire; the lifecycle surfaces that as `restarted` — the turnkey path
+      // matches the manual one, with no close code and no socket to retire by
+      // hand (the link stopped re-dialling and fails every call itself).
+      w.set("retired");
       expect(captured.status()).toBe("restarted");
       expect(captured.updateReady()).toBe(true);
-      // …and the turnkey source OWNS the socket, so it retires it on the
-      // stale-restart: closed once, and further sends throw (so oRPC rejects
-      // rather than the offline buffer growing). A `{ status }` consumer would
-      // wire this itself; the turnkey path gets it free. Fired synchronously from
-      // the lifecycle's close decode (`onStaleRestart`), so no tick needed.
-      expect(t.closedCount()).toBe(1);
-      expect(t.sendThrows()).toBe(true);
 
       dispose();
     });
   });
 
-  it("forwards `onProcessId` through the turnkey `{ ws, probe }` source", async () => {
-    const t = fakeWs();
+  it("forwards `onProcessId` through the turnkey `{ wire, probe }` source", async () => {
+    const w = fakeWire();
     const seen: string[] = [];
     await createRoot(async (dispose) => {
       createComponent(SurfaceAppProvider, {
         controlPlane: fakeControlPlane("0784979"),
         clientCommit: "0784979",
-        ws: t.ws,
-        probe: () => Promise.resolve({ processId: "p1" }),
+        wire: w.wire,
+        probe: () => Effect.succeed({ processId: "p1" }),
         onProcessId: (id: string) => seen.push(id),
         get children() {
           useSurfaceApp();
           return null;
         },
       });
-      t.fire("open");
-      await Promise.resolve();
+      w.set("open");
+      await flushProbe();
       // The provider derives the lifecycle internally, but still publishes the
       // observed id outward so the turnkey caller can echo the `pid` param.
       expect(seen).toEqual(["p1"]);
@@ -192,38 +142,38 @@ describe("SurfaceAppProvider — updateReady", () => {
     });
   });
 
-  it("starts a heartbeat in the turnkey source — a half-open socket forces a reconnect", async () => {
+  it("starts a heartbeat in the turnkey source — a half-open wire forces a reconnect", async () => {
     vi.useFakeTimers();
     try {
-      const t = fakeWs();
+      const w = fakeWire();
       await createRoot(async (dispose) => {
         // The open probe resolves (lifecycle goes live); the NEXT probe — the
-        // heartbeat's — hangs, modelling a silently half-open socket.
+        // heartbeat's — hangs, modelling a silently half-open wire.
         let calls = 0;
-        const probe = () => {
+        const probe = (): Effect.Effect<{ processId: string }> => {
           calls += 1;
           return calls === 1
-            ? Promise.resolve({ processId: "p1" })
-            : new Promise<{ processId: string }>(() => {});
+            ? Effect.succeed({ processId: "p1" })
+            : (Effect.never as Effect.Effect<{ processId: string }>);
         };
         createComponent(SurfaceAppProvider, {
           controlPlane: fakeControlPlane("0784979"),
           clientCommit: "0784979",
-          ws: t.ws,
+          wire: w.wire,
           probe,
           get children() {
             useSurfaceApp();
             return null;
           },
         });
-        t.fire("open");
+        w.set("open");
         await vi.advanceTimersByTimeAsync(0); // flush the open probe
-        expect(t.reconnectCount()).toBe(0);
+        expect(w.reconnects()).toBe(0);
         // One heartbeat interval (default 15s) fires a probe that never answers;
         // after the default 10s timeout the watchdog forces a reconnect — the
-        // turnkey consumer (drishti's admin socket) gets this with zero wiring.
+        // turnkey consumer (drishti's admin wire) gets this with zero wiring.
         await vi.advanceTimersByTimeAsync(15_000 + 10_000);
-        expect(t.reconnectCount()).toBe(1);
+        expect(w.reconnects()).toBe(1);
         dispose();
       });
     } finally {

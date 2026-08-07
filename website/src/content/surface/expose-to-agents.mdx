@@ -25,7 +25,7 @@ decide what to expose.
 
 Choose one of two shapes:
 
-- **Serve fresh** when the MCP server is the backend — wrap an in-process `implementSurface` in a `directLink`.
+- **Serve fresh** when the MCP server is the backend — `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`.
 - **Bridge a live surface** when a server is already running — dial it over its socket or ssh stdio instead.
 
 <Snippet src="packages/surface/example/snippets/mcp.ts" region="client" />

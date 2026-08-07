@@ -21,19 +21,23 @@ import {
   padiKavalSocketPath,
   padiSocketPath,
 } from "@kolu/padi/stateRoot";
-import { NewTerminalPolicySchema } from "@kolu/padi/surface";
+import type { NewTerminalPolicy } from "@kolu/padi/surface";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
-import { padiFold } from "./padiEnvelope.ts";
 import {
-  BoundedErrorBody,
-  errorCodes,
-  HttpStatusError,
-  isTransientSetupError,
+  disposeRpcWire,
+  isPadiWarmingUp,
+  padiCall,
+  padiFirstFrame,
+  RpcCallFailed,
+  setRpcBaseUrl,
+  surfaceCall,
+} from "./rpcWire.ts";
+import {
   retryPadiScenarioReset,
   retryTransient,
 } from "./scenarioSetupRetry.ts";
@@ -497,52 +501,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const MAX_ERROR_BODY_BYTES = 16 * 1024;
-
-/** POST JSON to a local URL, reusing TCP connections via keepAlive. */
-function postJSONOnce(url: string, body: object): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const u = new URL(url);
-    const req = http.request(
-      {
-        hostname: u.hostname,
-        port: u.port,
-        path: u.pathname,
-        method: "POST",
-        agent: keepAliveAgent,
-        headers: { "Content-Type": "application/json" },
-      },
-      (res) => {
-        const code = res.statusCode ?? 0;
-        if (code >= 200 && code < 300) {
-          res.resume();
-          res.on("end", resolve);
-          res.on("error", reject);
-          return;
-        }
-
-        const responseBody = new BoundedErrorBody(MAX_ERROR_BODY_BYTES);
-        res.on("data", (chunk: Buffer) => responseBody.push(chunk));
-        res.on("end", () => {
-          // Reject non-2xx so a reset the server actually rejected (it was
-          // briefly unready, or an endpoint drifted) surfaces instead of
-          // resolving as success and letting the scenario start against stale
-          // state. Mirrors httpGet's status check; 2xx resolves exactly as
-          // before, so green runs are unchanged.
-          reject(new HttpStatusError(code, url, responseBody.text()));
-        });
-        res.on("error", reject);
-      },
-    );
-    req.on("error", reject);
-    req.end(JSON.stringify(body));
-  });
-}
-
-function postJSON(url: string, body: object): Promise<void> {
-  return retryTransient(`POST ${url}`, () => postJSONOnce(url, body));
-}
-
 /** GET a URL, reusing TCP connections via keepAlive. */
 function httpGet(url: string): Promise<{ ok: boolean }> {
   return new Promise((resolve, reject) => {
@@ -940,6 +898,10 @@ async function startServerChild(koluServer: string): Promise<void> {
     if (owned) {
       serverProcess = child;
       baseUrl = url;
+      // Re-point the shared RPC wire at THIS server: a restart lands on a fresh
+      // random port, and a socket left dialling the old one would retry against a
+      // corpse forever. Every RPC below (the liveness probe included) rides it.
+      await setRpcBaseUrl(url);
       started = true;
       console.log(`[worker:${workerId}] Server is healthy on ${port}.`);
     } else {
@@ -961,11 +923,9 @@ async function startServerChild(koluServer: string): Promise<void> {
   // remote padi is live). Wait for it here, on EVERY server start (boot AND the
   // mid-run restarts reconnect/session-restore/@kaval-restart trigger), so scenarios
   // never race the warm-up (a `killAll` against a not-yet-connected binding is the
-  // "no live upstream link" 503).
+  // re-serve's "no live upstream link").
   await waitForPadiLive();
 }
-
-class PermanentPadiProbeError extends Error {}
 
 /** Poll a padi procedure until the (async-warming) bound arm — local or, under
  *  `KOLU_E2E_PADI_HOST`, remote — is live, or throw at the caller-supplied deadline.
@@ -991,52 +951,35 @@ async function waitForPadiLive({
     const remainingBeforeAttempt = deadline - Date.now();
     if (remainingBeforeAttempt <= 0) break;
     try {
-      const res = await fetch(`${baseUrl}/rpc/surface/padi/lifecycle/killAll`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ json: padiFold() }),
-        // Bound each attempt so a wedged request (TCP accepted, handler hung
-        // mid-boot) can't outlive the caller's deadline. The final attempt gets
-        // only the time still available rather than a fresh five-second budget.
-        signal: AbortSignal.timeout(Math.min(5_000, remainingBeforeAttempt)),
+      // Bound each attempt so a wedged call (socket up, handler hung mid-boot)
+      // can't outlive the caller's deadline. The final attempt gets only the time
+      // still available rather than a fresh five-second budget.
+      await padiCall("lifecycle/killAll", undefined, {
+        timeoutMs: Math.min(5_000, remainingBeforeAttempt),
       });
-      if (res.ok) {
-        if (announce)
-          console.log(
-            remotePadiHost
-              ? `[worker:${workerId}] remote padi is live — running against the ssh host`
-              : `[worker:${workerId}] local padi is live`,
-          );
-        return;
-      }
-      const body = await res.text();
-      lastDiagnostic = `HTTP ${res.status}${body ? `: ${body}` : ""}`;
-      // The re-serve boundary assigns the upstream-link gap its own 503. This
-      // is the one HTTP failure worth polling; contract/route/auth/internal
-      // failures are permanent and retain their response body.
-      if (res.status !== 503) {
-        throw new PermanentPadiProbeError(
-          `[worker:${workerId}] padi liveness probe failed permanently (${lastDiagnostic})`,
+      if (announce)
+        console.log(
+          remotePadiHost
+            ? `[worker:${workerId}] remote padi is live — running against the ssh host`
+            : `[worker:${workerId}] local padi is live`,
         );
-      }
+      return;
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof PermanentPadiProbeError) throw err;
-      const name = err instanceof Error ? err.name : "";
-      if (
-        !isTransientSetupError(err) &&
-        name !== "AbortError" &&
-        name !== "TimeoutError"
-      ) {
+      // The retry/permanent split, on the wire's own vocabulary: a transport
+      // failure, a per-attempt timeout, an unseeded map key, or the re-serve's
+      // "no live upstream link" all mean "not yet" and keep polling
+      // (`isPadiWarmingUp`). Anything else — a declared procedure error, a schema
+      // rejection, a terminally-failed entry — is permanent and surfaces now,
+      // carrying what the server actually said.
+      if (!isPadiWarmingUp(err)) {
         throw new Error(
-          `[worker:${workerId}] padi liveness probe failed permanently (${message || "unknown transport error"})`,
+          `[worker:${workerId}] padi liveness probe failed permanently (${
+            err instanceof Error ? err.message : String(err)
+          })`,
           { cause: err },
         );
       }
-      const codes = [...new Set(errorCodes(err))];
-      lastDiagnostic = `${name || "transport error"}: ${message || "no message"}${
-        codes.length ? ` [${codes.join(",")}]` : ""
-      }`;
+      lastDiagnostic = err instanceof RpcCallFailed ? err.message : String(err);
     }
     const remainingBeforeSleep = deadline - Date.now();
     if (remainingBeforeSleep <= 0) break;
@@ -1051,20 +994,19 @@ async function waitForPadiLive({
 
 /** Reset every padi-owned scenario domain as one retryable transaction.
  *
- * The re-serve reports a link-down edge as 503. If that edge lands after
- * `killAll` but before either cell write, restart the whole idempotent sequence:
- * a successful return therefore proves all three operations reached one live
- * padi episode. Any other HTTP status is a real handler/contract failure and
- * surfaces immediately with its response body. */
+ * The re-serve reports a link-down edge as its own `UpstreamUnavailableError`. If
+ * that edge lands after `killAll` but before either cell write, restart the whole
+ * idempotent sequence: a successful return therefore proves all three operations
+ * reached one live padi episode. Any other failure is a real handler/contract
+ * failure and surfaces immediately, carrying what the server said. */
 async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
   await retryPadiScenarioReset(timeoutMs, async (remaining) => {
     await waitForPadiLive({ announce: false, timeoutMs: remaining });
-    await postJSON(`${baseUrl}/rpc/surface/padi/activityFeed/test__set`, {
-      json: padiFold({ recentRepos: [], recentAgents: [] }),
+    await padiCall("activityFeed/test__set", {
+      recentRepos: [],
+      recentAgents: [],
     });
-    await postJSON(`${baseUrl}/rpc/surface/padi/session/test__set`, {
-      json: padiFold(null),
-    });
+    await padiCall("session/test__set", null);
   });
 }
 
@@ -1075,71 +1017,6 @@ async function resetPadiScenarioState(timeoutMs: number): Promise<void> {
 const POLICY_PUSH_TIMEOUT = 5_000;
 const POLICY_READ_TIMEOUT = 1_000;
 const POLICY_POLL_INTERVAL = 50;
-
-/** Decode ONE server-sent event frame (an `event:`/`data:` block) into the payload
- *  the oRPC codec put in it. Anything but a `message` event is the stream reporting
- *  a failure, not a value — surface it. */
-function decodeEventFrame(frame: string, url: string): unknown {
-  let event = "message";
-  const data: string[] = [];
-  for (const line of frame.split("\n")) {
-    if (line.startsWith("event: ")) event = line.slice("event: ".length);
-    else if (line.startsWith("data: ")) data.push(line.slice("data: ".length));
-  }
-  const body = data.join("\n");
-  if (event !== "message")
-    throw new Error(
-      `${url}: subscription answered a "${event}" event: ${body}`,
-    );
-  return (JSON.parse(body) as { json?: unknown }).json;
-}
-
-/** Read the FIRST frame of a re-served cell's `get` and close the subscription.
- *
- * A cell's `get` is a SUBSCRIPTION, not a one-shot read: oRPC answers it with an
- * event iterator (SSE) whose first data frame is the current value and which then
- * stays open for every later change. So this takes that frame and aborts — reading
- * the body to completion (`res.json()`) would hang forever. A re-served cell
- * withholds even the first frame until the authority's fold primes the mirror
- * ("mirror never fabricates"), so a caller's read timeout doubles as the wait for
- * padi to have spoken at all. */
-async function readCellFrame(url: string, body: object): Promise<unknown> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), POLICY_READ_TIMEOUT);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "text/event-stream",
-      },
-      body: JSON.stringify(body),
-      signal: ctl.signal,
-    });
-    if (!res.ok) throw new HttpStatusError(res.status, url, await res.text());
-    if (!res.body) throw new Error(`${url}: subscription carried no body`);
-    const decoder = new TextDecoder();
-    let buffered = "";
-    for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
-      buffered += decoder.decode(chunk, { stream: true });
-      let end = buffered.indexOf("\n\n");
-      while (end !== -1) {
-        const frame = buffered.slice(0, end);
-        buffered = buffered.slice(end + 2);
-        // Keep-alive comments (`: ping`) carry no `data:` line — skip to the
-        // next frame rather than decoding a valueless one.
-        if (frame.includes("data: ")) return decodeEventFrame(frame, url);
-        end = buffered.indexOf("\n\n");
-      }
-    }
-    throw new Error(`${url}: subscription closed before its first frame`);
-  } finally {
-    clearTimeout(timer);
-    // Taking one frame is the whole point — abort so the subscription (and the
-    // socket behind it) doesn't outlive this read.
-    ctl.abort();
-  }
-}
 
 /** Block until padi's `newTerminalPolicy` cell reads the `inherit` policy the
  *  preferences reset above implies.
@@ -1153,25 +1030,32 @@ async function readCellFrame(url: string, body: object): Promise<unknown> {
  * accepted by the server. A read that never converges is a broken push, not a slow
  * one: fail loudly with the last thing padi said. */
 async function waitForInheritPolicy(): Promise<void> {
-  const url = `${baseUrl}/rpc/surface/padi/newTerminalPolicy/get`;
   const deadline = Date.now() + POLICY_PUSH_TIMEOUT;
   let lastDiagnostic = "no attempt completed";
   while (Date.now() < deadline) {
     let payload: unknown;
     try {
-      payload = await readCellFrame(url, { json: padiFold() });
+      // A cell `get` is a SUBSCRIPTION; take its opening snapshot and unsubscribe.
+      // A re-served cell withholds even that frame until the authority's fold primes
+      // the mirror ("mirror never fabricates"), so the read timeout doubles as the
+      // wait for padi to have spoken at all.
+      payload = await padiFirstFrame("newTerminalPolicy/get", undefined, {
+        timeoutMs: POLICY_READ_TIMEOUT,
+      });
     } catch (err) {
-      // The upstream-link gap re-serves as 503, exactly as it does for the resets
-      // above — the one status worth re-reading within the cap. Any other status
-      // is a real route/contract failure and surfaces now with its body.
-      if (err instanceof HttpStatusError && err.status !== 503) throw err;
+      // The upstream-link gap is the one failure worth re-reading within the cap,
+      // exactly as it is for the resets above. Any other failure is a real
+      // route/contract fault and surfaces now, carrying what the server said.
+      if (!isPadiWarmingUp(err)) throw err;
       lastDiagnostic = err instanceof Error ? err.message : String(err);
       await sleep(POLICY_POLL_INTERVAL);
       continue;
     }
-    // A frame the cell's own schema rejects is contract drift, not a race: let it
-    // throw rather than burn the budget on a shape that will never converge.
-    const policy = NewTerminalPolicySchema.parse(payload);
+    // No re-validation here: the wire DECODED this frame against the cell's own
+    // `NewTerminalPolicySchema` (that is what a typed member's success channel is),
+    // so a frame the schema rejects has already failed the call above as contract
+    // drift. Re-parsing would be a second, drifting copy of the same authority.
+    const policy = payload as NewTerminalPolicy;
     if (policy.kind === "inherit") return;
     lastDiagnostic = `padi still reads ${JSON.stringify(policy)}`;
     await sleep(POLICY_POLL_INTERVAL);
@@ -1203,6 +1087,7 @@ BeforeAll(async () => {
   if (koluServer.startsWith("http")) {
     // Reuse an already-running server
     baseUrl = koluServer;
+    await setRpcBaseUrl(baseUrl);
     await waitForPadiLive();
   } else {
     await startServerChild(koluServer); // waits for a live bound padi internally
@@ -1235,6 +1120,10 @@ AfterAll(async () => {
     xvfbProc = undefined;
   }
   keepAliveAgent.destroy();
+  // Close the worker's RPC websocket before the server goes away — the link owns
+  // fibers (dial, ping, response pump) that only `dispose` releases, and a socket
+  // left open would keep the process alive past the run.
+  await disposeRpcWire();
   killServer();
   // Remove the per-worker base dir created with `mkdtempSync` above. Without
   // this, every `just test` invocation leaks ~100–200MB of JSONL transcripts
@@ -1272,40 +1161,38 @@ Before(
     // value into padi's memory-only `newTerminalPolicy` cell, so racing the two
     // (the old `Promise.all`) left the push chasing a padi that a `killAll` was
     // still reconnecting through.
-    await postJSON(`${baseUrl}/rpc/surface/kolu/preferences/test__set`, {
-      json: {
-        // Reset all preferences to defaults (newTerminalTheme "inherit" so new
-        // terminals get the default theme — deterministic for tests)
-        seenTips: [],
-        // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
-        // tip banners popping in mid-shot. Normal e2e runs keep them on.
-        startupTips: !X11CAP,
-        newTerminalTheme: "inherit",
-        // The NEW-TERMINAL `collapsed` default — a top-level seed beside
-        // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
-        // follows the terminal, #959) — but every new terminal SEEDS its
-        // `collapsed` from this default, so pinning it `true` still gives the
-        // whole suite a deterministic collapsed starting point (every terminal a
-        // scenario spawns starts closed) for the many toggle-and-assert
-        // scenarios. The shipped runtime default is open
-        // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
-        // (X11CAP) want the right panel visible by default (it's the new app
-        // default, and the Code tab is part of what we show); normal tests keep
-        // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
-        // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
-        // there, asserted by right-panel.feature / code-tab.feature.
-        newTerminalCollapsed: !X11CAP,
-        shuffleBehavior: "auto",
-        scrollLock: true,
-        attentionAlerts: true,
-        colorScheme: "dark",
-        terminalRenderer: "auto",
-        // `rightPanel` preferences hold the panel width and the Code-tab tree
-        // split — live-written geometry only.
-        rightPanel: {
-          size: 0.25,
-          codeTabTreeSize: 0.35,
-        },
+    await surfaceCall("surface/kolu/preferences/test__set", {
+      // Reset all preferences to defaults (newTerminalTheme "inherit" so new
+      // terminals get the default theme — deterministic for tests)
+      seenTips: [],
+      // Marketing recordings (KOLU_X11CAP) want a quiet canvas — no ambient
+      // tip banners popping in mid-shot. Normal e2e runs keep them on.
+      startupTips: !X11CAP,
+      newTerminalTheme: "inherit",
+      // The NEW-TERMINAL `collapsed` default — a top-level seed beside
+      // `newTerminalTheme`. The LIVE collapsed state is per-terminal now (it
+      // follows the terminal, #959) — but every new terminal SEEDS its
+      // `collapsed` from this default, so pinning it `true` still gives the
+      // whole suite a deterministic collapsed starting point (every terminal a
+      // scenario spawns starts closed) for the many toggle-and-assert
+      // scenarios. The shipped runtime default is open
+      // (DEFAULT_PREFERENCES.newTerminalCollapsed = false). Recordings
+      // (X11CAP) want the right panel visible by default (it's the new app
+      // default, and the Code tab is part of what we show); normal tests keep
+      // it collapsed (right-panel.feature asserts that). `activeTab`/`codeMode`
+      // are per-terminal too (DEFAULT_RIGHT_PANEL_PER_TERMINAL) and flow from
+      // there, asserted by right-panel.feature / code-tab.feature.
+      newTerminalCollapsed: !X11CAP,
+      shuffleBehavior: "auto",
+      scrollLock: true,
+      attentionAlerts: true,
+      colorScheme: "dark",
+      terminalRenderer: "auto",
+      // `rightPanel` preferences hold the panel width and the Code-tab tree
+      // split — live-written geometry only.
+      rightPanel: {
+        size: 0.25,
+        codeTabTreeSize: 0.35,
       },
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for

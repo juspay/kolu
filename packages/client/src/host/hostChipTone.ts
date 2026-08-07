@@ -12,6 +12,10 @@
 import type { EntryState } from "@kolu/surface-map";
 import { hostHueFor } from "kolu-common/hostHue";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import {
+  DAEMON_STATE_PRESENTATION,
+  type KavalPresence,
+} from "../kaval/daemonPresentation";
 
 /** The host's identity hue (a palette hex). */
 export function hostHue(host: HostKey): string {
@@ -96,21 +100,115 @@ const GLANCE: Record<
   },
 };
 
+/**
+ * What a host's KAVAL — the terminal daemon behind its padi — can be said to be
+ * doing, as the host-entry fold needs it. Four arms, because "we do not know" and
+ * "it is coming up" are not the same claim as "it is fine".
+ */
+export type KavalChain =
+  /** Connected and answering: the daemon chain is whole. */
+  | { readonly kind: "serving" }
+  /** Coming up or being recycled — not serving YET, and not a failure. */
+  | { readonly kind: "starting"; readonly verdict: string }
+  /** Dead, stopped, or contract-incompatible — this host cannot run terminals. */
+  | { readonly kind: "down"; readonly verdict: string }
+  /** No verdict is in hand: the status channel is not live, or nothing has been
+   *  published yet. The honest answer is silence — never green. */
+  | { readonly kind: "unknown" };
+
+/** The only value a caller with genuinely no kaval reader may pass. Named so the
+ *  sites that pass it are greppable, and so "I did not look" can never be
+ *  mistaken for "I looked and it was fine". */
+export const KAVAL_CHAIN_UNKNOWN: KavalChain = { kind: "unknown" };
+
+/** Project the client's existing kaval PRESENCE (the same fold the kaval
+ *  sub-chip and the degraded canvas read) into the chain arm the host dot needs.
+ *  Reuses `DAEMON_STATE_PRESENTATION`'s labels rather than minting a second
+ *  vocabulary for the same six daemon states. */
+export function kavalChainOf(presence: KavalPresence): KavalChain {
+  switch (presence.kind) {
+    case "connected":
+      return { kind: "serving" };
+    case "warming":
+      return {
+        kind: "starting",
+        verdict: DAEMON_STATE_PRESENTATION[presence.state].label,
+      };
+    case "down":
+      return {
+        kind: "down",
+        verdict: DAEMON_STATE_PRESENTATION[presence.state].label,
+      };
+    case "incompatible":
+      return {
+        kind: "down",
+        verdict: DAEMON_STATE_PRESENTATION.incompatible.label,
+      };
+    case "unknown":
+      return KAVAL_CHAIN_UNKNOWN;
+  }
+}
+
+/**
+ * THE composition policy for a host's presented state (juspay/kolu#2101 N4).
+ *
+ * The field contradiction this exists to end: the incident's host dot stayed
+ * GREEN while the workspace was dead. Nothing lied — the dot reported padi's own
+ * link, which was genuinely up — but a host entry is the head of a CHAIN (padi →
+ * kaval → your terminals), and a presented state that reports one link of a chain
+ * as if it were the chain is a lie of aggregation. The user does not have a
+ * relationship with padi; they have one with the workspace behind it.
+ *
+ * The policy, and the reasons for each half:
+ *
+ *  - The kaval verdict is composed **only onto a `connected` entry.** On
+ *    `warming`/`failed`/`not-a-member` the entry's own tone is already the whole
+ *    truth, and the kaval verdict reaching us through THAT entry is by definition
+ *    stale — a host we cannot reach cannot tell us about its daemon.
+ *  - `serving` and `unknown` leave the entry's own row untouched. "We know it is
+ *    fine" and "we know nothing" must not be spelled the same way, and the way to
+ *    spell "we know nothing" is to make no additional claim, not to invent one.
+ *  - A degraded chain is **amber, not red, and not `down`.** Red and the
+ *    strike-through are this vocabulary's word for "unreachable" — a host with a
+ *    dead kaval is perfectly reachable, and its padi will answer, restart the
+ *    daemon (#2101 N1), and restore the session. Painting it as unreachable would
+ *    trade one wrong dot for another.
+ *  - The verdict is NAMED in `short` and `title`, never merely coloured: a
+ *    tooltip that says "connected" over a dead workspace is how the incident
+ *    happened.
+ */
 export function hostGlance(
   status: EntryState<{ reason: string }> | EntryState,
+  kaval: KavalChain,
 ): HostGlance {
   const row = GLANCE[status.kind];
   const title =
     typeof row.title === "function"
       ? row.title(status as EntryState<{ reason: string }>)
       : row.title;
-  return {
+  const base: HostGlance = {
     stripDot: row.stripDot,
     detailDot: row.detailDot,
     down: row.down,
     short: row.short,
     title,
     labelDecoration: row.labelDecoration,
+  };
+  if (status.kind !== "connected") return base;
+  if (kaval.kind === "serving" || kaval.kind === "unknown") return base;
+  const pulse =
+    kaval.kind === "starting"
+      ? " animate-pulse motion-reduce:animate-none"
+      : "";
+  return {
+    ...base,
+    stripDot: `bg-amber-400${pulse}`,
+    detailDot: `bg-amber-400${pulse}`,
+    // NOT `down`: the host is reachable and its padi is answering. See the policy.
+    down: false,
+    short: kaval.kind === "down" ? "kaval down" : "kaval starting",
+    title: `connected — kaval ${kaval.verdict}`,
+    labelDecoration: "",
   };
 }
 
@@ -122,27 +220,32 @@ export function hostGlance(
 export function chipStatusDot(
   _host: HostKey,
   status: EntryState<{ reason: string }> | EntryState,
+  kaval: KavalChain,
 ): string {
-  const g = hostGlance(status);
+  const g = hostGlance(status, kaval);
   return g.stripDot ?? g.detailDot;
 }
 
 /** Always-on connection tone for non-strip surfaces (palette host lead).
  *  Same fact fold as {@link chipStatusDot}; host identity is irrelevant. */
-export function dotClass(status: EntryState): string {
-  return chipStatusDot({ kind: "local" }, status);
+export function dotClass(status: EntryState, kaval: KavalChain): string {
+  return chipStatusDot({ kind: "local" }, status, kaval);
 }
 
 /** Tooltip / a11y title from {@link hostGlance}. */
 export function statusTitle(
   status: EntryState<{ reason: string }> | EntryState,
+  kaval: KavalChain,
 ): string {
-  return hostGlance(status).title;
+  return hostGlance(status, kaval).title;
 }
 
 /** Compact one-word label from {@link hostGlance}.short. */
-export function statusLabelShort(status: EntryState): string {
-  return hostGlance(status).short;
+export function statusLabelShort(
+  status: EntryState,
+  kaval: KavalChain,
+): string {
+  return hostGlance(status, kaval).short;
 }
 
 /** Context line for a host palette row — quiet when healthy, not canvas-active.
@@ -156,8 +259,15 @@ export function statusLabelShort(status: EntryState): string {
 export function hostRowContext(
   status: EntryState,
   isCanvasActive: boolean,
+  kaval: KavalChain = KAVAL_CHAIN_UNKNOWN,
 ): string {
   if (isCanvasActive) return "active";
-  if (status.kind === "connected") return "";
-  return statusLabelShort(status);
+  // A connected entry with a degraded chain has a word for itself now ("kaval
+  // down"), so the quiet-when-healthy rule narrows to "quiet when the WHOLE chain
+  // is healthy". A caller with no kaval reader in scope (the fleet-action list,
+  // built outside a reactive owner) passes nothing and gets the old behaviour —
+  // a text slot, never the dot, so it can under-report but never mis-colour.
+  const glance = hostGlance(status, kaval);
+  if (status.kind === "connected" && kaval.kind !== "down") return "";
+  return glance.short;
 }

@@ -47,11 +47,27 @@ vi.mock("./agentDrv", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./agentDrv")>();
   return { ...actual, resolveAgentDrv: h.resolveAgentDrv };
 });
-vi.mock("./session", () => ({ makeSession: h.makeSession }));
+// `runProbe` is the session module's REAL probe edge and is deliberately NOT
+// stubbed: the suite asserts what the dial does with a probe's outcome, so
+// running the probe for real is the behaviour under test.
+vi.mock("./session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session")>()),
+  makeSession: h.makeSession,
+}));
 vi.mock("./sshConnector", () => ({ sshConnector: h.sshConnector }));
 
+import { defineSurface } from "@kolu/surface/define";
+import { Effect, Schema } from "effect";
 import { dialAgentOnce } from "./dialAgentOnce";
 import { SURFACE_AGENT_FLAKE_REF_ENV } from "./agentDrv";
+
+/** The surface every dial below names. `dialAgentOnce` now takes the surface as a
+ *  VALUE (the wire link is built from its `RpcGroup`), so a dial cannot be spelled
+ *  without one — but `sshConnector` is mocked here, so its content is irrelevant to
+ *  this suite: it only has to be a real surface. */
+const dialSurface = defineSurface({
+  cells: { ping: { schema: Schema.String, default: "" } },
+});
 
 /** Wire the mocks: `sshConnector(opts)` records its transport opts and returns a
  *  dummy connector; `makeSession(opts)` mints a fresh fake session whose `pin()`
@@ -121,11 +137,12 @@ describe("dialAgentOnce: eager source-ref validation", () => {
   // session's retryable "network" classification.
   const base = {
     host: "nix@prod",
+    surface: dialSurface,
     package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",
     localEnv: {},
-    probe: async () => undefined,
+    probe: () => Effect.succeed(undefined),
   };
 
   it("fails when the source ref is missing (ran outside the Nix wrapper)", async () => {
@@ -155,11 +172,12 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
       localEnv: {},
-      probe: async () => undefined,
+      probe: () => Effect.succeed(undefined),
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
     await expect(resolveDrvPath(resolverContext)).resolves.toEqual({
@@ -177,11 +195,12 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent-full",
       binary: "agent",
       fatalPrefix: "agent:",
       localEnv: {},
-      probe: async () => undefined,
+      probe: () => Effect.succeed(undefined),
     });
     await sshOpts()?.resolveDrvPath(resolverContext);
     expect(h.resolveAgentDrv).toHaveBeenCalledWith(FLAKE_REF, "agent-full");
@@ -192,11 +211,12 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
-      probe: async () => undefined,
+      probe: () => Effect.succeed(undefined),
       extraArgs: ["--kaval", "/run/user/1000/kaval-7692/pty-host.sock"],
     });
     expect(sshOpts()).toMatchObject({
@@ -208,11 +228,12 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
-      probe: async () => undefined,
+      probe: () => Effect.succeed(undefined),
     });
     expect(sshOpts()?.extraArgs).toBeUndefined();
   });
@@ -224,11 +245,12 @@ describe("dialAgentOnce: deferred drv resolution", () => {
     fakeSession({});
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "widget",
       binary: "widget",
       fatalPrefix: "widget:",
       localEnv: {},
-      probe: async () => undefined,
+      probe: () => Effect.succeed(undefined),
     });
     const resolveDrvPath = sshOpts()?.resolveDrvPath;
     await expect(resolveDrvPath(resolverContext)).rejects.toThrow(
@@ -241,7 +263,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
   it("pins, probes, marks connected, and yields the client", async () => {
     const client = { surface: {} };
     fakeSession(client);
-    const probe = vi.fn(async () => "ok");
+    const probe = vi.fn(() => Effect.succeed("ok"));
 
     // A distinctive composed env, so we can prove it reaches the connector verbatim
     // through the forwarding seam (dialAgentOnce → sshConnector → buildAgentCommand →
@@ -250,6 +272,7 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     const localEnv = { HOME: "/home/x", PATH: "/usr/bin" };
     const dial = await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "agent",
       binary: "agent",
       fatalPrefix: "agent:",
@@ -275,13 +298,12 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        surface: dialSurface,
         package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
-        probe: async () => {
-          throw new Error("link dead");
-        },
+        probe: () => Effect.fail(new Error("link dead")),
       }),
     ).rejects.toThrow(/link dead/);
     expect(h.markConnected).not.toHaveBeenCalled();
@@ -331,13 +353,12 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "pulam",
       binary: "pulam",
       fatalPrefix: "pulam:",
       localEnv: {},
-      probe: async () => {
-        throw new Error("[AsyncIdQueue] Queue[1] was closed");
-      },
+      probe: () => Effect.fail(new Error("[AsyncIdQueue] Queue[1] was closed")),
     }).catch((e: Error) => {
       msg = e.message;
     });
@@ -375,13 +396,12 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     let msg = "";
     await dialAgentOnce({
       host: "nix@prod",
+      surface: dialSurface,
       package: "kaval",
       binary: "kaval",
       fatalPrefix: "kaval --stdio:",
       localEnv: {},
-      probe: async () => {
-        throw new Error("[AsyncIdQueue] Queue[1] was closed");
-      },
+      probe: () => Effect.fail(new Error("[AsyncIdQueue] Queue[1] was closed")),
     }).catch((e: Error) => {
       msg = e.message;
     });
@@ -399,13 +419,12 @@ describe("dialAgentOnce: pin → probe → markConnected → dispose", () => {
     await expect(
       dialAgentOnce({
         host: "nix@prod",
+        surface: dialSurface,
         package: "agent",
         binary: "agent",
         fatalPrefix: "agent:",
         localEnv: {},
-        probe: async () => {
-          throw new Error("transport blip");
-        },
+        probe: () => Effect.fail(new Error("transport blip")),
       }),
     ).rejects.toThrow(/transport blip/);
   });
@@ -418,11 +437,12 @@ describe("dialAgentOnce: per-dial session isolation (unpooled)", () => {
   // cross-destroys the other. These tests pin "one session per dial".
   const dialArgs = {
     host: "nix@prod",
+    surface: dialSurface,
     package: "agent",
     binary: "agent",
     fatalPrefix: "agent:",
     localEnv: {},
-    probe: async () => "ok",
+    probe: () => Effect.succeed("ok"),
   };
 
   it("constructs a fresh session for a repeated same-host/binary dial after dispose", async () => {

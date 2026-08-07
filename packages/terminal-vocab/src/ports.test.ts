@@ -8,15 +8,15 @@
  * host the port is on.
  */
 
+import { describe, expect, it } from "vitest";
 import {
   foldPorts,
   type PortInfo,
-  portReach,
   type PortScope,
+  portReach,
   portsEqual,
   type TerminalPorts,
 } from "./schema.ts";
-import { describe, expect, it } from "vitest";
 
 const p = (
   port: number,

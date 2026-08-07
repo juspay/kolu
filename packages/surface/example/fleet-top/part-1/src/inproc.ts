@@ -1,46 +1,69 @@
 /**
- * The first link: `directLink` — in-process, no wire.
+ * The first link: `directDispatch` — in-process, no wire.
  *
- * Before any socket, the surface is consumable *in the same process*. Feed the
- * flattened router straight to `directLink` and you get the EXACT
- * `ContractRouterClient<typeof surface.contract>` a WebSocket or ssh consumer
- * would hold — byte-identical across a later transport swap. Every call invokes
- * the handler directly (microtask-deferred); streams come back as async
- * iterables, just as the wire links yield them.
+ * The wire links (`websocketLink`, `stdioLink`, `unixSocketLink`) SEPARATE the
+ * serve side from the consume side. `directDispatch` FUSES them: it takes the
+ * served handler record itself and calls handlers directly, so the face you hold
+ * here is the exact face a WebSocket or ssh consumer holds — zero serialization,
+ * in either direction, and `live` is constant-`true` honestly (there is no
+ * transport that could half-open).
+ *
+ * `buildSurfaceFace` is the addressing layer: it re-nests the flat wire tags
+ * (`surface/load/get`) into `face.surface.load.get`. Streaming verbs hand back a
+ * lazy Effect `Stream`; unary verbs hand back a `Promise`. The face is
+ * deliberately STRUCTURAL — per-member types live in the spec-derived bound
+ * hooks `surfaceClient` builds (see `client/wire.ts`) — so a non-reactive reader
+ * like this one names the member shape it is calling, once.
  *
  * Run with `pnpm run inproc`. This is the honest "hello world" of the stack:
  * define → implement → consume, with the transport collapsed to nothing.
  */
 
-import { directLink } from "@kolu/surface/links/direct";
-import type { surface } from "./common/surface";
+import {
+  buildSurfaceFace,
+  type StreamingProcedure,
+} from "@kolu/surface/client";
+import { directDispatch } from "@kolu/surface/links/direct";
+import { Effect, Option, Stream } from "effect";
+import type { Load, Memory, Pid } from "./common/surface";
+import { surface } from "./common/surface";
 import { createTop } from "./server/top";
 
-/** A cell/collection `get`/`keys` verb yields snapshot-then-deltas as an async
- *  iterable (the same shape every wire link yields). In-process we only want the
- *  current value, so take the first frame — the snapshot. */
-async function firstFrame<T>(
-  source: AsyncIterable<T> | Promise<AsyncIterable<T>>,
+/** A cell `get` and a collection `keys` both OPEN with the current snapshot,
+ *  then stream deltas. In-process we only want that first frame, so run the
+ *  stream's head — which interrupts the subscription the moment it lands. */
+async function snapshot<T>(
+  stream: Stream.Stream<T, unknown>,
+  what: string,
 ): Promise<T> {
-  for await (const frame of await source) return frame;
-  throw new Error("stream closed before its snapshot frame");
+  const head = await Effect.runPromise(Stream.runHead(stream));
+  if (Option.isNone(head)) {
+    throw new Error(`${what}: stream closed before its snapshot frame`);
+  }
+  return head.value;
 }
 
 async function main(): Promise<void> {
   const top = createTop();
   top.start();
 
-  // `C` is load-bearing and must be passed explicitly — the router arg is typed
-  // loosely, so an omitted generic silently degrades every call to `any`.
-  const client = directLink<typeof surface.contract>(top.router);
+  // `directDispatch` takes the served surface (anything carrying `handlers`),
+  // so the whole runtime goes in verbatim.
+  const face = buildSurfaceFace(surface, directDispatch(top.runtime));
+  const cell = <T>(name: "load" | "memory") =>
+    face.surface[name]?.get as StreamingProcedure<undefined, T>;
 
-  // Give the first poll a moment to land, then read the cells + collection —
-  // each `get`/`keys` is a stream whose first frame is the current snapshot.
+  // Give the first poll a moment to land, then read the cells + collection.
   await new Promise((r) => setTimeout(r, 100));
 
-  const load = await firstFrame(client.surface.load.get({}));
-  const memory = await firstFrame(client.surface.memory.get({}));
-  const pids = await firstFrame(client.surface.processes.keys({}));
+  const load = await snapshot(cell<Load>("load")(undefined), "load");
+  const memory = await snapshot(cell<Memory>("memory")(undefined), "memory");
+  const pids = await snapshot(
+    (face.surface.processes?.keys as StreamingProcedure<undefined, Pid[]>)(
+      undefined,
+    ),
+    "processes.keys",
+  );
 
   process.stdout.write(
     `load ${load.avg.join(" ")} over ${load.cores} cores · ` +

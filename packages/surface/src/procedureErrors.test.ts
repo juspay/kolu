@@ -1,225 +1,194 @@
 /**
- * SK6 runtime pins — the DECLARED error channel on `defineSurface` procedures.
+ * SK6 runtime pins — the DECLARED error channel on `defineSurface` procedures,
+ * over a REAL wire (`serveOverStdio` + `stdioLink`, the same ndjson encode and
+ * decode a socket link runs), never an in-process shortcut.
  *
  * The class this kills (bug-remote-kaval-contract-skew defect A): a typed
- * domain error thrown by a handler crossed the wire as an opaque
- * `INTERNAL_SERVER_ERROR` because nothing on the contract declared it, so no
- * hop could do better than oRPC's `toORPCError` collapse. With `errors` on
- * the {@link ProcedureSpec}, the handler mints the declared code via its
- * typed `opts.errors` constructors and the client receives it `defined: true`
- * with its data schema-validated and intact — across a REAL wire
- * (`serveOverStdio` + `stdioLink`, the same encode/decode a socket link
- * runs), not an in-process shortcut.
+ * domain error raised by a handler crossed the wire as an opaque internal
+ * failure because nothing on the contract declared it, so no hop could do
+ * better than collapse it. With `error` on the {@link ProcedureSpec} the
+ * handler FAILS with an instance of the declared `Schema.TaggedErrorClass` and
+ * the caller receives it decoded — same class, same `_tag`, data intact — and
+ * narrows on `_tag` with no cast.
  *
- * The complementary pin: an UNDECLARED plain throw still arrives as
- * `INTERNAL_SERVER_ERROR` — that is the fail-fast crash-loudly channel,
- * deliberately untouched.
+ * The two complementary pins:
+ *  - an UNDECLARED throw stays a DEFECT (D4's fail-fast crash-loudly channel),
+ *    never a declared failure a caller could mistake for a domain outcome;
+ *  - a TRANSPORT death is neither: it is the leg's own
+ *    `SurfaceStdioTransportClosed`, so "the daemon died" and "the daemon said
+ *    no" are distinguishable at the call site.
  */
 
-import { isDefinedError, ORPCError, safe } from "@orpc/client";
+import { Cause, Effect, Exit, Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { defineSurface } from "./define";
+import { SurfaceStdioTransportClosed } from "./errors";
 import { stdioLink } from "./links/stdio";
-import { createLoopbackPair } from "./loopback";
-import { mirrorRemoteSurface } from "./mirrorRemoteSurface";
+import { createLoopbackPair, greetLoopback } from "./loopback";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
+
+class DemoContractSkew extends Schema.TaggedErrorClass<DemoContractSkew>(
+  "@kolu/surface/test/DemoContractSkew",
+)("DemoContractSkew", {
+  daemonVersion: Schema.String,
+  requiredVersion: Schema.String,
+}) {
+  override get message(): string {
+    return `daemon speaks ${this.daemonVersion}, needs ${this.requiredVersion}`;
+  }
+}
 
 const daemonSurface = defineSurface({
   procedures: {
     daemon: {
-      // The incident's shape: a recycle that proves a contract skew and
-      // must refuse TYPED, versions as data.
+      // The incident's shape: a recycle that proves a contract skew and must
+      // refuse TYPED, versions as data.
       recycle: {
-        input: z.object({ id: z.string() }),
-        errors: {
-          DEMO_CONTRACT_SKEW: {
-            data: z.object({
-              daemonVersion: z.string(),
-              requiredVersion: z.string(),
-            }),
-          },
-        },
+        input: Schema.Struct({ id: Schema.String }),
+        error: DemoContractSkew,
       },
-      // No declared errors — the crash-loudly channel.
+      // No declared error — the crash-loudly channel.
       boom: {},
     },
   },
 });
 
-function buildWiredClient() {
+async function buildWiredClient() {
   const runtime = implementSurface(daemonSurface, {
     procedures: {
       daemon: {
-        recycle: async ({ input, errors }) => {
-          // The typed constructor the contract-first handler receives (the
-          // framework spreads oRPC's handler opts through, so `errors` arrives
-          // with per-code constructors — no surface plumbing).
-          throw errors.DEMO_CONTRACT_SKEW({
-            message: `daemon ${input.id} speaks 5.0, needs 5.2`,
-            data: { daemonVersion: "5.0", requiredVersion: "5.2" },
-          });
-        },
-        boom: async () => {
-          throw new Error("undeclared kaboom");
-        },
+        recycle: ({ input }) =>
+          Effect.fail(
+            new DemoContractSkew({
+              daemonVersion: `5.0 (${input.id})`,
+              requiredVersion: "5.2",
+            }),
+          ),
+        boom: () =>
+          Effect.sync(() => {
+            throw new Error("undeclared kaboom");
+          }),
       },
     },
   });
 
   const pair = createLoopbackPair();
   const serving = serveOverStdio({
-    // biome-ignore lint/suspicious/noExplicitAny: runtime.router is the final served router; serveOverStdio takes Router<any, any>.
-    router: runtime.router as any,
+    group: runtime.group,
+    handlers: runtime.handlers,
     transport: pair.server,
   });
-  const client = stdioLink<typeof daemonSurface.contract>({
+  const readiness = await greetLoopback(pair);
+  const link = await stdioLink({
+    group: daemonSurface.group,
     read: pair.client.read,
     write: pair.client.write,
+    readiness,
   });
-  const done = async () => {
-    pair.client.write.end();
-    pair.server.write.end();
-    await serving;
+  return {
+    link,
+    pair,
+    serving,
+    done: async () => {
+      await link.dispose();
+      pair.client.write.end();
+      pair.server.write.end();
+      await serving;
+      await runtime.close();
+    },
   };
-  return { client, done };
 }
 
 describe("declared procedure errors cross the wire typed (SK6)", () => {
-  it("a declared error arrives defined:true with its code and data intact", async () => {
-    const { client, done } = buildWiredClient();
+  it("a declared error arrives as its own class, with its data intact", async () => {
+    const { link, done } = await buildWiredClient();
 
-    const rejection = await client.surface.daemon.recycle({ id: "kaval" }).then(
-      () => {
-        throw new Error("expected a typed rejection");
-      },
-      (err: unknown) => err,
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        link.dispatch.unary("surface/daemon/recycle", { id: "kaval" }),
+      ),
     );
 
-    expect(rejection).toBeInstanceOf(ORPCError);
-    const orpc = rejection as ORPCError<string, unknown>;
-    expect(orpc.code).toBe("DEMO_CONTRACT_SKEW");
-    // `defined: true` is the whole point — the wire recognized the contract's
-    // declared code, so the client can narrow on it (`isDefinedError`).
-    expect(orpc.defined).toBe(true);
-    expect(orpc.data).toEqual({
-      daemonVersion: "5.0",
-      requiredVersion: "5.2",
-    });
-    expect(orpc.message).toBe("daemon kaval speaks 5.0, needs 5.2");
+    // Same class on both sides — decoded against the declared schema, not
+    // rehydrated as a bag of fields.
+    expect(failure).toBeInstanceOf(DemoContractSkew);
+    const skew = failure as DemoContractSkew;
+    expect(skew._tag).toBe("DemoContractSkew");
+    expect(skew.daemonVersion).toBe("5.0 (kaval)");
+    expect(skew.requiredVersion).toBe("5.2");
+    // …and NOT confusable with a transport death.
+    expect(failure).not.toBeInstanceOf(SurfaceStdioTransportClosed);
 
     await done();
   });
 
-  it("safe() + isDefinedError narrow a declared rejection to its typed data", async () => {
-    const { client, done } = buildWiredClient();
+  it("narrows on `_tag` at the call site with no cast", async () => {
+    const { link, done } = await buildWiredClient();
 
-    const { error } = await safe(client.surface.daemon.recycle({ id: "k" }));
-    expect(error).toBeTruthy();
-    if (error && isDefinedError(error)) {
-      // Narrowed: the declared union's data shape, no casts.
-      expect(error.data).toEqual({
-        daemonVersion: "5.0",
-        requiredVersion: "5.2",
-      });
-    } else {
-      throw new Error("expected a defined (declared) error");
+    const exit = await Effect.runPromiseExit(
+      link.dispatch.unary("surface/daemon/recycle", { id: "k" }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = Cause.findError(exit.cause);
+      expect(Result.isSuccess(error)).toBe(true);
+      const value = Result.isSuccess(error) ? error.success : undefined;
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        "_tag" in value &&
+        value._tag === "DemoContractSkew"
+      ) {
+        expect((value as DemoContractSkew).requiredVersion).toBe("5.2");
+      } else {
+        throw new Error(`expected a DemoContractSkew, got ${String(value)}`);
+      }
     }
 
     await done();
   });
 
-  it("an UNDECLARED plain throw still collapses to INTERNAL_SERVER_ERROR (the loud channel)", async () => {
-    const { client, done } = buildWiredClient();
+  it("an UNDECLARED throw stays a DEFECT — it never reaches the error channel", async () => {
+    const { link, done } = await buildWiredClient();
 
-    const rejection = await client.surface.daemon.boom().then(
-      () => {
-        throw new Error("expected a rejection");
-      },
-      (err: unknown) => err,
+    const exit = await Effect.runPromiseExit(
+      link.dispatch.unary("surface/daemon/boom", undefined),
     );
-
-    expect(rejection).toBeInstanceOf(ORPCError);
-    const orpc = rejection as ORPCError<string, unknown>;
-    expect(orpc.code).toBe("INTERNAL_SERVER_ERROR");
-    expect(orpc.defined).toBe(false);
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      // A defect, not a failure: nothing declared it, so no caller may branch
+      // on it as a domain outcome.
+      expect(Result.isSuccess(Cause.findError(exit.cause))).toBe(false);
+      const defect = Cause.findDefect(exit.cause);
+      expect(Result.isSuccess(defect)).toBe(true);
+      expect(JSON.stringify(Cause.pretty(exit.cause))).toContain(
+        "undeclared kaboom",
+      );
+    }
 
     await done();
   });
-});
 
-describe("declared errors cross mirrorRemoteSurface's forwarders typed (SK6/D4)", () => {
-  it("a forwarder rejection keeps code/defined/data; serve∘mirror keeps them across a second wire", async () => {
-    // The mirror leg of the incident hop: a downstream consumer (drishti-style)
-    // mirrors a remote surface and re-serves it. The forwarder passes the
-    // remote rejection through UNTOUCHED, and the re-served surface (same
-    // declaration) re-declares the union — so a declared error survives BOTH
-    // the mirror stub and a second wire encode, `defined: true`, data intact.
-    const remote = buildWiredClient();
-    // The mirror consumes the same declaration + the remote's wire client.
-    const mirror = mirrorRemoteSurface(daemonSurface, remote.client, {});
+  it("a transport death is its own vocabulary, not a declared error", async () => {
+    const { link, pair, serving } = await buildWiredClient();
+    // One good call first, so this exercises the dead-transport path rather
+    // than a link that never worked.
+    await expect(
+      Effect.runPromise(
+        Effect.flip(link.dispatch.unary("surface/daemon/recycle", { id: "x" })),
+      ),
+    ).resolves.toBeInstanceOf(DemoContractSkew);
 
-    // Leg 1 — the bare forwarder.
-    const viaMirror = await mirror.procedures.daemon
-      .recycle({ id: "kaval" })
-      .then(
-        () => {
-          throw new Error("expected a typed rejection");
-        },
-        (err: unknown) => err,
-      );
-    expect(viaMirror).toBeInstanceOf(ORPCError);
-    expect((viaMirror as ORPCError<string, unknown>).code).toBe(
-      "DEMO_CONTRACT_SKEW",
-    );
-    expect((viaMirror as ORPCError<string, unknown>).defined).toBe(true);
-    expect((viaMirror as ORPCError<string, unknown>).data).toEqual({
-      daemonVersion: "5.0",
-      requiredVersion: "5.2",
-    });
-
-    // Leg 2 — re-serve the mirror (serve ∘ mirror) over a SECOND real wire.
-    const { router: reRouter } = implementSurface(daemonSurface, {
-      procedures: {
-        daemon: {
-          recycle: ({ input }) => mirror.procedures.daemon.recycle(input),
-          boom: () => mirror.procedures.daemon.boom(),
-        },
-      },
-    });
-    const pair = createLoopbackPair();
-    const serving = serveOverStdio({
-      // biome-ignore lint/suspicious/noExplicitAny: runtime-valid final router.
-      router: reRouter as any,
-      transport: pair.server,
-    });
-    const reServed = stdioLink<typeof daemonSurface.contract>({
-      read: pair.client.read,
-      write: pair.client.write,
-    });
-
-    const viaReServe = await reServed.surface.daemon
-      .recycle({ id: "kaval" })
-      .then(
-        () => {
-          throw new Error("expected a typed rejection");
-        },
-        (err: unknown) => err,
-      );
-    expect(viaReServe).toBeInstanceOf(ORPCError);
-    expect((viaReServe as ORPCError<string, unknown>).code).toBe(
-      "DEMO_CONTRACT_SKEW",
-    );
-    expect((viaReServe as ORPCError<string, unknown>).defined).toBe(true);
-    expect((viaReServe as ORPCError<string, unknown>).data).toEqual({
-      daemonVersion: "5.0",
-      requiredVersion: "5.2",
-    });
-
-    pair.client.write.end();
+    // The agent exits: its stdout ends.
     pair.server.write.end();
     await serving;
-    await remote.done();
+
+    const failure = await Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/daemon/recycle", { id: "x" })),
+    );
+    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+    expect(failure).not.toBeInstanceOf(DemoContractSkew);
+    await link.dispose();
   });
 });

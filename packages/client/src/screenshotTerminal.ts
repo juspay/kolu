@@ -16,11 +16,14 @@
  *  sidesteps that entire surface. */
 
 import type { TerminalMetadata } from "@kolu/padi/surface";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { terminalKey } from "kolu-common/terminalKey";
 import { toast } from "solid-sonner";
 import { FONT_FAMILY } from "terminal-themes";
 import { parseColor, type RGB } from "terminal-themes/color";
+import type { UiAction } from "./runAction";
 import { getTerminalRefs } from "./terminal/terminalRefs";
 
 /** Standard xterm 256-color palette. First 16 come from the theme; 16-231
@@ -39,19 +42,37 @@ const DOT_MARGIN_LEFT = 16;
 const DOT_MACOS = ["#ff5f57", "#febc2e", "#28c840"] as const;
 const BRAND_RIGHT_MARGIN = 14;
 const BRAND_LOGO_URL = new URL("../favicon.svg", import.meta.url).href;
-let brandLogoPromise: Promise<HTMLImageElement> | undefined;
-
-function loadBrandLogo(): Promise<HTMLImageElement> {
-  brandLogoPromise ??= new Promise((resolve, reject) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve(image);
-    image.onerror = () =>
-      reject(new Error(`Kolu logo failed to load: ${BRAND_LOGO_URL}`));
-    image.src = BRAND_LOGO_URL;
-  });
-  return brandLogoPromise;
-}
+/** One decode of the brand logo, memoized by its RESULT.
+ *
+ *  `Effect.callback` over the image's `load`/`error` pair — the resume is
+ *  idempotent, so the two listeners cannot double-settle. The memo caches the
+ *  decoded image rather than the promise the old shape held, which means a
+ *  FAILED decode is not remembered forever: a transient load failure no longer
+ *  strips the logo from every screenshot for the rest of the session. */
+let brandLogo: HTMLImageElement | undefined;
+const loadBrandLogo: Effect.Effect<HTMLImageElement, Error> = Effect.suspend(
+  () =>
+    brandLogo !== undefined
+      ? Effect.succeed(brandLogo)
+      : Effect.callback<HTMLImageElement, Error>((resume) => {
+          const image = new Image();
+          image.decoding = "async";
+          image.onload = () => resume(Effect.succeed(image));
+          image.onerror = () =>
+            resume(
+              Effect.fail(
+                new Error(`Kolu logo failed to load: ${BRAND_LOGO_URL}`),
+              ),
+            );
+          image.src = BRAND_LOGO_URL;
+        }).pipe(
+          Effect.tap((image) =>
+            Effect.sync(() => {
+              brandLogo = image;
+            }),
+          ),
+        ),
+);
 
 /** Indexed read into the 6-step palette. The `as 0|1|2|3|4|5` cast is
  *  the assertion that `% 6` produced a valid tuple index — same blast
@@ -197,218 +218,231 @@ function roundedRectPath(
   ctx.closePath();
 }
 
-export async function screenshotTerminal(
+export function screenshotTerminal(
   id: TerminalId,
   meta: TerminalMetadata | undefined,
-): Promise<void> {
-  const refs = getTerminalRefs(id);
-  if (!refs) {
-    toast.error("Terminal not ready");
-    return;
-  }
-  const xterm = refs.xterm as unknown as {
-    cols: number;
-    rows: number;
-    options: {
-      fontSize?: number;
-      fontFamily?: string;
-      theme?: Record<string, string | undefined>;
-    };
-    buffer: {
-      active: {
-        viewportY: number;
-        getLine: (
-          y: number,
-        ) =>
-          | { getCell: (x: number, dst?: BufferCell) => BufferCell | undefined }
-          | undefined;
-        getNullCell: () => BufferCell;
+): UiAction {
+  return Effect.gen(function* () {
+    const refs = getTerminalRefs(id);
+    if (!refs) {
+      toast.error("Terminal not ready");
+      return;
+    }
+    const xterm = refs.xterm as unknown as {
+      cols: number;
+      rows: number;
+      options: {
+        fontSize?: number;
+        fontFamily?: string;
+        theme?: Record<string, string | undefined>;
+      };
+      buffer: {
+        active: {
+          viewportY: number;
+          getLine: (y: number) =>
+            | {
+                getCell: (
+                  x: number,
+                  dst?: BufferCell,
+                ) => BufferCell | undefined;
+              }
+            | undefined;
+          getNullCell: () => BufferCell;
+        };
       };
     };
-  };
 
-  const theme = resolveTheme(xterm.options.theme ?? {});
-  const fontSize = xterm.options.fontSize ?? 14;
-  const fontFamily = xterm.options.fontFamily ?? FONT_FAMILY;
-  // Wait for webfonts — on the first screenshot after a cold page load,
-  // @font-face declarations may not have finished loading. fillText would
-  // silently fall back to the browser's default glyphs and produce an
-  // image that visually mismatches the live terminal.
-  if (document.fonts?.ready) await document.fonts.ready;
-  let brandLogo: HTMLImageElement | undefined;
-  try {
-    brandLogo = await loadBrandLogo();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(msg);
-    toast.warning(
-      `Kolu logo unavailable; copying screenshot without it: ${msg}`,
+    const theme = resolveTheme(xterm.options.theme ?? {});
+    const fontSize = xterm.options.fontSize ?? 14;
+    const fontFamily = xterm.options.fontFamily ?? FONT_FAMILY;
+    // Wait for webfonts — on the first screenshot after a cold page load,
+    // @font-face declarations may not have finished loading. fillText would
+    // silently fall back to the browser's default glyphs and produce an
+    // image that visually mismatches the live terminal.
+    if (document.fonts?.ready)
+      yield* Effect.promise(() => document.fonts.ready);
+    const logo = yield* loadBrandLogo.pipe(
+      // The logo is decoration: a failed decode degrades the screenshot, it does
+      // not fail it. Recovered to `undefined` — which the drawing below already
+      // reads as "no logo" — rather than left to abort the copy.
+      Effect.catch((err) =>
+        Effect.sync((): HTMLImageElement | undefined => {
+          console.warn(err.message);
+          toast.warning(
+            `Kolu logo unavailable; copying screenshot without it: ${err.message}`,
+          );
+          return undefined;
+        }),
+      ),
     );
-  }
-  const buffer = xterm.buffer.active;
-  const cols = xterm.cols;
-  const rows = xterm.rows;
-  const yOffset = buffer.viewportY;
+    const buffer = xterm.buffer.active;
+    const cols = xterm.cols;
+    const rows = xterm.rows;
+    const yOffset = buffer.viewportY;
 
-  // Measure a cell using a probe canvas. A fresh 2d context inherits the
-  // browser's default font; we set it explicitly before measuring.
-  const probe = document.createElement("canvas").getContext("2d");
-  if (!probe) {
-    toast.error("Canvas unavailable");
-    return;
-  }
-  probe.font = `${fontSize}px ${fontFamily}`;
-  const cellW = Math.max(1, probe.measureText("M").width);
-  // xterm's default lineHeight is 1.0; we add a small padding so descenders
-  // (g, y) don't get clipped by the next row's background.
-  const cellH = Math.ceil(fontSize * 1.2);
+    // Measure a cell using a probe canvas. A fresh 2d context inherits the
+    // browser's default font; we set it explicitly before measuring.
+    const probe = document.createElement("canvas").getContext("2d");
+    if (!probe) {
+      toast.error("Canvas unavailable");
+      return;
+    }
+    probe.font = `${fontSize}px ${fontFamily}`;
+    const cellW = Math.max(1, probe.measureText("M").width);
+    // xterm's default lineHeight is 1.0; we add a small padding so descenders
+    // (g, y) don't get clipped by the next row's background.
+    const cellH = Math.ceil(fontSize * 1.2);
 
-  const termW = Math.ceil(cellW * cols);
-  const termH = cellH * rows;
-  const logicalW = termW + PAD * 2;
-  const logicalH = termH + TITLE_H + PAD * 2;
+    const termW = Math.ceil(cellW * cols);
+    const termH = cellH * rows;
+    const logicalW = termW + PAD * 2;
+    const logicalH = termH + TITLE_H + PAD * 2;
 
-  // Upscale the backing store by devicePixelRatio so glyphs and chrome
-  // render at native resolution on HiDPI displays. All draw commands
-  // continue to operate in logical (CSS) pixels after ctx.scale.
-  const dpr = window.devicePixelRatio || 1;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.ceil(logicalW * dpr);
-  canvas.height = Math.ceil(logicalH * dpr);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    toast.error("Canvas unavailable");
-    return;
-  }
-  ctx.scale(dpr, dpr);
+    // Upscale the backing store by devicePixelRatio so glyphs and chrome
+    // render at native resolution on HiDPI displays. All draw commands
+    // continue to operate in logical (CSS) pixels after ctx.scale.
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(logicalW * dpr);
+    canvas.height = Math.ceil(logicalH * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      toast.error("Canvas unavailable");
+      return;
+    }
+    ctx.scale(dpr, dpr);
 
-  // Window shell — rounded bg, thin border, title bar.
-  const borderColor = mix(theme.bg, theme.fg, 0.22);
-  const titleBarBg = mix(theme.bg, theme.fg, 0.08);
-  const titleTextColor = mix(theme.bg, theme.fg, 0.7);
+    // Window shell — rounded bg, thin border, title bar.
+    const borderColor = mix(theme.bg, theme.fg, 0.22);
+    const titleBarBg = mix(theme.bg, theme.fg, 0.08);
+    const titleTextColor = mix(theme.bg, theme.fg, 0.7);
 
-  roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
-  ctx.fillStyle = theme.bg;
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = borderColor;
-  ctx.stroke();
-
-  // Title bar: fill a rounded top strip.
-  ctx.save();
-  roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
-  ctx.clip();
-  ctx.fillStyle = titleBarBg;
-  ctx.fillRect(0, 0, logicalW, TITLE_H);
-  ctx.fillStyle = borderColor;
-  ctx.fillRect(0, TITLE_H, logicalW, 1);
-  ctx.restore();
-
-  // Traffic-light dots.
-  const dotY = TITLE_H / 2;
-  for (const [i, color] of DOT_MACOS.entries()) {
-    ctx.beginPath();
-    ctx.arc(
-      DOT_MARGIN_LEFT + i * (DOT_R * 2 + DOT_GAP),
-      dotY,
-      DOT_R,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fillStyle = color;
+    roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
+    ctx.fillStyle = theme.bg;
     ctx.fill();
-  }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = borderColor;
+    ctx.stroke();
 
-  // Title text — centered, truncated to the available width.
-  ctx.font = `${Math.round(fontSize * 0.95)}px ${fontFamily}`;
-  ctx.fillStyle = titleTextColor;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-  const label = titleLabel(meta);
-  ctx.fillText(label, logicalW / 2, dotY + 1);
+    // Title bar: fill a rounded top strip.
+    ctx.save();
+    roundedRectPath(ctx, 0.5, 0.5, logicalW - 1, logicalH - 1, RADIUS);
+    ctx.clip();
+    ctx.fillStyle = titleBarBg;
+    ctx.fillRect(0, 0, logicalW, TITLE_H);
+    ctx.fillStyle = borderColor;
+    ctx.fillRect(0, TITLE_H, logicalW, 1);
+    ctx.restore();
 
-  // Kolu branding — right-aligned wordmark + logo, matching /favicon.svg.
-  // The stamp is subtle so it reads as attribution rather than a watermark.
-  const brandText = "kolu";
-  const brandFontSize = Math.round(fontSize * 0.9);
-  ctx.font = `600 ${brandFontSize}px ${fontFamily}`;
-  const brandTextWidth = ctx.measureText(brandText).width;
-  const logoH = TITLE_H - 12;
-  const logoW = brandLogo
-    ? logoH *
-      ((brandLogo.naturalWidth || brandLogo.width) /
-        (brandLogo.naturalHeight || brandLogo.height))
-    : 0;
-  const logoY = (TITLE_H - logoH) / 2;
-  const brandTextX = logicalW - BRAND_RIGHT_MARGIN;
-  const logoX = brandTextX - brandTextWidth - (brandLogo ? 6 : 0) - logoW;
-  ctx.textAlign = "end";
-  ctx.fillStyle = titleTextColor;
-  ctx.fillText(brandText, brandTextX, dotY + 1);
-  if (brandLogo) ctx.drawImage(brandLogo, logoX, logoY, logoW, logoH);
+    // Traffic-light dots.
+    const dotY = TITLE_H / 2;
+    for (const [i, color] of DOT_MACOS.entries()) {
+      ctx.beginPath();
+      ctx.arc(
+        DOT_MARGIN_LEFT + i * (DOT_R * 2 + DOT_GAP),
+        dotY,
+        DOT_R,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
 
-  ctx.textAlign = "start";
-  ctx.textBaseline = "alphabetic";
+    // Title text — centered, truncated to the available width.
+    ctx.font = `${Math.round(fontSize * 0.95)}px ${fontFamily}`;
+    ctx.fillStyle = titleTextColor;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "center";
+    const label = titleLabel(meta);
+    ctx.fillText(label, logicalW / 2, dotY + 1);
 
-  // Terminal content.
-  const termX = PAD;
-  const termY = TITLE_H + PAD;
-  ctx.save();
-  ctx.translate(termX, termY);
-  ctx.fillStyle = theme.bg;
-  ctx.fillRect(0, 0, termW, termH);
+    // Kolu branding — right-aligned wordmark + logo, matching /favicon.svg.
+    // The stamp is subtle so it reads as attribution rather than a watermark.
+    const brandText = "kolu";
+    const brandFontSize = Math.round(fontSize * 0.9);
+    ctx.font = `600 ${brandFontSize}px ${fontFamily}`;
+    const brandTextWidth = ctx.measureText(brandText).width;
+    const logoH = TITLE_H - 12;
+    const logoW = logo
+      ? logoH *
+        ((logo.naturalWidth || logo.width) /
+          (logo.naturalHeight || logo.height))
+      : 0;
+    const logoY = (TITLE_H - logoH) / 2;
+    const brandTextX = logicalW - BRAND_RIGHT_MARGIN;
+    const logoX = brandTextX - brandTextWidth - (logo ? 6 : 0) - logoW;
+    ctx.textAlign = "end";
+    ctx.fillStyle = titleTextColor;
+    ctx.fillText(brandText, brandTextX, dotY + 1);
+    if (logo) ctx.drawImage(logo, logoX, logoY, logoW, logoH);
 
-  const tempCell = buffer.getNullCell();
-  for (let y = 0; y < rows; y++) {
-    const line = buffer.getLine(yOffset + y);
-    if (!line) continue;
-    for (let x = 0; x < cols; x++) {
-      const cell = line.getCell(x, tempCell);
-      if (!cell) continue;
-      const chars = cell.getChars();
-      const width = cell.getWidth();
-      // width=0 → continuation of a wide char (already painted); skip.
-      if (width === 0) continue;
-      const { fg, bg } = cellColors(cell, theme);
-      const px = x * cellW;
-      const py = y * cellH;
-      const w = cellW * width;
-      if (bg !== theme.bg) {
-        ctx.fillStyle = bg;
-        ctx.fillRect(px, py, w, cellH);
-      }
-      if (chars) {
-        const bold = cell.isBold() ? "bold " : "";
-        const italic = cell.isItalic() ? "italic " : "";
-        ctx.font = `${italic}${bold}${fontSize}px ${fontFamily}`;
-        ctx.fillStyle = fg;
-        ctx.fillText(chars, px, py + fontSize);
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+
+    // Terminal content.
+    const termX = PAD;
+    const termY = TITLE_H + PAD;
+    ctx.save();
+    ctx.translate(termX, termY);
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, termW, termH);
+
+    const tempCell = buffer.getNullCell();
+    for (let y = 0; y < rows; y++) {
+      const line = buffer.getLine(yOffset + y);
+      if (!line) continue;
+      for (let x = 0; x < cols; x++) {
+        const cell = line.getCell(x, tempCell);
+        if (!cell) continue;
+        const chars = cell.getChars();
+        const width = cell.getWidth();
+        // width=0 → continuation of a wide char (already painted); skip.
+        if (width === 0) continue;
+        const { fg, bg } = cellColors(cell, theme);
+        const px = x * cellW;
+        const py = y * cellH;
+        const w = cellW * width;
+        if (bg !== theme.bg) {
+          ctx.fillStyle = bg;
+          ctx.fillRect(px, py, w, cellH);
+        }
+        if (chars) {
+          const bold = cell.isBold() ? "bold " : "";
+          const italic = cell.isItalic() ? "italic " : "";
+          ctx.font = `${italic}${bold}${fontSize}px ${fontFamily}`;
+          ctx.fillStyle = fg;
+          ctx.fillText(chars, px, py + fontSize);
+        }
       }
     }
-  }
-  ctx.restore();
+    ctx.restore();
 
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/png"),
-  );
-  if (!blob) {
-    toast.error("Screenshot failed");
-    return;
-  }
-  // Image writes have no execCommand equivalent — if navigator.clipboard
-  // is undefined (plain-HTTP, non-localhost), the only honest answer is a
-  // diagnostic toast. See `ui/clipboard.ts` for the text-write fallback.
-  if (!navigator.clipboard?.write) {
-    toast.error(
-      "Screenshot-to-clipboard requires HTTPS or localhost — image writes have no fallback in non-secure contexts",
+    const blob = yield* Effect.callback<Blob | null>((resume) =>
+      canvas.toBlob((b) => resume(Effect.succeed(b)), "image/png"),
     );
-    return;
-  }
-  try {
-    await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-    toast.success("Screenshot copied");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    toast.error(`Screenshot failed: ${msg}`);
-  }
+    if (!blob) {
+      toast.error("Screenshot failed");
+      return;
+    }
+    // Image writes have no execCommand equivalent — if navigator.clipboard
+    // is undefined (plain-HTTP, non-localhost), the only honest answer is a
+    // diagnostic toast. See `ui/clipboard.ts` for the text-write fallback.
+    if (!navigator.clipboard?.write) {
+      toast.error(
+        "Screenshot-to-clipboard requires HTTPS or localhost — image writes have no fallback in non-secure contexts",
+      );
+      return;
+    }
+    yield* Effect.tryPromise(() =>
+      navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]),
+    ).pipe(
+      Effect.tap(() => Effect.sync(() => toast.success("Screenshot copied"))),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          toast.error(`Screenshot failed: ${toError(err).message}`);
+        }),
+      ),
+    );
+  });
 }

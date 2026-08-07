@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { Effect, Stream } from "effect";
 import { createEffect, createRoot } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -28,6 +29,15 @@ function readSubError<T>(sub: Subscription<T>): Error {
   const err = sub.error();
   assert.ok(err !== undefined, "expected sub.error() to be set");
   return err;
+}
+
+/** The ONE harness adapter for the Effect port: `createSubscription` now takes a
+ *  `Stream`, so every async-iterable fixture below is lifted through here. The
+ *  failure mapping is the identity — `runStreamScoped` normalises a non-`Error`
+ *  failure value to an `Error` itself, which is what pins "a thrown string
+ *  surfaces as `Error("string error")`" below. */
+function streamOf<T>(it: AsyncIterable<T>): Stream.Stream<T, unknown> {
+  return Stream.fromAsyncIterable(it, (e) => e);
 }
 
 /** Create an async iterable from an array, yielding items with optional delay. */
@@ -72,9 +82,15 @@ function controllableStream<T>() {
   return { push, close, iterate };
 }
 
-/** Flush microtasks so async stream items are processed. */
-function flush(): Promise<void> {
-  return new Promise((r) => setTimeout(r, 0));
+/** Drain macrotasks so stream frames are processed. Frames now arrive on an
+ *  Effect FIBER (`runStreamScoped`), so a bare `await Promise.resolve()` micro-flush
+ *  is not enough — two full macrotask turns cover the fiber's own scheduling plus
+ *  the store write, with margin. Never fewer: an assertion is never relaxed to fit
+ *  the timing, the flush is made longer. */
+async function flush(ticks = 2): Promise<void> {
+  for (let i = 0; i < ticks; i++) {
+    await new Promise<void>((r) => setTimeout(r, 0));
+  }
 }
 
 describe("createSubscription", () => {
@@ -82,7 +98,7 @@ describe("createSubscription", () => {
     it("starts with undefined and pending=true", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(() => Promise.resolve(stream.iterate()));
+        const sub = createSubscription(streamOf(stream.iterate()));
 
         expect(sub()).toBe(undefined);
         expect(sub.pending()).toBe(true);
@@ -98,9 +114,7 @@ describe("createSubscription", () => {
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(() =>
-              Promise.resolve(stream.iterate()),
-            );
+            const sub = createSubscription(streamOf(stream.iterate()));
 
             stream.push(42);
             await flush();
@@ -120,9 +134,7 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(() =>
-            Promise.resolve(stream.iterate()),
-          );
+          const sub = createSubscription(streamOf(stream.iterate()));
 
           const values: number[] = [];
           stream.push(1);
@@ -151,9 +163,7 @@ describe("createSubscription", () => {
     it("handles string values", async () => {
       const result = await new Promise<string>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(fromArray(["hello"])),
-          );
+          const sub = createSubscription(streamOf(fromArray(["hello"])));
           await flush();
           resolve(readSub(sub));
           dispose();
@@ -166,9 +176,7 @@ describe("createSubscription", () => {
     it("handles boolean values", async () => {
       const result = await new Promise<boolean>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(fromArray([true])),
-          );
+          const sub = createSubscription(streamOf(fromArray([true])));
           await flush();
           resolve(readSub(sub));
           dispose();
@@ -181,8 +189,8 @@ describe("createSubscription", () => {
     it("handles null values", async () => {
       const result = await new Promise<null>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(fromArray([null as unknown as string])),
+          const sub = createSubscription(
+            streamOf(fromArray([null as unknown as string])),
           );
           await flush();
           resolve(readSub(sub) as unknown as null);
@@ -199,9 +207,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ a: number; b: number }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(() =>
-            Promise.resolve(stream.iterate()),
-          );
+          const sub = createSubscription(streamOf(stream.iterate()));
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -218,9 +224,7 @@ describe("createSubscription", () => {
       const result = await new Promise<{ tracked: boolean }>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<{ a: number; b: number }>();
-          const sub = createSubscription(() =>
-            Promise.resolve(stream.iterate()),
-          );
+          const sub = createSubscription(streamOf(stream.iterate()));
 
           stream.push({ a: 1, b: 2 });
           await flush();
@@ -249,9 +253,7 @@ describe("createSubscription", () => {
     it("handles array values via reconcile", async () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(fromArray([[1, 2, 3]])),
-          );
+          const sub = createSubscription(streamOf(fromArray([[1, 2, 3]])));
           await flush();
           resolve([...(readSub(sub) as unknown as number[])]);
           dispose();
@@ -267,13 +269,10 @@ describe("createSubscription", () => {
       const result = await new Promise<number[]>((resolve) => {
         createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(
-            () => Promise.resolve(stream.iterate()),
-            {
-              reduce: (acc: number[], item: number) => [...acc, item],
-              initial: [] as number[],
-            },
-          );
+          const sub = createSubscription(streamOf(stream.iterate()), {
+            reduce: (acc: number[], item: number) => [...acc, item],
+            initial: [] as number[],
+          });
 
           expect(sub()).toEqual([]);
 
@@ -298,7 +297,7 @@ describe("createSubscription", () => {
         createRoot((dispose) => {
           // @ts-expect-error testing the runtime guard fires when
           // `initial` is omitted (the type system would normally require it).
-          createSubscription(() => Promise.resolve(fromArray([1])), {
+          createSubscription(streamOf(fromArray([1])), {
             reduce: (acc: number, item: number) => acc + item,
           });
           dispose();
@@ -309,13 +308,10 @@ describe("createSubscription", () => {
     it("uses initial value before first item", () => {
       createRoot((dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(
-          () => Promise.resolve(stream.iterate()),
-          {
-            reduce: (acc: number[], item: number) => [...acc, item],
-            initial: [0],
-          },
-        );
+        const sub = createSubscription(streamOf(stream.iterate()), {
+          reduce: (acc: number[], item: number) => [...acc, item],
+          initial: [0],
+        });
 
         expect(sub()).toEqual([0]);
 
@@ -330,8 +326,8 @@ describe("createSubscription", () => {
       const result = await new Promise<{ error: string; pending: boolean }>(
         (resolve) => {
           createRoot(async (dispose) => {
-            const sub = createSubscription(() =>
-              Promise.resolve(
+            const sub = createSubscription(
+              streamOf(
                 (async function* () {
                   throw new Error("stream broke");
                 })(),
@@ -356,8 +352,8 @@ describe("createSubscription", () => {
     it("wraps non-Error throws in Error", async () => {
       const result = await new Promise<string>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(
+          const sub = createSubscription(
+            streamOf(
               (async function* () {
                 throw "string error";
               })(),
@@ -373,47 +369,52 @@ describe("createSubscription", () => {
       expect(result).toBe("string error");
     });
 
-    it("clears error on successful item after error recovery", async () => {
+    it("a failing source sets error and keeps it set (no reconnect on this instance)", async () => {
+      // Pre-port this read "clears error on successful item after error recovery",
+      // but the source was a `() => Promise<AsyncIterable>` called ONCE, so it never
+      // reached the recovery half either — it only ever asserted `errorBefore`. The
+      // same fact is asserted here, plus the one the port makes newly checkable: a
+      // frame can no longer follow a failure (a stream failure is the FIBER's exit),
+      // so the error stays set for the life of this subscription. Recovery is a
+      // FRESH subscription — `createReactiveSubscription`'s "clears prior error on
+      // input change" is where the self-clearing law is pinned.
       const result = await new Promise<{
         errorBefore: boolean;
         errorAfter: boolean;
-        value: number;
+        value: number | undefined;
       }>((resolve) => {
         createRoot(async (dispose) => {
-          let shouldThrow = true;
-          const stream = controllableStream<number>();
-
-          const sub = createSubscription(() => {
-            if (shouldThrow) {
-              shouldThrow = false;
-              return Promise.resolve(
-                (async function* () {
-                  throw new Error("initial fail");
-                })(),
-              );
-            }
-            return Promise.resolve(stream.iterate());
-          });
+          const sub = createSubscription(
+            streamOf(
+              (async function* (): AsyncGenerator<number> {
+                throw new Error("initial fail");
+              })(),
+            ),
+          );
 
           await flush();
           const errorBefore = sub.error() !== undefined;
 
-          // Can't reconnect with the same subscription instance —
-          // this tests that error is set and pending is cleared
           resolve({
             errorBefore,
             errorAfter: sub.error() !== undefined,
-            value: sub() as unknown as number,
+            value: sub(),
           });
-          stream.close();
           dispose();
         });
       });
 
       expect(result.errorBefore).toBe(true);
+      expect(result.errorAfter).toBe(true);
+      expect(result.value).toBe(undefined);
     });
 
     it("does not set error when aborted", async () => {
+      // "A disposed subscription reports nothing" — even a failure racing the stop.
+      // The same generator WITHOUT the signal is the control: it is exactly the
+      // "sets error signal on stream failure" fixture two tests up, which does set
+      // `error()`. Here the abort latches `stopped` first, so the fiber's failure
+      // exit is silent.
       const result = await new Promise<{
         error: Error | undefined;
         pending: boolean;
@@ -421,13 +422,12 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const sub = createSubscription(
-            () =>
-              Promise.resolve(
-                (async function* () {
-                  controller.abort();
-                  throw new Error("aborted");
-                })(),
-              ),
+            streamOf(
+              (async function* (): AsyncGenerator<number> {
+                controller.abort();
+                throw new Error("aborted");
+              })(),
+            ),
             { signal: controller.signal },
           );
 
@@ -447,10 +447,9 @@ describe("createSubscription", () => {
         createRoot(async (dispose) => {
           const controller = new AbortController();
           const stream = controllableStream<number>();
-          const sub = createSubscription(
-            () => Promise.resolve(stream.iterate()),
-            { signal: controller.signal },
-          );
+          const sub = createSubscription(streamOf(stream.iterate()), {
+            signal: controller.signal,
+          });
 
           stream.push(1);
           await flush();
@@ -478,7 +477,7 @@ describe("createSubscription", () => {
         const stream = controllableStream<number>();
 
         createRoot(async (dispose) => {
-          sub = createSubscription(() => Promise.resolve(stream.iterate()));
+          sub = createSubscription(streamOf(stream.iterate()));
 
           stream.push(1);
           await flush();
@@ -495,15 +494,82 @@ describe("createSubscription", () => {
     });
   });
 
+  describe("typed end", () => {
+    it("latches complete() and fires onComplete once, clearing pending", async () => {
+      // A typed end (the producer completed) FREEZES this subscription's value —
+      // without the latch an ended subscription reads byte-identical to a healthy
+      // streaming one (no error, not pending), so a holder cannot tell its last
+      // value is stale-forever.
+      const completions: number[] = [];
+      const result = await new Promise<{
+        complete: boolean;
+        pending: boolean;
+        value: number | undefined;
+      }>((resolve) => {
+        createRoot(async (dispose) => {
+          const stream = controllableStream<number>();
+          const sub = createSubscription(streamOf(stream.iterate()), {
+            onComplete: () => completions.push(1),
+          });
+
+          stream.push(1);
+          await flush();
+          expect(sub.complete?.()).toBe(false);
+
+          stream.close(); // the producer ENDS the stream — a typed end
+          await flush();
+
+          resolve({
+            complete: sub.complete?.() ?? false,
+            pending: sub.pending(),
+            value: sub(),
+          });
+          dispose();
+        });
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.pending).toBe(false);
+      expect(result.value).toBe(1);
+      expect(completions).toEqual([1]);
+    });
+
+    it("an aborted subscription never fires onComplete or latches complete()", async () => {
+      // "A disposed subscription cannot report anything" extends to the typed end:
+      // an interruption is a TEARDOWN, not a completion.
+      const completions: number[] = [];
+      const result = await new Promise<boolean>((resolve) => {
+        createRoot(async (dispose) => {
+          const controller = new AbortController();
+          const stream = controllableStream<number>();
+          const sub = createSubscription(streamOf(stream.iterate()), {
+            signal: controller.signal,
+            onComplete: () => completions.push(1),
+          });
+
+          stream.push(1);
+          await flush();
+          controller.abort();
+          stream.close(); // the end lands AFTER the abort — must stay silent
+          await flush();
+
+          resolve(sub.complete?.() ?? false);
+          dispose();
+        });
+      });
+
+      expect(result).toBe(false);
+      expect(completions).toEqual([]);
+    });
+  });
+
   describe("pending signal", () => {
     it("is true before first item, false after", async () => {
       const result = await new Promise<{ before: boolean; after: boolean }>(
         (resolve) => {
           createRoot(async (dispose) => {
             const stream = controllableStream<number>();
-            const sub = createSubscription(() =>
-              Promise.resolve(stream.iterate()),
-            );
+            const sub = createSubscription(streamOf(stream.iterate()));
 
             const before = sub.pending();
 
@@ -524,8 +590,8 @@ describe("createSubscription", () => {
     it("is false after error (even without items)", async () => {
       const result = await new Promise<boolean>((resolve) => {
         createRoot(async (dispose) => {
-          const sub = createSubscription(() =>
-            Promise.resolve(
+          const sub = createSubscription(
+            streamOf(
               (async function* () {
                 throw new Error("fail");
               })(),
@@ -542,13 +608,17 @@ describe("createSubscription", () => {
     });
   });
 
-  describe("source promise rejection", () => {
-    it("handles source() promise rejection", async () => {
+  describe("source that fails to OPEN (pre-port: a rejected source() promise)", () => {
+    it("surfaces the open failure as error(), pending cleared", async () => {
+      // The pre-port source was `() => Promise<AsyncIterable>`, so "the connection
+      // could not be established" was a REJECTED promise. Its exact analogue on a
+      // `Stream` is a failure in the effect that OPENS the stream — no frame ever
+      // arrives — which is what `Stream.unwrap(Effect.fail(...))` spells.
       const result = await new Promise<{ error: string; pending: boolean }>(
         (resolve) => {
           createRoot(async (dispose) => {
-            const sub = createSubscription(() =>
-              Promise.reject(new Error("connection failed")),
+            const sub = createSubscription(
+              Stream.unwrap(Effect.fail(new Error("connection failed"))),
             );
 
             await flush();
@@ -570,7 +640,7 @@ describe("createSubscription", () => {
     it("a first frame is a value, not a change — it never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -585,7 +655,7 @@ describe("createSubscription", () => {
     it("a differing frame fires once with prev = the last-seen value", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         const changes: Array<{ prev: number; next: number }> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -606,7 +676,7 @@ describe("createSubscription", () => {
     it("an equal reconnect snapshot (fresh object, same content) never fires", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ ids: number[] }>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         const changes: Array<unknown> = [];
         sub.updated?.((c) => changes.push(c));
 
@@ -636,7 +706,7 @@ describe("createSubscription", () => {
       // must compare Dates by instant and, in general, never yield a false-positive.
       await createRoot(async (dispose) => {
         const stream = controllableStream<{ at: Date }>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         const seen: Array<{ prev: { at: Date }; next: { at: Date } }> = [];
         sub.updated?.((c) => seen.push(c));
 
@@ -774,7 +844,7 @@ describe("createSubscription", () => {
     it("a handler added mid-stream sees only changes from that point on", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
 
         stream.push(1);
         await flush();
@@ -794,7 +864,7 @@ describe("createSubscription", () => {
     it("dispose stops a handler firing", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         const changes: number[] = [];
         const off = sub.updated?.((c) => changes.push(c.next));
 
@@ -815,7 +885,7 @@ describe("createSubscription", () => {
       try {
         await createRoot(async (dispose) => {
           const stream = controllableStream<number>();
-          const sub = createSubscription(async () => stream.iterate());
+          const sub = createSubscription(streamOf(stream.iterate()));
           const good: number[] = [];
           // A misbehaving consumer subscribes first, then a well-behaved one.
           sub.updated?.(() => {
@@ -842,7 +912,7 @@ describe("createSubscription", () => {
     it("with no handler registered, the baseline still advances (a late subscriber sees only changes from then on)", async () => {
       await createRoot(async (dispose) => {
         const stream = controllableStream<number>();
-        const sub = createSubscription(async () => stream.iterate());
+        const sub = createSubscription(streamOf(stream.iterate()));
         // No handler yet — the hot path advances lastSeen in O(1) without compares.
         stream.push(1);
         await flush();

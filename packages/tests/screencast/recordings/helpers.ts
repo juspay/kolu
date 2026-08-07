@@ -1,6 +1,6 @@
 // Shared kolu-domain helpers for authoring recordings. (Kolu domain — knows
 // about claude/terminals; depends on the World, never on the engine.)
-import { padiFold } from "../../support/padiEnvelope.ts";
+import { padiCall } from "../../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
   type KoluWorld,
@@ -52,20 +52,9 @@ export async function clearCanvas(
   beatMs = 800,
 ): Promise<void> {
   await world.waitForReady();
-  // Folded {mapKey,input} envelope computed here (node) and passed INTO the browser eval —
-  // padiFold reads process.env, which the page context lacks (W4 keyed-map adoption).
-  const killBody = JSON.stringify({ json: padiFold() });
-  await world.page
-    .evaluate(
-      (body) =>
-        fetch("/rpc/surface/padi/lifecycle/killAll", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body,
-        }),
-      killBody,
-    )
-    .catch(() => undefined);
+  // Node-side, over the harness's own wire — no `page.evaluate` hop, so the map
+  // fold and the host key stay in the one place that owns them.
+  await padiCall("lifecycle/killAll").catch(() => undefined);
   for (let i = 0; i < 20; i++) {
     if ((await world.terminalIds()).length === 0) break;
     await pause(world, 300);
@@ -115,20 +104,11 @@ export async function nudgeClearOfDock(world: KoluWorld): Promise<void> {
  *  flash). Names come from packages/terminal-themes (e.g. "Vaughn",
  *  "Catppuccin Latte"). */
 export async function setTerminalThemeRpc(
-  world: KoluWorld,
+  _world: KoluWorld,
   id: string,
   themeName: string,
 ): Promise<void> {
-  const themeBody = JSON.stringify({ json: padiFold({ id, themeName }) });
-  await world.page
-    .evaluate(async (body) => {
-      await fetch("/rpc/surface/padi/chrome/setTheme", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      });
-    }, themeBody)
-    .catch(() => undefined);
+  await padiCall("chrome/setTheme", { id, themeName }).catch(() => undefined);
 }
 
 /** Create a terminal (via the keyboard shortcut) and pin a theme on it —

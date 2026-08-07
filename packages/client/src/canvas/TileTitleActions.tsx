@@ -8,6 +8,7 @@
  *  search singletons — per `no-preference-prop-drilling`. The only prop is the
  *  tile `id`. Extracted from App.tsx per kolu#626. */
 
+import { runAction, type UiAction } from "../runAction";
 import { activeArm, sleepingArm } from "@kolu/padi/surface";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
@@ -59,13 +60,41 @@ const TileTitleActions: Component<{
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.peekSubPanel(props.id).collapsed;
 
-  /** Chrome-action handler: interacting with a tile's chrome selects that tile,
-   *  then runs the action. The "select first" policy lives here once instead of
-   *  being re-prefixed at every button — a new chrome button can't forget it. */
+  /** Chrome-action handler for SYNCHRONOUS chrome: interacting with a tile's
+   *  chrome selects that tile, then runs the callback. The "select first" policy
+   *  lives here once instead of being re-prefixed at every button — a new chrome
+   *  button can't forget it.
+   *
+   *  Reach for {@link onTileAction} instead whenever the button drives an
+   *  `Effect`. `fn: () => void` cannot protect you: TypeScript's void-return rule
+   *  accepts a callback returning ANYTHING, so `() => crud.requestSleep(id)`
+   *  type-checked while it built an `Effect` and dropped it on the floor — the ☾
+   *  Sleep button, the Wake button and the split toggle each did nothing at all,
+   *  silently, until `sleeping-terminals.feature` caught all three at once. There
+   *  is no type that closes that hole (a `T extends void` parameter just
+   *  instantiates to its constraint), so the remedy is structural: hand the
+   *  Effect to a helper that runs it, and never have a slot for an un-run one. */
   const onTile = (e: MouseEvent, fn: () => void) => {
     e.stopPropagation();
     store.setActiveSilently(props.id);
     fn();
+  };
+
+  /** {@link onTile} for a button whose work is an `Effect`: the same select-first
+   *  policy, and the action REACHES `runAction` because handing it over is the
+   *  only way to call this. A caller cannot express "built it and forgot to run
+   *  it". The action arrives as a THUNK, not a value, so it is still built AFTER
+   *  the select — `toggleSubPanel` reads `store.activeMeta()` while describing
+   *  itself, and building it first would seed the new split from whichever tile
+   *  was active before the click. */
+  const onTileAction = (
+    e: MouseEvent,
+    label: string,
+    action: () => UiAction,
+  ) => {
+    onTile(e, () => {
+      runAction(label, action());
+    });
   };
 
   return (
@@ -125,7 +154,11 @@ const TileTitleActions: Component<{
             classList={{ "bg-black/20": splitExpanded() }}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onTile(e, () => crud.toggleSubPanel(props.id))}
+            onClick={(e) =>
+              onTileAction(e, "toggle split", () =>
+                crud.toggleSubPanel(props.id),
+              )
+            }
             aria-label="Toggle split"
           >
             <SplitToggleIcon />
@@ -158,7 +191,9 @@ const TileTitleActions: Component<{
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) =>
-            onTile(e, () => void screenshotTerminal(props.id, meta()))
+            onTileAction(e, "screenshot terminal", () =>
+              screenshotTerminal(props.id, meta()),
+            )
           }
           title={ACTIONS.screenshotTerminal.label}
           data-testid="screenshot-button"
@@ -172,7 +207,11 @@ const TileTitleActions: Component<{
             class={`${TILE_BUTTON_CLASS} w-7`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => onTile(e, () => crud.requestSleep(props.id))}
+            onClick={(e) =>
+              onTileAction(e, "sleep terminal", () =>
+                crud.requestSleep(props.id),
+              )
+            }
             aria-label="Sleep terminal"
           >
             <MoonIcon />
@@ -186,7 +225,9 @@ const TileTitleActions: Component<{
           class={`${TILE_BUTTON_CLASS} gap-1 px-2 text-xs font-semibold`}
           style={{ color: "var(--color-fg-3, currentColor)" }}
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => onTile(e, () => void crud.handleWake(props.id))}
+          onClick={(e) =>
+            onTileAction(e, "wake terminal", () => crud.handleWake(props.id))
+          }
           aria-label="Wake terminal"
         >
           <MoonIcon />

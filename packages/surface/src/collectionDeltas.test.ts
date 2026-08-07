@@ -14,8 +14,8 @@
  * exercised only by a collection that lists the verb.
  */
 
+import { Effect, Fiber, Schema, Stream } from "effect";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import {
   collectionDeltasChannel,
   collectionKeysetChannel,
@@ -55,8 +55,8 @@ function buildDeltasFragment() {
   const surface = defineSurface({
     collections: {
       items: {
-        keySchema: z.number(),
-        schema: z.object({ name: z.string() }),
+        keySchema: Schema.Number,
+        schema: Schema.Struct({ name: Schema.String }),
         // Opt into the batched stream alongside the default verbs.
         verbs: ["keys", "get", "upsert", "delete", "deltas"],
       },
@@ -205,14 +205,31 @@ describe("collection deltas — server coalescing", () => {
 describe("collection deltas — handler subscribe-before-snapshot", () => {
   type V = { name: string };
 
-  it("delivers a delta published AFTER the snapshot read but BEFORE the consumer resumes (no lost-update gap)", async () => {
+  it("delivers a delta published DURING the snapshot read (no lost-update gap)", async () => {
+    // The sharpest probe of "subscribe strictly precedes snapshot": publish from
+    // INSIDE the snapshot read. If the subscription were opened after the
+    // snapshot, this frame would publish to zero subscribers and be lost — and
+    // `Stream.take(2)` would hang forever waiting for a second frame.
     const store = new Map<number, V>([[1, { name: "a" }]]);
     const deltasBus = inMemoryChannel<CollectionDelta<number, V>>();
+    let subscribersDuringSnapshot = -1;
+    let publishedInGap = false;
     const handlers = collectionHandlers(
       // The descriptor is only read for `_coll.name` in error messages.
       { name: "items" } as never,
       {
-        readAll: () => store,
+        readAll: () => {
+          if (!publishedInGap) {
+            publishedInGap = true;
+            subscribersDuringSnapshot = deltasBus.subscriberCount();
+            deltasBus.publish({
+              kind: "delta",
+              upserts: [[2, { name: "b" }]],
+              removes: [],
+            });
+          }
+          return store;
+        },
         perKeyBus: () => inMemoryChannel<V>(),
         keysBus: inMemoryChannel<number[]>(),
         deltasBus,
@@ -220,44 +237,27 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
         remove: () => {},
       },
     );
-    const gen = handlers.deltas!({});
 
-    // First pull → the snapshot. The handler subscribes to `deltasBus` BEFORE it
-    // yields this frame, so the subscriber is already live the moment we hold it.
-    const first = await gen.next();
-    expect(first.value).toEqual({
-      kind: "snapshot",
-      entries: [[1, { name: "a" }]],
-    });
-
-    // A producer ticks a delta NOW — in the window between the snapshot pull and
-    // the next resume. Subscribe-before-snapshot buffers it; the pre-fix
-    // subscribe-AFTER-yield ordering would have dropped it (no subscriber yet)
-    // and the next pull would hang waiting for a fresh publish that never comes.
-    deltasBus.publish({
-      kind: "delta",
-      upserts: [[2, { name: "b" }]],
-      removes: [],
-    });
-
-    const second = await gen.next();
-    expect(second.value).toEqual({
-      kind: "delta",
-      upserts: [[2, { name: "b" }]],
-      removes: [],
-    });
-
-    await gen.return?.(undefined);
+    const frames = await Effect.runPromise(
+      Stream.runCollect(Stream.take(handlers.deltas!(), 2)),
+    );
+    // The subscriber was ALREADY live while the snapshot was being read.
+    expect(subscribersDuringSnapshot).toBe(1);
+    expect(frames).toEqual([
+      { kind: "snapshot", entries: [[1, { name: "a" }]] },
+      { kind: "delta", upserts: [[2, { name: "b" }]], removes: [] },
+    ]);
+    // …and the subscription is released once the stream ends.
+    expect(deltasBus.subscriberCount()).toBe(0);
   });
 
-  it("drops the subscriber when the consumer closes the generator right after the snapshot (no lifecycle leak)", async () => {
+  it("drops the subscriber when the consumer stops right after the snapshot (no lifecycle leak)", async () => {
     // Subscribe-before-snapshot opens the `deltasBus` subscription BEFORE the
-    // snapshot `yield`. If the consumer takes the snapshot and then closes the
-    // generator before pulling again, the generator's `.return()` resumes as a
-    // `return` AT that suspended `yield` and skips the delta loop below it — so
-    // the subscription's own `iterator.return()` never runs from the loop. The
-    // handler's `try/finally` is what guarantees cleanup; without it the `sub`
-    // would sit live in the channel forever, its queue growing on every publish.
+    // snapshot frame. If the consumer takes the snapshot and stops, the delta
+    // relay below it never runs even once — so cleanup cannot ride the relay. It
+    // rides the SCOPE: the subscription is a scoped resource of the stream, so
+    // ending the stream releases it. Without that, the sub would sit live in the
+    // channel forever, its queue growing on every publish.
     const store = new Map<number, V>([[1, { name: "a" }]]);
     const deltasBus = inMemoryChannel<CollectionDelta<number, V>>();
     const handlers = collectionHandlers({ name: "items" } as never, {
@@ -268,20 +268,13 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
       upsert: () => {},
       remove: () => {},
     });
-    const gen = handlers.deltas!({});
 
-    const first = await gen.next();
-    expect(first.value).toEqual({
-      kind: "snapshot",
-      entries: [[1, { name: "a" }]],
-    });
-    // The subscription is live the instant we hold the snapshot.
-    expect(deltasBus.subscriberCount()).toBe(1);
-
-    // Close the generator while it is suspended at the snapshot `yield`, before
-    // the delta loop has run even once. The `finally` must still return the
-    // pre-opened iterator and drop the subscriber.
-    await gen.return?.(undefined);
+    const frames = await Effect.runPromise(
+      Stream.runCollect(Stream.take(handlers.deltas!(), 1)),
+    );
+    expect(frames).toEqual([
+      { kind: "snapshot", entries: [[1, { name: "a" }]] },
+    ]);
     expect(deltasBus.subscriberCount()).toBe(0);
 
     // A later publish lands on nobody — no leaked queue accumulating frames.
@@ -295,19 +288,19 @@ describe("collection deltas — handler subscribe-before-snapshot", () => {
 });
 
 // #1681 — the gray Kaval chip. A per-key `get` for a key that DOESN'T EXIST YET
-// must be a HELD-OPEN subscription (yield nothing, wait for the key), NOT a throw.
+// must be a HELD-OPEN subscription (emit nothing, wait for the key), NOT a failure.
 // The old handler threw "key not found at first snapshot", which reached a browser
-// as a non-retriable ORPCError that KILLED its standing subscription — so a key
-// born after the subscription opened (kolu-server booting with an empty re-serve
+// as a non-retriable application error that KILLED its standing subscription — so a
+// key born after the subscription opened (kolu-server booting with an empty re-serve
 // mirror) never reached the consumer until a full page reload.
 describe("collection get — held-open on an absent key (#1681)", () => {
   type V = { name: string };
 
-  const makeHandlers = (store: Map<string, V>, perKey: Channel<V>) =>
+  const makeHandlers = (readAll: () => Map<string, V>, perKey: Channel<V>) =>
     collectionHandlers(
       { name: "daemonStatus" } as never,
       {
-        readAll: () => store as unknown as Map<unknown, unknown>,
+        readAll: readAll as unknown as () => Map<unknown, unknown>,
         perKeyBus: () => perKey as unknown as Channel<unknown>,
         keysBus: inMemoryChannel<unknown[]>() as unknown as Channel<unknown[]>,
         upsert: () => {},
@@ -318,74 +311,86 @@ describe("collection get — held-open on an absent key (#1681)", () => {
   it("holds open for an absent key, then DELIVERS it the moment it is upserted", async () => {
     const store = new Map<string, V>(); // empty — "local" is ABSENT at subscribe
     const perKey = inMemoryChannel<V>();
-    const gen = makeHandlers(store, perKey).get({
-      input: { key: "local" } as never,
-    });
+    const seen: V[] = [];
+    const fiber = Effect.runFork(
+      Stream.runForEach(
+        makeHandlers(() => store, perKey).get({ key: "local" } as never),
+        (v) =>
+          Effect.sync(() => {
+            seen.push(v as V);
+          }),
+      ),
+    );
+    await tick();
+    // The key is absent, so nothing has been emitted — but the subscription is
+    // live and WAITING (it did not fail).
+    expect(seen).toEqual([]);
+    expect(perKey.subscriberCount()).toBe(1);
 
-    // First pull: the key is absent, so the handler yields NOTHING yet — a live,
-    // held-open subscription WAITING for the key (the pull is pending). Subscribe-
-    // before-snapshot means it is already subscribed to the per-key channel.
-    const pull = gen.next();
     // The key is born now — its first upsert publishes to that same channel.
     perKey.publish({ name: "connected" });
-    const frame = await pull;
+    await tick();
+    expect(seen).toEqual([{ name: "connected" }]);
 
-    expect(frame.done).toBe(false);
-    expect(frame.value).toEqual({ name: "connected" });
-    await gen.return?.(undefined);
+    await Effect.runPromise(Fiber.interrupt(fiber));
   });
 
-  it("delivers a value published in the post-snapshot gap without loss (subscribe-before-snapshot)", async () => {
+  it("delivers a value published DURING the snapshot read without loss (subscribe-before-snapshot)", async () => {
     // The key is PRESENT at subscribe. The handler subscribes to the per-key
-    // channel BEFORE reading the snapshot, so a value published in the window
-    // between the snapshot `yield` and the consumer's next pull is BUFFERED and
-    // delivered — never lost. Reordering to snapshot-BEFORE-subscribe would drop it
-    // (published to zero subscribers): this test guards the ordering that the
-    // held-open change preserves. (A same-window value equal to the snapshot may be
-    // delivered twice — benign under fold semantics; see the handler docstring.)
+    // channel BEFORE reading the snapshot, so a value published while the snapshot
+    // is being read is BUFFERED and delivered — never lost. Reordering to
+    // snapshot-BEFORE-subscribe would drop it (published to zero subscribers) and
+    // `Stream.take(2)` would hang. (A same-window value equal to the snapshot may
+    // be delivered twice — benign under fold semantics; see the handler docstring.)
     const store = new Map<string, V>([["local", { name: "a" }]]);
     const perKey = inMemoryChannel<V>();
-    const gen = makeHandlers(store, perKey).get({
-      input: { key: "local" } as never,
-    });
-
-    const first = await gen.next(); // snapshot
-    expect(first.value).toEqual({ name: "a" });
-
-    // A producer ticks a new value NOW — in the gap before we resume.
-    perKey.publish({ name: "b" });
-    const second = await gen.next();
-    expect(second.value).toEqual({ name: "b" });
-
-    await gen.return?.(undefined);
+    let published = false;
+    const frames = await Effect.runPromise(
+      Stream.runCollect(
+        Stream.take(
+          makeHandlers(() => {
+            if (!published) {
+              published = true;
+              perKey.publish({ name: "b" });
+            }
+            return store;
+          }, perKey).get({ key: "local" } as never),
+          2,
+        ),
+      ),
+    );
+    expect(frames).toEqual([{ name: "a" }, { name: "b" }]);
   });
 
-  it("a key that NEVER appears leaves the stream OPEN yielding nothing (waiting, not errored), and drops cleanly on abort", async () => {
+  it("a key that NEVER appears leaves the stream OPEN emitting nothing (waiting, not errored), and drops cleanly on interrupt", async () => {
     const store = new Map<string, V>(); // empty forever
     const perKey = inMemoryChannel<V>();
-    // Teardown is via the consumer's abort SIGNAL — how a real consumer ends a
-    // held-open subscription (the reactive owner disposing / STREAM_RETRY abort).
-    const ac = new AbortController();
-    const gen = makeHandlers(store, perKey).get({
-      input: { key: "local" } as never,
-      signal: ac.signal,
-    });
-
-    const pull = gen.next();
-    // The subscription is live and waiting — it did NOT throw.
+    // Teardown is fiber INTERRUPTION — how a real consumer ends a held-open
+    // subscription now that there is no signal to abort (D10).
+    let ended = false;
+    const fiber = Effect.runFork(
+      Stream.runForEach(
+        makeHandlers(() => store, perKey).get({ key: "local" } as never),
+        () => Effect.void,
+      ).pipe(
+        Effect.tap(() =>
+          Effect.sync(() => {
+            ended = true;
+          }),
+        ),
+      ),
+    );
+    await tick();
+    // The subscription is live and waiting — it did NOT fail.
     expect(perKey.subscriberCount()).toBe(1);
-    // The pull stays PENDING: no frame, no error — the honest "absent/waiting"
-    // state a consumer renders (the gray chip is a recoverable truth, not a corpse).
-    const settled = await Promise.race([
-      pull.then(() => "settled" as const),
-      new Promise<"pending">((r) => setTimeout(() => r("pending"), 30)),
-    ]);
-    expect(settled).toBe("pending");
+    // No frame, no error — the honest "absent/waiting" state a consumer renders
+    // (the gray chip is a recoverable truth, not a corpse).
+    await new Promise((r) => setTimeout(r, 30));
+    expect(ended).toBe(false);
+    expect(perKey.subscriberCount()).toBe(1);
 
-    // Aborting drops the subscriber — no lifecycle leak. The pending pull rejects
-    // with the AbortError (drained here), exactly as `keys` on an empty collection.
-    ac.abort();
-    await pull.catch(() => {});
+    // Interrupting drops the subscriber — no lifecycle leak.
+    await Effect.runPromise(Fiber.interrupt(fiber));
     await tick();
     expect(perKey.subscriberCount()).toBe(0);
   });

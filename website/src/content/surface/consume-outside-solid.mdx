@@ -1,6 +1,6 @@
 ---
 title: How to consume a surface outside SolidJS
-description: "Read a surface from a CLI or TUI with a transport-blind connection — awaited calls, iterated streams, and a live board via mirrorRemoteSurface."
+description: "Read a surface from a CLI or TUI with a transport-blind connection — composed calls, iterated streams, and a live board via mirrorRemoteSurface."
 order: 221
 section: Basics · How-to
 ---
@@ -20,16 +20,20 @@ differ only in which link you build; the commands downstream never branch.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="connection" />
 
-## Call procedures with a plain await
+## Call a procedure
 
-Procedures are ordinary async calls off the client. No hooks, no subscription.
+A procedure call off the client is an `Effect` — a description of the call, not a
+request already in flight. No hooks, no subscription. Compose it into the
+command's own program and run that once, at the CLI's `main`; then a Ctrl-C, a
+deadline, or a lost race reaches the in-flight call instead of leaving it running
+unobserved.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="calls" />
 
 ## Iterate a stream
 
-A cell, collection, or stream read is an async iterable — snapshot first, then
-deltas. Loop it and act on each frame.
+A cell, collection, or stream read is a lazy `Stream` — snapshot first, then
+deltas. Running it *is* the subscription; loop it and act on each frame.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="iterate" />
 

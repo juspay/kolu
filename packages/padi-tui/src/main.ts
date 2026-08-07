@@ -28,8 +28,25 @@
  * (see `hostConnect.ts`). Read verbs (status/watch/wait) are safe; `create` lands a
  * REAL terminal on the host — and it survives the link. --host is mutually
  * exclusive with --socket / --state-root (all name a daemon; --host is remote).
+ *
+ * ## The exit-code contract, and where it lives
+ *
+ * 0 met/done · 1 usage or link failure · 2 `wait` timed out · 3 the terminal
+ * exited first · 130 interrupted. Drivers script against these, so they are a
+ * CONTRACT, not an implementation detail — which is why every failure is a tagged
+ * error carrying BOTH its exact stderr line and its `Runtime.errorExitCode`, and
+ * why the mapping happens exactly once, at the run edge below. No command calls
+ * `process.exit` any more.
+ *
+ * The run edge is `Effect.runPromise` and NOT `NodeRuntime.runMain`, deliberately:
+ * `runMain` turns SIGINT into fiber interruption, and this CLI's stop semantics
+ * are PER COMMAND — `watch` stopped by Ctrl+C is a clean 0 (the user got what
+ * they asked for), while `wait` interrupted is a 130 that must still print which
+ * terminal was left waiting. An interrupt cannot produce either of those, so the
+ * signals are wired to a scoped request the commands can observe.
  */
 
+import { NodeSink } from "@effect/platform-node";
 import {
   awaitAgentState,
   resolveRunningPadiSocket,
@@ -37,13 +54,34 @@ import {
 } from "@kolu/padi/dial";
 import { PADI_SURFACE_VERSION } from "@kolu/padi/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
+import { cli, command } from "cleye";
+import {
+  Cause,
+  Data,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  Queue,
+  type Scope,
+  type Sink,
+  Stream,
+} from "effect";
 import {
   connectPadiTui,
   type Connection,
   type PadiTuiClient,
 } from "./connect.ts";
-import { cli, command } from "cleye";
 import { runCreate } from "./create.ts";
+import {
+  CliFailure,
+  exitCodeOf,
+  failure,
+  reportOf,
+  WaitInterrupted,
+  WaitTerminalGone,
+  WaitTimedOut,
+} from "./exit.ts";
 import { connectPadiTuiViaHost } from "./hostConnect.ts";
 import { readTerminalKeys, settledSnapshot } from "./read.ts";
 import {
@@ -177,28 +215,95 @@ const argv = cli({
   ],
 });
 
-/** Backpressure-aware stdout write — a large snapshot to a pipe must drain before
- *  we exit, or the tail is truncated. EPIPE (e.g. `padi-tui status | head -1`) is
- *  treated as "done" rather than an error so we exit cleanly. */
-function writeOut(text: string): Promise<void> {
-  return new Promise((resolve) => {
-    process.stdout.once("error", resolve);
-    if (process.stdout.write(text)) {
-      process.stdout.removeListener("error", resolve);
-      resolve();
-    } else {
-      process.stdout.once("drain", () => {
-        process.stdout.removeListener("error", resolve);
-        resolve();
-      });
-    }
+/** The stdout consumer hung up (`padi-tui status | head -1`). Not an exit-code
+ *  arm — the caller got what it asked for — so it is caught at each write site
+ *  and read as "done" rather than propagated, and it lives here rather than in
+ *  `exit.ts`, which is exclusively the codes a driver branches on. */
+class StdoutClosed extends Data.TaggedError("StdoutClosed")<{
+  /** What node reported — kept so a NON-EPIPE stdout death (a full disk, a
+   *  revoked descriptor) is still legible if it ever needs looking at, rather
+   *  than being flattened into the same silent "consumer left". */
+  readonly cause: unknown;
+}> {}
+
+// ── stdout ───────────────────────────────────────────────────────────────
+
+/** Backpressure-aware stdout, as a SINK: a large snapshot to a pipe must drain
+ *  before we exit or the tail is truncated, and the sink waits on `drain` for us.
+ *  `endOnDone: false` because this process does not own `process.stdout`'s
+ *  lifetime — a sink that ended it would close the shell's own descriptor.
+ *
+ *  A sink rather than a promise-returning `writeOut` because `watch` needs
+ *  backpressure to be STRUCTURAL: it used to chain each line onto a growing
+ *  `pending` promise, which is a queue with no name and no way to observe it. */
+const stdoutSink: Sink.Sink<void, string, never, StdoutClosed> =
+  NodeSink.fromWritable<StdoutClosed, string>({
+    evaluate: () => process.stdout,
+    onError: (cause) => new StdoutClosed({ cause }),
+    endOnDone: false,
   });
+
+/** Write one block to stdout, draining first. */
+const writeOut = (text: string): Effect.Effect<void, StdoutClosed> =>
+  Stream.run(Stream.make(text), stdoutSink);
+
+/** Drain a queue of ready-to-print lines into stdout until the queue ends,
+ *  calling `onClosed` if the consumer hangs up first (`… | head -1`). The
+ *  queue's END is what flushes it, so a caller that stops producing and ends the
+ *  queue has a definite "everything printed" point to join on. */
+const pumpToStdout = (
+  lines: Queue.Dequeue<string, Cause.Done>,
+  onClosed: () => void,
+): Effect.Effect<void> =>
+  Stream.run(Stream.fromQueue(lines), stdoutSink).pipe(
+    Effect.catchTag("StdoutClosed", () => Effect.sync(onClosed)),
+  );
+
+/** stderr is the CLI's out-of-band channel (trailers, diagnostics) and is never
+ *  the scriptable payload, so it is a plain synchronous write. */
+const writeErr = (text: string): Effect.Effect<void> =>
+  Effect.sync(() => {
+    process.stderr.write(text);
+  });
+
+// ── Signals ──────────────────────────────────────────────────────────────
+
+/** A request to stop, from the process's stop signals.
+ *
+ *  Two faces of the same fact, because two consumers need different shapes:
+ *  `signal` for the shared watch/wait scaffolds, which still speak AbortSignal;
+ *  `requested` for this CLI's own races, so "the user stopped us" is awaited
+ *  rather than polled off a flag after the fact. */
+interface ShutdownRequest {
+  readonly signal: AbortSignal;
+  readonly requested: Deferred.Deferred<void>;
+  readonly request: () => void;
 }
 
-function fail(message: string): never {
-  process.stderr.write(`padi-tui: ${message}\n`);
-  process.exit(1);
-}
+/** Wire SIGINT / SIGTERM / SIGHUP to a stop request for the caller's scope, and
+ *  UNWIRE them when it closes — so nothing survives the command that asked. */
+const shutdownRequest: Effect.Effect<ShutdownRequest, never, Scope.Scope> =
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const abort = new AbortController();
+      const requested = Deferred.makeUnsafe<void>();
+      const request = (): void => {
+        abort.abort();
+        Deferred.doneUnsafe(requested, Effect.void);
+      };
+      const signals = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+      for (const sig of signals) process.on(sig, request);
+      return {
+        value: { signal: abort.signal, requested, request } as ShutdownRequest,
+        off: () => {
+          for (const sig of signals) process.off(sig, request);
+        },
+      };
+    }),
+    ({ off }) => Effect.sync(off),
+  ).pipe(Effect.map(({ value }) => value));
+
+// ── Endpoint resolution (pure, pre-dial) ─────────────────────────────────
 
 /** The one `--worktree over --host needs --repo` usage-error message. Named once
  *  because it is enforced at TWO sites — the pre-dial fast-path in `main` (fail
@@ -211,52 +316,38 @@ const WORKTREE_OVER_HOST_NEEDS_REPO =
 /** The socket to dial. The selection policy (`--socket` wins; else `--state-root`;
  *  else $PADI_SOCKET; else discover) plus the candidate labels live in the shared
  *  `resolveRunningPadiSocket` (the dial kit), so here padi-tui only renders the
- *  `many` ambiguity as its own pick-one `fail()`. */
+ *  `many` ambiguity as its own pick-one failure. */
 function resolveSocketPath(flags: {
   socket: string | undefined;
   stateRoot: string | undefined;
-}): string {
+}): Effect.Effect<string, CliFailure> {
   if (flags.socket !== undefined && flags.stateRoot !== undefined) {
-    fail(
-      "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
+    return Effect.fail(
+      failure(
+        "--socket and --state-root are mutually exclusive: --socket is a literal socket path, --state-root derives one. Pass just one.",
+      ),
     );
   }
-  const resolved = resolveRunningPadiSocket({
-    socket: flags.socket,
-    stateRoot: flags.stateRoot,
+  return Effect.suspend(() => {
+    const resolved = resolveRunningPadiSocket({
+      socket: flags.socket,
+      stateRoot: flags.stateRoot,
+    });
+    if (resolved.kind === "many") {
+      return Effect.fail(
+        failure(
+          `more than one padi daemon is running:\n  ${resolved.candidates
+            .map(
+              (d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`,
+            )
+            .join(
+              "\n  ",
+            )}\nPass --socket <path> or --state-root <dir> to pick one.`,
+        ),
+      );
+    }
+    return Effect.succeed(resolved.socket);
   });
-  if (resolved.kind === "many") {
-    fail(
-      `more than one padi daemon is running:\n  ${resolved.candidates
-        .map((d) => `${d.socket}    (${d.stateRoot ?? "unknown state-root"})`)
-        .join(
-          "\n  ",
-        )}\nPass --socket <path> or --state-root <dir> to pick one.`,
-    );
-  }
-  return resolved.socket;
-}
-
-/** Dial a LOCAL padi at an already-resolved socket path. `connectPadiTui` runs the
- *  control-core handshake + compatibility gate, so a skew or an unreachable socket
- *  fails loud here with an actionable hint rather than deep inside oRPC. */
-function connectLocal(socketPath: string): Promise<Connection> {
-  return connectPadiTui(socketPath).catch((err) =>
-    fail(
-      `could not reach padi at ${socketPath} — ${(err as Error).message}. Is padi running? Inside a kolu terminal $PADI_SOCKET names it; otherwise pass --socket <path> or --state-root <dir>.`,
-    ),
-  );
-}
-
-/** Reach a REMOTE padi over ssh (`--host`): provision the daemon with Nix and dial
- *  it. Fails loud with the underlying ssh/nix/skew reason so a misconfigured host
- *  (no passwordless ssh, the user not in the remote's `trusted-users`, a contract
- *  skew) reads as actionable rather than an opaque hang — the CLI is one-shot, so it
- *  surfaces the first failure instead of spinning on a reconnect loop. */
-function connectHost(host: string): Promise<Connection> {
-  return connectPadiTuiViaHost(host).catch((err) =>
-    fail(`could not reach padi on ${host} — ${(err as Error).message}`),
-  );
 }
 
 /** The one daemon a command targets: a REMOTE padi over ssh (`--host`) or a LOCAL
@@ -278,216 +369,293 @@ function resolveEndpoint(flags: {
   host: string | undefined;
   socket: string | undefined;
   stateRoot: string | undefined;
-}): Endpoint {
+}): Effect.Effect<Endpoint, CliFailure> {
   if (flags.host !== undefined) {
     if (flags.socket !== undefined || flags.stateRoot !== undefined) {
-      fail(
-        "--host is mutually exclusive with --socket / --state-root: --host reaches a REMOTE padi over ssh, --socket / --state-root name a LOCAL one. Pass just one.",
+      return Effect.fail(
+        failure(
+          "--host is mutually exclusive with --socket / --state-root: --host reaches a REMOTE padi over ssh, --socket / --state-root name a LOCAL one. Pass just one.",
+        ),
       );
     }
-    return { kind: "host", host: flags.host };
+    return Effect.succeed({ kind: "host", host: flags.host });
   }
-  return { kind: "local", socketPath: resolveSocketPath(flags) };
+  return Effect.map(resolveSocketPath(flags), (socketPath) => ({
+    kind: "local",
+    socketPath,
+  }));
 }
+
+/** Dial the resolved endpoint, SCOPED — the link lives exactly as long as the
+ *  caller's scope. Both arms fail loud with the underlying ssh/nix/skew reason
+ *  so a misconfigured host (no passwordless ssh, the user not in the remote's
+ *  `trusted-users`, a contract skew) or an unreachable socket reads as
+ *  actionable rather than as a decode failure on the first real call — the CLI
+ *  is one-shot, so it surfaces the first failure instead of spinning on a
+ *  reconnect loop. */
+function connectTo(
+  endpoint: Endpoint,
+): Effect.Effect<Connection, CliFailure, Scope.Scope> {
+  const message = (err: unknown): string =>
+    err instanceof Error ? err.message : String(err);
+  return endpoint.kind === "host"
+    ? Effect.catch(connectPadiTuiViaHost(endpoint.host), (err) =>
+        Effect.fail(
+          failure(`could not reach padi on ${endpoint.host} — ${message(err)}`),
+        ),
+      )
+    : Effect.catch(connectPadiTui(endpoint.socketPath), (err) =>
+        Effect.fail(
+          failure(
+            `could not reach padi at ${endpoint.socketPath} — ${message(err)}. Is padi running? Inside a kolu terminal $PADI_SOCKET names it; otherwise pass --socket <path> or --state-root <dir>.`,
+          ),
+        ),
+      );
+}
+
+// ── id resolution ────────────────────────────────────────────────────────
 
 /** Resolve a user-typed id-or-prefix to a full terminal id against the live
  *  terminals, failing loudly on no-match or ambiguity — so `<id>` accepts the
  *  short id `status` prints (or any unique prefix) and a pasted full id
  *  round-trips. */
-function resolveOne(query: string, ids: TerminalId[]): TerminalId {
+function resolveOne(
+  query: string,
+  ids: readonly TerminalId[],
+): Effect.Effect<TerminalId, CliFailure> {
   const result = resolveTerminalId(query, ids);
-  if (result.kind === "found") return result.id;
+  if (result.kind === "found") return Effect.succeed(result.id);
   if (result.kind === "none") {
-    fail(
-      `no terminal matching "${query}" — \`padi-tui status\` shows the live ones.`,
+    return Effect.fail(
+      failure(
+        `no terminal matching "${query}" — \`padi-tui status\` shows the live ones.`,
+      ),
     );
   }
-  fail(
-    `"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
-      .map(shortId)
-      .join("\n  ")}`,
+  return Effect.fail(
+    failure(
+      `"${query}" matches ${result.matches.length} terminals — type more characters:\n  ${result.matches
+        .map(shortId)
+        .join("\n  ")}`,
+    ),
   );
 }
 
 /** Snapshot the live terminals and resolve a user-typed id-or-prefix to a full id
  *  — the snapshot+map+resolveOne dance `watch`, `wait`, and `create --parent`
- *  share. `resolveOne` (and `fail`) stay in this CLI layer, so `read.ts` remains
- *  `process.exit`-free. */
-async function resolveArg(
+ *  share. `resolveOne` (and the CLI's failure vocabulary) stay in this layer, so
+ *  `read.ts` remains free of any exit concern. */
+function resolveArg(
   client: PadiTuiClient,
   query: string,
-): Promise<TerminalId> {
-  return resolveOne(query, await readTerminalKeys(client));
-}
-
-/** An `AbortController` that fires on the process's stop signals — the shared
- *  "Ctrl+C / external kill unwinds the live mirror" wiring `watch` and `wait`
- *  hold open a link with. */
-function abortOnShutdownSignals(): AbortController {
-  const abort = new AbortController();
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
-    process.on(sig, () => abort.abort());
-  }
-  return abort;
-}
-
-async function cmdStatus(conn: Connection, json: boolean): Promise<void> {
-  // Read the terminals collection, waiting for padi's sensors to resolve, then
-  // release the link — a snapshot needs no live connection afterward. The settle
-  // wait matters for a just-spawned terminal mid-sensor-resolution; against a warm
-  // padi it settles at once (see settledSnapshot).
-  let entries: Awaited<ReturnType<typeof settledSnapshot>>;
-  try {
-    entries = await settledSnapshot(conn.client);
-  } finally {
-    conn.dispose();
-  }
-  await writeOut(
-    json ? `${formatStatusJson(entries)}\n` : `${formatStatus(entries)}\n`,
+): Effect.Effect<TerminalId, unknown> {
+  return Effect.flatMap(readTerminalKeys(client), (ids) =>
+    resolveOne(query, ids),
   );
 }
 
-async function cmdWatch(
-  conn: Connection,
-  query: string | undefined,
+// ── The verbs ────────────────────────────────────────────────────────────
+
+/** Read the terminals collection, waiting for padi's sensors to resolve, then
+ *  RELEASE the link — a snapshot needs no live connection afterward, so the dial
+ *  and the read share a scope that closes before anything is printed. The settle
+ *  wait matters for a just-spawned terminal mid-sensor-resolution; against a warm
+ *  padi it settles at once (see `settledSnapshot`). */
+function cmdStatus(
+  endpoint: Endpoint,
   json: boolean,
-): Promise<void> {
-  const abort = abortOnShutdownSignals();
-  // A closed stdout (`padi-tui watch | head -1`) surfaces as an stdout error
-  // (EPIPE) — treat it as the consumer hanging up and abort the mirror so we
-  // unwind and exit cleanly. The abort marks this a clean stop, not the link drop
-  // the un-aborted-settle check below treats as a failure.
-  process.stdout.on("error", () => abort.abort());
-
-  // Serialize the watch lines through the backpressure-aware `writeOut` so a slow
-  // consumer applies real backpressure. The mirror's sink callbacks are sync, so
-  // they chain onto `pending` and we flush it before returning.
-  let pending: Promise<void> = Promise.resolve();
-  const emit = (line: string): void => {
-    pending = pending.then(() => writeOut(`${line}\n`));
-  };
-
-  let upstreamError: string | undefined;
-  const log = (line: string): void => {
-    upstreamError ??= line;
-    process.stderr.write(`padi-tui: ${line}\n`);
-  };
-
-  let only: TerminalId | undefined;
-  try {
-    if (query !== undefined) {
-      only = await resolveArg(conn.client, query);
-    }
-    await watchTerminals(
-      conn.client,
-      {
-        onUpsert: (id, value, live) => {
-          if (only !== undefined && id !== only) return;
-          emit(
-            json
-              ? formatWatchJson(id, value, { live })
-              : formatWatchEvent(id, value, { now: Date.now(), live }),
-          );
-        },
-        onRemove: (id) => {
-          if (only !== undefined && id !== only) return;
-          emit(
-            json
-              ? formatWatchRemovalJson(id)
-              : formatWatchRemoval(id, { now: Date.now() }),
-          );
-        },
-        onActivity: (id, live) => {
-          if (only !== undefined && id !== only) return;
-          emit(
-            json
-              ? formatWatchActivityJson(id, live)
-              : formatWatchActivity(id, live, { now: Date.now() }),
-          );
-        },
-      },
-      abort.signal,
-      log,
-    );
-    await pending;
-  } finally {
-    conn.dispose();
-  }
-
-  // The mirror settled though the user never asked to stop — the padi link
-  // dropped. For a live monitor that is a failure, not a clean EOF. (Ctrl+C and a
-  // consumer hang-up both abort, so they skip this and exit 0.)
-  if (!abort.signal.aborted) {
-    fail(
-      upstreamError ??
-        "the padi link closed — the daemon stopped or the connection dropped. Is `padi` still running?",
-    );
-  }
+): Effect.Effect<void, unknown> {
+  return Effect.flatMap(
+    Effect.scoped(
+      Effect.flatMap(connectTo(endpoint), (conn) =>
+        settledSnapshot(conn.client),
+      ),
+    ),
+    (entries) =>
+      writeOut(
+        json ? `${formatStatusJson(entries)}\n` : `${formatStatus(entries)}\n`,
+      ),
+  );
 }
 
-async function cmdWait(
-  conn: Connection,
+/** Follow the terminals collection live until the user stops us, or fail loud
+ *  when the link drops under us.
+ *
+ *  The two endings are the two arms of one race, and that IS the discrimination
+ *  the old `if (!abort.signal.aborted)` re-derived after the fact: the mirror
+ *  settling on its own can only mean the link closed, and a stop request can only
+ *  come from us. Lines ride a queue into the stdout sink, so a slow consumer
+ *  applies real backpressure — and ending the queue after the stop is what
+ *  flushes it, replacing the hand-chained `pending` promise. */
+function cmdWatch(
+  endpoint: Endpoint,
+  query: string | undefined,
+  json: boolean,
+): Effect.Effect<void, unknown> {
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const shutdown = yield* shutdownRequest;
+      const conn = yield* connectTo(endpoint);
+      const only =
+        query === undefined ? undefined : yield* resolveArg(conn.client, query);
+
+      const lines = yield* Queue.unbounded<string, Cause.Done>();
+      const emit = (line: string): void => {
+        Queue.offerUnsafe(lines, line);
+      };
+      let upstreamError: string | undefined;
+
+      // A closed stdout (`padi-tui watch | head -1`) is the consumer hanging up
+      // — the same clean stop a Ctrl+C is, so it requests the same shutdown
+      // rather than being reported as a link failure.
+      const pump = yield* Effect.forkChild(
+        pumpToStdout(lines, () => shutdown.request()),
+      );
+
+      const watching = Effect.tryPromise({
+        try: () =>
+          watchTerminals(
+            conn.client,
+            {
+              onUpsert: (id, value, live) => {
+                if (only !== undefined && id !== only) return;
+                emit(
+                  json
+                    ? `${formatWatchJson(id, value, { live })}\n`
+                    : `${formatWatchEvent(id, value, { now: Date.now(), live })}\n`,
+                );
+              },
+              onRemove: (id) => {
+                if (only !== undefined && id !== only) return;
+                emit(
+                  json
+                    ? `${formatWatchRemovalJson(id)}\n`
+                    : `${formatWatchRemoval(id, { now: Date.now() })}\n`,
+                );
+              },
+              onActivity: (id, live) => {
+                if (only !== undefined && id !== only) return;
+                emit(
+                  json
+                    ? `${formatWatchActivityJson(id, live)}\n`
+                    : `${formatWatchActivity(id, live, { now: Date.now() })}\n`,
+                );
+              },
+            },
+            shutdown.signal,
+            (line) => {
+              upstreamError ??= line;
+              process.stderr.write(`padi-tui: ${line}\n`);
+            },
+          ),
+        catch: (err) => err,
+      });
+
+      const ending = yield* Effect.raceAll<Effect.Effect<"stopped" | "closed">>(
+        [
+          // The user stopped us (a signal, or the consumer hanging up).
+          Effect.as(Deferred.await(shutdown.requested), "stopped"),
+          // The mirror settled although nobody asked it to — the link dropped.
+          Effect.as(
+            Effect.catch(watching, (err) =>
+              Effect.sync(() => {
+                upstreamError ??=
+                  err instanceof Error ? err.message : String(err);
+              }),
+            ),
+            "closed",
+          ),
+        ],
+      );
+
+      // Whatever ended it, stop producing and FLUSH what is already queued
+      // before leaving — a `watch` that dropped its last lines on the way out
+      // would be indistinguishable from one that never saw the event.
+      shutdown.request();
+      yield* Queue.end(lines);
+      yield* Fiber.join(pump);
+
+      if (ending === "closed") {
+        // For a live monitor a dropped link is a failure, not a clean EOF.
+        return yield* Effect.fail(
+          failure(
+            upstreamError ??
+              "the padi link closed — the daemon stopped or the connection dropped. Is `padi` still running?",
+          ),
+        );
+      }
+    }),
+  );
+}
+
+function cmdWait(
+  endpoint: Endpoint,
   query: string,
   targets: ReadonlySet<string>,
   opts: { json: boolean; timeoutMs?: number },
-): Promise<void> {
-  const abort = abortOnShutdownSignals();
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    // The link is released the moment the wait settles — the outcome is a value,
+    // and nothing after this needs the daemon.
+    const { resolvedId, outcome } = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const shutdown = yield* shutdownRequest;
+        const conn = yield* connectTo(endpoint);
+        const resolvedId = yield* resolveArg(conn.client, query);
+        const outcome = yield* Effect.tryPromise({
+          try: () =>
+            awaitAgentState(conn.client, {
+              id: resolvedId,
+              targets,
+              timeoutMs: opts.timeoutMs,
+              signal: shutdown.signal,
+            }),
+          catch: (err) => err,
+        });
+        return { resolvedId, outcome };
+      }),
+    );
 
-  let resolvedId: TerminalId;
-  let outcome: Awaited<ReturnType<typeof awaitAgentState>>;
-  try {
-    resolvedId = await resolveArg(conn.client, query);
-    outcome = await awaitAgentState(conn.client, {
-      id: resolvedId,
-      targets,
-      timeoutMs: opts.timeoutMs,
-      signal: abort.signal,
-    });
-  } finally {
-    conn.dispose();
-  }
-
-  if (outcome.kind === "met") {
-    if (opts.json) {
-      await writeOut(
-        `${JSON.stringify({ id: resolvedId, agent: outcome.agent }, null, 2)}\n`,
-      );
-    } else {
-      process.stderr.write(`— ${formatWaitMet(resolvedId, outcome.agent)}\n`);
+    if (outcome.kind === "met") {
+      return yield* opts.json
+        ? writeOut(
+            `${JSON.stringify({ id: resolvedId, agent: outcome.agent }, null, 2)}\n`,
+          )
+        : writeErr(`— ${formatWaitMet(resolvedId, outcome.agent)}\n`);
     }
-    return;
-  }
-  if (outcome.kind === "timeout") {
-    // Distinct exit code (2): a timeout — the agent never settled — vs a
-    // usage/link error (1).
-    process.stderr.write(
-      `padi-tui: timed out after ${opts.timeoutMs}ms waiting for ${shortId(resolvedId)} to reach ${[...targets].join("/")}.\n`,
+    if (outcome.kind === "timeout") {
+      return yield* Effect.fail(
+        new WaitTimedOut({
+          stderr: `padi-tui: timed out after ${opts.timeoutMs}ms waiting for ${shortId(resolvedId)} to reach ${[...targets].join("/")}.\n`,
+        }),
+      );
+    }
+    if (outcome.kind === "gone") {
+      return yield* Effect.fail(
+        new WaitTerminalGone({
+          stderr: `padi-tui: ${shortId(resolvedId)} disappeared before reaching ${[...targets].join("/")} — its terminal exited.\n`,
+        }),
+      );
+    }
+    if (outcome.kind === "interrupted") {
+      return yield* Effect.fail(
+        new WaitInterrupted({
+          stderr: `— interrupted; ${shortId(resolvedId)} left waiting\n`,
+        }),
+      );
+    }
+    // closed: the padi link dropped before the state landed — a failure.
+    return yield* Effect.fail(
+      failure(
+        outcome.error ??
+          "the padi link closed — the daemon stopped or the connection dropped. Is `padi` still running?",
+      ),
     );
-    process.exit(2);
-  }
-  if (outcome.kind === "gone") {
-    // The terminal exited before reaching the state — distinct exit code (3) so a
-    // driver tells "the agent I was driving died" from a timeout (2) or error (1).
-    process.stderr.write(
-      `padi-tui: ${shortId(resolvedId)} disappeared before reaching ${[...targets].join("/")} — its terminal exited.\n`,
-    );
-    process.exit(3);
-  }
-  if (outcome.kind === "interrupted") {
-    process.stderr.write(
-      `— interrupted; ${shortId(resolvedId)} left waiting\n`,
-    );
-    process.exit(130);
-  }
-  // closed: the padi link dropped before the state landed — a failure.
-  fail(
-    outcome.error ??
-      "the padi link closed — the daemon stopped or the connection dropped. Is `padi` still running?",
-  );
+  });
 }
 
-async function cmdCreate(
-  conn: Connection,
+function cmdCreate(
+  endpoint: Endpoint,
   flags: {
     parent: string | undefined;
     worktree: string | undefined;
@@ -495,139 +663,160 @@ async function cmdCreate(
     json: boolean;
   },
   command: readonly string[],
-): Promise<void> {
-  // Resolve --parent prefix against the live terminals (a short id or prefix).
-  let parentId: TerminalId | undefined;
-  if (flags.parent !== undefined) {
-    parentId = await resolveArg(conn.client, flags.parent);
-  }
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const created = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const conn = yield* connectTo(endpoint);
+        // Resolve --parent prefix against the live terminals (a short id or prefix).
+        const parentId =
+          flags.parent === undefined
+            ? undefined
+            : yield* resolveArg(conn.client, flags.parent);
 
-  // WHERE the new terminal opens depends on whether this daemon shares our
-  // filesystem — the one co-location fact `conn.localCwd` carries. A LOCAL padi runs
-  // on THIS machine, so `conn.localCwd` is `process.cwd()`, a real path there; a
-  // REMOTE one (`--host`) runs elsewhere, so `conn.localCwd` is undefined — the local
-  // cwd need not exist on the host, and padi defaults to the remote user's HOME
-  // (endpoint.ts: cwd resolves to home when undefined). `--worktree` overrides cwd
-  // with the host-side worktree path inside runCreate either way, but its repo is a
-  // HOST path over ssh: a remote --worktree can't default to the local cwd (a repo on
-  // the wrong machine), so it requires an explicit --repo.
-  let worktree: { repoPath: string; name: string } | undefined;
-  if (flags.worktree !== undefined) {
-    const repoPath = flags.repo ?? conn.localCwd;
-    if (repoPath === undefined) {
-      fail(WORKTREE_OVER_HOST_NEEDS_REPO);
+        // WHERE the new terminal opens depends on whether this daemon shares our
+        // filesystem — the one co-location fact `conn.localCwd` carries. A LOCAL padi
+        // runs on THIS machine, so `conn.localCwd` is `process.cwd()`, a real path
+        // there; a REMOTE one (`--host`) runs elsewhere, so `conn.localCwd` is
+        // undefined — the local cwd need not exist on the host, and padi defaults to
+        // the remote user's HOME (endpoint.ts: cwd resolves to home when undefined).
+        // `--worktree` overrides cwd with the host-side worktree path inside
+        // runCreate either way, but its repo is a HOST path over ssh: a remote
+        // --worktree can't default to the local cwd (a repo on the wrong machine),
+        // so it requires an explicit --repo.
+        let worktree: { repoPath: string; name: string } | undefined;
+        if (flags.worktree !== undefined) {
+          const repoPath = flags.repo ?? conn.localCwd;
+          if (repoPath === undefined) {
+            return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
+          }
+          worktree = { repoPath, name: flags.worktree };
+        }
+
+        const result = yield* runCreate(conn.client, {
+          parentId,
+          worktree,
+          // A plain LOCAL create opens where you are (the tmux convention); a REMOTE
+          // one has `conn.localCwd` undefined so padi defaults to the host's home.
+          // --worktree overrides this with the worktree path inside runCreate.
+          cwd: conn.localCwd,
+          argv: command,
+        });
+        return { result, parentId };
+      }),
+    );
+
+    const { result, parentId } = created;
+    if (flags.json) {
+      return yield* writeOut(`${JSON.stringify(result, null, 2)}\n`);
     }
-    worktree = { repoPath, name: flags.worktree };
-  }
-
-  const result = await runCreate(conn.client, {
-    parentId,
-    worktree,
-    // A plain LOCAL create opens where you are (the tmux convention); a REMOTE one
-    // has `conn.localCwd` undefined so padi defaults to the host's home. --worktree
-    // overrides this with the worktree path inside runCreate.
-    cwd: conn.localCwd,
-    argv: command,
+    // stdout is just the id (scriptable — `id=$(padi-tui create)`); the rest to stderr.
+    yield* writeOut(`${result.id}\n`);
+    const bits = [`— created ${shortId(result.id)}`];
+    if (parentId !== undefined) bits.push(`split of ${shortId(parentId)}`);
+    if (result.worktree !== undefined) {
+      bits.push(
+        `worktree ${result.worktree.branch} at ${result.worktree.path}`,
+      );
+    }
+    if (result.ran !== undefined) bits.push(`running \`${result.ran}\``);
+    yield* writeErr(`${bits.join(" · ")}\n`);
   });
-
-  if (flags.json) {
-    await writeOut(`${JSON.stringify(result, null, 2)}\n`);
-    return;
-  }
-  // stdout is just the id (scriptable — `id=$(padi-tui create)`); the rest to stderr.
-  await writeOut(`${result.id}\n`);
-  const bits = [`— created ${shortId(result.id)}`];
-  if (parentId !== undefined) bits.push(`split of ${shortId(parentId)}`);
-  if (result.worktree !== undefined) {
-    bits.push(`worktree ${result.worktree.branch} at ${result.worktree.path}`);
-  }
-  if (result.ran !== undefined) bits.push(`running \`${result.ran}\``);
-  process.stderr.write(`${bits.join(" · ")}\n`);
 }
 
-async function main(): Promise<void> {
-  // cleye already handled --help / --version. We land here with no command for
-  // bare `padi-tui` (show help) or the common trap of a flag BEFORE the subcommand
-  // (`padi-tui --socket X status`) — cleye binds flags only after the command, so
-  // a leading flag swallows it. Steer that case to the right order.
-  if (argv.command === undefined) {
-    if (process.argv.length > 2) {
-      fail(
-        "no command. Flags go AFTER the subcommand — try `padi-tui status --socket <path>` (not `padi-tui --socket <path> status`). `padi-tui --help` lists the commands.",
-      );
-    }
-    argv.showHelp();
-    process.exit(1);
-  }
+// ── The one program, and the one run edge ────────────────────────────────
 
-  // `wait`'s flag checks are pure — validate them BEFORE the dial so a bad
-  // `--until`/`--timeout` fails fast with no connection to tear down. `waitTargets`
-  // is non-null exactly when the command is `wait`; its parsed targets flow
-  // straight into cmdWait below.
-  let waitTargets: ReadonlySet<string> | null = null;
-  if (argv.command === "wait") {
-    if (argv.flags.until === undefined) {
-      fail(
-        "--until is required — e.g. `padi-tui wait <id> --until awaiting,waiting`.",
-      );
+function program(): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    // cleye already handled --help / --version. We land here with no command for
+    // bare `padi-tui` (show help) or the common trap of a flag BEFORE the subcommand
+    // (`padi-tui --socket X status`) — cleye binds flags only after the command, so
+    // a leading flag swallows it. Steer that case to the right order.
+    if (argv.command === undefined) {
+      if (process.argv.length > 2) {
+        return yield* Effect.fail(
+          failure(
+            "no command. Flags go AFTER the subcommand — try `padi-tui status --socket <path>` (not `padi-tui --socket <path> status`). `padi-tui --help` lists the commands.",
+          ),
+        );
+      }
+      argv.showHelp();
+      return yield* Effect.fail(new CliFailure({ stderr: "" }));
     }
-    const parsed = parseUntilStates(argv.flags.until);
-    if (parsed.kind === "error") fail(parsed.message);
+
+    // `wait`'s flag checks are pure — validate them BEFORE the dial so a bad
+    // `--until`/`--timeout` fails fast with no connection to tear down. `waitTargets`
+    // is non-null exactly when the command is `wait`; its parsed targets flow
+    // straight into cmdWait below.
+    let waitTargets: ReadonlySet<string> | null = null;
+    if (argv.command === "wait") {
+      if (argv.flags.until === undefined) {
+        return yield* Effect.fail(
+          failure(
+            "--until is required — e.g. `padi-tui wait <id> --until awaiting,waiting`.",
+          ),
+        );
+      }
+      const parsed = parseUntilStates(argv.flags.until);
+      if (parsed.kind === "error") {
+        return yield* Effect.fail(failure(parsed.message));
+      }
+      if (
+        argv.flags.timeout !== undefined &&
+        !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
+      ) {
+        return yield* Effect.fail(
+          failure("--timeout must be a positive number of milliseconds."),
+        );
+      }
+      waitTargets = parsed.targets;
+    }
+
+    // Pick the transport once: `resolveEndpoint` owns the whole "name exactly one
+    // daemon target" policy (--host vs --socket / --state-root) and returns the ONE
+    // target, each arm carrying exactly what its connect needs. --host reaches a remote
+    // padi over ssh; otherwise dial the resolved local socket.
+    const endpoint = yield* resolveEndpoint(argv.flags);
+
+    // A remote `--worktree` without `--repo` is a pure USAGE error — the worktree is
+    // cut on the remote host, so it can't default to the local cwd. Reject it BEFORE
+    // dialing (the same fail-fast the `wait` flags get above), so a cold or
+    // unreachable host doesn't make the user wait on provisioning only to learn the
+    // command was malformed. `cmdCreate` keeps the transport-blind guard on
+    // `conn.localCwd` as the defensive invariant.
     if (
-      argv.flags.timeout !== undefined &&
-      !(Number.isFinite(argv.flags.timeout) && argv.flags.timeout > 0)
+      argv.command === "create" &&
+      endpoint.kind === "host" &&
+      argv.flags.worktree !== undefined &&
+      argv.flags.repo === undefined
     ) {
-      fail("--timeout must be a positive number of milliseconds.");
+      return yield* Effect.fail(failure(WORKTREE_OVER_HOST_NEEDS_REPO));
     }
-    waitTargets = parsed.targets;
-  }
 
-  // Pick the transport once: `resolveEndpoint` owns the whole "name exactly one
-  // daemon target" policy (--host vs --socket / --state-root) and returns the ONE
-  // target, each arm carrying exactly what its connect needs. --host reaches a remote
-  // padi over ssh; otherwise dial the resolved local socket.
-  const endpoint = resolveEndpoint(argv.flags);
-
-  // A remote `--worktree` without `--repo` is a pure USAGE error — the worktree is
-  // cut on the remote host, so it can't default to the local cwd. Reject it BEFORE
-  // dialing (the same fail-fast the `wait` flags get above), so a cold or
-  // unreachable host doesn't make the user wait on provisioning only to learn the
-  // command was malformed. `cmdCreate` keeps the transport-blind guard on
-  // `conn.localCwd` as the defensive invariant.
-  if (
-    argv.command === "create" &&
-    endpoint.kind === "host" &&
-    argv.flags.worktree !== undefined &&
-    argv.flags.repo === undefined
-  ) {
-    fail(WORKTREE_OVER_HOST_NEEDS_REPO);
-  }
-
-  const conn: Connection =
-    endpoint.kind === "host"
-      ? await connectHost(endpoint.host)
-      : await connectLocal(endpoint.socketPath);
-
-  // Narrow on `argv.command` so cleye's per-command flag/positional union collapses
-  // to the one shape (only `wait` carries `--until`/`--timeout`, only `create` the
-  // worktree flags). `cmdStatus` disposes its own link (snapshots then releases);
-  // `cmdWatch`/`cmdWait`/`cmdCreate` dispose in their own flow / finally.
-  if (argv.command === "status") {
-    await cmdStatus(conn, argv.flags.json);
-  } else if (argv.command === "watch") {
-    await cmdWatch(conn, argv._.id, argv.flags.json);
-  } else if (argv.command === "wait") {
-    // `waitTargets` was parsed + validated in the pre-dial block above (the command
-    // is `wait`), so it is non-null here; the guard keeps TS honest without a cast.
-    if (waitTargets === null) fail("--until is required.");
-    await cmdWait(conn, argv._.id, waitTargets, {
-      json: argv.flags.json,
-      timeoutMs: argv.flags.timeout,
-    });
-  } else if (argv.command === "create") {
-    try {
-      await cmdCreate(
-        conn,
+    // Narrow on `argv.command` so cleye's per-command flag/positional union collapses
+    // to the one shape (only `wait` carries `--until`/`--timeout`, only `create` the
+    // worktree flags). Every verb owns its own scope, so the link it dials is
+    // released on its way out whichever way it leaves.
+    if (argv.command === "status") {
+      return yield* cmdStatus(endpoint, argv.flags.json);
+    }
+    if (argv.command === "watch") {
+      return yield* cmdWatch(endpoint, argv._.id, argv.flags.json);
+    }
+    if (argv.command === "wait") {
+      // `waitTargets` was parsed + validated in the pre-dial block above (the command
+      // is `wait`), so it is non-null here; the guard keeps TS honest without a cast.
+      if (waitTargets === null) {
+        return yield* Effect.fail(failure("--until is required."));
+      }
+      return yield* cmdWait(endpoint, argv._.id, waitTargets, {
+        json: argv.flags.json,
+        timeoutMs: argv.flags.timeout,
+      });
+    }
+    if (argv.command === "create") {
+      return yield* cmdCreate(
+        endpoint,
         {
           parent: argv.flags.parent,
           worktree: argv.flags.worktree,
@@ -636,17 +825,18 @@ async function main(): Promise<void> {
         },
         argv._.command,
       );
-    } finally {
-      conn.dispose();
     }
-  } else {
-    conn.dispose();
-    fail("unhandled command — add a dispatch branch for it");
-  }
-  process.exit(0);
+    return yield* Effect.fail(
+      failure("unhandled command — add a dispatch branch for it"),
+    );
+  });
 }
 
-main().catch((err) => {
-  process.stderr.write(`padi-tui: ${(err as Error).message}\n`);
-  process.exit(1);
+/** THE exit map, at THE run edge — the whole of it, in five lines, because
+ *  `exit.ts` already made each arm carry its own line and its own code. */
+Effect.runPromiseExit(program()).then((exit) => {
+  if (Exit.isSuccess(exit)) process.exit(0);
+  const error = Cause.squash(exit.cause);
+  process.stderr.write(reportOf(error));
+  process.exit(exitCodeOf(error));
 });

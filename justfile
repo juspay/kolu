@@ -344,7 +344,7 @@ e2e-ssh host='': install
     echo "e2e-ssh: host=$host system=$system padi-drv=$drv"
     cd packages/server && KOLU_E2E_SSH_HOST="$host" KOLU_E2E_PADI_DRV="$drv" \
         KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-$$/state" \
-        {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/remotePadiSsh.test.ts
+        {{ nix_shell }} pnpm exec vitest run --fileParallelism=false src/padi/remotePadiSsh.test.ts
 
 # W3.1 ssh-leg e2e — TWO-BOX arm. `e2e-ssh` self-ssh's to the box's OWN padi (a real hop,
 # but the "remote" host == this machine). This second recipe binds to a GENUINELY-DIFFERENT
@@ -392,6 +392,91 @@ e2e-ssh-2box boxB port='7099': install
     # Single-line python (avoids heredoc-dedent issues in a just recipe): assert boundHost and
     # boundPadi.surfaceVersion off the PARSED JSON, not a key-order-fragile / unescaped-regex grep.
     python3 -c 'import json,sys; d=json.loads(sys.argv[2] or "{}").get("json",{}); p=d.get("boundPadi") or {}; (print("e2e-ssh-2box: PASS — boundHost="+str(d.get("boundHost"))+", boundPadi.surfaceVersion="+str(p.get("surfaceVersion"))+" over the genuinely-remote binding") if d.get("boundHost")==sys.argv[1] and p.get("surfaceVersion") else sys.exit("FAIL: boundHost="+repr(d.get("boundHost"))+" (expected "+repr(sys.argv[1])+"), boundPadi.surfaceVersion="+repr(p.get("surfaceVersion"))))' "$boxB" "$frame"
+
+# F4 (juspay/kolu#2101) — the REMOTE upgrade-window e2e. Leaves a REAL previous-release
+# padi resident on <host>, then dials that host with the CURRENT build through the real
+# `sshConnector`/`makeSession` stack and asserts the acceptance criterion that inverts the
+# incident: ONE takeover and ONE clean converge, NOT a loop. The pre-fix behaviour was a
+# 10s-per-attempt retry-forever, so the suite asserts the negative (no terminal verdict,
+# one campaign, bounded wall clock) as loudly as the positive.
+#
+# Resolves the latest vX.Y.Z release tag the same way `ci::upgrade-window` does
+# (`git ls-remote --tags` on the configured remotes, then the known GitHub URL), builds
+# that tag's `#padi` AND the current `#padi`, REFUSES an identical pair (a same-version
+# collapse would green-wash the window), and nix-copies the previous closure to <host>.
+#
+# The copy is `--no-check-sigs`, so the ssh user must be in the REMOTE nix daemon's
+# `trusted-users` (root is, on a stock pu box) — verify with
+# `ssh <host> nix show-config | grep trusted-users` before blaming the code.
+#
+# CI has NO ssh lane (no sshd in the build sandbox), so THIS recipe is the only enforced
+# run of the remote upgrade window — deliberately, and stated here and in the suite header
+# so the coverage cap is never silent.
+#
+# DESTRUCTIVE: it spawns and reaps padi daemons on <host>. It works in a run-unique
+# state root (so it cannot touch a production padi's rendezvous), but the ack is still
+# required so a mistyped host can't have daemons spawned on it.
+#   KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 just e2e-ssh-upgrade root@kolu-f4-upgrade
+e2e-ssh-upgrade host: install
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="{{ host }}"
+    [ "${KOLU_E2E_SSH_DESTRUCTIVE_ACK:-}" = "1" ] || { echo "e2e-ssh-upgrade: REFUSING — DESTRUCTIVE against '$host': it spawns and REAPS padi daemons there. Set KOLU_E2E_SSH_DESTRUCTIVE_ACK=1 ONLY if '$host' is a disposable test host (a pu box), never a workstation." >&2; exit 1; }
+    # Latest vX.Y.Z across configured remotes, then the known GitHub URL — the same
+    # resolution `ci::upgrade-window` uses, for the same reason: a CI checkout is
+    # SHA-only and often has no local tags, and the old "last padi-touching rev"
+    # fallback built a padi IDENTICAL to current, collapsing the window.
+    latest_version_tag() {
+      git ls-remote --tags --refs "$1" 2>/dev/null \
+        | awk '{print $2}' | sed 's|refs/tags/||' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true
+    }
+    candidates=()
+    while IFS= read -r r; do
+      [ -n "$r" ] || continue
+      u="$(git remote get-url "$r" 2>/dev/null || true)"
+      [ -n "$u" ] && candidates+=("$u")
+    done < <(git remote 2>/dev/null || true)
+    candidates+=("https://github.com/juspay/kolu" "https://github.com/juspay/kolu.git")
+    ref=""
+    for url in "${candidates[@]}"; do
+      echo "e2e-ssh-upgrade: probing tags at ${url}"
+      t="$(latest_version_tag "$url")"
+      if [[ "${t}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then ref="$t"; break; fi
+    done
+    [[ "${ref}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "e2e-ssh-upgrade: REFUSING — no version tag (vX.Y.Z) via ls-remote; there is no previous release to open a window against" >&2; exit 1; }
+    echo "e2e-ssh-upgrade: previous ref=${ref}"
+    # `github:` (not `git+file://${PWD}?ref=`) so the build works from a SHALLOW clone
+    # and from a git worktree, neither of which nix's local-git fetcher accepts.
+    prev_store="$(nix build --no-link --print-out-paths --accept-flake-config "github:juspay/kolu/${ref}#padi")"
+    curr_store="$(nix build --no-link --print-out-paths --accept-flake-config ".#padi")"
+    echo "e2e-ssh-upgrade: previous padi store=${prev_store}"
+    echo "e2e-ssh-upgrade: current  padi store=${curr_store}"
+    if [ "${prev_store}" = "${curr_store}" ]; then
+      echo "e2e-ssh-upgrade: REFUSING — previous padi store path equals current (${prev_store}); the mixed-version window collapsed to a same-version recycle" >&2
+      exit 1
+    fi
+    echo "e2e-ssh-upgrade: store paths differ — the window is real"
+    # The PREVIOUS closure is planted by this recipe (the test only starts it). The
+    # CURRENT one is provisioned by the connector itself, over the real dial, which is
+    # part of what the suite exercises.
+    echo "e2e-ssh-upgrade: copying the previous closure to ${host} (--no-check-sigs; needs the ssh user in the remote trusted-users)"
+    nix copy --to "ssh://${host}" --no-check-sigs "${prev_store}"
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    drv=$(nix eval --raw --accept-flake-config ".#packages.$system.padi.drvPath")
+    # `--reporter=verbose --disableConsoleIntercept`: this suite's narration (the
+    # front's own convergence lines — classification, SIGTERM, fresh spawn, the
+    # phase walk) IS the evidence a human runs this for, and the default reporter
+    # swallows console output for a PASSING test. A green tick that prints nothing
+    # cannot be pasted into a disposition, so the run always speaks.
+    cd packages/server && KOLU_E2E_SSH_HOST="$host" KOLU_E2E_PADI_DRV="$drv" \
+        KOLU_E2E_PREVIOUS_PADI_STORE="$prev_store" \
+        KOLU_E2E_PREVIOUS_PADI_REF="$ref" \
+        KOLU_E2E_CURRENT_PADI_STORE="$curr_store" \
+        KOLU_STATE_DIR="${TMPDIR:-/tmp}/kolu-e2e-ssh-upgrade-$$/state" \
+        {{ nix_shell }} pnpm exec vitest run --fileParallelism=false \
+        --reporter=verbose --disableConsoleIntercept \
+        src/padi/remotePadiSshUpgradeWindow.test.ts
 
 # Run Cucumber e2e tests (nix build once, each worker spawns the binary)
 test: install

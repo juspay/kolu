@@ -1,21 +1,23 @@
 /**
  * The whole-collection `.use()` deltas/per-key gate must decide from the SPEC's
- * verbs, NOT by probing `(ns as any).deltas` on the link. A real oRPC WIRE
- * client (`websocketLink`/`stdioLink`/`unixSocketLink`) is a lazy Proxy whose
- * every property access returns a truthy callable, so a transport-level probe is
- * `true` for EVERY collection — it would route a non-opted whole-collection
- * `.use()` into a `deltas` call the server never registered, the stream would
- * reject, and the collection would silently read empty. This pins the gate to
- * the spec: a collection WITHOUT the `deltas` verb takes the per-key keys-stream
- * path even when the link proxy makes `ns.deltas` truthy; one WITH it takes the
- * single batched stream. (A stub object link can't catch this — only a proxy
- * that's truthy for absent properties, like the wire client, reproduces it.)
+ * verbs, NOT by asking the TRANSPORT whether a `deltas` stream exists. A wire
+ * dispatch answers whatever tag it is handed — it has no idea which members the
+ * server actually registered — so a transport-level probe is effectively `true`
+ * for EVERY collection: it would route a non-opted whole-collection `.use()` into
+ * a `deltas` call the server never registered, the stream would reject, and the
+ * collection would silently read empty. (Under oRPC the same hazard wore a
+ * different costume: the wire client was a lazy Proxy whose every property access
+ * returned a truthy callable, so `(ns as any).deltas` read truthy for every
+ * collection.) This pins the gate to the spec: a collection WITHOUT the `deltas`
+ * verb takes the per-key keys-stream path even when the transport would happily
+ * answer its `deltas` tag; one WITH it takes the single batched stream.
  */
 
+import { Effect, Schema, Stream } from "effect";
 import { createRoot } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { type CollectionDeltasMsg, defineSurface } from "../define";
+import type { SurfaceDispatch } from "../link";
 import { surfaceClient } from "./surfaceClient";
 import { useCollectionDeltas } from "./useCollection";
 
@@ -27,49 +29,57 @@ const settle = async (): Promise<void> => {
 const surface = defineSurface({
   collections: {
     // Default verbs — NOT opted into `deltas`.
-    plain: { keySchema: z.string(), schema: z.object({ v: z.number() }) },
+    plain: {
+      keySchema: Schema.String,
+      schema: Schema.Struct({ v: Schema.Number }),
+    },
     // Opted into the batched stream.
     batched: {
-      keySchema: z.string(),
-      schema: z.object({ v: z.number() }),
+      keySchema: Schema.String,
+      schema: Schema.Struct({ v: Schema.Number }),
       verbs: ["keys", "get", "upsert", "delete", "deltas"],
     },
   },
 });
 
-/** A link that mimics the oRPC WIRE client: `surface[key][verb]` is truthy for
- *  ANY verb. `keys`/`deltas` yield one empty frame so a subscription settles;
- *  every other property is a truthy callable (the hazard the gate must ignore). */
-function wireProxyLink() {
-  const yieldOnce =
-    <T>(v: T) =>
-    () =>
-      Promise.resolve(
-        (async function* () {
-          yield v;
-        })(),
-      );
-  const verbProxy = () =>
-    new Proxy(
-      {},
-      {
-        get(_t, verb: string) {
-          if (verb === "keys") return yieldOnce<string[]>([]);
-          if (verb === "deltas")
-            return yieldOnce({ kind: "snapshot", entries: [] });
-          // Any other property: a truthy callable — exactly what a wire client's
-          // recursive Proxy returns, and exactly what the old gate mis-read.
-          return () => Promise.resolve();
-        },
-      },
-    );
-  return { surface: new Proxy({}, { get: () => verbProxy() }) };
+/** One frame, delivered ASYNCHRONOUSLY then a typed end. Async on purpose: a
+ *  synchronous `Stream.make` runs to completion inside `Effect.runFork`, so its
+ *  typed end would land before `.use()` even returned — a real wire stream always
+ *  crosses an await first. */
+function yieldOnce<T>(value: T): Stream.Stream<T, unknown> {
+  return Stream.fromAsyncIterable(
+    (async function* () {
+      yield value;
+    })(),
+    (e) => e,
+  );
+}
+
+/** A dispatch that answers ANY tag — the transport-level shape of the hazard.
+ *  A `keys` tag yields one empty key set, a `deltas` tag one empty snapshot, and
+ *  anything else stays silently open; NOTHING here knows which verbs a given
+ *  collection declared, which is exactly the point: the transport cannot be the
+ *  gate's source of truth, so if the gate consulted it every collection would
+ *  route through `deltas`. */
+function answersAnyTagDispatch(): SurfaceDispatch {
+  return {
+    unary: () => Effect.succeed(undefined),
+    stream: (tag) =>
+      Stream.suspend<unknown, unknown, never>(() => {
+        if (tag.endsWith("/keys")) return yieldOnce<string[]>([]);
+        if (tag.endsWith("/deltas"))
+          return yieldOnce({ kind: "snapshot", entries: [] });
+        // Any other tag: an open, silent stream — the transport is equally happy
+        // to serve it, which is the mis-read the old gate made.
+        return Stream.never;
+      }),
+  };
 }
 
 /** A controllable snapshot-then-delta source: each `push` feeds one frame to the
  *  single batched stream `useCollectionDeltas` folds, so the test can observe the
- *  `byKey` contract step by step. The iterator never completes (mirrors a live
- *  stream); the createRoot dispose tears the subscription down. */
+ *  `byKey` contract step by step. The stream never completes (mirrors a live
+ *  stream); the createRoot dispose interrupts its fiber and tears it down. */
 function pushableFrames<T>() {
   const queue: T[] = [];
   let wake: (() => void) | null = null;
@@ -88,7 +98,9 @@ function pushableFrames<T>() {
     },
   };
   return {
-    source: () => Promise.resolve(iterable),
+    // `useCollectionDeltas` now takes the STREAM itself (lazy), not a thunk that
+    // resolves an async iterable.
+    source: Stream.fromAsyncIterable<T, unknown>(iterable, (e) => e),
     push(frame: T) {
       queue.push(frame);
       wake?.();
@@ -141,11 +153,10 @@ describe("collection deltas — byKey contract over the single batched stream", 
   });
 });
 
-describe("collection deltas — opt-in gate reads the spec, not the link proxy", () => {
-  it("a non-opted collection takes the per-key path even when ns.deltas is truthy", async () => {
+describe("collection deltas — opt-in gate reads the spec, not the transport", () => {
+  it("a non-opted collection takes the per-key path even when the transport would answer its deltas tag", async () => {
     await createRoot(async (dispose) => {
-      // biome-ignore lint/suspicious/noExplicitAny: proxy link stands in for the typed wire ContractRouterClient.
-      const app = surfaceClient(surface, wireProxyLink() as any);
+      const app = surfaceClient(surface, answersAnyTagDispatch());
       app.collections.plain.use({});
       app.collections.batched.use({});
       await settle();
@@ -198,7 +209,7 @@ function controllableStream<T>() {
   };
 
   return {
-    source: () => Promise.resolve(iterable),
+    source: Stream.fromAsyncIterable<T, unknown>(iterable, (e) => e),
     push(v: T) {
       if (waiter) {
         const w = waiter;
@@ -220,14 +231,14 @@ function controllableStream<T>() {
   };
 }
 
-/** A `plain`-collection link whose `keys` stream and each per-key `get` stream are
- *  independently controllable — lets a test drive a real collection-level error (the
- *  keys stream faulting) or a real per-key value-stream error, distinctly and on
+/** A `plain`-collection DISPATCH whose `keys` stream and each per-key `get` stream
+ *  are independently controllable — lets a test drive a real collection-level error
+ *  (the keys stream faulting) or a real per-key value-stream error, distinctly and on
  *  demand, over the exact two error channels the whole-collection `.use()` dedup
- *  branch wires its shared `onError` dispatcher into. `batched.deltas` is a silent,
- *  immediately-ending stub — only exercised here for the "distinct collection takes
- *  its own first onError, no interaction with `plain`'s registry" case. */
-function faultablePlainLink() {
+ *  branch wires its shared `onError` dispatcher into. `surface/batched/deltas` is a
+ *  silent, immediately-ending stub — only exercised here for the "distinct collection
+ *  takes its own first onError, no interaction with `plain`'s registry" case. */
+function faultablePlainDispatch() {
   const keys = controllableStream<string[]>();
   const values = new Map<
     string,
@@ -241,20 +252,25 @@ function faultablePlainLink() {
     }
     return s;
   }
+  const dispatch: SurfaceDispatch = {
+    unary: () => Effect.succeed(undefined),
+    stream: (tag, payload) =>
+      Stream.suspend<unknown, unknown, never>(() => {
+        if (tag === "surface/plain/keys") return keys.source;
+        if (tag === "surface/plain/get") {
+          return valueStream((payload as { key: string }).key).source;
+        }
+        if (tag === "surface/batched/deltas") {
+          return Stream.fromAsyncIterable<never, unknown>(
+            (async function* () {})(),
+            (e) => e,
+          );
+        }
+        return Stream.fail(new Error(`no member served at "${tag}"`));
+      }),
+  };
   return {
-    link: {
-      surface: {
-        plain: {
-          keys: keys.source,
-          get: (input: { key: string }) => valueStream(input.key).source(),
-          upsert: () => Promise.resolve(),
-          delete: () => Promise.resolve(),
-        },
-        batched: {
-          deltas: () => Promise.resolve((async function* () {})()),
-        },
-      },
-    },
+    dispatch,
     pushKeys: (ks: string[]) => keys.push(ks),
     failKeys: (e: unknown) => keys.fail(e),
     pushValue: (key: string, v: { v: number }) => valueStream(key).push(v),
@@ -265,9 +281,8 @@ function faultablePlainLink() {
 describe("collection onError — per-consumer registry: every handler fires, none dropped", () => {
   it("bare + identical + a DIFFERENT second onError all SHARE one slot (no throw); both distinct handlers fire", async () => {
     await createRoot(async (dispose) => {
-      const { link, failKeys } = faultablePlainLink();
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
-      const app = surfaceClient(surface, link as any);
+      const { dispatch, failKeys } = faultablePlainDispatch();
+      const app = surfaceClient(surface, dispatch);
       const fires1: Error[] = [];
       const fires2: Error[] = [];
       const onError1 = (e: Error) => fires1.push(e);
@@ -314,9 +329,8 @@ describe("collection onError — per-consumer registry: every handler fires, non
 
   it("REVERSE order: a bare .use() FIRST then a handler .use() now SHARES (no throw) — order no longer matters", async () => {
     await createRoot(async (dispose) => {
-      const { link, failKeys } = faultablePlainLink();
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
-      const app = surfaceClient(surface, link as any);
+      const { dispatch, failKeys } = faultablePlainDispatch();
+      const app = surfaceClient(surface, dispatch);
       const fires: Error[] = [];
       const handler = (e: Error) => fires.push(e);
 
@@ -343,9 +357,8 @@ describe("collection onError — per-consumer registry: every handler fires, non
 describe("collection onError — three consumers, three handlers, per-owner unregister", () => {
   it("all three fire on a collection error; disposing one consumer's owner stops JUST its handler", async () => {
     await createRoot(async (dispose) => {
-      const { link, pushKeys, failValue } = faultablePlainLink();
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
-      const app = surfaceClient(surface, link as any);
+      const { dispatch, pushKeys, failValue } = faultablePlainDispatch();
+      const app = surfaceClient(surface, dispatch);
 
       const fires1: Error[] = [];
       const fires2: Error[] = [];
@@ -407,46 +420,35 @@ describe("collection onError — three consumers, three handlers, per-owner unre
  *  controllable stream the test drives by hand. Reproduces the exact shape the
  *  generation-torn defect needs: a dead generation's disposal running alongside
  *  a live generation's registry and dispatcher. */
-function generationalKeysLink() {
+function generationalKeysDispatch() {
   let call = 0;
   let liveGen: ReturnType<typeof controllableStream<string[]>> | undefined;
-  return {
-    link: {
-      surface: {
-        plain: {
-          keys: (): Promise<AsyncIterable<string[]>> => {
-            call++;
-            if (call === 1) {
-              // GEN 1: one empty frame, then a TYPED end.
-              return Promise.resolve(
-                (async function* () {
-                  yield [] as string[];
-                })(),
-              );
-            }
-            // GEN 2+: stays open — the test faults it on demand.
-            liveGen = controllableStream<string[]>();
-            return liveGen.source();
-          },
-          // Never invoked: keys stays `[]` throughout (this test only exercises
-          // the keys-stream's OWN error channel, not any per-key value stream).
-          get: (): Promise<AsyncIterable<{ v: number }>> =>
-            new Promise(() => {}),
-          upsert: () => Promise.resolve(),
-          delete: () => Promise.resolve(),
-        },
-      },
-    },
-    failLiveGen: (e: unknown) => liveGen?.fail(e),
+  const dispatch: SurfaceDispatch = {
+    unary: () => Effect.succeed(undefined),
+    stream: (tag) =>
+      Stream.suspend<unknown, unknown, never>(() => {
+        if (tag === "surface/plain/keys") {
+          call++;
+          // GEN 1: one empty frame, then a TYPED end.
+          if (call === 1) return yieldOnce<string[]>([]);
+          // GEN 2+: stays open — the test faults it on demand.
+          liveGen = controllableStream<string[]>();
+          return liveGen.source;
+        }
+        // Never run: keys stays `[]` throughout (this test only exercises the
+        // keys-stream's OWN error channel, not any per-key value stream).
+        if (tag === "surface/plain/get") return Stream.never;
+        return Stream.fail(new Error(`no member served at "${tag}"`));
+      }),
   };
+  return { dispatch, failLiveGen: (e: unknown) => liveGen?.fail(e) };
 }
 
 describe("collection onError — generation-torn registry (CONFIRMED fix)", () => {
   it("a late-joining consumer under a NEW generation still fires, even after the OLD (dead) generation's own disposal", async () => {
     await createRoot(async (dispose) => {
-      const { link, failLiveGen } = generationalKeysLink();
-      // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
-      const app = surfaceClient(surface, link as any);
+      const { dispatch, failLiveGen } = generationalKeysDispatch();
+      const app = surfaceClient(surface, dispatch);
 
       const fires1: Error[] = [];
       const fires2: Error[] = [];
@@ -524,9 +526,8 @@ describe("collection onError — generation-torn registry (CONFIRMED fix)", () =
 
 describe("collection onError — ownerless registration must not leak (the unguarded sibling of the cache's ownerless read() fix)", () => {
   it("PIN — an ownerless .use({onError}) does not durably register the handler; a later generation's error never reaches it", async () => {
-    const { link, failKeys } = faultablePlainLink();
-    // biome-ignore lint/suspicious/noExplicitAny: stub link stands in for the typed wire client.
-    const app = surfaceClient(surface, link as any);
+    const { dispatch, failKeys } = faultablePlainDispatch();
+    const app = surfaceClient(surface, dispatch);
     const fires: Error[] = [];
     const leaky = (e: Error) => fires.push(e);
 

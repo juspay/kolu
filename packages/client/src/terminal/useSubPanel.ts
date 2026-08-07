@@ -1,11 +1,14 @@
 /** Sub-panel UI state — singleton module. Tracks collapsed, size, active tab, and remembered pane per parent terminal.
  *  Reported to server for session snapshots; seeded from server on restore. */
 
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
 import { nonEmpty } from "nonempty";
 import { createStore, produce } from "solid-js/store";
 import { toast } from "solid-sonner";
 import { activeScope } from "../hostScope/hostScopes";
+import { runAction } from "../runAction";
 import { activePadiRpc } from "../wire";
 
 interface SubPanelState {
@@ -46,24 +49,35 @@ function ensureState(parentId: TerminalId): SubPanelState {
 function reportToServer(parentId: TerminalId) {
   const s = state[parentId];
   if (!s) return;
-  void activePadiRpc.chrome
-    .setSubPanel({
-      id: parentId,
-      collapsed: s.collapsed,
-      panelSize: s.panelSize,
-    })
-    .catch((err: Error) =>
-      // Mirror `useRightPanel.reportToServer`: a rejected `setSubPanel` means
-      // the optimistic sub-panel state (collapsed / size) is NOT persisted and
-      // silently reverts on the next session restore. The health pip reports
-      // only TRANSPORT health, so an application-level rejection on an
-      // otherwise-live padi would go unseen — surface it per the terminal-
-      // mutation rule (toast with the server message). One STABLE id dedups the
-      // failure so a downed padi collapses onto a single toast, not one per drag.
-      toast.error(`Failed to save sub-panel state: ${err.message}`, {
-        id: "sub-panel-report-failed",
-      }),
-    );
+  // Run at the seam: the caller is a synchronous store mutation echoing a local
+  // write that already happened, with nothing to compose into.
+  runAction(
+    "save sub-panel state",
+    activePadiRpc.chrome
+      .setSubPanel({
+        id: parentId,
+        collapsed: s.collapsed,
+        panelSize: s.panelSize,
+      })
+      .pipe(
+        Effect.catch((err) =>
+          // Mirror `useRightPanel.reportToServer`: a failed `setSubPanel` means
+          // the optimistic sub-panel state (collapsed / size) is NOT persisted
+          // and silently reverts on the next session restore. The health pip
+          // reports only TRANSPORT health, so an application-level rejection on
+          // an otherwise-live padi would go unseen — surface it per the
+          // terminal-mutation rule (toast with the server message). One STABLE
+          // id dedups the failure so a downed padi collapses onto a single
+          // toast, not one per drag.
+          Effect.sync(() => {
+            toast.error(
+              `Failed to save sub-panel state: ${toError(err).message}`,
+              { id: "sub-panel-report-failed" },
+            );
+          }),
+        ),
+      ),
+  );
 }
 
 export function useSubPanel() {

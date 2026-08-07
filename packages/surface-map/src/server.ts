@@ -1,16 +1,22 @@
 /**
- * `serveSurfaceMap` — the SERVER half. A router transform, not a transport
+ * `serveSurfaceMap` — the SERVER half. A HANDLER transform, not a transport
  * change: every entry-member call reads its folded `mapKey`, resolves membership
- * at call time, and FORWARDS to the resolved session's entry-surface link. An
+ * at call time, and FORWARDS to the resolved session's entry-surface dispatch. An
  * unknown key is a typed rejection (one-shot calls) or an immediate typed end
  * (streams); a key that leaves membership mid-stream ends its live subscriptions
- * with a TYPED end BEFORE the session is destroyed (no socket-error frame after
- * a typed end).
+ * with a TYPED end BEFORE the session is destroyed (no error frame after a typed
+ * end).
  *
  * Membership + status live in ONE published collection (`entries`), driven by
  * the `MapRegistry` — the source-agnostic seam any session source backs (the
  * warm ssh pool, a mock harness). Status is DERIVED from the resolved session's
  * connection state (a projection, never a second writer).
+ *
+ * What the map hands back is the SAME pair `implementSurface` does — `{ group,
+ * handlers }` (W2 S2) — so a host merges them into its own served surface and a
+ * test drives them through `directDispatch`. `map.tagPrefix` decides the tags,
+ * so a mounted map's handlers are already keyed under its sibling name and the
+ * host has nothing to re-prefix.
  */
 
 import { collection } from "@kolu/surface";
@@ -18,17 +24,28 @@ import {
   collectionKeyChannel,
   collectionKeysetChannel,
 } from "@kolu/surface/channel-names";
-import type { SurfaceSpec } from "@kolu/surface/define";
-import { resolveCellVerbs, resolveCollectionVerbs } from "@kolu/surface/define";
+import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
+import {
+  resolveCellVerbs,
+  resolveCollectionVerbs,
+  surfaceTag,
+} from "@kolu/surface/define";
+import {
+  MapEntryFailed,
+  MapKeyNonCanonical,
+  MapKeyUnknown,
+} from "@kolu/surface/errors";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import {
   type CollectionHandlerDeps,
   collectionHandlers,
   inMemoryChannelByName,
+  type SurfaceHandler,
+  type SurfaceHandlers,
 } from "@kolu/surface/server";
-import { ORPCError } from "@orpc/client";
-import { implement } from "@orpc/server";
 import { dequal } from "dequal";
-import type { z } from "zod";
+import { Effect, Schema, Stream } from "effect";
+import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import type {
   EntryStatus,
   FailureEvidence,
@@ -36,7 +53,7 @@ import type {
   MembershipId,
   SurfaceMap,
 } from "./define";
-import { MembershipIdSchema } from "./define";
+import { decodeMembershipId, ENTRIES_MEMBER } from "./define";
 import { unfoldInput, unfoldKeyField } from "./envelope";
 
 // ── The resolver / membership seam ──────────────────────────────────────
@@ -128,7 +145,7 @@ export type EntryConnectionState<
   | ({ kind: "failed" } & FailureRecord<Failure>);
 
 /** A resolved, serveable entry. Carries what the map needs to (a) FORWARD calls
- *  (a live entry-surface oRPC client/link to proxy to) and (b) observe status
+ *  (a live entry-surface {@link SurfaceDispatch} to proxy to) and (b) observe status
  *  (the session's connection state). */
 export interface EntrySession<
   Prov extends "copying" | never = "copying",
@@ -137,9 +154,12 @@ export interface EntrySession<
 > {
   /** The sum tag — switch on this, never on bare field-presence. */
   readonly kind: "session";
-  /** The entry-surface oRPC client/link the map forwards member calls to
-   *  (`link.surface.<member>.<verb>(input)`). */
-  readonly link: unknown;
+  /** The entry-surface DISPATCH the map forwards member calls to. Was an oRPC
+   *  nested-proxy `link` walked by `leafAt(link, [member, verb])`; the wire namespace
+   *  is flat now, so the map forwards by TAG (`surfaceTag(map.entry.tagPrefix, member,
+   *  verb)`) over the erased `{ unary, stream }` seam. Whatever minted it — a wire
+   *  link, `directDispatch`, a mirror — the map never learns. */
+  readonly dispatch: SurfaceDispatch;
   /** The session's current COARSE connection state (the dot) — read fresh on each
    *  publish; the registry re-fires `subscribe` when it changes so `entries`
    *  re-projects. */
@@ -244,16 +264,25 @@ function projectStatus<Failure, Conn>(
   // from one frame — the drishti#102 divergence has no construction path.
   connection?: Conn,
 ): EntryStatus<Failure, Conn> {
+  // SPREAD `connection` onto every live arm, never spell it (#17). The field is
+  // `Schema.optionalKey` on the published union (see `entryStatusSchema`), which
+  // accepts an ABSENT key and REJECTS a present-`undefined` one — where zod's
+  // `.optional()` took either. The argument is genuinely optional (a registry
+  // entry's `connection?: Conn`, and a map with no `connection` option supplies
+  // none), so a plain `connection,` writes the key present-with-`undefined` on
+  // every arm, and the encode that publishes the entry rejects it. One binding,
+  // spread three times, so the three arms cannot drift apart on the discipline.
+  const conn = connection === undefined ? {} : { connection };
   switch (state.kind) {
     case "copying":
     case "connecting":
-      return { kind: "warming", membershipId, connection };
+      return { kind: "warming", membershipId, ...conn };
     case "connected":
       return {
         kind: "connected",
         membershipId,
         clockOffset: state.clockOffset,
-        connection,
+        ...conn,
       };
     // `disconnected` is OVERLOADED (see `@kolu/surface-remote`'s session machine):
     //   - a TRANSIENT reconnect-backoff — the link dropped and the loop is
@@ -273,7 +302,7 @@ function projectStatus<Failure, Conn>(
       // such field; see {@link FailureEvidence}).
       const refuse = state.refuse;
       return refuse === undefined
-        ? { kind: "warming", membershipId, connection }
+        ? { kind: "warming", membershipId, ...conn }
         : { kind: "failed", membershipId, ...refuse };
     }
     // A terminal give-up (the reconnect loop stopped for good) — always a red
@@ -341,24 +370,16 @@ function unwrapInput(wire: unknown): unknown {
   return unfoldInput(wire);
 }
 
-/** Resolve `link.surface.<...path>` to its leaf callable. */
-function leafAt(
-  link: unknown,
-  path: readonly string[],
-): (input: unknown, opts: unknown) => unknown {
-  let node: unknown = (link as { surface: unknown }).surface;
-  for (const p of path) node = (node as Record<string, unknown>)[p];
-  return node as (input: unknown, opts: unknown) => unknown;
-}
-
 export interface ServeSurfaceMapResult {
-  /** A finalized top-level oRPC router — hand it straight to `directLink` (or a
-   *  wire serve path). Serves `surface.<member>.<verb>` (key-folded, forwarded)
-   *  and `surface.entries.{keys,get}` (the membership projection). Typed as
-   *  `{ surface: … }` (PR3) — not `unknown` — so a host that mounts this router as a
-   *  sibling (`{ surface: { …, [name]: served.router.surface } }`) reaches `.surface`
-   *  with NO `as any` cast; the cast is unspellable by type, not merely deleted. */
-  readonly router: { readonly surface: Record<string, unknown> };
+  /** The map's flat wire group — exactly `map.group`, handed back so a host merges
+   *  ONE value pair (`group` + `handlers`) into its own served surface, the same
+   *  shape `implementSurface` returns. */
+  readonly group: RpcGroup.RpcGroup<Rpc.Any>;
+  /** The bound handlers, keyed by FULL wire tag (`<map.tagPrefix><member>/<verb>`).
+   *  Feed them to `directDispatch` for an in-process client, or merge them into a
+   *  host's handler record for a wire serve path. A tag carries its own route, so
+   *  there is nothing to re-prefix at the mount site. */
+  readonly handlers: SurfaceHandlers;
   /** Tear down the membership republish subscription. */
   dispose(): void;
 }
@@ -368,19 +389,25 @@ export interface ServeSurfaceMapResult {
  *  resolve into that SAME narrowed `Failure`, so a registry that only emits the
  *  generic default can't silently serve a domain map (and vice versa). */
 export function serveSurfaceMap<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   Failure = unknown,
   Conn = unknown,
 >(
   map: SurfaceMap<KS, ES, Failure, Conn>,
-  registry: MapRegistry<z.infer<KS>, "copying", Failure, Conn>,
+  registry: MapRegistry<KS["Type"], "copying", Failure, Conn>,
 ): ServeSurfaceMapResult {
-  type K = z.infer<KS>;
-  const keySchema = map.keySchema;
+  type K = KS["Type"];
+  const decodeKeyValue = Schema.decodeUnknownSync(map.keySchema);
   const has = (k: K) => registry.has(k);
   const resolve = (k: K) => registry.resolve(k);
   const members = () => registry.members();
+  /** The tag a forwarded call carries on the ENTRY surface — the map's own prefix is
+   *  stripped by construction (the entry face and the entry server both speak the
+   *  entry surface's own tags). Read off `map.entry.tagPrefix`, so a scoped entry
+   *  surface would forward at its own tags without this walk knowing. */
+  const entryTag = (member: string, verb: string) =>
+    surfaceTag(map.entry.tagPrefix, member, verb);
 
   // ── Opaque per-add membership identity (PR3) ─────────────────────────
   //
@@ -401,9 +428,9 @@ export function serveSurfaceMap<
     let id = membershipIds.get(enc);
     if (id === undefined) {
       // The MINT — one of the only two producers of a branded `MembershipId` (the
-      // other being the wire `entryStatusSchema` parse). `parse` brands the fresh
-      // uuid; a non-empty uuid always clears `.min(1)`.
-      id = MembershipIdSchema.parse(crypto.randomUUID());
+      // other being the wire `entryStatusSchema` decode). `decodeMembershipId` brands
+      // the fresh uuid; a non-empty uuid always clears the `isMinLength(1)` check.
+      id = decodeMembershipId(crypto.randomUUID());
       membershipIds.set(enc, id);
     }
     return id;
@@ -442,169 +469,180 @@ export function serveSurfaceMap<
       : projectStatus<Failure, Conn>(r.state, membershipId, r.connection);
   };
 
+  // The wire `mapKey` is ALWAYS the canonical string {@link KeyCodec.encode} produces
+  // (`define.ts`'s `foldInput` folds `Schema.String`, never `keySchema`) — decode it
+  // back to `K` through `map.codec`, then re-validate through `keySchema` (P5): a
+  // foreign string a client somehow smuggled onto the wire must fail here, not silently
+  // become a trusted `K`. Decoding alone isn't enough: a LENIENT codec (one that
+  // trims/case-folds/aliases on `decode`) could let a NON-canonical wire spelling pass
+  // the key schema while still mapping to a real member — and the `entries` collection
+  // subscribes its per-key channel on the caller's RAW wire string (`readOne` below)
+  // while the republish loop always publishes on `codec.encode`'s CANONICAL spelling
+  // (below) — two different channel names for the same member, so a non-canonical
+  // spelling's stream holds open and never receives an update. Assert
+  // `encode(decode(wire)) === wire` here so subscribe and publish can never disagree
+  // about a member's channel name.
+  //
+  // A NON-canonical key is a DECLARED failure (`MapKeyNonCanonical`, D4) — every folded
+  // member declares it, so it crosses the wire with its `_tag` and both keys intact
+  // rather than collapsing into an opaque defect. A key the SCHEMA rejects outright
+  // stays a DEFECT (the decode throws), exactly as the zod `.parse` did: a smuggled
+  // foreign string is a caller bug, not a condition to branch on.
+  const decodeCanonicalWireKey = (
+    wire: string,
+  ): Effect.Effect<K, MapKeyNonCanonical> =>
+    Effect.suspend(() => {
+      const k = decodeKeyValue(map.codec.decode(wire)) as K;
+      const canonical = map.codec.encode(k);
+      return canonical === wire
+        ? Effect.succeed(k)
+        : Effect.fail(
+            new MapKeyNonCanonical({ wireKey: wire, canonicalKey: canonical }),
+          );
+    });
+
+  const mapKeyOf = (payload: unknown): Effect.Effect<K, MapKeyNonCanonical> =>
+    decodeCanonicalWireKey(unfoldKeyField(payload) as string);
+
   // ── Forward one streaming member call, ending TYPED on membership loss ──
   //
-  // Race the upstream iterator against a "removed" signal. On removal the map
-  // RETURNS (a typed end downstream) and then closes the upstream via
-  // `it.return()` — so the client sees a graceful completion, never the
-  // socket-error frame a mid-flight session teardown would raise. A real
-  // upstream error still propagates.
-  async function* forwardStream(
+  // The upstream member stream, guarded by a "removed" latch. On removal the map's
+  // stream simply ENDS (a typed completion downstream) instead of failing — the client
+  // sees a graceful end, never the error frame a mid-flight session teardown would
+  // raise. A real upstream error still propagates.
+  //
+  // The membership watcher is acquired as a SCOPED RESOURCE of this stream, BEFORE the
+  // upstream is subscribed. The real pool removes destroy→delete→notify, so a removal
+  // landing WHILE the upstream subscribe is in flight must be observed here — otherwise
+  // the `has()` gate (upstream in the stream handler) and this watcher straddle the
+  // subscribe and neither catches it, and a delta/fail-through member's failure escapes
+  // as a raw error the client can't retry.
+  //
+  // The latch is what every guard tests, NOT the live `has()`. A re-add (a host flap =
+  // remove+add) makes `has(mapKey)` true again under a NEW session, but this forward is
+  // bound to the session CAPTURED at resolve — a re-add can never un-orphan it. So a
+  // remove+readd during the subscribe must still end this forward TYPED.
+  function forwardStream(
     mapKey: K,
-    session: EntrySession,
-    path: readonly string[],
+    session: EntrySession<"copying", Failure, Conn>,
+    tag: string,
     input: unknown,
-  ): AsyncGenerator<unknown> {
-    const leaf = leafAt(session.link, path);
-    // Install the removal watcher BEFORE the dial await. The real pool removes
-    // destroy→delete→notify, so a removal that lands WHILE the dial is in flight must be
-    // observed here — otherwise the `has()` gate (upstream in makeStreamHandler) and this
-    // watcher straddle the await and neither catches it, and a delta/fail-through member's
-    // dial rejects into a raw stub error the client can't retry. `ended` resolves the
-    // instant `mapKey` leaves membership, on the dial OR in the loop.
-    // `removed` LATCHES the instant THIS forward's key leaves membership. A re-add (a host
-    // flap = remove+add) makes `has(mapKey)` true again under a NEW session, but this
-    // forward is bound to the session CAPTURED at dial — a re-add can never un-orphan it.
-    // So every guard below tests `removed`, NOT the live `has()`: otherwise a remove+readd
-    // during the dial leaves `has()` true when the (captured-session) dial rejects, the
-    // guard is skipped, and a raw stub error escapes (+ a live cached slot the re-add
-    // reuses). `ended` resolves off the same latch.
-    let removed = false;
-    let onEnd!: () => void;
-    const ended = new Promise<void>((res) => {
-      onEnd = res;
-    });
-    const unsub = registry.subscribe(() => {
-      if (!has(mapKey)) {
-        removed = true;
-        onEnd();
-      }
-    });
-    try {
-      let upstream: AsyncIterable<unknown>;
-      try {
-        upstream = (await leaf(input, {})) as AsyncIterable<unknown>;
-      } catch (e) {
-        // The dial itself rejected. If THIS forward was removed while dialing (even if a
-        // re-add has since re-populated the key under a NEW session), that is the captured
-        // session's destroy fallout → typed end; a genuine dial fault propagates.
-        if (removed) return;
-        throw e;
-      }
-      // Removed while the (resolved) dial was in flight → typed end before the loop.
-      if (removed) return;
-      const it = upstream[Symbol.asyncIterator]();
-      try {
-        while (true) {
-          const step = await Promise.race([
-            it.next().then(
-              (r) => ({ kind: "item" as const, r }),
-              (e) => ({ kind: "error" as const, e }),
-            ),
-            ended.then(() => ({ kind: "end" as const })),
-          ]);
-          if (step.kind === "end") return; // removed mid-stream → typed end
-          if (step.kind === "error") {
-            // An upstream rejection is the captured session's destroy fallout, NOT a real
-            // fault, when THIS forward was removed: end TYPED so a delta member never
-            // delivers a raw stub ORPCError. A genuine error (still a member) propagates.
-            if (removed) return;
-            throw step.e;
+  ): Stream.Stream<unknown, unknown> {
+    return Stream.unwrap(
+      Effect.gen(function* () {
+        const latch: { removed: boolean; onRemoved?: () => void } = {
+          removed: false,
+        };
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            registry.subscribe(() => {
+              if (!latch.removed && !has(mapKey)) {
+                latch.removed = true;
+                latch.onRemoved?.();
+              }
+            }),
+          ),
+          (unsub) =>
+            Effect.sync(() => {
+              unsub();
+            }),
+        );
+        // Removed between the membership gate and the watcher's installation → end
+        // typed before anything upstream is touched.
+        if (latch.removed || !has(mapKey)) return Stream.empty;
+        const removed = Effect.callback<void>((resume) => {
+          if (latch.removed) {
+            resume(Effect.void);
+            return Effect.void;
           }
-          if (step.r.done) return; // upstream ended → typed end
-          yield step.r.value;
-        }
-      } finally {
-        await it.return?.().catch(() => {});
-      }
-    } finally {
-      unsub();
-    }
+          latch.onRemoved = () => resume(Effect.void);
+          return Effect.sync(() => {
+            latch.onRemoved = undefined;
+          });
+        });
+        return Stream.interruptWhen(
+          Stream.catch(session.dispatch.stream(tag, input), (e) =>
+            // An upstream failure is the captured session's destroy fallout, NOT a real
+            // fault, when THIS forward was removed: end TYPED so a delta member never
+            // delivers a raw stub error. A genuine failure (still a member) propagates.
+            latch.removed ? Stream.empty : Stream.fail(e),
+          ),
+          removed,
+        );
+      }),
+    );
   }
 
-  // The wire `mapKey` is ALWAYS the canonical string {@link KeyCodec.encode} produces
-  // (`define.ts`'s `foldInput` folds `z.string()`, never `keySchema`) — decode it back
-  // to `K` through `map.codec`, then re-validate via `keySchema.parse` (P5): a foreign
-  // string a client somehow smuggled onto the wire must fail here, not silently become
-  // a trusted `K`. Decoding alone isn't enough: a LENIENT codec (one that trims/case-
-  // folds/aliases on `decode`) could let a NON-canonical wire spelling pass `keySchema`
-  // while still mapping to a real member — and the `entries` collection subscribes its
-  // per-key channel on the caller's RAW wire string (`readOne` below) while the
-  // republish loop always publishes on `codec.encode`'s CANONICAL spelling (below) — two
-  // different channel names for the same member, so a non-canonical spelling's stream
-  // holds open and never receives an update. Assert `encode(decode(wire)) === wire`
-  // here so subscribe and publish can never disagree about a member's channel name.
-  const decodeCanonicalWireKey = (wire: string): K => {
-    const k = keySchema.parse(map.codec.decode(wire)) as K;
-    const canonical = map.codec.encode(k);
-    if (canonical !== wire) {
-      throw new ORPCError("MAP_KEY_NON_CANONICAL", {
-        message:
-          `surface-map: wire key "${wire}" is not its own canonical encoding ` +
-          `(expected "${canonical}") — the codec must be re-encode-stable so ` +
-          "subscribe and publish agree on one channel name",
+  const streamHandler =
+    (member: string, verb: string): SurfaceHandler =>
+    (payload) =>
+      Stream.unwrap(
+        Effect.map(mapKeyOf(payload), (mapKey) => {
+          if (!has(mapKey)) return Stream.empty; // absent at subscribe → typed end
+          const resolved = resolve(mapKey);
+          if (isFault(resolved)) return Stream.empty; // terminal fault → typed end
+          return forwardStream(
+            mapKey,
+            resolved,
+            entryTag(member, verb),
+            unwrapInput(payload),
+          );
+        }),
+      );
+
+  const unaryHandler =
+    (member: string, verb: string): SurfaceHandler =>
+    (payload) =>
+      Effect.flatMap(mapKeyOf(payload), (mapKey) => {
+        const enc = map.codec.encode(mapKey);
+        if (!has(mapKey)) {
+          // A one-shot call cannot end gracefully — reject typed.
+          return Effect.fail(new MapKeyUnknown({ mapKey: enc }));
+        }
+        const resolved = resolve(mapKey);
+        if (isFault(resolved)) {
+          return Effect.fail(
+            new MapEntryFailed({
+              mapKey: enc,
+              // The fault's own shape is app-owned and must not leak into the
+              // framework's wire union, so it is RENDERED here (D4).
+              failure: JSON.stringify(resolved.failure),
+            }),
+          );
+        }
+        return resolved.dispatch.unary(
+          entryTag(member, verb),
+          unwrapInput(payload),
+        );
       });
+
+  // ── Bind the handlers ────────────────────────────────────────────────
+  //
+  // Null prototype for the same reason `implementSurface`'s record has one (W2 S2):
+  // member names are arbitrary strings, so a member named `toString` must not collide
+  // with an inherited property.
+  const handlers: SurfaceHandlers = Object.create(null);
+  const bind = (tag: string, handler: SurfaceHandler): void => {
+    if (handlers[tag] !== undefined) {
+      throw new Error(
+        `serveSurfaceMap: duplicate handler bound at wire tag "${tag}".`,
+      );
     }
-    return k;
+    handlers[tag] = handler;
   };
 
-  const parseMapKey = (input: unknown): K =>
-    decodeCanonicalWireKey(unfoldKeyField(input) as string);
-
-  const makeStreamHandler = (path: readonly string[]) =>
-    async function* (opts: { input?: unknown }): AsyncGenerator<unknown> {
-      const mapKey = parseMapKey(opts.input);
-      if (!has(mapKey)) return; // absent at subscribe → immediate typed end
-      const resolved = resolve(mapKey);
-      if (isFault(resolved)) return; // terminal fault → typed end
-      yield* forwardStream(mapKey, resolved, path, unwrapInput(opts.input));
-    };
-
-  const makeUnaryHandler =
-    (path: readonly string[]) =>
-    async (opts: {
-      input?: unknown;
-      signal?: AbortSignal;
-    }): Promise<unknown> => {
-      const mapKey = parseMapKey(opts.input);
-      if (!has(mapKey)) {
-        // A one-shot call cannot end gracefully — reject typed.
-        throw new ORPCError("MAP_KEY_UNKNOWN", {
-          message: `surface-map: key "${map.codec.encode(mapKey)}" is not a member`,
-        });
-      }
-      const resolved = resolve(mapKey);
-      if (isFault(resolved)) {
-        throw new ORPCError("MAP_ENTRY_FAILED", {
-          message: `surface-map: entry "${map.codec.encode(mapKey)}" is failed: ${JSON.stringify(resolved.failure)}`,
-        });
-      }
-      const leaf = leafAt(resolved.link, path);
-      return await leaf(
-        unwrapInput(opts.input),
-        opts.signal ? { signal: opts.signal } : {},
-      );
-    };
-
-  // ── Build the router ─────────────────────────────────────────────────
-  // biome-ignore lint/suspicious/noExplicitAny: oRPC's implement chain is too dynamic for our runtime walk; the folded contract carries call-site safety.
-  const t = implement(map.contract as any) as any;
-  const inner: Record<string, Record<string, unknown>> = {};
-
   for (const [member, verbs] of entryMemberVerbs(map.entry.spec)) {
-    // ACCUMULATE, don't reset: a member name shared by a non-procedure primitive
-    // AND a procedure namespace (padi's `session` is a cell {get,test__set} AND a
-    // procedure ns {restore,import,forfeit}) is emitted TWICE by entryMemberVerbs
-    // (primitives first, procedures last). A bare `inner[member] = {}` on the second
-    // tuple would DROP the first's verbs — the served router would 404 `session/get`
-    // while the contract (which merges, define.ts) carries it, breaking session-restore
-    // on every boot. Mirror implementSurface (surface/server.ts) which merges the same
-    // collision with `?? {}`, so both verb sets land in one namespace.
-    inner[member] = inner[member] ?? {};
+    // A member name shared by a non-procedure primitive AND a procedure namespace
+    // (padi's `session` is a cell {get, test__set} AND a procedure ns {restore,
+    // import, forfeit}) is emitted TWICE by `entryMemberVerbs` (primitives first,
+    // procedures last). On a FLAT tag namespace each verb has its own tag, so both
+    // sets simply bind — the old "accumulate, don't reset" hazard (a second
+    // `inner[member] = {}` dropping the first pass's verbs, 404-ing `session/get` on
+    // every boot) is unspellable here: there is no per-member object to reset.
     for (const { verb, streaming } of verbs) {
-      const path = [member, verb] as const;
-      inner[member][verb] = t.surface[member][verb].handler(
-        streaming ? makeStreamHandler(path) : makeUnaryHandler(path),
+      bind(
+        surfaceTag(map.tagPrefix, member, verb),
+        streaming ? streamHandler(member, verb) : unaryHandler(member, verb),
       );
     }
   }
@@ -620,11 +658,18 @@ export function serveSurfaceMap<
   // `"keys"` or `"deltas"` still can't alias the keyset channel (the `key:`
   // infix makes it structurally impossible, not just here by convention).
   const channel = inMemoryChannelByName();
-  const keysBus = channel<string[]>(collectionKeysetChannel("entries"));
+  const keysBus = channel<string[]>(collectionKeysetChannel(ENTRIES_MEMBER));
   const perKeyBus = (encoded: string) =>
     channel<EntryStatus<Failure, Conn>>(
-      collectionKeyChannel("entries", encoded),
+      collectionKeyChannel(ENTRIES_MEMBER, encoded),
     );
+
+  /** The THROWING half of the canonical-key gate, for the snapshot reads inside the
+   *  collection handlers. The typed `MapKeyNonCanonical` failure is raised one layer
+   *  up, at the bound `entries/get` handler, so the wire sees a declared rejection;
+   *  reaching this throw means the gate above was bypassed, which is a framework bug. */
+  const decodeCanonicalWireKeyUnsafe = (wire: string): K =>
+    Effect.runSync(decodeCanonicalWireKey(wire));
 
   const entriesDeps: CollectionHandlerDeps<
     string,
@@ -646,7 +691,7 @@ export function serveSurfaceMap<
         ),
       ),
     readOne: (encoded) => {
-      const k = decodeCanonicalWireKey(encoded);
+      const k = decodeCanonicalWireKeyUnsafe(encoded);
       return has(k) ? statusOf(k) : undefined;
     },
     upsert: () => {}, // read-only on the wire; the registry is the sole writer
@@ -659,15 +704,31 @@ export function serveSurfaceMap<
     string,
     EntryStatus<Failure, Conn>
   >({
-    name: "entries",
+    name: ENTRIES_MEMBER,
     keySchema: map.entriesSpec.keySchema,
     schema: map.entriesSpec.schema,
   });
   const entriesHandlers = collectionHandlers(entriesDescriptor, entriesDeps);
-  inner.entries = {
-    keys: t.surface.entries.keys.handler(entriesHandlers.keys),
-    get: t.surface.entries.get.handler(entriesHandlers.get),
-  };
+  bind(
+    surfaceTag(map.tagPrefix, ENTRIES_MEMBER, "keys"),
+    entriesHandlers.keys as SurfaceHandler,
+  );
+  bind(surfaceTag(map.tagPrefix, ENTRIES_MEMBER, "get"), (payload) =>
+    // Gate the wire key through the DECLARED canonical check first, so a lenient
+    // codec's non-canonical spelling is a typed `MapKeyNonCanonical` rejection rather
+    // than an opaque defect from the snapshot read.
+    Stream.unwrap(
+      Effect.map(decodeCanonicalWireKey((payload as { key: string }).key), () =>
+        entriesHandlers.get(payload as { key: string }),
+      ),
+    ),
+  );
+
+  // The served handler set and the advertised group must be the SAME tag set, or the
+  // map serves a route nobody answers (a 404 at the far end) or answers a route the
+  // group never minted (dead code). Both are boot crashes — the map's own twin of
+  // `implementSurface`'s `assertHandlersMatchGroup` (D1).
+  assertHandlersMatchMapGroup(map.group, handlers);
 
   // One writer publishes membership + status together, fired on every registry
   // change (add/remove membership AND per-session status transitions). But a
@@ -700,8 +761,8 @@ export function serveSurfaceMap<
   //    for producers that don't exist yet.
   //
   // `dequal` (not a hand-rolled walk) because `Failure`/`Conn` are values this package
-  // deliberately never enumerates: a domain's zod-validated failure may hold a `Date` or
-  // a `Map` as legitimately as a string, and a JSON-only comparator would quietly get
+  // deliberately never enumerates: a domain's schema-validated failure may hold a `Date`
+  // or a `Map` as legitimately as a string, and a JSON-only comparator would quietly get
   // those wrong. It is also allocation-light and short-circuits on `===` before touching
   // anything, which matters — this runs per member per fire.
   const samePublished = (
@@ -759,15 +820,31 @@ export function serveSurfaceMap<
     }
   });
 
-  // Same shape `implementSurface` returns: a `{ surface: <router> }` fragment.
-  // `directLink`/`createRouterClient` walks it directly (`.surface.<member>.<verb>`),
-  // and it spreads into a host `t.router({ ...fragment })` for a wire serve path.
-  const router = { surface: t.router(inner) };
-
   return {
-    router,
+    group: map.group,
+    handlers,
     dispose: () => {
       unsubRepublish();
     },
   };
+}
+
+/** Route-set identity for a served map (D1 / review #16). A dynamically assembled
+ *  `RpcGroup` carries no type-level guarantee that the handlers match it, so the
+ *  match is asserted at boot, in BOTH directions. */
+function assertHandlersMatchMapGroup(
+  group: RpcGroup.RpcGroup<Rpc.Any>,
+  handlers: SurfaceHandlers,
+): void {
+  const advertised = new Set(group.requests.keys());
+  const bound = new Set(Object.keys(handlers));
+  const unanswered = [...advertised].filter((t) => !bound.has(t));
+  const unadvertised = [...bound].filter((t) => !advertised.has(t));
+  if (unanswered.length > 0 || unadvertised.length > 0) {
+    throw new Error(
+      "serveSurfaceMap: the served handler set and the map's group disagree — " +
+        `advertised-but-unbound: [${unanswered.join(", ")}]; ` +
+        `bound-but-unadvertised: [${unadvertised.join(", ")}].`,
+    );
+  }
 }

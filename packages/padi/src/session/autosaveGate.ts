@@ -37,8 +37,16 @@
  *     truth AND the value can change between arm and fire — mirroring it in the gate
  *     would duplicate that truth and could stale the PATH-B guard.
  *
+ * Two EDGES drive it, and both ask the same question: the continuous
+ * `terminals:dirty` pulse (leading-edge throttled), and the SHUTDOWN edge —
+ * {@link captureFinalSession}, run when padi is signalled or drained, so the
+ * durable session does not trail the live one by the throttle window at the one
+ * moment that is avoidable. The shutdown edge reuses {@link decideSave} verbatim:
+ * a stop does not get to overrule a freeze or a pending restore.
+ *
  * The gate is a pure state machine over injected effects (`snapshot`, `persist`,
- * `isRestorePending`): it imports no runtime VALUE from the session/registry layers it
+ * `persistFinal`, `isRestorePending`): it imports no runtime VALUE from the
+ * session/registry layers it
  * drives (only the `SessionSnapshot` type, erased at compile), so those layers PUSH
  * their facts and effects into it rather than the gate reaching back out. It consumes
  * the shared `terminals:dirty` pulse (also read by the activity
@@ -61,12 +69,24 @@ interface AutosaveGateDeps {
   isRestorePending: () => boolean;
   /** Persist a snapshot (clears the blob on an empty snapshot). */
   persist: (snapshot: SessionSnapshot) => void;
+  /**
+   * Persist a snapshot at a SHUTDOWN edge — the EMPTY-PRESERVE receptacle
+   * (`setSavedSessionFromSnapshot`), deliberately not {@link persist}.
+   *
+   * The two differ on exactly one case and it matters: an ordinary autosave that
+   * finds no terminals means the user closed them, so clearing the blob is
+   * correct; a SHUTDOWN that finds no terminals may simply be observing a
+   * teardown in progress, and nulling a non-empty saved session there is the W1
+   * zest-loss class. Preserving cannot resurrect anything — a genuinely empty
+   * session was already cleared by the autosave that saw it empty.
+   */
+  persistFinal: (snapshot: SessionSnapshot) => void;
 }
 
 /** The gate's answer at fire time — computed fresh each fire from the pushed freeze
  *  flag and the live restore-pending query. Every arm is one of these three outcomes,
  *  so "must not save here" is a typed branch, not a prose convention. */
-type SaveDecision =
+export type SaveDecision =
   | { kind: "persist" }
   | { kind: "frozen"; reason: string }
   | { kind: "suppressed-parked" };
@@ -155,7 +175,63 @@ function decideSave(deps: AutosaveGateDeps): SaveDecision {
  *  Assumes `persist` is synchronous (it is — a sync `store.set` + sync publish). If
  *  anyone makes it async, add an in-flight guard so a new schedule can't race an
  *  unfinished write. */
+/** The effects {@link initAutosaveGate} was wired with, held so the SHUTDOWN edge
+ *  can reach them. Not a second source of truth: it is the SAME value the fire
+ *  callback closes over, and the shutdown capture runs the SAME `decideSave`. */
+let wiredDeps: AutosaveGateDeps | undefined;
+
+/**
+ * Capture the live session at a SHUTDOWN EDGE — a SIGTERM the supervisor sent, a
+ * control-core drain — and persist it through the gate's own decision.
+ *
+ * Why this exists at all: continuous autosave is a leading-edge throttle, so the
+ * durable session trails the live one by up to its 500 ms window. That window is
+ * a bounded loss for a crash and an UNNECESSARY one for an orderly stop, which is
+ * exactly what a supervisor's SIGTERM is — the cross-epoch takeover load-bears on
+ * this being the daemon's last act before it exits.
+ *
+ * It routes through the gate rather than calling the writer directly because the
+ * question "is it safe to persist right now, and with what value?" has exactly
+ * one owner, and a shutdown does not get to answer it differently:
+ *
+ *  - **frozen** — a restart's capture→drain→park, or a `session.restore` spawn
+ *    window, is mid-flight. The blob on disk is the pre-critical-section one,
+ *    which is precisely what a restore should read; writing the half-built live
+ *    set over it would lose whatever has not been spawned back yet.
+ *  - **suppressed-parked** — a restore is still pending, so the parked entries
+ *    stand in for the blob; the live set is not the session.
+ *
+ * Returns the decision so the caller can narrate it. Throws if the gate was never
+ * wired: that is a boot-order defect, not a state to degrade around.
+ */
+export function captureFinalSession(why: string): SaveDecision {
+  const deps = wiredDeps;
+  if (deps === undefined) {
+    throw new Error(
+      `autosave gate is not wired — captureFinalSession(${why}) ran before initAutosaveGate`,
+    );
+  }
+  // Disarm first, unconditionally: a `terminals:dirty` armed before this call
+  // would otherwise fire ~500 ms later, during teardown, with a draining
+  // registry — the clobber `setSavedSession*` cancels for the same reason.
+  cancelPendingAutosave();
+  const snap = deps.snapshot();
+  const decision = decideSave(deps);
+  log.info(
+    {
+      why,
+      decision: decision.kind,
+      reason: decision.kind === "frozen" ? decision.reason : undefined,
+      snapshot: snap.terminals.length,
+    },
+    `session-trace final capture (${why}): ${decision.kind} (snapshot=${snap.terminals.length})`,
+  );
+  if (decision.kind === "persist") deps.persistFinal(snap);
+  return decision;
+}
+
 export function initAutosaveGate(gateDeps: AutosaveGateDeps): void {
+  wiredDeps = gateDeps;
   void (async () => {
     try {
       for await (const _ of terminalsDirtyChannel.subscribe(undefined)) {

@@ -7,7 +7,7 @@
  *                            SESSIONS_DIR watcher, SDK summary fetch)
  *   - `session-watcher.ts` — per-session lifecycle object built on `core`
  *   - `agent-adapter.ts`  — `AgentAdapter` instance the server consumes
- *   - `schemas.ts`         — zod schemas + types (browser-safe)
+ *   - `schemas.ts`         — Effect schemas + types (browser-safe)
  *
  * `core` is the only thing `session-watcher` and `agent-adapter` import
  * from this package. `index.ts` is a pure barrel — anything imported via

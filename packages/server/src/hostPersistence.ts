@@ -24,6 +24,7 @@
  * (`PersistedHostsSchema`); this module reads and writes the field through `store`.
  */
 
+import { Result, Schema } from "effect";
 import {
   encodeHostKey,
   LOCAL_HOST,
@@ -36,6 +37,11 @@ import { store } from "./state.ts";
  *  filter never recomputes it per element. */
 const LOCAL_KEY = encodeHostKey(LOCAL_HOST);
 
+/** The `hosts` re-validation, compiled once. `Schema.decodeUnknownResult` is zod
+ *  `.safeParse` in Effect terms — a BRANCH, which is exactly what this reader wants:
+ *  the failure arm THROWS naming the store rather than normalizing or emptying. */
+const decodePersistedHosts = Schema.decodeUnknownResult(PersistedHostsSchema);
+
 /** Load the remembered guest hosts (encoded keys the pool speaks) from the conf store.
  *  Called ONCE at boot to seed the pool. A fresh install has no `hosts` key yet, so conf's
  *  `[]` default merges in and this returns `[]`.
@@ -46,17 +52,17 @@ const LOCAL_KEY = encodeHostKey(LOCAL_HOST);
  *  never collapses to an empty fleet (fail-loud; `caught-error-must-not-collapse-to-empty`).
  *  A genuinely-corrupt (unparseable) store already threw in conf's own read at module load;
  *  this guards the parseable-but-invalid case. */
-export function getPersistedHosts(): string[] {
-  const result = PersistedHostsSchema.safeParse(store.get("hosts"));
-  if (!result.success) {
-    const summary = result.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
+export function getPersistedHosts(): readonly string[] {
+  const result = decodePersistedHosts(store.get("hosts"));
+  if (Result.isFailure(result)) {
+    // Effect's `SchemaError` renders path-annotated, so the ONE string carries what
+    // zod's hand-built `issues.map(…)` summary spelled — including the three
+    // `PersistedHostsSchema` refinement messages a user actually has to act on.
     throw new Error(
-      `persisted hosts in ${store.path} do not match schema (${summary}). Fix the \`hosts\` key to recover.`,
+      `persisted hosts in ${store.path} do not match schema (${String(result.failure)}). Fix the \`hosts\` key to recover.`,
     );
   }
-  return result.data;
+  return result.success;
 }
 
 /** Persist the pool's *strip-added* membership after an add/remove: every current member

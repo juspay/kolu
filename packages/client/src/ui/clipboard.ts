@@ -52,48 +52,79 @@ import type {
   ClipboardSelectionType,
   IClipboardProvider,
 } from "@xterm/addon-clipboard";
+import { type Cause, Effect } from "effect";
+import { runActionPromise } from "../runAction";
+
+/** The synthetic-selection write — the escape hatch's whole mechanism, and the
+ *  step that MUST stay inside the gesture window. `Effect.try` and not
+ *  `Effect.sync`: `execCommand` returning `false` is the browser saying no, an
+ *  ordinary outcome this file's contract reports on the error channel. */
+const execCommandWrite = (
+  text: string,
+): Effect.Effect<void, Cause.UnknownError> =>
+  Effect.try(() => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    try {
+      textarea.select();
+      const ok = document.execCommand("copy");
+      if (!ok) throw new Error("clipboard access blocked");
+    } finally {
+      document.body.removeChild(textarea);
+    }
+  });
 
 /** Write `text` to the system clipboard, falling back to execCommand when
- *  navigator.clipboard is unavailable or rejects. Throws if both paths fail.
+ *  navigator.clipboard is unavailable or rejects. FAILS if both paths fail.
+ *
+ *  An `Effect`, and the fallback ladder is what it always wanted to be: the
+ *  primary write recovered into the secondary, rather than a `try`/`catch`
+ *  around an `await` with a `return` in the middle of it.
+ *
+ *  **This effect must not be delayed.** The `execCommand` leg needs an active
+ *  user activation, so composing an `Effect.sleep` (or anything asynchronous
+ *  that is not the clipboard call itself) before it breaks copying with no unit
+ *  test to catch it — only `clipboard.feature` / `osc52-clipboard.feature`.
+ *  `runAction` forks on the calling stack, so a handler that forks this
+ *  immediately is inside the window; one that forks it after other async work is
+ *  not.
  *
  *  Toasts are intentionally *not* wrapped — see `.claude/rules/toast-conventions.md`:
- *  toast calls stay colocated with the logic that triggers them, so callers
- *  pair this with their own `toast.success` / `toast.error` on the await
- *  boundary. */
-export async function writeTextToClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return;
-    } catch (err) {
+ *  toast calls stay colocated with the logic that triggers them, so callers pair
+ *  this with their own `toast.success` / `toast.error`. */
+export function writeTextToClipboard(
+  text: string,
+): Effect.Effect<void, Cause.UnknownError> {
+  if (!navigator.clipboard?.writeText) return execCommandWrite(text);
+  return Effect.tryPromise(() => navigator.clipboard.writeText(text)).pipe(
+    Effect.catch((err) =>
       // Fall through to execCommand — navigator.clipboard can reject for
       // reasons other than missing secure context (permission denied,
       // document-not-focused, etc.). Log so the original rejection isn't
       // invisible if the fallback also fails.
-      console.debug(
-        "navigator.clipboard.writeText rejected; trying execCommand fallback:",
-        err,
-      );
-    }
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  try {
-    textarea.select();
-    const ok = document.execCommand("copy");
-    if (!ok) throw new Error("clipboard access blocked");
-  } finally {
-    document.body.removeChild(textarea);
-  }
+      Effect.sync(() => {
+        console.debug(
+          "navigator.clipboard.writeText rejected; trying execCommand fallback:",
+          err,
+        );
+      }).pipe(Effect.andThen(() => execCommandWrite(text))),
+    ),
+  );
 }
 
 /** xterm `IClipboardProvider` that uses `writeTextToClipboard` for writes
  *  (survives non-secure contexts) and returns empty on reads when
  *  navigator.clipboard is unavailable. OSC 52 read queries (`?`) are rare
- *  and have no safe fallback. */
+ *  and have no safe fallback.
+ *
+ *  The one place in this file that is still Promise-shaped, because the shape is
+ *  `@xterm/addon-clipboard`'s: `IClipboardProvider` is an interface this repo
+ *  implements, not one it defines. `Effect.orDie` before the run edge because
+ *  the interface has no error channel either — a failed write was always a
+ *  rejection to xterm, and a defect is what a rejection is on this side. */
 export class SafeClipboardProvider implements IClipboardProvider {
   public async readText(selection: ClipboardSelectionType): Promise<string> {
     if (selection !== "c") return "";
@@ -106,6 +137,6 @@ export class SafeClipboardProvider implements IClipboardProvider {
     text: string,
   ): Promise<void> {
     if (selection !== "c") return;
-    await writeTextToClipboard(text);
+    await runActionPromise(writeTextToClipboard(text).pipe(Effect.orDie));
   }
 }

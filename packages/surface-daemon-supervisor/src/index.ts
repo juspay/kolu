@@ -66,6 +66,7 @@ export {
   probeDaemonIdentityFrom,
   readControlCoreHello,
   type ProbeDaemonIdentityFromOptions,
+  UNSPEAKABLE_SILENCE_MS,
 } from "./probeDaemonIdentity.ts";
 export {
   type DaemonDriver,
@@ -84,5 +85,16 @@ export {
   type WaitForPidGoneOptions,
   waitForPidGone,
 } from "./waitForPidGone.ts";
+// The two-deadline reap every kill site shares (SIGTERM → wait → SIGKILL →
+// wait). Exported beside `waitForPidGone` because a supervisor that spawns its
+// own daemon out of band needs the same discipline, and because the ceilings are
+// the numbers an operator reads in a takeover's journal line.
+export {
+  REAP_KILL_CEILING_MS,
+  REAP_TERM_CEILING_MS,
+  type ReapHolderOptions,
+  type ReapOutcome,
+  reapHolder,
+} from "./reapHolder.ts";
 // The daemon-convergence kit — policy-as-the-parameter over the endpoint (Pins 1/2/3).
 export * from "./convergence/index.ts";

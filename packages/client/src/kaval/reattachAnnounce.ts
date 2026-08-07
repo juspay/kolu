@@ -74,3 +74,32 @@ export function announceReattach(
   commit(a.at);
   notify(a.count);
 }
+
+/** The #2101 N1 twin of {@link announceReattach}: "padi found this host's kaval
+ *  unresponsive, restarted it by itself, and a probe proved the replacement
+ *  serves."
+ *
+ *  Same rail, same dedupe law, deliberately: the server stamps `autoRecoveredAt`
+ *  on the `connected` status once per proven auto-repair, the stamp is sticky and
+ *  replayed to every fresh subscription, and the client only announces one
+ *  strictly newer than the greatest it has already announced (persisted, per
+ *  host — the #1365 rule). Sharing the shape rather than the storage is
+ *  deliberate too: the two marks are independent facts and one mark for both
+ *  would let an adoption suppress a recovery.
+ *
+ *  Why announce at all, when the user can see the restore card: the card says
+ *  the session is back, not WHY it went away. Without this line an automatic
+ *  repair is indistinguishable from a daemon that crashed on its own — which is
+ *  the difference between "kolu fixed it" and "kolu broke". */
+export function announceAutoRecovery(
+  status: Pick<DaemonStatus, "state" | "autoRecoveredAt"> | undefined,
+  lastAnnouncedAt: number,
+  commit: (at: number) => void,
+  notify: () => void,
+): void {
+  const at = status?.autoRecoveredAt;
+  if (status?.state !== "connected") return;
+  if (typeof at !== "number" || at <= lastAnnouncedAt) return;
+  commit(at);
+  notify();
+}

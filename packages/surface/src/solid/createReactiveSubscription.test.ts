@@ -1,4 +1,5 @@
 import * as assert from "node:assert";
+import { Effect, Stream } from "effect";
 import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 import { createReactiveSubscription } from "./createReactiveSubscription";
@@ -16,6 +17,12 @@ function readSubError<T>(sub: Subscription<T>): Error {
   const err = sub.error();
   assert.ok(err !== undefined, "expected sub.error() to be set");
   return err;
+}
+
+/** The ONE harness adapter for the Effect port: the factory now returns a
+ *  `Stream`, so every async-iterable fixture below is lifted through here. */
+function streamOf<T>(it: AsyncIterable<T>): Stream.Stream<T, unknown> {
+  return Stream.fromAsyncIterable(it, (e) => e);
 }
 
 async function* fromArray<T>(items: T[]): AsyncGenerator<T> {
@@ -76,7 +83,7 @@ describe("createReactiveSubscription", () => {
               () => null,
               () => {
                 calls += 1;
-                return Promise.resolve(fromArray([1]));
+                return streamOf(fromArray([1]));
               },
             );
             await flush();
@@ -97,7 +104,7 @@ describe("createReactiveSubscription", () => {
           const stream = controllableStream<number>();
           const sub = createReactiveSubscription<string, number>(
             () => "A",
-            () => Promise.resolve(stream.iterate()),
+            () => streamOf(stream.iterate()),
           );
           stream.push(42);
           await flush();
@@ -119,7 +126,7 @@ describe("createReactiveSubscription", () => {
             () => "input-A",
             (input) => {
               seen.push(input);
-              return Promise.resolve(fromArray([1]));
+              return streamOf(fromArray([1]));
             },
           );
           await flush();
@@ -140,7 +147,7 @@ describe("createReactiveSubscription", () => {
           const [input, setInput] = createSignal<string>("A");
           createReactiveSubscription<string, number>(input, (i) => {
             inputs.push(i);
-            return Promise.resolve(fromArray([1]));
+            return streamOf(fromArray([1]));
           });
           await flush();
           setInput("B");
@@ -168,7 +175,7 @@ describe("createReactiveSubscription", () => {
           const sub = createReactiveSubscription<string, number>(input, (i) => {
             const s = controllableStream<number>();
             streams.set(i, s);
-            return Promise.resolve(s.iterate());
+            return streamOf(s.iterate());
           });
 
           await flush();
@@ -209,7 +216,7 @@ describe("createReactiveSubscription", () => {
               (i) => {
                 const s = controllableStream<number>();
                 streams.set(i, s);
-                return Promise.resolve(s.iterate());
+                return streamOf(s.iterate());
               },
             );
 
@@ -248,7 +255,7 @@ describe("createReactiveSubscription", () => {
           const sub = createReactiveSubscription<string, number>(input, (i) => {
             const s = controllableStream<number>();
             streams.set(i, s);
-            return Promise.resolve(s.iterate());
+            return streamOf(s.iterate());
           });
 
           await flush();
@@ -281,10 +288,10 @@ describe("createReactiveSubscription", () => {
             const [input, setInput] = createSignal<string>("A");
             const sub = createReactiveSubscription<string, number>(
               input,
-              (i) => {
-                if (i === "A") return Promise.reject(new Error("A failed"));
-                return Promise.resolve(fromArray([1]));
-              },
+              (i) =>
+                i === "A"
+                  ? Stream.fail(new Error("A failed"))
+                  : streamOf(fromArray([1])),
             );
             await flush();
             const before = sub.error() !== undefined;
@@ -316,7 +323,7 @@ describe("createReactiveSubscription", () => {
           const stream = controllableStream<number>();
           const sub = createReactiveSubscription<string, number>(input, () => {
             calls += 1;
-            return Promise.resolve(stream.iterate());
+            return streamOf(stream.iterate());
           });
           stream.push(1);
           await flush();
@@ -339,12 +346,15 @@ describe("createReactiveSubscription", () => {
   });
 
   describe("error handling", () => {
-    it("sets error on factory promise rejection", async () => {
+    it("sets error when the factory's stream fails to OPEN", async () => {
+      // Pre-port, a factory that could not establish the subscription REJECTED its
+      // promise. Its exact analogue on a `Stream` is a failure in the effect that
+      // opens the stream — no frame ever arrives.
       const result = await new Promise<string>((resolve) => {
         createRoot(async (dispose) => {
           const sub = createReactiveSubscription<string, number>(
             () => "A",
-            () => Promise.reject(new Error("boom")),
+            () => Stream.unwrap(Effect.fail(new Error("boom"))),
           );
           await flush();
           resolve(readSubError(sub).message);
@@ -360,8 +370,8 @@ describe("createReactiveSubscription", () => {
           const sub = createReactiveSubscription<string, number>(
             () => "A",
             () =>
-              Promise.resolve(
-                (async function* () {
+              streamOf(
+                (async function* (): AsyncGenerator<number> {
                   throw new Error("stream broke");
                 })(),
               ),
@@ -380,7 +390,8 @@ describe("createReactiveSubscription", () => {
         createRoot(async (dispose) => {
           createReactiveSubscription<string, number>(
             () => "A",
-            () => Promise.reject("string-error"),
+            // A non-`Error` FAILURE value (pre-port: `Promise.reject("string-error")`).
+            () => Stream.fail("string-error"),
             { onError: (e) => seen.push(e.message) },
           );
           await flush();
@@ -392,24 +403,35 @@ describe("createReactiveSubscription", () => {
     });
 
     it("does not call onError when subscription is aborted by input change", async () => {
+      // Pre-port, the factory took an `AbortSignal` and rejected on abort. There is
+      // no signal to thread any more — cancellation IS fiber interruption — so the
+      // law is pinned by the harder case it always meant: A's stream is still parked
+      // when the input moves to B, and only FAILS afterwards. A superseded
+      // subscription must report nothing, not even a failure that lands late.
       const seen: string[] = [];
+      let failA: (() => void) | undefined;
       await new Promise<void>((resolve) => {
         createRoot(async (dispose) => {
           const [input, setInput] = createSignal<string>("A");
           createReactiveSubscription<string, number>(
             input,
-            (i, signal) =>
+            (i) =>
               i === "A"
-                ? new Promise<AsyncIterable<number>>((_, reject) => {
-                    signal.addEventListener("abort", () =>
-                      reject(new Error("aborted")),
-                    );
-                  })
-                : Promise.resolve(fromArray<number>([1])),
+                ? streamOf(
+                    (async function* (): AsyncGenerator<number> {
+                      await new Promise<void>((r) => {
+                        failA = r;
+                      });
+                      throw new Error("A failed late");
+                    })(),
+                  )
+                : streamOf(fromArray<number>([1])),
             { onError: (e) => seen.push(e.message) },
           );
           await flush();
           setInput("B");
+          await flush();
+          failA?.(); // A's stream fails AFTER it was superseded
           await flush();
           resolve();
           dispose();
@@ -421,24 +443,33 @@ describe("createReactiveSubscription", () => {
 
   describe("cleanup", () => {
     it("aborts the in-flight subscription when reactive owner is disposed", async () => {
-      let aborted = false;
+      // Pre-port this asserted the factory's `AbortSignal` fired. Cancellation is now
+      // fiber INTERRUPTION, and what makes teardown REAL is that interruption runs the
+      // stream's own finalizers — that is what closes the wire subscription upstream
+      // (a signal nobody threads would close nothing). So the finalizer IS the
+      // assertion, over a stream that is still parked at dispose time.
+      let finalized = false;
+      const stream = controllableStream<number>();
       await new Promise<void>((resolve) => {
         createRoot(async (dispose) => {
           createReactiveSubscription<string, number>(
             () => "A",
-            (_, signal) => {
-              signal.addEventListener("abort", () => {
-                aborted = true;
-              });
-              return Promise.resolve(fromArray<number>([]));
-            },
+            () =>
+              Stream.ensuring(
+                streamOf(stream.iterate()),
+                Effect.sync(() => {
+                  finalized = true;
+                }),
+              ),
           );
           await flush();
+          expect(finalized).toBe(false); // still running: nothing torn down yet
           dispose();
           resolve();
         });
       });
-      expect(aborted).toBe(true);
+      await flush();
+      expect(finalized).toBe(true);
     });
   });
 
@@ -451,7 +482,7 @@ describe("createReactiveSubscription", () => {
             { a: number; b: number }
           >(
             () => "A",
-            () => Promise.resolve(fromArray([{ a: 1, b: 2 }])),
+            () => streamOf(fromArray([{ a: 1, b: 2 }])),
           );
           await flush();
           resolve(readSub(sub));

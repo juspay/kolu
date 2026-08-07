@@ -45,7 +45,7 @@ import {
   liveWarming,
   toKavalPresence,
 } from "./daemonPresentation";
-import { announceReattach } from "./reattachAnnounce";
+import { announceAutoRecovery, announceReattach } from "./reattachAnnounce";
 
 // Re-export the pure presentation so existing `from "./useDaemonStatus"` imports
 // (the rail, the kaval dialog, App.tsx's canvas, useDaemonRestart) keep resolving
@@ -500,6 +500,32 @@ createRoot(() => {
         err,
       ),
   });
+  /** The auto-recovery rail's OWN per-host high-water mark (#2101 N1). Every
+   *  word of the record's rationale above applies verbatim — a raw foreign
+   *  epoch, per-host because per-host clocks are not mutually monotonic — which
+   *  is why this is a sibling key rather than a second field on the same record:
+   *  two independent facts, two independent marks, so neither can suppress the
+   *  other. */
+  const [autoRecoveryAnnouncedAt, setAutoRecoveryAnnouncedAt] = persistedPref<
+    Record<string, number>
+  >({
+    name: "kolu.kaval.autoRecoveryAnnouncedAt",
+    fallback: {},
+    parse: (raw) => {
+      const v: unknown = JSON.parse(raw);
+      if (v === null || typeof v !== "object" || Array.isArray(v))
+        throw new Error(`not a per-host record: ${raw}`);
+      for (const n of Object.values(v as Record<string, unknown>))
+        if (typeof n !== "number" || !Number.isFinite(n))
+          throw new Error(`non-numeric mark in ${raw}`);
+      return v as Record<string, number>;
+    },
+    onInvalid: (err, raw) =>
+      console.warn(
+        `[kaval] autoRecoveryAnnouncedAt corrupt (${raw}); resetting to {}:`,
+        err,
+      ),
+  });
   createEffect(() => {
     // The glue (`announceReattach`) commits the proven adoptedAt as the new high-water mark
     // BEFORE toasting, so a re-run on the same snapshot is silent — both halves are unit-tested
@@ -515,6 +541,20 @@ createRoot(() => {
       (mark) => setReattachAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
       (count) =>
         toast.info(`${count} terminal${count === 1 ? "" : "s"} reattached`),
+    );
+    // #2101 N1's one toast: padi restarted an unresponsive kaval by itself and a
+    // probe proved the replacement serves. Same rail, same dedupe law, its OWN
+    // per-host mark — an adoption and a recovery are independent facts, and one
+    // shared mark would let either suppress the other.
+    announceAutoRecovery(
+      localDaemonStatus(),
+      autoRecoveryAnnouncedAt()[host] ?? 0,
+      (mark) =>
+        setAutoRecoveryAnnouncedAt((prev) => ({ ...prev, [host]: mark })),
+      () =>
+        toast.warning(
+          "kaval was unresponsive — kolu restarted it; your session is ready to restore",
+        ),
     );
   });
 });

@@ -16,26 +16,37 @@
  *      enumerateHostDaemons} with NO active socket — kolu is bound elsewhere, so no
  *      local daemon is "in use by kolu".
  *
- * STRICTLY READ-ONLY. It reuses the SAME discovery `kaval-tui`/`padi-tui` use
- * (`discoverKavalDaemons` / `discoverPadiDaemons` — scan the runtime dir, read each
+ * The SCAN is strictly read-only. It reuses the SAME discovery `kaval-tui`/`padi-tui`
+ * use (`discoverKavalDaemons` / `discoverPadiDaemons` — scan the runtime dir, read each
  * gate `.pid`, read the `state-root` manifest) and, for each kaval, a read-only frozen
- * identity + legacy status probe over a short-lived client. It NEVER
- * spawns, writes, kills, or reaps — no path here touches a daemon's lifecycle.
+ * identity + legacy status probe over a short-lived client. Nothing in THIS module
+ * spawns, writes, kills, or reaps.
+ *
+ * What changed with juspay/kolu#2101 N1: the probe is no longer PUBLISH-ONLY. The
+ * doctrine that died is not "the scanner is read-only" — it still is — but "padi may
+ * diagnose and must never treat". `probeKavalStatus` is now ALSO the sensor behind
+ * `kavalSupervision.ts`, which folds the held kaval's verdicts into a failure ledger
+ * and, on exhaustion, runs the same recycle the "Restart kaval" button runs. A
+ * supervisor that can diagnose but not treat is a dashboard, and the field incident
+ * (#2101) is what a dashboard costs: padi classified a comatose kaval within ten
+ * seconds and then watched it stay comatose for hours. One probe implementation, two
+ * readers — the scan (which publishes) and the supervisor (which acts).
  */
 
+import { buildSurfaceFace } from "@kolu/surface/client";
+import { unixSocketLink } from "@kolu/surface/links/unix-socket";
 import {
-  type UnixSocketConnection,
-  unixSocketLink,
-} from "@kolu/surface/links/unix-socket";
-import {
+  type ControlCoreProbeClient,
   isNoListenerError,
   readControlCoreHello,
 } from "@kolu/surface-daemon-supervisor";
-import { withTimeout } from "./withTimeout.ts";
+import { Effect } from "effect";
 import {
   discoverKavalDaemons,
-  type kavalDaemonContract,
   type KavalDaemon,
+  kavalControlSurface,
+  kavalDaemonGroup,
+  ptyHostClientOver,
 } from "kaval";
 import {
   getPadiServeSocketPath,
@@ -52,7 +63,6 @@ import type {
   RunningPadi,
 } from "./surface.ts";
 import { encodeHostLocation, LOCAL_LOCATION } from "./vocab.ts";
-import { isMissingFrozenFragment } from "./ptyHost/missingFrozenFragment.ts";
 
 /** The read-only status a kaval socket answered — fields are null only where the
  *  daemon/listener is honestly absent, never because a failure was swallowed. */
@@ -134,55 +144,123 @@ export function assemblePadiInventory(
   }));
 }
 
-/** How long each kaval status read may take before the sampler fails loudly. */
-const PROBE_TIMEOUT_MS = 1500;
+/** Cadence of padi's host-inventory readout. Coarser than the 5s memory tick — the
+ *  daemon set changes rarely (only on a spawn/adopt/leak), and each tick dials every
+ *  kaval, so a 10s poll is plenty live without chattering. */
+export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
+
+/** How long each kaval status read may take before the scan fails loudly.
+ *
+ *  DERIVED, not picked: half the poll cadence, the ceiling a per-tick read can
+ *  have. A probe is three bounded reads over a fresh per-tick link, so a budget
+ *  past half the interval would let one tick's probe still be running when the
+ *  next fires — the poll's non-overlap guard would coalesce them, but a cell that
+ *  spends its life in the coalescing path is one that never samples on time.
+ *
+ *  Sitting AT the ceiling rather than under it is the deliberate half: the load
+ *  this probe is measured against is the one that broke it. `terminal.list` scales
+ *  with the live terminal count, the fused edge fires at kaval-connect — which IS
+ *  peak, a post-takeover restore stampede — and the old 1500ms was a foreseeable
+ *  casualty of exactly that (juspay/kolu#2101 G4: 24 terminals restoring, several
+ *  agents resuming, one probe over 1500ms). A kaval that cannot answer three
+ *  read-only verbs within HALF ITS POLL INTERVAL is not busy, it is wedged — and a
+ *  wedged kaval SHOULD fail the scan loudly rather than be waited on forever.
+ *
+ *  What a timeout costs is now bounded by design: since #2101 G1 a failed poll read
+ *  — the T+0 seed included — is cell-local (logged, cadence held, retried next
+ *  tick), so the worst case is one stale inventory tick, not a dead cell and a
+ *  half-dead daemon. */
+export const PROBE_TIMEOUT_MS = HOST_INVENTORY_SAMPLE_INTERVAL_MS / 2;
 
 /**
  * READ-ONLY status probe of one kaval socket: dial it, read frozen
  * `control.core.hello` (build commit), `system.version` (contract), and
- * `terminal.list` (live terminal count), then dispose the short-lived client. A
- * pre-fragment survivor has an honestly absent frozen identity and therefore reports a
- * null build commit; a current off-Nix empty identity projects to the same null display
- * fact. Only an honestly absent listener folds to {@link EMPTY_PROBE}; a connected peer
- * that times out or returns an invalid/error response fails loudly.
+ * `terminal.list` (live terminal count), then dispose the short-lived link. An
+ * off-Nix kaval's empty frozen identity projects to a null build commit. Only an
+ * honestly absent listener folds to {@link EMPTY_PROBE}; a connected peer that times
+ * out or returns an invalid/error response fails loudly.
+ *
+ * ONE link over the WHOLE daemon group, then a typed face per sibling over its one
+ * dispatch — the flat-tag successor of the combined-contract client. `dispose()` is
+ * ASYNC and is the ONLY thing that frees the link's protocol fibers, so a scan that
+ * skipped it would leak one per probed kaval per 10s tick.
+ *
+ * The LOUD contract is deliberate and unchanged by #2101: a scan REJECTS rather than
+ * fabricating null rows for a peer that answered wrongly or not at all (honesty
+ * #1034). What changed is who absorbs that rejection — the derived poll CELL does
+ * (stale value or spec default, logged, retried next tick), instead of the surface
+ * runtime dying of it.
  */
-export async function probeKavalStatus(
+export function probeKavalStatus(
   socket: string,
   timeoutMs = PROBE_TIMEOUT_MS,
-): Promise<KavalProbe> {
-  let conn: UnixSocketConnection<typeof kavalDaemonContract> | undefined;
-  try {
-    conn = await withTimeout(
-      unixSocketLink<typeof kavalDaemonContract>({ socketPath: socket }),
-      timeoutMs,
-    );
-    const { client } = conn;
-    // Three independent reads share one connection. Missing frozen route is the one
-    // honest transition absence; every other hello failure stays loud.
-    const [commit, version, list] = await Promise.all([
-      withTimeout(readControlCoreHello(client), timeoutMs).then(
-        (hello) => hello.commit || null,
-        (err: unknown) => {
-          if (isMissingFrozenFragment(err)) return null;
-          throw err;
+): Effect.Effect<KavalProbe, unknown> {
+  /** The shared deadline every read here carries. Losing it INTERRUPTS the read
+   *  rather than abandoning it, so a wedged peer leaks no in-flight subscription
+   *  past the tick that gave up on it. */
+  const bounded = <A, E>(
+    read: Effect.Effect<A, E>,
+  ): Effect.Effect<A, E | Error> =>
+    Effect.timeoutOrElse(read, {
+      duration: timeoutMs,
+      orElse: () => Effect.fail(new Error(`timed out after ${timeoutMs}ms`)),
+    });
+  return Effect.catch(
+    // `acquireRelease`: the link's `dispose()` is the ONLY thing that frees its
+    // protocol fibers, so the scope owns it — a scan that gave up mid-read
+    // releases it exactly as the old `finally` did, and on interruption too.
+    Effect.scoped(
+      Effect.flatMap(
+        Effect.acquireRelease(
+          bounded(
+            Effect.promise(() =>
+              unixSocketLink({ group: kavalDaemonGroup, socketPath: socket }),
+            ),
+          ),
+          (link) => Effect.promise(() => link.dispose()),
+        ),
+        (link) => {
+          const pty = ptyHostClientOver(link.dispatch);
+          // `SurfaceFace` is deliberately STRUCTURAL (D2 — per-member precision
+          // lives one layer up in a spec-derived face), so reaching the frozen
+          // core's verbs costs one cast, to the shape the shared hello reader
+          // already names.
+          const control = buildSurfaceFace(kavalControlSurface, link.dispatch)
+            .surface
+            .core as unknown as ControlCoreProbeClient["surface"]["control"]["core"];
+          // Three independent reads share one connection. A hello failure stays
+          // LOUD: the pre-fragment tolerance it used to carry described a peer
+          // from the RETIRED protocol epoch, which cannot complete a dial at all
+          // now (D6).
+          return Effect.map(
+            Effect.all(
+              [
+                Effect.map(
+                  bounded(
+                    readControlCoreHello({
+                      surface: { control: { core: control } },
+                    }),
+                  ),
+                  (hello) => hello.commit || null,
+                ),
+                bounded(pty.surface.system.version({})),
+                bounded(pty.surface.terminal.list({})),
+              ],
+              { concurrency: "unbounded" },
+            ),
+            ([commit, version, list]) => ({
+              terminalCount: list.entries.length,
+              buildCommit: commit,
+              contractVersion: version.contractVersion,
+            }),
+          );
         },
       ),
-      withTimeout(client.surface.system.version({}), timeoutMs),
-      withTimeout(client.surface.terminal.list({}), timeoutMs),
-    ]);
-    return {
-      terminalCount: list.entries.length,
-      buildCommit: commit,
-      contractVersion: version.contractVersion,
-    };
-  } catch (err) {
-    if (isNoListenerError(err)) return EMPTY_PROBE;
-    throw err;
-  } finally {
-    conn?.dispose();
-  }
+    ),
+    (err) =>
+      isNoListenerError(err) ? Effect.succeed(EMPTY_PROBE) : Effect.fail(err),
+  );
 }
-
 /** The seams the scanner reads through — injected so a test can drive it without a
  *  real host. `discover*` are the read-only enumerators; `probe` is the best-effort
  *  kaval status probe; the `active*` values mark which daemons the scanning host's
@@ -191,7 +269,7 @@ export async function probeKavalStatus(
 export interface HostDaemonScanDeps {
   discoverKavals: () => KavalDaemon[];
   discoverPadis: () => PadiDaemon[];
-  probe: (socket: string) => Promise<KavalProbe>;
+  probe: (socket: string) => Effect.Effect<KavalProbe, unknown>;
   /** The kaval socket the scanning host's padi HOLDS (marked `active`), or `null` when
    *  no kaval here is kolu's. */
   activeKavalSocket: string | null;
@@ -207,32 +285,30 @@ export interface HostDaemonScanDeps {
  *  padi, probe each kaval socket in parallel, and assemble the marked rows. An honestly
  *  absent listener is an empty probe; every other probe failure rejects the reading so
  *  a broken identity/status observation cannot silently become nulls. */
-export async function enumerateHostDaemons(
+export function enumerateHostDaemons(
   deps: HostDaemonScanDeps,
-): Promise<PadiHostInventory> {
-  const kavalDaemons = deps.discoverKavals();
-  const padiDaemons = deps.discoverPadis();
-  const probeEntries = await Promise.all(
-    kavalDaemons.map(
-      async (d) => [d.socket, await deps.probe(d.socket)] as const,
-    ),
-  );
-  const probes = new Map(probeEntries);
-  return {
-    kavals: assembleKavalInventory(
-      kavalDaemons,
-      probes,
-      deps.activeKavalSocket,
-      deps.activeKavalAtLegacy,
-    ),
-    padis: assemblePadiInventory(padiDaemons, deps.activePadiSocket),
-  };
+): Effect.Effect<PadiHostInventory, unknown> {
+  return Effect.gen(function* () {
+    const kavalDaemons = deps.discoverKavals();
+    const padiDaemons = deps.discoverPadis();
+    const probeEntries = yield* Effect.all(
+      kavalDaemons.map((d) =>
+        Effect.map(deps.probe(d.socket), (probe) => [d.socket, probe] as const),
+      ),
+      { concurrency: "unbounded" },
+    );
+    const probes = new Map(probeEntries);
+    return {
+      kavals: assembleKavalInventory(
+        kavalDaemons,
+        probes,
+        deps.activeKavalSocket,
+        deps.activeKavalAtLegacy,
+      ),
+      padis: assemblePadiInventory(padiDaemons, deps.activePadiSocket),
+    };
+  });
 }
-
-/** Cadence of padi's host-inventory readout. Coarser than the 5s memory tick — the
- *  daemon set changes rarely (only on a spawn/adopt/leak), and each tick dials every
- *  kaval, so a 10s poll is plenty live without chattering. */
-export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
 
 /** Resolve the kaval THIS padi holds — its live endpoint's `socketPath` (the
  *  authoritative address padi actually adopted/spawned) and whether that address is the
@@ -241,7 +317,10 @@ export const HOST_INVENTORY_SAMPLE_INTERVAL_MS = 10_000;
  *  which is by definition NOT a legacy adoption. Either way, `assembleKavalInventory`
  *  only marks the socket `active` if it appears in the discovered set, so a socket with
  *  no live daemon marks nothing. */
-function heldKaval(stateRoot: string): { socket: string; atLegacy: boolean } {
+export function heldKaval(stateRoot: string): {
+  socket: string;
+  atLegacy: boolean;
+} {
   const digest = padiKavalSocketPath(stateRoot);
   const held =
     readDaemonStatus(encodeHostLocation(LOCAL_LOCATION))?.socketPath ?? null;
@@ -300,33 +379,40 @@ export function withSelfPadi(
  *  (socket not yet listening) and under a `--socket` override (outside the discovered
  *  dirs). This is a pure single read: the derived poll cell (`derived.cell(source(...))`)
  *  owns the cadence, the T+0 seed, and non-overlap — this function no longer loops. */
-export async function samplePadiHostInventory(
+export function samplePadiHostInventory(
   /** THIS padi's resolved state-root — resolves the held-kaval fallback address. */
   stateRoot: string,
-): Promise<PadiHostInventory> {
-  // THIS padi's own rendezvous socket — the padi row it marks `active`. Read from
-  // the module global set at boot phase "identity" (`setPadiServeSocketPath`), which
-  // runs BEFORE the surface is served, so it is always present by the time the
-  // derived cell's poll connect fires — an absent value is a boot-order defect, so
-  // fail loud rather than mislabel the self-padi row.
-  const padiSocket = getPadiServeSocketPath();
-  if (!padiSocket) {
-    throw new Error(
-      "host-inventory read before padi's serve socket was set (boot-order defect)",
-    );
-  }
-  // Read the ambient pid ONCE, here at the edge — the pure `withSelfPadi` core receives
-  // it as a value (P2: effects at the boundary, not smuggled from a global mid-fold).
-  const self = { padiSocket, stateRoot, pid: process.pid };
-  const held = heldKaval(stateRoot);
-  return enumerateHostDaemons({
-    discoverKavals: discoverKavalDaemons,
-    // The serving padi reports itself by construction — never dependent on the socket
-    // already listening (T+0) or on the digest-dir naming (a `--socket` override).
-    discoverPadis: () => withSelfPadi(discoverPadiDaemons(), self),
-    probe: probeKavalStatus,
-    activeKavalSocket: held.socket,
-    activeKavalAtLegacy: held.atLegacy,
-    activePadiSocket: padiSocket,
+): Effect.Effect<PadiHostInventory, unknown> {
+  return Effect.suspend(() => {
+    // THIS padi's own rendezvous socket — the padi row it marks `active`. Read from
+    // the module global set at boot phase "identity" (`setPadiServeSocketPath`), which
+    // runs BEFORE the surface is served, so it is always present by the time the
+    // derived cell's poll connect fires — an absent value is a boot-order defect, so
+    // fail loud rather than mislabel the self-padi row. (The boot LAYER GRAPH proves
+    // that ordering — `PadiIdentity` is a dependency of the serve phase — so this
+    // throw is unreachable by construction. Since #2101 a throw from a poll read is
+    // cell-local either way: it would log every tick and serve the spec default, not
+    // kill padi. That is the framework's floor, not a licence — a deterministic
+    // precondition belongs at the builder, and this one is already proved there.)
+    const padiSocket = getPadiServeSocketPath();
+    if (!padiSocket) {
+      throw new Error(
+        "host-inventory read before padi's serve socket was set (boot-order defect)",
+      );
+    }
+    // Read the ambient pid ONCE, here at the edge — the pure `withSelfPadi` core receives
+    // it as a value (P2: effects at the boundary, not smuggled from a global mid-fold).
+    const self = { padiSocket, stateRoot, pid: process.pid };
+    const held = heldKaval(stateRoot);
+    return enumerateHostDaemons({
+      discoverKavals: discoverKavalDaemons,
+      // The serving padi reports itself by construction — never dependent on the socket
+      // already listening (T+0) or on the digest-dir naming (a `--socket` override).
+      discoverPadis: () => withSelfPadi(discoverPadiDaemons(), self),
+      probe: probeKavalStatus,
+      activeKavalSocket: held.socket,
+      activeKavalAtLegacy: held.atLegacy,
+      activePadiSocket: padiSocket,
+    });
   });
 }

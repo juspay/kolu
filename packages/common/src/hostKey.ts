@@ -20,21 +20,29 @@
  * `surfacesWithPadi.ts` re-exports it and builds `padiHostMap` from it.
  */
 
-import { z } from "zod";
+import { Schema } from "effect";
 
-/** The wire/zod schema for {@link HostKey} — validates the OBJECT (the discriminant
+/** The wire schema for {@link HostKey} — validates the OBJECT (the discriminant
  *  tag makes the union nominal; there is no `.brand()` to layer on top). The wire
- *  handler re-validates every `HostKey`-shaped input through this SAME schema (P5).
- *  `target` is `.min(1)` — a remote with an empty target is not a valid `HostKey`,
- *  which is why {@link HostKey} is DERIVED from this schema (`z.infer`) rather than a
- *  hand-rolled type: a hand-rolled `target: string` would silently admit the empty
- *  string the schema rejects, so the two could never disagree in the first place. The
- *  emptiness rule itself is enforced only at the value-construction boundary
- *  ({@link parseHostInput}) and by re-validating through this schema — TS has no
- *  non-empty-string type to check it statically. */
-export const HostKeySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local") }),
-  z.object({ kind: z.literal("remote"), target: z.string().min(1) }),
+ *  handler re-validates every `HostKey`-shaped input through this SAME schema (P5),
+ *  via {@link decodeHostKeyValue}. `target` is checked non-empty — a remote with an
+ *  empty target is not a valid `HostKey`, which is why {@link HostKey} is DERIVED
+ *  from this schema (`typeof …Type`) rather than hand-rolled: a hand-rolled
+ *  `target: string` would silently admit the empty string the schema rejects, so
+ *  the two could never disagree in the first place. The emptiness rule itself is
+ *  enforced only at the value-construction boundary ({@link parseHostInput}) and by
+ *  re-validating through this schema — TS has no non-empty-string type to check it
+ *  statically.
+ *
+ *  A `Schema.Union` of two structs, NOT `Schema.TaggedUnion`: the discriminant is
+ *  `kind`, not `_tag`, and these bytes are persisted (`PersistedHostsSchema`'s
+ *  encoded strings derive from them) and ride the map's wire `mapKey`. */
+export const HostKeySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("remote"),
+    target: Schema.String.check(Schema.isMinLength(1)),
+  }),
 ]);
 
 /** The per-host key. A nominal sum — `{ kind: "local" }` (the pool's implicit,
@@ -42,7 +50,16 @@ export const HostKeySchema = z.discriminatedUnion("kind", [
  *  an `~/.ssh/config` alias or `user@host`). Lifted off {@link HostKeySchema} — the
  *  SOLE schema, not a hand-rolled type — so the union is nominal by its `kind` tag
  *  (not a brand) and can never drift from what the schema actually validates. */
-export type HostKey = z.infer<typeof HostKeySchema>;
+export type HostKey = typeof HostKeySchema.Type;
+
+/** THE re-validation entry for a `HostKey`-shaped value that arrived from
+ *  somewhere untyped (a wire payload, a URL segment already through
+ *  {@link decodeHostKey}, an env seed) — P5's "re-validate at the wire" rule with
+ *  ONE decode site instead of a `.parse` spelled at each caller. THROWS
+ *  (`SchemaError`) on anything the schema rejects, exactly as zod's `.parse` did:
+ *  a value that is not a `HostKey` is a caller bug, never a condition to branch on. */
+export const decodeHostKeyValue: (value: unknown) => HostKey =
+  Schema.decodeUnknownSync(HostKeySchema);
 
 /** The canonical local-host key — the pool's implicit, UNREMOVABLE default member.
  *  A DISTINCT concept from padi's daemon-status key (`HostLocation`, encoded via
@@ -130,18 +147,26 @@ export function isEncodedHostKey(s: string): boolean {
  *  invariant, so a hand-edited store that violates one is REJECTED loud where it's read
  *  (`getPersistedHosts` throws) rather than silently normalized — the fail-fast stance a
  *  silently-shrunk fleet would violate. */
-export const PersistedHostsSchema = z
-  .array(
-    z.string().refine(isEncodedHostKey, {
-      message: "not a canonical encoded host key",
-    }),
-  )
-  .refine((hosts) => !hosts.includes(encodeHostKey(LOCAL_HOST)), {
-    message: `the local default (${JSON.stringify(encodeHostKey(LOCAL_HOST))}) must never be persisted`,
-  })
-  .refine((hosts) => new Set(hosts).size === hosts.length, {
-    message: "duplicate host entries",
-  });
+export const PersistedHostsSchema = Schema.Array(
+  Schema.String.check(
+    Schema.makeFilter((s) =>
+      isEncodedHostKey(s) ? undefined : "not a canonical encoded host key",
+    ),
+  ),
+).check(
+  Schema.makeFilter((hosts) =>
+    hosts.includes(encodeHostKey(LOCAL_HOST))
+      ? `the local default (${JSON.stringify(encodeHostKey(LOCAL_HOST))}) must never be persisted`
+      : undefined,
+  ),
+  Schema.makeFilter((hosts) =>
+    new Set(hosts).size === hosts.length ? undefined : "duplicate host entries",
+  ),
+);
+
+/** The persisted host list as a decoded value — `readonly string[]`, the canonical
+ *  encoded keys {@link decodeHostKey} accepts. */
+export type PersistedHosts = typeof PersistedHostsSchema.Type;
 
 /** Bare-loopback spellings of "this machine, as the current user" — the SAME host
  *  `{ kind: "local" }` already names, just three other words for it. Without this,

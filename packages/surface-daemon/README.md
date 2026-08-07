@@ -14,7 +14,9 @@ the client half lives in [`@kolu/surface-daemon-supervisor`](../surface-daemon-s
 
 `controlCoreSurface` is the standalone frozen contract;
 `controlCoreProcedureSpec` is the composition seam for a daemon retaining
-legacy siblings; the schema/type exports describe that wire. The testlib groups
+legacy siblings; the schema/type exports describe that wire. The frozen
+fragment never versions *within a protocol epoch* — the Effect-4 framing change
+was a declared flag day, not a negotiation (see `controlCore.ts`'s header). The testlib groups
 the injected yesterday-daemon fixture, registry/watchdog helpers, bidirectional
 previous-release harness, process reaper, shape-recovery pin, and CI recipe pin;
 the [reference](https://kolu.dev/surface/ref-surface-daemon) maps every export.
@@ -38,7 +40,8 @@ daemonProcessMain({
   name: "my-daemon",
   run: () => daemonMain({
     home,
-    router: runtime.router,
+    group: runtime.group,
+    handlers: runtime.handlers,
     lifetime: { kind: "forever" },
     log: stderrLogger(),
   }),

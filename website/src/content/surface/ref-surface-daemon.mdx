@@ -18,26 +18,54 @@ override) use `./pidGate.testlib` — never re-exported from the production root
 ## The frozen control core
 
 `controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
-onDrain })` implements the immutable `control.core.hello` identity and `drain`
-verb. It is served beside the versioned application surface, so a supervisor can
-identify and drain a resident daemon before knowing whether that versioned
-surface is compatible. The hello fields are fixed:
+onDrain })` implements the immutable `core.hello` identity and `core.drain` verb.
+It is served beside the versioned application surface — composed as the sibling
+`control`, so the two members sit at the wire tags `surface/control/core/hello`
+and `surface/control/core/drain` and cannot collide with anything the application
+surface mints. A supervisor can therefore identify and drain a resident daemon
+before knowing whether that versioned surface is compatible. The hello fields are
+fixed:
 `stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
 `CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
 version. Build id and commit are one observation: the shared reader accepts both
 absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
 before convergence policy runs.
 
+**The fragment never versions — within a protocol epoch.** The Effect-4
+migration moved this wire's *framing* (the oRPC base64+newline peer codec →
+Effect RPC ndjson). That is a declared **flag day**, not a version negotiation:
+negotiation happens inside the protocol being replaced, so a daemon from the
+previous epoch cannot be asked anything at all — its first frame is undecodable,
+and the supervisor observes that as `unspeakable-protocol`, never as an
+incompatible version. `CONTROL_CORE_VERSION` deliberately did **not** move with
+it: it versions the hello *payload*, the payload's six fields are unchanged
+(byte-pinned in `controlCore.test.ts`), and a value carried inside the frame
+cannot describe a break in the frame itself. From this epoch forward the frozen
+contract holds again, unchanged.
+
 The wire says only `drain(): void`; it does not promise that every daemon is
 drainable. A daemon whose durable state cannot survive a drain implements the
-verb as an honest typed refusal (kaval throws `PRECONDITION_FAILED`) and declares
-the supervisor capability `not-drainable`, which makes policy-driven invocation
+verb as an honest **refusal** — kaval's `onDrain` throws — and declares the
+supervisor capability `not-drainable`, which makes policy-driven invocation
 unrepresentable. The refusal must leave the daemon and its owned resources alive.
+
+That refusal is a **defect**, not a member error, and deliberately so. `drain`
+declares no error schema (the frozen fragment's shape is not a consumer's to
+widen), so `controlCoreFragment` runs the hook under `Effect.promise`: an
+undeclared throw stays a defect rather than masquerading as something a supervisor
+could narrow on and "handle". The oRPC-era `PRECONDITION_FAILED` code said the
+same thing with a string the caller had to compare.
+
+Both members are Effect Schema-typed: `hello` declares
+`ControlCoreHelloSchema` as its output, `drain` declares nothing at all.
+`commit` / `buildId` are `Schema.optionalKey` — the key is present with a string
+or absent, never an explicit `undefined` round-tripped through `null`.
 
 | Export | Role |
 | --- | --- |
-| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws a typed refusal without exiting |
-| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment contract, plus the spec seam for a daemon retaining extra frozen members |
+| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws, and the throw stays a defect without exiting |
+| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment surface (`procedures: { core: … }`), plus the spec seam for a daemon retaining extra frozen members |
+| `ControlCoreFragment` | the `ImplementSurfaceDeps` type of that surface — what `controlCoreFragment` satisfies |
 | `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />
@@ -108,8 +136,8 @@ an orphan process whose socket and gate have vanished.
 `daemonMain({ home, … })` is the gate → serve → teardown skeleton. Gate and
 socket come from `home`; the self-reap [anchor](#the-anchor-self-reap) defaults
 to `home.dir` (override when the on-disk identity is not the rendezvous home —
-e.g. padi's state-root). It claims the single-instance gate, serves the router
-over the unix socket, waits for the lifetime to end — or for the anchor to be
+e.g. padi's state-root). It claims the single-instance gate, serves the
+surface's `{ group, handlers }` over the unix socket, waits for the lifetime to end — or for the anchor to be
 proven gone — then closes the socket, releases the gate, and **returns** a
 `DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
 in-process from a test.
@@ -134,7 +162,7 @@ rest of the process's life.
 | `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm) |
 | `claimPidGate(gatePath, socketPath, self, readProcessIdentity)` | the named full claim: `acquirePidGate` then `confirmHeldGate` when held — composition roots use this, not the two steps by convention |
 | `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` |
-| `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the **sync** injected OS fact reader for the daemon claim path — the spine never imports osfacts. The supervisor's awaitable inject is `ReadProcessIdentityAsync` on `@kolu/surface-daemon-supervisor` (beside `EndpointSpec`) |
+| `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the **sync** injected OS fact reader for the daemon claim path — the spine never imports osfacts. The supervisor's awaitable inject is `ReadProcessIdentityAsync` on `@kolu/surface-daemon-supervisor` (beside `EndpointSpec`), an Effect — the sync one stays here because a synchronous gate claim must not reorder against the boot side effects it guards |
 | `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderFromRecord` · `liveHolderPid` · `throwIfGateUnreadable` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader: pid via legacy `parseInt` (leading digits); start time only from exact `pid\tstart…`; ±2 s match; writers emit `${pid}\t${startUnixUs}\n`. **Three-way law** on the read outcome (exhaustive): `absent` → free; `malformed` → reap; `unreadable` (EACCES/EIO) → **throw** — never collapse into free/stale. `liveHolderFromRecord` takes an already-read observation; `liveHolderPid` reads once then delegates |
 | `confirmHeldGate(held, …)` | one-field (legacy) socket fence only — **one** gate observation drives both liveness and generation; dead socket reclaims; absent / indeterminate wait; two-field match skips (identity is truth) |
 | `isHolderLive(pid)` | `kill(0)` liveness probe for one-field holders and cheap checks |
@@ -142,7 +170,9 @@ rest of the process's life.
 | `stderrLogger()` · `Logger` · `DaemonExit` | the structural logging contract and the exit record `daemonMain` resolves (its exit-code classification lives inside `daemonProcessMain`) |
 | `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
 | `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |
-| `anchorGone(path)` · `DaemonShutdownReason` | the ENOENT-only "proven absent" probe both ends of the anchor invariant share, and the full shutdown-reason union (`signal` · `abort` · `idle` · `pid-gone` · `anchor-gone`) |
+| `anchorGone(path)` · `DaemonShutdownReason` | the ENOENT-only "proven absent" probe both ends of the anchor invariant share, and the full shutdown-reason union (`signal` · `abort` · `idle` · `pid-gone` · `anchor-gone` · `runtime-fault`) |
+| `armRuntimeFaultExit({ done, log, subject, lastRites? })` · `DAEMON_RUNTIME_FAULT_MARKER` | observe a served runtime's `done` and hand back the `AbortSignal` to pass as `DaemonSpec.faultSignal`. A rejection is FATAL: it logs the WHOLE error (marked, stack intact), runs the daemon's last rites (padi captures its final session), and ends the tenure as `reason: "runtime-fault"` — a non-zero exit **through the ordinary teardown**, so the socket closes and the gate releases before the process ends. Last rites that throw are logged and the exit still happens |
+| `DaemonSpec.faultSignal` | the owned-fault stop arm, separate from `signal` because they mean opposite things: `signal` is a graceful stop (exit 0), `faultSignal` is structural wiring death (exit non-zero). Omitting it leaves a runtime fault nowhere to go — the zombie class (process alive, gate held, socket answering, runtime dead) |
 
 `lifetime` is the policy that distinguishes tenants — three honest constructors,
 not `forever` plus flags:
@@ -181,6 +211,21 @@ broken expansion, distinct from unset), non-canonical decimal, fractional, or ou
 `boundToPid` shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`, exit code
 0. Pid reuse inside the poll window is a documented residual, not engineered around.
 
+## The owned-runtime-fault exit
+
+Every shutdown reason is a *success* (exit 0) except one: `runtime-fault`, raised
+by `DaemonSpec.faultSignal` when the served surface runtime's `done` rejects. It is
+an orderly teardown — listener closed, gate released, last rites run — that scores
+**exit 1**, because the supervisor's only channel for "that was a crash, not a
+stop" is the exit code. Wire it with `armRuntimeFaultExit`; both kaval and padi do.
+
+Why fatal rather than "log and keep serving": after the `@kolu/surface` poll ruling
+(a poll read's failure is cell-local at every tick, T+0 included) a `done` rejection
+can only be structural wiring death, which does not heal by waiting. The recorded
+failure is juspay/kolu#2101 — a padi that logged one probe timeout and kept its gate
+and socket while its runtime was dead, needing an operator instead of the ~2s
+respawn-and-restore a crash would have produced.
+
 ## The anchor self-reap
 
 `anchor` defaults to `() => home.dir` — gate, socket, and anchor all ride the
@@ -204,10 +249,12 @@ case — it defaults to the home.
 
 ## Serving the surface
 
-The listener is `serveOverUnixSocket({ socketPath, router, log })` from
+The listener is `serveOverUnixSocket({ socketPath, group, handlers, log })` from
 `@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
 never crashes: every failure mode resolves to a no-op listener with a
-machine-readable `outcome`.
+machine-readable `outcome`. `daemonMain` passes its own `log` through, so the
+listener's lifetime (bound / post-listen fault / closed) lands in the daemon's
+journal beside the daemon's own boot and teardown narration.
 
 | `outcome.kind` | Meaning |
 | --- | --- |
@@ -221,7 +268,10 @@ machine-readable `outcome`.
 gate-held daemon and raw-byte-relays this process's stdio onto its socket, so a
 remote (ssh) session survives the link — the durable counterpart to
 `serveOverStdio`. It relays with `node:net` only, no surface import, keeping the
-daemon closure contract-blind.
+daemon closure contract-blind. That blindness is legal only because the stdio
+leg and the socket leg are byte-identical ndjson, which
+`packages/surface/src/links/byteSplice.test.ts` proves on captured raw bytes in
+both directions — including that nothing on the wire is non-JSON binary.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="front" />
 

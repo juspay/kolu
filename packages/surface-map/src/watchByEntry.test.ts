@@ -39,7 +39,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       );
 
       const entry = makeEntry({ awaiting: 0, awaitingIds: [] });
-      addSession(A, entry.link, connected(0));
+      addSession(A, entry.dispatch, connected(0));
       await settle();
 
       // EAGER: the member is watched with NO activation. A first frame is a
@@ -79,7 +79,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
         (host, raised) => raises.push({ host, ids: [...raised] }),
       );
       const entry = makeEntry({ awaiting: 0, awaitingIds: [] });
-      addSession(A, entry.link, connected(0));
+      addSession(A, entry.dispatch, connected(0));
       await settle();
 
       entry.setUrgency({ awaiting: 1, awaitingIds: ["t1"] });
@@ -112,7 +112,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
         () => {},
       );
       const entry = makeEntry({ awaiting: 1, awaitingIds: ["t1"] });
-      addSession(A, entry.link, connected(0));
+      addSession(A, entry.dispatch, connected(0));
       await settle();
       expect(att.get(A)?.kind).toBe("live");
 
@@ -138,7 +138,7 @@ describe("watchByEntry — eager attention over entries membership", () => {
       );
       addSession(
         A,
-        makeEntry({ awaiting: 0, awaitingIds: [] }).link,
+        makeEntry({ awaiting: 0, awaitingIds: [] }).dispatch,
         connected(0),
       );
       await settle();

@@ -60,9 +60,9 @@ host's subscriptions and populating the new one's.
   Declared procedures ride `entry.procedures.<ns>.<verb>(input)` — the
   `kill` call above — bound and typed straight from the entry spec, with no cast.
   The bound `procedures` map is a narrow type that dodges the union-budget overflow
-  (TS2590) the fully generic `entry.rpc` contract client trips on a generic map, so
-  the map no longer hands you an untyped edge for declared calls. `entry.rpc` stays
-  `unknown` and is reserved for the framework procedures and the link-root escape
+  (TS2590) a second precise mapped type over a generic entry spec would trip, so
+  the map no longer hands you an untyped edge for declared calls. `entry.rpc` is
+  the structural addressing face — `unknown` per leaf — reserved for the escape
   hatch; see [Entry contracts](/surface/entry-contracts).
 </Aside>
 

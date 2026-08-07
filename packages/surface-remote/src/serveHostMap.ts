@@ -27,7 +27,7 @@
  * `derived.registry`, the pull-face exit) to `serveSurfaceMap`.
  */
 
-import type { SurfaceSpec } from "@kolu/surface/define";
+import type { SurfaceSpec, WireSchemaAny } from "@kolu/surface/define";
 import { derived, reactiveFamily, source } from "@kolu/surface/reactor";
 import type { SurfaceMap } from "@kolu/surface-map";
 import {
@@ -38,8 +38,8 @@ import {
   type ServeSurfaceMapResult,
   serveSurfaceMap,
 } from "@kolu/surface-map/server";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import type { SurfaceClientLike } from "@kolu/surface/project";
-import type { z } from "zod";
 import type { RemotePool } from "./hostFanout";
 import type { DownSessionState, Session, SessionState } from "./session";
 
@@ -179,11 +179,17 @@ export function projectState<Prov extends string>(
 }
 
 export interface ServeHostMapOptions<K, S, Failure = unknown, Conn = unknown> {
-  /** The re-served entry-surface CLIENT for one host — a `directLink` over the host's
-   *  `reServeSurface(...).router` (the re-serve POLICY is app-specific, hence
-   *  injected). Called once per host; the result is cached here and evicted on
-   *  removal, so a re-serve mirror is never built twice for a host. */
-  linkFor: (host: K, session: S) => unknown;
+  /** The re-served entry-surface DISPATCH for one host — typically
+   *  `directDispatch(reServeSurface(...))` over the host's re-serve (the re-serve
+   *  POLICY is app-specific, hence injected). Called once per host; the result is
+   *  cached here and evicted on removal, so a re-serve mirror is never built twice
+   *  for a host.
+   *
+   *  TYPED now (was `unknown`): the map forwards by TAG over the erased
+   *  `{ unary, stream }` seam, so `EntrySession.dispatch` names exactly what this
+   *  must produce — the oRPC-era `link` was `unknown` only because a nested proxy
+   *  tree had no nameable type. */
+  dispatchFor: (host: K, session: S) => SurfaceDispatch;
   /** SR9 — the FINE connection payload the entry publishes (padi's `ConnectionInfo`: the
    *  rich phase + log tail + elapsed the coarse `EntryStatus.kind` folds away), plus its
    *  connected-discriminant. Injected because the fine connection's TYPE is domain
@@ -239,7 +245,7 @@ export type MembershipPool<S extends Session<SurfaceClientLike, string>> = Pick<
  *  `serveSurfaceMap` does; `dispose()` tears down the map and, through the reactive
  *  family, the membership subscription and every per-member `onState`. */
 export function serveHostMap<
-  KS extends z.ZodType,
+  KS extends WireSchemaAny,
   ES extends SurfaceSpec,
   S extends MappableSession,
   Failure = unknown,
@@ -247,9 +253,9 @@ export function serveHostMap<
 >(
   map: SurfaceMap<KS, ES, Failure, Conn>,
   pool: MembershipPool<S>,
-  opts: ServeHostMapOptions<z.infer<KS>, S, Failure, Conn>,
+  opts: ServeHostMapOptions<KS["Type"], S, Failure, Conn>,
 ): ServeSurfaceMapResult {
-  type K = z.infer<KS>;
+  type K = KS["Type"];
   // `pool` is ALWAYS string-keyed (the warm ssh pool's native key), while the map's
   // own `K` may be a non-primitive (kolu's `HostKey`). The reactive family below is
   // keyed by the pool's own STRING; `map.codec` bridges to/from `K` only at the
@@ -257,10 +263,10 @@ export function serveHostMap<
   // object-at-the-boundary shape `@kolu/surface-map`'s own client/server halves use.
   const { encode, decode } = map.codec;
 
-  // The re-served entry-surface link per host, memoised and evicted on host exit (the
-  // re-serve POLICY is app-specific, hence injected). The ONE hand-held cache that
+  // The re-served entry-surface dispatch per host, memoised and evicted on host exit
+  // (the re-serve POLICY is app-specific, hence injected). The ONE hand-held cache that
   // survives the reshape — its eviction now rides the family's `onEvict`.
-  const links = new Map<string, unknown>();
+  const dispatches = new Map<string, SurfaceDispatch>();
 
   // The ONE membership+state source. `reactiveFamily` fuses the pool's membership
   // `subscribe` with each session's own `onState` and owns — once, for the framework —
@@ -289,22 +295,22 @@ export function serveHostMap<
     // would freeze the member un-seeded (a resolve reading the now-present session finds a
     // live handle but a `latest` of `undefined`, publishing a permanent "connecting").
     attach: (enc, set) => pool.getSession(enc)?.onState(set),
-    // Tie the re-serve link's eviction to the family's per-key disposal — the ONE detach
-    // seam (it mirrored the old `detach`'s `links.delete`), so a departed host's link is
-    // never left behind.
+    // Tie the re-serve dispatch's eviction to the family's per-key disposal — the ONE
+    // detach seam (it mirrored the old `detach`'s delete), so a departed host's dispatch
+    // is never left behind.
     onEvict: (enc) => {
-      links.delete(enc);
+      dispatches.delete(enc);
     },
   });
 
-  const linkFor = (k: K, session: S): unknown => {
+  const dispatchFor = (k: K, session: S): SurfaceDispatch => {
     const enc = encode(k);
-    let link = links.get(enc);
-    if (link === undefined) {
-      link = opts.linkFor(k, session);
-      links.set(enc, link);
+    let dispatch = dispatches.get(enc);
+    if (dispatch === undefined) {
+      dispatch = opts.dispatchFor(k, session);
+      dispatches.set(enc, dispatch);
     }
-    return link;
+    return dispatch;
   };
 
   // PROJECT one member's cached `SessionState` → its serveable `EntrySession` (or fail
@@ -429,7 +435,7 @@ export function serveHostMap<
     }
     return {
       kind: "session",
-      link: linkFor(k, session),
+      dispatch: dispatchFor(k, session),
       state,
       connection,
     };
@@ -453,13 +459,16 @@ export function serveHostMap<
   const served = serveSurfaceMap(map, registry);
 
   return {
-    router: served.router,
+    // The map's own `{ group, handlers }` pair, verbatim — a host merges the pair
+    // (there is no second fragment to keep in step, and no router to re-prefix).
+    group: served.group,
+    handlers: served.handlers,
     dispose() {
       served.dispose();
       // Tears down the family (the membership subscription and every per-member
-      // `onState`), running each member's `onEvict` (which drops its link).
+      // `onState`), running each member's `onEvict` (which drops its dispatch).
       reg.dispose();
-      links.clear();
+      dispatches.clear();
     },
   };
 }

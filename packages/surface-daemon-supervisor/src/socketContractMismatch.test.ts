@@ -1,11 +1,13 @@
 /** Framework-owned endpoint disposition for a version-skewed survivor. */
 
+import { Effect } from "effect";
 import { expect, it } from "vitest";
 import {
   assertDaemonSpawnAllowed,
   describeDaemon,
 } from "@kolu/daemon-test-gate";
 import { plantYesterdayDaemon } from "@kolu/surface-daemon/upgrade-window.testlib";
+import { fromAsync } from "./createEndpoint.testlib.ts";
 import { createEndpointForKoluTest as createEndpoint } from "./createEndpoint.kolu.testlib.ts";
 import {
   converge,
@@ -52,27 +54,28 @@ describeDaemon("socket-contract mismatch names itself (upgrade-window)", () => {
           onContractSkew: { kind: "refuse" },
           onBuildMismatch: { kind: "nudge-human" },
         },
-        probe: async () => null,
+        probe: () => fromAsync(async () => null),
         driver: {
-          spawn: async () => {
+          spawn: fromAsync(async () => {
             throw new Error("spawn must not run on a refused skew");
-          },
+          }),
         },
-        connect: async () => {
-          throw new DaemonContractSkewError({
-            subject: "daemon",
-            daemonVersion: "1.0",
-            requiredVersion: "2.0",
-            pid: survivorPid,
-          });
-        },
+        connect: () =>
+          fromAsync(async () => {
+            throw new DaemonContractSkewError({
+              subject: "daemon",
+              daemonVersion: "1.0",
+              requiredVersion: "2.0",
+              pid: survivorPid,
+            });
+          }),
         log: silentLog,
         onStatus: (_host, status) => statuses.push(status),
         socketPollMs: 5,
         adoptConnectAttempts: 2,
         adoptConnectRetryMs: 1,
       });
-      const outcome = await converge(endpoint);
+      const outcome = await Effect.runPromise(converge(endpoint));
       expect(outcomeAdopted(outcome)).toBe(false);
       expect(statuses.map((status) => status.state)).toContain("incompatible");
       const last = statuses.at(-1);

@@ -15,8 +15,13 @@
  *  to be active, focusing the wrong host's terminal (or nothing). */
 
 import { createNotify } from "@kolu/surface-app/notify";
+import { Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+
+/** zod's `safeParse` in Effect terms — a `Result`, so a malformed id is a BRANCH
+ *  (drop the envelope) rather than a throw out of the notification router. */
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** The routing payload carried on an attention notification. `kind` is the
  *  discriminant the single `notify.onClick` router switches on; `host` is the
@@ -43,11 +48,11 @@ function parseAttentionClick(data: unknown): AttentionClick | undefined {
   // (`terminalId` vs `id`), so only the final shape branches.
   if (typeof d.host !== "string" || !isEncodedHostKey(d.host)) return undefined;
   const idField = d.kind === "terminal" ? d.terminalId : d.id;
-  const id = TerminalIdSchema.safeParse(idField);
-  if (!id.success) return undefined;
+  const id = decodeTerminalId(idField);
+  if (Result.isFailure(id)) return undefined;
   return d.kind === "terminal"
-    ? { kind: "terminal", host: d.host, terminalId: id.data }
-    : { kind: "host", host: d.host, id: id.data };
+    ? { kind: "terminal", host: d.host, terminalId: id.success }
+    : { kind: "host", host: d.host, id: id.success };
 }
 
 /** The app-wide notification seam (module singleton — created once, shared). */

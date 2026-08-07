@@ -6,12 +6,20 @@
  * in-flight request.
  *
  * Drives `makeSession` through a hand-built connector whose client answers the
- * reserved `system.identity` normally but whose `system.clockNow` NEVER resolves
- * (recording the abort `signal` it was handed). That lets the test assert the
- * deadline fires the loud diagnostic, aborts the underlying request BEFORE the
- * retry, fires a fresh request on the retry cadence, and — on `destroy()` — aborts
- * the in-flight request and leaves no active timer behind.
+ * reserved `system.identity` normally but whose `system.clockNow` NEVER settles
+ * (recording whether the effect it handed back was INTERRUPTED). That lets the
+ * test assert the deadline fires the loud diagnostic, cancels the underlying
+ * request BEFORE the retry, fires a fresh request on the retry cadence, and — on
+ * `destroy()` — cancels the in-flight request and leaves no active timer behind.
+ *
+ * The cancellation mechanism is INTERRUPTION, not an `AbortSignal` the member
+ * call was handed: a unary member call is an `Effect`, the session runs it under
+ * the probe’s own `AbortController` (`runProbe`), and `Effect.runPromise` turns
+ * that abort into an interrupt. So the fake records its own finalizer running —
+ * which is strictly stronger evidence than a flag on a signal a plug was free to
+ * ignore.
  */
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectLogger } from "@kolu/log/loggerStubs.testutil";
 import type { ClosedInfo, Connection, Connector } from "./session";
@@ -22,28 +30,34 @@ import { makeSession } from "./session";
 type FakeClient = {
   surface: {
     system: {
-      identity: (input: Record<string, never>) => Promise<{ kind: string }>;
+      identity: (
+        input: Record<string, never>,
+      ) => Effect.Effect<{ kind: string }, never>;
       clockNow: (
         input: Record<string, never>,
-        opts?: { signal?: AbortSignal },
-      ) => Promise<{ epochMs: number }>;
+      ) => Effect.Effect<{ epochMs: number }, never>;
     };
   };
 };
 
-/** Records the abort signal handed to each `clockNow` call; the promise NEVER
- *  settles, so only the deadline (or an abort) can end a probe. */
+/** One `clockNow` call: whether the effect it returned has been cancelled yet. */
+type ClockCall = { cancelled: boolean };
+
+/** Records each `clockNow` call; the effect NEVER succeeds, so only the deadline
+ *  (which interrupts it) can end a probe. `Effect.callback`’s returned finalizer
+ *  runs on interruption, which is how the call learns it was cancelled — the
+ *  successor of the old "did the signal we were handed get aborted?" check. */
 function neverSettlingClock() {
-  const calls: Array<{ signal?: AbortSignal }> = [];
-  const clockNow = (
-    _input: Record<string, never>,
-    opts?: { signal?: AbortSignal },
-  ): Promise<{ epochMs: number }> => {
-    calls.push({ signal: opts?.signal });
-    return new Promise<{ epochMs: number }>(() => {
-      /* never settles — the deadline / abort is the only way out */
+  const calls: ClockCall[] = [];
+  const clockNow = (): Effect.Effect<{ epochMs: number }, never> =>
+    Effect.callback<{ epochMs: number }, never>(() => {
+      const call: ClockCall = { cancelled: false };
+      calls.push(call);
+      // Never resumed — the deadline’s interrupt is the only way out.
+      return Effect.sync(() => {
+        call.cancelled = true;
+      });
     });
-  };
   return { calls, clockNow };
 }
 
@@ -77,7 +91,7 @@ describe("makeSession clock-probe deadline + cancellation (F4)", () => {
     const client: FakeClient = {
       surface: {
         system: {
-          identity: () => Promise.resolve({ kind: "anonymous" }),
+          identity: () => Effect.succeed({ kind: "anonymous" }),
           clockNow,
         },
       },
@@ -109,31 +123,32 @@ describe("makeSession clock-probe deadline + cancellation (F4)", () => {
     // The connected frame is up with an unmeasured offset, and one probe is in flight.
     expect(phase).toBe("connected");
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.signal?.aborted).toBe(false);
+    expect(calls[0]?.cancelled).toBe(false);
     // No diagnostic yet — the probe has not hit its deadline.
     expect(lines.some((l) => l.includes("clock offset probe failed"))).toBe(
       false,
     );
 
     // Advance past the 8s probe deadline: the deadline rejects the observed
-    // promise (loud line) AND aborts the underlying request (cancelled before retry).
+    // promise (loud line) AND interrupts the underlying request (cancelled
+    // before retry).
     await vi.advanceTimersByTimeAsync(8_000);
     expect(lines.some((l) => l.includes("clock offset probe failed"))).toBe(
       true,
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.signal?.aborted).toBe(true);
+    expect(calls[0]?.cancelled).toBe(true);
 
     // Advance the 10s retry cadence: a FRESH request fires (the prior one was
     // cancelled, not stacked).
     await vi.advanceTimersByTimeAsync(10_000);
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.signal?.aborted).toBe(false);
+    expect(calls[1]?.cancelled).toBe(false);
 
-    // Destroy mid-probe: it aborts the in-flight request and clears the deadline
-    // timer — nothing is left pending.
+    // Destroy mid-probe: it interrupts the in-flight request and clears the
+    // deadline timer — nothing is left pending.
     session.destroy();
-    expect(calls[1]?.signal?.aborted).toBe(true);
+    expect(calls[1]?.cancelled).toBe(true);
     // No orphaned deadline/retry timer survives the teardown.
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -148,7 +163,7 @@ describe("makeSession clock-probe deadline + cancellation (F4)", () => {
     // link-liveness). This pins the branch the fragile message-heuristic left untested.
     const clientNoClock = {
       surface: {
-        system: { identity: () => Promise.resolve({ kind: "anonymous" }) },
+        system: { identity: () => Effect.succeed({ kind: "anonymous" }) },
       },
     } as unknown as FakeClient;
 

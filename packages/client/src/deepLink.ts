@@ -22,8 +22,13 @@
  *  and `<host>` is carried as its encoded string (decoded at route time, exactly
  *  as the notification path does), never a decoded `HostKey`. */
 
+import { Result, Schema } from "effect";
 import { isEncodedHostKey } from "kolu-common/hostKey";
 import { type TerminalId, TerminalIdSchema } from "kolu-common/surface";
+
+/** zod's `safeParse` in Effect terms — a `Result`, so a bad id segment is a
+ *  BRANCH (an `invalid` verdict) rather than a throw out of the parser. */
+const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 
 /** A fully-formed, ready-to-route navigation request. Every field is validated;
  *  the router acts on it without re-checking. `host` is the encoded key string. */
@@ -112,9 +117,10 @@ export function parseDeepLink(hash: string): ParsedDeepLink {
       return invalid("#/t expects <host>/<terminalId>");
     if (!isEncodedHostKey(host))
       return invalid(`not a canonical host key: ${host}`);
-    const parsedId = TerminalIdSchema.safeParse(idSegment);
-    if (!parsedId.success) return invalid(`not a terminal UUID: ${idSegment}`);
-    const terminalId = parsedId.data;
+    const parsedId = decodeTerminalId(idSegment);
+    if (Result.isFailure(parsedId))
+      return invalid(`not a terminal UUID: ${idSegment}`);
+    const terminalId = parsedId.success;
 
     if (rest.length === 2) return { kind: "terminal", host, terminalId };
 

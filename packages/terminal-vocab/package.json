@@ -19,14 +19,14 @@
   "dependencies": {
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
+    "effect": "catalog:",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
-    "ts-pattern": "^5.9.0",
-    "zod": "^4.3.6"
+    "ts-pattern": "^5.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

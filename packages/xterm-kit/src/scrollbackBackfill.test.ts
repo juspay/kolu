@@ -7,10 +7,10 @@
  *  terminal fed the whole history natively: prepended history must be
  *  row-for-row indistinguishable, before and after resizes. */
 
-import { ORPCError } from "@orpc/client";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { Terminal as XTerm } from "@xterm/xterm";
+import { Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   type BackfillController,
@@ -466,6 +466,37 @@ function seedController(
   commit();
 }
 
+/** Stand-in for the DECLARED error the host raises when the terminal is gone —
+ *  padi's `TerminalNotFound` (kaval's `PtyNotFound` over a direct link). Both are
+ *  `Schema.TaggedErrorClass`es declared on a PROCEDURE, so unlike the stream
+ *  members' undeclared twin they reach the client as the tagged instance itself,
+ *  `_tag` and data intact — which is what makes narrowing here honest.
+ *
+ *  MODELLED rather than imported, on purpose: this kit depends on no `@kolu/*`
+ *  package, and that is exactly why the recognition is a caller-supplied
+ *  predicate rather than a tag string re-spelled in `scrollbackBackfill.ts`. */
+class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+  "xterm-kit-test/TerminalNotFound",
+)("TerminalNotFound", { id: Schema.String }) {}
+
+/** A DIFFERENT declared error from the same vocabulary — the negative control
+ *  proving the predicate discriminates on the specific tag, not on "is tagged". */
+class PreviewTooLarge extends Schema.TaggedErrorClass<PreviewTooLarge>(
+  "xterm-kit-test/PreviewTooLarge",
+)("PreviewTooLarge", { bytes: Schema.Number }) {}
+
+/** The predicate an app passes as `isTerminalGone`: STRUCTURAL `_tag` narrowing,
+ *  the shape padi's own cross-wire recognition uses — a decoded error may arrive
+ *  from another module realm (a relay hop, two copies of a class in one bundle),
+ *  so `instanceof` is not sound across the hop. The tag is read OFF the class, so
+ *  a rename moves it instead of silently un-matching. */
+const GONE_TAG: string = new TerminalNotFound({ id: "" })._tag;
+const isTerminalGone = (err: unknown): boolean =>
+  typeof err === "object" &&
+  err !== null &&
+  "_tag" in err &&
+  (err as { _tag: unknown })._tag === GONE_TAG;
+
 /** A promise plus its resolver, for driving an in-flight fetch/prepend. */
 function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void } {
   let resolve!: (v: T) => void;
@@ -492,6 +523,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -514,6 +546,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -539,6 +572,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -571,6 +605,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -588,17 +623,18 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.dispose();
   });
 
-  it("swallows a gone-terminal NOT_FOUND fetch rejection (no toast), retryable after", async () => {
+  it("swallows a gone-terminal declared rejection (no toast), retryable after", async () => {
     const f = fakeTerm();
     const fetch = vi
       .fn<(before: number, max: number) => Promise<HistoryChunk>>()
-      .mockRejectedValueOnce(new ORPCError("NOT_FOUND"))
+      .mockRejectedValueOnce(new TerminalNotFound({ id: "t-1" }))
       .mockResolvedValueOnce(chunk);
     const prepend = vi.fn(async () => inserted(1));
     const onError = vi.fn();
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError,
       triggerRows: 1e9,
     });
@@ -607,7 +643,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(prepend).not.toHaveBeenCalled(); // fetch rejected, no splice
-    expect(onError).not.toHaveBeenCalled(); // NOT_FOUND is expected teardown
+    expect(onError).not.toHaveBeenCalled(); // a gone terminal is expected teardown
     // inFlight was cleared by the finally, so a later scroll retries.
     f.fireScroll();
     await new Promise((r) => setTimeout(r, 0));
@@ -616,7 +652,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     c.dispose();
   });
 
-  it("surfaces a non-NOT_FOUND fetch fault via onError (never a silent hole), retryable after", async () => {
+  it("surfaces a fetch fault the predicate rejects via onError (never a silent hole), retryable after", async () => {
     const f = fakeTerm();
     const boom = new Error("connection reset");
     const fetch = vi
@@ -628,6 +664,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError,
       triggerRows: 1e9,
     });
@@ -641,6 +678,31 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     await new Promise((r) => setTimeout(r, 0));
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(prepend).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+
+  it("surfaces a DIFFERENT declared tagged error — the swallow keys on the tag, not on `is tagged`", async () => {
+    // The one hazard of the D4 rewrite: with the discriminant now a `_tag`, a
+    // predicate written as "did the server declare this?" would swallow EVERY
+    // declared failure a future member gains, silently re-creating the hole the
+    // scoping exists to prevent. Only the gone-terminal tag is teardown.
+    const f = fakeTerm();
+    const other = new PreviewTooLarge({ bytes: 1_000_000 });
+    const fetch = vi
+      .fn<(before: number, max: number) => Promise<HistoryChunk>>()
+      .mockRejectedValueOnce(other);
+    const onError = vi.fn();
+    const c = createBackfillController(f.term, {
+      fetch,
+      prepend: vi.fn(async () => inserted(1)),
+      isTerminalGone,
+      onError,
+      triggerRows: 1e9,
+    });
+    seedController(f, c, 100);
+    f.fireScroll();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onError).toHaveBeenCalledWith(other);
     c.dispose();
   });
 
@@ -661,6 +723,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -691,6 +754,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -737,6 +801,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -767,6 +832,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -795,6 +861,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -832,6 +899,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -871,6 +939,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -900,6 +969,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -942,6 +1012,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -966,6 +1037,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch: vi.fn(async () => chunk),
       prepend: vi.fn(async () => inserted(1)),
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -1003,6 +1075,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
       const c = createBackfillController(f.term, {
         fetch,
         prepend: vi.fn(async () => inserted(1)),
+        isTerminalGone,
         onError: () => {},
         triggerRows: 1e9,
       });
@@ -1062,6 +1135,7 @@ describe("createBackfillController — near-top trigger + lifecycle races", () =
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });
@@ -1213,6 +1287,7 @@ describe("backfill reset vs pending-seed FIFO", () => {
     const c = createBackfillController(f.term, {
       fetch,
       prepend,
+      isTerminalGone,
       onError: () => {},
       triggerRows: 1e9,
     });

@@ -1,12 +1,14 @@
 /**
  * The fan-out parent — N boxes served as ONE surface map.
  *
- * Each host gets a `buildHostBinding` (its own ssh session + inward mirror + a
- * link). A hand-built `MapRegistry` is the ONE writer of membership; its
- * `resolve(host)` hands the map each host's link + projected connection state.
- * `serveSurfaceMap` publishes the `entries` membership collection and forwards
- * every key-folded member call to the right host's link — so a dead box surfaces
- * as exactly one `failed` chip, never a crash.
+ * Each host gets a `buildHostBinding` (its own ssh session + inward mirror + an
+ * in-process dispatch). A hand-built `MapRegistry` is the ONE writer of
+ * membership; its `resolve(host)` hands the map each host's dispatch + projected
+ * connection state. `serveSurfaceMap` publishes the `entries` membership
+ * collection and forwards every key-folded member call to the right host's
+ * dispatch — so a dead box surfaces as exactly one `failed` chip, never a crash.
+ * What it hands back is the same `{ group, handlers }` pair `implementSurface`
+ * returns, which is what every transport takes.
  *
  *   HOST                          comma-separated ssh targets (default localhost)
  *   FLEET_TOP_AGENT_DRV (required) the fleet-top-agent .drv, shipped + realised
@@ -14,16 +16,16 @@
  *   PORT                          HTTP+WS port (default 7740)
  */
 
-import { serve } from "@hono/node-server";
+import { createServer } from "node:http";
+import { NodeHttpServer } from "@effect/platform-node";
+import { gateWsOrigin, parseAllowedOrigins } from "@kolu/surface/ws-origin";
 import {
-  gateHttpRpcOrigin,
-  gateWsOrigin,
-  parseAllowedOrigins,
-} from "@kolu/surface/ws-origin";
+  type ServableSocket,
+  serveSurfaceSocket,
+} from "@kolu/surface-app/server";
 import { type MapRegistry, serveSurfaceMap } from "@kolu/surface-map/server";
-import { RPCHandler } from "@orpc/server/fetch";
-import { RPCHandler as WsRPCHandler } from "@orpc/server/ws";
-import { Hono } from "hono";
+import { Effect, Layer, Scope } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { WebSocketServer } from "ws";
 import { type HostFailure, hostMap } from "../common/map";
 import { buildHostBinding, type HostBinding } from "./hosts";
@@ -65,45 +67,52 @@ const registry: MapRegistry<string, "copying", HostFailure> = {
     const b = bindings.get(k);
     if (b === undefined)
       return { kind: "fault", failure: { reason: `unknown host: ${k}` } };
-    return { kind: "session", link: b.link, state: b.state() };
+    return { kind: "session", dispatch: b.dispatch, state: b.state() };
   },
 };
 
-const { router } = serveSurfaceMap(hostMap, registry);
+const { group, handlers } = serveSurfaceMap(hostMap, registry);
 
-// ── Serve the map over HTTP + WebSocket ─────────────────────────────────
-const app = new Hono();
-// biome-ignore lint/suspicious/noExplicitAny: RPCHandler's router input type doesn't accept the finalized map router's loose type; the runtime shape is valid.
-const httpHandler = new RPCHandler(router as any);
-app.use("/rpc/*", async (c, next) => {
-  const rejected = gateHttpRpcOrigin(c.req.raw, {
-    allowedOrigins: ALLOWED_ORIGINS,
-  });
-  if (rejected) return rejected;
-  const { matched, response } = await httpHandler.handle(c.req.raw, {
-    prefix: "/rpc",
-  });
-  if (matched) return response;
-  await next();
+// ── Serve the map over one WebSocket ────────────────────────────────────
+// No http routes here either — the browser gets its UI from vite and this
+// process answers only the `/rpc/ws` upgrade, so the router layer is empty and
+// every plain request 404s. We own the `http.Server` so the ws seam below stays
+// the ONLY `upgrade` listener.
+const server = createServer();
+const httpScope = Scope.makeUnsafe();
+server.on(
+  "request",
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const httpEffect = yield* HttpRouter.toHttpEffect(Layer.empty);
+      return yield* NodeHttpServer.makeHandler(httpEffect, {
+        scope: httpScope,
+      });
+    }).pipe(
+      Scope.provide(httpScope),
+      Effect.provide(NodeHttpServer.layerHttpServices),
+    ),
+  ),
+);
+server.listen({ host: "0.0.0.0", port: PORT }, () => {
+  process.stdout.write(
+    `fleet-top part 3 serving ${bindings.size} host(s) on http://localhost:${PORT}\n`,
+  );
 });
 
-const server = serve(
-  { fetch: app.fetch, port: PORT, hostname: "0.0.0.0" },
-  (info) => {
-    process.stdout.write(
-      `fleet-top part 3 serving ${bindings.size} host(s) on http://localhost:${info.port}\n`,
-    );
-  },
-);
-
-// biome-ignore lint/suspicious/noExplicitAny: same loose-router cast as the HTTP handler above.
-const wsHandler = new WsRPCHandler(router as any);
 const wss = new WebSocketServer({
   noServer: true,
   maxPayload: 8 * 1024 * 1024,
 });
 wss.on("connection", (peer) => {
-  void wsHandler.upgrade(peer);
+  const serving = serveSurfaceSocket({
+    group,
+    handlers,
+    socket: peer as unknown as ServableSocket,
+  });
+  serving.done.catch((err) => {
+    process.stderr.write(`[ws] connection failed: ${String(err)}\n`);
+  });
 });
 server.on("upgrade", (req, socket, head) => {
   if (req.url?.startsWith("/rpc/ws")) {

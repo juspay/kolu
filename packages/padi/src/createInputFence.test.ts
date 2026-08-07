@@ -7,6 +7,7 @@
  * someone forgetting to extend the omit list. These pins fail loudly if that regresses.
  */
 
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { PadiCreateInputSchema } from "./surface.ts";
 import { createTerminal, restoreSpawn } from "./terminals.ts";
@@ -14,9 +15,10 @@ import { createTerminal, restoreSpawn } from "./terminals.ts";
 describe("create-input fence — restore-only facts never ride an ordinary create", () => {
   it("the wire schema carries none of the three restore-only facts (by construction, not omission)", () => {
     // `PadiCreateInputSchema` derives from the BASE `CreateTerminalInputSchema`, which
-    // has no restore-only keys — so zod strips them rather than an omit list having to
-    // subtract them. A client that spells them gets them dropped at the wire boundary.
-    const parsed = PadiCreateInputSchema.parse({
+    // has no restore-only keys — so the decode strips them rather than an omit list
+    // having to subtract them. A client that spells them gets them dropped at the
+    // wire boundary.
+    const parsed = Schema.decodeUnknownSync(PadiCreateInputSchema)({
       cwd: "/x",
       themeName: "dracula",
       lastActivityAt: 5,

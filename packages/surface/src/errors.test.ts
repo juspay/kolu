@@ -1,0 +1,141 @@
+/**
+ * The shared tagged-error vocabulary (`./errors`, D4).
+ *
+ * The one property that justifies these living in ONE module rather than in the
+ * package that raises each: a framework error must survive
+ * **serialize → deserialize → re-serialize** at a re-serving parent with its
+ * identity (`_tag`) and its data intact. A per-package copy would decode as a
+ * foreign shape at the middle hop and flatten into an opaque defect three
+ * processes away from where anyone could diagnose it.
+ *
+ * The typed predicates are pinned alongside, because they are what every retry
+ * fence and relay branch actually calls: a dead transport must never be retried,
+ * and the relay's transient loss must always be.
+ */
+
+import { Schema } from "effect";
+import { describe, expect, it } from "vitest";
+import {
+  isDeadTransportError,
+  isSurfaceError,
+  isSurfaceRelayTransportLost,
+  isSurfaceStdioTransportClosed,
+  isSurfaceTransportRetired,
+  MapEntryFailed,
+  MapKeyNonCanonical,
+  MapKeyUnknown,
+  SurfaceErrorSchema,
+  SurfaceRelayTransportLost,
+  SurfaceStdioTransportClosed,
+  SurfaceTransportRetired,
+} from "./errors";
+
+const encode = Schema.encodeUnknownSync(SurfaceErrorSchema);
+const decode = Schema.decodeUnknownSync(SurfaceErrorSchema);
+
+const SAMPLES = [
+  new SurfaceTransportRetired({ reason: "stale tab (close code 4001)" }),
+  new SurfaceStdioTransportClosed({ reason: "agent exited" }),
+  new SurfaceRelayTransportLost({ reason: "upstream padi died mid-stream" }),
+  new MapKeyNonCanonical({ wireKey: "Host1", canonicalKey: "host1" }),
+  new MapKeyUnknown({ mapKey: "host9" }),
+  new MapEntryFailed({ mapKey: "host2", failure: '{"kind":"unreachable"}' }),
+];
+
+describe("surface error vocabulary", () => {
+  it("every member is a real Error with a readable message", () => {
+    for (const e of SAMPLES) {
+      expect(e).toBeInstanceOf(Error);
+      expect(e.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("carries the tag as the wire discriminant", () => {
+    expect(SAMPLES.map((e) => e._tag)).toEqual([
+      "SurfaceTransportRetired",
+      "SurfaceStdioTransportClosed",
+      "SurfaceRelayTransportLost",
+      "MapKeyNonCanonical",
+      "MapKeyUnknown",
+      "MapEntryFailed",
+    ]);
+  });
+
+  it("encodes to the tag plus its declared data, and nothing else", () => {
+    expect(
+      JSON.stringify(encode(new SurfaceRelayTransportLost({ reason: "gone" }))),
+    ).toBe('{"_tag":"SurfaceRelayTransportLost","reason":"gone"}');
+    expect(
+      JSON.stringify(
+        encode(new MapKeyNonCanonical({ wireKey: "A", canonicalKey: "a" })),
+      ),
+    ).toBe('{"_tag":"MapKeyNonCanonical","wireKey":"A","canonicalKey":"a"}');
+  });
+
+  it("survives the relay hop — serialize, deserialize, re-serialize", () => {
+    for (const original of SAMPLES) {
+      const wire = JSON.stringify(encode(original));
+      const rehydrated = decode(JSON.parse(wire));
+      // Identity is preserved: the same class, the same tag, the same message.
+      expect(rehydrated.constructor).toBe(original.constructor);
+      expect(rehydrated._tag).toBe(original._tag);
+      expect((rehydrated as Error).message).toBe(original.message);
+      // And a second hop re-encodes to the SAME bytes, so a chain of relays
+      // cannot drift the payload one hop at a time.
+      expect(JSON.stringify(encode(rehydrated))).toBe(wire);
+    }
+  });
+
+  it("refuses a foreign tag rather than silently decoding it", () => {
+    expect(() => decode({ _tag: "SomeAppError", reason: "nope" })).toThrow();
+  });
+});
+
+describe("surface error predicates", () => {
+  it("isSurfaceError recognises every member and nothing else", () => {
+    for (const e of SAMPLES) expect(isSurfaceError(e)).toBe(true);
+    expect(isSurfaceError(new Error("boom"))).toBe(false);
+    expect(isSurfaceError({ _tag: "SurfaceTransportRetired" })).toBe(false);
+    expect(isSurfaceError(undefined)).toBe(false);
+  });
+
+  it("isDeadTransportError spans exactly the two PERMANENTLY dead transports", () => {
+    expect(SAMPLES.filter(isDeadTransportError).map((e) => e._tag)).toEqual([
+      "SurfaceTransportRetired",
+      "SurfaceStdioTransportClosed",
+    ]);
+  });
+
+  it("the retryable relay loss is NOT a dead transport", () => {
+    // The whole retry fence rests on this split: a dead transport must never be
+    // retried (retrying re-presents the same corpse — the reconnect storm), and
+    // the relay's transient loss must always be (the parent will heal it).
+    const lost = new SurfaceRelayTransportLost({ reason: "x" });
+    expect(isDeadTransportError(lost)).toBe(false);
+    expect(isSurfaceRelayTransportLost(lost)).toBe(true);
+  });
+
+  it("the narrow predicates match their one tag only", () => {
+    const retired = new SurfaceTransportRetired({ reason: "x" });
+    const stdio = new SurfaceStdioTransportClosed({ reason: "x" });
+    expect(isSurfaceTransportRetired(retired)).toBe(true);
+    expect(isSurfaceTransportRetired(stdio)).toBe(false);
+    expect(isSurfaceStdioTransportClosed(stdio)).toBe(true);
+    expect(isSurfaceStdioTransportClosed(retired)).toBe(false);
+  });
+
+  it("recognition survives the wire — a rehydrated error still narrows", () => {
+    // A predicate that only worked on a locally-constructed instance would be
+    // useless: every call site that matters sees a value that came off a socket.
+    for (const original of SAMPLES) {
+      const rehydrated = decode(JSON.parse(JSON.stringify(encode(original))));
+      expect(isSurfaceError(rehydrated)).toBe(true);
+      expect(isDeadTransportError(rehydrated)).toBe(
+        isDeadTransportError(original),
+      );
+      expect(isSurfaceRelayTransportLost(rehydrated)).toBe(
+        isSurfaceRelayTransportLost(original),
+      );
+    }
+  });
+});

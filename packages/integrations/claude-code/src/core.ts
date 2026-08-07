@@ -26,14 +26,15 @@ import os from "node:os";
 import path from "node:path";
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { classifyByAwaiting } from "anyagent";
+import { Effect, Result, Schema, SchemaGetter } from "effect";
 import { type Logger, readTailLines } from "kolu-shared";
 import { parseIsoTimestamp } from "kolu-transcript-core";
 import { match } from "ts-pattern";
-import { z } from "zod";
-import type {
-  ClaudeCodeInfo,
-  ClaudeWorkflow,
-  TaskProgress,
+import {
+  type ClaudeCodeInfo,
+  type ClaudeWorkflow,
+  ClaudeWorkflowSchema,
+  type TaskProgress,
 } from "./schemas.ts";
 
 // --- Configuration ---
@@ -705,24 +706,42 @@ export function subagentsDirFor(session: SessionFile): string {
 /** On-disk shape of a workflow run journal (`workflows/<runId>.json`) — just
  *  the fields we surface. The wire field names differ from the public
  *  `ClaudeWorkflow` (`workflowName`→`name`, `agentCount`→`agents`), so the
- *  `.transform` maps the wire shape to the domain type; `ClaudeWorkflow` stays
- *  the single workflow concept that crosses a module boundary. Unexported —
- *  the wire format is a private detail of this reader. Encapsulating it as one
- *  schema means a journal-format change fails the parse here (the journal is
- *  skipped) rather than silently defaulting in scattered guards. */
-const WorkflowJournalSchema = z
-  .object({
-    workflowName: z.string(),
-    status: z.string().default("running"),
-    agentCount: z.number().default(0),
-  })
-  .transform(
-    (j): ClaudeWorkflow => ({
+ *  decode-side transformation maps the wire shape to the domain type;
+ *  `ClaudeWorkflow` stays the single workflow concept that crosses a module
+ *  boundary. Not re-exported from the barrel — the wire format is a private
+ *  detail of this reader (the named export exists only so the byte-compat
+ *  fixture test can pin the encoding). Encapsulating it as one schema means a
+ *  journal-format change fails the parse here (the journal is skipped) rather
+ *  than silently defaulting in scattered guards.
+ *
+ *  This is a FOREIGN, read-only format — Claude Code's own files. The two
+ *  decoding defaults (`status` → "running", `agentCount` → 0) are tolerance
+ *  policy for journals written before those fields existed: a journal missing
+ *  either key still yields a usable snapshot. `withDecodingDefaultKey` fills a
+ *  MISSING key only — an explicit `null`/wrong-typed value still fails the
+ *  parse, exactly as before. */
+export const WorkflowJournalSchema = Schema.Struct({
+  workflowName: Schema.String,
+  status: Schema.String.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("running")),
+  ),
+  agentCount: Schema.Number.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(0)),
+  ),
+}).pipe(
+  Schema.decodeTo(ClaudeWorkflowSchema, {
+    decode: SchemaGetter.transform((j) => ({
       name: j.workflowName,
       status: j.status,
       agents: j.agentCount,
-    }),
-  );
+    })),
+    encode: SchemaGetter.transform((w) => ({
+      workflowName: w.name,
+      status: w.status,
+      agentCount: w.agents,
+    })),
+  }),
+);
 
 /** The journal-side matcher for `TERMINAL_STATUSES` — a Set for O(1) membership
  *  on the workflow snapshot's `status` field, derived from the same source as
@@ -888,9 +907,9 @@ export function observeWorkflowRun(
     const status = (json as { status?: unknown }).status;
     const terminal =
       typeof status === "string" && TERMINAL_JOURNAL_STATUSES.has(status);
-    const parsed = WorkflowJournalSchema.safeParse(json);
+    const parsed = Schema.decodeUnknownResult(WorkflowJournalSchema)(json);
     return {
-      workflow: parsed.success ? parsed.data : null,
+      workflow: Result.isSuccess(parsed) ? parsed.success : null,
       anchorMs: mtimeMs,
       terminal,
     };

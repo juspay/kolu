@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { planSend } from "./send.ts";
 import { executeSendPlan, SEND_WRITE_DEADLINE_MS } from "./sendExec.ts";
@@ -17,12 +18,15 @@ describe("executeSendPlan — ordered writes", () => {
       paste: undefined,
       fromStream: false,
     });
-    await executeSendPlan(
-      plan,
-      async (data) => {
-        captured.push(data);
-      },
-      "term1234",
+    await Effect.runPromise(
+      executeSendPlan(
+        plan,
+        (data) =>
+          Effect.sync(() => {
+            captured.push(data);
+          }),
+        "term1234",
+      ),
     );
     expect(captured).toEqual(["hello world"]);
   });
@@ -38,7 +42,7 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
   // A sink that never resolves — the exact shape of the Bug C hang: a terminal
   // (a plain `cat` whose output has backed up) that stops draining its input, so
   // the write never acks.
-  const neverDrains = () => new Promise<void>(() => {});
+  const neverDrains = (): Effect.Effect<void> => Effect.never;
 
   it("fails loud when a write stalls past the deadline, instead of hanging", async () => {
     const plan = planSend({
@@ -49,7 +53,9 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
     });
     // Capture the outcome up front so the rejection is always handled while we
     // advance the fake clock.
-    const outcome = executeSendPlan(plan, neverDrains, "cat9f3a").then(
+    const outcome = Effect.runPromise(
+      executeSendPlan(plan, neverDrains, "cat9f3a"),
+    ).then(
       () => "resolved",
       (err: Error) => err,
     );
@@ -66,7 +72,9 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
       paste: undefined,
       fromStream: false,
     });
-    const outcome = executeSendPlan(plan, neverDrains, "cat9f3a").then(
+    const outcome = Effect.runPromise(
+      executeSendPlan(plan, neverDrains, "cat9f3a"),
+    ).then(
       () => "resolved",
       (err: Error) => err.message,
     );
@@ -86,12 +94,15 @@ describe("executeSendPlan — bounded write deadline (Bug C: no hang)", () => {
     const captured: string[] = [];
     // Resolves on a microtask, well inside the deadline — advancing the clock a
     // hair proves the timer is cleared, not left to fire later.
-    await executeSendPlan(
-      plan,
-      async (data) => {
-        captured.push(data);
-      },
-      "term",
+    await Effect.runPromise(
+      executeSendPlan(
+        plan,
+        (data) =>
+          Effect.sync(() => {
+            captured.push(data);
+          }),
+        "term",
+      ),
     );
     await vi.advanceTimersByTimeAsync(SEND_WRITE_DEADLINE_MS);
     expect(captured).toEqual(["quick"]);
@@ -121,12 +132,15 @@ describe("--file payload path — byte-exact, no shell mangling", () => {
         fromStream: true,
       });
       const captured: string[] = [];
-      await executeSendPlan(
-        plan,
-        async (data) => {
-          captured.push(data);
-        },
-        "term",
+      await Effect.runPromise(
+        executeSendPlan(
+          plan,
+          (data) =>
+            Effect.sync(() => {
+              captured.push(data);
+            }),
+          "term",
+        ),
       );
       // One bracketed-paste write carrying the payload byte-for-byte.
       expect(captured).toEqual([`${START}${payload}${END}`]);

@@ -25,6 +25,7 @@
 
 import { chmodSync, copyFileSync, existsSync } from "node:fs";
 import Conf from "conf";
+import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
   DEFAULT_PREFERENCES,
@@ -32,7 +33,6 @@ import {
   PreferencesSchema,
   ViewerModeSchema,
 } from "kolu-common/surface";
-import { z } from "zod";
 import { log } from "./log.ts";
 
 /** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
@@ -110,33 +110,40 @@ export function migratePreferences_1_32_0(
  *  (terminology standardization on "attention"; same boolean meaning, same
  *  `true` default). CARRY the old value forward: a user who turned alerts OFF
  *  keeps them off rather than silently reverting to the default on upgrade.
- *  Keyed off the PRESENCE of the old key and only when the new key is absent, so
- *  a record already carrying `attentionAlerts` (a fresh ≥1.34 install) is
- *  returned untouched. The legacy `activityAlerts` key is dropped so the blob
- *  matches the schema exactly.
+ *  The legacy `activityAlerts` key is dropped so the blob matches the schema
+ *  exactly.
+ *
+ *  Keyed off the PRESENCE of the legacy key, which ALWAYS wins over an
+ *  `attentionAlerts` already sitting on the record — the same legacy-field-wins
+ *  rule `migratePreferences_1_30_0` states, and for the same reason. A pre-1.34
+ *  blob reaches this step having walked every spread-`DEFAULT_PREFERENCES` rung
+ *  below it (1.3.0, 1.4.0, 1.6.0, 1.7.0, 1.10.0, 1.32.0), each of which injects
+ *  TODAY's `attentionAlerts: true` into whatever it touches — so the new key's
+ *  mere presence proves nothing about user intent, while the legacy key's
+ *  presence does. A record carrying a genuinely user-chosen `attentionAlerts`
+ *  has by definition already run this step, and this step drops
+ *  `activityAlerts`, so the legacy key can never reappear to outrank it.
  *
  *  Exported so `state.test.ts` can exercise the conversion directly without
  *  spinning up a `Conf` store under `KOLU_STATE_DIR`. */
 export function migratePreferences_1_34_0(
   current: Record<string, unknown>,
 ): Record<string, unknown> {
-  // Already migrated (a fresh ≥1.34 record) — just drop any stray legacy key.
-  if ("attentionAlerts" in current) {
-    const { activityAlerts: _drop, ...rest } = current;
-    return rest;
-  }
   const { activityAlerts, ...rest } = current;
-  // ALWAYS produce a boolean `attentionAlerts` — carry the legacy value forward
-  // when present, else the default. A blob that never explicitly set
+  // Overwriting an existing `attentionAlerts` through the spread keeps that
+  // key's original position, so a record that only ever had the default
+  // injected changes one VALUE on disk rather than being reordered.
+  if (typeof activityAlerts === "boolean")
+    return { ...rest, attentionAlerts: activityAlerts };
+  // Already migrated (a fresh ≥1.34 record), or default-injected by an earlier
+  // rung with no legacy key left to correct it — either way the value stands.
+  if (typeof rest.attentionAlerts === "boolean") return rest;
+  // ALWAYS produce a boolean `attentionAlerts`. A blob that never explicitly set
   // `activityAlerts` (relied on the old default) must NOT migrate to a MISSING
   // `attentionAlerts`: `confStore` reads the raw object with no schema-default
   // back-fill, so an absent key surfaces as `undefined` on the client and
   // silently disables ALL attention alerts.
-  const attentionAlerts =
-    typeof activityAlerts === "boolean"
-      ? activityAlerts
-      : DEFAULT_PREFERENCES.attentionAlerts;
-  return { ...rest, attentionAlerts };
+  return { ...rest, attentionAlerts: DEFAULT_PREFERENCES.attentionAlerts };
 }
 
 /** What conf stores to disk — survives server restart. Internal: each domain module
@@ -149,13 +156,37 @@ export function migratePreferences_1_34_0(
  *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
  *  resolves an "auto" shuffle against a real answer. Adding a new domain key
  *  requires a migration entry below. */
-const PersistedStateSchema = z.object({
+const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
 });
 
-type PersistedState = z.infer<typeof PersistedStateSchema>;
+/** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
+ *  typed against a MUTABLE record (its `set`/`get` signatures index it), and the
+ *  migration ladder below writes whole domain values back through `store.set`.
+ *  So the store's type parameter is the mutable projection of the decoded shape —
+ *  the SAME fields, the same bytes, just without the `readonly` markers that would
+ *  make every `store.set("preferences", …)` a compile error. Nothing outside this
+ *  module sees it (the schema is deliberately unexported — `.claude/rules/state.md`). */
+type PersistedState = {
+  -readonly [K in keyof typeof PersistedStateSchema.Type]: (typeof PersistedStateSchema.Type)[K];
+};
+
+/** Decode a value against {@link PersistedStateSchema}, as a `Result` — the
+ *  Effect Schema successor of zod's `.safeParse`. Compiled once at module scope:
+ *  `decodeUnknownResult` re-derives the parser per application otherwise, and the
+ *  boot check below runs on every process start.
+ *
+ *  There is NO explicit-`undefined` strip in front of it (PLAN #17's obligation for
+ *  in-process `.parse` callers), and that is a fact about this schema rather than an
+ *  omission: every field of the disk shape — the three top-level keys, all eleven
+ *  `Preferences` fields, both `rightPanel` fields — is REQUIRED. No `optionalKey`
+ *  appears anywhere in it, so there is no key an explicit `undefined` could ride in
+ *  on, and `Schema.optionalKey`'s stricter-than-zod rejection has nothing to bite.
+ *  The one place the repo's optional keys live (`PreferencesPatchSchema`) is a WIRE
+ *  patch, never persisted. */
+const decodePersistedState = Schema.decodeUnknownResult(PersistedStateSchema);
 
 /**
  * Schema version — bump this when adding migrations.
@@ -627,6 +658,12 @@ export const store = new Conf<PersistedState>({
     // on "attention"; same boolean, same `true` default). Carry the old value
     // forward so a user who turned alerts off keeps them off — see
     // `migratePreferences_1_34_0` for the rename (legacy-key-wins, drop-old).
+    // NO new rung repairs a store that already walked this ladder while the
+    // legacy key lost to a spread-injected default: that store now reads
+    // `attentionAlerts: true` with no `activityAlerts` left, which is
+    // byte-identical to a genuine `true`. The loss is undetectable, so it is
+    // uncorrectable — only a blob still sitting BELOW 1.34.0 can be migrated
+    // right, and this rung now does.
     "1.34.0": (store: Conf<PersistedState>) => {
       store.set(
         "preferences",
@@ -668,17 +705,19 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
 // invalid `hosts` value additionally crashes the boot loud where it's read
 // (`getPersistedHosts`). No "delete to reset" advice: `hosts` is user data, so blindly
 // deleting the store would empty the fleet — the offending domain must be fixed.
-const result = PersistedStateSchema.safeParse({
+const result = decodePersistedState({
   preferences: store.get("preferences"),
   hosts: store.get("hosts"),
   viewerMode: store.get("viewerMode"),
 });
-if (!result.success) {
-  const summary = result.error.issues
-    .map((i) => `${i.path.join(".")}: ${i.message}`)
-    .join("; ");
+if (Result.isFailure(result)) {
+  // Effect's `SchemaError` renders as a path-annotated tree, so the ONE string
+  // carries what zod's `issues.map(i => …)` summary spelled by hand — every
+  // failing path and its message. Kept on both the message and the structured
+  // field so `journalctl -o json` and a plain tail read the same thing.
+  const summary = String(result.failure);
   log.error(
-    { issues: result.error.issues, path: store.path },
+    { issue: summary, path: store.path },
     `Persisted state does not match schema (${summary}) at ${store.path}.`,
   );
 }

@@ -10,9 +10,9 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 Run a typed `@kolu/surface` agent on a remote machine over ssh. The package owns
 provisioning (ship a `.drv`, realise it on the target), the long-lived ssh
-subprocess (ref-counting, reconnect, backoff), and a reactive cell for the link's
-own lifecycle. It has two subpaths: `@kolu/surface-remote` and
-`@kolu/surface-remote/connection`.
+subprocess (ref-counting, reconnect, backoff), and the observable state of the
+link's own lifecycle. It has two public subpaths: `@kolu/surface-remote` and the
+browser-safe `@kolu/surface-remote/connection`.
 
 ## The session
 
@@ -22,21 +22,22 @@ shared pool; key your own map and `destroy()` them yourself.
 
 | Export | Subpath | Role |
 | --- | --- | --- |
-| `makeSession<C>(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient<C>>`. Owns no transport — you supply `connectOnce` |
-| `sshConnector<C>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, wire stdio to a typed client |
-| `dialAgentOnce<C>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
+| `makeSession(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient, Prov>`. Owns no transport — you supply `connectOnce` |
+| `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, **await the agent's readiness banner**, then wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
+| `dialAgentOnce<S>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. Takes the same `surface` value. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
 | `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()` | `.` | the framework-owned wrapper handoff and its sole process-environment adapter; the reader returns the normalized exact source or throws `AgentSourceUnbakedError` |
 | `resolveBakedAgentDrv(host, packageName, opts)` | `.` | resolve from the wrapper-baked source inside a long-lived consumer's own dial/failure boundary, without exposing the environment handoff to that consumer |
 | `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress, budget })` | `.` | probe the host system and lazily resolve one package as `{ kind: "flake-installable", drvPath, installable, binaryCache }` inside the owning dial's cancellation/progress budget; the installable lets one Nix process own evaluation through remote realisation, so GC cannot break the handoff. `binaryCache` is read from the baked source's `binary-cache.json` FIRST — before the host probe and before any evaluation — so a pre-contract wrapper fails with the deterministic `AgentBinaryCacheUnbakedError` instead of whatever transport fault an unreachable host would have reported first |
 | `AgentDerivation` / `directAgentDerivation(drvPath, binaryCache)` | `.` | nominal provisioning source: use the validated constructor when the caller owns a direct `.drv`; `resolveAgentDrv` alone constructs the flake-backed arm, so a path cannot be paired with an unrelated installable. Every arm REQUIRES an `AgentBinaryCache` — a cache-blind provisioning path is unspellable |
 | `AgentBinaryCache` / `agentBinaryCache({ substituters, trustedPublicKeys })` | `.` | where provisioning may PREFETCH an agent's binaries from. NOMINAL, like `AgentDerivation`: the smart constructor is the only way to make one, and it rejects an empty or blank declaration — so "validated" is a fact the type carries, not a check each caller repeats |
 | `readBakedBinaryCache(flakeRef)` | `.` | **prefer this over hand-writing a declaration.** Reads and validates the baked source's `binary-cache.json` sidecar — written by `mkProvenAgentSource` from the agent flake's own `nixConfig` — so the TypeScript and the Nix cannot disagree about which cache the binaries are in. Returns `Result<AgentBinaryCache, AgentBinaryCacheUnbakedError>`, the same channel as `readBakedAgentSource`, so the two source-configuration faults chain: `readBakedAgentSource().andThen(readBakedBinaryCache)` |
-| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below |
+| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below. `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`): the app's own TYPED verdict for this failure, carried OPAQUELY from the connector that classified it to the binder that renders it, so a binder never has to string-parse `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down" |
 | `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
 
-`sshConnector` opts are `{ host, binary, resolveDrvPath, localEnv }`: `host` is any
+`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs? }`:
+`surface` is the `Surface<S>` the remote agent serves, `host` is any
 ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: ({ signal, localProgress }) => Promise<AgentDerivation>` resolves
+closure, `resolveDrvPath: ({ signal, localProgress, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
 the agent derivation for the *target* arch as an `AgentDerivation` inside the
 owning dial's cancellation and progress lifetime. A direct path is
 `directAgentDerivation(drvPath, binaryCache)` — obtain the `binaryCache` with
@@ -51,6 +52,30 @@ flake-backed arm that survives local garbage collection. **`localEnv: Record<str
 `localEnv`. Surface Remote reads the exact, minimal source flake baked by the
 Nix wrapper itself; the package name is the same `binary` value, so the
 executable and derivation cannot drift into two hand-maintained mappings.
+
+<Aside type="caution" title="The agent must greet before the client attaches">
+  After the spawn, `sshConnector` awaits the agent's readiness banner
+  (`awaitStdioReadiness`, `@kolu/surface/links/readiness`) **raced against the
+  child's own exit**, and only then builds the link — the proof is what
+  `stdioLink` requires. Two consequences for a consumer:
+
+  1. **Your agent must greet.** `serveOverStdio` does it for you when the process
+     is the agent; a daemon FRONT (one that relays into a durable daemon) must
+     write the banner itself once it has settled that daemon.
+  2. **A gate failure is a `"remote"` fault, not a `"network"` one.** A refusal, a
+     deadline expiry, or an unrecognisable prelude counts toward the session's
+     bounded **remote** budget and goes terminal in a bounded number of attempts
+     — provided the host stays up: an interleaved `"network"` failure means the
+     host went away and restarts that count. A host that
+     is merely down still fails at spawn/exit *before* the banner and keeps its
+     existing `"network"` retry-forever classification, unchanged. A refusal's
+     opaque `anomaly` rides the `ConnectError`, so a binder can render a typed
+     verdict instead of a spinner.
+
+  The wait is bounded at 3 minutes, derived from the front's own convergence
+  ceilings (takeover reap 120s + 5s, socket-ready 30s, the probe's 8s silence
+  deadline, the front's 10s daemon wait) — not from any ping cadence.
+</Aside>
 
 <Aside type="caution" title="resolveDrvPath is deferred by contract">
   Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the
@@ -85,10 +110,14 @@ your sink until the link dies.
 | --- | --- | --- |
 | `pumpRemoteSurface(opts)` | `.` | pin → per-spawn `mirrorRemoteSurface` into `makeSink()` until each link dies, then await the next spawn |
 | `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
-| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, router, done, close }` (the `router` is the FINAL top-level router) |
+| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, returns a supervised `{ surface, group, handlers, done, close }` — the same value pair `implementSurface` returns, so a host merges it into its own served surface with nothing to re-prefix |
 | `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
 
-`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
+`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal?, log?, onFault? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
+
+**`log` vs `onFault` — two channels, deliberately.** `log` is CHATTER (reconnects, link ends): filter it freely, at DEBUG if you like. `onFault` is a structured `MirrorFault` (`{ label, err, scope: "member" | "key" }`) and must be wired at **ERROR** level. A `member`-scoped fault also rejects the mirror's `done`; a `key`-scoped one is deliberately key-local and never reaches `done`, so `onFault` is its ONLY notice. Both are forwarded verbatim from `reServeSurface` through the pump into `mirrorRemoteSurface`. Wiring a projection layer's only channel at DEBUG is what made the juspay/kolu#2101 deploy-#2 freeze mute — the split exists so that cannot recur.
+
+**A mirror that fails PROPAGATES out of the pump.** A rejecting `mirror.done` — a member's upstream stream faulting, or your sink throwing — is not reconnected: re-mirroring over a link that is still up would rebuild exactly the mirror that just failed. The pump narrates the death on `log` and rethrows, so the rejection reaches `reServeSurface`'s `done` where the consumer's policy lives (kolu-server: exit for the default host, retire for a guest). The reconnect loop still owns the case it is for — a link that ENDED cleanly.
 `reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent. The pump is a **terminal source** (it ends on its own when the session is destroyed): supervision routes through `@kolu/surface`'s `superviseTerminalSource(runtime, terminal)`, the framework combinator that pairs a passive runtime with a terminal driver — `reServeSurface` no longer hand-rolls the teardown.
 The terminal close is attempted first and the runtime close is always attempted afterward; one close failure is rethrown unchanged, while several are surfaced together as an `AggregateError`.
 `makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
@@ -96,22 +125,32 @@ every spawn, so no per-client state survives a reconnect. `onLinkDown` fires aft
 holders clear — the cue to drop any per-link local fold so the next spawn rebuilds
 from a fresh snapshot.
 
+A mirror that ends because the **link is still alive** (every subscription
+settled — a far end that closed its streams) is a third way the pump ends: no
+spawn is ever coming, so the wait for the next client would park forever serving
+nothing. Each mirror end therefore races that wait against the framework-reserved
+`system/live` round-trip on the client that just ended; a far end that still
+answers ends the pump (its `done` resolves) instead. A dead transport, or a probe
+that never answers, leaves the ordinary reconnect wait in charge — the session's
+own liveness watchdog owns the half-open case.
+
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
 across an upstream drop; a `delta` member (byte or liveness stream) **fails
-through** — a **mid-stream** upstream drop ends the downstream stream with the
-**named retryable transport end** `RelayTransportLostError` (an `ORPCError`
-carrying the `SURFACE_RELAY_TRANSPORT_LOST` code, the one code the shared retry
-fence retries) so the client re-subscribes end-to-end and a snapshot only ever
-leads a fresh stream. A subscribe **before** any live spawn is up **waits** for
-the next spawn (same pre-connect arm as hold-open) rather than throwing that
-retryable end every second — which used to spam the journal for the whole
-provisioning window. Direct callers of `relayFailThroughStream` (and its
-hold-open sibling) must pass an **`ObservableHolder`** from
-`observableHolder()` — the pre-bind wait needs `whenChanged()`, which a plain
-`LiveSpawnHolder` does not expose. A raw re-throw would cross oRPC sanitized to
-a non-retriable error and strand the downstream — this named end is what makes
-fail-through actually recover. Holding open a byte stream is a compile error.
+through** — a **mid-stream** upstream drop ends the downstream stream with
+`SurfaceRelayTransportLost` (`@kolu/surface/errors`), the **one retryable**
+framework error the shared retry fence accepts — so the client re-subscribes
+end-to-end and a snapshot only ever leads a fresh stream. A subscribe **before**
+any live spawn is up **waits** for the next spawn (same pre-connect arm as
+hold-open) rather than raising that retryable end every second — which used to
+spam the journal for the whole provisioning window. Direct callers of
+`relayFailThroughStream` (and its hold-open sibling) must pass an
+**`ObservableHolder`** from `observableHolder()` — the pre-bind wait needs
+`whenChanged()`, which a plain `LiveSpawnHolder` does not expose. This is the
+error whose class both ends were built from, which is what lets its `_tag`
+survive the parent's decode-and-re-encode; a raw re-raise would reach the
+downstream as an opaque, non-retriable failure and strand it. Holding open a byte
+stream is a compile error.
 
 A collection that declares the `deltas` verb is mirrored through its **single**
 batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`
@@ -244,7 +283,7 @@ is the `source` field.
 | `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
 | `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
 | `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
-| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the zod-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no contract code) |
+| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the schema-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no group-assembly code) |
 
 ## A mirror, end to end
 
@@ -257,10 +296,11 @@ is the `source` field.
 - **`currentClient()` is not a liveness gate.** It returns the in-flight/current client promise and is legitimately *non-null while merely dialing* — during `connecting`/provisioning, and (because `scheduleReconnect` retains the rejected dial) across an entire reconnect backoff window. The pump/`markConnected` handshake depends on that "dialing-or-connected" meaning, so `currentClient() !== null` is never "the far end is live" — read `currentState().phase` for that.
 - **`pin()` is parent-lifetime intent.** It bumps the ref-count unconditionally, so the session keeps reconnecting even if the first spawn fails, and resolves with the first client. `destroy()` drops it regardless of the count.
 - **A session's internal timers never hold the process alive.** The reconnect backoff, connect watchdog, and clock probes are `unref()`'d, so once its link is down a pinned-but-abandoned session cannot keep an otherwise-finished process running — the process exits and the session dies with it. (*A LIVE link is different: its ssh child / socket is a real event-loop hold while it lasts.*) A consumer whose sole purpose is waiting on a session must hold the process by its own means (a server socket, stdin, a live transport; every live dial's child/socket is itself a hold). Consequently **a parked `ClientCursor.next()` / onState-derived wait is *not* a process hold**: across a reconnect gap it is settled only by the backoff firing, and if nothing else holds the loop it goes silently unsettled as the process exits. The one deliberately ref'd timer is the admit-handshake timeout — it must fire even as the last handle standing, because it rejects a `pin()` a caller is awaiting.
-- **Network faults retry (capped); remote faults are bounded — and a silent provisioning step is terminated by its own budget.** A `network` fault (transport-class: host unreachable, or a wedged/killed transport) retries at capped backoff (60s) — it does not itself count toward give-up. A `remote` fault (host answered but rejected the closure) is bounded by `MAX_CONSECUTIVE_FAILURES`, then surfaces terminal `failed` + `remote`. The one `network` fault that DOES terminate is a **budget-exhausted silent provisioning step** (#1908): the ssh connector's per-step progress-liveness budget gives up after N consecutive silent kills, surfacing terminal `failed` + `network` (the honest transport cause — terminality is the phase, not a rewrite of the cause).
+- **Network faults retry (capped); remote faults are bounded — and a silent provisioning step is terminated by its own budget.** The budget is a CLASSIFIED ledger (`@kolu/surface`'s [`makeFailureLedger`](/surface/ref-surface#the-classified-failure-ledger-kolusurfacefailure-ledger)), one run per failure class, so no class can spend another's. A `network` fault (transport-class: host unreachable, or a wedged/killed transport) retries at capped backoff (60s) — it does not itself count toward give-up, and it **resets the remote run** (an unreachable gap means the host went away, so the next remote blip is fresh evidence of a sleeping host, not accumulation of a persisting fault; juspay/kolu#2101). A `remote` fault (host answered but rejected the closure) is bounded by `MAX_CONSECUTIVE_FAILURES` *consecutive remote* failures, then surfaces terminal `failed` + `remote` with a give-up line derived from the ledger's verdict — so it can only ever name the run that actually tripped. The one `network` fault that DOES terminate is a **budget-exhausted silent provisioning step** (#1908): the ssh connector's per-step progress-liveness budget gives up after N consecutive silent kills, surfacing terminal `failed` + `network` (the honest transport cause — terminality is the phase, not a rewrite of the cause).
 - **A host with no runnable Nix is terminal too.** Provisioning realises the agent with the **host's own** Nix, so a probe whose shell exits **127** (POSIX "command not found" for `nix-instantiate`) rejects `{ kind: "nix-unavailable", failureCause: "remote", terminal: true }`. It is classified by the exit CODE, never by the shell's wording — bash, dash and fish word it three different ways but all exit 127, so prose-matching would only add ways to miss it. A `nix-instantiate` that *ran* and failed exits non-127 and stays retryable.
 - **An ssh gate we can never answer is terminal, not a retry.** Every ssh this package spawns is non-interactive (`BatchMode=yes`, no TTY), so a host that demands a **credential** or an unverified **host key** does not prompt — ssh declines and exits 255. The arch probe every dial opens with reads those two refusals off ssh's stderr and rejects a `ResolveDrvError` whose resolution is `{ kind: "auth-refused" | "host-key-unverified", failureCause: "remote", terminal: true }`: `remote` because the peer WAS reached and refused us, `terminal` because no redial can supply the missing answer. So a password-only host settles on `failed` with an actionable reason in seconds instead of reconnecting forever. Classification is deliberately conservative — it requires ssh's own **exit 255** as well as the stderr text (a remote command's stderr rides the same stream), and any refusal it does not recognise stays an untyped, retried transport error. The probe is the natural chokepoint: a refusal met later (Nix's own ssh fork, the agent dial) kills that dial, and the redial's probe meets it here.
 - **`recheck()` versus `reconnect()`.** `reconnect()` re-arms a `failed`/idle session and won't disturb a live link (the manual button). `recheck()` force-cycles whatever is there, including a `connected` link (the wake/network-change companion, since a post-sleep link is often stale) **and, since #1908 (R6b), an IN-FLIGHT dial** — it aborts that dial (the connector's `ctx.signal` fires, group-killing any provisioning child) and redials NOW with no backoff. It used to no-op while a dial was in flight; that documented no-op is fixed. Every `recheck()`/`reconnect()` is a fresh campaign (fresh `sinceMs`/log, fresh connector budgets).
+- **`nudge()` — a scheduled reconnect fires NOW; every other state is a no-op** (juspay/kolu#2101 H2). The signal a consumer sends when the world plausibly changed under a *down* session — kolu-server fires it on every websocket client accept, because a waking laptop's first observable act is its browser reconnecting, and the alternative is up to a full capped backoff (60s) of dead remote panes. It is deliberately the NARROW verb, not a second spelling of `recheck()`: it fires the SAME attempt the backoff had already scheduled, keeping its attempt number and its position in the give-up budget (it records nothing in the failure ledger), where `recheck()` calls the ledger's `success()` — refilling every class's run (a permanently-broken host nudged often enough would otherwise never reach its terminal verdict) — and stamps a fresh campaign. Three no-op arms: a **live link** (nothing scheduled to fast-forward, and a client connecting is no evidence *this* link is stale — cycling it is `recheck()`'s job); an **in-flight dial** (the probe is already running — this no-op *is* the wake-storm coalescing, with no lock of its own); and terminal **`failed`** (reviving a spent budget is `reconnect()`'s job, never an ambient signal). It adds no unboundedness: it only fast-forwards an already-armed timer, so it cannot create an attempt the existing schedule would not have made. The fired-now path narrates on the session log (`nudged — firing the scheduled retry now … give-up budget unchanged`).
 - **Provisioning children have owned lifetimes (#1908 D1b).** The `runCapture` fire-and-collect helper (`/` root) takes a REQUIRED `LifetimePolicy` — `{ kind: "deadline"; ms }` for a quick step or `{ kind: "progress-liveness"; silenceMs }` for the minutes-long provision (killed only on real output-silence, never a healthy slow transfer). A kill settles the distinct `ExitResult` arm `lifetime-expired` (retryable), a user abort settles `aborted`; both group-kill the child (and its ssh grandchild) and settle AT the kill, never awaiting a `close` that may never fire. `ConnectContext` carries a per-dial `signal` (the abort) and a `campaignEpoch` (fresh connector budgets per campaign).
 - **The pre-connected liveness backstop (#1908 R8b).** While a campaign is coming up, if NO progress line arrives and NO phase advances for the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS` (20min), the session cycles the attempt (abort + redial), narrated. The bound is intentionally NOT configurable: it MUST stay above the connector's maximum step-silence budget so the per-step budget always terminalises first (a lower bound would let the backstop reset the budget and loop a silent copy forever), so baking it makes that ordering invariant unbreakable. It is liveness (a chatty build resets it every line, never capped) and guards the seam the per-child policies can't — a wedge in a non-helper await like `resolveDrvPath`.
 - **`provisionAgent(opts)` → `ProvisionResult`** (`/` root) — realise an `AgentDerivation` on a host (the ssh connector's provisioning step, usable standalone). A flake-backed derivation is evaluated locally and provisioned into the remote `ssh-ng` store by one `nix build`, so Nix owns the temporary roots across evaluation, transfer, and realisation. Before the cold build, provisioning PREFETCHES the agent's output closure into the binder's local store from the derivation's `binaryCache` (`nix copy --from`, each substituter in order), then SHIPS it to the target (`nix copy --to ssh-ng://<host>`). Both copies are load-bearing: the local store is the only seat where a declared cache can act (a remote-store realisation substitutes with the remote daemon's own nix.conf), and the cold build itself transfers only the derivation closure — locally-valid outputs are never consulted by the remote daemon. The ship lands only when the target trusts it (a `trusted-users` ssh user, or signatures the host trusts). A miss, a signature refusal, or a rejected ship each narrate into the progress tail and fall back to realising on the host, never failing the dial. `ProvisionOptions`: `{ host, derivation, onProgress, onProvisioning?, budgets, signal? }` — `budgets` is a connector-owned `ProvisionBudgets` (`makeProvisionBudgets()`), whose `evaluation` and `provisioning` progress-liveness budgets persist across a campaign's retry dials; `signal` is the abort. `ProvisionResult` is `{ ok: true; agentPath }` or `{ ok: false; reason; cause: "network" | "remote"; terminal? }` — `terminal` marks a budget-exhausted silent step that must give up NOW (decoupled from `MAX_CONSECUTIVE_FAILURES`, so the backstop can't reset it away).

@@ -4,6 +4,8 @@
  *  Used by CanvasTile (desktop) and MobileTileView (mobile). Owns
  *  sub-panel state internally — callers provide only the shell. */
 
+import { Effect } from "effect";
+import { runAction } from "../runAction";
 import Resizable from "@corvu/resizable";
 import { sleepingArm } from "@kolu/padi/surface";
 import type { ITheme } from "@xterm/xterm";
@@ -152,7 +154,9 @@ const TerminalContent: Component<{
       fallback={
         <DormantTileBody
           terminalId={props.terminalId}
-          onWake={() => void crud.handleWake(props.terminalId)}
+          onWake={() => {
+            runAction("wake terminal", crud.handleWake(props.terminalId));
+          }}
           onFocus={props.onFocus}
         />
       }
@@ -252,9 +256,16 @@ const TerminalContent: Component<{
               onClose={props.onCloseTerminal}
               onCollapse={() => subPanel.collapsePanel(props.terminalId)}
               onCreate={() =>
-                void crud.handleCreateSubTerminal(
-                  props.terminalId,
-                  store.activeMeta()?.cwd,
+                runAction(
+                  "create split",
+                  crud
+                    .handleCreateSubTerminal(
+                      props.terminalId,
+                      store.activeMeta()?.cwd,
+                    )
+                    // Already surfaced by the create's own toast, or refused
+                    // while the daemon warms — nothing here waits on the split.
+                    .pipe(Effect.ignore),
                 )
               }
             />

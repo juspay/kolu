@@ -8,6 +8,9 @@
  * re-spawns it on reconnect. That's the right shape for a re-run-fresh reader
  * like `top`.
  *
+ * `serveOverStdio` takes the two fields every transport takes: the flat `group`
+ * and the tag-keyed `handlers`. The framing is ndjson.
+ *
  * **Stdout is the protocol channel** — every diagnostic goes to fd 2. A stray
  * write to fd 1 corrupts the next frame.
  */
@@ -28,7 +31,8 @@ async function main(): Promise<void> {
   top.start();
   log(`serving top over stdio (pid ${process.pid})`);
   const end = await serveOverStdio({
-    router: top.router,
+    group: top.runtime.group,
+    handlers: top.runtime.handlers,
     onFirstRequest: () => log("first RPC received — link is live"),
   });
   // Synchronous post-settle cleanup — the supported window before the

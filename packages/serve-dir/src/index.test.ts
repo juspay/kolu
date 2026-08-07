@@ -2,16 +2,23 @@ import fs from "node:fs";
 import { realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Effect } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   contentTypeForPath,
-  createDirServer,
   parseByteRange,
   rawPathname,
   type RealpathGuard,
   resolvePathUnder,
-  serveFile,
+  serveFile as serveFileEffect,
 } from "./index";
+
+// The one run edge for this file — a test IS a process edge (the allowlist's own
+// policy). Held here once so every assertion below reads as the plain
+// (input → ServeResult) table it is.
+function serveFile(...args: Parameters<typeof serveFileEffect>) {
+  return Effect.runPromise(serveFileEffect(...args));
+}
 
 // Ranged 206 bodies are a `ReadableStream` (bytes flow from a bounded file
 // handle, never the whole file through the heap), so assertions read them to a
@@ -26,18 +33,19 @@ async function readBody(body: string | ReadableStream) {
 // consumer wires its own `assertRealpathUnder` and verifies that wiring in the
 // kolu-server integration test.
 function realpathGuardUnder(root: string): RealpathGuard {
-  return async (abs) => {
-    try {
-      const [realRoot, real] = await Promise.all([
-        realpath(root),
-        realpath(abs),
-      ]);
-      const rel = path.relative(realRoot, real);
-      return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
-    } catch {
-      return true; // fail-open on a missing path; serveFile then 404s
-    }
-  };
+  return (abs) =>
+    Effect.promise(async () => {
+      try {
+        const [realRoot, real] = await Promise.all([
+          realpath(root),
+          realpath(abs),
+        ]);
+        const rel = path.relative(realRoot, real);
+        return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+      } catch {
+        return true; // fail-open on a missing path; serveFile then 404s
+      }
+    });
 }
 
 describe("contentTypeForPath", () => {
@@ -485,40 +493,5 @@ describe("serveFile", () => {
       fs.rmSync(outside, { recursive: true, force: true });
       fs.rmSync(path.join(tmpRoot, "leak-unguarded.html"), { force: true });
     }
-  });
-});
-
-describe("createDirServer", () => {
-  let tmpRoot: string;
-
-  beforeAll(() => {
-    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-dir-server-test-"));
-    fs.writeFileSync(path.join(tmpRoot, "clip.mp4"), "0123456789");
-  });
-
-  afterAll(() => {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  });
-
-  it("returns a Fetch Response for a plain GET", async () => {
-    const server = createDirServer(tmpRoot);
-    const res = await server.fetch(
-      "clip.mp4",
-      new Request("http://x/clip.mp4"),
-    );
-    expect(res).toBeInstanceOf(Response);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe("0123456789");
-  });
-
-  it("reads the Range header off the Request and answers 206", async () => {
-    const server = createDirServer(tmpRoot);
-    const res = await server.fetch(
-      "clip.mp4",
-      new Request("http://x/clip.mp4", { headers: { range: "bytes=2-5" } }),
-    );
-    expect(res.status).toBe(206);
-    expect(res.headers.get("Content-Range")).toBe("bytes 2-5/10");
-    expect(await res.text()).toBe("2345");
   });
 });

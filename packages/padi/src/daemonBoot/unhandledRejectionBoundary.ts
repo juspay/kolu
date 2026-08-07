@@ -33,6 +33,18 @@
  * different, more-corrupting class (a torn call stack, not an abandoned
  * promise) and keeps Node's default fail-fast — padi installs no soft net
  * for it.
+ *
+ * SCOPE, restated after juspay/kolu#2101: this boundary is for UNOWNED FLOATS —
+ * a rejection nobody is awaiting, typically reconnect/teardown noise, whose
+ * worst case is a misleading log line. It is NOT the disposition for padi's
+ * OWNED fault channel. The served surface runtime's `done` is deliberately
+ * observed at its source (`daemonBoot/daemonMain.ts` → `armRuntimeFaultExit`)
+ * and is FATAL: it means structural wiring death, and letting padi keep serving
+ * through one is what produced the deploy-#2 zombie (alive, gate held, socket
+ * answering, runtime dead). Unowned float ⇒ log and survive; owned fault ⇒ last
+ * rites, orderly teardown, non-zero exit, supervisor respawns. If a future
+ * float turns out to be an owned channel in disguise, the fix is to OWN it at
+ * its source — not to widen this net, and not to narrow it.
  */
 
 import type { Logger } from "../log.ts";

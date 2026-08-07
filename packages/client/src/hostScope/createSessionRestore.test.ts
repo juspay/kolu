@@ -53,3 +53,32 @@ describe("createSessionRestore — HydrationPhase transitions", () => {
     expect(latch.phase).toBe("seeded");
   });
 });
+
+/** `session.restore`'s ANSWER, parked for the next view seed. It exists because
+ *  the seed must not read the saved-session cell for a restore's active tile —
+ *  the terminals reach the client before that snapshot does. */
+describe("createSessionRestore — the restore's answered active tile", () => {
+  it("starts unanswered", () => {
+    expect(createSessionRestore().restoredActive).toBeNull();
+  });
+
+  it("boxes the answer, so 'host holds no active' is not 'no restore answered'", () => {
+    const latch = createSessionRestore();
+    latch.reportRestoredActive(null);
+    // `{ id: null }`, NOT `null`: the seed must take the host at its word here
+    // rather than fall back to the blob the restore consumed.
+    expect(latch.restoredActive).toEqual({ id: null });
+    latch.reportRestoredActive("t-2");
+    expect(latch.restoredActive).toEqual({ id: "t-2" });
+  });
+
+  it("the seed SPENDS it — markSeeded clears the answer", () => {
+    const latch = createSessionRestore();
+    latch.markDecided();
+    latch.reportRestoredActive("t-2");
+    latch.markSeeded();
+    // A consumed answer must never seed a LATER hydration (a reconnect, a
+    // host switch-back): that restore is over.
+    expect(latch.restoredActive).toBeNull();
+  });
+});

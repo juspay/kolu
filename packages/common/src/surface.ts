@@ -14,14 +14,14 @@
  * re-exported below; kolu's terminal-field schemas EXTEND that base rather than
  * declare it.
  *
- * Raw oRPC procedure I/O schemas (`TerminalCreateInputSchema`,
- * `ServerInfoSchema`, …) live in `./contract` next to the contract literal
- * that consumes them. External integration schemas (kolu-git, anyforge,
+ * The ROOT (non-surface) procedure I/O schemas (`ServerInfoSchema`,
+ * `HostRefSchema`, …) live in `./contract` next to the `RpcGroup` that
+ * declares them. External integration schemas (kolu-git, anyforge,
  * kolu-claude-code, …) re-export from `./integrations`.
  *
- * The surface produces the `surface.*` portion of the contract. Raw oRPC
- * (`terminal.create/kill/attach/...`, `git.worktreeCreate/...`,
- * `server.info`) lives in `./contract` alongside, composed via spread.
+ * The surface produces the `surface/…` portion of the wire tag namespace; the
+ * root procedures (`server/info`, `daemon/restart`, `hosts/*`) live in
+ * `./contract` alongside, merged into one flat `RpcGroup`.
  *
  * Cell names align with persisted `Conf` keys so `confStore("preferences")`
  * / `confStore("activityFeed")` / `confStore("session")` continue working
@@ -61,8 +61,8 @@ import {
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
 import { HostKeySchema } from "./hostKey.ts";
 import type { TaskProgressSchema } from "anyagent/schemas";
+import { Schema, Struct } from "effect";
 import { match } from "ts-pattern";
-import { z } from "zod";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
@@ -165,27 +165,27 @@ export {
 
 // ── User preferences (server-side, shared with client) ────────────────
 
-export const ColorSchemeSchema = z.enum(["light", "dark", "system"]);
+export const ColorSchemeSchema = Schema.Literals(["light", "dark", "system"]);
 
 /** Which way the viewer's OS is leaning — the raw `prefers-color-scheme` media
  *  query answer, nothing folded in. An OBSERVATION, not a preference: the user
  *  never sets it, the browser reports it, and it matters only when
  *  `colorScheme === "system"` (see {@link resolveIsDark}). Kept RAW on the wire
  *  so the resolution against `colorScheme` happens in exactly one place. */
-export const ViewerModeSchema = z.enum(["dark", "light"]);
+export const ViewerModeSchema = Schema.Literals(["dark", "light"]);
 
 /** How a newly created terminal gets its theme. `inherit` copies the active
  *  terminal's theme (like new terminals inherit its size — set one theme once
  *  and every new terminal follows; the first terminal seeds from the server
  *  default); `shuffle` auto-picks a distinct tint via {@link ShuffleBehaviorSchema}. */
-export const NewTerminalThemeSchema = z.enum(["inherit", "shuffle"]);
+export const NewTerminalThemeSchema = Schema.Literals(["inherit", "shuffle"]);
 
 /** Which themes a *shuffle* draws from — both a `shuffle` new terminal and the
  *  ⌘⇧J "Shuffle theme" action. `random` spreads across the whole catalogue;
  *  `dark`/`light` restrict to that luminance family; `auto` tracks the app's
  *  resolved light/dark mode; `colourful` prefers saturated (non-grey) tints
  *  across light and dark. */
-export const ShuffleBehaviorSchema = z.enum([
+export const ShuffleBehaviorSchema = Schema.Literals([
   "random",
   "dark",
   "light",
@@ -202,17 +202,17 @@ export const ShuffleBehaviorSchema = z.enum([
  *  a field here — so this record carries only live-written geometry. Everything
  *  else *about* what each terminal is doing (active tab, code sub-mode, selected
  *  file) lives on the per-terminal record, not here. */
-export const RightPanelPrefsSchema = z.object({
-  size: z.number(),
+export const RightPanelPrefsSchema = Schema.Struct({
+  size: Schema.Number,
   /** Vertical split fraction (0–1) inside the Code tab: tree pane occupies
    *  this share, content pane gets the rest. Persisted so layout survives
    *  reload, mirroring the horizontal `size` field's behavior. */
-  codeTabTreeSize: z.number(),
+  codeTabTreeSize: Schema.Number,
 });
 
-export const PreferencesSchema = z.object({
-  seenTips: z.array(z.string()),
-  startupTips: z.boolean(),
+export const PreferencesSchema = Schema.Struct({
+  seenTips: Schema.Array(Schema.String),
+  startupTips: Schema.Boolean,
   /** How a new terminal gets its theme (inherit the active one, or shuffle a
    *  distinct tint) — see {@link NewTerminalThemeSchema}. */
   newTerminalTheme: NewTerminalThemeSchema,
@@ -224,12 +224,12 @@ export const PreferencesSchema = z.object({
    *  its own `collapsed` thereafter (a toggle writes the terminal's record,
    *  never this). Read-through, not baked-at-create — and there is no settings
    *  UI to write it yet, so in production it stays the default. */
-  newTerminalCollapsed: z.boolean(),
+  newTerminalCollapsed: Schema.Boolean,
   /** Which themes any shuffle draws from — a `shuffle` new terminal and the
    *  ⌘⇧J action alike — see {@link ShuffleBehaviorSchema}. */
   shuffleBehavior: ShuffleBehaviorSchema,
-  scrollLock: z.boolean(),
-  attentionAlerts: z.boolean(),
+  scrollLock: Schema.Boolean,
+  attentionAlerts: Schema.Boolean,
   colorScheme: ColorSchemeSchema,
   /** Renderer policy. `auto` lets the system choose (WebGL on the focused+
    *  visible tile, DOM elsewhere — Chrome's per-tab GL context budget makes
@@ -237,16 +237,29 @@ export const PreferencesSchema = z.object({
    *  (higher throughput, but reintroduces the #575 context-budget risk with
    *  many terminals). `dom` forces DOM everywhere, eliminating the font-
    *  rendering shift on focus swap at the cost of WebGL throughput. */
-  terminalRenderer: z.enum(["auto", "webgl", "dom"]),
+  terminalRenderer: Schema.Literals(["auto", "webgl", "dom"]),
   rightPanel: RightPanelPrefsSchema,
 });
 
-/** Preference patch — top-level fields are optional; nested objects are deep-partial. */
-export const PreferencesPatchSchema = PreferencesSchema.omit({
-  rightPanel: true,
-})
-  .partial()
-  .extend({ rightPanel: RightPanelPrefsSchema.partial().optional() });
+/** Preference patch — top-level fields are optional; nested objects are deep-partial.
+ *
+ *  The zod original was `.omit({rightPanel}).partial().extend({rightPanel:
+ *  RightPanelPrefsSchema.partial().optional()})`; Effect spells the same three moves
+ *  as field maps (`Struct.omit` / `Struct.map(optionalKey)` / `Struct.assign`).
+ *  `optionalKey` — never `optional` — per the #17 law: a patch field is ABSENT when
+ *  unset, and `Schema.optional` would round-trip an explicit `undefined` through
+ *  `null`, which the local-authority merge below would then write as a real value. */
+export const PreferencesPatchSchema = PreferencesSchema.mapFields(
+  Struct.omit(["rightPanel"]),
+)
+  .mapFields(Struct.map(Schema.optionalKey))
+  .mapFields(
+    Struct.assign({
+      rightPanel: Schema.optionalKey(
+        RightPanelPrefsSchema.mapFields(Struct.map(Schema.optionalKey)),
+      ),
+    }),
+  );
 
 // ── Schema-derived domain types — single source of truth via SurfaceTypes ──
 //
@@ -258,12 +271,12 @@ export const PreferencesPatchSchema = PreferencesSchema.omit({
 //     types are derived from schemas.
 //   - **Sub-schema types**: `AgentInfo`, `Foreground`, `RecentRepo`, …
 //     These aren't surface entries themselves — they're building blocks
-//     of one. `z.infer<typeof Schema>` here keeps the wiring local.
+//     of one. `typeof Schema.Type` here keeps the wiring local.
 
-export type ColorScheme = z.infer<typeof ColorSchemeSchema>;
-export type NewTerminalTheme = z.infer<typeof NewTerminalThemeSchema>;
-export type ShuffleBehavior = z.infer<typeof ShuffleBehaviorSchema>;
-export type ViewerMode = z.infer<typeof ViewerModeSchema>;
+export type ColorScheme = typeof ColorSchemeSchema.Type;
+export type NewTerminalTheme = typeof NewTerminalThemeSchema.Type;
+export type ShuffleBehavior = typeof ShuffleBehaviorSchema.Type;
+export type ViewerMode = typeof ViewerModeSchema.Type;
 
 /** The candidate-pool filter a shuffle should apply, from the
  *  `shuffleBehavior` preference and the app's resolved dark mode.
@@ -327,10 +340,10 @@ export function resolveNewTerminalPolicy(
     .exhaustive();
 }
 
-export type TaskProgress = z.infer<typeof TaskProgressSchema>;
+export type TaskProgress = typeof TaskProgressSchema.Type;
 
 /** Default preference values — single source of truth for server and client. */
-export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
+export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   seenTips: [],
   startupTips: true,
   newTerminalTheme: "shuffle",
@@ -351,8 +364,8 @@ export const DEFAULT_PREFERENCES: z.infer<typeof PreferencesSchema> = {
 // here. The post-`defineSurface` re-exports below derive the same types
 // via `SurfaceTypes` for the public surface — same identity, single
 // source of truth at the spec.
-type _Preferences = z.infer<typeof PreferencesSchema>;
-type _PreferencesPatch = z.infer<typeof PreferencesPatchSchema>;
+type _Preferences = typeof PreferencesSchema.Type;
+type _PreferencesPatch = typeof PreferencesPatchSchema.Type;
 
 /** Pure merge of a `PreferencesPatch` into the current preferences.
  *  `rightPanel` is deep-merged so callers can patch a single nested field
@@ -388,12 +401,12 @@ export function applyPreferencesPatch(
  *  the honest {@link ProcessRssSchema} three-way so the rail can tell "the process
  *  is down" (`absent`) apart from "its RSS read failed" (`error`), never a fake
  *  zero — when padi is down both read `absent`. */
-export const ProcessMemorySchema = z.object({
-  serverRssBytes: z.number(),
+export const ProcessMemorySchema = Schema.Struct({
+  serverRssBytes: Schema.Number,
   padi: ProcessRssSchema,
   kaval: ProcessRssSchema,
 });
-export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
+export type ProcessMemory = typeof ProcessMemorySchema.Type;
 
 /** kolu-server's live view of its binding to the local padi — the client folds this
  *  into the warming/degraded canvas so a padi drop shows an honest connecting state,
@@ -409,8 +422,12 @@ export type ProcessMemory = z.infer<typeof ProcessMemorySchema>;
  *  THIS leg too (padiLink === "connected"), exactly as it already floors on the
  *  browser↔server ws liveness, and treats a not-`connected` link as the honest "coming
  *  up" (warming) rather than trusting the frozen re-served state. */
-export const PadiLinkSchema = z.enum(["connecting", "connected", "degraded"]);
-export type PadiLink = z.infer<typeof PadiLinkSchema>;
+export const PadiLinkSchema = Schema.Literals([
+  "connecting",
+  "connected",
+  "degraded",
+]);
+export type PadiLink = typeof PadiLinkSchema.Type;
 
 /** Live boot-time readout for the identity rail's uptime — kolu-server's OWN boot
  *  time and the bound padi's. Server-authored (kolu-server stamps its own boot at
@@ -425,41 +442,41 @@ export type PadiLink = z.infer<typeof PadiLinkSchema>;
  *  bogus multi-decade uptime climbing off `now − 0`. `padi` is `null` whenever padi is
  *  unbound (the (re)connecting / dropped binding) — an honest "unknown", never a fake
  *  `0`, and it re-reads a FRESH boot time when a respawned padi (a new process) binds. */
-export const ProcessStartedAtSchema = z.object({
-  server: z.number().nullable(),
-  padi: z.number().nullable(),
+export const ProcessStartedAtSchema = Schema.Struct({
+  server: Schema.NullOr(Schema.Number),
+  padi: Schema.NullOr(Schema.Number),
 });
-export type ProcessStartedAt = z.infer<typeof ProcessStartedAtSchema>;
+export type ProcessStartedAt = typeof ProcessStartedAtSchema.Type;
 
 /**
  * Wire-facing convergence identity — the same two axes the framework's
  * `ConvergenceIdentity` uses (`@kolu/surface-daemon`). Carried as data on every
- * arm that has a running/expected daemon; never padded with `z.null()`.
+ * arm that has a running/expected daemon; never padded with `Schema.Null`.
  */
-export const DaemonBuildSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("known"), id: z.string() }),
-  z.object({ kind: z.literal("off-nix") }),
+export const DaemonBuildSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("known"), id: Schema.String }),
+  Schema.Struct({ kind: Schema.Literal("off-nix") }),
 ]);
-export type DaemonBuildWire = z.infer<typeof DaemonBuildSchema>;
+export type DaemonBuildWire = typeof DaemonBuildSchema.Type;
 
-export const ConvergenceIdentitySchema = z.object({
-  contractVersion: z.string(),
+export const ConvergenceIdentitySchema = Schema.Struct({
+  contractVersion: Schema.String,
   build: DaemonBuildSchema,
 });
-export type ConvergenceIdentityWire = z.infer<typeof ConvergenceIdentitySchema>;
+export type ConvergenceIdentityWire = typeof ConvergenceIdentitySchema.Type;
 
 /**
  * Drain-budget instance key on the wire — named instance or `pre-instance`
  * (absent startedAt = older daemon). Never an overloaded null.
  */
-export const InstanceKeySchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("instance"),
-    key: z.union([z.string(), z.number()]),
+export const InstanceKeySchema = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("instance"),
+    key: Schema.Union([Schema.String, Schema.Number]),
   }),
-  z.object({ kind: z.literal("pre-instance") }),
+  Schema.Struct({ kind: Schema.Literal("pre-instance") }),
 ]);
-export type InstanceKeyWire = z.infer<typeof InstanceKeySchema>;
+export type InstanceKeyWire = typeof InstanceKeySchema.Type;
 
 /** A STANDING, user-visible convergence anomaly the (remote) binder entered — the dialog
  *  shows it so nothing is "magically swallowed" into server logs. `null`/absent = the
@@ -469,73 +486,92 @@ export type InstanceKeyWire = z.infer<typeof InstanceKeySchema>;
  *  which the connection cell (gated to `state === "connected"`) structurally cannot.
  *
  *  The wire shape **is** the framework's `ConvergenceAnomaly` union (plus app-only
- *  `link-failed`). Each arm carries its own typed evidence — no `z.null()` padding,
+ *  `link-failed`). Each arm carries its own typed evidence — no `Schema.Null` padding,
  *  no converter that throws facts away. Discriminant is `kind` (same as the framework).
  *  A UI must never parse `detail`; it reads the typed fields. */
-export const PadiConvergenceSchema = z.discriminatedUnion("kind", [
-  z.object({
+export const PadiConvergenceSchema = Schema.Union([
+  Schema.Struct({
     /** A build-mismatched survivor we could not drain-replace within the budget —
      *  we RIDE it, canvas works. Evidence: running + expected identities. */
-    kind: z.literal("adopted-stale"),
+    kind: Schema.Literal("adopted-stale"),
     running: ConvergenceIdentitySchema,
     expected: ConvergenceIdentitySchema,
-    detail: z.string(),
+    detail: Schema.String,
   }),
-  z.object({
+  Schema.Struct({
     /** An incompatible padiSurface contract (binder older) we won't adopt. */
-    kind: z.literal("skew-refused"),
+    kind: Schema.Literal("skew-refused"),
     running: ConvergenceIdentitySchema,
     expected: ConvergenceIdentitySchema,
-    detail: z.string(),
+    detail: Schema.String,
   }),
-  z.object({
+  Schema.Struct({
     /** Drain/budget give-up that left canvas dead — typed cause evidence. */
-    kind: z.literal("unconverged"),
+    kind: Schema.Literal("unconverged"),
     /** null when running identity is honestly unknown (e.g. initial probe failed). */
-    running: ConvergenceIdentitySchema.nullable(),
+    running: Schema.NullOr(ConvergenceIdentitySchema),
     expected: ConvergenceIdentitySchema,
-    cause: z.discriminatedUnion("kind", [
-      z.object({
-        kind: z.literal("budget-exhausted"),
-        axis: z.enum(["contract", "build"]),
-        attempts: z.number().int(),
-        maxAttempts: z.number().int(),
+    cause: Schema.Union([
+      Schema.Struct({
+        kind: Schema.Literal("budget-exhausted"),
+        axis: Schema.Literals(["contract", "build"]),
+        attempts: Schema.Number.check(Schema.isInt()),
+        maxAttempts: Schema.Number.check(Schema.isInt()),
       }),
-      z.object({
-        kind: z.literal("drain-not-taken"),
-        axis: z.enum(["contract", "build"]),
-        ceilingMs: z.number(),
-        rejection: z.string().nullable(),
+      Schema.Struct({
+        kind: Schema.Literal("drain-not-taken"),
+        axis: Schema.Literals(["contract", "build"]),
+        ceilingMs: Schema.Number,
+        rejection: Schema.NullOr(Schema.String),
       }),
-      z.object({
-        kind: z.literal("adopt-bind-failed"),
-        axis: z.enum(["contract", "build"]).nullable(),
+      Schema.Struct({
+        kind: Schema.Literal("adopt-bind-failed"),
+        axis: Schema.NullOr(Schema.Literals(["contract", "build"])),
       }),
-      z.object({ kind: z.literal("identity-unverifiable") }),
-      z.object({
-        kind: z.literal("probe-failed"),
-        message: z.string(),
+      Schema.Struct({ kind: Schema.Literal("identity-unverifiable") }),
+      Schema.Struct({
+        kind: Schema.Literal("probe-failed"),
+        message: Schema.String,
+      }),
+      Schema.Struct({
+        /** The daemon at our rendezvous speaks a protocol EPOCH this supervisor
+         *  cannot decode (PLAN D6 / #3) — an explicit first-frame decode failure
+         *  from a peer whose gate file is ours and whose pid we verified. NOT a
+         *  version skew: a version is something you read off a wire you can speak,
+         *  which is why it is its own cause rather than a widened `probe-failed`
+         *  (that arm still protects a foreign socket-squatter from SIGTERM).
+         *
+         *  The disposition is TAKEOVER (PLAN D6 / Wave A) — stop the verified
+         *  holder by signal and start a daemon of this epoch in its place — so
+         *  this cause reaches a card only for the ONE residual it cannot act on:
+         *  the gate stopped naming the classified pid between the observation and
+         *  the kill, so NOTHING was signalled. The typed evidence is what the card
+         *  shows — which socket, which gate, which pid was classified. */
+        kind: Schema.Literal("unspeakable-protocol"),
+        socketPath: Schema.String,
+        gatePath: Schema.String,
+        pid: Schema.Number.check(Schema.isInt()),
       }),
     ]),
-    detail: z.string(),
+    detail: Schema.String,
   }),
-  z.object({
+  Schema.Struct({
     /** Another supervisor is respawning this host's padi — fail-honest, never ride
      *  a contested build. Evidence: drained + observed instance keys. */
-    kind: z.literal("cross-supervisor"),
+    kind: Schema.Literal("cross-supervisor"),
     drained: InstanceKeySchema,
     observed: InstanceKeySchema,
     running: ConvergenceIdentitySchema,
-    detail: z.string(),
+    detail: Schema.String,
   }),
-  z.object({
+  Schema.Struct({
     /** The ssh link gave up (host unreachable / provisioning failed). App-only;
      *  not a framework convergence verdict. */
-    kind: z.literal("link-failed"),
-    detail: z.string(),
+    kind: Schema.Literal("link-failed"),
+    detail: Schema.String,
   }),
 ]);
-export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
+export type PadiConvergence = typeof PadiConvergenceSchema.Type;
 
 /** Where kolu-server's padi is bound — and, when that is NOT the machine kolu-server
  *  itself runs on, its own-machine scan. The discriminant makes the coupling a TYPE, not
@@ -546,22 +582,22 @@ export type PadiConvergence = z.infer<typeof PadiConvergenceSchema>;
  *  UNREPRESENTABLE, so a future writer cannot drift them apart. The BOUND host's own
  *  daemons never ride this cell either way: they ride padiSurface's `hostInventory` member
  *  (works local and remote). `local` is the honest pre-first-sample default. */
-export const DaemonBindingSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("local") }),
-  z.object({
-    kind: z.literal("remote"),
+export const DaemonBindingSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("remote"),
     /** The ssh host the padi is bound to (`KOLU_PADI_HOST`) — drives the dialog's
      *  machine labels ("daemons on <host>" + "this machine, not the bound host"). */
-    host: z.string(),
+    host: Schema.String,
     /** kolu-server's scan of the machine it ITSELF runs on — NOT the bound host, so a
      *  leaked daemon on the box you're actually using stays visible. The same @kolu/padi
      *  scanner the member uses, marking NONE active (kolu is bound elsewhere). */
     localScan: HostDaemonInventorySchema,
   }),
 ]);
-export type DaemonBinding = z.infer<typeof DaemonBindingSchema>;
+export type DaemonBinding = typeof DaemonBindingSchema.Type;
 
-export const DaemonInventorySchema = z.object({
+export const DaemonInventorySchema = Schema.Struct({
   /** The binding + (remote-only) own-machine scan — see {@link DaemonBindingSchema}. */
   binding: DaemonBindingSchema,
   /** The BOUND padi's honest identity off its control-core `hello` — `surfaceVersion` +
@@ -578,30 +614,30 @@ export const DaemonInventorySchema = z.object({
    *  (`server/src/padi/daemonInventory.ts`) already special-cases "all three null → publish
    *  `null` itself" for exactly this reason — the refine makes that the ONLY legal
    *  encoding rather than a convention a future call site could quietly break. */
-  boundPadi: z
-    .object({
-      surfaceVersion: z.string().nullable(),
-      buildCommit: z.string().nullable(),
+  boundPadi: Schema.NullOr(
+    Schema.Struct({
+      surfaceVersion: Schema.NullOr(Schema.String),
+      buildCommit: Schema.NullOr(Schema.String),
       /** A STANDING convergence anomaly (adopted-stale / skew-refused / unconverged /
        *  link-failed), or null when converged/healthy. So the dialog surfaces a degraded
        *  bind — build mismatch, contract skew, drain-failure, provisioning failure — as a
        *  visible state, not just server logs. Non-null even when the identity above is null
        *  (a refused/failed bind has a reason but no adopted identity). */
-      convergence: PadiConvergenceSchema.nullable(),
-    })
-    .refine(
-      (v) =>
+      convergence: Schema.NullOr(PadiConvergenceSchema),
+    }).check(
+      // The cross-field rule, as a filter returning the SAME user-visible message
+      // zod's `.refine` carried (`undefined` = the value passes).
+      Schema.makeFilter((v) =>
         v.surfaceVersion !== null ||
         v.buildCommit !== null ||
-        v.convergence !== null,
-      {
-        message:
-          "boundPadi: nothing to report is the top-level null, not an inner object with every field null",
-      },
-    )
-    .nullable(),
+        v.convergence !== null
+          ? undefined
+          : "boundPadi: nothing to report is the top-level null, not an inner object with every field null",
+      ),
+    ),
+  ),
 });
-export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
+export type DaemonInventory = typeof DaemonInventorySchema.Type;
 
 // ── Port forwards (PRT2) ──────────────────────────────────────────────
 //
@@ -626,15 +662,15 @@ export type DaemonInventory = z.infer<typeof DaemonInventorySchema>;
  *  outside every terminal's subtree, a service started before kolu — so nothing
  *  but an explicit cancel or the host's departure may close it. Guessing here
  *  would silently close the forward a user deliberately set up. */
-export const ForwardOriginSchema = z.enum(["auto", "manual"]);
-export type ForwardOrigin = z.infer<typeof ForwardOriginSchema>;
+export const ForwardOriginSchema = Schema.Literals(["auto", "manual"]);
+export type ForwardOrigin = typeof ForwardOriginSchema.Type;
 
 /** One live forward, as every kolu surface renders it. */
-export const KoluForwardSchema = z.object({
+export const KoluForwardSchema = Schema.Struct({
   /** The forward map's own key, and the handle `forwards.cancel` takes. Opaque
    *  to the client on purpose: it is the library's identity for this target, so
    *  a row cancels exactly what it displays with no re-derivation in between. */
-  key: z.string(),
+  key: Schema.String,
   /** WHOSE host the far end is on — the kolu host key, not an ssh string, so a
    *  row can be filtered to the active terminal's host without parsing. */
   host: HostKeySchema,
@@ -645,30 +681,30 @@ export const KoluForwardSchema = z.object({
   localPort: TcpPortSchema,
   origin: ForwardOriginSchema,
   /** Epoch ms when the listener came up — what an "up 12m" column renders. */
-  createdAt: z.number(),
+  createdAt: Schema.Number,
 });
-export type KoluForward = z.infer<typeof KoluForwardSchema>;
+export type KoluForward = typeof KoluForwardSchema.Type;
 
 /** Every live forward, oldest first. A plain array rather than a collection:
  *  the whole set is a handful of rows, every consumer renders all of them
  *  (filtered by host at most), and there is no per-key subscription anyone
  *  wants. */
-export const ForwardsSchema = z.array(KoluForwardSchema);
-export type Forwards = z.infer<typeof ForwardsSchema>;
+export const ForwardsSchema = Schema.Array(KoluForwardSchema);
+export type Forwards = typeof ForwardsSchema.Type;
 
 /** What `forwards.create` takes. `origin` is the CALLER's to declare because only
  *  the caller knows why it is asking — a chip click is `auto`, a typed target is
  *  `manual` — and that reason is what decides whether the forward may be closed
  *  without being asked. */
-export const ForwardCreateInputSchema = z.object({
+export const ForwardCreateInputSchema = Schema.Struct({
   host: HostKeySchema,
   port: TcpPortSchema,
   origin: ForwardOriginSchema,
 });
-export type ForwardCreateInput = z.infer<typeof ForwardCreateInputSchema>;
+export type ForwardCreateInput = typeof ForwardCreateInputSchema.Type;
 
 /** What `forwards.cancel` takes — the key off the row being cancelled. */
-export const ForwardCancelInputSchema = z.object({ key: z.string() });
+export const ForwardCancelInputSchema = Schema.Struct({ key: Schema.String });
 
 /** Fields `key` already determines, so comparing them adds nothing: `targetKey`
  *  encodes `local:<port>` / `remote:<host>:<port>`, so two rows agreeing on
@@ -685,8 +721,9 @@ const FORWARD_KEYS_DETERMINED_BY_KEY = new Set(["host", "remotePort"]);
  *  compared with no second edit here — the `PORT_INFO_KEYS` mechanism
  *  (`@kolu/terminal-vocab` ports vocabulary), for its reason: this is a DEDUP gate, so a field it
  *  does not compare is a field whose changes are swallowed, with nothing anywhere
- *  to report why the row never updated. */
-const FORWARD_KEYS = Object.keys(KoluForwardSchema.shape).filter(
+ *  to report why the row never updated. (`Schema.Struct` spells its field map
+ *  `.fields`, which is zod's `.shape` under the new schema library.) */
+const FORWARD_KEYS = Object.keys(KoluForwardSchema.fields).filter(
   (k) => !FORWARD_KEYS_DETERMINED_BY_KEY.has(k),
 ) as (keyof KoluForward)[];
 
@@ -777,9 +814,12 @@ export interface KoluBuildInfo extends BuildInfo {
 }
 
 export const koluBuildInfo = defineBuildInfo<KoluBuildInfo>({
-  schema: z.object({
-    commit: z.string(),
-    version: z.string().optional(),
+  schema: Schema.Struct({
+    commit: Schema.String,
+    // `optionalKey`, never `optional` (#17): the key is ABSENT on a
+    // library-seeded default, and it must stay absent on the wire rather than
+    // round-tripping through an explicit `null`.
+    version: Schema.optionalKey(Schema.String),
   }),
   default: { commit: "" },
 });
@@ -883,7 +923,7 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         serverRssBytes: 0,
         padi: { status: "absent" },
         kaval: { status: "absent" },
-      } satisfies z.infer<typeof ProcessMemorySchema>,
+      } satisfies typeof ProcessMemorySchema.Type,
       // Whole-MB dedup — a DERIVED poll cell (`derived.cell(source(...))` in
       // `server/src/index.ts`), so the graph is the one writer and `equals` is the
       // ONE wire dedup point, declared here at the member (the reactive bridge's law).
@@ -920,9 +960,10 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
      *  boot time). */
     processStartedAt: {
       schema: ProcessStartedAtSchema,
-      default: { server: null, padi: null } satisfies z.infer<
-        typeof ProcessStartedAtSchema
-      >,
+      default: {
+        server: null,
+        padi: null,
+      } satisfies typeof ProcessStartedAtSchema.Type,
       // The derived cell's one wire dedup point: a transition that leaves both boot times
       // unchanged never re-publishes.
       equals: (a, b) => a.server === b.server && a.padi === b.padi,
@@ -1017,7 +1058,7 @@ export const surfaces = {
 // map — reach for it).
 
 // ── Inferred runtime types — surface-bound, via SurfaceTypes ──────────
-// `Surface` lifts `z.infer<schema>` over the spec so consumers reach for
+// `Surface` lifts each schema's decoded `Type` over the spec so consumers reach for
 // `Surface["cells"]["preferences"]["Value"]` etc. The flat aliases below
 // are the conventional re-exports for the surface entries that Kolu code
 // references by name across packages.

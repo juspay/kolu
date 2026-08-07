@@ -26,20 +26,37 @@
  */
 
 import type { Logger } from "@kolu/log";
+import type { Effect } from "effect";
+import type { Surface, SurfaceSpec } from "@kolu/surface/define";
+import type { SurfaceDispatch } from "@kolu/surface/link";
 import { probeSurfaceLive } from "@kolu/surface/liveness";
-import type { AnyContractRouter } from "@orpc/contract";
 import { readBakedAgentSource } from "./agentDrv";
-import { makeSession } from "./session";
+import { makeSession, runProbe } from "./session";
 import { type AgentClient, sshConnector, type SshProv } from "./sshConnector";
 
-/** A live one-shot agent connection: the client plus a `dispose` that tears the
- *  ssh session down. */
-export interface AgentDial<C extends AnyContractRouter> {
-  client: AgentClient<C>;
+/** A live one-shot agent connection: the surface FACE plus a `dispose` that tears
+ *  the ssh session down. NON-generic — see {@link AgentClient}. */
+export interface AgentDial {
+  client: AgentClient;
+  /** The link's tag-keyed dispatch behind {@link AgentDial.client} — the seam a
+   *  consumer builds a SECOND sibling's face over. `client` is ONE face built from
+   *  ONE surface; a daemon that serves sibling surfaces (padi's versioned surface
+   *  beside the frozen control core) is one wire with two, and only the dispatch
+   *  reaches the other.
+   *
+   *  OPTIONAL, mirroring {@link Connection.dispatch}: it is a property of the
+   *  TRANSPORT, not of the dial. Every `sshConnector` dial supplies one, so a
+   *  consumer that genuinely needs the second face should treat `undefined` as the
+   *  loud error it is rather than degrading — this field exists so that consumer
+   *  can be written at all, not so it can guess. */
+  dispatch?: SurfaceDispatch;
   dispose: () => void;
 }
 
-export interface DialAgentOnceOptions<C extends AnyContractRouter> {
+export interface DialAgentOnceOptions<S extends SurfaceSpec> {
+  /** The surface the remote agent serves — threaded to `sshConnector` to build
+   *  the wire link's group and the face. Required, never inferred. */
+  surface: Surface<S>;
   /** ssh target; `localhost` runs the realised binary directly. */
   host: string;
   /** Executable name inside the realised closure, run as `<binary> --stdio`. */
@@ -76,7 +93,7 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
    *  gates the padiSurface contract version, which is a contract check,
    *  not merely "is the link alive". The result is discarded; a rejection fails
    *  the dial (and destroys the session). */
-  probe?: (client: AgentClient<C>) => Promise<unknown>;
+  probe?: (client: AgentClient) => Effect.Effect<unknown, unknown>;
   /** Extra args appended after `--stdio` on the remote agent command. Omit to let
    *  the agent's own default apply. The same generic spawn-arg carrier as
    *  `SshConnectorOptions.extraArgs` / `buildAgentCommand` — what the args mean is
@@ -109,9 +126,9 @@ export interface DialAgentOnceOptions<C extends AnyContractRouter> {
  *  misclassify it as a retryable `"network"` fault and a long-lived consumer
  *  would spin on it forever. The genuinely-per-host arch probe and one-package
  *  Nix evaluation stay deferred inside `resolveDrvPath`. */
-export async function dialAgentOnce<C extends AnyContractRouter>(
-  opts: DialAgentOnceOptions<C>,
-): Promise<AgentDial<C>> {
+export async function dialAgentOnce<S extends SurfaceSpec>(
+  opts: DialAgentOnceOptions<S>,
+): Promise<AgentDial> {
   const source = readBakedAgentSource();
   if (source.isErr()) throw source.error;
   const flakeRef = source.value;
@@ -120,8 +137,9 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
   // `session.destroy()`, and each dial gets its own connector (source resolver)
   // and its own teardown, so two concurrent dials never share a session where
   // either `dispose()` kills the other's link.
-  const session = makeSession<AgentClient<C>, SshProv>({
-    connectOnce: sshConnector<C>({
+  const session = makeSession<AgentClient, SshProv>({
+    connectOnce: sshConnector<S>({
+      surface: opts.surface,
       host: opts.host,
       binary: opts.binary,
       extraArgs: opts.extraArgs,
@@ -202,11 +220,26 @@ export async function dialAgentOnce<C extends AnyContractRouter>(
     // the session's periodic watchdog also plugs into — so a CLI
     // need not nominate its own liveness verb; only a deliberate protocol
     // assertion (padi-tui's contract-version gate) overrides it.
-    const probe = opts.probe ?? probeSurfaceLive;
-    await probe(client);
+    // The override and the default are BOTH Effects, and the union is annotated
+    // rather than inferred. That is load-bearing: an inferred
+    // "Promise | Effect" union would make the `await` legal on both arms, and
+    // awaiting a non-thenable Effect resolves to the Effect itself — the link
+    // would never be probed and the dial would report success against a dead
+    // agent. One shape means there is no such arm to get wrong.
+    //
+    // It crosses at `runProbe` — the session's own probe edge — so the package
+    // has ONE place where a reserved probe becomes a Promise, not one per file.
+    const probe: (c: AgentClient) => Effect.Effect<unknown, unknown> =
+      opts.probe ?? probeSurfaceLive;
+    await runProbe(probe(client));
     session.markConnected();
     return {
       client,
+      // The live connection's dispatch, read at hand-back. `sshConnector` always
+      // supplies one; a session standing in for the connector (a test's fake) may
+      // not, which is why the field is optional rather than asserted here — see
+      // {@link AgentDial.dispatch}.
+      dispatch: session.currentDispatch?.(),
       dispose: () => {
         session.destroy();
       },

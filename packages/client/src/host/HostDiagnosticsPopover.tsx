@@ -11,8 +11,9 @@
 
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { createReactiveSubscription } from "@kolu/surface/solid";
+import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { TerminalId } from "kolu-common/surface";
+import type { KoluBuildInfo, TerminalId } from "kolu-common/surface";
 import {
   type Component,
   createEffect,
@@ -22,6 +23,7 @@ import {
   Show,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import CopyDiagnosticsButton from "../CopyDiagnosticsButton";
 import { hostMarks } from "../attention/attentionMarks";
 import { activePadiTerminal } from "@kolu/padi/surface";
 import type { KoluForward } from "kolu-common/surface";
@@ -48,8 +50,10 @@ import {
   padiMap,
   setActiveHost,
 } from "../wire";
+import { runAction } from "../runAction";
 import { HostDualDaemonSlot } from "./HostDaemonChips";
 import { hostGlance, hostLabel } from "./hostChipTone";
+import { useHostKavalChain } from "./useHostKaval";
 import { reconnectHost } from "./reconnectHost";
 import { removeHost } from "./removeHost";
 
@@ -105,7 +109,9 @@ export const HostDiagnosticsPopover: Component<{
   anchor?: AnchorSide;
 }> = (props) => {
   const state = () => padiMap.entry(props.host).state();
-  const glance = () => hostGlance(state());
+  // #2101 N4 — the header pip and the `state` row read the whole chain.
+  const kaval = useHostKavalChain(props.host);
+  const glance = () => hostGlance(state(), kaval());
   const marks = hostMarks(encodeHostKey(props.host));
   const isLocal = () => props.host.kind === "local";
   const store = useTerminalStore();
@@ -113,6 +119,10 @@ export const HostDiagnosticsPopover: Component<{
   const [confirmRemove, setConfirmRemove] = createSignal(false);
   // Local: machine hostname when known (same as the tab label); remotes: target.
   const { hostname } = useServerIdentity();
+  // The same server-build source the Diagnostic Info dialog copies from, so both
+  // entry points to `CopyDiagnosticsButton` produce the identical block — without
+  // it this one printed `server commit: unknown`.
+  const pwa = useSurfaceApp<KoluBuildInfo>();
   const label = () =>
     isLocal() ? (hostname() ?? hostLabel(props.host)) : hostLabel(props.host);
 
@@ -122,11 +132,15 @@ export const HostDiagnosticsPopover: Component<{
   // `.error()` so the row can paint distinctly from "pending / no data".
   const terminalKeys = createReactiveSubscription<HostKey, TerminalId[]>(
     () => (props.open() ? props.host : null),
-    (host, signal) =>
+    (host) =>
       unenrolledStreamCall(
         padiMap.entry(host).collections.terminals.unenrolledKeys,
         undefined,
-        { signal },
+        // Scoped by HOST: the same member name is opened once per host, and a
+        // liveness table that could not tell them apart would name the wrong
+        // one as parked (kolu#2101 J2). The `<key>[<id>]` spelling is the
+        // framework's own (`client.health()`), reused rather than reinvented.
+        { label: `terminals.keys[${encodeHostKey(host)}] (popover)` },
       ),
     {
       onError: (err) =>
@@ -328,7 +342,9 @@ export const HostDiagnosticsPopover: Component<{
               type="button"
               data-testid="host-diagnostics-reconnect"
               class="mt-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-1 text-left text-[11px] text-fg transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-              onClick={() => reconnectHost(props.host)}
+              onClick={() =>
+                runAction("reconnect host", reconnectHost(props.host))
+              }
             >
               <span class="text-fg-3">retry now</span>
               <span aria-hidden="true">↻</span>
@@ -394,7 +410,7 @@ export const HostDiagnosticsPopover: Component<{
                   data-testid="host-diagnostics-remove-confirm"
                   class="rounded-md bg-danger/15 px-2 py-1 text-[11px] font-medium text-danger transition-colors hover:bg-danger/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
                   onClick={() => {
-                    removeHost(props.host);
+                    runAction("remove host", removeHost(props.host));
                     props.onDismiss();
                   }}
                 >
@@ -411,6 +427,19 @@ export const HostDiagnosticsPopover: Component<{
               </div>
             </Show>
           </Show>
+
+          {/* The tab-wide diagnostic snapshot, reachable from the host you are
+              looking at (kolu#2101 J2). The same builder the Diagnostic Info
+              dialog copies — a per-host ENTRY POINT, not a per-host snapshot:
+              a parked subscription is a fact about the whole wire, and a block
+              that showed only this host's would hide the one that matters. */}
+          <div class="my-2 border-t border-edge/60" />
+          <CopyDiagnosticsButton
+            serverBuild={pwa.server()}
+            class="flex w-full items-center justify-between gap-4 py-0.5 text-left text-[11px] text-fg-3 transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
+          >
+            copy diagnostics
+          </CopyDiagnosticsButton>
 
           <span class="sr-only">{glance().title}</span>
         </div>

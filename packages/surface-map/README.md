@@ -11,14 +11,18 @@ view. Depends only on [`@kolu/surface`](../surface).
 ```ts
 import { defineSurfaceMap } from "@kolu/surface-map";
 import { serveSurfaceMap } from "@kolu/surface-map/server";
+import { Schema } from "effect";
 
 export const hostMap = defineSurfaceMap({
-  key: z.string(),
+  key: Schema.String,
   entry: surface,
   codec: identityCodec,
-  failure: hostFailureSchema, // a zod schema for the domain failure value
+  // The domain failure value's schema — a failed entry cannot exist without one.
+  failure: Schema.Struct({ reason: Schema.String }),
 });
-const { router } = serveSurfaceMap(hostMap, registry); // a finalized, servable router
+// The same { group, handlers } pair implementSurface returns — merge it into
+// your own served surface; a tag carries its own route.
+const { group, handlers, dispose } = serveSurfaceMap(hostMap, registry);
 ```
 
 Part of the kolu monorepo — `"@kolu/surface-map": "workspace:*"`.

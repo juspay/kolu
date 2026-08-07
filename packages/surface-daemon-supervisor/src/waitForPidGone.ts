@@ -17,6 +17,7 @@
  * lifecycle: it knows pids, not what the daemon holds.
  */
 import { isHolderLive } from "@kolu/surface-daemon";
+import { Effect, Schedule } from "effect";
 
 export interface WaitForPidGoneOptions {
   /** Give up after this long and resolve `false`. Default 120_000ms. */
@@ -25,29 +26,29 @@ export interface WaitForPidGoneOptions {
   intervalMs?: number;
 }
 
-/** Resolve `true` once `pid` is gone (`kill(pid, 0)` → `ESRCH`), or `false` if
- *  it is still alive at the timeout. A pid that is already gone resolves `true`
- *  on the first probe without waiting. */
+/**
+ * Succeeds `true` once `pid` is gone (`kill(pid, 0)` → `ESRCH`), or `false` if
+ * it is still alive at the timeout. A pid that is already gone succeeds `true`
+ * on the first probe without waiting.
+ *
+ * Polls `isHolderLive` on the fiber clock, bounded by one timeout. The ceiling
+ * is a DEADLINE over the whole wait rather than arithmetic re-checked at each
+ * tick, so there is no `deadline` variable to drift and no self-rescheduling
+ * timer to leak — an interrupted fiber (the caller gave up, a race lost)
+ * cancels the sleep with it.
+ */
 export function waitForPidGone(
   pid: number,
   opts: WaitForPidGoneOptions = {},
-): Promise<boolean> {
-  const timeoutMs = opts.timeoutMs ?? 120_000;
-  const intervalMs = opts.intervalMs ?? 50;
-  const deadline = Date.now() + timeoutMs;
-
-  return new Promise<boolean>((resolve) => {
-    const probe = (): void => {
-      if (!isHolderLive(pid)) {
-        resolve(true);
-        return;
-      }
-      if (Date.now() >= deadline) {
-        resolve(false);
-        return;
-      }
-      setTimeout(probe, intervalMs);
-    };
-    probe();
-  });
+): Effect.Effect<boolean> {
+  return Effect.sync(() => !isHolderLive(pid)).pipe(
+    Effect.repeat({
+      schedule: Schedule.spaced(opts.intervalMs ?? 50),
+      until: (gone) => gone,
+    }),
+    Effect.timeoutOrElse({
+      duration: opts.timeoutMs ?? 120_000,
+      orElse: () => Effect.succeed(false),
+    }),
+  );
 }

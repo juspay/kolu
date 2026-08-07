@@ -10,17 +10,26 @@
  * mode resolves to a no-op listener with a machine-readable `outcome`. This
  * module is the kolu voice on top: it maps each outcome to an operator-facing
  * log line with the kolu-specific advice (what the socket is for, which flag
- * to reach for). The caller passes the contract-wrapped router
- * (`createInProcessPtyHost`'s `servedRouter`); the router is shared across
- * connections (and with the in-process `directLink` client).
+ * to reach for). The caller passes the served wire
+ * (`createInProcessPtyHost`'s `served` — `{ group, handlers }`); the handlers
+ * are shared across connections (and with the in-process `directDispatch`
+ * client).
+ *
+ * `serveOverUnixSocket` lost its `log` option in the Effect port (S4 deleted
+ * `UnixSocketLogger`); juspay/kolu#2101 N3 restored it, REQUIRED this time, and
+ * it now narrates the listener's own lifetime (bound / post-listen fault /
+ * closed). The division of voice is unchanged: the transport narrates the
+ * listener, this module narrates the BIND-TIME verdicts with the kolu-specific
+ * advice — so `log` is required here too, and there is no way to serve a
+ * pty-host socket that nobody is listening to the health of.
  */
 import {
   serveOverUnixSocket,
   type UnixSocketListener,
   type UnixSocketServeOutcome,
 } from "@kolu/surface/unix-socket";
-import type { Router } from "@orpc/server";
 import type { Logger } from "@kolu/surface-daemon";
+import type { PtyHostServed } from "./inProcessPtyHost.ts";
 
 /** The receptacle's listener, narrowed to what pty-host callers get: the
  *  path and `close()` (with the receptacle's own teardown contract), minus
@@ -67,7 +76,7 @@ function describeRefusal(
   }
 }
 
-/** Start serving `router` over a unix socket at `socketPath`. Returns a
+/** Start serving `served` over a unix socket at `socketPath`. Returns a
  *  listener whose `close()` stops it — accepting AND every established peer
  *  (attached kaval-tui sessions are severed; their serves settle through the
  *  normal peer-death chain) — and removes the socket file.
@@ -78,28 +87,35 @@ function describeRefusal(
  *  resolves to a no-op listener with a warning, not a rejection. */
 export async function servePtyHostOverUnixSocket(opts: {
   socketPath: string;
-  // biome-ignore lint/suspicious/noExplicitAny: a top-level oRPC router, mirroring serveOverStdio's own `Router<any, Context>` param.
-  router: Router<any, any>;
-  log?: Logger;
+  /** The served pty-host wire — `createInProcessPtyHost(...).served`. */
+  served: PtyHostServed;
+  /** Where the bind-time verdicts AND (through the transport) the listener's
+   *  own lifetime are narrated. REQUIRED — see the module header. */
+  log: Logger;
 }): Promise<PtyHostSocketListener> {
-  const { socketPath, router, log } = opts;
-  const listener = await serveOverUnixSocket({ socketPath, router, log });
+  const { socketPath, served, log } = opts;
+  const listener = await serveOverUnixSocket({
+    socketPath,
+    group: served.group,
+    handlers: served.handlers,
+    log,
+  });
   const { outcome } = listener;
 
   if (outcome.kind !== "listening") {
     const { msg, ctx } = describeRefusal(outcome);
-    log?.warn({ socketPath, ...ctx }, msg);
+    log.warn({ socketPath, ...ctx }, msg);
     return listener;
   }
 
-  log?.info({ socketPath }, "pty-host socket listening (kaval-tui)");
+  log.info({ socketPath }, "pty-host socket listening (kaval-tui)");
   let closed = false;
   return {
     socketPath,
     close() {
       if (closed) return;
       closed = true;
-      log?.info({ socketPath }, "pty-host socket closed");
+      log.info({ socketPath }, "pty-host socket closed");
       listener.close();
     },
   };

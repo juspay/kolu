@@ -11,32 +11,40 @@
  *
  *   - a **single attachment** (one surface client) held only while something
  *     is subscribed; obtained lazily via the injected client factory.
- *   - a **per-URI AbortController** so a single live unsubscribe tears just
- *     that stream while the socket stays open for the others.
+ *   - a **per-URI fiber** so a single live unsubscribe tears just that stream
+ *     while the socket stays open for the others. Under Effect the subscription's
+ *     lifetime IS the fiber's (D10/#18): interrupting it runs the stream's own
+ *     scoped finalizers, which is what the old per-URI `AbortController` stood in
+ *     for.
  *   - **debounced** `notify(uri)` — deltas can be chatty (a log appending),
  *     so updates coalesce within a window.
- *   - the **generation-token detach-without-abort** teardown: bump a
- *     generation counter *before* disposing the attachment, dispose the
- *     whole client at once (tearing every stream with it), and have each
- *     in-flight stream loop check `gen !== this.generation` so it knows it was
- *     torn down (vs. ended because the source settled) and doesn't reschedule.
- *     Aborting per-stream during a full detach would race the RPC cancel-send
- *     against the transport close (`ERR_STREAM_DESTROYED`); the generation
- *     dance dodges that exact bug. Per-stream abort is reserved for a single
- *     live unsubscribe.
+ *   - the **generation-token detach** teardown: bump a generation counter
+ *     *before* tearing the attachment down, and have each stream fiber's exit
+ *     handler check `gen !== this.generation` so it knows it was torn down (vs.
+ *     ended because the source settled) and doesn't reschedule.
  *   - **bounded retry** while a subscriber waits for a not-yet-live source.
+ *
+ * The debounce and retry windows stay on plain `setTimeout`: they are the MCP
+ * edge's own timers, not surface work, and keeping them off the Effect clock
+ * keeps this class runnable from the SDK's synchronous request handlers.
  */
 
+import { Cause, Effect, type Exit, type Fiber, Stream } from "effect";
+
 /** Opens the streaming `get` for a subscribable URI on a given client. The
- *  returned async iterable yields once per snapshot/delta — the pusher fires
- *  an `updated` for each. `signal` lets a single-URI unsubscribe tear just
- *  this stream. `undefined` means the URI doesn't resolve to a streamable
- *  source on this client (drop it). */
+ *  returned stream emits once per snapshot/delta — the pusher fires an
+ *  `updated` for each. `undefined` means the URI doesn't resolve to a
+ *  streamable source on this client (drop it).
+ *
+ *  PURE: it resolves an address into a LAZY stream and must not perform the
+ *  subscribe itself. Nothing is dispatched until the pusher runs the stream, and
+ *  a throw out of this function is a wiring bug (the resolver was handed a URI
+ *  the server never registered), which is left to crash rather than be laundered
+ *  into a retry. */
 export type StreamFor<Client> = (
   client: Client,
   uri: string,
-  signal: AbortSignal | undefined,
-) => Promise<AsyncIterable<unknown>> | AsyncIterable<unknown> | undefined;
+) => Stream.Stream<unknown, unknown> | undefined;
 
 /** Lazily produce a live surface client. Returns `null` when the source
  *  isn't live yet (subscribe-before-serve); the pusher retries. */
@@ -70,11 +78,12 @@ export interface PusherDeps<Client> {
 export class ResourcePusher<Client> {
   private readonly subscribed = new Set<string>();
   private client: Client | null = null;
-  private readonly aborts = new Map<string, AbortController>();
+  /** One fiber per live subscription. Interrupting it IS the unsubscribe. */
+  private readonly fibers = new Map<string, Fiber.Fiber<void, unknown>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private stopped = false;
-  /** Bumped on every detach; a stream loop that outlives its generation
+  /** Bumped on every detach; a stream fiber that outlives its generation
    *  knows it was torn down (vs. ended because the source settled) and must
    *  not reschedule. */
   private generation = 0;
@@ -147,50 +156,60 @@ export class ResourcePusher<Client> {
   }
 
   private startStream(client: Client, uri: string): void {
-    if (this.aborts.has(uri)) return;
-    const abort = new AbortController();
-    this.aborts.set(uri, abort);
+    if (this.fibers.has(uri)) return;
+    const source = this.deps.stream(client, uri);
+    // URI doesn't resolve to a streamable source — drop it quietly.
+    if (source === undefined) return;
     const gen = this.generation;
-    void (async () => {
-      let yielded = false;
-      let failed = false;
-      let error: unknown;
-      try {
-        const source = await this.deps.stream(client, uri, abort.signal);
-        if (source === undefined) {
-          // URI doesn't resolve to a streamable source — drop it quietly.
-          this.aborts.delete(uri);
-          return;
-        }
-        for await (const _frame of source) {
-          yielded = true;
-          if (this.subscribed.has(uri)) this.notify(uri);
-        }
-      } catch (err) {
-        // link torn down (we detached / single-URI abort) or a transport
-        // error. The generation + abort checks below decide whether this was
-        // a teardown (don't reschedule) or a real failure (re-attach).
-        failed = true;
-        error = err;
-      }
-      // A detach bumped the generation and already disposed the client —
-      // don't reschedule.
-      if (gen !== this.generation) return;
-      this.aborts.delete(uri);
-      // A single-URI unsubscribe aborted just this stream while the socket
-      // stays open for others — `stopStream` already removed it from
-      // `subscribed`; nothing to re-attach.
-      if (abort.signal.aborted || !this.subscribed.has(uri)) return;
-      // Otherwise the stream ended while a subscriber still waits: either it
-      // produced frames and then settled / dropped, or it FAILED before its
-      // first frame (e.g. the source wasn't live yet, or a transport error on
-      // open). Both warrant a detach + bounded retry so a re-served source
-      // re-attaches — a pre-first-frame failure here is NOT covered by the
-      // attach retry (the attach succeeded; only the stream open failed).
-      if (failed && !yielded) this.deps.onError?.(error);
-      this.detach();
-      this.scheduleRetry();
-    })();
+    // `yielded` distinguishes "the stream produced frames and then ended/dropped"
+    // from "it failed before its first frame" — only the latter is reported, since
+    // the former is an ordinary end the retry already covers.
+    let yielded = false;
+    const pump = Stream.runForEach(source, () =>
+      Effect.sync(() => {
+        yielded = true;
+        if (this.subscribed.has(uri)) this.notify(uri);
+      }),
+    );
+    this.fibers.set(
+      uri,
+      Effect.runFork(
+        Effect.onExit(pump, (exit) =>
+          Effect.sync(() => {
+            this.onStreamExit(uri, gen, yielded, exit);
+          }),
+        ),
+      ),
+    );
+  }
+
+  /** What a stream fiber's exit means, and what (if anything) to do about it. */
+  private onStreamExit(
+    uri: string,
+    gen: number,
+    yielded: boolean,
+    exit: Exit.Exit<void, unknown>,
+  ): void {
+    // A detach bumped the generation and already tore the attachment down —
+    // don't reschedule.
+    if (gen !== this.generation) return;
+    this.fibers.delete(uri);
+    // An INTERRUPTION is a teardown we asked for (a single-URI unsubscribe),
+    // never a failure — `stopStream` already removed the URI from `subscribed`,
+    // so there is nothing to re-attach and nothing to report.
+    if (exit._tag === "Failure" && Cause.hasInterrupts(exit.cause)) return;
+    if (!this.subscribed.has(uri)) return;
+    // Otherwise the stream ended while a subscriber still waits: either it
+    // produced frames and then settled / dropped, or it FAILED before its
+    // first frame (e.g. the source wasn't live yet, or a transport error on
+    // open). Both warrant a detach + bounded retry so a re-served source
+    // re-attaches — a pre-first-frame failure here is NOT covered by the
+    // attach retry (the attach succeeded; only the stream open failed).
+    if (exit._tag === "Failure" && !yielded) {
+      this.deps.onError?.(Cause.squash(exit.cause));
+    }
+    this.detach();
+    this.scheduleRetry();
   }
 
   private notify(uri: string): void {
@@ -203,24 +222,35 @@ export class ResourcePusher<Client> {
   }
 
   private stopStream(uri: string): void {
-    this.aborts.get(uri)?.abort();
-    this.aborts.delete(uri);
+    const fiber = this.fibers.get(uri);
+    this.fibers.delete(uri);
+    if (fiber !== undefined) fiber.interruptUnsafe();
     const timer = this.timers.get(uri);
     if (timer !== undefined) clearTimeout(timer);
     this.timers.delete(uri);
   }
 
   private detach(): void {
-    // Bump the generation BEFORE disposing so the in-flight stream loops see
-    // the change and don't reschedule. Disposing the client tears every
-    // stream with it, so we don't abort the controllers here — aborting would
-    // race an RPC cancel-send against the transport close
-    // (ERR_STREAM_DESTROYED). Per-stream abort is only for a single live
-    // unsubscribe (stopStream), where the link stays open for others.
+    // Bump the generation BEFORE tearing down so the in-flight exit handlers see
+    // the change and don't reschedule. Then interrupt every stream fiber and
+    // dispose the client.
+    //
+    // The oRPC-era version deliberately did NOT abort per-stream here: aborting
+    // raced an RPC cancel-send against the transport close (ERR_STREAM_DESTROYED),
+    // and disposing the client tore every stream with it anyway. Neither half of
+    // that holds now. Interruption is not a message sent over the wire — it
+    // releases the stream's own scoped finalizers in-process — and the in-process
+    // `directDispatch` has no client to dispose at all, so leaving the fibers
+    // running would leak a live handler subscription per URI for the life of the
+    // process. The generation token stays because its OTHER job is untouched:
+    // telling a fiber's exit handler "you were torn down" from "your source
+    // settled".
     this.generation += 1;
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
-    this.aborts.clear();
+    const fibers = [...this.fibers.values()];
+    this.fibers.clear();
+    for (const fiber of fibers) fiber.interruptUnsafe();
     const client = this.client;
     this.client = null;
     if (client !== null) this.deps.dispose?.(client);

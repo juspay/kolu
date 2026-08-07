@@ -15,20 +15,20 @@
  * the coarse dot (see `serveHostMap`). This module keeps only the browser-safe TYPE +
  * schema + the pure {@link projectConnection} leaf a consumer derives the word from the
  * entry with; the cell, its gate-closed seed, its readiness `liveWhen`, and the
- * `mirroredSurface` seam that composed it are gone. THIS module imports only `zod`,
- * `@kolu/surface-map/evidence` (itself zod-only), and type-only session shapes — so it
- * rides the browser bundle.
+ * `mirroredSurface` seam that composed it are gone. THIS module imports only `effect`'s
+ * `Schema`, `@kolu/surface-map/evidence` (itself Schema-only), and type-only session
+ * shapes — so it rides the browser bundle.
  */
 
-// The failure-evidence vocabulary, from `@kolu/surface-map`'s zod-only `./evidence`
-// leaf rather than its default entry: the default entry is the CONTRACT half, which
-// imports `@orpc/contract` and `@kolu/surface/define` as VALUES, and this module's
+// The failure-evidence vocabulary, from `@kolu/surface-map`'s Schema-only `./evidence`
+// leaf rather than its default entry: the default entry is the GROUP half, which
+// imports `effect/unstable/rpc` and `@kolu/surface/define` as VALUES, and this module's
 // browser-bundle constraint (below) is that it pulls neither.
 import {
   type EvidenceLine,
   EvidenceLineSchema,
 } from "@kolu/surface-map/evidence";
-import { z } from "zod";
+import { Result, Schema } from "effect";
 // TYPE-ONLY (erased at runtime): the connection value IS `SessionState<SshProv>`, so this
 // module keeps ONE connection-state type family. Neither import pulls the node/server
 // code those modules carry — `import type` emits nothing.
@@ -52,24 +52,28 @@ export type LogEntry = EvidenceLine;
  *  {@link EvidenceLineSchema}, for the same reason {@link LogEntry} is `EvidenceLine`:
  *  one definition beats two definitions plus a guard.
  *
- *  A re-declared twin annotated `z.ZodType<LogEntry>` was the guard here before, and it
+ *  A re-declared twin annotated `WireSchema<LogEntry>` was the guard here before, and it
  *  did not guard in the likelier edit direction — TypeScript accepts a NARROWER schema
  *  annotated as a wider type, so adding a third `source` provenance upstream would have
  *  left this twin silently rejecting the new value at runtime while compiling clean. An
  *  alias has no direction to be blind in. */
 export const LogEntrySchema = EvidenceLineSchema;
 
-const logSchema = z.array(LogEntrySchema).readonly();
+// `Schema.Array` already decodes to a `readonly` array, so zod's trailing
+// `.readonly()` has no counterpart to spell (same note as `FailureEvidenceSchema`).
+const logSchema = Schema.Array(LogEntrySchema);
 
 /** The browser-facing connection-health value. NOT a separate mirror type: it IS the
  *  session sum on the wire — `ConnectionInfo = SessionState<SshProv>` (below), so there
- *  is exactly ONE connection-state type family. This zod schema must exist (a wire value
+ *  is exactly ONE connection-state type family. This schema must exist (a wire value
  *  needs a concrete browser-safe validator, which a TS-generic type is not), so it
  *  hand-restates the same arms — but the drift risk is closed by a COMPILE-TIME pin
- *  (`connectionInfoIdentity.test-d.ts`) asserting `z.infer<typeof ConnectionInfoSchema>`
+ *  (`connectionInfoIdentity.test-d.ts`) asserting `typeof ConnectionInfoSchema.Type`
  *  ≡ `SessionState<SshProv>`: add a phase or change an invariant on one and the build
- *  fails until the other agrees, rather than a runtime zod throw. Discriminated on
- *  `phase`:
+ *  fails until the other agrees, rather than a runtime decode throw. A plain
+ *  `Schema.Union` of structs, NOT `Schema.TaggedUnion`: the discriminant is `phase`,
+ *  not `_tag`, and these bytes are frozen (the ssh mirror hop, cross-repo with
+ *  drishti). Discriminated on `phase`:
  *
  *   - UP (the ssh connector's `probing`/`provisioning` phases
  *     plus `connecting`/`connected`): carries the `log` tail + `sinceMs`, no error
@@ -85,40 +89,36 @@ const logSchema = z.array(LogEntrySchema).readonly();
  *  carried on the host map's entry (whose sessions are exactly those ssh sessions), so
  *  naming them here is honest. */
 const upArm = <P extends string>(phase: P) =>
-  z.object({
-    phase: z.literal(phase),
+  Schema.Struct({
+    phase: Schema.Literal(phase),
     log: logSchema,
-    sinceMs: z.number(),
-    campaignEpoch: z.number(),
+    sinceMs: Schema.Number,
+    campaignEpoch: Schema.Number,
   });
 
-export const ConnectionInfoSchema = z.discriminatedUnion("phase", [
+const downArm = <P extends string>(phase: P) =>
+  Schema.Struct({
+    phase: Schema.Literal(phase),
+    error: Schema.String,
+    cause: Schema.Literals(["network", "remote"]),
+    log: logSchema,
+    sinceMs: Schema.Number,
+    campaignEpoch: Schema.Number,
+  });
+
+export const ConnectionInfoSchema = Schema.Union([
   upArm("probing"),
   upArm("provisioning"),
   upArm("connecting"),
-  z.object({
-    phase: z.literal("connected"),
-    clockOffset: z.number().nullable(),
+  Schema.Struct({
+    phase: Schema.Literal("connected"),
+    clockOffset: Schema.NullOr(Schema.Number),
     log: logSchema,
-    sinceMs: z.number(),
-    campaignEpoch: z.number(),
+    sinceMs: Schema.Number,
+    campaignEpoch: Schema.Number,
   }),
-  z.object({
-    phase: z.literal("disconnected"),
-    error: z.string(),
-    cause: z.enum(["network", "remote"]),
-    log: logSchema,
-    sinceMs: z.number(),
-    campaignEpoch: z.number(),
-  }),
-  z.object({
-    phase: z.literal("failed"),
-    error: z.string(),
-    cause: z.enum(["network", "remote"]),
-    log: logSchema,
-    sinceMs: z.number(),
-    campaignEpoch: z.number(),
-  }),
+  downArm("disconnected"),
+  downArm("failed"),
 ]);
 
 /** The connection value IS the session sum at the ssh connector's `Prov` — one type
@@ -171,6 +171,12 @@ export function projectConnection<Prov extends SshProv>(
   return s;
 }
 
+/** The ONE decode of {@link ConnectionInfoSchema} — built once (the parser is
+ *  compiled on first use) rather than per frame, since `sessionConnection` runs on
+ *  the host-map status hot path. `Result`-returning (zod's `safeParse` shape), so
+ *  the caller owns the loud throw and its message. */
+const decodeConnectionInfo = Schema.decodeUnknownResult(ConnectionInfoSchema);
+
 /** Frames already validated by {@link sessionConnection}, keyed by REFERENCE so the entry is
  *  auto-evicted when the family replaces the frame — the validate-once-per-frame memo. */
 const validatedFrames = new WeakSet<SessionState<string>>();
@@ -209,13 +215,13 @@ export function sessionConnection(
 ): ConnectionInfo {
   if (raw === undefined) return DEFAULT_CONNECTION;
   if (!validatedFrames.has(raw)) {
-    const parsed = ConnectionInfoSchema.safeParse(raw);
-    if (!parsed.success) {
+    const parsed = decodeConnectionInfo(raw);
+    if (Result.isFailure(parsed)) {
       throw new Error(
         "sessionConnection: session frame is not a valid ConnectionInfo — a host map " +
           "declaring a `connection` payload must be served over ssh-typed sessions producing " +
           "valid ConnectionInfo frames (`makeSession` stamps every arm field). Failing loud " +
-          `rather than casting a malformed/non-ssh frame. ${parsed.error.message}`,
+          `rather than casting a malformed/non-ssh frame. ${parsed.failure.message}`,
       );
     }
     validatedFrames.add(raw);

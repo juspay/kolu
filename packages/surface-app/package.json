@@ -24,27 +24,14 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.103",
     "@kolu/surface": "workspace:*",
-    "partysocket": "^1.1.16",
-    "solid-js": "^1.9.0",
-    "zod": "^4.3.6"
-  },
-  "peerDependencies": {
-    "@hono/node-server": "^2.0.10",
-    "hono": "^4.12.25"
-  },
-  "peerDependenciesMeta": {
-    "@hono/node-server": {
-      "optional": true
-    },
-    "hono": {
-      "optional": true
-    }
+    "effect": "4.0.0-beta.103",
+    "solid-js": "^1.9.0"
   },
   "devDependencies": {
-    "@hono/node-server": "^2.0.10",
+    "@effect/platform-node": "4.0.0-beta.103",
     "@types/node": "^22.0.0",
-    "hono": "^4.12.25",
     "typescript": "^7.0.2",
     "vitest": "^4.1.0"
   }

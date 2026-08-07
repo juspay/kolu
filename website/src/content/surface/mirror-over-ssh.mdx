@@ -47,12 +47,13 @@ verbatim.
 and the pump rebuilds it on every spawn, so no per-client fold survives a
 reconnect.
 
-## 3. Re-serve the same contract locally
+## 3. Re-serve the same surface locally
 
-The mirror runtime's `.router` is already the FINAL top-level router — serve it
-directly, no flatten. A `directLink` over it is the in-process consumer; a
-browser reaches the same router over a WebSocket, with the app layer's
-`acceptSurfaceSocket` gating each upgrade (see
+The mirror runtime's `{ group, handlers }` is what any transport takes — there is
+nothing to finalize and nothing to re-prefix, because a tag carries its own route.
+A `directDispatch` over the runtime is the in-process consumer; a browser reaches
+the same pair over a WebSocket, with the app layer's `acceptSurfaceSocket` gating
+each upgrade and `serveSurfaceSocket` serving it (see
 [@kolu/surface-app](/surface/ref-surface-app)). The browser now consumes the
 local copy exactly as if the agent were in-process.
 
@@ -60,7 +61,7 @@ local copy exactly as if the agent were in-process.
 
 <Aside type="tip" title="reServeSurface packages steps 2 and 3">
   For the production path, `reServeSurface({ source, policy, session })` wires the
-  pump and the re-serve for one binding and returns `{ surface, router, done, close }`.
+  pump and the re-serve for one binding and returns `{ surface, group, handlers, done, close }`.
   `done` settles when the pump exits (and rejects on an unrecoverable fault); `close()`
   stops the binding — it aborts the pump WITHOUT destroying the caller-owned session and
   releases the internal runtime's owned sources (idempotent). Its `policy` marks each

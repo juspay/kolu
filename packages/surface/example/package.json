@@ -13,18 +13,12 @@
     "start": "tsx src/server/main.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.0.10",
-    "@hono/node-ws": "^1.1.0",
+    "@effect/platform-node": "catalog:",
     "@kolu/surface": "workspace:*",
-    "@orpc/client": "^1.13.13",
-    "@orpc/contract": "^1.13.13",
-    "@orpc/experimental-publisher": "^1.13.13",
-    "@orpc/server": "^1.13.13",
-    "hono": "^4.12.25",
-    "partysocket": "^1.1.16",
+    "@kolu/surface-app": "workspace:*",
+    "effect": "catalog:",
     "solid-js": "^1.9.0",
-    "ws": "^8.21.0",
-    "zod": "^4.3.6"
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

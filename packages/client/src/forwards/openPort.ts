@@ -11,6 +11,8 @@
  * re-implemented half of it.
  */
 
+import type { SurfaceCallFailure } from "@kolu/surface/client";
+import { Effect } from "effect";
 import type { HostKey } from "kolu-common/hostKey";
 import type { ForwardOrigin } from "kolu-common/surface";
 import { match } from "ts-pattern";
@@ -95,11 +97,10 @@ export function urlForPort(opts: {
  *  Idempotent by target on the server — a double-clicked chip opens exactly one
  *  door. Origin is the CALLER's to declare: chip/card use `auto` (reaped when the
  *  listener dies); ⌘K uses `manual` (pinned until cancel). */
-export async function ensureDoor(input: {
+export function ensureDoor(input: {
   host: HostKey;
   port: number;
   origin: ForwardOrigin;
-}): Promise<number> {
-  const forward = await createForward(input);
-  return forward.localPort;
+}): Effect.Effect<number, SurfaceCallFailure> {
+  return createForward(input).pipe(Effect.map((forward) => forward.localPort));
 }

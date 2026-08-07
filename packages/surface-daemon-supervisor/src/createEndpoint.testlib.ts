@@ -10,12 +10,31 @@ import {
   type ProcessIdentity,
   type ReadProcessIdentity,
 } from "@kolu/surface-daemon";
+import { Effect } from "effect";
 import { bakedOsFactsBin, osfactsSocketHolders } from "osfacts-client";
 import {
   createEndpoint as createEndpointCore,
   type EndpointSpec,
 } from "./endpoint.ts";
 import type { ReadSocketHolders } from "./socketHolder.ts";
+
+/**
+ * Lift a Promise-shaped test double onto an Effect's FAILURE channel.
+ *
+ * The three spec seams a suite fakes — `probe`, `connect`, `driver.spawn` — are
+ * Effect-shaped, and every one of them has cases that reject on purpose: a
+ * `DaemonContractSkewError` the endpoint must branch on, an `ENOENT` spawn, a
+ * handshake that never completes. `Effect.promise` would put those on the
+ * DEFECT channel, where `isContractSkewError` never sees them and the endpoint
+ * would report `dead` for a skew. `tryPromise` keeps them typed failures, and
+ * the `catch` hands back the ORIGINAL error object so a suite's
+ * `rejects.toThrow(...)` / brand check reads exactly what it read before.
+ */
+export const fromAsync = <A>(f: () => Promise<A>): Effect.Effect<A, Error> =>
+  Effect.tryPromise({
+    try: f,
+    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
+  });
 
 /** Deterministic fake start times for live pids in unit tests. */
 export function testStartUnixUs(pid: number): number {
@@ -52,11 +71,17 @@ export const testAcquireReadIdentity: ReadProcessIdentity = (pid) =>
  * carefully does not. Each consumer's suite passes its own.
  *
  * Resolution is lazy (per call, not per construction) so a suite that never
- * reaches a holder read is not blocked by an unbaked environment.
+ * reaches a holder read is not blocked by an unbaked environment. `suspend`
+ * rather than a bare call, because `bakedOsFactsBin` is on the client's SYNC
+ * island and THROWS: a function whose type says it returns an Effect must
+ * return one, so the throw becomes a defect on the fiber that runs it rather
+ * than an exception out of the expression that merely described the read.
  */
 export function testReadSocketHolders(envVar: string): ReadSocketHolders {
   return (socketPath) =>
-    osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath);
+    Effect.suspend(() =>
+      osfactsSocketHolders(bakedOsFactsBin(envVar))(socketPath),
+    );
 }
 
 /**
@@ -67,13 +92,21 @@ export function testReadSocketHolders(envVar: string): ReadSocketHolders {
  * inject from construction to first use, and it let a suite pass without ever
  * exercising the real injection. kolu's suites get it from
  * `./createEndpoint.kolu.testlib.ts`; a suite that never reaches a holder read
- * passes a one-line stub (`async () => ({ kind: "none" })`) and says so.
+ * passes a one-line stub (`() => Effect.succeed({ kind: "none" })`) and says so.
+ *
+ * The spec seam is Effect-shaped and {@link testReadProcessIdentity} is the
+ * SYNC reader (it is shared with `acquirePidGate` pins, whose claim path is
+ * synchronous on purpose), so it is lifted here — `Effect.sync`, not
+ * `Effect.succeed`, because the fake re-reads pid liveness on every call and a
+ * value computed once at construction would answer with a stale `isHolderLive`
+ * for the rest of the suite.
  */
 export function createEndpointForTest<C, I, M = undefined>(
   spec: Omit<EndpointSpec<C, I, M>, "readProcessIdentity">,
 ) {
   return createEndpointCore({
     ...spec,
-    readProcessIdentity: testReadProcessIdentity,
+    readProcessIdentity: (pid) =>
+      Effect.sync(() => testReadProcessIdentity(pid)),
   });
 }

@@ -1,4 +1,4 @@
-/** Zod schemas for Claude Code session info — browser-safe.
+/** Effect schemas for Claude Code session info — browser-safe.
  *
  *  Lives in its own module so `kolu-common` (and any client code) can import
  *  the schema without pulling the package root, which transitively evaluates
@@ -6,10 +6,11 @@
  *  imports. Mirrors the `anyforge/schemas` precedent. See juspay/kolu#682.
  *
  *  Anything exported here MUST stay free of `node:*` imports, SDK imports,
- *  and filesystem access — zod and `anyagent`'s schema re-exports only. */
+ *  and filesystem access — Effect Schema and `anyagent`'s schema re-exports
+ *  only. */
 
 import { TaskProgressSchema } from "anyagent";
-import { z } from "zod";
+import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
 export { TaskProgressSchema };
@@ -19,19 +20,19 @@ export { TaskProgressSchema };
  *  busy-waiting on a background `Workflow` task (state `running_background`);
  *  null otherwise. Claude-Code-specific — Codex/OpenCode have no analogue,
  *  so this field lives on `ClaudeCodeInfo` alone rather than the shared shape. */
-export const ClaudeWorkflowSchema = z.object({
+export const ClaudeWorkflowSchema = Schema.Struct({
   /** Workflow name from the journal (e.g. "deep-research"). */
-  name: z.string(),
+  name: Schema.String,
   /** Journal lifecycle status (e.g. "running", "completed", "failed"). */
-  status: z.string(),
+  status: Schema.String,
   /** Total sub-agents spawned so far (journal `agentCount`) — the fan-out count. */
-  agents: z.number(),
+  agents: Schema.Number,
 });
 
-export type ClaudeWorkflow = z.infer<typeof ClaudeWorkflowSchema>;
+export type ClaudeWorkflow = typeof ClaudeWorkflowSchema.Type;
 
-export const ClaudeCodeInfoSchema = z.object({
-  kind: z.literal("claude-code"),
+export const ClaudeCodeInfoSchema = Schema.Struct({
+  kind: Schema.Literal("claude-code"),
   /** Current state derived from session JSONL — except `awaiting_user`, which
    *  can also arrive from a screen scrape (see below).
    *  - `awaiting_user`: agent stopped to ask the human. Two on-disk shapes hide
@@ -64,7 +65,7 @@ export const ClaudeCodeInfoSchema = z.object({
    *    field below is populated only for the `Workflow` case; a fork promotes
    *    the state but carries no fan-out journal, so `workflow` stays null.
    *    Claude-Code-specific — see `deriveState` and the session-watcher. */
-  state: z.enum([
+  state: Schema.Literals([
     "thinking",
     "tool_use",
     "waiting",
@@ -72,33 +73,33 @@ export const ClaudeCodeInfoSchema = z.object({
     "running_background",
   ]),
   /** Session UUID from ~/.claude/sessions/. */
-  sessionId: z.string(),
+  sessionId: Schema.String,
   /** Model name if available (e.g. "claude-opus-4-6"). */
-  model: z.string().nullable(),
+  model: Schema.NullOr(Schema.String),
   /** Display title from the Claude Agent SDK — custom title › auto-summary › first prompt.
    *  Refreshed best-effort on each transcript change; null until the first lookup resolves. */
-  summary: z.string().nullable(),
+  summary: Schema.NullOr(Schema.String),
   /** Task checklist progress derived from TaskCreate/TaskUpdate tool calls in the transcript.
    *  null when no tasks have been created in the session. */
-  taskProgress: TaskProgressSchema.nullable(),
+  taskProgress: Schema.NullOr(TaskProgressSchema),
   /** Fan-out progress of the background `Workflow` the agent is waiting on,
    *  read from its run journal. Distinct from `taskProgress` (the in-session
    *  TaskCreate/TaskUpdate checklist) — these are two different concepts and
    *  are kept as separate fields. null unless `state` is `running_background`
    *  and the outstanding task is a `Workflow` with an on-disk journal. */
-  workflow: ClaudeWorkflowSchema.nullable(),
+  workflow: Schema.NullOr(ClaudeWorkflowSchema),
   /** Running context-window token count: sum of input + cache_creation +
    *  cache_read on the latest assistant entry's `message.usage`. Null when
    *  the transcript has no assistant entries yet, or the entry lacks usage
    *  (e.g. synthetic entries from /compact). Window size is not encoded —
    *  consumers render the raw count compact ("47k"). */
-  contextTokens: z.number().nullable(),
+  contextTokens: Schema.NullOr(Schema.Number),
   /** Epoch-ms the conversation began — the transcript's first entry
    *  `timestamp`. Deliberately the conversation's age (survives a `claude -c`
    *  resume), NOT the session file's process `startedAt` (which resets on
    *  resume); matches codex/opencode's "Running for" semantics. Null until the
    *  first message lands. Drives the inspector's "Running for" elapsed display. */
-  startedAt: z.number().nullable(),
+  startedAt: Schema.NullOr(Schema.Number),
 });
 
-export type ClaudeCodeInfo = z.infer<typeof ClaudeCodeInfoSchema>;
+export type ClaudeCodeInfo = typeof ClaudeCodeInfoSchema.Type;

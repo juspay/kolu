@@ -17,6 +17,15 @@ const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
   "?": "untracked",
 };
 
+/** The one field pair this mapping reads off a wire status row. Structural and
+ *  `readonly`, so a decoded (readonly) `GitStatusOutput.files` row satisfies it
+ *  directly — the decoded shape is consumed as-is, never copied to strip a
+ *  `readonly`. */
+type GitStatusFile = {
+  readonly path: string;
+  readonly status: GitChangeStatus;
+};
+
 /** Overlay two git-status layers into one decoration set, keyed by path.
  *  `fallback` is laid down first, then `primary` overwrites on conflict — so a
  *  path present in both takes its `primary` word. The Code-tab "All files" view
@@ -24,13 +33,13 @@ const GIT_STATUS_WORD: Record<GitChangeStatus, GitStatusEntry["status"]> = {
  *  "prefer Local". Order of the returned array is unspecified — Pierre matches
  *  entries to rows by `path`. */
 export function mergeGitStatusEntries(
-  primary: { path: string; status: GitChangeStatus }[],
-  fallback: { path: string; status: GitChangeStatus }[],
+  primary: readonly GitStatusFile[],
+  fallback: readonly GitStatusFile[],
 ): GitStatusEntry[] {
-  const toEntry = (f: {
-    path: string;
-    status: GitChangeStatus;
-  }): GitStatusEntry => ({ path: f.path, status: GIT_STATUS_WORD[f.status] });
+  const toEntry = (f: GitStatusFile): GitStatusEntry => ({
+    path: f.path,
+    status: GIT_STATUS_WORD[f.status],
+  });
   const byPath = new Map<string, GitStatusEntry>(
     fallback.map((f) => [f.path, toEntry(f)]),
   );
