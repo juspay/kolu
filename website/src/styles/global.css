@@ -541,13 +541,6 @@ body {
   overflow-x: auto;
 }
 
-/* Shiki themes ship their own token colours; keep fenced code on the site's
-   palette instead of letting unrelated syntax colours leak in. */
-.prose-editorial pre.astro-code,
-.prose-editorial pre.astro-code span {
-  color: var(--color-ink) !important;
-}
-
 /* Inline code within prose — keep lighter than pre blocks. Tailwind
    Typography ships literal backtick decoration via `::before` / `::after`
    on inline code; suppress it (the inline-code box already reads as code,

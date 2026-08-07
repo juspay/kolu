@@ -1,0 +1,184 @@
+---
+title: "Effect, everywhere"
+subtitle: "Five plumbing libraries out, one in — the wire, the schemas, the HTTP app, the daemons, the reactive engine. And the real reason: most of this code is written by agents, and Effect is the shape agents fail loudly in."
+description: "Kolu deleted zod, oRPC, partysocket, hono and @preact/signals-core and now runs end-to-end on Effect 4. What the stack looks like today — RpcGroups on the wire, schemas that carry their own types and errors, daemons booting through Layer graphs — and why a codebase written mostly by coding agents wants exactly this."
+pubDate: 2026-08-07
+author: "Sridhar Ratnakumar"
+---
+
+import PR from "../../components/PR.astro";
+
+[Kolu](https://github.com/juspay/kolu) — a terminal app for running many coding agents at once — used to do its plumbing with five libraries: [zod](https://zod.dev) for schemas, [oRPC](https://orpc.io/) for the wire, [partysocket](https://github.com/partykit/partysocket) for reconnects, [hono](https://hono.dev/) for HTTP, [`@preact/signals-core`](https://github.com/preactjs/signals) for reactivity. As of <PR id={2101} /> they're all gone from `package.json`. Underneath everything now sits one library: [Effect](https://effect.website/), pinned at `4.0.0-beta.103`. Yes, a beta. Hold that thought.
+
+This isn't the migration war story — that diff was +78,690/−31,896 across 848 files, and the PR carries its own log. This is what's there now, and why. And if you read Haskell but only basic TypeScript, you're closer to home here than in most TS codebases: [Effect](https://effect.website/) is the [monad-transformer stack](https://en.wikibooks.org/wiki/Haskell/Monad_transformers) you already know, shipped as a library with a runtime attached.
+
+## Why Effect
+
+An [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/) is a value describing a computation that succeeds with `A`, fails with `E`, and needs an environment `R`. A Haskeller reads it as [`ReaderT R`](https://hackage.haskell.org/package/transformers/docs/Control-Monad-Trans-Reader.html) ([`ExceptT E`](https://hackage.haskell.org/package/transformers/docs/Control-Monad-Trans-Except.html) [`IO`](https://wiki.haskell.org/Introduction_to_IO)) `A` — with structured concurrency, retry, and resource tracking built into the runtime instead of bolted on per-library. And [`Effect.gen`](https://effect.website/docs/getting-started/using-generators/) is [do-notation](https://en.wikibooks.org/wiki/Haskell/do_notation), spelled with generators. Here's the whole model as a hello world, no Kolu required:
+
+```ts
+import { Context, Effect, Schedule, Schema } from "effect";
+
+class UserNotFound extends Schema.TaggedErrorClass<UserNotFound>("UserNotFound")(
+  "UserNotFound",
+  { id: Schema.String },
+) {}
+
+class Users extends Context.Service<
+  Users,
+  { lookup: (id: string) => Effect.Effect<string, UserNotFound> }
+>()("Users") {}
+
+const hello = Effect.gen(function* () {
+  const users = yield* Users;              // R: ask the environment
+  const name = yield* users.lookup("42");  // E: may fail, and the type says how
+  return `hello, ${name}`;                 // A
+});
+// inferred: Effect<string, UserNotFound, Users> — nobody wrote that type
+```
+
+Nothing has run yet — `hello` is a description, an [`IO`](https://wiki.haskell.org/Introduction_to_IO) action you haven't handed to `main`. Running it is where the rest of the vocabulary shows up:
+
+```ts
+const main = hello.pipe(
+  Effect.retry(Schedule.spaced(1000)),  // the retry policy is a plain value
+  Effect.provide(usersLive),            // a Layer supplies the Users service
+);
+Effect.runPromise(main);                // the run edge — unsafePerformIO
+```
+
+That type is the whole bet, three ways:
+
+1. **One semantics.** Every networked program has three chores: things fail, failed things get retried, acquired things get cleaned up. Each of the five libraries did those its own way — [zod](https://zod.dev) threw, [partysocket](https://github.com/partykit/partysocket) had a private reconnect loop, every server had its own shutdown hooks — and we wrote the glue between them. Now failure is the `E` in [`Effect<A, E, R>`](https://effect.website/docs/getting-started/the-effect-type/), a retry policy is a [`Schedule`](https://effect.website/docs/scheduling/introduction/) value, and cleanup is tied to a [`Scope`](https://effect.website/docs/resource-management/scope/). Same three words at every level of the stack.
+2. **Types with teeth.** Errors and dependencies live in the type and survive across the wire, so "this call can fail this way" is checked, not documented.
+3. **Agents write most of this code**, and [Effect](https://effect.website/) turns their nastiest failure mode — code that compiles and silently does nothing — into compile errors and CI scans.
+
+The rest of this post cashes those claims out, one piece of the stack at a time. The map:
+
+<svg viewBox="0 0 700 300" role="img" aria-label="Mapping of five deleted dependencies to the one library that replaced them: zod to Effect Schema, oRPC to effect/unstable/rpc, partysocket to Socket plus Schedule, hono to effect/unstable/http, and preact signals to Atom — all subpaths of the single effect package pinned at 4.0.0-beta.103." style="width:100%;max-width:700px;display:block;margin:1.75rem auto;">
+  <text x="14" y="20" fill="var(--color-ink)" font-size="13" font-weight="600" font-family="monospace">five dependencies, one library</text>
+  <text x="120" y="64" fill="var(--color-ink-muted)" font-size="10.5" text-anchor="middle" font-family="monospace">gone from package.json</text>
+  <rect x="20" y="78" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="97" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">zod</text>
+  <line x1="224" y1="93" x2="392" y2="93" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,93 392,89 392,97" fill="var(--color-ink-dim)" />
+  <rect x="20" y="118" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="137" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">@orpc/*</text>
+  <line x1="224" y1="133" x2="392" y2="133" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,133 392,129 392,137" fill="var(--color-ink-dim)" />
+  <rect x="20" y="158" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="177" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">partysocket</text>
+  <line x1="224" y1="173" x2="392" y2="173" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,173 392,169 392,177" fill="var(--color-ink-dim)" />
+  <rect x="20" y="198" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="217" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">hono</text>
+  <line x1="224" y1="213" x2="392" y2="213" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,213 392,209 392,217" fill="var(--color-ink-dim)" />
+  <rect x="20" y="238" width="200" height="30" rx="5" fill="none" stroke="var(--color-ink-muted)" stroke-width="1.1" />
+  <text x="120" y="257" fill="var(--color-ink-dim)" font-size="11.5" text-anchor="middle" font-family="monospace">@preact/signals-core</text>
+  <line x1="224" y1="253" x2="392" y2="253" stroke="var(--color-ink-dim)" stroke-width="1.1" /><polygon points="400,253 392,249 392,257" fill="var(--color-ink-dim)" />
+  <rect x="404" y="44" width="272" height="232" rx="6" fill="none" stroke="var(--color-kolu-primary)" stroke-width="1.4" />
+  <text x="540" y="64" fill="var(--color-kolu-primary)" font-size="11.5" font-weight="600" text-anchor="middle" font-family="monospace">effect@4.0.0-beta.103</text>
+  <line x1="420" y1="72" x2="660" y2="72" stroke="var(--color-rule)" stroke-width="1" />
+  <text x="540" y="97" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Schema</text>
+  <text x="540" y="137" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">unstable/rpc</text>
+  <text x="540" y="177" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Socket + Schedule</text>
+  <text x="540" y="217" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">unstable/http</text>
+  <text x="540" y="257" fill="var(--color-ink)" font-size="11.5" text-anchor="middle" font-family="monospace">Atom</text>
+</svg>
+
+## The wire: RpcGroups over ndjson
+
+Kolu's client and its daemons speak one RPC contract, and that contract is a flat [`RpcGroup`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) — a typed map from slash-tagged method names to request/response schemas, the moral equivalent of a [Servant](https://docs.servant.dev/) API type. (It lives at [`effect/unstable/rpc`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc); being unstable, its documentation is the source.) Frames are [ndjson](https://github.com/ndjson/ndjson-spec) — one JSON value per line — over an Effect [`Socket`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/socket):
+
+```ts
+// packages/common/src/contract.ts
+export const koluRootGroup = RpcGroup.make(
+  Rpc.make("server/info", { success: ServerInfoSchema }),
+  Rpc.make("daemon/restart"),
+  Rpc.make("hosts/add", { payload: HostRefSchema }),
+  Rpc.make("hosts/reconnect", { payload: HostRefSchema }),
+);
+
+export const contract = koluSurfaceGroup.merge(koluRootGroup);
+```
+
+The [surface framework](/blog/surface-framework) — the typed reactive-state layer everything in Kolu is served through — kept its [five shapes](/surface) (cell, collection, stream, event, procedure), and each one now mints its verbs as `Rpc.make` entries; a collection's delta feed is just an RPC with `stream: true`. Its client-side reactivity moved too: Effect's `Atom` sits where [`@preact/signals-core`](https://github.com/preactjs/signals) used to. And [oRPC-over-ssh](/blog/orpc-over-ssh) still works exactly as that post describes, minus the [oRPC](https://orpc.io/): the boundary held, and swapping the wire vendor never touched a domain module.
+
+Reconnect — [partysocket](https://github.com/partykit/partysocket)'s old job — is now a [`Schedule`](https://effect.website/docs/scheduling/introduction/) handed to the client protocol as a retry policy. A [`Schedule`](https://effect.website/docs/scheduling/introduction/) is a first-class value describing "when to try again" (think the [retry](https://hackage.haskell.org/package/retry) package's [`RetryPolicy`](https://hackage.haskell.org/package/retry/docs/Control-Retry.html#t:RetryPolicyM), composable with `.pipe`), so backoff logic is data you test, not a config knob on somebody's WebSocket wrapper.
+
+## Schemas: types and errors from one codec
+
+Every [zod](https://zod.dev) schema is now [Effect Schema](https://effect.website/docs/schema/introduction/). A [`Schema`](https://effect.website/docs/schema/introduction/) is one value that is simultaneously the decoder, the encoder, and the source of the TypeScript type — [`FromJSON`](https://hackage.haskell.org/package/aeson/docs/Data-Aeson.html#t:FromJSON), [`ToJSON`](https://hackage.haskell.org/package/aeson/docs/Data-Aeson.html#t:ToJSON), and the data declaration fused (Haskellers: it's [autodocodec](https://hackage.haskell.org/package/autodocodec), not [aeson](https://hackage.haskell.org/package/aeson)):
+
+```ts
+// packages/common/src/hostKey.ts
+export const HostKeySchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("local") }),
+  Schema.Struct({
+    kind: Schema.Literal("remote"),
+    target: Schema.String.check(Schema.isMinLength(1)),
+  }),
+]);
+export type HostKey = typeof HostKeySchema.Type;
+```
+
+Errors are schemas too. A failure the caller can act on is a class — a constructor in the error sum type — that travels the wire and decodes on the far side as itself:
+
+```ts
+// packages/padi/src/errors.ts
+export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+  "padi/TerminalNotFound",
+)("TerminalNotFound", { id: Schema.String }) {
+  override get message(): string {
+    return `Terminal ${this.id} not found`;
+  }
+}
+```
+
+[Effect](https://effect.website/) splits failure the way Haskell splits [`ExceptT`](https://hackage.haskell.org/package/transformers/docs/Control-Monad-Trans-Except.html) from [`error`](https://hackage.haskell.org/package/base/docs/Prelude.html#v:error): an [expected error](https://effect.website/docs/error-management/expected-errors/) is typed and in the `E` channel; a [defect](https://effect.website/docs/error-management/unexpected-errors/) is a crash. The rule written in that file's header: if a failure means "[padi](/padi) is broken" rather than "you can handle this," it stays out of the type entirely and crashes loud. No error-code string soup, no `catch (e: unknown)`.
+
+One bound does a lot of quiet work: every wire schema must satisfy [`Schema.Codec<T, unknown, never, never>`](https://effect.website/docs/schema/introduction/) — decode `unknown` to `T`, where the two `never`s say decoding needs no services from the environment and fails into no untyped channel. It's a purity annotation on the codec. [zod](https://zod.dev) had no way to even state that — and its habit of tolerating a key that's present but `undefined` (where [Effect Schema](https://effect.website/docs/schema/introduction/) refuses) had let eight producer/schema mismatches into the tree, two of them live in production paths. The bugs were ours all along. The strictness found them.
+
+## Daemons: boot as a Layer graph
+
+Kolu runs on two daemons: [padi](/padi), the workspace daemon that remembers your sessions, and [kaval](/kaval), the PTY daemon that owns the live terminals underneath. A daemon's boot is the classic init litany: take the lock so two copies can't run, open the on-disk stores, establish the process identity, build the live state, and only then listen on a socket. Shutdown has to undo all of that in reverse — including when boot only got halfway. The imperative version of that is a pyramid of `try`/`finally` and a prayer.
+
+Effect's answer is the [`Layer`](https://effect.website/docs/requirements-management/layers/). A `Layer<Out, E, In>` is a recipe: "give me environment `In` and I'll build service `Out` — and I know how to tear it down when my [`Scope`](https://effect.website/docs/resource-management/scope/) closes." It's the [ReaderT-pattern](https://tech.fpcomplete.com/blog/2017/06/readert-design-pattern/) environment record plus [`bracket`](https://hackage.haskell.org/package/base/docs/Control-Exception.html#v:bracket), reified as a value you compose. Here's one of [padi](/padi)'s real ones:
+
+```ts
+// packages/padi/src/daemonBoot/daemonMain.ts
+// "builds PadiStores; needs PadiGate first" — the dependency is in the type
+const storesLayer = (
+  stateRoot: string,
+  log: Logger,
+): Layer.Layer<PadiStores, never, PadiGate> =>
+  Layer.effect(PadiStores,
+    PadiGate.useSync(() => openStateStores(stateRoot, log)));
+```
+
+You can't build the stores until the gate — the "only one padi per state root" lock — is held, and the type says so. Boot, then, is just composition. Read it bottom-up; each [`Layer.provideMerge`](https://effect.website/docs/requirements-management/layers/) line means "build this first, and everything above me may use it":
+
+```ts
+// (abridged — same file)
+const bootLayer = endpointLayer({ stateRoot, log }).pipe(       // 5. the socket
+  Layer.provideMerge(surfacesLayer({ stateRoot, log })),        // 4. live state
+  Layer.provideMerge(identityLayer(opts, socketPath)),          // 3. identity
+  Layer.provideMerge(storesLayer(stateRoot, log)),              // 2. the stores
+  Layer.provideMerge(gateLayer),                                // 1. the gate
+);
+```
+
+Swap two of those lines and the missing dependency is a compile error, not a 3am log line. And teardown comes free: when the daemon's [`Scope`](https://effect.website/docs/resource-management/scope/) closes — clean exit or crash — each layer's release runs in reverse build order via [`Effect.acquireRelease`](https://effect.website/docs/resource-management/scope/) (that's [`bracket`](https://hackage.haskell.org/package/base/docs/Control-Exception.html#v:bracket) again). The hand-written `try { ... } finally { await served.close() }` is gone.
+
+[hono](https://hono.dev/) went the same way: the HTTP app is [`HttpRouter`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/http) layers (from [`effect/unstable/http`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/http)) merged together, and since that router ranks routes by specificity instead of registration order, the old "register the preview route before the static catch-all or it silently loses" footgun died with it.
+
+## Agents: code that cannot silently no-op
+
+Here's the part nobody prints on the box. [Kolu](https://github.com/juspay/kolu) is built mostly by coding agents, and an agent's nastiest failure mode isn't a crash — it's code that compiles and silently does nothing. `await` on a function that now returns an [`Effect`](https://effect.website/docs/getting-started/the-effect-type/) typechecks fine and never runs, because an [`Effect`](https://effect.website/docs/getting-started/the-effect-type/) is an inert description until something executes it — exactly like an [`IO`](https://wiki.haskell.org/Introduction_to_IO) action you built and never bound. That pattern bit us eleven times across kolu and its consumers before we closed it.[^eleven]
+
+[^eleven]: The tally spans [kolu](https://github.com/juspay/kolu) and its consumer repos ([drishti](https://github.com/srid/drishti), [odu](https://github.com/juspay/odu)) — one of the eleven was a test that had `await`ed away the very drain it existed to prove. The per-incident notes live in [PR #2101's campaign gist](https://gist.github.com/srid/76c5cfa5e52a21fc77196aa6237e09f4); the CI scanner that now bans the pattern — including the alias and stored-promise dodges — is [`awaitedFace.ts`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/awaitedFace.ts).
+
+[Effect](https://effect.website/) moves that class of wrong to where an agent actually sees it: into the compiler. And where types can't reach, scanners do — every `Effect.run*` edge in the tree (the [`unsafePerformIO`](https://hackage.haskell.org/package/base/docs/System-IO-Unsafe.html#v:unsafePerformIO) of this world) is a [named allowlist row](https://github.com/juspay/kolu/blob/master/packages/tests/governance/runEdges.ts), 109 sites in 54 files at merge, and the await-an-Effect and build-but-never-run patterns are banned by CI checks that were themselves tested against the known dodges. A human reviewer skims. The compiler and the scanners don't.
+
+## The beta: sharp edges, fenced
+
+About that beta. Sharp edges exist and we hit them. [Effect RPC](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc)'s default treats one handler's [defect](https://effect.website/docs/error-management/unexpected-errors/) as fatal to the whole multiplexed connection — a single dead terminal tap took down the entire daemon link before we set `disableFatalDefects` at the one shared server layer. [`RpcGroup.merge`](https://github.com/Effect-TS/effect/tree/main/packages/effect/src/unstable/rpc) is last-writer-wins with no collision detection, so every contract assembly is followed by a tag-count guard that crashes at import. And every place we depend on beta *behavior* — not API, behavior — carries a grep-able [`BETA-ASSUMPTION(beta.103)`](https://github.com/juspay/kolu/blob/master/packages/tests/governance/betaAssumptions.ts) marker; bumping the pin fails CI until each one is re-measured. The library is beta. The discipline isn't.
+
+The wire, the schemas, the HTTP app, both daemons ([padi](/padi) and [kaval](/kaval)), the reactive engine, the CLIs — 489 files import [`effect`](https://effect.website/), one library speaking one semantics, and 509/509 e2e scenarios rode it green the day the migration landed. That's the trade: one beta library watched hard, instead of five stable ones half-glued together. So far it's a good trade.
