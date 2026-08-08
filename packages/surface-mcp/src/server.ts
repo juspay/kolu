@@ -363,40 +363,35 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   }
 
   // ── ResourcePusher (subscribe/teardown lifecycle) ──────────────────────
-  // The pusher dials its own connections (one per attach). We track each
-  // connection's disposer by client identity so the pusher's `dispose(client)`
-  // hook can close the socket it opened — without this the bridge case leaks a
-  // socket on every detach.
-  const pusherDisposers = new WeakMap<object, () => void>();
+  // The pusher dials its OWN connection (one per attach) rather than sharing
+  // the read/tool one: a subscription holds its transport for as long as the
+  // subscription lives, which is not the read path's lifetime.
+  //
+  // It is handed the whole `OwnedSurfaceConnection` — `dial` is the factory,
+  // verbatim. That is the whole wiring, and deliberately so: the previous shape
+  // passed a bare client and filed its disposer in a `WeakMap` keyed by the
+  // client object, which dropped `onClose` on the floor (so the pusher healed
+  // the old #2082 way, by its stream failing) AND leaked a socket whenever two
+  // concurrent attaches dialed connections sharing one client object — the
+  // second `set` overwrote the first's disposer.
   const pusher = new ResourcePusher<SurfaceClientCallable>({
     notify: (uri) => {
       server.sendResourceUpdated({ uri }).catch((err) => {
         // Transport may already be closed (e.g. client disconnected between the
         // delta arriving and the notification send). Swallow silently — the
         // client is gone and can't receive the update anyway.
-        console.error("surface-mcp: sendResourceUpdated failed", err);
+        console.error(brand("sendResourceUpdated failed"), err);
       });
     },
-    client: async () => {
-      const conn = await dial();
-      pusherDisposers.set(conn.client as object, conn.dispose);
-      return conn.client;
-    },
+    client: dial,
     stream: (client, uri) =>
       streamForUri(client, uri, byUri, keySchemaByCollection),
-    dispose: (client) => {
-      const d = pusherDisposers.get(client as object);
-      if (d !== undefined) {
-        pusherDisposers.delete(client as object);
-        d();
-      }
-    },
     // A swallowed dial/stream failure here would otherwise be invisible; the
     // pusher still retries, but surface it to stderr so a perpetually-failing
     // bridge is diagnosable. (stdout is the MCP protocol channel — never log
     // there.)
     onError: (err) => {
-      console.error("surface-mcp: pusher stream/dial error", err);
+      console.error(brand("pusher stream/dial error"), err);
     },
   });
 

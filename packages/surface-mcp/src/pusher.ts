@@ -9,8 +9,11 @@
  * Ported faithfully from odu's hand-built `src/mcp/resources.ts`, generalized
  * over `(client, uri → streaming get-call)`:
  *
- *   - a **single attachment** (one surface client) held only while something
- *     is subscribed; obtained lazily via the injected client factory.
+ *   - a **single attachment** (one whole connection — client, disposer, and the
+ *     transport's close announcement) held only while something is subscribed;
+ *     obtained lazily via the injected client factory, disposed on detach, and
+ *     dropped eagerly the moment the transport announces its own close
+ *     (juspay/kolu#2082).
  *   - a **per-URI fiber** so a single live unsubscribe tears just that stream
  *     while the socket stays open for the others. Under Effect the subscription's
  *     lifetime IS the fiber's (D10/#18): interrupting it runs the stream's own
@@ -46,24 +49,40 @@ export type StreamFor<Client> = (
   uri: string,
 ) => Stream.Stream<unknown, unknown> | undefined;
 
-/** Lazily produce a live surface client. Returns `null` when the source
- *  isn't live yet (subscribe-before-serve); the pusher retries. */
+/** A live connection the pusher OWNS while something is subscribed: the client
+ *  it streams over, the disposer that closes whatever the factory opened, and —
+ *  where the transport can say so — its close announcement.
+ *
+ *  Kept WHOLE, deliberately. The pusher keys its attachment on this object's
+ *  identity, which is what makes the `onClose` guard and the disposer correct
+ *  together. Shredding it into a bare client plus a disposer filed in a side
+ *  table keyed by the client is what leaked: a factory that hands back the same
+ *  client object on every dial (in-process faces do) has two concurrent dials
+ *  overwrite each other's disposer, and the loser's socket is never closed. */
+export interface PusherConnection<Client> {
+  client: Client;
+  dispose: () => void;
+  /** Subscribe to this connection's transport dropping — fires at most once.
+   *  See `OwnedSurfaceConnection.onClose` (juspay/kolu#2082) for why it is
+   *  optional and what an absent hook degrades to. */
+  onClose?: (cb: () => void) => void;
+}
+
+/** Lazily produce a live connection. Returns `null` when the source isn't live
+ *  yet (subscribe-before-serve); the pusher retries. */
 export type ClientFactory<Client> = () =>
-  | Promise<Client | null>
-  | Client
+  | Promise<PusherConnection<Client> | null>
+  | PusherConnection<Client>
   | null;
 
 export interface PusherDeps<Client> {
   /** Fire `notifications/resources/updated` for `uri`. */
   notify: (uri: string) => void;
-  /** Obtain a live client. Held while subscribers exist; re-obtained on
+  /** Obtain a live connection. Held while subscribers exist; re-obtained on
    *  retry after a drop. */
   client: ClientFactory<Client>;
   /** Open the streaming source for a subscribed URI. */
   stream: StreamFor<Client>;
-  /** Optional disposer run on detach (close the dialed socket etc.). The
-   *  bridge case passes one; the in-process case may not need it. */
-  dispose?: (client: Client) => void;
   /** Optional sink for unexpected errors the pusher would otherwise swallow —
    *  a rejecting client factory, or a stream that fails before its first
    *  frame. The retry is still scheduled; this is for observability. Omit to
@@ -77,7 +96,8 @@ export interface PusherDeps<Client> {
 
 export class ResourcePusher<Client> {
   private readonly subscribed = new Set<string>();
-  private client: Client | null = null;
+  /** The one attachment, whole. `null` = not attached. */
+  private conn: PusherConnection<Client> | null = null;
   /** One fiber per live subscription. Interrupting it IS the unsubscribe. */
   private readonly fibers = new Map<string, Fiber.Fiber<void, unknown>>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -98,8 +118,8 @@ export class ResourcePusher<Client> {
   subscribe(uri: string): void {
     if (this.stopped) return;
     this.subscribed.add(uri);
-    if (this.client !== null) {
-      this.startStream(this.client, uri);
+    if (this.conn !== null) {
+      this.startStream(this.conn.client, uri);
     } else {
       void this.ensureAttached();
     }
@@ -121,15 +141,15 @@ export class ResourcePusher<Client> {
 
   /** Visible for tests. */
   get attached(): boolean {
-    return this.client !== null;
+    return this.conn !== null;
   }
 
   private async ensureAttached(): Promise<void> {
-    if (this.client !== null || this.stopped) return;
+    if (this.conn !== null || this.stopped) return;
     if (this.subscribed.size === 0) return;
-    let client: Client | null;
+    let conn: PusherConnection<Client> | null;
     try {
-      client = await this.deps.client();
+      conn = await this.deps.client();
     } catch (err) {
       // The client factory rejected (a bridge dial failed). Don't let it
       // become an unhandled rejection — log it and schedule a bounded retry
@@ -139,20 +159,42 @@ export class ResourcePusher<Client> {
       this.scheduleRetry();
       return;
     }
-    if (client === null) {
+    if (conn === null) {
       this.scheduleRetry();
       return;
     }
     // A concurrent ensureAttached won the race, or we were stopped, or the
     // last subscriber left while we were dialing — in every case there's no
-    // owner for this freshly-opened client, so dispose it rather than store an
-    // attachment nobody will ever tear down.
-    if (this.client !== null || this.stopped || this.subscribed.size === 0) {
-      this.deps.dispose?.(client);
+    // owner for this freshly-opened connection, so dispose it rather than
+    // store an attachment nobody will ever tear down. Disposing the CONNECTION
+    // (not a disposer looked up by client identity) is what makes this correct
+    // when a factory hands back the same client object on both dials.
+    if (this.conn !== null || this.stopped || this.subscribed.size === 0) {
+      conn.dispose();
       return;
     }
-    this.client = client;
-    for (const uri of this.subscribed) this.startStream(client, uri);
+    this.conn = conn;
+    for (const uri of this.subscribed) this.startStream(conn.client, uri);
+    // EAGER INVALIDATION (juspay/kolu#2082), the pusher's half. Registered
+    // LAST, after the store and after the streams: the hook may fire
+    // synchronously (a transport that already died replays its close at
+    // registration), and firing it here means `onAnnouncedClose` tears down a
+    // fully-built attachment rather than one half-way up.
+    conn.onClose?.(() => this.onAnnouncedClose(conn));
+  }
+
+  /** The attached transport ANNOUNCED its close. Drop the attachment and
+   *  re-attach on the normal retry, rather than waiting for the stream to fail
+   *  and learning it that way.
+   *
+   *  Identity-guarded, for the same reason the read/tool connection's slot is:
+   *  `onClose` fires on the OLD connection's schedule, so a late announcement
+   *  from a predecessor must not tear down a successor a retry already
+   *  attached. */
+  private onAnnouncedClose(conn: PusherConnection<Client>): void {
+    if (this.conn !== conn) return;
+    this.detach();
+    this.scheduleRetry();
   }
 
   private startStream(client: Client, uri: string): void {
@@ -251,9 +293,9 @@ export class ResourcePusher<Client> {
     const fibers = [...this.fibers.values()];
     this.fibers.clear();
     for (const fiber of fibers) fiber.interruptUnsafe();
-    const client = this.client;
-    this.client = null;
-    if (client !== null) this.deps.dispose?.(client);
+    const conn = this.conn;
+    this.conn = null;
+    conn?.dispose();
   }
 
   private scheduleRetry(): void {
