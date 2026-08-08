@@ -272,9 +272,9 @@ describe("restore", () => {
     expect(ring.list().map((e) => e.file)).toContain(oldest.file);
     // …and the undo landed at the head (the ring runs one over size until the
     // next ordinary snapshot).
-    expect(
-      readFileSync(join(ring.dir, ring.list()[0]!.file), "utf8"),
-    ).toBe('{"gen":"live-corrupt"}');
+    expect(readFileSync(join(ring.dir, ring.list()[0]!.file), "utf8")).toBe(
+      '{"gen":"live-corrupt"}',
+    );
   });
 
   it("refuses when the undo snapshot fails — an unundoable restore is not offered", () => {
