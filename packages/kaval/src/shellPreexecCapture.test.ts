@@ -47,7 +47,7 @@ const FIXTURE_BASH_PREEXEC = join(
 const PROMPT = "KOLU_TEST_PROMPT>";
 const PROMPT_MARK_RC = [
   `__kolu_test_prompt_mark() { printf '%s' '${PROMPT}'; }`,
-  `PROMPT_COMMAND="__kolu_test_prompt_mark\${PROMPT_COMMAND:+;\$PROMPT_COMMAND}"`,
+  `PROMPT_COMMAND="__kolu_test_prompt_mark\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"`,
 ].join("\n");
 
 /** Wait for `fn`, failing with `diagnose()`'s output in the error — a CI box
