@@ -58,9 +58,12 @@ posting, like every run).
 **Fail fast on the MCP; don't drain the pipeline.** `wait_for_settle` returns
 on the first red node with `{failed[], errored[]}` — read the red node's log
 (the log resource, or `.ci/<sha7>/<platform>/<recipe>.log`) and start the
-fix → fmt → commit → retry loop immediately; don't poll `gh pr checks` in a
-loop. `errored` (vs `failed`) means infrastructure death — `node_rerun` it
-rather than hunting a test bug.
+fix → fmt → commit → retry loop immediately. **Waiting IS `wait_for_settle`
+re-invoked**: an unsettled return at timeout means call it again — never park
+the wait on a background shell watcher over `.ci/<sha7>/runs/` or a
+`gh pr checks` poll. A hand-guessed ledger predicate hangs silently, and a
+watcher that only detects settle forfeits first-red. `errored` (vs `failed`)
+means infrastructure death — `node_rerun` it rather than hunting a test bug.
 
 **`pu` misbehaves → log it on
 [juspay/kolu#1204](https://github.com/juspay/kolu/issues/1204)** via
