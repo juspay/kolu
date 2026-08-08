@@ -119,9 +119,7 @@ export interface OwnedSurfaceConnection {
  *  (the bridge case — `unixSocketLink` opens a socket it owns, so `dispose()`
  *  must close it). The adapter normalizes both, disposes every connection it
  *  opens on teardown, and re-dials after a drop. */
-export type ClientOrConnection<_S extends SurfaceSpec> =
-  | SurfaceClientCallable
-  | OwnedSurfaceConnection;
+export type ClientOrConnection = SurfaceClientCallable | OwnedSurfaceConnection;
 
 export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
   surface: Surface<S>;
@@ -130,7 +128,7 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
    *  Serve-fresh case: a `directDispatch` over an in-process implementation
    *  (return the bare client — nothing to dispose). Re-invoked on retry after
    *  a drop, and re-dialed for reads/tools after a transport failure. */
-  client: () => ClientOrConnection<S> | Promise<ClientOrConnection<S>>;
+  client: () => ClientOrConnection | Promise<ClientOrConnection>;
   /** Default-deny allowlist — what an agent may touch. */
   expose: ExposeMap<S>;
   /** Hand-authored, call-shaped MCP tools composing over the live client. */
