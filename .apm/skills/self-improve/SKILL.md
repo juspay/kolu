@@ -70,6 +70,12 @@ note's corpus audit.
    gauntlet package (`be`, `be-review`, `lens-debate`, `agent-debate`, …). See
    `.claude/rules/apm-workflow.md`. Each edit honors fail-fast / electricity /
    reuse-source and trips no llm-autonomy anti-pattern.
+   **Word each fix as the weakest rule that covers the evidence** (the weakest valid
+   hypothesis generalises best — arXiv:2301.12987 — not the shortest): every prohibition,
+   mandate, and scope in the new wording must trace to an observed intervention; cut any
+   commitment the evidence doesn't demand. Never tiebreak on brevity — a terse blanket
+   ban ("never X") is usually *stronger* than a longer precisely-scoped clause, and
+   misfiring on unobserved runs is exactly the churn this skill exists to avoid.
 5. **Ship from a throwaway worktree — PWD is NEVER mutated.** Steps 1–4 only *read*
    PWD (the transcript lives outside the repo; target discovery greps `.apm` read-only),
    so do **zero** mutation here — no `git switch`, no edits, no commit in PWD. Cut a fresh
