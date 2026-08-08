@@ -48,6 +48,7 @@
     "kolu-grok": "workspace:*",
     "kolu-opencode": "workspace:*",
     "kolu-pty": "workspace:*",
+    "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",
     "kolu-transcript-html": "workspace:*",
     "osfacts-client": "workspace:*",

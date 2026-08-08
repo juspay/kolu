@@ -40,6 +40,12 @@ lose, because it isn't lost.
   card lists every saved terminal as its own row and offers to resume every agent
   the host knows how to resume; turning **Resume agent sessions** off wakes bare
   shells instead.
+- Behind all of this sits a **backup ring**: every boot (and once a day) the
+  saved-session file is snapshotted into a rotated history, so even a bug that
+  *overwrites* the saved session with a bad value is recoverable — **Debug →
+  Restore state from backup** in the command palette brings a snapshot's
+  terminals back, agents resumed. See
+  [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Sleep a terminal
 

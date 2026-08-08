@@ -91,6 +91,11 @@ import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
+  listServerStateBackups,
+  restoreServerStateBackup,
+} from "./stateBackups.ts";
+import { stateBackupRing } from "./state.ts";
+import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
   implementKoluSurface,
@@ -144,6 +149,15 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   if (flags.verbose) {
     log.level = "debug";
   }
+
+  // The slow re-snapshot tick (#1658): `state.ts` took the boot snapshot at
+  // module load (it must precede the `Conf` construction, which rewrites the
+  // file); the daily tick is armed HERE instead, because "this process runs
+  // long" is a boot fact, not an import fact — every unit test that imports
+  // `state.ts` would otherwise arm a process-lifetime timer. padi's `daemonMain`
+  // makes the same split, for the same reason. `unref`'d — disarming rides
+  // process exit.
+  stateBackupRing.startTicker();
 
   // The local-supervisor gate's release (set once the gate is claimed at boot,
   // below). Released on a clean shutdown so a same-lineage restart re-claims
@@ -867,6 +881,21 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             `cannot renew daemon on unknown host "${encodeHostKey(host)}"`,
           );
         return s.renew();
+      }),
+    // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
+    // server-internal writers (returned by `implementKoluSurface` above) and
+    // converges the pool through the SAME add/remove path the strip's
+    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer.
+    listStateBackups: listServerStateBackups,
+    restoreStateBackup: (input) =>
+      restoreServerStateBackup(input, {
+        ...koluServed.storeCellWriters,
+        currentHostKeys: getPersistedHosts,
+        // `getHandler` is the documented membership probe — entry presence,
+        // never the handler's own value.
+        hasLiveHost: (key) => pool.getHandler(key) !== undefined,
+        addHostKey: (key) => pool.add(key),
+        removeHostKey: (key) => pool.remove(key),
       }),
   });
 

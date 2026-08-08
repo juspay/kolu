@@ -71,6 +71,51 @@ export const ViewerHostSchema = Schema.Struct({
 });
 export type ViewerHost = typeof ViewerHostSchema.Type;
 
+/** One snapshot in kolu-server's state-backup ring (#1658) — the same shape
+ *  discipline as padi's `PadiStateBackupSchema`, with kolu-server's own summary
+ *  (the fleet size, this store's real user data). `summary` is a union for the
+ *  same reason as padi's: "no hosts" and "did not parse" are different facts. */
+export const ServerStateBackupSchema = Schema.Struct({
+  /** Bare file name under the ring dir — the handle `server/backups/restore`
+   *  names. */
+  file: Schema.String,
+  /** Snapshot mtime in epoch ms on kolu-server's clock (the browser talks to
+   *  this server directly, so no cross-host reprojection is needed here). */
+  savedAtMs: Schema.Number,
+  sizeBytes: Schema.Int,
+  summary: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("state"), hosts: Schema.Int }),
+    Schema.Struct({ kind: Schema.Literal("unreadable") }),
+  ]),
+});
+export type ServerStateBackup = typeof ServerStateBackupSchema.Type;
+
+/** `server/backups/list`'s answer — the ring, newest first. */
+export const ServerBackupsListSchema = Schema.Struct({
+  backups: Schema.Array(ServerStateBackupSchema),
+});
+export type ServerBackupsList = typeof ServerBackupsListSchema.Type;
+
+/** `server/backups/restore`'s payload — WHICH ring snapshot to restore. */
+export const ServerBackupsRestoreSchema = Schema.Struct({
+  file: Schema.String,
+});
+export type ServerBackupsRestore = typeof ServerBackupsRestoreSchema.Type;
+
+/** `server/backups/restore`'s ANSWER. The restore is not atomic — the two cells
+ *  apply before the host pool converges — so a host that would not dial is a
+ *  FACT the caller renders ("restored; 1 host did not reconnect"), not a throw:
+ *  squeezing it through the error channel forced the dialog to say "Restore
+ *  failed:" about a restore that had already applied. `hostFailures` empty ⇒
+ *  fully converged. Genuine fail-fast anomalies — a bad name, an unreadable or
+ *  undecodable snapshot, a failed undo snapshot — still throw, because they
+ *  happen BEFORE anything is applied. */
+export const ServerBackupsRestoreResultSchema = Schema.Struct({
+  hostFailures: Schema.Array(Schema.String),
+});
+export type ServerBackupsRestoreResult =
+  typeof ServerBackupsRestoreResultSchema.Type;
+
 // ── The root procedures ───────────────────────────────────────────────
 
 /** Every ROOT wire tag this contract declares, spelled literally. The assertion
@@ -79,6 +124,8 @@ export type ViewerHost = typeof ViewerHostSchema.Type;
  *  404 at the first call. Also the fixture the wire-shape test reads. */
 export const ROOT_RPC_TAGS = [
   "server/info",
+  "server/backups/list",
+  "server/backups/restore",
   "daemon/restart",
   "hosts/viewer",
   "hosts/add",
@@ -96,6 +143,25 @@ export const ROOT_RPC_TAGS = [
 export const koluRootGroup = RpcGroup.make(
   /** Per-host branding the shell needs synchronously at boot. */
   Rpc.make("server/info", { success: ServerInfoSchema }),
+  /** Enumerate kolu-server's OWN state-backup ring (#1658) — the store holding
+   *  `preferences` / `hosts` / `viewerMode`. padi's ring is a padi surface
+   *  member (`backups.list` per host); this one is a root RPC for the same
+   *  reason `hosts/*` are: it concerns kolu-server's own store, not one host's
+   *  surface. */
+  Rpc.make("server/backups/list", { success: ServerBackupsListSchema }),
+  /** Restore one ring snapshot IN-PROCESS: validate it (the migration ladder
+   *  runs on a scratch copy first), push `preferences`/`viewerMode` through
+   *  their cells (every connected client updates reactively), and converge the
+   *  host pool onto the snapshot's fleet through the SAME pool add/remove path
+   *  the strip uses. No server restart — unlike padi's session, this store is
+   *  plain data served from cells. The current file is pushed into the ring
+   *  first (and the restore is REFUSED if that snapshot fails), so a restore is
+   *  itself undoable. Answers with the hosts that would not converge — an empty
+   *  list is a clean restore. */
+  Rpc.make("server/backups/restore", {
+    payload: ServerBackupsRestoreSchema,
+    success: ServerBackupsRestoreResultSchema,
+  }),
   /** Restart the local kaval daemon, preserving the session (B3.2). Captures
    *  the session before the kill, recycles the daemon (kill → wait → spawn →
    *  connect), and leaves the empty canvas + preserved session the restore

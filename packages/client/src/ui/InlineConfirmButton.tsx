@@ -14,9 +14,12 @@
 import { type Component, createSignal, type JSX, Show } from "solid-js";
 
 /** Per-tone accent for the trigger + the confirm's action button. */
-const CONFIRM_ACCENT: Record<"neutral" | "danger", string> = {
+const CONFIRM_ACCENT: Record<"neutral" | "danger" | "warning", string> = {
   neutral: "border-edge bg-surface-2 text-fg hover:bg-surface-3/60",
   danger: "border-danger/40 bg-danger/10 text-fg hover:bg-danger/20",
+  /** A destructive-but-recoverable act — the state-backup restore, which
+   *  snapshots the current state first. */
+  warning: "border-warning/50 bg-warning/20 text-fg hover:bg-warning/30",
 };
 
 const InlineConfirmButton: Component<{
@@ -26,7 +29,7 @@ const InlineConfirmButton: Component<{
   inFlightLabel: string;
   /** The confirm step's explanatory copy. */
   confirmCopy: string;
-  tone: "neutral" | "danger";
+  tone: "neutral" | "danger" | "warning";
   /** Gates the trigger out while the action is already in flight. */
   inFlight: boolean;
   /** Leading icon on the trigger. */
