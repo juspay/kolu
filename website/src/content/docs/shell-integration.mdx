@@ -1,0 +1,87 @@
+---
+title: Shell Integration
+description: "What kolu quietly adds to your shell — three invisible signals (directory, title, command) that power the dock, agent detection, and exact-conversation resume — and the honest bounds of each."
+order: 91
+section: Command Line
+koluHero:
+  eyebrow: three invisible signals
+  headline: Your shell tells {kolu} what's happening.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+
+Every kolu terminal runs **your** shell — your prompt, your plugins, your
+aliases, your dotfiles replayed exactly as a normal terminal would. On top of
+that, kolu adds a thin layer of *shell integration*: the same trick VS Code,
+Ghostty, and Kitty use, where the shell prints **invisible escape sequences**
+(OSC sequences, in terminal jargon) that never render on screen but tell the
+terminal's owner what is going on inside. kolu's terminal daemon reads them on
+the host the terminal runs on; they are how a terminal knows things about
+itself that a raw byte stream can't say.
+
+## The three signals
+
+| signal | your shell prints it | kolu uses it for |
+| --- | --- | --- |
+| **Working directory** (OSC 7) | at every prompt | the directory and git branch on the dock and tile, repo grouping, and restoring a terminal into the directory it was in |
+| **Title** (OSC 0/2) | your directory at the prompt, the command while one runs — and full-screen apps override it with their own | tile and dock titles, and the nudge that the foreground process may have changed |
+| **Command marks** (OSC 633;E) | the exact command line, the moment you run it | [agent detection](/agent-detection) for shimmed CLIs, the recent-agents list, and the **launch line that resume replays** |
+
+The command mark is the quiet load-bearer of the three. It is how kolu knows an
+agent installed through npm is `codex` and not the `node` the operating system
+reports, and it is the line — flags included — that [sleep, wake, and session
+restore](/sessions) type back into a fresh shell to bring your agent back on its
+exact conversation. A terminal whose agent launch was never marked has nothing
+to resume with.
+
+## How it gets into your shell
+
+kolu never edits your dotfiles. Each terminal starts from a small wrapper that
+first **replays your own startup files untouched**, then appends kolu's hooks —
+so anything your dotfiles set (prompt frameworks, direnv, zoxide, PATH edits)
+runs first and wins any fight over appearance.
+
+- In **zsh**, the hooks ride the shell's native `preexec`/`precmd` hook arrays,
+  which are designed to be shared — kolu's entries sit alongside starship's or
+  atuin's without either noticing the other.
+- In **bash**, which has no native hooks, the command mark rides `PS0` — a
+  prompt string bash expands at the exact moment it accepts a command —
+  *deliberately not* the `DEBUG` trap. The trap is a single global slot that
+  popular history tools (atuin, and anything built on bash-preexec) take over
+  for themselves, and losing it used to cost kolu the **first command of every
+  shell** — precisely the slot where agents get launched. `PS0` has no
+  contenders, so kolu's marks and your history tooling now coexist without
+  either giving anything up.
+
+<Aside type="note" title="What you hide from history stays hidden from kolu">
+  In bash the command mark is read from shell history, so a command kept out of
+  history — a leading space with <code>HISTCONTROL=ignorespace</code>, or
+  history disabled entirely — is deliberately never marked. The directory and
+  title signals are unaffected.
+</Aside>
+
+## The honest bounds
+
+- **bash before 4.4** (macOS's stock `/bin/bash` is 3.2) has no `PS0`, so no
+  command marks — directory and title still work. The bash a Nix or Homebrew
+  environment puts first on `PATH` is modern and fully covered.
+- **fish and other shells** get no wrapper: kolu still sets the environment up
+  front, but directory, title, and command signals only flow if the shell or
+  its plugins emit them. Agent detection falls back to process names.
+- An agent launched **as the terminal's root process** — `kaval-tui create --
+  codex`, or an agent-created terminal — needs none of this: there is no shell
+  in that terminal, and kolu remembers the exact spawn command instead.
+
+Nothing in this layer leaves your machines: the sequences travel inside the
+terminal's own byte stream to [kaval](/kaval), the daemon that owns the PTY on
+that host, and become part of the same session record your terminals already
+live in.
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Agent Detection" href="/agent-detection" description="how the command mark and the foreground process combine into live agent state" />
+  <LinkCard title="Sessions, Sleep & Wake" href="/sessions" description="the launch line at work — resume on the exact conversation after sleep, restart, or crash" />
+</CardGrid>
