@@ -1,7 +1,13 @@
 /**
  * State-file backup ring (juspay/kolu#1658) — timestamped, rotated snapshots of
- * a conf-backed `config.json`, taken at boot (and on a slow daily tick) BEFORE
- * the store is first written.
+ * a conf-backed state file, taken at boot (and on a slow daily tick) BEFORE the
+ * store is first written.
+ *
+ * ONE entry point: {@link openStateBackupRing} captures the state file's path
+ * once and hands back the ring as an object. Every verb — snapshot, list,
+ * summarized list, read, restore, tick — is a method on it, so a consumer holds
+ * one binding instead of threading the same `configPath` through six free
+ * functions and re-composing the same sequence at each face.
  *
  * Both persisted stores ride this one module: padi's state-root Conf
  * (`@kolu/padi`'s `session/stateStore.ts`) and kolu-server's config store
@@ -15,16 +21,18 @@
  * persisted the emptied session over the real one, with no history to recover
  * from).
  *
- * FAIL-SOFT — deliberately, and only here. The project doctrine is fail-fast,
- * but the backup is a safety net, not a gate: a snapshot failure must log
- * loudly and let the boot proceed (a padi that refuses to start because its
+ * FAIL-SOFT — deliberately, and only on the SNAPSHOT path. The project doctrine
+ * is fail-fast, but a boot snapshot is a safety net, not a gate: a failure must
+ * log loudly and let the boot proceed (a padi that refuses to start because its
  * backup dir is unwritable would turn the safety net into an outage). The
- * RESTORE path ({@link readStateBackup}) is the opposite — it throws on every
- * anomaly, because a restore that silently proceeds from a corrupt backup is
- * the very data-loss class the ring exists to prevent.
+ * RESTORE path ({@link StateBackupRing.restore}) is the opposite — it throws on
+ * every anomaly, INCLUDING a failed pre-restore snapshot, because a restore
+ * that silently proceeds from a corrupt backup, or that silently is not
+ * undoable, is the very data-loss class the ring exists to prevent.
  */
 
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -47,24 +55,29 @@ export const STATE_BACKUP_TICK_MS = 24 * 60 * 60 * 1000;
 /** The subdirectory of the state dir the ring lives in. */
 const BACKUP_SUBDIR = "backups";
 
-/** A backup file name: `config.<fs-safe UTC stamp>.json` (+ a `-N` bump on a
- *  same-millisecond collision). Restore inputs cross the wire as bare file
- *  names, so {@link readStateBackup} re-validates against this exact shape —
- *  path traversal is unspellable. */
-const BACKUP_FILE_RE = /^config\.[0-9TZ-]+\.json$/;
+/** The stamp half of a ring member's name: the fs-safe UTC instant the writer
+ *  mints (`:`/`.` are path-hostile on some filesystems), plus the `-N` bump a
+ *  same-millisecond sibling carries. Deliberately EXACT — the old
+ *  `[0-9TZ-]+` shape accepted names the writer can never produce (`config.--.json`),
+ *  and this pattern is a security gate ({@link StateBackupRing.pathOf}), so
+ *  reader and writer are one pair kept honest by the round-trip test rather than
+ *  by memory. */
+const BACKUP_STAMP_RE =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z(?:-(\d+))?$/;
 
-/** Where `configPath`'s ring lives: a `backups/` sibling of the state file. */
-export function stateBackupDir(configPath: string): string {
-  return join(dirname(configPath), BACKUP_SUBDIR);
-}
-
-/** One snapshot in the ring, newest first in a {@link listStateBackups} answer. */
+/** One snapshot in the ring, newest first in a {@link StateBackupRing.list}
+ *  answer. */
 export interface StateBackupEntry {
   /** Bare file name under `backups/` — the stable handle a restore names. */
   file: string;
-  /** When the snapshot was taken (the copy's mtime), in epoch ms ON THE CLOCK OF
-   *  THE HOST THAT TOOK IT — a consumer on another host must treat it as a
-   *  foreign-clock reading (the same discipline as `PadiIdentity.startedAt`). */
+  /** When the snapshot was taken, in epoch ms ON THE CLOCK OF THE HOST THAT
+   *  TOOK IT — a consumer on another host must treat it as a foreign-clock
+   *  reading (the same discipline as `PadiIdentity.startedAt`). Read off the
+   *  NAME the writer minted, not the file's mtime: the two would be two
+   *  representations of one instant, and anything that rewrites mtimes without
+   *  rewriting names (`cp -r` of a state dir, a tarball restore, `touch`) would
+   *  reorder the ring — and therefore the PRUNE — against the very stamp the
+   *  user reads off the row. */
   savedAtMs: number;
   /** Snapshot size in bytes. */
   sizeBytes: number;
@@ -78,97 +91,225 @@ export type SnapshotOutcome =
   | { kind: "no-state-file" }
   | { kind: "failed" };
 
-/** Take one snapshot of `configPath` into its ring: skip when the file is
- *  absent (fresh install) or byte-identical to the newest backup (quick
- *  restarts must not churn copies), otherwise copy it to a timestamped name and
- *  prune the ring to {@link STATE_BACKUP_RING_SIZE}. FAIL-SOFT: any error logs
- *  loudly and answers `failed` — see the module doc for why this one path may
- *  not throw. */
-export function snapshotStateFile(
-  configPath: string,
-  log: Logger,
-): SnapshotOutcome {
-  try {
-    if (!existsSync(configPath)) return { kind: "no-state-file" };
-    const dir = stateBackupDir(configPath);
-    mkdirSync(dir, { recursive: true });
-    const current = readFileSync(configPath);
-    const newest = listStateBackups(configPath)[0];
-    if (newest && current.equals(readFileSync(join(dir, newest.file)))) {
-      return { kind: "unchanged" };
-    }
-    // Fs-safe UTC stamp (":"/"." are path-hostile on some filesystems); a
-    // same-millisecond sibling bumps a counter rather than overwriting.
-    const stamp = new Date()
-      .toISOString()
-      .replaceAll(":", "-")
-      .replace(".", "-");
-    let file = `config.${stamp}.json`;
-    for (let n = 2; existsSync(join(dir, file)); n += 1) {
-      file = `config.${stamp}-${n}.json`;
-    }
-    copyFileSync(configPath, join(dir, file));
-    for (const stale of listStateBackups(configPath).slice(
-      STATE_BACKUP_RING_SIZE,
-    )) {
-      unlinkSync(join(dir, stale.file));
-    }
-    log.info({ file, dir }, "state backup snapshot taken");
-    return { kind: "created", file };
-  } catch (err) {
-    log.error(
-      { err, configPath },
-      "state backup snapshot FAILED — continuing without one (the backup is a safety net, not a boot gate)",
-    );
-    return { kind: "failed" };
-  }
+/** One state file's backup ring — the whole concept behind one binding. */
+export interface StateBackupRing {
+  /** Where the ring lives: a `backups/` sibling of the state file. */
+  readonly dir: string;
+  /** Take one snapshot: skip when the state file is absent (fresh install) or
+   *  byte-identical to the newest member (quick restarts must not churn
+   *  copies), otherwise copy it to a timestamped name and prune to
+   *  {@link STATE_BACKUP_RING_SIZE}. FAIL-SOFT: any error logs loudly and
+   *  answers `failed` — see the module doc for why this one path may not
+   *  throw. */
+  snapshot(): SnapshotOutcome;
+  /** Enumerate the ring, newest first. A missing ring dir is an empty ring, not
+   *  an error — every store predates its first snapshot once. */
+  list(): StateBackupEntry[];
+  /** {@link list} with a per-store summary attached — the LIST side, where one
+   *  corrupt snapshot must not hide the good ones, so an unreadable member is
+   *  logged loudly and carries `unreadable` rather than collapsing the whole
+   *  enumeration. Both domain faces get their `summarize` called only on a
+   *  snapshot that parsed. */
+  listWith<S>(
+    summarize: (raw: unknown) => S,
+    unreadable: S,
+  ): (StateBackupEntry & { summary: S })[];
+  /** Read one member's JSON — the RESTORE side, so every anomaly throws: a name
+   *  that is not a ring member's (the input crossed the wire), a missing file,
+   *  unparseable bytes. The caller owns validating the parsed value against its
+   *  own schema. */
+  read(file: string): unknown;
+  /** Resolve a member's absolute path from its wire-crossing bare name — throws
+   *  on any name that is not a member's shape, so path traversal is
+   *  unspellable. */
+  pathOf(file: string): string;
+  /** Restore from one member, UNDOABLY — the ring's one restore verb. Gates the
+   *  wire-crossing name, reads the snapshot, then pushes the CURRENT state file
+   *  into the ring BEFORE handing the raw value to `apply`. The undo snapshot is
+   *  taken by the ring, not by each caller, so "forgot to make the restore
+   *  undoable" is unspellable — and a FAILED undo snapshot REFUSES the restore
+   *  rather than proceeding, because the dialog, the docs and the changelog all
+   *  promise the restore is reversible and none of them may be able to lie. */
+  restore<T>(file: string, apply: (raw: unknown, backupPath: string) => T): T;
+  /** Arm the slow re-snapshot tick — `unref`'d, so a live diagnostic safety net
+   *  never holds the process open. No disarm: both consumers arm exactly one at
+   *  boot altitude and let process exit do the teardown. */
+  startTicker(): void;
 }
 
-/** Enumerate `configPath`'s ring, newest first (by snapshot mtime). A missing
- *  ring dir is an empty ring, not an error — every store predates its first
- *  snapshot once. */
-export function listStateBackups(configPath: string): StateBackupEntry[] {
-  const dir = stateBackupDir(configPath);
-  if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((file) => BACKUP_FILE_RE.test(file))
-    .map((file) => {
-      const stat = statSync(join(dir, file));
-      return { file, savedAtMs: stat.mtimeMs, sizeBytes: stat.size };
-    })
-    .sort((a, b) => b.savedAtMs - a.savedAtMs);
+/** The ring member name grammar's WRITER half — `<base>.<fs-safe UTC stamp>.json`,
+ *  with `bump` 1 unsuffixed and a same-millisecond sibling carrying `-N`. */
+function backupFileName(base: string, at: Date, bump: number): string {
+  const stamp = at.toISOString().replaceAll(":", "-").replace(".", "-");
+  return bump === 1 ? `${base}.${stamp}.json` : `${base}.${stamp}-${bump}.json`;
 }
 
-/** Resolve a ring member's absolute path from its wire-crossing bare name —
- *  the RESTORE side's one gate, so it throws on any name that is not a ring
- *  member's shape (path traversal is unspellable through it). */
-export function stateBackupPath(configPath: string, file: string): string {
-  if (basename(file) !== file || !BACKUP_FILE_RE.test(file)) {
-    throw new Error(`not a state-backup file name: ${JSON.stringify(file)}`);
-  }
-  return join(stateBackupDir(configPath), file);
-}
-
-/** Read one snapshot's JSON — the RESTORE side, so every anomaly throws: a
- *  name that isn't a ring member's (the input crossed the wire), a missing
- *  file, unparseable bytes. The caller owns validating the parsed value
- *  against its own schema. */
-export function readStateBackup(configPath: string, file: string): unknown {
-  return JSON.parse(
-    readFileSync(stateBackupPath(configPath, file), "utf8"),
-  ) as unknown;
-}
-
-/** Arm the slow re-snapshot tick — `unref`'d, so a live diagnostic safety net
- *  never holds the process open. Returns the disarm. */
-export function startStateBackupTicker(
-  configPath: string,
-  log: Logger,
-): () => void {
-  const timer = setInterval(
-    () => snapshotStateFile(configPath, log),
-    STATE_BACKUP_TICK_MS,
+/** The grammar's READER half — the instant and the collision bump a member's
+ *  name encodes, or `undefined` when the name is not one this ring could have
+ *  written. Pairs with {@link backupFileName}; the round-trip is pinned by
+ *  test. */
+function parseBackupFileName(
+  base: string,
+  file: string,
+): { savedAtMs: number; bump: number } | undefined {
+  if (basename(file) !== file) return undefined;
+  const prefix = `${base}.`;
+  if (!file.startsWith(prefix) || !file.endsWith(".json")) return undefined;
+  const match = BACKUP_STAMP_RE.exec(
+    file.slice(prefix.length, file.length - ".json".length),
   );
-  timer.unref();
-  return () => clearInterval(timer);
+  if (match === null) return undefined;
+  const [, date, hours, minutes, seconds, millis, bump] = match;
+  const savedAtMs = Date.parse(
+    `${date}T${hours}:${minutes}:${seconds}.${millis}Z`,
+  );
+  // A syntactically well-formed stamp naming no real instant (`…T99-99-99…`)
+  // is not a name this writer could have minted.
+  if (Number.isNaN(savedAtMs)) return undefined;
+  return { savedAtMs, bump: bump === undefined ? 1 : Number(bump) };
+}
+
+/** The ring's file-name base, DERIVED from the state file rather than baked in:
+ *  two stores under one directory (`config.json` and `session.json`) must keep
+ *  two independent rings, or one's prune would delete the other's snapshots and
+ *  a restore would hand the wrong store's bytes to the wrong domain. */
+function ringBase(configPath: string): string {
+  const base = basename(configPath, ".json").replace(/[^A-Za-z0-9_-]/g, "");
+  if (base.length === 0) {
+    throw new Error(`not a ringable state file: ${JSON.stringify(configPath)}`);
+  }
+  return base;
+}
+
+/** Open `configPath`'s backup ring. Pure: nothing is read or created until a
+ *  verb is called, so opening a ring in a module body arms nothing. */
+export function openStateBackupRing(
+  configPath: string,
+  log: Logger,
+): StateBackupRing {
+  const base = ringBase(configPath);
+  const dir = join(dirname(configPath), BACKUP_SUBDIR);
+
+  const list = (): StateBackupEntry[] => {
+    if (!existsSync(dir)) return [];
+    return (
+      readdirSync(dir)
+        .flatMap((file) => {
+          const parsed = parseBackupFileName(base, file);
+          if (parsed === undefined) return [];
+          return [
+            {
+              file,
+              savedAtMs: parsed.savedAtMs,
+              bump: parsed.bump,
+              sizeBytes: statSync(join(dir, file)).size,
+            },
+          ];
+        })
+        // Newest first, on the ring's OWN fact. The bump breaks a same-millisecond
+        // tie — the exact case the `-N` suffix exists to disambiguate, which under
+        // an mtime sort fell back to filesystem-arbitrary `readdir` order.
+        .sort((a, b) => b.savedAtMs - a.savedAtMs || b.bump - a.bump)
+        .map(({ file, savedAtMs, sizeBytes }) => ({
+          file,
+          savedAtMs,
+          sizeBytes,
+        }))
+    );
+  };
+
+  const pathOf = (file: string): string => {
+    if (parseBackupFileName(base, file) === undefined) {
+      throw new Error(`not a state-backup file name: ${JSON.stringify(file)}`);
+    }
+    return join(dir, file);
+  };
+
+  const read = (file: string): unknown =>
+    JSON.parse(readFileSync(pathOf(file), "utf8")) as unknown;
+
+  const snapshot = (): SnapshotOutcome => {
+    try {
+      if (!existsSync(configPath)) return { kind: "no-state-file" };
+      // Owner-only, mirroring the store this rings: kolu-server's config holds
+      // ssh targets and is deliberately 0600, and a ring member is a
+      // byte-identical copy of it.
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const current = readFileSync(configPath);
+      const before = list();
+      const newest = before[0];
+      if (newest && current.equals(readFileSync(join(dir, newest.file)))) {
+        return { kind: "unchanged" };
+      }
+      const at = new Date();
+      let bump = 1;
+      let file = backupFileName(base, at, bump);
+      while (existsSync(join(dir, file))) {
+        bump += 1;
+        file = backupFileName(base, at, bump);
+      }
+      copyFileSync(configPath, join(dir, file));
+      // `copyFileSync` happens to carry the source mode today; the explicit
+      // chmod means the store's stated posture does not rest on that.
+      chmodSync(join(dir, file), statSync(configPath).mode & 0o777);
+      // The ring AS OF this copy — the pre-copy sweep plus the file just
+      // written, so the prune reuses the enumeration the dedupe already did
+      // instead of re-walking the directory.
+      for (const stale of [file, ...before.map((e) => e.file)].slice(
+        STATE_BACKUP_RING_SIZE,
+      )) {
+        unlinkSync(join(dir, stale));
+      }
+      log.info({ file, dir }, "state backup snapshot taken");
+      return { kind: "created", file };
+    } catch (err) {
+      log.error(
+        { err, configPath },
+        "state backup snapshot FAILED — continuing without one (the backup is a safety net, not a boot gate)",
+      );
+      return { kind: "failed" };
+    }
+  };
+
+  return {
+    dir,
+    snapshot,
+    list,
+    pathOf,
+    read,
+    listWith: <S>(summarize: (raw: unknown) => S, unreadable: S) =>
+      list().map((entry) => {
+        let raw: unknown;
+        try {
+          raw = read(entry.file);
+        } catch (err) {
+          log.error(
+            { err, file: entry.file },
+            "state backup snapshot is unreadable",
+          );
+          return { ...entry, summary: unreadable };
+        }
+        return { ...entry, summary: summarize(raw) };
+      }),
+    restore: <T>(
+      file: string,
+      apply: (raw: unknown, backupPath: string) => T,
+    ) => {
+      const backupPath = pathOf(file);
+      const raw = read(file);
+      // Undoability: capture the pre-restore file before `apply`'s writes
+      // overwrite it. An UNCHANGED answer is the file already sitting at the
+      // head of the ring; only an outright failure means there is no way back.
+      const undo = snapshot();
+      if (undo.kind === "failed") {
+        throw new Error(
+          "refusing to restore: the pre-restore snapshot failed, so this restore would not be undoable",
+        );
+      }
+      return apply(raw, backupPath);
+    },
+    startTicker: () => {
+      setInterval(snapshot, STATE_BACKUP_TICK_MS).unref();
+    },
+  };
 }
