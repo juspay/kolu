@@ -243,6 +243,13 @@ function openStateStores(stateRoot: string, log: Logger): { opened: true } {
     throw new NewerPadiStateProjectVersionError(opened);
   }
   const stores = opened.stores;
+  // The slow re-snapshot tick (#1658): `openPadiStateStores` took the boot
+  // snapshot; a long-running daemon re-snapshots daily through the same
+  // dedupe/rotate path so its newest backup never ages past a day. Armed here
+  // (the daemon boot), not in `openPadiStateStores`, so test fixtures opening
+  // stores don't each arm a process-lifetime timer. `unref`'d — never holds
+  // the process open; disarming rides process exit.
+  stores.ring.startTicker();
   // Import BEFORE the injections below — the imported values must be in place before
   // anything reads a cell. (#1658's backup, inlined per the scope note.)
   importLegacyConfigOnce(stores, log);

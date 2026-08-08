@@ -65,7 +65,10 @@ The package graduated to a **process**: `package = process = restart-hash`.
   (#1334). Production nix wrappers supply `$HOME/.local/state/padi` (not
   `$XDG_STATE_HOME`); dev/test pass a private dir. That folder holds padi's
   `session` / `activityFeed` / `lastPairedDaemon` in its OWN `Conf` (`./stateStore`,
-  a twin of kolu-server's — `preferences` stays kolu-server's). The socket + gate
+  a twin of kolu-server's — `preferences` stays kolu-server's), snapshotted into a
+  rotated `backups/` ring at every open and daily (#1658, `kolu-shared`'s
+  `stateBackup`; browsed/restored via the `backups.list` / `backups.restore`
+  surface members, 5.2). The socket + gate
   live in the **boot-wiped runtime dir** keyed by a **digest** of the state-root
   (`$XDG_RUNTIME_DIR/padi-<digest>/`, `kaval-<digest>/`), so a stale gate can never
   outlive a reboot and two padis at distinct state-roots never touch each other's

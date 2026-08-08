@@ -206,4 +206,9 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: "The eye toggle in the Code tab's All-files toolbar reveals gitignored files as dimmed rows — a fully-ignored folder arrives as one collapsed entry, and expanding it reads that level from disk, so you can walk into node_modules a click at a time",
     doc: "code-tab",
   },
+  {
+    id: "amb-state-backups",
+    text: `Your state is snapshotted at every boot — if a saved session or setting ever gets eaten, ${formatKeybind(ACTIONS.commandPalette.keybind)} → Restore state from backup brings it back`,
+    doc: "troubleshooting",
+  },
 ];
