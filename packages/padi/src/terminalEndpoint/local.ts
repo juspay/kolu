@@ -124,6 +124,13 @@ const decodeAuthoredActive = Schema.decodeUnknownSync(AuthoredActiveSchema);
 const decodeAuthoredSleeping = Schema.decodeUnknownSync(AuthoredSleepingSchema);
 const decodeAuthoredParked = Schema.decodeUnknownSync(AuthoredParkedSchema);
 const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
+// The TOLERANT read boundary for an adopted survivor's saved record (#2122) —
+// `decodeUnknownResult` is a BRANCH, never a throw. `SavedActiveTerminalSchema`
+// is the whole record (persisted snapshot + authored fields + id), so a success
+// here makes the two projections below (`adoptedAuthored` /`adoptedSnapshot`,
+// both `decodeUnknownSync` over strict subsets of these same fields) total by
+// construction — exactly how `seedHandlelessTerminal` gates its own sub-decodes.
+const decodeSavedActive = Schema.decodeUnknownResult(SavedActiveTerminalSchema);
 
 /** Birth a terminal's two halves together — register the entry (whose required
  *  `snapshot` field carries the value) and fan that snapshot out to the
@@ -1713,17 +1720,44 @@ export function seedParkedTerminal(record: SavedActiveTerminal): boolean {
  *  snapshot the authority for `cwd`/`foreground`. Exposed as a standalone entry
  *  rather than on the shared `TerminalEndpoint` interface because adoption
  *  is local-only today — P3's remote-host adoption is an additive sibling, not
- *  a retrofit of the shared interface. */
+ *  a retrofit of the shared interface.
+ *
+ *  TOLERANT of a record this build cannot decode (#2122): returns `false` instead
+ *  of throwing, leaving the caller to adopt the still-live PTY as an ORPHAN. The
+ *  record is what a build with a WIDER vocabulary wrote — the reported case was a
+ *  rollback under a session holding an `AgentKind` the running build's enum does
+ *  not carry — and the old throwing decode made that one record fatal to the whole
+ *  boot: `adoptSurvivingSession` propagated it, and the fail-closed arm in
+ *  `ensureLocalEndpoint` answered by RECYCLING the adopted daemon, killing every
+ *  live terminal on the host (including the ones that decoded perfectly). One
+ *  unreadable record may cost THAT terminal its saved chrome and nothing more —
+ *  the same `persisted-schema-stays-tolerant` rule `seedHandlelessTerminal`
+ *  already applies to the sleeping / parked seeds.
+ *
+ *  The id is validated here too rather than cast: `reconcile` joins saved records
+ *  to live PTYs on a raw string, so a saved id that is not a `TerminalId` reached
+ *  the registry as a cast — the one hole the orphan path had already closed. */
 export function adoptLocalTerminal(
   record: SavedActiveTerminal,
   liveEntry: PtyHostListEntry,
-): void {
+): boolean {
+  const idParsed = decodeTerminalId(record.id);
+  const recordParsed = decodeSavedActive(record);
+  if (Result.isFailure(idParsed) || Result.isFailure(recordParsed)) {
+    log.warn(
+      { id: record.id },
+      "saved record did not decode — adopting the surviving PTY as an orphan instead (it keeps its shell, not its saved chrome)",
+    );
+    return false;
+  }
+  const parsed = recordParsed.success;
   localEndpointImpl.adoptTerminal(
-    record.id as TerminalId,
-    adoptedAuthored(record),
-    adoptedSnapshot(record, liveEntry),
+    idParsed.success,
+    adoptedAuthored(parsed),
+    adoptedSnapshot(parsed, liveEntry),
     liveEntry,
   );
+  return true;
 }
 
 /** Adopt a surviving local PTY at boot (B3.3) that has NO saved record (F1) — a
