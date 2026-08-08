@@ -16,18 +16,18 @@
  * heals here without this package knowing what a socket is. The package
  * manifest is the graduation fence: padi/surface deps only, no kolu app package.
  *
- * A redial hook alone only says where a restart heals, not when the adapter
- * NOTICES one, and that gap had a cost: the adapter used to find out by spending
- * a request on the dead socket, so the first padi-backed request after every
- * restart failed (juspay/kolu#2082). The connection therefore also carries
- * `onClose` — padi ANNOUNCES its own transport dropping — and the adapter
- * discards the dead connection the moment it hears, before any request is routed
- * to it.
+ * The connection also carries the transport's close announcement, so a restart
+ * costs no request — see {@link OwnedSurfaceConnection.onClose}
+ * (juspay/kolu#2082).
  */
 
 import { padiSurface } from "@kolu/padi/surface";
 import type { PadiSurfaceClient } from "@kolu/padi/dial";
-import { type BespokeTool, serveSurfaceAsMcp } from "@kolu/surface-mcp";
+import {
+  type BespokeTool,
+  type OwnedSurfaceConnection,
+  serveSurfaceAsMcp,
+} from "@kolu/surface-mcp";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { KOLU_MCP_EXPOSE } from "./expose.ts";
@@ -35,27 +35,23 @@ import { screenTextTool } from "./screenText.ts";
 import { sendInputTool } from "./sendInput.ts";
 import { waitAgentStateTool, waitOutputSettledTool } from "./wait.ts";
 
-/** A live, padi-scoped connection the injected factory produces. `dispose`
- *  closes the socket/pipe the factory opened — the adapter calls it on
- *  teardown and before every re-dial.
+/** A live, padi-scoped connection the injected factory produces — the adapter's
+ *  own {@link OwnedSurfaceConnection} with the client narrowed to padi's face.
  *
- *  `PadiSurfaceClient` is now the `buildSurfaceFace` shape: a streaming member
- *  hands back a lazy `Stream` and a procedure returns a `Promise`, with no
- *  `AbortSignal` option anywhere (D10/#18 — cancellation is fiber
- *  interruption). That is exactly what `@kolu/surface-mcp`'s
- *  `ClientOrConnection` now asks for, so this interface needs no adapter. */
-export interface KoluMcpConnection {
+ *  Deliberately an EXTENSION rather than a re-declaration of the same three
+ *  fields, for the reason `kolu-cli`'s alias gives one level down: a field added
+ *  to the adapter's shape and forgotten here would drift in silence, because the
+ *  value crosses into `serveSurfaceAsMcp` by structural width-subtyping alone.
+ *  That is #2082's own failure mode — a hop that quietly fails to carry a field
+ *  — one layer up from where it was fixed.
+ *
+ *  Field docs live on the base, including why `onClose` is optional and which
+ *  arm supplies it: see {@link OwnedSurfaceConnection}. `PadiSurfaceClient` is
+ *  the `buildSurfaceFace` shape — a streaming member hands back a lazy `Stream`,
+ *  a procedure a `Promise`, no `AbortSignal` anywhere (D10/#18) — which is
+ *  exactly what the adapter asks for, so this needs no adapter of its own. */
+export interface KoluMcpConnection extends OwnedSurfaceConnection {
   client: PadiSurfaceClient;
-  dispose: () => void;
-  /** Subscribe to this connection's transport dropping. Fires at most once.
-   *
-   *  The redial hook below says WHERE a restart heals; this says WHEN the
-   *  adapter finds out. Without it the adapter learns only by failing a request
-   *  against the dead socket, which is why the first padi-backed request after
-   *  every padi restart used to fail (juspay/kolu#2082). Supplied by the local
-   *  dial (padi's `DaemonConnection` contract carries it); absent on the ssh
-   *  `--host` arm, which has no close signal to offer yet. */
-  onClose?: (cb: () => void) => void;
 }
 
 /** The face's bespoke tools, named once so the serve call and the tests read

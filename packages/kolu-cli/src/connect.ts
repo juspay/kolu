@@ -57,7 +57,9 @@ import { Data, Effect } from "effect";
  *  the other drifts silently, and `guardedMcpDial` passes the value across the
  *  package boundary by structural width-subtyping alone, so nothing would say
  *  so. An alias makes the drift unspellable — and kolu-cli already depends on
- *  kolu-mcp, so the arrow points the way it already points.
+ *  kolu-mcp, so the arrow points the way it already points. `KoluMcpConnection`
+ *  in turn `extends` the adapter's own `OwnedSurfaceConnection`, so the whole
+ *  chain from dial to adapter is one shape rather than three copies.
  *
  *  The name stays because the two roles differ: this is what a CLI FACE is
  *  written against (`kolu mcp` today, `kolu tui` later), and only one of those
@@ -183,10 +185,9 @@ export const connectKoluCliLocal: Effect.Effect<
  *
  *  Its own function because forgetting a field here is silent and expensive:
  *  the inline object literal this replaced dropped `onClose` on the floor, and
- *  that omission WAS juspay/kolu#2082 — padi announced every restart, kolu-cli
- *  never passed the announcement on, and the MCP adapter was left to discover
- *  each one by failing a request. Named and shared so the e2e pin composes the
- *  same projection the product does, instead of a look-alike that can drift back. */
+ *  that omission WAS juspay/kolu#2082. Named and shared so the e2e pin composes
+ *  the same projection the product does, instead of a look-alike that can drift
+ *  back; `hostConnect.ts`'s `koluCliConnectionOfAgentDial` is its ssh mirror. */
 export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
   return {
     client: scopePadiSurface(conn.client),
