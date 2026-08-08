@@ -335,7 +335,7 @@ export interface BoundEvent<I, T> {
 /** The bound face's declared-FAILURE type: the decoded union of the spec's
  *  `error` schema, or `never` when the procedure declares no failures (define.ts's
  *  shared {@link ProcedureSpecError} extractor resolves `Schema.Never` there). A
- *  declared error travels as a `Schema.TaggedErrorClass` INSTANCE — `_tag` and data
+ *  declared error travels as a `Schema.TaggedError` INSTANCE — `_tag` and data
  *  intact across every hop — so a caller narrows it with `Effect.catchTag`, a `_tag`
  *  switch or an `instanceof`, never a magic-code compare. */
 type BoundProcedureError<S> = ProcedureSpecError<S>["Type"];

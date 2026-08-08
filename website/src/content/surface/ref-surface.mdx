@@ -78,7 +78,7 @@ trust. Per-member precision lives in the spec-derived `SurfaceRpcsFor<S>` and it
 ### Declared errors — tagged classes, narrowed by `_tag`
 
 A procedure may declare an **error channel** — `ProcedureSpec.error`, one Effect
-Schema, normally a `Schema.Union` of `Schema.TaggedErrorClass`es. A declaring
+Schema, normally a `Schema.Union` of `Schema.TaggedError`s. A declaring
 handler *fails* with an instance of a declared class; the caller receives it
 decoded, `_tag` and data intact, and narrows on the `_tag`. A typed domain error
 can no longer flatten to an opaque transport failure at a generic hop — through a
@@ -856,7 +856,7 @@ example.
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 
 Every error that has to be **recognised on the far side of a wire hop** lives in
-one module all three tiers import, as a `Schema.TaggedErrorClass`. That single
+one module all three tiers import, as a `Schema.TaggedError`. That single
 home is the requirement, not tidiness: a re-serving parent decodes an error from
 upstream and re-encodes it downstream, and only a schema both ends were built
 from survives serialize → deserialize → re-serialize with its `_tag` and data
@@ -1058,7 +1058,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.103)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION(beta.106)` marker
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 

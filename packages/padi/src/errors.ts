@@ -1,7 +1,7 @@
 /**
  * `@kolu/padi/surface`'s DECLARED error vocabulary (PLAN D4).
  *
- * Every failure a caller can BRANCH on is a `Schema.TaggedErrorClass` declared
+ * Every failure a caller can BRANCH on is a `Schema.TaggedError` declared
  * here and carried by the `padiSurface` members that raise it — so the
  * discriminant is a `_tag`, not a magic code string compared by hand, and the
  * payload rides as typed DATA rather than prose a reader has to re-parse. These
@@ -39,7 +39,7 @@ import { Schema } from "effect";
  *  an UNDECLARED failure: narrowable in-process, opaque across a wire hop.
  *  That asymmetry is the framework's, and it is stated rather than papered
  *  over (the same call kaval's `PtyNotFound` makes for its five streams). */
-export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+export class TerminalNotFound extends Schema.TaggedError<TerminalNotFound>(
   "padi/TerminalNotFound",
 )("TerminalNotFound", { id: Schema.String }) {
   override get message(): string {
@@ -56,7 +56,7 @@ export class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
  *  the drop); the `reason` field keeps them distinguishable in a log without
  *  minting a discriminant nobody branches on. `childId`/`parentId` ride as
  *  data so the message is derived, never parsed. */
-export class TerminalParentCycle extends Schema.TaggedErrorClass<TerminalParentCycle>(
+export class TerminalParentCycle extends Schema.TaggedError<TerminalParentCycle>(
   "padi/TerminalParentCycle",
 )("TerminalParentCycle", {
   childId: Schema.String,
@@ -83,7 +83,7 @@ export class TerminalParentCycle extends Schema.TaggedErrorClass<TerminalParentC
  *  prechecks for a fast toast; this is the one that actually decides), and the
  *  successor of `servePadi`'s `ORPCError("BAD_REQUEST", { message: reason })`.
  *  `reason` is the same user-facing sentence `rejectionFor` already produced. */
-export class ScratchWriteRejected extends Schema.TaggedErrorClass<ScratchWriteRejected>(
+export class ScratchWriteRejected extends Schema.TaggedError<ScratchWriteRejected>(
   "padi/ScratchWriteRejected",
 )("ScratchWriteRejected", { reason: Schema.String }) {
   override get message(): string {
@@ -96,7 +96,7 @@ export class ScratchWriteRejected extends Schema.TaggedErrorClass<ScratchWriteRe
  *  (request a bounded byte range), which is why the cap rides as data: a client
  *  can compute a range from `limitBytes` instead of reading a number out of a
  *  sentence. Successor of `ORPCError("PAYLOAD_TOO_LARGE")`. */
-export class PreviewTooLarge extends Schema.TaggedErrorClass<PreviewTooLarge>(
+export class PreviewTooLarge extends Schema.TaggedError<PreviewTooLarge>(
   "padi/PreviewTooLarge",
 )("PreviewTooLarge", { limitBytes: Schema.Int }) {
   override get message(): string {
@@ -112,7 +112,7 @@ export class PreviewTooLarge extends Schema.TaggedErrorClass<PreviewTooLarge>(
 /** The terminal hosts no agent session, so there is nothing to export.
  *  Successor of `ORPCError("PRECONDITION_FAILED")` — a precondition on the
  *  terminal's state, not a failure of the export. */
-export class TranscriptNoAgent extends Schema.TaggedErrorClass<TranscriptNoAgent>(
+export class TranscriptNoAgent extends Schema.TaggedError<TranscriptNoAgent>(
   "padi/TranscriptNoAgent",
 )("TranscriptNoAgent", {}) {
   override get message(): string {
@@ -123,7 +123,7 @@ export class TranscriptNoAgent extends Schema.TaggedErrorClass<TranscriptNoAgent
 /** The agent's transcript could not be loaded — the session id is live on the
  *  screen but its on-disk record is absent or unreadable. Successor of
  *  `ORPCError("NOT_FOUND")`; the agent kind + session id ride as data. */
-export class TranscriptNotFound extends Schema.TaggedErrorClass<TranscriptNotFound>(
+export class TranscriptNotFound extends Schema.TaggedError<TranscriptNotFound>(
   "padi/TranscriptNotFound",
 )("TranscriptNotFound", {
   agentKind: Schema.String,
@@ -146,7 +146,7 @@ export class TranscriptNotFound extends Schema.TaggedErrorClass<TranscriptNotFou
  *  and its injected `errors.KAVAL_CONTRACT_SKEW(...)` constructor: the handler
  *  now FAILS with an instance of this class, and the client narrows on
  *  `_tag === "KavalContractSkew"` instead of `error.code`. */
-export class KavalContractSkew extends Schema.TaggedErrorClass<KavalContractSkew>(
+export class KavalContractSkew extends Schema.TaggedError<KavalContractSkew>(
   "padi/KavalContractSkew",
 )("KavalContractSkew", {
   /** The contract version the daemon actually speaks. */
@@ -172,9 +172,10 @@ export class KavalContractSkew extends Schema.TaggedErrorClass<KavalContractSkew
  *  it is the branch point — the regression this classification exists for
  *  (`filePreviewTag` relying on errno text surviving into a message) lived in
  *  exactly that seam. */
-export class FileGone extends Schema.TaggedErrorClass<FileGone>(
-  "padi/FileGone",
-)("FileGone", { path: Schema.String }) {
+export class FileGone extends Schema.TaggedError<FileGone>("padi/FileGone")(
+  "FileGone",
+  { path: Schema.String },
+) {
   override get message(): string {
     return `Not found: ${this.path}`;
   }
@@ -184,7 +185,7 @@ export class FileGone extends Schema.TaggedErrorClass<FileGone>(
  *  Successor of `unwrapGit`'s `BASE_BRANCH_NOT_FOUND →
  *  ORPCError("PRECONDITION_FAILED")`; actionable (pick another base), so
  *  declared. */
-export class WorktreeBaseBranchMissing extends Schema.TaggedErrorClass<WorktreeBaseBranchMissing>(
+export class WorktreeBaseBranchMissing extends Schema.TaggedError<WorktreeBaseBranchMissing>(
   "padi/WorktreeBaseBranchMissing",
 )("WorktreeBaseBranchMissing", { detail: Schema.String }) {
   override get message(): string {
@@ -195,7 +196,7 @@ export class WorktreeBaseBranchMissing extends Schema.TaggedErrorClass<WorktreeB
 /** A worktree create refused because the name is already taken. Successor of
  *  `unwrapGit`'s `WORKTREE_NAME_COLLISION → ORPCError("CONFLICT")`; actionable
  *  (pick another name), so declared. */
-export class WorktreeNameCollision extends Schema.TaggedErrorClass<WorktreeNameCollision>(
+export class WorktreeNameCollision extends Schema.TaggedError<WorktreeNameCollision>(
   "padi/WorktreeNameCollision",
 )("WorktreeNameCollision", { detail: Schema.String }) {
   override get message(): string {
@@ -216,9 +217,10 @@ export class WorktreeNameCollision extends Schema.TaggedErrorClass<WorktreeNameC
  *  so a git error SURFACES with its message instead of collapsing to an empty
  *  result, and that message is what the user reads in the toast. A defect
  *  would keep the fail-fast property but lose the sentence. */
-export class GitFailed extends Schema.TaggedErrorClass<GitFailed>(
-  "padi/GitFailed",
-)("GitFailed", { detail: Schema.String }) {
+export class GitFailed extends Schema.TaggedError<GitFailed>("padi/GitFailed")(
+  "GitFailed",
+  { detail: Schema.String },
+) {
   override get message(): string {
     return this.detail;
   }

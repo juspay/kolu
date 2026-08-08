@@ -57,7 +57,7 @@ import { serveSurfaceMap } from "./server";
 
 /** The entry surface's DECLARED domain error (SK6) — a tagged schema class, so it
  *  crosses a hop by being decoded and re-encoded rather than stringified. */
-class DemoContractSkew extends Schema.TaggedErrorClass<DemoContractSkew>(
+class DemoContractSkew extends Schema.TaggedError<DemoContractSkew>(
   "surface-map/test/DemoContractSkew",
 )("DemoContractSkew", {
   daemonVersion: Schema.String,

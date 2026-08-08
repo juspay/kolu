@@ -183,7 +183,7 @@ async function upstreamStream<T>(
  *  `ORPCError("BAD_REQUEST")` the agent used to raise. Declared on `ctl.echo`, so
  *  the re-serve's forward re-FAILS it verbatim and a downstream caller narrows on
  *  `_tag` (rather than reading a magic code off an opaque wrapper). */
-class EchoRejected extends Schema.TaggedErrorClass<EchoRejected>(
+class EchoRejected extends Schema.TaggedError<EchoRejected>(
   "@kolu/surface-remote/test/EchoRejected",
 )("EchoRejected", { detail: Schema.String }) {
   override get message(): string {
