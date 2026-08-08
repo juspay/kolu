@@ -28,6 +28,7 @@ import type {
   HostRef,
   ServerBackupsList,
   ServerBackupsRestore,
+  ServerBackupsRestoreResult,
   ViewerHost,
 } from "kolu-common/contract";
 import type { HostKey } from "kolu-common/hostKey";
@@ -101,8 +102,12 @@ export interface BuildAppRouterDeps {
    *  list, injected like every other domain seam. */
   listStateBackups: () => ServerBackupsList;
   /** Restore one ring snapshot in-process (validate → cell writes → pool
-   *  convergence) — `stateBackups.ts`'s restore with the boot's seams bound. */
-  restoreStateBackup: (input: ServerBackupsRestore) => Promise<void>;
+   *  convergence) — `stateBackups.ts`'s restore with the boot's seams bound.
+   *  Answers the hosts that would not converge; every anomaly that happens
+   *  before anything is applied still throws. */
+  restoreStateBackup: (
+    input: ServerBackupsRestore,
+  ) => Promise<ServerBackupsRestoreResult>;
 }
 
 /** Bind the root procedures. Called from `index.ts`'s async boot (and from the
@@ -126,14 +131,15 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
     // folds a remote host into the name.
     "server/info": () =>
       Effect.sync(() => ({ identity: pwaIdentityForHostname(serverHostname) })),
-    // The state-backup ring (#1658) — kolu-server's own store. A restore
-    // failure is an undeclared throw (a defect the caller's toast surfaces):
-    // none of its anomalies is an expected outcome a client branches on.
+    // The state-backup ring (#1658) — kolu-server's own store. An anomaly that
+    // happens BEFORE anything is applied is an undeclared throw (a defect the
+    // caller's toast surfaces); a partially-converged host pool is not an
+    // anomaly but an ANSWER, and rides the success channel.
     "server/backups/list": () => Effect.sync(() => deps.listStateBackups()),
     "server/backups/restore": (input: ServerBackupsRestore) =>
       Effect.promise(async () => {
         log.info({ file: input.file }, "server state restore requested");
-        await deps.restoreStateBackup(input);
+        return await deps.restoreStateBackup(input);
       }),
     "daemon/restart": () =>
       Effect.gen(function* () {

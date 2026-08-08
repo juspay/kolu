@@ -46,7 +46,7 @@ function rootFragment() {
     reconnectHost: () => {},
     renewHostDaemon: () => Effect.void,
     listStateBackups: () => ({ backups: [] }),
-    restoreStateBackup: async () => {},
+    restoreStateBackup: async () => ({ hostFailures: [] }),
     viewerHost: async () => null,
   });
 }

@@ -317,6 +317,17 @@ export interface KoluSurfaceDeps {
 // slot (an override-knob) is unnecessary and absent. `t`/`servedContract` (module-level
 // above) are pure contract builders that fire no connects, so `router.ts`'s app-router
 // assembly against `t` keeps working unchanged.
+/** The Conf-backed STORE cells' server-internal writers. Named for the AXIS
+ *  ("an in-process write to a store cell"), not for the one feature that first
+ *  wanted it: `ctx.cells.<key>.set` is the framework's sanctioned in-process
+ *  write path for a store cell (dedupe + `onWrite` + publish ride along), and
+ *  only the two STORE cells are handed out, so the graph-owned derived members
+ *  stay unreachable. The state-backup restore (#1658) is the first consumer. */
+export interface StoreCellWriters {
+  setPreferences: (value: Preferences) => void;
+  setViewerMode: (value: ViewerMode) => void;
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -598,16 +609,11 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   return {
     group: koluSurfaces.group,
     handlers: koluSurfaces.handlers,
-    restoreCellWriters: {
-      setPreferences: (value: Preferences) =>
+    storeCellWriters: {
+      setPreferences: (value) =>
         koluSurfaces.ctx.kolu.cells.preferences.set(value),
-      setViewerMode: (value: ViewerMode) =>
+      setViewerMode: (value) =>
         koluSurfaces.ctx.kolu.cells.viewerMode.set(value),
     },
-  } satisfies ServedFragment & {
-    restoreCellWriters: {
-      setPreferences: (value: Preferences) => void;
-      setViewerMode: (value: ViewerMode) => void;
-    };
-  };
+  } satisfies ServedFragment & { storeCellWriters: StoreCellWriters };
 }

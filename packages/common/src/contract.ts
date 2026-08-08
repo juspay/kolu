@@ -102,6 +102,20 @@ export const ServerBackupsRestoreSchema = Schema.Struct({
 });
 export type ServerBackupsRestore = typeof ServerBackupsRestoreSchema.Type;
 
+/** `server/backups/restore`'s ANSWER. The restore is not atomic — the two cells
+ *  apply before the host pool converges — so a host that would not dial is a
+ *  FACT the caller renders ("restored; 1 host did not reconnect"), not a throw:
+ *  squeezing it through the error channel forced the dialog to say "Restore
+ *  failed:" about a restore that had already applied. `hostFailures` empty ⇒
+ *  fully converged. Genuine fail-fast anomalies — a bad name, an unreadable or
+ *  undecodable snapshot, a failed undo snapshot — still throw, because they
+ *  happen BEFORE anything is applied. */
+export const ServerBackupsRestoreResultSchema = Schema.Struct({
+  hostFailures: Schema.Array(Schema.String),
+});
+export type ServerBackupsRestoreResult =
+  typeof ServerBackupsRestoreResultSchema.Type;
+
 // ── The root procedures ───────────────────────────────────────────────
 
 /** Every ROOT wire tag this contract declares, spelled literally. The assertion
@@ -141,8 +155,13 @@ export const koluRootGroup = RpcGroup.make(
    *  host pool onto the snapshot's fleet through the SAME pool add/remove path
    *  the strip uses. No server restart — unlike padi's session, this store is
    *  plain data served from cells. The current file is pushed into the ring
-   *  first, so a restore is itself undoable. */
-  Rpc.make("server/backups/restore", { payload: ServerBackupsRestoreSchema }),
+   *  first (and the restore is REFUSED if that snapshot fails), so a restore is
+   *  itself undoable. Answers with the hosts that would not converge — an empty
+   *  list is a clean restore. */
+  Rpc.make("server/backups/restore", {
+    payload: ServerBackupsRestoreSchema,
+    success: ServerBackupsRestoreResultSchema,
+  }),
   /** Restart the local kaval daemon, preserving the session (B3.2). Captures
    *  the session before the kill, recycles the daemon (kill → wait → spawn →
    *  connect), and leaves the empty canvas + preserved session the restore

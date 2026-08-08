@@ -35,7 +35,7 @@ function harness(answer: HostKey | null = null) {
     reconnectHost: () => {},
     renewHostDaemon: () => Effect.void,
     listStateBackups: () => ({ backups: [] }),
-    restoreStateBackup: async () => {},
+    restoreStateBackup: async () => ({ hostFailures: [] }),
     viewerHost,
   };
   return { viewerHost, handlers: buildAppRouter(deps).handlers };

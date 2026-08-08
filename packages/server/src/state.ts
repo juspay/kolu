@@ -32,7 +32,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshotStateFile, startStateBackupTicker } from "kolu-shared";
+import { openStateBackupRing } from "kolu-shared/state-backup";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
@@ -40,7 +40,6 @@ import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
-  type ViewerMode,
   ViewerModeSchema,
 } from "kolu-common/surface";
 import { log } from "./log.ts";
@@ -198,6 +197,23 @@ type PersistedState = {
  *  patch, never persisted. */
 const decodePersistedState = Schema.decodeUnknownResult(PersistedStateSchema);
 
+/** Read EVERY persisted key off a store, keyed off the SCHEMA's own field list
+ *  (`Schema.Struct` exposes it as `.fields`, zod's `.shape`) rather than a
+ *  hand-written key list. "Which keys this store persists" is the most volatile
+ *  fact in this file — the ladder below has 36 rungs and three of them move the
+ *  key set — so both decode sites (the boot check and the backup restore) read
+ *  the schema instead of re-listing it: a new key joins them with no edit, and
+ *  cannot silently decode as three-of-four. */
+function readPersistedRecord(
+  from: Conf<PersistedState>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    (Object.keys(PersistedStateSchema.fields) as (keyof PersistedState)[]).map(
+      (key) => [key, from.get(key)],
+    ),
+  );
+}
+
 /**
  * Schema version — bump this when adding migrations.
  * Must be valid semver. `conf` runs all migration handlers
@@ -228,15 +244,26 @@ const stateDir: string = rawStateDir;
 
 log.info({ path: stateDir }, "state directory");
 
+/** kolu-server's state-backup ring (#1658) — the one binding every ring verb
+ *  rides (boot snapshot here, the daily tick from `bootKoluWeb`, list/restore
+ *  from `stateBackups.ts`). Opening it reads nothing and arms nothing. */
+export const stateBackupRing = openStateBackupRing(
+  join(stateDir, "config.json"),
+  log,
+);
+
 // Snapshot the pre-existing store into the backup ring BEFORE the `Conf`
 // construction below can write it — the ladder itself rewrites the file, so a
 // later snapshot would capture post-migration bytes (juspay/kolu#1658; padi's
-// `openPadiStateStores` takes the same boot snapshot of ITS store). The slow
-// tick re-snapshots a long-running server daily through the same dedupe/rotate
-// path. Both fail-soft by design — see `kolu-shared`'s `stateBackup` module doc
-// for why this one path may not throw.
-snapshotStateFile(join(stateDir, "config.json"), log);
-startStateBackupTicker(join(stateDir, "config.json"), log);
+// `openPadiStateStores` takes the same boot snapshot of ITS store). Fail-soft by
+// design — see `kolu-shared`'s `stateBackup` module doc for why this one path
+// may not throw.
+//
+// The daily re-snapshot tick is NOT armed here: it is armed by `bootKoluWeb`
+// (`index.ts`), at boot altitude, so merely IMPORTING this module — which every
+// unit test touching the store does — cannot start a process-lifetime timer.
+// padi's `daemonMain` makes exactly the same split, for the same reason.
+stateBackupRing.snapshot();
 
 /** Delete a key that is no longer in `PersistedStateSchema` off the raw store —
  *  the conf-ladder idiom for stripping a legacy/orphan key (Conf's typed
@@ -730,11 +757,7 @@ if (existsSync(store.path)) chmodSync(store.path, 0o600);
 // invalid `hosts` value additionally crashes the boot loud where it's read
 // (`getPersistedHosts`). No "delete to reset" advice: `hosts` is user data, so blindly
 // deleting the store would empty the fleet — the offending domain must be fixed.
-const result = decodePersistedState({
-  preferences: store.get("preferences"),
-  hosts: store.get("hosts"),
-  viewerMode: store.get("viewerMode"),
-});
+const result = decodePersistedState(readPersistedRecord(store));
 if (Result.isFailure(result)) {
   // Effect's `SchemaError` renders as a path-annotated tree, so the ONE string
   // carries what zod's `issues.map(i => …)` summary spelled by hand — every
@@ -747,15 +770,12 @@ if (Result.isFailure(result)) {
   );
 }
 
-/** The DECODED shape a backup restore hands back — the domain projection of the
- *  (deliberately unexported) `PersistedStateSchema`, per `.claude/rules/state.md`:
- *  consumers reach the disk shape through domain accessors, and this is the
- *  restore path's one. */
-export interface DecodedStateBackup {
-  readonly preferences: Preferences;
-  readonly hosts: readonly string[];
-  readonly viewerMode: ViewerMode;
-}
+/** The DECODED shape a backup restore hands back — the FULL persisted shape,
+ *  ALIASED off the (deliberately unexported) `PersistedStateSchema` rather than
+ *  re-listed, so a new persisted key cannot land without the restore path seeing
+ *  it. Per `.claude/rules/state.md` consumers reach the disk shape through
+ *  domain accessors; this is the restore path's one. */
+export type DecodedStateBackup = typeof PersistedStateSchema.Type;
 
 /** Decode ONE state-backup snapshot (#1658) into the CURRENT persisted shape by
  *  walking the REAL migration ladder on a SCRATCH copy — a snapshot may predate
@@ -774,11 +794,7 @@ export function decodeStateBackupFile(backupPath: string): DecodedStateBackup {
       defaults: CONF_DEFAULTS,
       migrations: CONF_MIGRATIONS,
     });
-    const decoded = decodePersistedState({
-      preferences: scratchStore.get("preferences"),
-      hosts: scratchStore.get("hosts"),
-      viewerMode: scratchStore.get("viewerMode"),
-    });
+    const decoded = decodePersistedState(readPersistedRecord(scratchStore));
     if (Result.isFailure(decoded)) {
       throw new Error(
         `state backup ${backupPath} does not match the persisted schema after ` +
