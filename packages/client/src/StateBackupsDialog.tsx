@@ -10,14 +10,21 @@
  *  ones — "14 terminals" vs "no session" is how the good one is spotted), and
  *  restoring asks an explicit inline confirm first.
  *
- *  Restore semantics differ by store, and the confirm copy says so:
+ *  The two stores differ in five ways — title, reachability, how a wire row
+ *  becomes a `BackupRow`, which call restores, and what the confirm says — and
+ *  those five differences are spelled ONCE, in a {@link StoreAdapter} per store.
+ *  Everything else (the picker, the list, the confirm, the toast round-trip) is
+ *  written once against the adapter, so a third ring is one more adapter rather
+ *  than five more branches:
  *   - padi: the snapshot's session is re-spawned host-side through the same
  *     import machinery as "Import session" — live terminals stay, the backup's
  *     terminals come back beside them. No daemon restart.
  *   - kolu-server: preferences/viewerMode apply live through their cells and
  *     the host pool converges onto the snapshot's fleet. No server restart.
  *  Both push the current state into the ring first, so a restore is itself
- *  undoable (pick the pre-restore snapshot to go back).
+ *  undoable (pick the pre-restore snapshot to go back) — and the server refuses
+ *  the restore outright if that snapshot could not be taken, so the promise
+ *  cannot lie.
  *
  *  A padi row is disabled while its host is not `connected` — the dialog must
  *  not offer an action the channel cannot carry out (the #1793 affordance
@@ -39,6 +46,8 @@ import { hostLabel } from "./host/hostChipTone";
 import { runAction, runActionPromise, type UiAction } from "./runAction";
 import { formatTimeAgo } from "./terminal/staleness";
 import { createDisclosure } from "./ui/createDisclosure";
+import InlineConfirmButton from "./ui/InlineConfirmButton";
+import { formatMB } from "./ui/memory";
 import ModalDialog from "./ui/ModalDialog";
 import { surface } from "./ui/Surface";
 import { client, hostKeys, padiMap } from "./wire";
@@ -49,13 +58,10 @@ export const stateBackupsDialog = createDisclosure();
 
 const chrome = surface({ portalled: true });
 
-/** WHICH ring is being browsed — kolu-server's own store, or one host's padi. */
-type BackupStore = { kind: "kolu" } | { kind: "padi"; host: HostKey };
-
 /** A snapshot row, normalized across the two stores' wire shapes. */
 interface BackupRow {
   file: string;
-  /** Reprojected onto the BROWSER clock already (a remote padi's mtime rides
+  /** Reprojected onto the BROWSER clock already (a remote padi's stamp rides
    *  its own clock — `padiMap.entry(host).clock.toLocal` is the foreign-clock
    *  fence, applied at fetch). `null` while that entry's clock offset is not
    *  yet measured — rendered as "—", never a fabricated time. */
@@ -67,21 +73,38 @@ interface BackupRow {
   restorable: boolean;
 }
 
-function storeTitle(store: BackupStore): string {
-  return store.kind === "kolu"
-    ? "kolu-server"
-    : `padi — ${hostLabel(store.host)}`;
+/** How a restore ENDED. Not every non-throw is a clean success: kolu-server's
+ *  restore applies the cells and then converges the host pool, so a host that
+ *  would not dial leaves the state restored and the fleet short — a degraded
+ *  outcome (`toast.warning` per `.claude/rules/toast-conventions.md`), not the
+ *  self-contradicting "Restore failed: state restored, but…" the error channel
+ *  used to force. */
+type RestoreOutcome =
+  | { kind: "restored" }
+  | { kind: "degraded"; detail: string };
+
+/** The five things that differ between the two rings, spelled once per store. */
+interface StoreAdapter {
+  /** `For`-key and resource identity. */
+  key: string;
+  title: string;
+  subtitle: string;
+  /** Is the store reachable right now? A padi ring lives on ITS host. */
+  available: boolean;
+  list: () => Promise<BackupRow[]>;
+  restore: (file: string) => Effect.Effect<RestoreOutcome, unknown>;
+  confirmCopy: (row: BackupRow) => string;
 }
 
-function formatSize(bytes: number): string {
-  return bytes >= 1024 * 1024
-    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
-}
+const UNDOABLE = "The current state is snapshotted first, so this is undoable.";
 
-function fetchBackups(store: BackupStore): Promise<BackupRow[]> {
-  if (store.kind === "kolu") {
-    return runActionPromise(
+const koluStore: StoreAdapter = {
+  key: "kolu",
+  title: "kolu-server",
+  subtitle: "preferences · hosts · this machine",
+  available: true,
+  list: () =>
+    runActionPromise(
       client.server.backups.list().pipe(
         Effect.map((r) =>
           r.backups.map((b) => ({
@@ -96,70 +119,116 @@ function fetchBackups(store: BackupStore): Promise<BackupRow[]> {
           })),
         ),
       ),
-    );
-  }
-  const entry = padiMap.entry(store.host);
-  return runActionPromise(
-    entry.procedures.backups.list().pipe(
-      Effect.map((r) =>
-        r.backups.map((b) => ({
-          file: b.file,
-          // The foreign-clock fence: a remote padi's mtime is ITS clock.
-          savedAtMs: entry.clock.toLocal(b.savedAtMs),
-          sizeBytes: b.sizeBytes,
-          summary:
-            b.summary.kind === "session"
-              ? `${b.summary.terminals} ${b.summary.terminals === 1 ? "terminal" : "terminals"}`
-              : b.summary.kind === "empty"
-                ? "no session"
-                : "unreadable",
-          restorable: b.summary.kind === "session",
-        })),
+    ),
+  restore: (file) =>
+    client.server.backups.restore({ file }).pipe(
+      Effect.map(
+        (r): RestoreOutcome =>
+          r.hostFailures.length === 0
+            ? { kind: "restored" }
+            : {
+                kind: "degraded",
+                detail: `${r.hostFailures.length} host(s) did not reconnect: ${r.hostFailures.join("; ")}`,
+              },
       ),
     ),
-  );
-}
+  confirmCopy: () =>
+    `Restore preferences and converge the host pool onto this snapshot? Applies live — no restart. ${UNDOABLE}`,
+};
+
+const padiStore = (host: HostKey): StoreAdapter => {
+  const entry = () => padiMap.entry(host);
+  return {
+    key: `padi:${host}`,
+    title: `padi — ${hostLabel(host)}`,
+    // Offer only what the channel can carry out (#1793).
+    subtitle:
+      entry().state().kind === "connected"
+        ? "session · terminals"
+        : `unreachable (${entry().state().kind})`,
+    available: entry().state().kind === "connected",
+    list: () =>
+      runActionPromise(
+        entry()
+          .procedures.backups.list()
+          .pipe(
+            Effect.map((r) =>
+              r.backups.map((b) => ({
+                file: b.file,
+                // The foreign-clock fence: a remote padi's stamp is ITS clock.
+                savedAtMs: entry().clock.toLocal(b.savedAtMs),
+                sizeBytes: b.sizeBytes,
+                summary:
+                  b.summary.kind === "session"
+                    ? `${b.summary.terminals} ${b.summary.terminals === 1 ? "terminal" : "terminals"}`
+                    : b.summary.kind === "empty"
+                      ? "no session"
+                      : "unreadable",
+                restorable: b.summary.kind === "session",
+              })),
+            ),
+          ),
+      ),
+    restore: (file) =>
+      entry()
+        .procedures.backups.restore({ file })
+        .pipe(Effect.map((): RestoreOutcome => ({ kind: "restored" }))),
+    confirmCopy: (row) =>
+      `Restore ${row.summary} from this snapshot? They re-spawn beside any current terminals; nothing is killed. ${UNDOABLE}`,
+  };
+};
+
+/** The dialog's ONE state. Three states, one signal — `pending`/`inFlight`/
+ *  `selected` as three independent cells admitted combinations that mean
+ *  nothing (a pending row with no store, an in-flight restore with the row
+ *  already cleared), and made `close` remember to clear two of three. The
+ *  confirm step itself is `InlineConfirmButton`'s, per row. */
+type View =
+  | { kind: "stores" }
+  | { kind: "list"; store: StoreAdapter }
+  | { kind: "restoring"; store: StoreAdapter; row: BackupRow };
 
 const StateBackupsDialog: Component = () => {
-  const [selected, setSelected] = createSignal<BackupStore | null>(null);
-  const [pending, setPending] = createSignal<BackupRow | null>(null);
-  const [inFlight, setInFlight] = createSignal(false);
+  const [view, setView] = createSignal<View>({ kind: "stores" });
+  const stores = (): StoreAdapter[] => [
+    koluStore,
+    ...hostKeys().map((host) => padiStore(host)),
+  ];
+  const browsing = (): StoreAdapter | null => {
+    const v = view();
+    return v.kind === "stores" ? null : v.store;
+  };
   const [backups, { refetch }] = createResource(
-    () => (stateBackupsDialog.open() ? selected() : null),
-    fetchBackups,
+    () => (stateBackupsDialog.open() ? browsing() : null),
+    (store: StoreAdapter) => store.list(),
   );
 
   const close = (open: boolean) => {
     stateBackupsDialog.onOpenChange(open);
-    if (!open) {
-      setSelected(null);
-      setPending(null);
-    }
+    if (!open) setView({ kind: "stores" });
   };
 
   /** The restore act — loading/success/error toast round-trip per
    *  `.claude/rules/toast-conventions.md`, re-entry-guarded like the import
-   *  action (a double click must not restore twice). */
-  const restore = (store: BackupStore, row: BackupRow): UiAction =>
+   *  action (a double click must not restore twice). Written once: the two
+   *  stores differ only in the adapter's `restore`. */
+  const restore = (store: StoreAdapter, row: BackupRow): UiAction =>
     Effect.suspend(() => {
-      if (inFlight()) return Effect.void;
-      setInFlight(true);
+      if (view().kind === "restoring") return Effect.void;
+      setView({ kind: "restoring", store, row });
       const id = toast.loading(
-        `Restoring ${storeTitle(store)} from ${formatTimeAgo(row.savedAtMs) || row.file}…`,
+        `Restoring ${store.title} from ${formatTimeAgo(row.savedAtMs) || row.file}…`,
       );
-      const call =
-        store.kind === "kolu"
-          ? client.server.backups.restore({ file: row.file })
-          : padiMap
-              .entry(store.host)
-              .procedures.backups.restore({ file: row.file });
-      return call.pipe(
-        Effect.tap(() =>
+      return store.restore(row.file).pipe(
+        Effect.tap((outcome) =>
           Effect.sync(() => {
-            toast.success(`Restored ${storeTitle(store)} (${row.summary})`, {
-              id,
-            });
-            setPending(null);
+            if (outcome.kind === "restored") {
+              toast.success(`Restored ${store.title} (${row.summary})`, { id });
+            } else {
+              toast.warning(`Restored ${store.title} — ${outcome.detail}`, {
+                id,
+              });
+            }
             void refetch();
           }),
         ),
@@ -168,12 +237,9 @@ const StateBackupsDialog: Component = () => {
             toast.error(`Restore failed: ${toError(err).message}`, { id });
           }),
         ),
-        Effect.ensuring(Effect.sync(() => setInFlight(false))),
+        Effect.ensuring(Effect.sync(() => setView({ kind: "list", store }))),
       );
     });
-
-  const padiConnected = (host: HostKey) =>
-    padiMap.entry(host).state().kind === "connected";
 
   return (
     <ModalDialog
@@ -188,50 +254,30 @@ const StateBackupsDialog: Component = () => {
       >
         <div class="mb-3 flex items-center justify-between gap-2">
           <span class="font-semibold text-fg">State backups</span>
-          <Show when={selected()}>
+          <Show when={browsing()}>
             <button
               type="button"
               class="text-[11px] text-accent hover:underline"
-              onClick={() => {
-                setSelected(null);
-                setPending(null);
-              }}
+              onClick={() => setView({ kind: "stores" })}
             >
               ← Stores
             </button>
           </Show>
         </div>
 
-        {/* Store picker — one row per ring. */}
-        <Show when={selected() === null}>
+        {/* Store picker — one row per ring, from the one adapter list. */}
+        <Show when={browsing() === null}>
           <div class="space-y-1.5">
-            <button
-              type="button"
-              class="w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40"
-              onClick={() => setSelected({ kind: "kolu" })}
-            >
-              <div class="font-medium text-fg">kolu-server</div>
-              <div class="text-[11px] text-fg-3">
-                preferences · hosts · this machine
-              </div>
-            </button>
-            <For each={hostKeys()}>
-              {(host) => (
+            <For each={stores()}>
+              {(store) => (
                 <button
                   type="button"
                   class="w-full rounded-lg border border-edge bg-surface-1 px-3 py-2 text-left hover:border-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!padiConnected(host)}
-                  onClick={() => setSelected({ kind: "padi", host })}
+                  disabled={!store.available}
+                  onClick={() => setView({ kind: "list", store })}
                 >
-                  <div class="font-medium text-fg">
-                    padi — {hostLabel(host)}
-                  </div>
-                  <div class="text-[11px] text-fg-3">
-                    {padiConnected(host)
-                      ? "session · terminals"
-                      : // Offer only what the channel can carry out (#1793).
-                        `unreachable (${padiMap.entry(host).state().kind})`}
-                  </div>
+                  <div class="font-medium text-fg">{store.title}</div>
+                  <div class="text-[11px] text-fg-3">{store.subtitle}</div>
                 </button>
               )}
             </For>
@@ -239,10 +285,10 @@ const StateBackupsDialog: Component = () => {
         </Show>
 
         {/* Snapshot list for the selected store. */}
-        <Show when={selected()}>
+        <Show when={browsing()}>
           {(store) => (
             <div class="space-y-1.5">
-              <div class="text-[11px] text-fg-3">{storeTitle(store())}</div>
+              <div class="text-[11px] text-fg-3">{store().title}</div>
               <Show when={backups.error}>
                 <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger">
                   Failed to list backups: {toError(backups.error).message}
@@ -266,61 +312,36 @@ const StateBackupsDialog: Component = () => {
               <For each={backups() ?? []}>
                 {(row) => (
                   <div class="rounded-lg border border-edge bg-surface-1 px-3 py-2">
-                    <div class="flex items-center gap-2">
-                      <div class="min-w-0 flex-1">
-                        <div class="font-medium text-fg">
-                          {formatTimeAgo(row.savedAtMs) || "—"}
-                          <span class="ml-2 text-[11px] font-normal text-fg-3">
-                            {row.summary} · {formatSize(row.sizeBytes)}
-                          </span>
-                        </div>
-                        <div class="truncate font-mono text-[10px] text-fg-3">
-                          {row.file}
-                        </div>
+                    <div class="min-w-0">
+                      <div class="font-medium text-fg">
+                        {formatTimeAgo(row.savedAtMs) || "—"}
+                        <span class="ml-2 text-[11px] font-normal text-fg-3">
+                          {row.summary} · {formatMB(row.sizeBytes)}
+                        </span>
                       </div>
-                      <Show when={row.restorable}>
-                        <button
-                          type="button"
-                          class="shrink-0 rounded-md border border-edge px-2 py-1 text-[11px] text-fg hover:border-accent/40 disabled:opacity-50"
-                          disabled={inFlight()}
-                          onClick={() => setPending(row)}
-                        >
-                          Restore…
-                        </button>
-                      </Show>
+                      <div class="truncate font-mono text-[10px] text-fg-3">
+                        {row.file}
+                      </div>
                     </div>
-                    {/* Inline confirm — states exactly what will happen. */}
-                    <Show when={pending()?.file === row.file}>
-                      <div class="mt-2 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-[11px] text-fg-2">
-                        <p>
-                          {store().kind === "padi"
-                            ? `Restore ${row.summary} from this snapshot? They re-spawn beside any current terminals; nothing is killed.`
-                            : "Restore preferences and converge the host pool onto this snapshot? Applies live — no restart."}{" "}
-                          The current state is snapshotted first, so this is
-                          undoable.
-                        </p>
-                        <div class="mt-1.5 flex gap-2">
-                          <button
-                            type="button"
-                            class="rounded-md border border-warning/50 bg-warning/20 px-2 py-0.5 font-medium text-fg hover:bg-warning/30 disabled:opacity-50"
-                            disabled={inFlight()}
-                            onClick={() =>
-                              runAction(
-                                "restore state backup",
-                                restore(store(), row),
-                              )
-                            }
-                          >
-                            Restore
-                          </button>
-                          <button
-                            type="button"
-                            class="rounded-md border border-edge px-2 py-0.5 text-fg-2 hover:border-accent/40"
-                            onClick={() => setPending(null)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                    {/* The repo's canonical destructive-action affordance: it
+                        owns the confirm step, the Cancel/confirm pair and the
+                        `data-testid` triplet every other confirm exposes. */}
+                    <Show when={row.restorable}>
+                      <div class="mt-2">
+                        <InlineConfirmButton
+                          label="Restore"
+                          inFlightLabel="Restoring…"
+                          tone="warning"
+                          confirmCopy={store().confirmCopy(row)}
+                          inFlight={view().kind === "restoring"}
+                          testid={`state-backup-restore-${row.file}`}
+                          onConfirm={() =>
+                            runAction(
+                              "restore state backup",
+                              restore(store(), row),
+                            )
+                          }
+                        />
                       </div>
                     </Show>
                   </div>
