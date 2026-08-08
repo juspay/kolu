@@ -164,6 +164,21 @@ the first column is what appears in your MCP host.
 These update live — an agent subscribed to `urgency` is notified the moment a
 worker terminal starts waiting on it.
 
+## It survives kolu restarting underneath it
+
+kolu's background service restarts routinely — an upgrade does it — and the
+restart deliberately keeps your terminals running, so nothing else notices.
+`kolu mcp` doesn't need restarting alongside it, and your agent doesn't need to
+reconnect: the moment the old connection drops, the next tool call opens a new
+one against the restarted service. Terminals your agent was driving are still
+there afterwards, and their ids still work.
+
+If a restart happens to land in the middle of a call, that one call fails and
+says so — that it is the *connection* that dropped, that `kolu mcp` is still
+running, and that retrying will re-open it. Nothing is queued and nothing is
+re-sent behind your back, so a `lifecycle_create` that failed that way really
+did not create a terminal, and retrying it is safe.
+
 ## What an agent can't touch
 
 `kolu mcp` exposes a **deliberate, reviewed allowlist**. Reads and terminal

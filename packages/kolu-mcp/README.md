@@ -28,5 +28,15 @@ connected client; `serveKoluMcp` here owns zero transport code. The e2e pin
 (`kolu-cli/src/mcp.e2e.test.ts`) drives a real padi over both transports —
 the unix socket and the ssh-shaped stdio pipe — plus the restart legs.
 
+**A padi restart costs the agent nothing.** The injected connection carries
+padi's `onClose`, so the adapter discards a dead connection the moment padi
+announces the socket closed and the next request dials a fresh generation.
+Before that ([#2082](https://github.com/juspay/kolu/issues/2082)) a restart
+could only be *discovered* by spending a request on the dead socket, so the
+first padi-backed request after every restart failed — with a message naming
+the stdio link, which agents read as "the MCP server died" and answered by
+abandoning MCP for the rest of the session. The local socket arm supplies the
+signal today; `--host` (ssh) has none yet and keeps the older behaviour.
+
 Plan of record: the kolu-cli Atlas note
 ([kolu.dev/atlas/kolu-cli.html](https://kolu.dev/atlas/kolu-cli.html)).
