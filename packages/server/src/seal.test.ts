@@ -151,6 +151,9 @@ const WEB_SHELL_FILES = [
   "pwaIdentity",
   "router",
   "state",
+  // The state-backup ring's server face (#1658) — web-shell store management,
+  // not terminal domain (the generic ring mechanics live in `kolu-shared`).
+  "stateBackups",
   "surface",
   "tls",
   // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
@@ -634,6 +637,8 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
           removeHost: async () => {},
           reconnectHost: () => {},
           renewHostDaemon: () => Effect.void,
+          listStateBackups: () => ({ backups: [] }),
+          restoreStateBackup: async () => {},
           // No viewer identity in a shape assertion — `null` is the answer for
           // every uncertain case anyway.
           viewerHost: async () => null,

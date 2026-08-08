@@ -928,6 +928,9 @@ importers:
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
+      kolu-shared:
+        specifier: workspace:*
+        version: link:../shared
       kolu-transcript-core:
         specifier: workspace:*
         version: link:../transcript-core

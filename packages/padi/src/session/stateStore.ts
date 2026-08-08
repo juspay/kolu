@@ -20,7 +20,7 @@ import Conf from "conf";
 import { confStore } from "@kolu/surface/server";
 import type { CellStore } from "@kolu/surface/server";
 import { log } from "../log.ts";
-import { snapshotStateFile } from "../stateBackup.ts";
+import { snapshotStateFile } from "kolu-shared";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 import type { ActivityFeed, SavedSession } from "../vocab.ts";
 

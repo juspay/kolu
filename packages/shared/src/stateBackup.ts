@@ -4,9 +4,11 @@
  * the store is first written.
  *
  * Both persisted stores ride this one module: padi's state-root Conf
- * (`session/stateStore.ts`) and kolu-server's config store
- * (`packages/server/src/state.ts`, via the existing `kolu-server → @kolu/padi`
- * dependency edge — the arrow padi's own doc comment pins never points back).
+ * (`@kolu/padi`'s `session/stateStore.ts`) and kolu-server's config store
+ * (`packages/server/src/state.ts`). It lives in `kolu-shared` — the generic
+ * on-disk-state utility home — because it is domain-agnostic (neither terminal
+ * domain nor web shell), and both consumers already sit on opposite sides of
+ * the server↛padi seal.
  * The ring exists because `conf`'s atomic write protects against HALF-written
  * files, not against a bug persisting a bad-but-valid value (the #1658
  * incident: an out-of-band kaval restart emptied the registry and autosave
@@ -32,6 +34,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import type { Logger } from "./log.ts";
 
 /** How many snapshots the ring keeps — the newest N survive a prune. */
 export const STATE_BACKUP_RING_SIZE = 10;
@@ -49,13 +52,6 @@ const BACKUP_SUBDIR = "backups";
  *  names, so {@link readStateBackup} re-validates against this exact shape —
  *  path traversal is unspellable. */
 const BACKUP_FILE_RE = /^config\.[0-9TZ-]+\.json$/;
-
-/** The minimal logging face this module needs — pino-compatible, taken as a
- *  parameter so kolu-server passes its own logger rather than padi's. */
-export interface StateBackupLog {
-  info(obj: object, msg: string): void;
-  error(obj: object, msg: string): void;
-}
 
 /** Where `configPath`'s ring lives: a `backups/` sibling of the state file. */
 export function stateBackupDir(configPath: string): string {
@@ -90,7 +86,7 @@ export type SnapshotOutcome =
  *  not throw. */
 export function snapshotStateFile(
   configPath: string,
-  log: StateBackupLog,
+  log: Logger,
 ): SnapshotOutcome {
   try {
     if (!existsSync(configPath)) return { kind: "no-state-file" };
@@ -103,7 +99,10 @@ export function snapshotStateFile(
     }
     // Fs-safe UTC stamp (":"/"." are path-hostile on some filesystems); a
     // same-millisecond sibling bumps a counter rather than overwriting.
-    const stamp = new Date().toISOString().replaceAll(":", "-").replace(".", "-");
+    const stamp = new Date()
+      .toISOString()
+      .replaceAll(":", "-")
+      .replace(".", "-");
     let file = `config.${stamp}.json`;
     for (let n = 2; existsSync(join(dir, file)); n += 1) {
       file = `config.${stamp}-${n}.json`;
@@ -140,23 +139,31 @@ export function listStateBackups(configPath: string): StateBackupEntry[] {
     .sort((a, b) => b.savedAtMs - a.savedAtMs);
 }
 
+/** Resolve a ring member's absolute path from its wire-crossing bare name —
+ *  the RESTORE side's one gate, so it throws on any name that is not a ring
+ *  member's shape (path traversal is unspellable through it). */
+export function stateBackupPath(configPath: string, file: string): string {
+  if (basename(file) !== file || !BACKUP_FILE_RE.test(file)) {
+    throw new Error(`not a state-backup file name: ${JSON.stringify(file)}`);
+  }
+  return join(stateBackupDir(configPath), file);
+}
+
 /** Read one snapshot's JSON — the RESTORE side, so every anomaly throws: a
  *  name that isn't a ring member's (the input crossed the wire), a missing
  *  file, unparseable bytes. The caller owns validating the parsed value
  *  against its own schema. */
 export function readStateBackup(configPath: string, file: string): unknown {
-  if (basename(file) !== file || !BACKUP_FILE_RE.test(file)) {
-    throw new Error(`not a state-backup file name: ${JSON.stringify(file)}`);
-  }
-  const path = join(stateBackupDir(configPath), file);
-  return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  return JSON.parse(
+    readFileSync(stateBackupPath(configPath, file), "utf8"),
+  ) as unknown;
 }
 
 /** Arm the slow re-snapshot tick — `unref`'d, so a live diagnostic safety net
  *  never holds the process open. Returns the disarm. */
 export function startStateBackupTicker(
   configPath: string,
-  log: StateBackupLog,
+  log: Logger,
 ): () => void {
   const timer = setInterval(
     () => snapshotStateFile(configPath, log),

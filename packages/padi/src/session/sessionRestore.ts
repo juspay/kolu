@@ -518,15 +518,18 @@ export function forfeitSession(): void {
 /** Import a session blob and restore it host-side — the diagnostic "Import
  *  session" flow moved off the client. Backfills the imported blob to the
  *  current schema (idempotent on an already-current record), persists it as the
- *  saved session, then runs the restore path with the same resume intent. */
+ *  saved session, then runs the restore path with the same resume intent.
+ *  Answers `restoreSession`'s active-marker for the same reason 5.1 gave IT one
+ *  — `session.import` still discards it on the wire (nothing there reads it),
+ *  but `backups.restore` forwards it. */
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;
   optOutIds?: readonly string[];
-}): Promise<void> {
+}): Promise<{ activeTerminalId: string | null }> {
   const backfilled = decodeSavedSession(backfillSavedSession(input.session));
   setSavedSession(backfilled);
-  await restoreSession({
+  return await restoreSession({
     resumeAgents: input.resumeAgents,
     optOutIds: input.optOutIds,
   });

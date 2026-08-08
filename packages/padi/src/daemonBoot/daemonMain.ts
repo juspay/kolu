@@ -82,7 +82,7 @@ import {
   NewerPadiStateProjectVersionError,
   openPadiStateStores,
 } from "../session/stateStore.ts";
-import { startStateBackupTicker } from "../stateBackup.ts";
+import { startStateBackupTicker } from "kolu-shared";
 import {
   padiKavalHome,
   padiRuntimeHome,

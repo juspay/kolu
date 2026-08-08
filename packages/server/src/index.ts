@@ -91,6 +91,10 @@ import { makeViewerHostResolver } from "./portForward/resolveViewerHost.ts";
 import { pwaIdentityForHostname } from "./pwaIdentity.ts";
 import { buildAppRouter, CurrentViewer } from "./router.ts";
 import {
+  listServerStateBackups,
+  restoreServerStateBackup,
+} from "./stateBackups.ts";
+import {
   assembleServedHandlers,
   currentNewTerminalPolicy,
   implementKoluSurface,
@@ -867,6 +871,18 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             `cannot renew daemon on unknown host "${encodeHostKey(host)}"`,
           );
         return s.renew();
+      }),
+    // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
+    // server-internal writers (returned by `implementKoluSurface` above) and
+    // converges the pool through the SAME add/remove path the strip's
+    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer.
+    listStateBackups: listServerStateBackups,
+    restoreStateBackup: (input) =>
+      restoreServerStateBackup(input, {
+        ...koluServed.restoreCellWriters,
+        currentHostKeys: getPersistedHosts,
+        addHostKey: (key) => pool.add(key),
+        removeHostKey: (key) => pool.remove(key),
       }),
   });
 

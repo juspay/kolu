@@ -36,6 +36,8 @@ import type { Effect } from "effect";
 import type {
   HostRef,
   ROOT_RPC_TAGS,
+  ServerBackupsList,
+  ServerBackupsRestore,
   ServerInfo,
   ViewerHost,
 } from "kolu-common/contract";
@@ -54,6 +56,13 @@ export interface RootProcedures {
   readonly server: {
     /** Per-host branding the shell needs synchronously at boot. */
     readonly info: () => RootEffect<ServerInfo>;
+    /** kolu-server's state-backup ring (#1658) — list + in-process restore.
+     *  padi's per-host ring rides the map client (`padiMap.entry(host)
+     *  .procedures.backups.*`), not this face. */
+    readonly backups: {
+      readonly list: () => RootEffect<ServerBackupsList>;
+      readonly restore: (input: ServerBackupsRestore) => RootEffect<void>;
+    };
   };
   readonly daemon: {
     /** Restart the local kaval daemon, preserving the session (B3.2). */
@@ -98,7 +107,16 @@ export function rootProcedures(dispatch: SurfaceDispatch): RootProcedures {
     return () => call(undefined);
   };
   return {
-    server: { info: voidPayload<ServerInfo>("server/info") },
+    server: {
+      info: voidPayload<ServerInfo>("server/info"),
+      backups: {
+        list: voidPayload<ServerBackupsList>("server/backups/list"),
+        restore: unary<ServerBackupsRestore, void>(
+          dispatch,
+          "server/backups/restore",
+        ),
+      },
+    },
     daemon: { restart: voidPayload<void>("daemon/restart") },
     hosts: {
       viewer: voidPayload<ViewerHost>("hosts/viewer"),

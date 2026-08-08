@@ -588,11 +588,26 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // re-served padi MAP fragment and the root procedures through
   // {@link assembleServedHandlers}; a tag carries its own route, so there is nothing
   // to splice or re-prefix. padi is async (an `await`ed binding), so it cannot be
-  // composed here. Every member is the reactor graph's own writer now (the poll cells'
-  // reads + the push cells' `scan`s over the shared `onState` source), so NO ctx is
-  // returned — the caller only merges the fragment.
+  // composed here. Every DERIVED member is the reactor graph's own writer (the poll
+  // cells' reads + the push cells' `scan`s over the shared `onState` source), so the
+  // full ctx is not returned — but the two Conf-backed STORE cells additionally hand
+  // out their server-internal writers, narrowly, for the state-backup restore
+  // (#1658): `ctx.cells.<key>.set` is the framework's sanctioned in-process write
+  // path for a store cell (dedupe + `onWrite` + publish ride along), and returning
+  // just these two keeps the graph-owned members unreachable.
   return {
     group: koluSurfaces.group,
     handlers: koluSurfaces.handlers,
-  } satisfies ServedFragment;
+    restoreCellWriters: {
+      setPreferences: (value: Preferences) =>
+        koluSurfaces.ctx.kolu.cells.preferences.set(value),
+      setViewerMode: (value: ViewerMode) =>
+        koluSurfaces.ctx.kolu.cells.viewerMode.set(value),
+    },
+  } satisfies ServedFragment & {
+    restoreCellWriters: {
+      setPreferences: (value: Preferences) => void;
+      setViewerMode: (value: ViewerMode) => void;
+    };
+  };
 }

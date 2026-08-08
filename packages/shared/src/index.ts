@@ -6,4 +6,16 @@
  *  WAL subscriptions). The agent-specific contracts live in `anyagent`. */
 
 export type { Logger } from "./log.ts";
+export {
+  listStateBackups,
+  readStateBackup,
+  snapshotStateFile,
+  STATE_BACKUP_RING_SIZE,
+  STATE_BACKUP_TICK_MS,
+  startStateBackupTicker,
+  stateBackupDir,
+  type StateBackupEntry,
+  stateBackupPath,
+  type SnapshotOutcome,
+} from "./stateBackup.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";

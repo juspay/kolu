@@ -21,9 +21,12 @@ import {
 
 let dir: string;
 let configPath: string;
-const logged: { level: "info" | "error"; msg: string }[] = [];
+const logged: { level: "debug" | "info" | "warn" | "error"; msg: string }[] =
+  [];
 const log = {
+  debug: (_obj: object, msg: string) => logged.push({ level: "debug", msg }),
   info: (_obj: object, msg: string) => logged.push({ level: "info", msg }),
+  warn: (_obj: object, msg: string) => logged.push({ level: "warn", msg }),
   error: (_obj: object, msg: string) => logged.push({ level: "error", msg }),
 };
 
@@ -72,10 +75,7 @@ describe("snapshotStateFile", () => {
     const entries = listStateBackups(configPath);
     expect(entries).toHaveLength(2);
     expect(
-      readFileSync(
-        join(stateBackupDir(configPath), entries[0]!.file),
-        "utf8",
-      ),
+      readFileSync(join(stateBackupDir(configPath), entries[0]!.file), "utf8"),
     ).toBe('{"a":2}');
   });
 
@@ -88,10 +88,7 @@ describe("snapshotStateFile", () => {
     expect(entries).toHaveLength(STATE_BACKUP_RING_SIZE);
     // The newest survives; the oldest three were pruned.
     expect(
-      readFileSync(
-        join(stateBackupDir(configPath), entries[0]!.file),
-        "utf8",
-      ),
+      readFileSync(join(stateBackupDir(configPath), entries[0]!.file), "utf8"),
     ).toBe(`{"i":${STATE_BACKUP_RING_SIZE + 2}}`);
   });
 

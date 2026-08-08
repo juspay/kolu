@@ -72,6 +72,10 @@ import {
   restoreSession,
 } from "./session/sessionRestore.ts";
 import {
+  listPadiStateBackups,
+  restorePadiStateBackup,
+} from "./session/stateBackups.ts";
+import {
   DEFAULT_PADI_VERSION,
   PADI_SURFACE_VERSION,
   type PadiIdentity,
@@ -894,8 +898,24 @@ export function buildPadiSurfaceDeps(deps: {
 
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),
-        import: ({ input }) => handle(() => importSession(input)),
+        // The wire discards the import's answer (declared output-less — 5.2's
+        // ledger note); `backups.restore` below is the caller that reads it.
+        import: ({ input }) =>
+          handle(async () => {
+            await importSession(input);
+          }),
         forfeit: () => handle(() => forfeitSession()),
+      },
+
+      // The state-backup ring (#1658) — this padi's own ring, under ITS
+      // state-root (a remote host's ring lives on that box; the map client is
+      // how a browser reaches it). Failures are undeclared throws — defects
+      // surfaced as toasts — because none of them is an expected outcome a
+      // client branches on.
+      backups: {
+        list: () => handle(() => listPadiStateBackups(stateRoot)),
+        restore: ({ input }) =>
+          handle(() => restorePadiStateBackup(stateRoot, input)),
       },
     },
   };

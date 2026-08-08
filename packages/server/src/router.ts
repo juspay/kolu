@@ -24,7 +24,12 @@ import type { SurfaceHandlers } from "@kolu/surface/server";
 import { Context, Effect } from "effect";
 import type { Rpc, RpcGroup } from "effect/unstable/rpc";
 import { koluRootGroup } from "kolu-common/contract";
-import type { HostRef, ViewerHost } from "kolu-common/contract";
+import type {
+  HostRef,
+  ServerBackupsList,
+  ServerBackupsRestore,
+  ViewerHost,
+} from "kolu-common/contract";
 import type { HostKey } from "kolu-common/hostKey";
 import { serverHostname } from "./hostname.ts";
 import { log } from "./log.ts";
@@ -92,6 +97,12 @@ export interface BuildAppRouterDeps {
     peerAddress: string | undefined;
     forwardedFor: string | undefined;
   }) => Promise<HostKey | null>;
+  /** Enumerate kolu-server's state-backup ring (#1658) — `stateBackups.ts`'s
+   *  list, injected like every other domain seam. */
+  listStateBackups: () => ServerBackupsList;
+  /** Restore one ring snapshot in-process (validate → cell writes → pool
+   *  convergence) — `stateBackups.ts`'s restore with the boot's seams bound. */
+  restoreStateBackup: (input: ServerBackupsRestore) => Promise<void>;
 }
 
 /** Bind the root procedures. Called from `index.ts`'s async boot (and from the
@@ -115,6 +126,15 @@ export function buildAppRouter(deps: BuildAppRouterDeps): ServedFragment {
     // folds a remote host into the name.
     "server/info": () =>
       Effect.sync(() => ({ identity: pwaIdentityForHostname(serverHostname) })),
+    // The state-backup ring (#1658) — kolu-server's own store. A restore
+    // failure is an undeclared throw (a defect the caller's toast surfaces):
+    // none of its anomalies is an expected outcome a client branches on.
+    "server/backups/list": () => Effect.sync(() => deps.listStateBackups()),
+    "server/backups/restore": (input: ServerBackupsRestore) =>
+      Effect.promise(async () => {
+        log.info({ file: input.file }, "server state restore requested");
+        await deps.restoreStateBackup(input);
+      }),
     "daemon/restart": () =>
       Effect.gen(function* () {
         log.info({}, "padi restart requested — draining the bound padi");

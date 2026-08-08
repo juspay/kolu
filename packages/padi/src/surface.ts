@@ -369,8 +369,19 @@ export * from "./vocab.ts";
  *  surface, and an older binder against a 5.1 padi is build-mismatched and drains
  *  it first, so no parser meets a frame of the other shape. `session.import` is
  *  UNTOUCHED: it restores a blob the client just handed over and seeds no view, so
- *  giving it an answer nothing reads would be shape for its own sake. */
-export const PADI_SURFACE_VERSION = "5.1";
+ *  giving it an answer nothing reads would be shape for its own sake.
+ *
+ *  5.2 (additive · minor): a NEW `backups` procedure namespace — `backups.list`
+ *  (enumerate the state-backup ring #1658 introduced, with a per-snapshot
+ *  session summary) and `backups.restore` (restore a snapshot's session
+ *  host-side, riding the same import machinery as `session.import` and
+ *  answering the same active-marker shape as `session.restore`, for 5.1's
+ *  reason). Purely additive, so the plainest minor there is, and the minor
+ *  suffices for the usual reason — a newer binder against a 5.1 padi fails
+ *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
+ *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
+ *  the ring. */
+export const PADI_SURFACE_VERSION = "5.2";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1062,6 +1073,53 @@ export const PadiSessionImportInputSchema = Schema.Struct({
   optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 
+/** One snapshot in padi's state-backup ring (#1658), with the summary the
+ *  restore dialog ranks by — after a corruption incident the NEWEST snapshots
+ *  are often the corrupt ones, so "14 terminals" vs `empty` is how a user spots
+ *  the good one. `summary` is a union, not a nullable count: "the snapshot
+ *  holds no session" and "the snapshot did not parse" are different facts, and
+ *  flattening them to one `null` would hide exactly the distinction the dialog
+ *  exists to show. */
+export const PadiStateBackupSchema = Schema.Struct({
+  /** Bare file name under the ring dir — the stable handle `backups.restore`
+   *  names. */
+  file: Schema.String,
+  /** Snapshot mtime in epoch ms ON PADI'S OWN CLOCK — a consumer on another
+   *  host reprojects through that entry's `clock.toLocal` before rendering a
+   *  relative time (the `PadiIdentity.startedAt` discipline). */
+  savedAtMs: Schema.Number,
+  sizeBytes: Schema.Int,
+  summary: Schema.Union([
+    Schema.Struct({
+      kind: Schema.Literal("session"),
+      terminals: Schema.Int,
+    }),
+    /** The snapshot parsed but holds no session (fresh install / cleared). */
+    Schema.Struct({ kind: Schema.Literal("empty") }),
+    /** The snapshot's JSON did not parse — listed honestly, refused on restore. */
+    Schema.Struct({ kind: Schema.Literal("unreadable") }),
+  ]),
+});
+export type PadiStateBackup = typeof PadiStateBackupSchema.Type;
+
+/** `backups.list` — enumerate the state-backup ring, newest first. */
+export const PadiBackupsListOutputSchema = Schema.Struct({
+  backups: Schema.Array(PadiStateBackupSchema),
+});
+
+/** `backups.restore` — restore the SESSION held by one ring snapshot, riding
+ *  the same host-side machinery as `session.import` (backfill → decode →
+ *  respawn), with the same host-owned resume intent. The current state file is
+ *  pushed into the ring first, so a restore is itself undoable. */
+export const PadiBackupsRestoreInputSchema = Schema.Struct({
+  file: Schema.String,
+  /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
+  resumeAgents: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(true)),
+  ),
+  optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
+});
+
 // ── The surface ───────────────────────────────────────────────────────────
 
 export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
@@ -1487,6 +1545,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
        *  `lifecycle.create` (which no longer forfeits). Takes no input. */
       forfeit: { input: Schema.Struct({}) },
     },
+    /** The state-backup ring (#1658) — list this host's snapshots and restore a
+     *  session from one. Executes host-side, on the padi that owns the ring
+     *  (a remote host's backups live on that box; the map client is the reach). */
+    backups: {
+      list: { output: PadiBackupsListOutputSchema },
+      restore: {
+        input: PadiBackupsRestoreInputSchema,
+        // The same answer as `session.restore`, for the same reason (5.1): the
+        // client seeds its active tile from the call, never the cell race.
+        output: PadiSessionRestoreOutputSchema,
+      },
+    },
   },
 });
 
@@ -1547,6 +1617,7 @@ export const PADI_FORWARDING_POLICY = {
   // `session` is a cell (get/set) AND a procedure namespace (restore/import),
   // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
+  backups: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 
 /** Every top-level member key `padiSurface` declares — the union of cell,
