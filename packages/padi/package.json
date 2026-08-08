@@ -18,6 +18,7 @@
     "./convergence-policy": "./src/convergencePolicy.ts",
     "./daemonMain": "./src/daemonBoot/daemonMain.ts",
     "./stateRoot": "./src/stateRoot.ts",
+    "./stateBackup": "./src/stateBackup.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",
     "./endpoint": "./src/endpoint.ts",
     "./log": "./src/log.ts",

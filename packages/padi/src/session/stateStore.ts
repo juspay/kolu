@@ -19,6 +19,8 @@ import { join } from "node:path";
 import Conf from "conf";
 import { confStore } from "@kolu/surface/server";
 import type { CellStore } from "@kolu/surface/server";
+import { log } from "../log.ts";
+import { snapshotStateFile } from "../stateBackup.ts";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 import type { ActivityFeed, SavedSession } from "../vocab.ts";
 
@@ -142,6 +144,12 @@ function newerProjectVersionOnDisk(
  *  the file moved. */
 export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
   const configPath = join(stateRoot, "config.json");
+  // Snapshot the pre-existing file into the backup ring BEFORE anything —
+  // including the rollback preflight and the Conf construction below — can
+  // write it (juspay/kolu#1658: history is the safety net for a bug that
+  // persists a bad-but-valid value; the migration `.bak`s are one-shot and
+  // cover only the legacy cutover). Fail-soft by design — see `stateBackup.ts`.
+  snapshotStateFile(configPath, log);
   const newer = newerProjectVersionOnDisk(configPath);
   if (newer !== null) return newer;
 

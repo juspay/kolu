@@ -24,6 +24,11 @@
  */
 
 import { chmodSync, copyFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import {
+  snapshotStateFile,
+  startStateBackupTicker,
+} from "@kolu/padi/stateBackup";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
@@ -217,6 +222,16 @@ if (!rawStateDir) {
 const stateDir: string = rawStateDir;
 
 log.info({ path: stateDir }, "state directory");
+
+// Snapshot the pre-existing store into the backup ring BEFORE the `Conf`
+// construction below can write it — the ladder itself rewrites the file, so a
+// later snapshot would capture post-migration bytes (juspay/kolu#1658; padi's
+// `openPadiStateStores` takes the same boot snapshot of ITS store). The slow
+// tick re-snapshots a long-running server daily through the same dedupe/rotate
+// path. Both fail-soft by design — see `@kolu/padi/stateBackup`'s module doc
+// for why this one path may not throw.
+snapshotStateFile(join(stateDir, "config.json"), log);
+startStateBackupTicker(join(stateDir, "config.json"), log);
 
 /** Delete a key that is no longer in `PersistedStateSchema` off the raw store —
  *  the conf-ladder idiom for stripping a legacy/orphan key (Conf's typed
