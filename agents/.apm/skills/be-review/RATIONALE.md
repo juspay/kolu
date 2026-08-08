@@ -51,3 +51,30 @@ gauntlet.
 - **`--no-elegance` for code-police** — its elegance pass re-invokes `/simplify`,
   which the simplify track already ran over the same tree: a full skill
   invocation to re-derive a near-guaranteed no-op.
+- **Three false claims in one branch, each caught by a different track — by
+  accident** — [#2117](https://github.com/juspay/kolu/pull/2117) shipped prose
+  asserting behaviour the code did not have, three separate times, and no test
+  could fail on any of it. architecture-first-principles found a docs page and a
+  changelog entry promising that a failed `lifecycle_create` "really did not
+  create a terminal, and retrying it is safe" — false, because padi commits the
+  terminal *before* it writes the reply, so the reply can be lost after the work
+  is done (`2f36cfe4e`). lowy found **six** sites asserting the ssh `--host`
+  transport "cannot observe its own close", when `sshConnector` fires exactly once
+  on its child's `exit`/`error`; what is actually missing is a field on
+  `AgentDial` to carry it — and the false *reason* was load-bearing for the new
+  receptacle's contract, i.e. the lie was steering the design (`984504409`).
+  code-police's fact-check found an electricity-ledger row counting odu's
+  `redialingAClient` among four hand-rolled `holdOneLink`s, when it opens a fresh
+  socket per call and holds nothing — the *opposite* of the pattern, and evidence
+  against the row it was cited for (`3f3bb7892`). A fourth, same class: afp's
+  C6 found the comment on the #2082 fix itself claiming a born-dead connection
+  "has no slot to invalidate" when the code returned it anyway. All four were
+  written *during* that run — two by the implementing agent, one by the lens
+  reconcile pass that was reviewing it. The tests never had a chance: both suites
+  and all 48 CI contexts went green with the false prose in the tree, and the
+  `atlas-sync` gate checks `dist/` freshness, not claim truth. Each track happened
+  to read the prose while looking for something else, none was charged with it,
+  and the last one surfaced only because the author had by then explicitly told
+  code-police to hunt for more of the same — three catches, three tracks, zero
+  repeatability. Hence: prose is a claim under review in every step, by standing
+  rule rather than by the author remembering to ask.

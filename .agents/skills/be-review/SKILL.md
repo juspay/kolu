@@ -39,6 +39,17 @@ running it.
 
 Each step runs to completion before the next begins.
 
+**Prose in the diff is a claim under review — in every step, not one of them.** A
+comment, doc sentence, README line, changelog entry or ledger row that *asserts
+runtime behaviour* is the one thing in a diff no test can ever fail on, and a
+reviewer reading for boundaries, simplicity or reuse slides straight past it. So
+whichever step has a file open reads its prose against the code it describes, and
+convicts a mismatch like any other finding — an assertion you cannot ground in the
+code is a defect to fix now, not a wording nit to leave to the author. Weight it
+heaviest where the prose is **load-bearing**: a false *reason* in a comment is
+what the next reviewer, and the next author, will design against
+(`RATIONALE.md` has the incident).
+
 **PR comments come after the push, never before.** Each step commits locally but
 be-review pushes only once, after all selected steps finish, then posts. The
 debate skills run with their self-commenting **suppressed** (`--no-comment`) and
