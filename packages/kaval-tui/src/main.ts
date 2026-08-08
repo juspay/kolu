@@ -33,7 +33,7 @@
  */
 import { fstatSync, readFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { NodeSink, NodeStdio } from "@effect/platform-node";
+import { NodeSink } from "@effect/platform-node";
 import { isContractVersionCompatible } from "@kolu/surface/define";
 import { dialAgentOnce } from "@kolu/surface-remote";
 import {
@@ -50,7 +50,6 @@ import {
   Exit,
   type Scope,
   type Sink,
-  Stdio,
   Stream,
 } from "effect";
 import {
@@ -933,7 +932,7 @@ function cmdAttach(
   conn: Connection,
   id: string,
   escapeChar: string,
-): Effect.Effect<void, unknown, Stdio.Stdio> {
+): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     if (!isValidEscapeChar(escapeChar)) {
       return yield* Effect.fail(
@@ -942,8 +941,7 @@ function cmdAttach(
         ),
       );
     }
-    const stdio = yield* Stdio.Stdio;
-    if (!(yield* stdio.stdinIsTerminal) || !(yield* stdio.stdoutIsTerminal)) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
       return yield* Effect.fail(
         failure(
           "attach needs an interactive terminal (stdin/stdout is not a tty) — for scripting, use `kaval-tui snapshot`.",
@@ -1127,7 +1125,7 @@ function connectTo(
 
 // ── The one program, and the one run edge ────────────────────────────────
 
-function program(): Effect.Effect<void, unknown, Stdio.Stdio> {
+function program(): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     // cleye already handled --help / --version (it prints and exits). We land here
     // with no command in two cases: bare `kaval-tui` (no args → show help), or the
@@ -1399,11 +1397,9 @@ function program(): Effect.Effect<void, unknown, Stdio.Stdio> {
 
 /** THE exit map, at THE run edge — the whole of it, because `exit.ts` already
  *  made each arm carry its own line and its own code. */
-Effect.runPromiseExit(program().pipe(Effect.provide(NodeStdio.layer))).then(
-  (exit) => {
-    if (Exit.isSuccess(exit)) process.exit(0);
-    const error = Cause.squash(exit.cause);
-    process.stderr.write(reportOf(error));
-    process.exit(exitCodeOf(error));
-  },
-);
+Effect.runPromiseExit(program()).then((exit) => {
+  if (Exit.isSuccess(exit)) process.exit(0);
+  const error = Cause.squash(exit.cause);
+  process.stderr.write(reportOf(error));
+  process.exit(exitCodeOf(error));
+});
