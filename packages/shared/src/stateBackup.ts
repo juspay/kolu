@@ -129,8 +129,16 @@ export interface StateBackupRing {
    *  taken by the ring, not by each caller, so "forgot to make the restore
    *  undoable" is unspellable — and a FAILED undo snapshot REFUSES the restore
    *  rather than proceeding, because the dialog, the docs and the changelog all
-   *  promise the restore is reversible and none of them may be able to lie. */
-  restore<T>(file: string, apply: (raw: unknown, backupPath: string) => T): T;
+   *  promise the restore is reversible and none of them may be able to lie.
+   *
+   *  The member being restored is PROTECTED from the undo snapshot's prune: on a
+   *  full ring the undo copy pushes the oldest member out, and the oldest member
+   *  is exactly what a post-corruption recovery restores (the newest snapshots
+   *  carry the corruption) — without the protection the restore would eat the
+   *  very row the user picked. `apply` receives only the parsed value: nothing
+   *  downstream may re-read the member's path, so a pruned-file race is
+   *  unspellable at the consumer. */
+  restore<T>(file: string, apply: (raw: unknown) => T): T;
   /** Arm the slow re-snapshot tick — `unref`'d, so a live diagnostic safety net
    *  never holds the process open. No disarm: both consumers arm exactly one at
    *  boot altitude and let process exit do the teardown. */
@@ -197,12 +205,22 @@ export function openStateBackupRing(
         .flatMap((file) => {
           const parsed = parseBackupFileName(base, file);
           if (parsed === undefined) return [];
+          // A member that vanishes between `readdir` and `stat` (a concurrent
+          // prune, a hand-tidied dir) is skipped, not thrown: the LIST side is
+          // where one bad member must not hide the good ones.
+          let sizeBytes: number;
+          try {
+            sizeBytes = statSync(join(dir, file)).size;
+          } catch (err) {
+            log.error({ err, file }, "state backup member could not be stat'd");
+            return [];
+          }
           return [
             {
               file,
               savedAtMs: parsed.savedAtMs,
               bump: parsed.bump,
-              sizeBytes: statSync(join(dir, file)).size,
+              sizeBytes,
             },
           ];
         })
@@ -228,7 +246,10 @@ export function openStateBackupRing(
   const read = (file: string): unknown =>
     JSON.parse(readFileSync(pathOf(file), "utf8")) as unknown;
 
-  const snapshot = (): SnapshotOutcome => {
+  // `protect` names a member the prune may not touch — the restore verb pins
+  // the member being restored so its own undo snapshot cannot push it out of a
+  // full ring (the ring runs one over size until the next ordinary snapshot).
+  const snapshot = (protect?: string): SnapshotOutcome => {
     try {
       if (!existsSync(configPath)) return { kind: "no-state-file" };
       // Owner-only, mirroring the store this rings: kolu-server's config holds
@@ -258,6 +279,7 @@ export function openStateBackupRing(
       for (const stale of [file, ...before.map((e) => e.file)].slice(
         STATE_BACKUP_RING_SIZE,
       )) {
+        if (stale === protect) continue;
         unlinkSync(join(dir, stale));
       }
       log.info({ file, dir }, "state backup snapshot taken");
@@ -273,15 +295,19 @@ export function openStateBackupRing(
 
   return {
     dir,
-    snapshot,
+    snapshot: () => snapshot(),
     list,
     pathOf,
     read,
     listWith: <S>(summarize: (raw: unknown) => S, unreadable: S) =>
       list().map((entry) => {
-        let raw: unknown;
+        // BOTH halves guarded: unreadable bytes AND a summarize that chokes on
+        // parseable-but-alien JSON (`null`, a bare string — `JSON.parse` accepts
+        // any literal, and the domain summarizers index into the value). Either
+        // way one bad member carries `unreadable` instead of collapsing the
+        // whole enumeration.
         try {
-          raw = read(entry.file);
+          return { ...entry, summary: summarize(read(entry.file)) };
         } catch (err) {
           log.error(
             { err, file: entry.file },
@@ -289,27 +315,25 @@ export function openStateBackupRing(
           );
           return { ...entry, summary: unreadable };
         }
-        return { ...entry, summary: summarize(raw) };
       }),
-    restore: <T>(
-      file: string,
-      apply: (raw: unknown, backupPath: string) => T,
-    ) => {
-      const backupPath = pathOf(file);
+    restore: <T>(file: string, apply: (raw: unknown) => T) => {
       const raw = read(file);
       // Undoability: capture the pre-restore file before `apply`'s writes
-      // overwrite it. An UNCHANGED answer is the file already sitting at the
-      // head of the ring; only an outright failure means there is no way back.
-      const undo = snapshot();
+      // overwrite it, PROTECTING the member being restored from the prune (a
+      // full ring would otherwise push out its oldest member — exactly the one
+      // a post-corruption recovery picks). An UNCHANGED answer is the file
+      // already sitting at the head of the ring; only an outright failure means
+      // there is no way back.
+      const undo = snapshot(file);
       if (undo.kind === "failed") {
         throw new Error(
           "refusing to restore: the pre-restore snapshot failed, so this restore would not be undoable",
         );
       }
-      return apply(raw, backupPath);
+      return apply(raw);
     },
     startTicker: () => {
-      setInterval(snapshot, STATE_BACKUP_TICK_MS).unref();
+      setInterval(() => snapshot(), STATE_BACKUP_TICK_MS).unref();
     },
   };
 }

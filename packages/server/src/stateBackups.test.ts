@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
-import { decodeStateBackupFile, stateBackupRing, store } from "./state.ts";
+import { decodeStateBackup, stateBackupRing, store } from "./state.ts";
 import {
   listServerStateBackups,
   type RestoreServerStateBackupDeps,
@@ -100,24 +100,20 @@ describe("listServerStateBackups", () => {
   });
 });
 
-describe("decodeStateBackupFile", () => {
+describe("decodeStateBackup", () => {
   it("walks the real migration ladder on an old snapshot (scratch copy)", () => {
     // A pre-1.34 snapshot: `activityAlerts` not yet renamed, no `hosts` /
     // `viewerMode` keys yet. The scratch decode must carry the user's OFF
     // through the 1.34 rename and seed the missing domains — the live store
     // stays untouched throughout.
-    const dir = stateBackupRing.dir;
-    mkdirSync(dir, { recursive: true });
-    const backup = join(dir, "config.2001-01-01T00-00-00-000Z.json");
-    writeFileSync(
-      backup,
-      JSON.stringify({
+    const before = JSON.stringify(store.store);
+    const decoded = decodeStateBackup(
+      {
         preferences: { ...DEFAULT_PREFERENCES, activityAlerts: false },
         __internal__: { migrations: { version: "1.33.0" } },
-      }),
+      },
+      "old-snapshot",
     );
-    const before = JSON.stringify(store.store);
-    const decoded = decodeStateBackupFile(backup);
     expect(decoded.preferences.attentionAlerts).toBe(false);
     expect(decoded.hosts).toEqual([]);
     expect(decoded.viewerMode).toBe("dark");
@@ -125,17 +121,15 @@ describe("decodeStateBackupFile", () => {
   });
 
   it("throws on a snapshot that cannot decode (fail-fast, nothing applied)", () => {
-    const dir = stateBackupRing.dir;
-    mkdirSync(dir, { recursive: true });
-    const backup = join(dir, "config.2002-01-01T00-00-00-000Z.json");
-    writeFileSync(
-      backup,
-      JSON.stringify({
-        preferences: "not a record",
-        __internal__: { migrations: { version: "1.36.0" } },
-      }),
-    );
-    expect(() => decodeStateBackupFile(backup)).toThrow();
+    expect(() =>
+      decodeStateBackup(
+        {
+          preferences: "not a record",
+          __internal__: { migrations: { version: "1.36.0" } },
+        },
+        "bad-snapshot",
+      ),
+    ).toThrow();
   });
 });
 

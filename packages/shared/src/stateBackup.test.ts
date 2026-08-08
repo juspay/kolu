@@ -213,6 +213,28 @@ describe("listWith", () => {
     ).toBe("unreadable");
     expect(logged.some((l) => l.level === "error")).toBe(true);
   });
+
+  it("marks a parseable-but-alien member unreadable when summarize chokes on it", () => {
+    // `JSON.parse` accepts any literal — a member whose body is `null` parses
+    // fine and then blows up a summarizer that indexes into it. That must cost
+    // ONE row, not the enumeration.
+    writeFileSync(configPath, '{"n":1}');
+    const good = ring.snapshot();
+    if (good.kind !== "created") throw new Error("expected a snapshot");
+    writeFileSync(
+      join(ring.dir, "config.1998-01-01T00-00-00-000Z.json"),
+      "null",
+    );
+    const rows = ring.listWith((raw) => {
+      // The exact shape both domain summarizers have: index into the value.
+      return `n=${(raw as { n: number }).n.toFixed(0)}`;
+    }, "unreadable");
+    expect(rows.find((r) => r.file === good.file)?.summary).toBe("n=1");
+    expect(
+      rows.find((r) => r.file === "config.1998-01-01T00-00-00-000Z.json")
+        ?.summary,
+    ).toBe("unreadable");
+  });
 });
 
 describe("restore", () => {
@@ -229,6 +251,30 @@ describe("restore", () => {
       .map((e) => readFileSync(join(ring.dir, e.file), "utf8"));
     expect(files).toContain('{"gen":1}');
     expect(files).toContain('{"gen":2}');
+  });
+
+  it("protects the restored member from its own undo snapshot's prune (full ring, oldest picked)", () => {
+    // The #1658 recovery shape: the ring is FULL, the newest members carry the
+    // corruption, and the user restores the OLDEST good snapshot. The undo
+    // snapshot pushes a new member in — without protection the prune would
+    // delete exactly the member being restored, mid-restore.
+    for (let i = 0; i < STATE_BACKUP_RING_SIZE; i += 1) {
+      writeFileSync(configPath, `{"gen":${i}}`);
+      expect(ring.snapshot().kind).toBe("created");
+    }
+    const oldest = ring.list().at(-1);
+    if (!oldest) throw new Error("expected a full ring");
+    // Diverge the live file so the undo snapshot is a genuine `created`.
+    writeFileSync(configPath, '{"gen":"live-corrupt"}');
+    const applied = ring.restore(oldest.file, (raw) => raw);
+    expect(applied).toEqual({ gen: 0 });
+    // The restored-from member SURVIVED its own undo's prune…
+    expect(ring.list().map((e) => e.file)).toContain(oldest.file);
+    // …and the undo landed at the head (the ring runs one over size until the
+    // next ordinary snapshot).
+    expect(
+      readFileSync(join(ring.dir, ring.list()[0]!.file), "utf8"),
+    ).toBe('{"gen":"live-corrupt"}');
   });
 
   it("refuses when the undo snapshot fails — an unundoable restore is not offered", () => {

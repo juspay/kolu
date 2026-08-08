@@ -11,7 +11,7 @@
  * machinery), this store is plain data served from cells: the ring's own
  * {@link StateBackupRing.restore} gates the name, reads the snapshot and takes
  * the undo snapshot, then this module validates through the real migration
- * ladder on a scratch copy (`decodeStateBackupFile`), pushes
+ * ladder on a scratch copy (`decodeStateBackup`, from the value the ring read), pushes
  * `preferences`/`viewerMode` through their cells' server-internal writers (every
  * connected client updates reactively, and the cell write persists through the
  * same conf path as any other change), and CONVERGES the host pool onto the
@@ -30,7 +30,7 @@ import type { Preferences, ViewerMode } from "kolu-common/surface";
 import { log } from "./log.ts";
 import {
   type DecodedStateBackup,
-  decodeStateBackupFile,
+  decodeStateBackup,
   stateBackupRing,
 } from "./state.ts";
 
@@ -119,10 +119,11 @@ export async function restoreServerStateBackup(
 ): Promise<ServerBackupsRestoreResult> {
   // The ring gates the name, reads the snapshot and takes the pre-restore undo
   // snapshot (refusing outright if that snapshot fails) before `apply` runs.
-  return await stateBackupRing.restore(input.file, async (_raw, backupPath) => {
+  return await stateBackupRing.restore(input.file, async (raw) => {
     // Validate FULLY before applying anything — a throw here leaves the live
-    // state untouched.
-    const decoded = decodeStateBackupFile(backupPath);
+    // state untouched. Decoded from the VALUE the ring already read, never by
+    // re-reading the member's path (which the undo snapshot's prune could race).
+    const decoded = decodeStateBackup(raw, input.file);
     log.info({ file: input.file }, "restoring server state from backup");
     deps.setPreferences(decoded.preferences);
     deps.setViewerMode(decoded.viewerMode);

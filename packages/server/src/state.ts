@@ -29,6 +29,7 @@ import {
   existsSync,
   mkdtempSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -319,7 +320,7 @@ export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
   for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
 }
 
-/** The store's `defaults` — hoisted so {@link decodeStateBackupFile}'s scratch
+/** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */
 const CONF_DEFAULTS: PersistedState = {
   preferences: DEFAULT_PREFERENCES,
@@ -335,7 +336,7 @@ const CONF_DEFAULTS: PersistedState = {
   viewerMode: "dark",
 };
 
-/** The migration ladder — hoisted so {@link decodeStateBackupFile}'s scratch
+/** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
  *  store walks the REAL ladder on a backup snapshot (which may predate any
  *  rung), never a parallel re-implementation of it. */
 const CONF_MIGRATIONS = {
@@ -777,17 +778,24 @@ if (Result.isFailure(result)) {
  *  domain accessors; this is the restore path's one. */
 export type DecodedStateBackup = typeof PersistedStateSchema.Type;
 
-/** Decode ONE state-backup snapshot (#1658) into the CURRENT persisted shape by
- *  walking the REAL migration ladder on a SCRATCH copy — a snapshot may predate
- *  any rung, and re-implementing the ladder for restores would fork the one
- *  source of truth. The live store is never touched: the scratch `Conf`
- *  migrates its own throwaway copy, the three domains are decoded against
+/** Decode ONE state-backup snapshot's PARSED value (#1658) into the CURRENT
+ *  persisted shape by walking the REAL migration ladder on a SCRATCH copy — a
+ *  snapshot may predate any rung, and re-implementing the ladder for restores
+ *  would fork the one source of truth. Takes the already-read VALUE, never a
+ *  path back into the ring: the ring's restore verb hands `apply` the parsed
+ *  raw precisely so nothing downstream can race a prune by re-reading the
+ *  member file. The live store is never touched: the scratch `Conf` migrates
+ *  its own throwaway copy, the three domains are decoded against
  *  `PersistedStateSchema`, and any anomaly THROWS (fail-fast — a restore that
- *  proceeds from a bad snapshot is the data-loss class the ring prevents). */
-export function decodeStateBackupFile(backupPath: string): DecodedStateBackup {
+ *  proceeds from a bad snapshot is the data-loss class the ring prevents).
+ *  `label` names the snapshot in the failure message. */
+export function decodeStateBackup(
+  raw: unknown,
+  label: string,
+): DecodedStateBackup {
   const scratch = mkdtempSync(join(tmpdir(), "kolu-state-backup-decode-"));
   try {
-    copyFileSync(backupPath, join(scratch, "config.json"));
+    writeFileSync(join(scratch, "config.json"), JSON.stringify(raw));
     const scratchStore = new Conf<PersistedState>({
       cwd: scratch,
       projectVersion: SCHEMA_VERSION,
@@ -797,7 +805,7 @@ export function decodeStateBackupFile(backupPath: string): DecodedStateBackup {
     const decoded = decodePersistedState(readPersistedRecord(scratchStore));
     if (Result.isFailure(decoded)) {
       throw new Error(
-        `state backup ${backupPath} does not match the persisted schema after ` +
+        `state backup ${label} does not match the persisted schema after ` +
           `migration (${String(decoded.failure)})`,
       );
     }
