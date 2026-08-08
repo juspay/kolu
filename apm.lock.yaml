@@ -415,7 +415,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:67abc66104b5763d0b1d189a4e4277d230426db28a8470eb030c981f275a1735
+  content_hash: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
 - kind: project-relative
   target: agents
   value: .agents/skills/ci/pu/diagnose.sh
@@ -1073,7 +1073,7 @@ deployments:
   owners:
   - .
   active_owner: .
-  content_hash: sha256:67abc66104b5763d0b1d189a4e4277d230426db28a8470eb030c981f275a1735
+  content_hash: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
 - kind: project-relative
   target: claude
   value: .claude/skills/ci/pu/diagnose.sh
@@ -2777,7 +2777,7 @@ local_deployed_files:
 local_deployed_file_hashes:
   .agents/skills/atlas/SKILL.md: sha256:c43ef7cb6b93eb08d554bf7036849e24393fe37ad3440bd526b7bfffa27365cb
   .agents/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .agents/skills/ci/SKILL.md: sha256:67abc66104b5763d0b1d189a4e4277d230426db28a8470eb030c981f275a1735
+  .agents/skills/ci/SKILL.md: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
   .agents/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
   .agents/skills/ci/pu/lease.sh: sha256:5e5ca3de9a41d247f5a7be66044cb5811e15c26f9da2127c299f6939db5275ee
   .agents/skills/ci/pu/pool.sh: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
@@ -2817,7 +2817,7 @@ local_deployed_file_hashes:
   .claude/rules/website-docs.md: sha256:14a24f0b23adb7a5fe704ad56167d0f6a4de14eed88a2b35bc3de61a143374dc
   .claude/skills/atlas/SKILL.md: sha256:c43ef7cb6b93eb08d554bf7036849e24393fe37ad3440bd526b7bfffa27365cb
   .claude/skills/blog-post/SKILL.md: sha256:617654848591f41e9c41f23f404ab3fa0318bdfbd4e70b21ae2ba42921a86c1a
-  .claude/skills/ci/SKILL.md: sha256:67abc66104b5763d0b1d189a4e4277d230426db28a8470eb030c981f275a1735
+  .claude/skills/ci/SKILL.md: sha256:5e1a73886b4988d96175e6ca309287e68b2a5f541342b7ddeaceea5e8918aa5e
   .claude/skills/ci/pu/diagnose.sh: sha256:7e33aa16ca3a8fb4a52aa35d423bbaf014621564da65b718e68a233efbef89b3
   .claude/skills/ci/pu/pool.sh: sha256:5f8b42d5aaf4b87dcbdcc91f785c1b476f3e7c131dedb66e7e7de0080d9e9c80
   .claude/skills/ci/smoke.sh: sha256:82ffed8708572fba48c231f01bfe6b64a75e8d8523453adc5db3c9c579b2da5d
