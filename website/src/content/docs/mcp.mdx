@@ -175,9 +175,9 @@ there afterwards, and their ids still work.
 
 _That "the moment it drops" is specific to the default, local connection, which
 is told when the service goes away. Pointed at another machine with `--host`,
-`kolu mcp` has nothing announcing the drop, so it still finds out by making one
-call that fails — the retryable failure described below, just after an idle gap
-rather than only mid-call._
+`kolu mcp` does not yet carry the drop announcement, so it still finds out by
+making one call that fails — the retryable failure described below, just after
+an idle gap rather than only mid-call._
 
 If a restart happens to land in the middle of a call, that one call fails and
 says so — that it is the *connection* that dropped, that `kolu mcp` is still

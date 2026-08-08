@@ -69,9 +69,10 @@ connection dies — and there are two ways it can find out.
 | `dispose` | close the transport the factory opened; the adapter calls it on teardown and before every re-dial |
 | `onClose?` | subscribe to this transport dropping — fires at most once |
 
-Supply `onClose` whenever the transport can observe its own close. The adapter
+Supply `onClose` whenever the dial can reach its transport's close. The adapter
 then discards the dead connection **the instant it is announced**, so the next
-request dials fresh.
+request dials fresh. Omit it only where there is genuinely nothing to
+announce — the in-process `directDispatch` case has no transport at all.
 
 <Aside type="caution" title="Without onClose, a restart costs one request">
   The fallback is discovery-by-failure: the adapter finds out the socket died by
@@ -81,7 +82,12 @@ request dials fresh.
   process exited"), which an agent reads on its own stdio channel as *the MCP
   server died*. That misread cost a whole session in
   [kolu#2082](https://github.com/juspay/kolu/issues/2082). An absent `onClose`
-  states "this transport cannot report its own close"; it is not a tuning knob.
+  states "this connection carries no close announcement" — either because the
+  transport has none to give, or because the dial does not project one it could.
+  (`kolu mcp --host` is the second case today: the ssh layer observes its child's
+  exit, but `AgentDial` has no field to carry it. That is a gap in the dial's
+  face, not a limit of ssh — and it is the same shape of omission as #2082.)
+  Either way it is not a tuning knob.
 </Aside>
 
 A transport death that still slips through — the genuine race where the socket

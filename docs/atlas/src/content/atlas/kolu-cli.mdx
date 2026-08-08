@@ -238,7 +238,12 @@ The MCP face's discipline across that gap, in order:
    hands back a `DaemonConnection` whose `onClose` fires when the socket
    closes — kolu-cli carries it through to the adapter, which drops the corpse
    the moment it hears. A restart across an idle gap now costs zero requests.
-   (Local socket arm only; the ssh `--host` dial has no close signal yet.)
+   (Local socket arm only. The ssh `--host` dial does not yet **carry** the
+   announcement: `sshConnector` observes its child's exit and the session
+   exposes it per attempt as `Connection.closed`, but `AgentDial` projects
+   neither, so `connectKoluCliViaHost` has nothing to pass on. A missing
+   projection at one hop — the same shape as #2082 itself — not a limitation
+   of ssh. Closing it is the remote follow-up.)
 3. **Tools during the gap fail fast, typed, retryable** — a `create` or
    `sendInput` while disconnected returns an explicit
    transport-down error the agent can retry; nothing queues locally (a queued

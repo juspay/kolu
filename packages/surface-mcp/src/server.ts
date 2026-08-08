@@ -96,11 +96,21 @@ export interface OwnedSurfaceConnection {
    *  the socket closes and the next request dials fresh, so nothing is spent.
    *
    *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: the
-   *  in-process `directDispatch` case has no transport to drop, and a wire dial
-   *  that cannot observe its own close (the ssh `AgentDial` leg today) has no
-   *  honest value to supply. An absent hook means "this transport cannot say when
-   *  it died", which degrades to the lazy catch-side reset below — it is NOT a
-   *  knob, and a factory that CAN observe its close must supply it. */
+   *  in-process `directDispatch` case has no transport to drop, so it has no
+   *  honest value to supply.
+   *
+   *  It is also absent where a dial HAS the signal but no field to carry it —
+   *  the ssh `--host` leg today. `sshConnector` observes its child's exit
+   *  (`ClosedInfo`, `surface-remote/src/sshConnector.ts`) and the session
+   *  exposes it per attempt as `Connection.closed`
+   *  (`surface-remote/src/session.ts`), but `AgentDial` projects neither, so
+   *  `connectKoluCliViaHost` has nothing to pass on. That is a gap in the dial's
+   *  FACE, not a fact about ssh, and it is the same shape of omission as #2082
+   *  itself — a hop with the signal in hand and no socket to put it in. Closing
+   *  it is the remote follow-up.
+   *
+   *  An absent hook degrades to the lazy catch-side reset below; it is NOT a
+   *  knob, and a factory that CAN reach its close must supply it. */
   onClose?: (cb: () => void) => void;
 }
 

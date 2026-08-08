@@ -264,7 +264,12 @@ padi-backed request after every restart was destroyed. <code>connectPadi</code> 
 hands back a <code>DaemonConnection</code> whose <code>onClose</code> fires when the socket
 closes — kolu-cli carries it through to the adapter, which drops the corpse
 the moment it hears. A restart across an idle gap now costs zero requests.
-(Local socket arm only; the ssh <code>--host</code> dial has no close signal yet.)</li>
+(Local socket arm only. The ssh <code>--host</code> dial does not yet <strong>carry</strong> the
+announcement: <code>sshConnector</code> observes its child’s exit and the session
+exposes it per attempt as <code>Connection.closed</code>, but <code>AgentDial</code> projects
+neither, so <code>connectKoluCliViaHost</code> has nothing to pass on. A missing
+projection at one hop — the same shape as #2082 itself — not a limitation
+of ssh. Closing it is the remote follow-up.)</li>
 <li><strong>Tools during the gap fail fast, typed, retryable</strong> — a <code>create</code> or
 <code>sendInput</code> while disconnected returns an explicit
 transport-down error the agent can retry; nothing queues locally (a queued
