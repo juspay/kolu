@@ -89,6 +89,16 @@ dies with a request already in flight — is re-framed before it reaches the hos
 it names the dropped **connection**, confirms the MCP server is still running,
 and says the next request re-dials. Nothing is ever replayed, because a retried
 mutation against a fresh daemon generation is the bug that fix would introduce.
+*That also bounds what the message can promise: a call cut off in flight has an
+**unknown** outcome, not an undone one — the served side may have acted and only
+the reply been lost. The adapter never decides that for the host.*
+
+The one case `onClose` creates rather than solves is a connection that is **born
+dead** — the transport announces its close during registration, synchronously or
+on a microtask. The adapter re-checks the slot by identity after each dial and
+re-dials rather than hand out a corpse, bounded, then fails loudly. *Re-dialing
+is legitimate exactly where re-requesting is not: a dial carries no caller
+intent, so repeating one replays nothing.*
 
 ## Bespoke tools and curation
 

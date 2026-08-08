@@ -21,6 +21,7 @@ export {
 export { toInputSchema } from "./jsonschema";
 export {
   type ClientOrConnection,
+  type OwnedSurfaceConnection,
   type ServeSurfaceAsMcpOptions,
   serveSurfaceAsMcp,
   type SurfaceClientCallable,

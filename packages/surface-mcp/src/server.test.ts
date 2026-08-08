@@ -908,6 +908,90 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     expect(dials).toBe(2);
   });
 
+  it("a connection born dead is re-dialed, not handed out — no request is spent on it (#2082)", async () => {
+    // The door the eager path opens: `onClose` may fire DURING registration (a
+    // transport that already died — padi replays it on a microtask, and the
+    // contract permits a plain synchronous `cb()`). The connection is then
+    // disposed before the awaiting caller resumes, and returning it anyway
+    // would spend that caller's request on a corpse — #2082's own symptom,
+    // walked back in through the fix. Re-dialing is safe where re-requesting is
+    // not: a dial carries no caller intent, so nothing is replayed.
+    const over = concurrencySurface();
+    let dials = 0;
+    const disposed: number[] = [];
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        const n = (dials += 1);
+        return {
+          client: over.client,
+          dispose: () => disposed.push(n),
+          // The FIRST dial is born dead and says so SYNCHRONOUSLY, the harshest
+          // shape the contract allows. Later dials are healthy.
+          onClose: (cb: () => void) => {
+            if (n === 1) cb();
+          },
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    const result = await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(result.isError).toBeFalsy(); // the request was NOT spent on the corpse
+    expect(dials).toBe(2); // dial #1 was born dead, so it was re-dialed
+    expect(disposed).toEqual([1]); // and the corpse was disposed, not leaked
+  });
+
+  it("a transport that is born dead every time fails loudly instead of spinning", async () => {
+    // The bound on the loop above. A daemon that cannot hold a connection at
+    // all must SAY so — never spin re-dialing, and never collapse to a quiet
+    // empty answer.
+    const over = concurrencySurface();
+    let dials = 0;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        dials += 1;
+        return {
+          client: over.client,
+          dispose: () => {},
+          onClose: (cb: () => void) => cb(),
+        };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    const result = (await mcp.callTool({
+      name: "ok_ping",
+      arguments: {},
+    })) as { isError?: boolean; content?: { text: string }[] };
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toContain(
+      "not staying up long enough to carry a request",
+    );
+    expect(dials).toBe(3); // bounded: the initial dial + BORN_DEAD_REDIALS
+  });
+
   it("a late close announcement cannot dispose the successor connection (#2082)", async () => {
     // The identity guard, now reachable from a second direction. `onClose` fires
     // on the OLD connection's schedule, so it can land after something else has

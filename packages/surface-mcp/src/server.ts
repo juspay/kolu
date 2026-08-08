@@ -231,7 +231,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // instead of each racing `sharedConn === null` across the await and opening
   // (then leaking) a second socket. Cleared once the dial settles.
   let dialing: Promise<OwnedConn> | null = null;
-  const getConn = async (): Promise<OwnedConn> => {
+  const dialShared = async (): Promise<OwnedConn> => {
     if (sharedConn !== null) return sharedConn;
     if (dialing === null) {
       dialing = dial().then(
@@ -248,11 +248,15 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           sharedConn = conn;
           // EAGER INVALIDATION (#2082). Registered AFTER the store, so the
           // identity guard in `resetSharedConn` can see this connection as the
-          // current one. A transport that already died during the dial fires
-          // this immediately (padi's `onClose` replays an already-closed socket
-          // on a microtask), which correctly discards it before any request is
-          // routed to it. Registered on the SUCCESS path only: a connection the
-          // closed-latch above already disposed has no slot to invalidate.
+          // current one — and registered on the SUCCESS path only, because a
+          // connection the closed-latch above already disposed has no slot to
+          // invalidate.
+          //
+          // This call can invoke its callback BEFORE it returns. A transport
+          // that died during the dial replays the close at registration —
+          // padi's does it on a microtask, and the contract permits a plain
+          // synchronous `cb()` — so by the next line `sharedConn` may already be
+          // null again. `getConn` is what handles that; see the born-dead loop.
           conn.onClose?.(() => resetSharedConn(conn));
           return conn;
         },
@@ -263,6 +267,40 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       );
     }
     return dialing;
+  };
+  /** How many times `getConn` re-dials a connection that arrives already dead
+   *  before giving up. Two, not one: a single redial covers the ordinary race
+   *  (a daemon that went down between the dial and its registration), while a
+   *  transport that is born dead TWICE running is a daemon that cannot hold a
+   *  connection at all — and saying so beats spinning. */
+  const BORN_DEAD_REDIALS = 2;
+  /** Hand out a LIVE shared connection.
+   *
+   *  A dial can land already dead: the transport announces its close during
+   *  registration, so `resetSharedConn` disposes the connection before the
+   *  awaiting caller ever resumes. Returning it anyway would spend that
+   *  caller's request on a corpse — #2082's exact symptom, reintroduced through
+   *  the door opened to fix it. So the store is re-checked by identity after
+   *  the dial settles, and a connection that is no longer current is re-dialed
+   *  rather than handed out.
+   *
+   *  Re-dialing here is safe in the way re-REQUESTING is not, and the
+   *  distinction is the whole reason this loop is allowed to exist: a dial
+   *  carries no caller intent, so repeating one replays nothing. Repeating the
+   *  REQUEST is what would resend a mutation into a fresh daemon generation,
+   *  and that is still never done. */
+  const getConn = async (): Promise<OwnedConn> => {
+    for (let attempt = 0; attempt <= BORN_DEAD_REDIALS; attempt++) {
+      const conn = await dialShared();
+      // Still the current connection ⇒ it did not announce a close on the way
+      // out, so it is live as far as anything here can know.
+      if (sharedConn === conn) return conn;
+    }
+    throw new Error(
+      `surface-mcp: the served surface's transport closed immediately on each of ${
+        BORN_DEAD_REDIALS + 1
+      } consecutive dials — it is not staying up long enough to carry a request.`,
+    );
   };
   // Drop a connection ONLY if it is still the current shared one — a concurrent
   // failure must never dispose a fresh successor another call already redialed.

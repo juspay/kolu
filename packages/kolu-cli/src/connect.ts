@@ -40,15 +40,29 @@
 import {
   connectPadi,
   type PadiConnection,
-  type PadiSurfaceClient,
   resolveRunningPadiSocket,
   scopePadiSurface,
 } from "@kolu/padi/dial";
 import { isContractSkewError } from "@kolu/surface-daemon-supervisor";
+import type { KoluMcpConnection } from "kolu-mcp";
 import { Data, Effect } from "effect";
 
 /** The transport-blind handle a CLI face is written against — the padi-scoped
- *  client plus a `dispose` that drops the socket/pipe.
+ *  client, a `dispose` that drops the socket/pipe, and the transport's optional
+ *  close announcement.
+ *
+ *  Deliberately `KoluMcpConnection` itself rather than a re-declaration of its
+ *  three fields. The two were byte-identical hand-copies, which is the same
+ *  shape of hazard as #2082 one level up: a field added to one and forgotten on
+ *  the other drifts silently, and `guardedMcpDial` passes the value across the
+ *  package boundary by structural width-subtyping alone, so nothing would say
+ *  so. An alias makes the drift unspellable — and kolu-cli already depends on
+ *  kolu-mcp, so the arrow points the way it already points.
+ *
+ *  The name stays because the two roles differ: this is what a CLI FACE is
+ *  written against (`kolu mcp` today, `kolu tui` later), and only one of those
+ *  faces is the MCP adapter. See {@link KoluMcpConnection} for the field docs,
+ *  including why `onClose` is optional.
  *
  *  Deliberately NOT an `Effect.acquireRelease`d resource, and the reason is the
  *  consumer: the MCP adapter (`kolu-mcp`) OWNS a dialed connection's lifetime —
@@ -57,24 +71,7 @@ import { Data, Effect } from "effect";
  *  effect's own scope), so the handle keeps carrying its `dispose` and the dial
  *  hands the resource OUT. Where kolu-cli owns a link itself — it does not
  *  today — the scoped form is the one to reach for. */
-export interface KoluCliConnection {
-  client: PadiSurfaceClient;
-  dispose: () => void;
-  /** Subscribe to this connection's transport dropping — padi exited, or its
-   *  socket closed. Fires at most once. The MCP adapter registers on it to
-   *  discard the dead connection EAGERLY, so a padi restart costs no request
-   *  (juspay/kolu#2082 — see `@kolu/surface-mcp`'s `OwnedSurfaceConnection`).
-   *
-   *  OPTIONAL because only the LOCAL arm can honestly supply it today:
-   *  `connectPadi` hands back a `DaemonConnection`, whose `onClose` is a
-   *  required part of that contract. The `--host` ssh arm dials through
-   *  `dialAgentOnce`, and `AgentDial` carries no close signal at all — so
-   *  `connectKoluCliViaHost` omits the field rather than fake one, and keeps
-   *  today's lazy behaviour until `@kolu/surface-remote` grows the signal
-   *  (tracked as the follow-up on #2082). This is a missing capability stated
-   *  honestly, not a knob: an arm that CAN observe its close must pass it. */
-  onClose?: (cb: () => void) => void;
-}
+export type KoluCliConnection = KoluMcpConnection;
 
 /** The running padi could not be NAMED: none discovered, or several with no
  *  `$PADI_SOCKET` to pick one. A usage fact about this host, never a transient
@@ -193,12 +190,14 @@ export const connectKoluCliLocal: Effect.Effect<
 export function koluCliConnectionOf(conn: PadiConnection): KoluCliConnection {
   return {
     client: scopePadiSurface(conn.client),
-    dispose: conn.dispose,
-    // Forwarded through a closure, not handed over as a bare method reference:
-    // `onClose` is declared on `DaemonConnection` as a METHOD, so a detached
-    // `conn.onClose` would call with no receiver and break any implementation
-    // that reads `this` (padi's own closes over its socket, but the contract
-    // does not promise that of every daemon).
+    // Both transport members go across through a closure, not as bare method
+    // references: `DaemonConnection` declares `dispose()` and `onClose()` as
+    // METHODS, so a detached `conn.dispose` would call with no receiver and
+    // break any implementation that reads `this`. padi's own are arrow
+    // properties closing over the socket, but the contract does not promise
+    // that of every daemon, and the two members must not disagree on how
+    // carefully they are carried.
+    dispose: () => conn.dispose(),
     onClose: (cb) => conn.onClose(cb),
   };
 }
