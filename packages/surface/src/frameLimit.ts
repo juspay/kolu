@@ -21,7 +21,7 @@
  *
  * ## Why the value is what it is
  *
- * `RPC_MAX_FRAME_BYTES` is set to Effect's own beta.103 default, 16 MiB, and
+ * `RPC_MAX_FRAME_BYTES` is set to Effect's own beta.106 default, 16 MiB, and
  * that equality is the POINT rather than a coincidence: passing it explicitly
  * at every site means a future bump that changes the default cannot move
  * kolu's wire silently. The number stops being Effect's and starts being ours.
@@ -36,13 +36,15 @@
  *
  * BETA-ASSUMPTION(beta.106): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
  *
- * Measured against `effect@4.0.0-beta.103`:
+ * Measured against `effect@4.0.0-beta.106`:
  *   - `dist/unstable/rpc/RpcSerialization.js` — `defaultMaxBufferSize = 16 * 1024 * 1024`,
  *     `isBufferSizeExceeded(size, max) => max !== "unbounded" && size > max`
  *     (strictly greater, so a frame EXACTLY at the cap is accepted).
  *   - `dist/unstable/rpc/RpcServer.js` — the inbound decode's catch turns a
  *     `MaxBufferSizeExceeded` into `writeRaw(new Socket.CloseEvent(1009, …))`.
- *     It is the only `1009` in the whole `effect` dist.
+ *     It is the only `1009` CLOSE CODE in the whole `effect` dist (the one
+ *     other textual hit is a substring inside a numeric table in
+ *     `httpapi/internal/httpApiSwagger.js`, not a close code).
  *   - `dist/unstable/rpc/RpcClient.js` — the CLIENT leg has no 1009 path: the
  *     same overflow surfaces as an `RpcClientDefect`. The close-the-socket
  *     semantics are therefore asymmetric, client→server only.

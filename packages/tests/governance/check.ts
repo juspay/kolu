@@ -10,6 +10,7 @@ import {
 } from "./awaitedFace";
 import {
   collectBetaAssumptions,
+  collectEffectVersionRefs,
   validateBetaAssumptions,
 } from "./betaAssumptions";
 import { collectEffectPins, validateEffectPins } from "./effectPin";
@@ -208,8 +209,14 @@ const optionalShimSites = [...optionalShims.values()].reduce(
 const effectPins = collectEffectPins(repoRoot);
 const effectVersion = validateEffectPins(effectPins);
 const betaAssumptions = collectBetaAssumptions(repoRoot);
-validateBetaAssumptions(betaAssumptions, effectVersion);
+const effectVersionRefs = collectEffectVersionRefs(repoRoot);
+validateBetaAssumptions(
+  betaAssumptions,
+  effectVersion,
+  undefined,
+  effectVersionRefs,
+);
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed)`,
 );

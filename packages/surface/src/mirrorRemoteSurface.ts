@@ -871,7 +871,7 @@ function mirrorCollectionDeltas<K, V>(opts: {
  *  flake). A scoped child fiber cannot: its lifetime IS the scope's.
  *
  *  **A child fiber's FAILURE does not reach its parent, though** — measured against
- *  effect@4.0.0-beta.103: a `forkChild`ed effect that fails leaves the parent
+ *  effect@4.0.0-beta.106: a `forkChild`ed effect that fails leaves the parent
  *  running to a clean exit. So a per-key SINK failure is latched into a `Deferred`
  *  and the keys loop is RACED against awaiting it. Without that race the pump's
  *  failure would go nowhere and `done` would resolve on a broken local fold — the
