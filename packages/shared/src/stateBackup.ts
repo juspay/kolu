@@ -29,6 +29,17 @@
  * every anomaly, INCLUDING a failed pre-restore snapshot, because a restore
  * that silently proceeds from a corrupt backup, or that silently is not
  * undoable, is the very data-loss class the ring exists to prevent.
+ *
+ * SYNCHRONOUS fs — deliberately, matching the store it rings. Every verb here
+ * runs on the serving loop of whichever process calls it, and that is the same
+ * posture the underlying `conf` store takes for EVERY persisted write in this
+ * repo (a cell write is a synchronous atomic `store.set`; padi's autosave gate
+ * documents "persist is synchronous" as an invariant). The ring is bounded —
+ * at most {@link STATE_BACKUP_RING_SIZE}+1 small JSON files — so each verb is
+ * a handful of small-file reads/copies, and the synchronous shape is what
+ * keeps the boot-before-Conf ordering and the restore's freeze windows free of
+ * interleaving. An async rewrite would buy microseconds and cost the
+ * no-interleaving property both restore paths lean on.
  */
 
 import {
@@ -276,11 +287,23 @@ export function openStateBackupRing(
       // The ring AS OF this copy — the pre-copy sweep plus the file just
       // written, so the prune reuses the enumeration the dedupe already did
       // instead of re-walking the directory.
+      // The copy has LANDED by the time the prune runs — a prune hiccup (a
+      // member vanished under a concurrent prune, the same race `list()`
+      // tolerates) must degrade to the documented one-over-size grace state,
+      // never report the taken backup as `failed` (which would wrongly REFUSE
+      // an undoable restore).
       for (const stale of [file, ...before.map((e) => e.file)].slice(
         STATE_BACKUP_RING_SIZE,
       )) {
         if (stale === protect) continue;
-        unlinkSync(join(dir, stale));
+        try {
+          unlinkSync(join(dir, stale));
+        } catch (err) {
+          log.error(
+            { err, stale },
+            "state backup prune: stale member could not be removed",
+          );
+        }
       }
       log.info({ file, dir }, "state backup snapshot taken");
       return { kind: "created", file };

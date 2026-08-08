@@ -42,6 +42,7 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
+import { match } from "ts-pattern";
 import { hostLabel } from "./host/hostChipTone";
 import { runAction, runActionPromise, type UiAction } from "./runAction";
 import { formatTimeAgo } from "./terminal/staleness";
@@ -158,12 +159,15 @@ const padiStore = (host: HostKey): StoreAdapter => {
                 // The foreign-clock fence: a remote padi's stamp is ITS clock.
                 savedAtMs: entry().clock.toLocal(b.savedAtMs),
                 sizeBytes: b.sizeBytes,
-                summary:
-                  b.summary.kind === "session"
-                    ? `${b.summary.terminals} ${b.summary.terminals === 1 ? "terminal" : "terminals"}`
-                    : b.summary.kind === "empty"
-                      ? "no session"
-                      : "unreadable",
+                summary: match(b.summary)
+                  .with(
+                    { kind: "session" },
+                    (s) =>
+                      `${s.terminals} ${s.terminals === 1 ? "terminal" : "terminals"}`,
+                  )
+                  .with({ kind: "empty" }, () => "no session")
+                  .with({ kind: "unreadable" }, () => "unreadable")
+                  .exhaustive(),
                 restorable: b.summary.kind === "session",
               })),
             ),
