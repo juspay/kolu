@@ -40,10 +40,17 @@ const FIXTURE_BASH_PREEXEC = join(
 /** A distinctive prompt so the tests can count completed prompt cycles. */
 const PROMPT = "KOLU_TEST_PROMPT>";
 
-async function waitFor(fn: () => boolean, ms = 8000): Promise<void> {
+/** Wait for `fn`, failing with `diagnose()`'s output in the error — a CI box
+ *  can't be attached to, so the timeout itself must say what the shell showed. */
+async function waitFor(
+  fn: () => boolean,
+  diagnose: () => string,
+  ms = 20_000,
+): Promise<void> {
   const start = Date.now();
   while (!fn()) {
-    if (Date.now() - start > ms) throw new Error("waitFor timed out");
+    if (Date.now() - start > ms)
+      throw new Error(`waitFor timed out; screen:\n${diagnose()}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
@@ -51,9 +58,11 @@ async function waitFor(fn: () => boolean, ms = 8000): Promise<void> {
 /** Interactive bash resolved from PATH (the nix devshell's, never /bin/bash —
  *  `selectShellInit` keys on the `/bash` suffix, which both spell). */
 function resolveBash(): string {
-  return execFileSync("/bin/sh", ["-c", "command -v bash"], {
+  const bash = execFileSync("/bin/sh", ["-c", "command -v bash"], {
     encoding: "utf8",
   }).trim();
+  if (!bash) throw new Error("no bash on PATH");
+  return bash;
 }
 
 describeDaemon("OSC 633;E capture in a real interactive bash", () => {
@@ -74,6 +83,7 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
   function spawnInteractiveBash(userRc: string): {
     id: string;
     promptCount: () => number;
+    screen: () => string;
   } {
     const bash = resolveBash();
     const home = mkdtempSync(join(tmpdir(), "kaval-preexec-home-"));
@@ -101,21 +111,20 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
       },
       cwd: home,
     });
-    const promptCount = () =>
-      (host as PtyHost).getScreenText(id).split(PROMPT).length - 1;
-    return { id, promptCount };
+    const screen = () => (host as PtyHost).getScreenText(id);
+    const promptCount = () => screen().split(PROMPT).length - 1;
+    return { id, promptCount, screen };
   }
 
   /** Type one command at the current prompt and wait for the next prompt —
    *  i.e. a full read → execute → prompt cycle, like a user at the keyboard. */
   async function runCommand(
-    id: string,
-    promptCount: () => number,
+    t: { id: string; promptCount: () => number; screen: () => string },
     command: string,
   ): Promise<void> {
-    const before = promptCount();
-    (host as PtyHost).write(id, `${command}\r`);
-    await waitFor(() => promptCount() > before);
+    const before = t.promptCount();
+    (host as PtyHost).write(t.id, `${command}\r`);
+    await waitFor(() => t.promptCount() > before, t.screen);
   }
 
   /** The user rc of an atuin-style setup: bash-preexec sourced from the rc,
@@ -129,31 +138,58 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
   /** A plain rc — no DEBUG-trap contenders. */
   const plainRc = `PS1='${PROMPT} '\n`;
 
-  it("captures the FIRST command when the user rc loads bash-preexec (atuin) — #2119", async () => {
-    const { id, promptCount } = spawnInteractiveBash(bashPreexecRc);
-    await waitFor(() => promptCount() >= 1);
-    await runCommand(id, promptCount, "echo t1");
-    // The agent-launch slot: command #1. Before the fix, bash-preexec's
-    // first-prompt DEBUG-trap takeover left its dispatch gate closed for
-    // exactly this command, and the mark never fired.
-    await waitFor(() => (host as PtyHost).getLastCommand(id) === "echo t1");
-    expect((host as PtyHost).getLastCommand(id)).toBe("echo t1");
-  });
+  // Generous per-test timeouts: a cold CI box pays real startup cost for an
+  // interactive bash (replayed /etc/profile and all), and the inner waitFors
+  // carry the screen in their failure — a vitest-level timeout would say
+  // nothing. 60s per test dwarfs any loaded-box stall.
+  const SLOW = { timeout: 60_000 };
 
-  it("captures subsequent commands under bash-preexec (harness sanity)", async () => {
-    const { id, promptCount } = spawnInteractiveBash(bashPreexecRc);
-    await waitFor(() => promptCount() >= 1);
-    await runCommand(id, promptCount, "echo t1");
-    await runCommand(id, promptCount, "echo t2");
-    await waitFor(() => (host as PtyHost).getLastCommand(id) === "echo t2");
-    expect((host as PtyHost).getLastCommand(id)).toBe("echo t2");
-  });
+  it(
+    "captures the FIRST command when the user rc loads bash-preexec (atuin) — #2119",
+    SLOW,
+    async () => {
+      const t = spawnInteractiveBash(bashPreexecRc);
+      await waitFor(() => t.promptCount() >= 1, t.screen);
+      await runCommand(t, "echo t1");
+      // The agent-launch slot: command #1. Before the fix, bash-preexec's
+      // first-prompt DEBUG-trap takeover left its dispatch gate closed for
+      // exactly this command, and the mark never fired.
+      await waitFor(
+        () => (host as PtyHost).getLastCommand(t.id) === "echo t1",
+        t.screen,
+      );
+      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t1");
+    },
+  );
 
-  it("captures the FIRST command with a plain rc (no bash-preexec)", async () => {
-    const { id, promptCount } = spawnInteractiveBash(plainRc);
-    await waitFor(() => promptCount() >= 1);
-    await runCommand(id, promptCount, "echo t1");
-    await waitFor(() => (host as PtyHost).getLastCommand(id) === "echo t1");
-    expect((host as PtyHost).getLastCommand(id)).toBe("echo t1");
-  });
+  it(
+    "captures subsequent commands under bash-preexec (harness sanity)",
+    SLOW,
+    async () => {
+      const t = spawnInteractiveBash(bashPreexecRc);
+      await waitFor(() => t.promptCount() >= 1, t.screen);
+      await runCommand(t, "echo t1");
+      await runCommand(t, "echo t2");
+      await waitFor(
+        () => (host as PtyHost).getLastCommand(t.id) === "echo t2",
+        t.screen,
+      );
+      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t2");
+    },
+  );
+
+  it(
+    "captures the FIRST command with a plain rc (no bash-preexec)",
+    SLOW,
+    async () => {
+      const t = spawnInteractiveBash(plainRc);
+      await waitFor(() => t.promptCount() >= 1, t.screen);
+      await runCommand(t, "echo t1");
+      await waitFor(
+        () => (host as PtyHost).getLastCommand(t.id) === "echo t1",
+        t.screen,
+      );
+      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t1");
+    },
+  );
 });
