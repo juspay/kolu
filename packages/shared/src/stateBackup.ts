@@ -50,7 +50,7 @@ export const STATE_BACKUP_RING_SIZE = 10;
 /** The in-process re-snapshot cadence — one slow tick so a long-running daemon's
  *  newest backup never ages past a day (the boot snapshot alone would). The
  *  byte-identical dedupe makes an unchanged tick a no-op. */
-export const STATE_BACKUP_TICK_MS = 24 * 60 * 60 * 1000;
+const STATE_BACKUP_TICK_MS = 24 * 60 * 60 * 1000;
 
 /** The subdirectory of the state dir the ring lives in. */
 const BACKUP_SUBDIR = "backups";

@@ -128,33 +128,41 @@ export async function restoreServerStateBackup(
     deps.setPreferences(decoded.preferences);
     deps.setViewerMode(decoded.viewerMode);
 
-    // Converge the pool onto the snapshot's fleet. Adds first (a dial failure
-    // must not leave the fleet emptier than either state), then removes.
+    // Converge the pool onto the snapshot's fleet. The ADD phase completes
+    // before the REMOVE phase begins (a dial failure must not leave the fleet
+    // emptier than either state), but WITHIN a phase the hosts are independent
+    // ssh dials — run them concurrently so restore latency scales with the
+    // slowest host, not the fleet size. `attempt` never rejects (it answers the
+    // failure line), so a plain `Promise.all` collects every outcome.
     const target = new Set(decoded.hosts);
     const current = new Set(deps.currentHostKeys());
-    const hostFailures: string[] = [];
-    for (const key of decoded.hosts) {
-      if (current.has(key) || deps.hasLiveHost(key)) continue;
+    const attempt = async (
+      verb: "add" | "remove",
+      key: string,
+      run: (key: string) => Promise<void>,
+    ): Promise<string | null> => {
       try {
-        await deps.addHostKey(key);
+        await run(key);
+        return null;
       } catch (err) {
-        log.error({ err, host: key }, "state restore: host add failed");
-        hostFailures.push(
-          `add ${key}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        log.error({ err, host: key }, `state restore: host ${verb} failed`);
+        return `${verb} ${key}: ${err instanceof Error ? err.message : String(err)}`;
       }
-    }
-    for (const key of current) {
-      if (target.has(key)) continue;
-      try {
-        await deps.removeHostKey(key);
-      } catch (err) {
-        log.error({ err, host: key }, "state restore: host remove failed");
-        hostFailures.push(
-          `remove ${key}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    return { hostFailures };
+    };
+    const addFailures = await Promise.all(
+      decoded.hosts
+        .filter((key) => !current.has(key) && !deps.hasLiveHost(key))
+        .map((key) => attempt("add", key, deps.addHostKey)),
+    );
+    const removeFailures = await Promise.all(
+      [...current]
+        .filter((key) => !target.has(key))
+        .map((key) => attempt("remove", key, deps.removeHostKey)),
+    );
+    return {
+      hostFailures: [...addFailures, ...removeFailures].filter(
+        (failure): failure is string => failure !== null,
+      ),
+    };
   });
 }

@@ -1115,11 +1115,10 @@ export const PadiBackupsListOutputSchema = Schema.Struct({
  *  pushed into the ring first, so a restore is itself undoable. */
 export const PadiBackupsRestoreInputSchema = Schema.Struct({
   file: Schema.String,
-  /** Same intent shape as {@link PadiSessionRestoreInputSchema}. */
-  resumeAgents: Schema.Boolean.pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed(true)),
-  ),
-  optOutIds: Schema.optionalKey(Schema.Array(Schema.String)),
+  // The SAME resume-intent pair `session.restore` declares — composed by field
+  // spread (the repo's `.merge` successor, see vocab.ts's note) rather than a
+  // third hand-copy of the decoding-default policy.
+  ...PadiSessionRestoreInputSchema.fields,
 });
 
 // ── The surface ───────────────────────────────────────────────────────────

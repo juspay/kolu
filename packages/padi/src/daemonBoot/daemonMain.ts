@@ -82,7 +82,6 @@ import {
   NewerPadiStateProjectVersionError,
   openPadiStateStores,
 } from "../session/stateStore.ts";
-import { openStateBackupRing } from "kolu-shared/state-backup";
 import {
   padiKavalHome,
   padiRuntimeHome,
@@ -250,7 +249,7 @@ function openStateStores(stateRoot: string, log: Logger): { opened: true } {
   // (the daemon boot), not in `openPadiStateStores`, so test fixtures opening
   // stores don't each arm a process-lifetime timer. `unref`'d — never holds
   // the process open; disarming rides process exit.
-  openStateBackupRing(stores.conf.path, log).startTicker();
+  stores.ring.startTicker();
   // Import BEFORE the injections below — the imported values must be in place before
   // anything reads a cell. (#1658's backup, inlined per the scope note.)
   importLegacyConfigOnce(stores, log);
