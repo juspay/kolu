@@ -1,6 +1,6 @@
 # Kolu code-police rules
 
-Kolu-specific rules layered on top of the base `code-police` skill — read by `code-police` from this file (`.agency/code-police.md`) when it runs. Each rule states only the "what"; apply judgment.
+Kolu-specific rules layered on top of the base `code-police` skill — read by `code-police` from this file (`.agency/code-police.md`) when it runs. Each rule states only the "what"; apply judgment. A new rule must be the weakest wording that covers the incidents motivating it — state its carve-outs up front rather than banning more than the evidence demands (arXiv:2301.12987).
 
 ### no-re-export-bridge-modules
 
