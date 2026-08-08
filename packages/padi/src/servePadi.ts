@@ -898,12 +898,7 @@ export function buildPadiSurfaceDeps(deps: {
 
       session: {
         restore: ({ input }) => handle(() => restoreSession(input)),
-        // The wire discards the import's answer (declared output-less — 5.2's
-        // ledger note); `backups.restore` below is the caller that reads it.
-        import: ({ input }) =>
-          handle(async () => {
-            await importSession(input);
-          }),
+        import: ({ input }) => handle(() => importSession(input)),
         forfeit: () => handle(() => forfeitSession()),
       },
 

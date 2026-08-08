@@ -1,9 +1,10 @@
 /**
  * padi's face of the state-backup ring (#1658) — the domain half behind
  * `padiSurface.procedures.backups.*`. The generic ring mechanics (snapshot ·
- * dedupe · prune · read) live in `../stateBackup.ts`; THIS module knows what a
- * padi snapshot MEANS: the `session` key is the restorable payload, and its
- * terminal count is the summary a user ranks snapshots by.
+ * dedupe · prune · read · undoable restore) live in `kolu-shared`'s
+ * `stateBackup.ts`; THIS module knows what a padi snapshot MEANS: the `session`
+ * key is the restorable payload, and its terminal count is the summary a user
+ * ranks snapshots by.
  *
  * Restore rides {@link importSession} — the SAME backfill → decode → respawn
  * machinery `session.import` uses (reuse the existing source of truth), so a
@@ -14,38 +15,36 @@
  * terminals" writer.
  */
 
-import { join } from "node:path";
+import { openStateBackupRing } from "kolu-shared/state-backup";
+import type { StateBackupEntry } from "kolu-shared/state-backup";
 import { log } from "../log.ts";
-import {
-  listStateBackups,
-  readStateBackup,
-  snapshotStateFile,
-} from "kolu-shared";
-import { importSession } from "./sessionRestore.ts";
 import type { PadiStateBackup } from "../surface.ts";
 import type { SavedSession } from "../vocab.ts";
+import { importSession } from "./sessionRestore.ts";
+import { padiConfigPath } from "./stateStore.ts";
 
-/** padi's state file under its state-root — the one path this module derives. */
-function padiConfigPath(stateRoot: string): string {
-  return join(stateRoot, "config.json");
+/** The ring's own entry shape and the wire's agree field-for-field — the
+ *  `...entry` spread below type-checks BECAUSE of this line, not by coincidence
+ *  (`@kolu/padi` may not import `kolu-common`, so one shared schema is not
+ *  reachable; this is the tie that is). */
+type _RingEntryMatchesWire =
+  StateBackupEntry extends Omit<PadiStateBackup, "summary">
+    ? true
+    : ["wire shape drifted from kolu-shared's StateBackupEntry"];
+const _ringEntryMatchesWire: _RingEntryMatchesWire = true;
+void _ringEntryMatchesWire;
+
+/** This state-root's ring. The state file's path is `stateStore.ts`'s fact (it
+ *  constructs the `Conf`), read from there rather than re-derived here. */
+function ringFor(stateRoot: string) {
+  return openStateBackupRing(padiConfigPath(stateRoot), log);
 }
 
-/** Summarize one snapshot for the list: parse it and count the session's
- *  terminals. A snapshot that fails to parse is LISTED as `unreadable` rather
- *  than collapsing the whole enumeration — one corrupt snapshot must not make
- *  the nine good ones unreachable (that would defeat the safety net); the
- *  restore side still refuses it loudly. */
-function summarize(
-  configPath: string,
-  file: string,
-): PadiStateBackup["summary"] {
-  let raw: unknown;
-  try {
-    raw = readStateBackup(configPath, file);
-  } catch (err) {
-    log.error({ err, file }, "state backup snapshot is unreadable");
-    return { kind: "unreadable" };
-  }
+/** Summarize one PARSED snapshot: count the session's terminals. A snapshot that
+ *  fails to parse never reaches here — the ring lists it as `unreadable` rather
+ *  than collapsing the whole enumeration (one corrupt snapshot must not make the
+ *  nine good ones unreachable); the restore side still refuses it loudly. */
+function summarize(raw: unknown): PadiStateBackup["summary"] {
   const session = (raw as { session?: unknown }).session;
   if (
     session !== null &&
@@ -64,20 +63,19 @@ function summarize(
 export function listPadiStateBackups(stateRoot: string): {
   backups: PadiStateBackup[];
 } {
-  const configPath = padiConfigPath(stateRoot);
   return {
-    backups: listStateBackups(configPath).map((entry) => ({
-      ...entry,
-      summary: summarize(configPath, entry.file),
-    })),
+    backups: ringFor(stateRoot).listWith<PadiStateBackup["summary"]>(
+      summarize,
+      { kind: "unreadable" },
+    ),
   };
 }
 
 /** `backups.restore` — restore the session one snapshot holds. Fail-fast on
- *  every anomaly (a non-ring name, unreadable bytes, a snapshot with no
- *  session): a restore that proceeds from a bad snapshot is the data-loss class
- *  the ring exists to prevent. The CURRENT state file is pushed into the ring
- *  first, so the restore is itself undoable. */
+ *  every anomaly (a non-ring name, unreadable bytes, a failed undo snapshot, a
+ *  snapshot with no session): a restore that proceeds from a bad snapshot is the
+ *  data-loss class the ring exists to prevent. The ring pushes the CURRENT state
+ *  file into itself first, so the restore is itself undoable. */
 export async function restorePadiStateBackup(
   stateRoot: string,
   input: {
@@ -85,27 +83,23 @@ export async function restorePadiStateBackup(
     resumeAgents?: boolean;
     optOutIds?: readonly string[];
   },
-): Promise<{ activeTerminalId: string | null }> {
-  const configPath = padiConfigPath(stateRoot);
-  const raw = readStateBackup(configPath, input.file);
-  const session = (raw as { session?: unknown }).session;
-  if (
-    session === null ||
-    session === undefined ||
-    typeof session !== "object"
-  ) {
-    throw new Error(`state backup ${input.file} holds no session to restore`);
-  }
-  // Undoability: capture the pre-restore file before the import's persist
-  // overwrites it. Fail-soft like every snapshot — a full ring dir must not
-  // block the recovery the user is mid-way through.
-  snapshotStateFile(configPath, log);
-  log.info({ file: input.file }, "restoring session from state backup");
-  // The import DECODES (backfill ladder + SavedSessionSchema, fail-fast), so
-  // this cast only carries the raw value to the validator, not past it.
-  return await importSession({
-    session: session as SavedSession,
-    resumeAgents: input.resumeAgents,
-    ...(input.optOutIds === undefined ? {} : { optOutIds: input.optOutIds }),
+): Promise<void> {
+  await ringFor(stateRoot).restore(input.file, async (raw) => {
+    const session = (raw as { session?: unknown }).session;
+    if (
+      session === null ||
+      session === undefined ||
+      typeof session !== "object"
+    ) {
+      throw new Error(`state backup ${input.file} holds no session to restore`);
+    }
+    log.info({ file: input.file }, "restoring session from state backup");
+    // The import DECODES (backfill ladder + SavedSessionSchema, fail-fast), so
+    // this cast only carries the raw value to the validator, not past it.
+    await importSession({
+      session: session as SavedSession,
+      resumeAgents: input.resumeAgents,
+      ...(input.optOutIds === undefined ? {} : { optOutIds: input.optOutIds }),
+    });
   });
 }

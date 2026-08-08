@@ -519,17 +519,20 @@ export function forfeitSession(): void {
  *  session" flow moved off the client. Backfills the imported blob to the
  *  current schema (idempotent on an already-current record), persists it as the
  *  saved session, then runs the restore path with the same resume intent.
- *  Answers `restoreSession`'s active-marker for the same reason 5.1 gave IT one
- *  — `session.import` still discards it on the wire (nothing there reads it),
- *  but `backups.restore` forwards it. */
+ *  Answers nothing: neither of its two callers (`session.import`,
+ *  `backups.restore`) seeds a view from the call — both restore a blob the user
+ *  just chose — so an active-marker here would be shape for its own sake, which
+ *  is exactly the argument the 5.1 ledger note makes about `session.import`.
+ *  `session.restore`, whose client DOES seed its active tile from the call,
+ *  keeps its answer. */
 export async function importSession(input: {
   session: SavedSession;
   resumeAgents?: boolean;
   optOutIds?: readonly string[];
-}): Promise<{ activeTerminalId: string | null }> {
+}): Promise<void> {
   const backfilled = decodeSavedSession(backfillSavedSession(input.session));
   setSavedSession(backfilled);
-  return await restoreSession({
+  await restoreSession({
     resumeAgents: input.resumeAgents,
     optOutIds: input.optOutIds,
   });

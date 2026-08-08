@@ -9,13 +9,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshotStateFile } from "kolu-shared";
+import { openStateBackupRing } from "kolu-shared/state-backup";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { log } from "../log.ts";
 import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./stateBackups.ts";
+import { padiConfigPath } from "./stateStore.ts";
 
 let stateRoot: string;
 
@@ -29,8 +30,11 @@ afterEach(() => {
 
 /** Write a state file with `content` and snapshot it into the ring. */
 function seedSnapshot(content: string): string {
-  writeFileSync(join(stateRoot, "config.json"), content);
-  const outcome = snapshotStateFile(join(stateRoot, "config.json"), log);
+  writeFileSync(padiConfigPath(stateRoot), content);
+  const outcome = openStateBackupRing(
+    padiConfigPath(stateRoot),
+    log,
+  ).snapshot();
   if (outcome.kind !== "created") throw new Error("expected a snapshot");
   return outcome.file;
 }

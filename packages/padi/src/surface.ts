@@ -374,9 +374,11 @@ export * from "./vocab.ts";
  *  5.2 (additive · minor): a NEW `backups` procedure namespace — `backups.list`
  *  (enumerate the state-backup ring #1658 introduced, with a per-snapshot
  *  session summary) and `backups.restore` (restore a snapshot's session
- *  host-side, riding the same import machinery as `session.import` and
- *  answering the same active-marker shape as `session.restore`, for 5.1's
- *  reason). Purely additive, so the plainest minor there is, and the minor
+ *  host-side, riding the same import machinery as `session.import` — and
+ *  OUTPUT-LESS for the same reason `session.import` is: it restores a blob the
+ *  user just picked and seeds no view from the call, so an answer nothing reads
+ *  would be shape for its own sake). Purely additive, so the plainest minor
+ *  there is, and the minor
  *  suffices for the usual reason — a newer binder against a 5.1 padi fails
  *  `isContractVersionCompatible`'s minor rule and DRAINS it before consuming
  *  its surface, so a 5.2 client never calls `backups.*` on a padi that lacks
@@ -1550,12 +1552,11 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
      *  (a remote host's backups live on that box; the map client is the reach). */
     backups: {
       list: { output: PadiBackupsListOutputSchema },
-      restore: {
-        input: PadiBackupsRestoreInputSchema,
-        // The same answer as `session.restore`, for the same reason (5.1): the
-        // client seeds its active tile from the call, never the cell race.
-        output: PadiSessionRestoreOutputSchema,
-      },
+      // Output-less, like `session.import` and for the same reason (the 5.1
+      // ledger note): the client restores a blob it just picked and seeds no
+      // view from the call, so an active-marker answer would be shape nothing
+      // reads.
+      restore: { input: PadiBackupsRestoreInputSchema },
     },
   },
 });
