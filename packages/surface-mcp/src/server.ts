@@ -48,6 +48,7 @@ import {
   UnsubscribeRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Option, Schema, Stream } from "effect";
+import { match } from "ts-pattern";
 import {
   COLLECTION_PREFIX,
   type ExposeMap,
@@ -242,25 +243,23 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
 
   /** The in-flight or memoized dial. Coalescing, the closed-gate, and the
    *  fresh-dial decision are one tag test each. */
-  const dialShared = (): Promise<OwnedSurfaceConnection> => {
-    switch (state.t) {
-      case "closed":
-        // Gated at the ENTRY: a post-teardown request must not open a socket
-        // only to dispose it on the next line.
-        return Promise.reject(
+  const dialShared = (): Promise<OwnedSurfaceConnection> =>
+    match(state)
+      // Gated at the ENTRY: a post-teardown request must not open a socket
+      // only to dispose it on the next line.
+      .with({ t: "closed" }, () =>
+        Promise.reject(
           new Error("the server is closed — no connection to dial"),
-        );
-      case "live":
-        return Promise.resolve(state.conn);
-      case "dialing":
-        return state.dial;
-      case "idle": {
+        ),
+      )
+      .with({ t: "live" }, ({ conn }) => Promise.resolve(conn))
+      .with({ t: "dialing" }, ({ dial }) => dial)
+      .with({ t: "idle" }, () => {
         const pending = dialOnce();
         state = { t: "dialing", dial: pending };
         return pending;
-      }
-    }
-  };
+      })
+      .exhaustive();
 
   const dialOnce = async (): Promise<OwnedSurfaceConnection> => {
     let conn: OwnedSurfaceConnection;
