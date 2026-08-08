@@ -133,6 +133,17 @@ export interface ServeSurfaceAsMcpOptions<S extends SurfaceSpec> {
 
 const DEFAULT_SERVER_INFO = { name: "surface-mcp", version: "0.1.0" };
 
+/** Put this adapter's name on a message a host will read.
+ *
+ *  ONE rule, one mechanism: an error raised INSIDE the adapter carries the bare
+ *  fact, and the REQUEST EDGE that answers the host brands it — `failFrom` for
+ *  `tools/call`, the `resources/read` handler for reads. An edge that composes
+ *  its own message (an unknown tool, an unknown URI), and a boot-time throw that
+ *  never crosses an edge at all, call this directly. Nothing is prefixed twice,
+ *  because nothing is prefixed before the edge — which the born-dead error used
+ *  to be, reaching agents as `surface-mcp: surface-mcp: …`. */
+const brand = (message: string): string => `surface-mcp: ${message}`;
+
 /** Build + connect an MCP server that re-exposes `surface`. Returns the
  *  low-level `Server` and a `close()` that stops the pusher and disconnects
  *  the transport. */
@@ -171,7 +182,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     const prior = sourceByToolName.get(name);
     if (prior !== undefined) {
       throw new Error(
-        `surface-mcp: tool name "${name}" is produced by both ${prior} and ${source} — rename one`,
+        brand(
+          `tool name "${name}" is produced by both ${prior} and ${source} — rename one`,
+        ),
       );
     }
     sourceByToolName.set(name, source);
@@ -210,79 +223,124 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // A dead connection is dropped by TWO paths, and the order matters:
   //
   //   1. EAGERLY, the moment the transport says it closed (`onClose`, wired in
-  //      `getConn` below). This is the one that matters in practice — a daemon
+  //      `dialOnce` below). This is the one that matters in practice — a daemon
   //      restart is announced, so the corpse is discarded while the adapter is
-  //      idle and the next request dials fresh.
+  //      idle and the next request dials fresh. It needs the transport to carry
+  //      the announcement all the way to the factory; where a dial does not yet
+  //      project one (the ssh `--host` leg — see `OwnedSurfaceConnection.onClose`)
+  //      only (2) is left.
   //   2. LAZILY, in `withClient`'s catch, when a call fails with a recognized
   //      transport death. This remains the backstop for the two cases (1) cannot
-  //      cover: a transport with no close signal to offer, and the genuine race
+  //      cover: a dial that carries no close announcement, and the genuine race
   //      where the socket dies with a request already in flight.
   //
   // (2) alone was the whole of juspay/kolu#2082: a restart could only be
   // discovered by spending a request on the dead socket.
   type OwnedConn = OwnedSurfaceConnection;
-  let sharedConn: OwnedConn | null = null;
-  // Latched by teardown so a dial that RESOLVES after `close()` disposes its
-  // socket instead of publishing an orphan nobody will ever tear down (the
-  // adapter's promise: dispose every connection it opens).
-  let closed = false;
-  // The IN-FLIGHT dial, memoized so two concurrent `getConn()` calls (a
-  // long-blocking wait tool beside a read — the kolu-mcp case) share ONE dial
-  // instead of each racing `sharedConn === null` across the await and opening
-  // (then leaking) a second socket. Cleared once the dial settles.
-  let dialing: Promise<OwnedConn> | null = null;
-  const dialShared = async (): Promise<OwnedConn> => {
-    if (sharedConn !== null) return sharedConn;
-    if (dialing === null) {
-      dialing = dial().then(
-        (conn) => {
-          dialing = null;
-          // Teardown happened while this dial was in flight — dispose the just-
-          // opened socket rather than storing it (disposeSharedConn already ran
-          // and saw `sharedConn === null`). Reject so a caller mid-`getConn`
-          // fails loud instead of running against a socket about to close.
-          if (closed) {
-            conn.dispose();
-            throw new Error("surface-mcp: server closed during dial");
-          }
-          sharedConn = conn;
-          // EAGER INVALIDATION (#2082). Registered AFTER the store, so the
-          // identity guard in `resetSharedConn` can see this connection as the
-          // current one — and registered on the SUCCESS path only, because a
-          // connection the closed-latch above already disposed has no slot to
-          // invalidate.
-          //
-          // This call can invoke its callback BEFORE it returns. A transport
-          // that died during the dial replays the close at registration —
-          // padi's does it on a microtask, and the contract permits a plain
-          // synchronous `cb()` — so by the next line `sharedConn` may already be
-          // null again. `getConn` is what handles that; see the born-dead loop.
-          conn.onClose?.(() => resetSharedConn(conn));
-          return conn;
-        },
-        (err) => {
-          dialing = null;
-          throw err;
-        },
+  /** The WHOLE lifetime of that one connection, as one value.
+   *
+   *  It was three independent cells — a connection-or-null, a `closed` boolean,
+   *  an in-flight-dial-or-null — whose four legal combinations out of eight were
+   *  held apart by statement order and by prose. This diff added a writer on a
+   *  clock of its own (the transport's `onClose`, which fires on no request's
+   *  schedule), and the encoding already had a hole: `closed` gated the MIDDLE
+   *  of a dial but not its ENTRY, so a request landing after teardown really
+   *  opened a socket and immediately disposed it. A tag puts the gate at the
+   *  front for free, and every guard below is one tag test rather than a
+   *  remembered rule. */
+  type ConnState =
+    | { readonly t: "idle" }
+    /** A dial is in flight, memoized so two concurrent callers (a long-blocking
+     *  wait tool beside a read — the kolu-mcp case) share ONE dial instead of
+     *  each racing an emptiness check across the await and opening (then
+     *  leaking) a second socket. */
+    | { readonly t: "dialing"; readonly dial: Promise<OwnedConn> }
+    | { readonly t: "live"; readonly conn: OwnedConn }
+    /** Terminal. Reached only by teardown, and never left. */
+    | { readonly t: "closed" };
+  let state: ConnState = { t: "idle" };
+
+  /** The in-flight or memoized dial. Coalescing, the closed-gate, and the
+   *  fresh-dial decision are one tag test each. */
+  const dialShared = (): Promise<OwnedConn> => {
+    switch (state.t) {
+      case "closed":
+        // Gated at the ENTRY: a post-teardown request must not open a socket
+        // only to dispose it on the next line.
+        return Promise.reject(
+          new Error("the server is closed — no connection to dial"),
+        );
+      case "live":
+        return Promise.resolve(state.conn);
+      case "dialing":
+        return state.dial;
+      case "idle": {
+        const pending = dialOnce();
+        state = { t: "dialing", dial: pending };
+        return pending;
+      }
+    }
+  };
+
+  const dialOnce = async (): Promise<OwnedConn> => {
+    let conn: OwnedConn;
+    try {
+      conn = await dial();
+    } catch (err) {
+      if (state.t === "dialing") state = { t: "idle" };
+      throw err;
+    }
+    // Teardown won the race while we dialed: there is no slot to publish into,
+    // so dispose the just-opened socket rather than orphan it (the adapter's
+    // promise: dispose every connection it opens). Reject so a caller
+    // mid-`getConn` fails loud instead of running against a socket about to
+    // close. This ONE test replaces both the old `closed` latch and the
+    // in-flight-dial bookkeeping.
+    if (state.t !== "dialing") {
+      conn.dispose();
+      throw new Error(
+        "the server closed while this connection was being dialed",
       );
     }
-    return dialing;
+    state = { t: "live", conn };
+    // EAGER INVALIDATION (#2082). Registered AFTER the store, so the identity
+    // guard in `dropConn` can see this connection as the current one — and on
+    // the SUCCESS path only, because a connection the teardown test above
+    // already disposed has no slot to invalidate.
+    //
+    // This call can invoke its callback BEFORE it returns. A transport that
+    // died during the dial replays the close at registration — padi's does it
+    // on a microtask, and the contract permits a plain synchronous `cb()` — so
+    // by the next line the state may already be back at `idle`. `getConn` is
+    // what handles that; see the born-dead loop.
+    conn.onClose?.(() => dropConn(conn));
+    return conn;
   };
+
   /** How many times `getConn` re-dials a connection that arrives already dead
    *  before giving up. Two, not one: a single redial covers the ordinary race
    *  (a daemon that went down between the dial and its registration), while a
    *  transport that is born dead TWICE running is a daemon that cannot hold a
-   *  connection at all — and saying so beats spinning. */
+   *  connection at all — and saying so beats spinning.
+   *
+   *  A COUNT is the right unit only while a dial is cheap, and today it is: the
+   *  connections this slot holds are dialed over a unix socket (~1ms), so three
+   *  attempts cost a caller nothing measurable. It would be the wrong unit for a
+   *  dial that provisions a closure over ssh (`dialAgentOnce` → `provisionAgent`,
+   *  seconds to minutes) — if this slot ever holds such a link, the bound must
+   *  become a DEADLINE, so the guarantee stays "a request is never delayed more
+   *  than N ms by born-dead redials" whatever the transport. Not a knob: a
+   *  better-chosen invariant. */
   const BORN_DEAD_REDIALS = 2;
   /** Hand out a LIVE shared connection.
    *
    *  A dial can land already dead: the transport announces its close during
-   *  registration, so `resetSharedConn` disposes the connection before the
-   *  awaiting caller ever resumes. Returning it anyway would spend that
-   *  caller's request on a corpse — #2082's exact symptom, reintroduced through
-   *  the door opened to fix it. So the store is re-checked by identity after
-   *  the dial settles, and a connection that is no longer current is re-dialed
-   *  rather than handed out.
+   *  registration, so `dropConn` disposes the connection before the awaiting
+   *  caller ever resumes. Returning it anyway would spend that caller's request
+   *  on a corpse — #2082's exact symptom, reintroduced through the door opened
+   *  to fix it. So the slot is re-checked by identity after the dial settles,
+   *  and a connection that is no longer current is re-dialed rather than handed
+   *  out.
    *
    *  Re-dialing here is safe in the way re-REQUESTING is not, and the
    *  distinction is the whole reason this loop is allowed to exist: a dial
@@ -294,29 +352,33 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       const conn = await dialShared();
       // Still the current connection ⇒ it did not announce a close on the way
       // out, so it is live as far as anything here can know.
-      if (sharedConn === conn) return conn;
+      if (state.t === "live" && state.conn === conn) return conn;
     }
-    throw new Error(
-      `surface-mcp: the served surface's transport closed immediately on each of ${
+    throw linkFailure(
+      `the served surface's transport closed immediately on each of ${
         BORN_DEAD_REDIALS + 1
-      } consecutive dials — it is not staying up long enough to carry a request.`,
+      } consecutive dials — it is not staying up long enough to carry a request`,
+      "retry once the served daemon is holding connections",
     );
   };
-  // Drop a connection ONLY if it is still the current shared one — a concurrent
-  // failure must never dispose a fresh successor another call already redialed.
-  const resetSharedConn = (conn: OwnedConn): void => {
-    if (sharedConn !== conn) return;
-    sharedConn = null;
+  /** The connection died — ANNOUNCED by its transport, or discovered by a call
+   *  that failed on it. Both funnel here, and the identity guard is the single
+   *  invariant: a drop is inert unless `conn` is still the current one, so a
+   *  late/duplicate announcement from a disposed predecessor can never dispose
+   *  the fresh successor another call already redialed. */
+  const dropConn = (conn: OwnedConn): void => {
+    if (state.t !== "live" || state.conn !== conn) return;
+    state = { t: "idle" };
     conn.dispose();
   };
-  // Teardown: latch `closed` (so a still-pending dial disposes its own result —
-  // see getConn), then dispose whatever connection is current (identity-agnostic
-  // — the server is closing, so there is no successor to protect).
+  // Teardown: move to the terminal state FIRST (so a still-pending dial finds
+  // no slot to publish into and disposes its own result — see `dialOnce`), then
+  // dispose whatever connection is current (identity-agnostic — the server is
+  // closing, so there is no successor to protect).
   const disposeSharedConn = (): void => {
-    closed = true;
-    const conn = sharedConn;
-    sharedConn = null;
-    conn?.dispose();
+    const prev = state;
+    state = { t: "closed" };
+    if (prev.t === "live") prev.conn.dispose();
   };
   // The failure-reset policy in one place. Reset ONLY on a recognized TRANSPORT
   // death — an application error (a bad tool arg, an unknown key, a wrong
@@ -333,7 +395,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       return await fn(conn.client);
     } catch (e) {
       if (!isDeadTransportError(e)) throw e;
-      resetSharedConn(conn);
+      dropConn(conn);
       throw droppedMidCall(e);
     }
   };
@@ -450,7 +512,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           const proc = client.surface[exposed.ns]?.[exposed.verb];
           if (proc === undefined) {
             return fail(
-              `surface-mcp: client has no procedure "${exposed.ns}.${exposed.verb}"`,
+              brand(`client has no procedure "${exposed.ns}.${exposed.verb}"`),
             );
           }
           // A no-input procedure's payload schema is `Schema.Void`, which the
@@ -500,7 +562,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
           return ok(out);
         });
       }
-      return fail(`surface-mcp: unknown tool "${name}"`);
+      return fail(brand(`unknown tool "${name}"`));
     } catch (e) {
       return failFrom(e);
     }
@@ -535,12 +597,18 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // ── resources/read ─────────────────────────────────────────────────────
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const { uri } = req.params;
+    // THE `resources/read` edge's branding — the mirror of `failFrom` on the
+    // tools/call side (see {@link brand}). Without it the same link failure
+    // named this adapter or didn't depending on which request kind hit it.
     const result = await withClient((client) =>
       runRequest(
         readSnapshot(client, uri, byUri, keySchemaByCollection),
         extra.signal,
       ),
-    );
+    ).catch((e: unknown): never => {
+      const message = e instanceof Error ? e.message : String(e);
+      throw new Error(brand(message), { cause: e });
+    });
     if (isMiss(result)) {
       // A not-yet-present collection key is a well-formed but empty resource, NOT
       // an unknown URI — distinct messages so an agent can tell "this address is
@@ -548,8 +616,10 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
       // producer reports in; watch it via `resources/subscribe`).
       throw new Error(
         result.miss === "not-present"
-          ? `surface-mcp: resource "${uri}" has no value yet — its collection key is not present`
-          : `surface-mcp: unknown resource "${uri}"`,
+          ? brand(
+              `resource "${uri}" has no value yet — its collection key is not present`,
+            )
+          : brand(`unknown resource "${uri}"`),
       );
     }
     return {
@@ -569,9 +639,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     // Only the resources we actually serve. Storing an unknown URI would
     // leave the pusher attached/retrying for something it can never push.
     if (!isSubscribable(uri, byUri)) {
-      throw new Error(
-        `surface-mcp: cannot subscribe to unknown resource "${uri}"`,
-      );
+      throw new Error(brand(`cannot subscribe to unknown resource "${uri}"`));
     }
     pusher.subscribe(uri);
     return {};
@@ -708,7 +776,7 @@ function asStream(
   if (!Stream.isStream(source)) {
     return Stream.fail(
       new Error(
-        `surface-mcp: ${uri} (${kind}) resolved no streaming source — the ` +
+        `${uri} (${kind}) resolved no streaming source — the ` +
           "surface contract guarantees a snapshot-first open, so this is a link/" +
           "protocol failure, not an empty value.",
       ),
@@ -831,9 +899,7 @@ function readSnapshot<Client extends SurfaceClientCallable>(
       // Exhaustiveness guard: a new `ResolvedCall` kind must add its own case
       // rather than silently falling through to the snapshot-first reader.
       const unreachable: never = call.kind;
-      return Effect.die(
-        new Error(`surface-mcp: unhandled resource kind "${unreachable}"`),
-      );
+      return Effect.die(new Error(`unhandled resource kind "${unreachable}"`));
     }
   }
 }
@@ -863,7 +929,7 @@ function readFirstFrameSnapshot(
       ? Effect.succeed({ value: head.value, mimeType: call.mimeType })
       : Effect.fail(
           new Error(
-            `surface-mcp: ${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
+            `${uri} (${call.kind}) yielded no snapshot frame — the surface ` +
               "contract opens a cell/collection/stream with a current-value snapshot, so an " +
               "empty open means the bridge link dropped, not that the value is null.",
           ),
@@ -906,9 +972,7 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
     // `parseCollectionItem(uri)` succeeded on this same URI. Fail LOUD if that
     // invariant is ever broken — never a silent fall-through.
     return Effect.die(
-      new Error(
-        `surface-mcp: ${uri} routed as a collection item but does not parse as one`,
-      ),
+      new Error(`${uri} routed as a collection item but does not parse as one`),
     );
   }
   const keysProc = client.surface[item.key]?.keys;
@@ -922,7 +986,7 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
         ? null
         : asStream(keysProc(undefined), uri, "collection"),
       key,
-      `surface-mcp: ${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
+      `${uri} (collection-item) yielded no snapshot frame — a PRESENT ` +
         "collection item opens with a current-value snapshot, so an empty open means " +
         "the bridge link dropped, not that the value is null.",
       KEYSLESS_ITEM_READ_DEADLINE_MS,
@@ -941,7 +1005,9 @@ function readCollectionItemSnapshot<Client extends SurfaceClientCallable>(
       // rather than degrade silently.
       return Effect.sync(() => {
         console.error(
-          `surface-mcp: ${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+          brand(
+            `${uri} — the read of "${item.key}" hit its ${KEYSLESS_ITEM_READ_DEADLINE_MS}ms deadline before the item produced a snapshot, so this not-present is UNCONFIRMED rather than a known absence`,
+          ),
         );
         return { miss: "not-present" };
       });
@@ -957,34 +1023,54 @@ function unwrapArgs(wrapped: boolean, args: Record<string, unknown>): unknown {
   return wrapped ? args.value : args;
 }
 
-/** Re-frame a transport death that killed a call ALREADY IN FLIGHT, so the
- *  message names the layer that actually died.
+/** EVERY failure this adapter reports for a LINK problem, framed for a host
+ *  standing on its own stdio channel. The policy, in one place:
  *
- *  The raw error is the LINK's own vocabulary — "stdio transport closed … the
- *  peer process exited or its stream ended" — which is true of the link and
- *  badly false of everything above it. An MCP host reads it on its own stdio
- *  channel and concludes the MCP SERVER exited, so it stops calling; that is
- *  exactly what happened in juspay/kolu#2082, where one such message cost the
- *  rest of an agent's session. This server is running, it has already discarded
- *  the dead connection, and the very next request re-dials — so say that, and
- *  keep the original text as the cause so the underlying reason is not lost
- *  (a re-frame must add context, never swallow it).
+ *    1. name the layer that actually died — the raw error is the LINK's own
+ *       vocabulary ("stdio transport closed … the peer process exited"), true
+ *       of the link and badly false of everything above it;
+ *    2. say THIS MCP SERVER IS STILL RUNNING and has discarded the corpse. An
+ *       MCP host reads a link-death message on its own stdio channel and
+ *       concludes the MCP server exited, so it stops calling — exactly what
+ *       happened in juspay/kolu#2082, where one such message cost the rest of
+ *       an agent's session;
+ *    3. say what retrying does, since the caller's next move is the whole point.
  *
- *  Reached only from `withClient`'s catch, i.e. only for the genuine race where
- *  the transport died mid-call. A transport that ANNOUNCES its close is dropped
- *  eagerly and produces no failed request to re-frame at all. */
-function droppedMidCall(e: unknown): Error {
-  const reason = e instanceof Error ? e.message : String(e);
+ *  A `cause` is kept where there is one, so the underlying reason survives the
+ *  re-frame (a re-frame must add context, never swallow it).
+ *
+ *  TEARDOWN is the one link failure this policy does NOT cover, and deliberately:
+ *  when the server really is shutting down, "this MCP server is still running"
+ *  would be a lie. Those two throws (`dialShared`'s closed gate and `dialOnce`'s
+ *  lost race) say plainly that the server closed, and nothing more. */
+function linkFailure(what: string, retry: string, cause?: unknown): Error {
   return new Error(
-    "the connection to the served surface dropped while this request was in " +
-      `flight (${reason}). This MCP server is still running and has discarded ` +
-      "the dead connection — retry, and the next request re-dials.",
-    { cause: e },
+    `${what}. This MCP server is still running and has discarded the dead ` +
+      `connection — ${retry}.`,
+    cause === undefined ? undefined : { cause },
   );
 }
 
-/** Coerce an unknown thrown value into a failed `ToolResult`. */
+/** Re-frame a transport death that killed a call ALREADY IN FLIGHT.
+ *
+ *  Reached only from `withClient`'s catch — the genuine race where the socket
+ *  died with a request in flight, plus any dial whose close announcement never
+ *  reached us. It is not the only place the link-failure policy applies: a
+ *  connection that is BORN DEAD produces a failed request too (`getConn`'s
+ *  bounded loop, which gives up loudly), which is why the framing lives in
+ *  {@link linkFailure} rather than here. */
+function droppedMidCall(e: unknown): Error {
+  const reason = e instanceof Error ? e.message : String(e);
+  return linkFailure(
+    "the connection to the served surface dropped while this request was in " +
+      `flight (${reason})`,
+    "retry, and the next request re-dials",
+    e,
+  );
+}
+
+/** Coerce an unknown thrown value into a failed `ToolResult` — the `tools/call`
+ *  edge's branding (see {@link brand}). */
 function failFrom(e: unknown): ToolResult {
-  const message = e instanceof Error ? e.message : String(e);
-  return fail(`surface-mcp: ${message}`);
+  return fail(brand(e instanceof Error ? e.message : String(e)));
 }

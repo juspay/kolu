@@ -986,10 +986,61 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
       arguments: {},
     })) as { isError?: boolean; content?: { text: string }[] };
     expect(result.isError).toBe(true);
-    expect(result.content?.[0]?.text).toContain(
-      "not staying up long enough to carry a request",
-    );
+    const text = result.content?.[0]?.text;
+    expect(text).toContain("not staying up long enough to carry a request");
+    // The link-failure policy applies HERE too, not only to a call that died
+    // mid-flight: an agent reading this on its own stdio channel must be told
+    // this server survives, or it draws #2082's exact inference.
+    expect(text).toContain("This MCP server is still running");
+    expect(text).toContain("retry once the served daemon is holding");
+    // …and the adapter names itself exactly ONCE. The message used to be
+    // prefixed at the throw and again at the tools/call edge.
+    expect(text).toContain("surface-mcp: ");
+    expect(text).not.toContain("surface-mcp: surface-mcp:");
     expect(dials).toBe(3); // bounded: the initial dial + BORN_DEAD_REDIALS
+  });
+
+  it("a request after close() opens no socket at all", async () => {
+    // The terminal state gates the dial's ENTRY, not just its middle. It used
+    // to be a boolean read only AFTER `opts.client()` had run, so a request
+    // landing after teardown really opened a unix socket / spawned an ssh child
+    // and disposed it on the next line.
+    const over = concurrencySurface();
+    let dials = 0;
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const { server, close } = await serveSurfaceAsMcp({
+      surface: over.surface,
+      client: () => {
+        dials += 1;
+        return { client: over.client, dispose: () => {} };
+      },
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => close(),
+    );
+
+    await mcp.callTool({ name: "ok_ping", arguments: {} });
+    expect(dials).toBe(1);
+
+    // The adapter's own teardown hook — what the SDK runs when the MCP host
+    // closes the pipe. Driving it directly latches the terminal state while
+    // leaving the pipe open, so a request can still reach the handler and hit
+    // the gate (calling `close()` would take the transport down with it).
+    server.onclose?.();
+    const after = (await mcp.callTool({ name: "ok_ping", arguments: {} })) as {
+      isError?: boolean;
+      content?: { text: string }[];
+    };
+    expect(after.isError).toBe(true);
+    expect(after.content?.[0]?.text).toContain("the server is closed");
+    expect(dials).toBe(1); // no socket was opened just to be disposed
   });
 
   it("a late close announcement cannot dispose the successor connection (#2082)", async () => {
