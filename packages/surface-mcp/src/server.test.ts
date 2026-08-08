@@ -34,7 +34,11 @@ import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { Effect, Schema, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cellUri, streamUri } from "./expose";
-import { type SurfaceClientCallable, serveSurfaceAsMcp } from "./server";
+import {
+  type ServeSurfaceAsMcpOptions,
+  type SurfaceClientCallable,
+  serveSurfaceAsMcp,
+} from "./server";
 
 /** The in-process client every case here drives the adapter with: the SAME
  *  nested member face a wire link mints (`buildSurfaceFace`), over the no-wire
@@ -779,14 +783,45 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     return { surface, client: faceFor(surface, served) };
   }
 
+  type ConcurrencyOver = ReturnType<typeof concurrencySurface>;
+  type ConcurrencyOptions = ServeSurfaceAsMcpOptions<
+    ConcurrencyOver["surface"]["spec"]
+  >;
+
+  /** The spine every case in this block drives: one in-memory pair, one adapter
+   *  over the concurrency surface, one connected MCP client, torn down by the
+   *  shared `cleanup`. What the cases actually differ in is the CONNECTION
+   *  FACTORY they hand the adapter (and, for one of them, what is exposed), so
+   *  that is all a case supplies — the rest being open-coded eight times is how
+   *  a boilerplate change lands in seven places and misses the eighth. */
+  async function connectConcurrency(
+    over: ConcurrencyOver,
+    opts: Pick<ConcurrencyOptions, "client"> &
+      Partial<Pick<ConcurrencyOptions, "expose" | "tools">>,
+  ) {
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const served = await serveSurfaceAsMcp({
+      surface: over.surface,
+      expose: { "ok.ping": { tool: { mutates: false } } },
+      ...opts,
+      serverInfo: { name: "t", version: "0" },
+      transport: serverTransport,
+    });
+    const mcp = new Client({ name: "c", version: "0" });
+    await mcp.connect(clientTransport);
+    cleanup.push(
+      () => mcp.close(),
+      () => served.close(),
+    );
+    return { mcp, ...served };
+  }
+
   it("app-level tool errors do NOT dispose the shared connection; a transport death does", async () => {
     const over = concurrencySurface();
     let dials = 0;
     let disposes = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
         dials += 1;
         return {
@@ -811,15 +846,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
             ),
         },
       },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     // First real call dials once.
     await mcp.callTool({ name: "ok_ping", arguments: {} });
@@ -862,34 +889,20 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
   it("a connection that ANNOUNCES its close is dropped eagerly — the next request costs nothing (#2082)", async () => {
     const over = concurrencySurface();
     let dials = 0;
-    let disposes = 0;
+    const disposed: number[] = [];
     // The live transport's close callbacks, per dial — firing one is this test's
     // stand-in for "padi exited", which is exactly what padi's `onClose` reports.
     const closers: Array<() => void> = [];
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
-        dials += 1;
+        const n = (dials += 1);
         return {
           client: over.client,
-          dispose: () => {
-            disposes += 1;
-          },
+          dispose: () => disposed.push(n),
           onClose: (cb: () => void) => closers.push(cb),
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     // One live connection, and the adapter subscribed to its close.
     await mcp.callTool({ name: "ok_ping", arguments: {} });
@@ -898,8 +911,11 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
 
     // The daemon goes away while the adapter is IDLE — no request in flight, which
     // is the ordinary restart (an upgrade at 18:17, the agent's next call at 23:15).
+    // THE eager-vs-lazy assertion: the corpse is discarded HERE, before any
+    // request touches it. Under the old lazy-only behaviour nothing happens until
+    // a call fails, so this line is what a lazy implementation cannot pass.
     closers[0]?.();
-    expect(disposes).toBe(1); // discarded on the announcement, not on a failure
+    expect(disposed).toEqual([1]); // discarded on the announcement, not on a failure
 
     // THE REGRESSION: the very next request must SUCCEED against a fresh dial.
     // Before the fix this call was spent proving the socket was dead.
@@ -919,10 +935,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const over = concurrencySurface();
     let dials = 0;
     const disposed: number[] = [];
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
         const n = (dials += 1);
         return {
@@ -935,16 +948,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           },
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     const result = await mcp.callTool({ name: "ok_ping", arguments: {} });
     expect(result.isError).toBeFalsy(); // the request was NOT spent on the corpse
@@ -958,10 +962,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     // empty answer.
     const over = concurrencySurface();
     let dials = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
         dials += 1;
         return {
@@ -970,16 +971,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           onClose: (cb: () => void) => cb(),
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     const result = (await mcp.callTool({
       name: "ok_ping",
@@ -997,7 +989,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     // prefixed at the throw and again at the tools/call edge.
     expect(text).toContain("surface-mcp: ");
     expect(text).not.toContain("surface-mcp: surface-mcp:");
-    expect(dials).toBe(3); // bounded: the initial dial + BORN_DEAD_REDIALS
+    expect(dials).toBe(3);
   });
 
   it("a request after close() opens no socket at all", async () => {
@@ -1007,24 +999,12 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     // and disposed it on the next line.
     const over = concurrencySurface();
     let dials = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { server, close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp, server } = await connectConcurrency(over, {
       client: () => {
         dials += 1;
         return { client: over.client, dispose: () => {} };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     await mcp.callTool({ name: "ok_ping", arguments: {} });
     expect(dials).toBe(1);
@@ -1052,10 +1032,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     let dials = 0;
     const disposed: number[] = [];
     const closers: Array<() => void> = [];
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: () => {
         const n = (dials += 1);
         return {
@@ -1064,39 +1041,40 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           onClose: (cb: () => void) => closers.push(cb),
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #1
-    closers[0]?.(); // #1 announces its death → dropped
+    // #1 announces its death and is dropped EAGERLY — asserted before the next
+    // request, because a successor only exists to be protected if the
+    // predecessor really went away on the announcement rather than on a failure.
+    closers[0]?.();
+    expect(disposed).toEqual([1]);
     await mcp.callTool({ name: "ok_ping", arguments: {} }); // conn #2 is now live
     expect(dials).toBe(2);
-    expect(disposed).toEqual([1]);
 
-    // #1's announcement arriving AGAIN (a duplicate/late close) must be inert.
+    // THE CLAIM: #1's announcement arriving AGAIN (a duplicate, or one delivered
+    // late on the dead transport's own schedule) must be inert — #2 is neither
+    // disposed…
     closers[0]?.();
-    expect(disposed).toEqual([1]); // #2 untouched
+    expect(disposed).toEqual([1]);
+    // …nor unslotted: the next request rides #2 rather than re-dialing, which is
+    // what proves the guard dropped the announcement instead of the connection.
     const after = await mcp.callTool({ name: "ok_ping", arguments: {} });
     expect(after.isError).toBeFalsy();
-    expect(dials).toBe(2); // still #2 — no needless re-dial
+    expect(dials).toBe(2);
+
+    // And the successor is still ANNOUNCE-able in its own right: #2's close
+    // drops #2, so the guard rejected a stale identity rather than latching the
+    // slot shut after the first drop.
+    closers[1]?.();
+    expect(disposed).toEqual([1, 2]);
   });
 
   it("concurrent first calls share ONE dial (no double-dial leak)", async () => {
     const over = concurrencySurface();
     let dials = 0;
     let disposes = 0;
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp } = await connectConcurrency(over, {
       client: async () => {
         dials += 1;
         // A dial that takes a tick — both concurrent callers await it before
@@ -1109,16 +1087,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           },
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
-    cleanup.push(
-      () => mcp.close(),
-      () => close(),
-    );
 
     await Promise.all([
       mcp.callTool({ name: "ok_ping", arguments: {} }),
@@ -1138,10 +1107,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     const dialGate = new Promise<void>((r) => {
       releaseDial = r;
     });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveSurfaceAsMcp({
-      surface: over.surface,
+    const { mcp, close } = await connectConcurrency(over, {
       client: async () => {
         await dialGate; // hold the dial open until we release it
         return {
@@ -1151,12 +1117,7 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
           },
         };
       },
-      expose: { "ok.ping": { tool: { mutates: false } } },
-      serverInfo: { name: "t", version: "0" },
-      transport: serverTransport,
     });
-    const mcp = new Client({ name: "c", version: "0" });
-    await mcp.connect(clientTransport);
 
     // Start a call so getConn's dial is in flight, then close before it lands.
     const inflight = mcp
@@ -1169,7 +1130,8 @@ describe("serveSurfaceAsMcp — boot-time guards", () => {
     await new Promise((r) => setTimeout(r, 5));
 
     // The late-landing connection was disposed exactly once — not orphaned.
+    // (The shared `cleanup` closes both ends; `close()` above is this test's
+    // ACTION, and re-running it there is inert.)
     expect(disposes).toBe(1);
-    await mcp.close();
   });
 });

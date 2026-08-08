@@ -59,6 +59,14 @@ function makeSource() {
   };
 }
 
+/** The plain live connection most cases dial: one client, a disposer nobody
+ *  looks at, no close announcement. A case that asserts on DISPOSAL or on the
+ *  announcement builds its own connection instead. */
+const liveConn = (): { client: { id: number }; dispose: () => void } => ({
+  client: { id: 1 },
+  dispose: () => {},
+});
+
 const URI = "surface://cells/count";
 
 let unhandled: unknown[] = [];
@@ -83,7 +91,7 @@ describe("ResourcePusher", () => {
     const notified: string[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: (uri) => notified.push(uri),
-      client: () => ({ client: { id: 1 }, dispose: () => {} }),
+      client: liveConn,
       stream: () => source.stream,
       debounceMs: 50,
     });
@@ -107,7 +115,7 @@ describe("ResourcePusher", () => {
     const source = makeSource();
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ client: { id: 1 }, dispose: () => {} }),
+      client: liveConn,
       stream: () => source.stream,
     });
 
@@ -142,7 +150,7 @@ describe("ResourcePusher", () => {
     const errors: unknown[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ client: { id: 1 }, dispose: () => {} }),
+      client: liveConn,
       // A subscription that would run forever if nobody interrupted it.
       stream: () => Stream.never,
       onError: (e) => errors.push(e),
@@ -172,7 +180,7 @@ describe("ResourcePusher", () => {
     let released = 0;
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ client: { id: 1 }, dispose: () => {} }),
+      client: liveConn,
       stream: () =>
         Stream.ensuring(
           Stream.never,
@@ -199,7 +207,7 @@ describe("ResourcePusher", () => {
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
       // Returns null until `live` flips — subscribe-before-serve.
-      client: () => (live ? { client: { id: 1 }, dispose: () => {} } : null),
+      client: () => (live ? liveConn() : null),
       stream: () => source.stream,
       retryMs: 100,
     });
@@ -241,7 +249,7 @@ describe("ResourcePusher", () => {
       client: () => {
         dials += 1;
         if (dials === 1) return Promise.reject(new Error("ECONNREFUSED"));
-        return { client: { id: 1 }, dispose: () => {} };
+        return liveConn();
       },
       stream: () => source.stream,
       onError: (e) => errors.push(e),
@@ -269,7 +277,7 @@ describe("ResourcePusher", () => {
     const errors: unknown[] = [];
     const pusher = new ResourcePusher<{ id: number }>({
       notify: () => {},
-      client: () => ({ client: { id: 1 }, dispose: () => {} }),
+      client: liveConn,
       // The client is live (attach succeeds), but the subscription fails the
       // first time — a pre-first-frame error the attach retry does NOT cover.
       stream: () => {

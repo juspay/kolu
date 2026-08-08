@@ -55,7 +55,7 @@ import {
   resolveExpose,
 } from "./expose";
 import { inputSchema } from "./jsonschema";
-import { ResourcePusher } from "./pusher";
+import { type PusherConnection, ResourcePusher } from "./pusher";
 import { type BespokeTool, fail, ok, type ToolResult } from "./tools";
 
 /** The structural shape of a served-surface client the adapter needs. The
@@ -79,40 +79,14 @@ export type SurfaceClientCallable = {
 
 /** An *owned connection* the client factory hands over: the bridge case, where
  *  the factory opened a transport (`unixSocketLink` dials a socket) and the
- *  adapter is now responsible for closing it. */
-export interface OwnedSurfaceConnection {
-  client: SurfaceClientCallable;
-  dispose: () => void;
-  /** Subscribe to this connection's transport dropping — the served daemon
-   *  exited, or its socket closed. Fires at most once.
-   *
-   *  **This is what keeps a restart from costing a request** (juspay/kolu#2082).
-   *  Without it the adapter only learns the transport died by SPENDING a request
-   *  on the corpse: the memoized connection is reset in `withClient`'s catch, so
-   *  the first call after a daemon restart always fails and every later one
-   *  succeeds. The MCP host reads that one failure as "the MCP server is dead"
-   *  and stops using MCP for the rest of the session — a whole session lost to a
-   *  routine upgrade. With the hook, the dead connection is discarded the INSTANT
-   *  the socket closes and the next request dials fresh, so nothing is spent.
-   *
-   *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: the
-   *  in-process `directDispatch` case has no transport to drop, so it has no
-   *  honest value to supply.
-   *
-   *  It is also absent where a dial HAS the signal but no field to carry it —
-   *  the ssh `--host` leg today. `sshConnector` observes its child's exit
-   *  (`ClosedInfo`, `surface-remote/src/sshConnector.ts`) and the session
-   *  exposes it per attempt as `Connection.closed`
-   *  (`surface-remote/src/session.ts`), but `AgentDial` projects neither, so
-   *  `connectKoluCliViaHost` has nothing to pass on. That is a gap in the dial's
-   *  FACE, not a fact about ssh, and it is the same shape of omission as #2082
-   *  itself — a hop with the signal in hand and no socket to put it in. Closing
-   *  it is the remote follow-up.
-   *
-   *  An absent hook degrades to the lazy catch-side reset below; it is NOT a
-   *  knob, and a factory that CAN reach its close must supply it. */
-  onClose?: (cb: () => void) => void;
-}
+ *  adapter is now responsible for closing it.
+ *
+ *  Deliberately the pusher's {@link PusherConnection} at this module's client
+ *  type, not a re-declaration of its three fields — the read/tool slot and the
+ *  pusher's attachment hold the SAME thing, and the same factory feeds both. The
+ *  field docs, including why `onClose` is optional and what an absent hook
+ *  degrades to, live on the base. */
+export type OwnedSurfaceConnection = PusherConnection<SurfaceClientCallable>;
 
 /** What `opts.client()` may return. Either a bare client (the in-process
  *  `directDispatch` case — nothing to dispose) or an {@link OwnedSurfaceConnection}
@@ -235,8 +209,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   //      restart is announced, so the corpse is discarded while the adapter is
   //      idle and the next request dials fresh. It needs the transport to carry
   //      the announcement all the way to the factory; where a dial does not yet
-  //      project one (the ssh `--host` leg — see `OwnedSurfaceConnection.onClose`)
-  //      only (2) is left.
+  //      project one (see {@link OwnedSurfaceConnection}) only (2) is left.
   //   2. LAZILY, in `withClient`'s catch, when a call fails with a recognized
   //      transport death. This remains the backstop for the two cases (1) cannot
   //      cover: a dial that carries no close announcement, and the genuine race
@@ -244,33 +217,32 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   //
   // (2) alone was the whole of juspay/kolu#2082: a restart could only be
   // discovered by spending a request on the dead socket.
-  type OwnedConn = OwnedSurfaceConnection;
-  /** The WHOLE lifetime of that one connection, as one value.
+  /** The WHOLE lifetime of that one connection, as ONE value — never a
+   *  connection-or-null beside a `closed` flag beside an in-flight-dial cell.
    *
-   *  It was three independent cells — a connection-or-null, a `closed` boolean,
-   *  an in-flight-dial-or-null — whose four legal combinations out of eight were
-   *  held apart by statement order and by prose. This diff added a writer on a
-   *  clock of its own (the transport's `onClose`, which fires on no request's
-   *  schedule), and the encoding already had a hole: `closed` gated the MIDDLE
-   *  of a dial but not its ENTRY, so a request landing after teardown really
-   *  opened a socket and immediately disposed it. A tag puts the gate at the
-   *  front for free, and every guard below is one tag test rather than a
-   *  remembered rule. */
+   *  Three independent cells have eight combinations and only four legal ones,
+   *  held apart by statement order and by prose — and one writer here runs on a
+   *  clock of its own (the transport's `onClose` fires on no request's
+   *  schedule), so statement order is not available as a guarantee. Split cells
+   *  also make it easy to gate the MIDDLE of a dial without gating its ENTRY,
+   *  which lets a request landing after teardown really open a socket and
+   *  dispose it on the next line. A tag puts the gate at the front for free, and
+   *  every guard below is one tag test rather than a remembered rule. */
   type ConnState =
     | { readonly t: "idle" }
     /** A dial is in flight, memoized so two concurrent callers (a long-blocking
      *  wait tool beside a read — the kolu-mcp case) share ONE dial instead of
      *  each racing an emptiness check across the await and opening (then
      *  leaking) a second socket. */
-    | { readonly t: "dialing"; readonly dial: Promise<OwnedConn> }
-    | { readonly t: "live"; readonly conn: OwnedConn }
+    | { readonly t: "dialing"; readonly dial: Promise<OwnedSurfaceConnection> }
+    | { readonly t: "live"; readonly conn: OwnedSurfaceConnection }
     /** Terminal. Reached only by teardown, and never left. */
     | { readonly t: "closed" };
   let state: ConnState = { t: "idle" };
 
   /** The in-flight or memoized dial. Coalescing, the closed-gate, and the
    *  fresh-dial decision are one tag test each. */
-  const dialShared = (): Promise<OwnedConn> => {
+  const dialShared = (): Promise<OwnedSurfaceConnection> => {
     switch (state.t) {
       case "closed":
         // Gated at the ENTRY: a post-teardown request must not open a socket
@@ -290,8 +262,8 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     }
   };
 
-  const dialOnce = async (): Promise<OwnedConn> => {
-    let conn: OwnedConn;
+  const dialOnce = async (): Promise<OwnedSurfaceConnection> => {
+    let conn: OwnedSurfaceConnection;
     try {
       conn = await dial();
     } catch (err) {
@@ -302,8 +274,9 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     // so dispose the just-opened socket rather than orphan it (the adapter's
     // promise: dispose every connection it opens). Reject so a caller
     // mid-`getConn` fails loud instead of running against a socket about to
-    // close. This ONE test replaces both the old `closed` latch and the
-    // in-flight-dial bookkeeping.
+    // close. ONE tag test is the whole gate here: "am I still the dial this slot
+    // is waiting on" answers both "was the server closed" and "did another dial
+    // take the slot", so neither needs a cell of its own to fall out of sync.
     if (state.t !== "dialing") {
       conn.dispose();
       throw new Error(
@@ -325,21 +298,36 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     return conn;
   };
 
-  /** How many times `getConn` re-dials a connection that arrives already dead
-   *  before giving up. Two, not one: a single redial covers the ordinary race
-   *  (a daemon that went down between the dial and its registration), while a
-   *  transport that is born dead TWICE running is a daemon that cannot hold a
-   *  connection at all — and saying so beats spinning.
+  /** How many times `getConn` dials before giving up on a connection that keeps
+   *  arriving already dead. Three attempts, not two: the second covers the
+   *  ordinary race (a daemon that went down between the dial and its
+   *  registration) and the third distinguishes an unlucky moment from a daemon
+   *  that cannot hold a connection at all — and saying so beats spinning. */
+  const BORN_DEAD_DIAL_ATTEMPTS = 3;
+  /** The wall-clock half of the same bound, armed alongside the count so the
+   *  guarantee is TRANSPORT-INDEPENDENT: "a request is never delayed more than
+   *  this by born-dead redials", whatever a dial costs.
    *
-   *  A COUNT is the right unit only while a dial is cheap, and today it is: the
-   *  connections this slot holds are dialed over a unix socket (~1ms), so three
-   *  attempts cost a caller nothing measurable. It would be the wrong unit for a
-   *  dial that provisions a closure over ssh (`dialAgentOnce` → `provisionAgent`,
-   *  seconds to minutes) — if this slot ever holds such a link, the bound must
-   *  become a DEADLINE, so the guarantee stays "a request is never delayed more
-   *  than N ms by born-dead redials" whatever the transport. Not a knob: a
-   *  better-chosen invariant. */
-  const BORN_DEAD_REDIALS = 2;
+   *  A count alone is only cheap while a dial is. Over a unix socket it nearly
+   *  is — though not the "~1ms" it is tempting to claim: each redial re-runs the
+   *  factory, and kolu-cli's local one re-resolves the running padi
+   *  (`resolveRunningPadiSocket`: a synchronous `readdirSync` over the runtime-dir
+   *  regimes plus a `statSync`/manifest-read/`kill(pid, 0)` per candidate) before
+   *  the connect and its `hello` round-trip. Bounded and only on a failure path,
+   *  but milliseconds each, not one.
+   *
+   *  This slot ALREADY holds a link where a count would be the wrong unit:
+   *  `kolu mcp --host` feeds an ssh dial that provisions a closure on the far
+   *  side, seconds to minutes. It never re-dials today only because that dial
+   *  supplies no `onClose` — transport luck, not a guarantee, and it evaporates
+   *  the day the remote leg projects its close signal.
+   *
+   *  Ten seconds, and the deadline is only ever read BETWEEN attempts — it never
+   *  cuts a dial short. So it is generous next to a socket dial (all three
+   *  attempts finish inside it, and the count is what trips) and tight next to an
+   *  ssh provision (the first one runs to completion; a second and third cannot
+   *  stack behind one MCP request). Not a knob: a better-chosen invariant. */
+  const BORN_DEAD_DIAL_BUDGET_MS = 10_000;
   /** Hand out a LIVE shared connection.
    *
    *  A dial can land already dead: the transport announces its close during
@@ -355,17 +343,21 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
    *  carries no caller intent, so repeating one replays nothing. Repeating the
    *  REQUEST is what would resend a mutation into a fresh daemon generation,
    *  and that is still never done. */
-  const getConn = async (): Promise<OwnedConn> => {
-    for (let attempt = 0; attempt <= BORN_DEAD_REDIALS; attempt++) {
+  const getConn = async (): Promise<OwnedSurfaceConnection> => {
+    const started = Date.now();
+    const deadline = started + BORN_DEAD_DIAL_BUDGET_MS;
+    let attempts = 0;
+    while (attempts < BORN_DEAD_DIAL_ATTEMPTS && Date.now() < deadline) {
+      attempts += 1;
       const conn = await dialShared();
       // Still the current connection ⇒ it did not announce a close on the way
       // out, so it is live as far as anything here can know.
       if (state.t === "live" && state.conn === conn) return conn;
     }
     throw linkFailure(
-      `the served surface's transport closed immediately on each of ${
-        BORN_DEAD_REDIALS + 1
-      } consecutive dials — it is not staying up long enough to carry a request`,
+      `the served surface's transport closed immediately on each of ${attempts} consecutive dials over ${
+        Date.now() - started
+      }ms — it is not staying up long enough to carry a request`,
       "retry once the served daemon is holding connections",
     );
   };
@@ -374,7 +366,7 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
    *  invariant: a drop is inert unless `conn` is still the current one, so a
    *  late/duplicate announcement from a disposed predecessor can never dispose
    *  the fresh successor another call already redialed. */
-  const dropConn = (conn: OwnedConn): void => {
+  const dropConn = (conn: OwnedSurfaceConnection): void => {
     if (state.t !== "live" || state.conn !== conn) return;
     state = { t: "idle" };
     conn.dispose();
@@ -404,7 +396,16 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
     } catch (e) {
       if (!isDeadTransportError(e)) throw e;
       dropConn(conn);
-      throw droppedMidCall(e);
+      // The genuine race: the socket died with this request in flight, plus any
+      // dial whose close announcement never reached us. Framed by the shared
+      // link-failure policy rather than here, because a BORN-DEAD connection
+      // fails a request too (`getConn`'s bounded loop) and both must read alike.
+      throw linkFailure(
+        "the connection to the served surface dropped while this request was in " +
+          `flight (${e instanceof Error ? e.message : String(e)})`,
+        "retry, and the next request re-dials",
+        e,
+      );
     }
   };
 
@@ -438,12 +439,12 @@ export async function serveSurfaceAsMcp<S extends SurfaceSpec>(
   // subscription lives, which is not the read path's lifetime.
   //
   // It is handed the whole `OwnedSurfaceConnection` — `dial` is the factory,
-  // verbatim. That is the whole wiring, and deliberately so: the previous shape
-  // passed a bare client and filed its disposer in a `WeakMap` keyed by the
-  // client object, which dropped `onClose` on the floor (so the pusher healed
-  // the old #2082 way, by its stream failing) AND leaked a socket whenever two
-  // concurrent attaches dialed connections sharing one client object — the
-  // second `set` overwrote the first's disposer.
+  // verbatim — and that must stay the whole wiring. Shredding the connection to
+  // pass a bare client with its disposer filed in a side table keyed by that
+  // client drops `onClose` on the floor (the pusher then heals the old #2082
+  // way, by its stream failing) AND leaks a socket whenever two concurrent
+  // attaches dial connections sharing one client object, because the second
+  // entry overwrites the first's disposer.
   const pusher = new ResourcePusher<SurfaceClientCallable>({
     notify: (uri) => {
       server.sendResourceUpdated({ uri }).catch((err) => {
@@ -1056,24 +1057,6 @@ function linkFailure(what: string, retry: string, cause?: unknown): Error {
     `${what}. This MCP server is still running and has discarded the dead ` +
       `connection — ${retry}.`,
     cause === undefined ? undefined : { cause },
-  );
-}
-
-/** Re-frame a transport death that killed a call ALREADY IN FLIGHT.
- *
- *  Reached only from `withClient`'s catch — the genuine race where the socket
- *  died with a request in flight, plus any dial whose close announcement never
- *  reached us. It is not the only place the link-failure policy applies: a
- *  connection that is BORN DEAD produces a failed request too (`getConn`'s
- *  bounded loop, which gives up loudly), which is why the framing lives in
- *  {@link linkFailure} rather than here. */
-function droppedMidCall(e: unknown): Error {
-  const reason = e instanceof Error ? e.message : String(e);
-  return linkFailure(
-    "the connection to the served surface dropped while this request was in " +
-      `flight (${reason})`,
-    "retry, and the next request re-dials",
-    e,
   );
 }
 

@@ -53,18 +53,43 @@ export type StreamFor<Client> = (
  *  it streams over, the disposer that closes whatever the factory opened, and —
  *  where the transport can say so — its close announcement.
  *
- *  Kept WHOLE, deliberately. The pusher keys its attachment on this object's
- *  identity, which is what makes the `onClose` guard and the disposer correct
- *  together. Shredding it into a bare client plus a disposer filed in a side
- *  table keyed by the client is what leaked: a factory that hands back the same
- *  client object on every dial (in-process faces do) has two concurrent dials
- *  overwrite each other's disposer, and the loser's socket is never closed. */
+ *  ONE shape from the dial to the adapter: `@kolu/surface-mcp`'s
+ *  `OwnedSurfaceConnection` IS this type at the adapter's client, and kolu-mcp's
+ *  `KoluMcpConnection` extends that. Re-declaring the fields anywhere along the
+ *  chain would let a field added at one hop go silently missing at the next,
+ *  because the value crosses each boundary by structural width-subtyping alone —
+ *  which is juspay/kolu#2082's own failure mode.
+ *
+ *  Kept WHOLE: the pusher keys its attachment on this object's identity, which
+ *  is what makes the `onClose` guard and the disposer correct together. A bare
+ *  client plus a disposer in a side table keyed by the client leaks whenever a
+ *  factory returns the same client object twice — two concurrent dials overwrite
+ *  each other's entry and the loser's socket is never closed. */
 export interface PusherConnection<Client> {
   client: Client;
   dispose: () => void;
-  /** Subscribe to this connection's transport dropping — fires at most once.
-   *  See `OwnedSurfaceConnection.onClose` (juspay/kolu#2082) for why it is
-   *  optional and what an absent hook degrades to. */
+  /** Subscribe to this connection's transport dropping — the served daemon
+   *  exited, or its socket closed. Fires at most once.
+   *
+   *  **This is what keeps a restart from costing a request** (juspay/kolu#2082).
+   *  Without it a consumer only learns the transport died by SPENDING a request
+   *  on the corpse: the held connection is reset when a call fails, so the first
+   *  call after a daemon restart always fails and every later one succeeds. An
+   *  MCP host reads that one failure as "the MCP server is dead" and stops using
+   *  MCP for the rest of the session — a whole session lost to a routine
+   *  upgrade. With the hook, the dead connection is discarded the INSTANT the
+   *  socket closes and the next request dials fresh, so nothing is spent.
+   *
+   *  OPTIONAL because it is a property of the TRANSPORT, not of the factory: an
+   *  in-process dispatch has no transport to drop, so it has no honest value to
+   *  supply.
+   *
+   *  A dial that HAS the close signal but no field to carry it is a GAP IN THE
+   *  DIAL'S FACE, not a mode to live in — the one open case is stated where it
+   *  will be closed, at `kolu-cli/src/hostConnect.ts`.
+   *
+   *  An absent hook degrades to the consumer's lazy reset when a call fails; it
+   *  is NOT a knob, and a factory that CAN reach its close must supply it. */
   onClose?: (cb: () => void) => void;
 }
 

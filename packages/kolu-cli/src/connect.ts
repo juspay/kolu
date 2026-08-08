@@ -52,14 +52,14 @@ import { Data, Effect } from "effect";
  *  close announcement.
  *
  *  Deliberately `KoluMcpConnection` itself rather than a re-declaration of its
- *  three fields. The two were byte-identical hand-copies, which is the same
- *  shape of hazard as #2082 one level up: a field added to one and forgotten on
- *  the other drifts silently, and `guardedMcpDial` passes the value across the
- *  package boundary by structural width-subtyping alone, so nothing would say
- *  so. An alias makes the drift unspellable — and kolu-cli already depends on
- *  kolu-mcp, so the arrow points the way it already points. `KoluMcpConnection`
- *  in turn `extends` the adapter's own `OwnedSurfaceConnection`, so the whole
- *  chain from dial to adapter is one shape rather than three copies.
+ *  three fields. Re-declaring them is the same shape of hazard as #2082 one
+ *  level up: a field added to one copy and forgotten on the other drifts in
+ *  silence, because `guardedMcpDial` passes the value across the package
+ *  boundary by structural width-subtyping alone, so nothing says so. An alias
+ *  makes that drift unspellable — and kolu-cli already depends on kolu-mcp, so
+ *  the arrow points the way it already points. `KoluMcpConnection` in turn
+ *  `extends` the adapter's own `OwnedSurfaceConnection`, so the whole chain from
+ *  dial to adapter is one shape rather than three copies.
  *
  *  The name stays because the two roles differ: this is what a CLI FACE is
  *  written against (`kolu mcp` today, `kolu tui` later), and only one of those

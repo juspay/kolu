@@ -237,6 +237,42 @@ async function readJson(mcp: Client, uri: string): Promise<unknown> {
   return JSON.parse((contents[0] as { text: string }).text);
 }
 
+/** The REAL local composition behind a connected MCP client: `connectPadi` →
+ *  `koluCliConnectionOf` → `guardedMcpDial` → `serveKoluMcp`, re-dialing the
+ *  SAME digest-keyed path on every invocation (the adapter's redial hook), with
+ *  the Promise crossing where `runKoluMcp` puts it.
+ *
+ *  `koluCliConnectionOf` is the product's OWN projection, which is what makes
+ *  these legs unable to pass against a look-alike that forgets to carry
+ *  `onClose` — forgetting it is precisely what juspay/kolu#2082 was. Two legs
+ *  need it, so the composition AROUND that projection lives here once rather
+ *  than as two look-alikes of its own. */
+async function serveMcpOverPadi(
+  socketPath: string,
+  clientName: string,
+): Promise<Client> {
+  const dial = guardedMcpDial(
+    Effect.map(
+      Effect.mapError(connectPadi(socketPath), classifyDialFailure),
+      koluCliConnectionOf,
+    ),
+  );
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const { close } = await serveKoluMcp({
+    connect: () => Effect.runPromise(dial),
+    serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
+    transport: serverTransport,
+  });
+  const mcp = new Client({ name: clientName, version: "0.0.0" });
+  await mcp.connect(clientTransport);
+  cleanups.push(async () => {
+    await mcp.close();
+    await close();
+  });
+  return mcp;
+}
+
 // ── The round-trip each transport leg must prove ──────────────────────────
 
 const SENTINEL = "MCP2-PIN-OK";
@@ -423,30 +459,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     const p = await startPadi(stateRoot);
     const socketPath = p.socketPath;
 
-    // The REAL local connect composition (guarded): re-dials the SAME
-    // digest-keyed path each invocation — the adapter's redial hook.
-    const dial = guardedMcpDial(
-      Effect.map(
-        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
-        koluCliConnectionOf,
-      ),
-    );
-    // The adapter's face is a Promise thunk it owns the lifetime behind, so
-    // the crossing happens here exactly as it does in `runKoluMcp`.
-    const connect = () => Effect.runPromise(dial);
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveKoluMcp({
-      connect,
-      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
-      transport: serverTransport,
-    });
-    const mcp = new Client({ name: "pin-client-restart", version: "0.0.0" });
-    await mcp.connect(clientTransport);
-    cleanups.push(async () => {
-      await mcp.close();
-      await close();
-    });
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-restart");
 
     // A terminal to survive the restarts.
     const created = toolJson(
@@ -595,31 +608,7 @@ describeDaemon("kolu mcp — the headless graduation pin", () => {
     const p = await startPadi(stateRoot);
     const socketPath = p.socketPath;
 
-    // The REAL local projection — `koluCliConnectionOf` is the product's own, so
-    // this pin cannot pass against a look-alike that forgets to carry `onClose`
-    // (forgetting it is precisely what #2082 was).
-    const dial = guardedMcpDial(
-      Effect.map(
-        Effect.mapError(connectPadi(socketPath), classifyDialFailure),
-        koluCliConnectionOf,
-      ),
-    );
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    const { close } = await serveKoluMcp({
-      connect: () => Effect.runPromise(dial),
-      serverInfo: { name: "kolu-mcp", version: "0.0.0-e2e" },
-      transport: serverTransport,
-    });
-    const mcp = new Client({
-      name: "pin-client-idle-restart",
-      version: "0.0.0",
-    });
-    await mcp.connect(clientTransport);
-    cleanups.push(async () => {
-      await mcp.close();
-      await close();
-    });
+    const mcp = await serveMcpOverPadi(socketPath, "pin-client-idle-restart");
 
     // Establish the shared connection the restart will kill.
     const before = (await readJson(mcp, "surface://cells/identity")) as {
