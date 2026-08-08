@@ -106,6 +106,21 @@ Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> and run **Tutorial**
 same palette opens the first terminal flow in
 [First Five Minutes](/first-five-minutes).
 
+## kolu lost my session (or my settings look wrong)
+
+kolu keeps a short history of its own state: at every boot — and once a day
+while running — the server's config store and each host's padi session file are
+copied into a rotated `backups/` ring beside the file (ten deep, unchanged
+files skipped). If a bad write ever eats your saved session or settings, open
+the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> → **Debug → Restore state
+from backup**, pick the store — the server's own, or any host's padi — and pick
+a snapshot. Each row says what it holds ("14 terminals", "preferences · 3
+hosts"), so the good snapshot is easy to spot even when the newest ones carry
+the corruption. Restoring a padi snapshot re-spawns its terminals beside your
+current ones (agents resumed, nothing killed); restoring the server store
+applies live with no restart. Every restore snapshots the current state first,
+so a restore is itself undoable.
+
 ## Something looks stuck, and I want to report it
 
 Open the palette with <kbd>Cmd/Ctrl</kbd> + <kbd>K</kbd> → **Debug → Diagnostic
