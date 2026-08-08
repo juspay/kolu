@@ -46,10 +46,10 @@
         "owner": "juspay",
         "repo": "osfacts"
       },
-      "branch": "effect-client",
+      "branch": "main",
       "submodules": false,
-      "revision": "9a92c17c9e9892ab38cf458ae974afbbeab49808",
-      "url": "https://github.com/juspay/osfacts/archive/9a92c17c9e9892ab38cf458ae974afbbeab49808.tar.gz",
+      "revision": "7cd3ab08d3690644459c90e2a866e2f784178d6d",
+      "url": "https://github.com/juspay/osfacts/archive/7cd3ab08d3690644459c90e2a866e2f784178d6d.tar.gz",
       "hash": "sha256-grRxBstfmqZ6k5cMmqLHjk3vfLCsTx+B07vPZz/kEh8="
     },
     "rhai-lsp": {
