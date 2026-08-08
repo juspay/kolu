@@ -42,6 +42,7 @@ import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
 import DiagnosticInfo from "./DiagnosticInfo";
+import StateBackupsDialog from "./StateBackupsDialog";
 import EmptyState from "./EmptyState";
 import ExportSessionDialog, {
   exportSessionDialog,
@@ -390,6 +391,7 @@ const App: Component = () => {
       />
       <ShortcutsHelp />
       <DiagnosticInfo activeId={store.activeId()} />
+      <StateBackupsDialog />
       <AboutDialog />
       <WelcomeDialog install={pwaInstall} />
       <ExportSessionDialog />
