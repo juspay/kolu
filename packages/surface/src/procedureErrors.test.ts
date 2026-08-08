@@ -7,7 +7,7 @@
  * domain error raised by a handler crossed the wire as an opaque internal
  * failure because nothing on the contract declared it, so no hop could do
  * better than collapse it. With `error` on the {@link ProcedureSpec} the
- * handler FAILS with an instance of the declared `Schema.TaggedErrorClass` and
+ * handler FAILS with an instance of the declared `Schema.TaggedError` and
  * the caller receives it decoded — same class, same `_tag`, data intact — and
  * narrows on `_tag` with no cast.
  *
@@ -28,7 +28,7 @@ import { createLoopbackPair, greetLoopback } from "./loopback";
 import { serveOverStdio } from "./peer-server";
 import { implementSurface } from "./server";
 
-class DemoContractSkew extends Schema.TaggedErrorClass<DemoContractSkew>(
+class DemoContractSkew extends Schema.TaggedError<DemoContractSkew>(
   "@kolu/surface/test/DemoContractSkew",
 )("DemoContractSkew", {
   daemonVersion: Schema.String,
