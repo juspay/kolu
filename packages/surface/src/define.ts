@@ -274,7 +274,7 @@ export interface ProcedureSpec<I = unknown, O = unknown> {
   /** When omitted the procedure returns void (success `Schema.Void`). */
   output?: WireSchema<O>;
   /** The procedure's DECLARED error channel (SK6) — one Effect Schema, normally a
-   *  `Schema.Union` of `Schema.TaggedErrorClass`es (see `./errors` for the
+   *  `Schema.Union` of `Schema.TaggedError`es (see `./errors` for the
    *  framework's own vocabulary). A declaring handler FAILS with an instance of a
    *  declared class; the caller receives it decoded, with its `_tag` and data
    *  intact, and narrows with a `_tag` check — so a typed domain error can no

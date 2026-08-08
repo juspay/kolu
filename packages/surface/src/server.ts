@@ -1713,7 +1713,7 @@ export type SurfaceCtx<S extends SurfaceSpec> = {
  *  The handler returns an `Effect`:
  *
  *    - its DECLARED failures are the `error` schema's decoded type (normally a
- *      union of `Schema.TaggedErrorClass`es — see `./errors` for the framework's
+ *      union of `Schema.TaggedError`es — see `./errors` for the framework's
  *      own vocabulary). `Effect.fail(new MyError({...}))` reaches the caller with
  *      its `_tag` and data intact, narrowed by a `_tag` check;
  *    - an UNDECLARED throw stays a DEFECT (`Effect.die`) — the crash-loudly

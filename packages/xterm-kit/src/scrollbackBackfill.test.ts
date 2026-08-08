@@ -468,20 +468,20 @@ function seedController(
 
 /** Stand-in for the DECLARED error the host raises when the terminal is gone —
  *  padi's `TerminalNotFound` (kaval's `PtyNotFound` over a direct link). Both are
- *  `Schema.TaggedErrorClass`es declared on a PROCEDURE, so unlike the stream
+ *  `Schema.TaggedError`es declared on a PROCEDURE, so unlike the stream
  *  members' undeclared twin they reach the client as the tagged instance itself,
  *  `_tag` and data intact — which is what makes narrowing here honest.
  *
  *  MODELLED rather than imported, on purpose: this kit depends on no `@kolu/*`
  *  package, and that is exactly why the recognition is a caller-supplied
  *  predicate rather than a tag string re-spelled in `scrollbackBackfill.ts`. */
-class TerminalNotFound extends Schema.TaggedErrorClass<TerminalNotFound>(
+class TerminalNotFound extends Schema.TaggedError<TerminalNotFound>(
   "xterm-kit-test/TerminalNotFound",
 )("TerminalNotFound", { id: Schema.String }) {}
 
 /** A DIFFERENT declared error from the same vocabulary — the negative control
  *  proving the predicate discriminates on the specific tag, not on "is tagged". */
-class PreviewTooLarge extends Schema.TaggedErrorClass<PreviewTooLarge>(
+class PreviewTooLarge extends Schema.TaggedError<PreviewTooLarge>(
   "xterm-kit-test/PreviewTooLarge",
 )("PreviewTooLarge", { bytes: Schema.Number }) {}
 

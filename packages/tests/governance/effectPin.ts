@@ -44,7 +44,18 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { parse as parseYaml } from "yaml";
+// Effect's own YAML parser, not the `yaml` package: this file's inputs are
+// machine-generated (pnpm-workspace.yaml), the workspace already depends on
+// Effect here, and using it drops a dependency rather than adding one. Both
+// parsers were run over the real inputs before the swap — deep-equal, and
+// faster. `unstable/` is Effect's pre-1.0-stability namespace, which is the
+// same bet this whole repo already makes on `unstable/rpc` for its wire.
+//
+// NOT a general recommendation: `@kolu/solid-markdown` deliberately keeps the
+// `yaml` package, because its input is USER-authored front matter and this
+// parser diverges there (multi-line plain scalars, cyclic anchors, a ` #`
+// comment after an apostrophe). Machine-generated input only.
+import { Yaml } from "effect/unstable/encoding";
 
 /** A single spelling of an effect-family version. */
 export interface EffectPin {
@@ -139,7 +150,7 @@ export function overridePins(relPath: string, manifest: Manifest): EffectPin[] {
 
 /** The effect-family entries of the pnpm catalog. */
 export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
-  const parsed = parseYaml(yamlText) as { catalog?: unknown };
+  const parsed = Yaml.parse(yamlText) as { catalog?: unknown };
   const out: EffectPin[] = [];
   for (const [pkg, spec] of Object.entries(record(parsed.catalog))) {
     if (isEffectFamily(pkg)) {
