@@ -1,6 +1,6 @@
 ---
 name: lowy
-description: Evaluate architecture and module boundaries for volatility-based decomposition using Juval Lowy's framework (from "Righting Software", building on Parnas 1972). Use when reviewing module splits, service boundaries, new abstractions, or any decomposition decision. Trigger on phrases like "where should this boundary be", "how to split this", "module boundaries", "encapsulate change", "volatility", or references to Lowy, Parnas, or "Righting Software". Complements /hickey (interleaved concerns) with a different lens (change encapsulation).
+description: Evaluate architecture and module boundaries for volatility-based decomposition using Juval Lowy's framework (from "Righting Software", building on Parnas 1972). Use when reviewing module splits, service boundaries, new abstractions, or any decomposition decision. Triggers on "where should this boundary be", "how to split this", "module boundaries", "volatility", or references to Lowy, Parnas, or "Righting Software". Complements /hickey (interleaved concerns) with a change-encapsulation lens.
 context: fork
 agent: Explore
 model: sonnet
@@ -8,176 +8,208 @@ model: sonnet
 
 # Lowy: Volatility-Based Decomposition Review
 
-Evaluate module boundaries and decomposition decisions using Juval Lowy's volatility-based decomposition framework. The core question: **do your boundaries encapsulate axes of change, or do they just group related functionality?**
+The core question: **do boundaries encapsulate axes of change, or just group
+related functionality?** Sources: Juval Lowy,
+[*Righting Software*](https://rightingsoftware.org/) (2019); Parnas,
+["On the Criteria…"](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf)
+(1972).
 
-Source: Juval Lowy, [*Righting Software*](https://rightingsoftware.org/) (2019), building on David Parnas, ["On the Criteria to Be Used in Decomposing Systems into Modules"](https://www.win.tue.nl/~wstomv/edu/2ip30/references/criteria_for_modularization.pdf) (1972). See also: [Volatility-Based Decomposition](https://www.informit.com/articles/article.aspx?p=2995357&seqNum=2) (book excerpt).
+**Key idea.** Functional decomposition groups code by what it does
+(UserService, PaymentController); volatility-based decomposition groups by
+what *changes*, encapsulating each axis behind a stable interface — Lowy's
+electricity receptacle: enormous supply-side volatility, one stable socket.
+Functional decomposition maximizes the blast radius of change.
 
-## Key Idea
+**Two volatility types in business logic**: *sequence* volatility (workflow
+order changes independently — belongs in orchestrators/Managers) and
+*activity* volatility (how a step is performed changes independently —
+belongs in strategies/Engines). Conflating them makes either change ripple
+into the other.
 
-**Functional decomposition** groups code by what it does (UserService, PaymentController, AuthModule). **Volatility-based decomposition** groups code by what is likely to *change* — and encapsulates each axis of change behind a stable interface.
+**Variable vs. volatile.** Not everything that varies is volatile. *"If you
+cannot clearly state what the volatility is, why it is volatile, and what risk
+it poses in likelihood and effect, look further."* Decomposing around mere
+variability produces over-engineered boundaries.
 
-> "This principle governs the design of all practical systems, from houses, to laptops, to jumbo planes, to your own body. To survive and thrive they all encapsulate the volatility of their constituent components." — Lowy
+## Scope
 
-Lowy's electricity analogy: a house's power supply has enormous volatility (AC/DC, 110v/220v, 50/60Hz, solar/grid/generator, wire gauges). All of it is encapsulated behind a receptacle. Without that encapsulation, you'd need an oscilloscope every time you plugged something in. The receptacle is the stable interface; the volatility behind it can change without affecting consumers.
+The trigger is a starting point, not a frame. Default to **whole-module
+scope**; cross-file boundary questions and sibling modules are in scope when
+the question recurs there. Don't let the framing define the scope: if the
+volatility actually lives elsewhere (the data model, a sequence/activity
+split), the redirected finding is the headline.
 
-**Functional decomposition maximizes the blast radius of change.** When boundaries track functionality rather than volatility, a single change cuts across multiple modules. "Functional decomposition is as diverse as the required functionality across all customers and points in time. The resulting huge diversity in the architecture leads directly to out-of-control complexity." Volatility-based decomposition contains the grenade in the vault.
-
-### Two Types of Volatility in Business Logic
-
-Lowy identifies two independent axes within any workflow:
-
-1. **Sequence volatility** — the *order* of steps in a workflow can change independently of what those steps do. Different customers or use cases may require different orchestrations of the same activities. This volatility belongs in orchestrators (Lowy's "Managers").
-
-2. **Activity volatility** — *how* a specific activity is performed can change independently of the sequence it appears in. There may be an unknown number of ways to do the same activity (different algorithms, providers, strategies). This volatility belongs in strategy components (Lowy's "Engines").
-
-Conflating these two — putting orchestration logic and activity logic in the same module — means a change to either axis ripples into the other.
-
-### Variable vs. Volatile
-
-Not everything that varies is volatile. Lowy makes a critical distinction: adding an attribute to a data model is *variable* but not *volatile* — the architecture won't suffer. **"If you cannot clearly state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect, then you need to look further."** Decomposing around things that merely vary (rather than things that are genuinely volatile) produces over-engineered boundaries that add cost without containing real change.
-
-## Scope of Review
-
-The trigger — "review this boundary", "should we split X", "look at module Y", a `/do` diff inside one component — is a *starting point*, not a frame. Volatility-based decomposition is most legible at module boundaries; reviewing only the lines the user (or upstream issue) pointed at is how a missing volatility seam in the surrounding module gets missed.
-
-**Default to whole-module scope.** When the trigger lives inside a single file or component, read the whole file — not just the cited region. When invoked on a multi-file diff, each touched file is in scope, and cross-file boundary questions (does this volatility actually live in one place, or is it sprayed across modules?) are in scope too. Sibling modules are fair game when the same boundary question recurs there.
-
-**Don't let the user's framing define the scope.** A trigger that says "extract this into a new component" implies the boundary is the right shape and only the placement is wrong; if the surrounding module shows the volatility axis is actually elsewhere — the data model, the consumer pattern, a sequence/activity split — name *that*, even when the implied fix lands at a different layer than the trigger suggests. The reviewer's job is to surface what the evidence says about volatility, not to confirm the trigger's framing.
-
-**Push back when the evidence contradicts the trigger.** If the prompt narrows the question to one boundary but the surrounding code shows the volatility doesn't track that boundary at all, the redirected finding is the headline, not a footnote. *"Issue #N described a UI extraction; the volatility actually splits the data model into two kinds"* is a valid first finding, not an out-of-scope tangent.
-
-**The graduation sweep (both directions).** Reviewing a diff for boundaries means asking the boundary question in *both* directions: not only "did volatility leak *into* a module where it doesn't belong?" (containment) but also "does this diff *create* app-local machinery that *hides* a hard volatility — transport, connection lifetime, reconnection, multiplicity racing user intent — and therefore wants its own receptacle/package?" (graduation). For each such mechanism, name the volatility it encapsulates and the home it wants, even at a population of one consumer (§6's single-consumer rule already admits this). Report these as recorded opportunities, never blockers: a prove-then-extract discipline governs *when* to extract; the review's job is that candidates are named and land in a ledger instead of staying invisible.
+**The graduation sweep — ask the boundary question in both directions**: did
+volatility leak *into* a module (containment)? And does the diff *create*
+app-local machinery hiding a hard volatility (transport, connection lifetime,
+reconnection, multiplicity racing user intent) that wants its own
+receptacle/package (graduation)? Name each candidate's volatility and wanted
+home — as recorded opportunities, never blockers; prove-then-extract governs
+*when*.
 
 ## The Evaluation
 
-For every module boundary, service split, or new abstraction in the code under review:
+For every boundary, split, or new abstraction:
 
 ### 1. Name the Volatility
 
-What is likely to change behind this boundary? Be specific — not "requirements might change" but "the payment provider, the auth protocol, the notification channel." If you can't name concrete axes of change, the boundary may be arbitrary.
+Be specific — "the payment provider", not "requirements might change". No
+concrete axis → the boundary may be arbitrary.
 
-**Consider project-declared areas of volatility.** If the project has enumerated its own areas of volatility — the term of art Lowy uses throughout *Righting Software* — read `.agency/lowy.md` if it exists. Its content is project-specific (inline rows or a pointer to another file). The schema, loosely modeled on Lowy's TradeMe enumeration (*Righting Software*, Ch. 5), is:
+**Project-declared areas of volatility**: read `.agency/lowy.md` if it exists
+(table: area · what changes · why volatile (likelihood × effect) · expected
+encapsulation). Its rows are surviving candidates, not findings and not above
+review: (a) re-apply Lowy's bar and challenge rows that fail it; (b) audit
+whether the boundaries under review actually encapsulate the surviving
+volatilities in one place.
 
-| Area of volatility | What changes | Why volatile (likelihood × effect) | Expected encapsulation |
-|--------------------|--------------|------------------------------------|------------------------|
+**Check for prior encapsulation.** Search for the canonical receptacle the
+project already has for this axis (command palette for "pick a thing", generic
+dialog for modal interaction, orchestrator for sequence, strategy registry for
+activity, one tagged error type for failure modes). **A parallel receptacle
+for an already-encapsulated axis is duplicated volatility encapsulation — a
+first-class finding**, surfaced before any critique inside the new
+abstraction. "New domain, same kind" duplicates the receptacle, not the
+volatility. Budget: run this survey when the diff adds a new top-level
+module/boundary (`git diff --diff-filter=A --name-only origin/HEAD...HEAD`
+non-empty).
 
-Rows in that table are **surviving candidates** after the project's own variable-vs-volatile screen (see §"Variable vs. Volatile" above). They are not findings, and they are not above review. Do two things with each row: (a) re-apply Lowy's bar — _"state what the volatility is, why it is volatile, and what risk the volatility poses in terms of likelihood and effect"_ — and challenge any row that fails it (Lowy: _"It is important to discuss the volatility candidates this way and even challenge them"_); (b) audit whether the boundaries under review actually encapsulate the surviving volatilities in a single component, rather than spraying or leaking them across modules.
+**Speculative volatility is not volatility** — a scenario counts only if it
+has happened, is on a roadmap, or is a near-certain consequence of the domain.
+**Weak volatility may not deserve its own boundary** — ask whether it
+justifies the cost or folds into an existing one.
 
-**Check for prior encapsulation.** Before declaring this boundary necessary, search the codebase for the canonical receptacle the project already uses for the same volatility axis. The command palette is the receptacle for "pick a thing" volatility; a generic dialog is the receptacle for modal-interaction volatility; an orchestrator module is the receptacle for sequence volatility within a workflow; a strategy registry is the receptacle for activity volatility; a single error type with a tag is the receptacle for failure-mode volatility. **If the diff creates a parallel receptacle for a volatility axis the project has already encapsulated, that is duplicated volatility encapsulation — a first-class finding under this lens.** Surface it before any micro-level boundary critique inside the new abstraction. The implementer's "this is a new kind of [picker / dialog / scheduler / error] for a new domain" framing is the trap: "new domain, same kind" duplicates the receptacle, not the volatility — and a duplicated receptacle maximizes change blast radius exactly the way functional decomposition does.
+### 2. Classify
 
-Budget heuristic: this survey is worth its cost when the diff introduces a new top-level module, component, or boundary — typically signalled by `git diff --diff-filter=A --name-only origin/HEAD...HEAD` being non-empty. Pure refactors that don't add new boundaries are exempt.
-
-**Speculative volatility is not volatility.** A change scenario counts only if it has happened before, is on a roadmap, or is a near-certain consequence of the domain (e.g. "payment providers change" in e-commerce). "What if we swap color spaces" in an app that has never swapped color spaces is speculation, not an axis of change. Lowy's framework is about *observed* or *plausible* volatility — designing for hypothetical change is over-engineering, not encapsulation.
-
-**Weak volatility may not deserve its own boundary.** Some volatilities are real but too minor to justify a separate component. Lowy's example: notification delivery might be volatile, but if the system already has a message bus utility, a dedicated NotificationManager adds complexity without containing meaningful additional change. Ask: does this volatility justify the cost of an additional boundary, or can it be folded into an existing one?
-
-### 2. Classify the Volatility
-
-Is the volatility about *sequence* (the order/orchestration of a workflow) or *activity* (how a specific step is performed)? These are independent axes and should be encapsulated separately. A module that mixes both will be modified for two unrelated reasons.
-
-Also check for *domain decomposition* — boundaries drawn around domain entities (ProjectService, TradesmanModule, AccountsManager) rather than around axes of change. Domain decomposition is functional decomposition wearing a domain hat. Lowy warns: it creates ambiguity about who does what and when, duplicates functionality across domain lines, and is nearly impossible to validate against use cases.
+Sequence or activity? Also flag *domain decomposition* — boundaries around
+domain entities (ProjectService, AccountsManager) are functional decomposition
+in a domain hat.
 
 ### 3. Functional vs. Volatility Boundary
 
-Does this boundary exist because the code *does something different* (functional), or because what's behind it *changes independently* (volatility)? Functional boundaries look clean on day one but fracture under change. A `UserService` that groups all user operations is functional decomposition — the volatility of auth, profile data, and notification preferences are unrelated axes of change jammed behind one boundary.
-
-**The naming test.** Lowy uses naming conventions as a diagnostic. Orchestrator names should be nouns associated with the encapsulated volatility (AccountManager, MarketManager — good; BillingManager — bad, the gerund "billing" signals functional grouping around an activity). Strategy/engine names should indicate the volatile activity (SearchEngine, TransformationEngine — good; AccountEngine — bad, no indication of what activity varies). If you struggle to name the component after a volatility axis, it may not encapsulate one.
+Does the boundary exist because the code *does something different*, or
+because what's behind it *changes independently*? **The naming test**:
+orchestrators named for the encapsulated volatility (AccountManager — good;
+BillingManager — bad, the gerund signals functional grouping); engines named
+for the volatile activity (SearchEngine — good; AccountEngine — bad). Can't
+name it after an axis → it may not encapsulate one.
 
 ### 4. Change Blast Radius
 
-For a plausible change scenario (new provider, new format, new rule), trace how many modules would need to be modified. If the change leaks across boundaries, the decomposition is functional, not volatility-based.
-
-**Volatility should decrease downward.** In a layered system, higher layers (clients, UI) should be the most volatile, and lower layers (data access, infrastructure) should be the least volatile. "The components in the lower layers have more items that depend on them. If the components you depend upon the most are also the most volatile, your system will implode." If high volatility lives deep in the stack, the blast radius of change is maximized.
-
-**Check symmetry.** All good architectures are symmetric — you should see the same calling patterns across similar modules. If three of four workflows publish events but the fourth doesn't, or only one module has a particular coupling pattern, that asymmetry is a red flag for functional decomposition or a missed volatility axis. Symmetry can also be broken by the *presence* of something, not just its absence.
+Trace a plausible change through the modules; leaking across boundaries =
+functional decomposition. **Volatility should decrease downward** — the most
+depended-upon components must be the least volatile. **Check symmetry**:
+similar modules should show the same calling patterns; an asymmetry (present
+or absent) flags a missed axis.
 
 ### 5. Interface Stability
 
-Is the interface between modules stable under the changes the module encapsulates? The receptacle doesn't change when you switch from grid to solar. If the interface must change when the encapsulated volatility changes, the abstraction is leaking.
-
-**Expose atomic business verbs, not implementation operations.** Lowy's key interface design principle: interfaces should expose indivisible business-level operations (credit, debit, transfer) rather than CRUD or implementation details. "Atomic business verbs are practically immutable because they relate strongly to the nature of the business which hardly ever changes." An interface that exposes `OpenPort()`, `ClosePort()`, `AdjustBeam()` alongside `ReadCode()` is mixing communication volatility with reading volatility — two axes jammed behind one interface.
-
-**Good interfaces are reusable; implementations never are.** Lowy's "tool-hand" analogy: a stone axe and a computer mouse have nothing in common internally, but both reuse the same hand interface. If an interface can only be used by one consumer, it may be shaped around the implementation (functional) rather than around a stable contract (volatility-based). Well-designed contracts are logically consistent (operations form a coherent unit), cohesive (all aspects required, no more, no less), and independent (each stands alone).
+The receptacle doesn't change when you switch grid to solar — an interface
+that changes with the encapsulated volatility is leaking. **Expose atomic
+business verbs** (credit, debit, transfer), not implementation operations; an
+interface mixing `OpenPort`/`ClosePort` with `ReadCode` jams two axes behind
+one contract. Good interfaces are reusable (the tool-hand analogy);
+implementations never are.
 
 ### 6. Reuse Signal
 
-Volatility-based building blocks are reusable because they encapsulate one axis of change. If a module can only be used in one context, it may be encapsulating functionality rather than volatility.
-
-Lowy observes that reuse increases downward through layers: infrastructure and data-access components should be highly reusable across contexts, business-logic orchestrators are reusable across multiple clients, and clients/UI are rarely reusable. If a lower-layer component is locked to a single consumer, the boundary likely tracks functionality rather than a genuine axis of change.
-
-**Single in-tree consumer is not disqualifying when the interface is stable under the encapsulated axis.** §5's bar is whether the interface would survive the volatility it claims to encapsulate — not whether it currently has more than one importer. A receptacle with one wire plugged in is still a receptacle. The published precedent: [`@kolu/surface`](https://kolu.dev/blog/surface-framework/) (and its peers `@kolu/solid-pierre`, the seven `@kolu/*` packages graduated from the [kolu#998 ralph loop](https://github.com/juspay/kolu/pull/998)) extracted from single-in-tree-consumer code. Each encapsulates a stable volatility axis its README names explicitly. The reuse-count check would have killed all of them. The interface-stability check admits them — correctly. The shape that disqualifies is *"the interface mirrors the implementation"*, not *"only one place imports it today"*.
+Reuse increases downward through layers; a lower-layer component locked to a
+single consumer suggests functionality-tracking. **But single in-tree
+consumer is not disqualifying when the interface is stable under the
+encapsulated axis** — a receptacle with one wire plugged in is still a
+receptacle (precedent: [`@kolu/surface`](https://kolu.dev/blog/surface-framework/)
+and the kolu#998 graduations, all extracted at one consumer). The
+disqualifying shape is *"the interface mirrors the implementation"*, not
+*"one importer today"*.
 
 ### 6.5 Package Coherence
 
-When the extraction crosses a *package* boundary (not just a module within the same package), the reviewer's job is not done after naming one volatility axis. The package as a whole must read as a **coherent library** — one concept, one socket. If the package ships three exports for three internal aspects of what should be one primitive, you have shipped *partial wiring*, not a receptacle.
+When an extraction crosses a *package* boundary, the package must read as
+**one concept, one socket**. For each new published-shape package:
 
-Run this check whenever the extraction adds a new published-shape package (`@org/foo`):
+1. **Read the exports list as a new consumer** — one coherent thing, or a
+   topic-bundle? (`@kolu/surface` exports `defineSurface` — coherent.
+   `@kolu/solid-xterm@0.1` exported `createXtermWebgl` +
+   `attachXtermStyleSync` + `createScrollLock` — three internal aspects
+   leaked; the fix, `@0.2.0` commit
+   [`4af1c647`](https://github.com/juspay/kolu/commit/4af1c647), is one
+   `createSolidXterm(…)` primitive hiding them as submodules.)
+2. **§5's atomic-verb rule at package altitude** — `createX_webgl` /
+   `attachX_style` / `createX_scroll` is three operations on three axes, not
+   one abstraction.
+3. **The Surface test** — one entry point per coherent concept, internal
+   submodules hidden; even exports that individually pass §5 can collectively
+   fail this.
+4. **The "consumer wires it together" smell** — a consumer importing several
+   exports and composing them by hand means the missing primitive is the
+   composition.
 
-1. **Read the package's exports list as if you were a new consumer.** Does it suggest one coherent thing or a topic-bundle?
-   - `@kolu/surface` exports `defineSurface` → one entry, one concept (typed reactive layer). Coherent.
-   - `@kolu/solid-xterm@0.1` (kolu#998 cycle 3–5) exported `createXtermWebgl`, `attachXtermStyleSync`, `createScrollLock` → three entries, three internal aspects of "xterm lifecycle" leaked through three exports. Not a coherent SolidJS adapter for xterm; a topic-bundle of three xterm-adjacent helpers. The fix shipped in `@kolu/solid-xterm@0.2.0` (commit [`4af1c647`](https://github.com/juspay/kolu/commit/4af1c647)) is one `createSolidXterm({ container, theme, fontSize, addons, webgl, scrollLock, ... })` primitive that hides WebGL / style / scroll as internal submodules.
-
-2. **Apply §5's atomic-verb rule at the package level.** §5 already warns that an interface exposing `OpenPort` / `ClosePort` / `AdjustBeam` alongside `ReadCode` mixes axes. A package exporting `createX_webgl` / `attachX_style` / `createX_scroll` does the same thing one altitude up: the package's surface is three operations on three axes, not one atomic abstraction.
-
-3. **The Surface test.** If the package's exports list does not resemble Surface's shape — *one entry point per coherent concept, with internal submodules hidden* — the package is shaped around the implementation, not around a stable contract. Even if each individual export passes §5 in isolation, the *package* fails the test.
-
-4. **The "consumer wires it together" smell.** If the only in-tree consumer imports several of the package's exports and then composes them by hand — the way `Terminal.tsx` had to wire `createXtermWebgl` + `attachXtermStyleSync` + `createScrollLock` + a bare `XTerm` constructor + 8 addon imports in v0.1 — the missing primitive is the composition. The package is shipping submodules and asking the consumer to be the integrator. Wrap them.
-
-**Action when this fires.** Re-extract behind a single primitive that owns the integrated lifecycle; demote the current exports to internal submodules of that primitive. The Lowy verdict is not "don't extract" — it's "extract one socket, not three wires."
+Verdict when it fires: not "don't extract" — **"extract one socket, not three
+wires."**
 
 ### 7. The Almost-Expendable Test
 
-Lowy's litmus test for correct decomposition: when a change request arrives, the response should be *contemplative* — you think through how to adapt. If a module is *expensive* to change, it's too big (functional decomposition has coupled unrelated concerns). If a module is *expendable* (trivially thrown away), it's an unnecessary boundary. If a module is *almost expendable* — it encapsulates just enough to contain one axis of change, and replacing it is straightforward but not trivial — the decomposition is correct.
+Expensive to change → too big (coupled concerns). Trivially expendable → an
+unnecessary boundary. *Almost* expendable — contains one axis, replaceable
+with thought but not trivially — correct.
 
 ## Fact-Check Your Own Evaluation
 
-After completing all steps, **invoke `/fact-check` on your own output**. The fact-check catches:
+Invoke `/fact-check` on your own output. It catches findings talked away,
+functional boundaries rationalized without a named axis, untraced change
+scenarios, and domain decomposition in volatility clothing.
 
-- Findings you talked yourself out of ("However, this is a reasonable grouping..." / "acceptable for now")
-- Functional boundaries rationalized as volatility boundaries without naming the concrete axis of change
-- "Low blast radius" used as a synonym for "ignore"
-- Change scenarios you didn't actually trace through the code
-- Domain decomposition dressed up as volatility decomposition
+**Phrase shapes that mean you stopped one step early**:
 
-**Flag these phrase shapes** — they mean you stopped one step early:
+- *"could also be seen as encapsulating volatility"* — name the axis or it's
+  functional.
+- *"the interface would only need minor changes"* — minor changes are still
+  leaking; the receptacle changes not at all.
+- *"only used in one place, but that's fine"* — investigate; and conversely
+  *"fails Lowy's reuse test"* on import count alone is a symptom, not a
+  diagnosis — cite the axis (§5), not the count.
+- *"follows the framework's conventions"* — convention is not volatility
+  analysis.
+- *"could theoretically change independently"* — no concrete scenario, no
+  axis.
+- *"out of scope" / "pre-existing"* — process judgment; there is no defer,
+  fix it in this PR.
+- *"encapsulates [domain entity]"* — entities are not axes; what *about* the
+  entity changes?
+- *"variable, so we should encapsulate it"* — variable is not volatile.
+- *"a new kind of [picker/dialog/error] for a new domain"* — run the
+  prior-encapsulation check; a parallel receptacle is duplicated
+  encapsulation.
+- *"each export passes §5 in isolation"* — §6.5 fires per package; read the
+  exports list as a consumer and ask "what library is this?"
 
-- _"This boundary groups related functionality but could also be seen as encapsulating volatility"_ — name the volatility or it's functional decomposition. "Could be seen as" is not an axis of change.
-- _"The interface would only need minor changes"_ — minor interface changes are still leaking. The receptacle doesn't change at all.
-- _"This module is only used in one place, but that's fine for now"_ — single-use is the reuse signal firing. Investigate.
-- _"The boundary follows the framework's conventions"_ — framework conventions are functional decomposition by default. Convention is not volatility analysis.
-- _"This could theoretically change independently"_ — theoretical independence without a concrete change scenario is wishful thinking.
-- _"Out of scope for this PR" / "pre-existing"_ — process judgment, not a volatility judgment. There is no defer; fix it in this PR. The PR's scope expands to absorb the finding.
-- _"The module encapsulates [domain entity]"_ — domain entities are not volatility axes. What *about* the entity changes? Name the specific volatility or it's domain decomposition.
-- _"This is variable, so we should encapsulate it"_ — variable is not volatile. Can you state the risk in terms of likelihood and effect?
-- _"this is a new kind of [picker / dialog / scheduler / error type] for a new domain"_ — "new domain, same kind" duplicates the receptacle, not the volatility axis. Run the prior-encapsulation check from §1: the canonical pattern (command palette, generic dialog, single tagged error, etc.) is already the receptacle for this volatility. A parallel encapsulation is duplicated encapsulation, which maximizes change blast radius the same way functional decomposition does.
-- _"Fails Lowy's reuse test"_ (when based on import count alone) — reuse-count is a symptom, not a diagnosis. The diagnosis is §5's interface-stability check. An interface can have one importer today and a perfectly stable contract; ten importers and still be shaped around its implementation. Cite the axis, not the count.
-- _"Each export passes §5 in isolation"_ (without checking the package surface) — §5 fires per interface; §6.5 fires per package. Three coherent helpers in one package can collectively fail the package-coherence check if their union suggests one thing the package doesn't actually deliver. Read the exports list as a consumer would and ask "what library is this?" — if the answer is a topic-bundle ("xterm-adjacent helpers") rather than a primitive ("SolidJS adapter for xterm"), §6.5 applies.
-
-If fact-check finds issues, revise before presenting to the user.
+Revise before presenting if fact-check finds issues.
 
 ## Output Format
 
-1. **Boundaries examined** — List each module boundary or decomposition decision reviewed.
-2. **Volatility map** — For each boundary: what volatility it encapsulates (or fails to), classified as sequence or activity volatility where applicable.
-3. **Findings** — Boundaries that track functionality rather than volatility, with blast-radius analysis. Include symmetry violations and layering inversions.
-4. **Simplifications** — Concrete restructuring to align boundaries with axes of change.
-5. **Fact-check result** — Output of `/fact-check` on this evaluation, including the phrase-shape check.
-6. **Actions** — One entry per finding, formatted so a downstream step (e.g. `/do`'s PR comment composer) can lift each entry into a table row. Each entry **starts with a short bolded finding label (≤8 words)** naming *what* is wrong, then dispositions it as exactly one of:
-   - **Fix in this PR**: one-line description of what the implementation step must do. This is the only forward-action disposition. The PR's scope expands to absorb every finding.
-   - **No-op**: reserved for findings that need no code action — the diff already deletes the offending code, or the finding is subsumed verbatim by another finding in this same review. Treat this as the rare exception.
+1. **Boundaries examined**
+2. **Volatility map** — per boundary, the axis (sequence/activity) it
+   encapsulates or fails to
+3. **Findings** — functionality-tracking boundaries with blast-radius
+   analysis; symmetry violations; layering inversions
+4. **Simplifications** — concrete restructuring per finding
+5. **Fact-check result** — including the phrase-shape check
+6. **Actions** — one entry per finding (every finding, including
+   "pre-existing"/"orthogonal" ones — a finding absent here was dismissed),
+   each starting with a **bolded label (≤8 words)** and exactly one
+   disposition: **Fix in this PR** (the only forward action; scope expands to
+   absorb it) or **No-op** (rare: diff already deletes it, or subsumed
+   verbatim by another entry). **There is no Defer.**
 
-   **There is no Defer disposition.** "Out of scope", "pre-existing", "follow-up refactor", "should be its own PR" are not dispositions — they are process judgments dressed up as volatility analysis. Every finding must appear here — including those labeled "pre-existing" or "orthogonal" — and every finding either gets fixed in this PR or is a No-op. A finding that never reaches this section has been dismissed.
-
-Example: `**useViewport encapsulates ghost concern** — Fix in this PR: delete the hook, let FitAddon measure per-tile.`
-
-No findings → "No actions." Findings without actions = incomplete review.
+   Example: `**useViewport encapsulates ghost concern** — Fix in this PR:
+   delete the hook, let FitAddon measure per-tile.`
 
 ## Relationship to /hickey
 
-This skill and `/hickey` are complementary lenses. Hickey asks "are independent concerns interleaved?" Lowy asks "do boundaries encapsulate axes of change?" Run both on architectural decisions for full coverage.
-
-### When Hickey and Lowy Disagree
-
-The two lenses can produce conflicting recommendations. Lowy may say "merge these — shared volatility is duplicated across both" while Hickey says "keep them separate — a mode flag would complect configuration with implementation." Neither lens is wrong; they're optimizing for different things.
-
-The resolution pattern: **unify the volatile axis without complecting the strategies.** Typically this means a wrapper or shared module that encapsulates the volatile part (satisfying Lowy) while the distinct strategies remain private and uncomplected (satisfying Hickey). If merging for blast-radius reduction requires a mode flag, conditional branching, or type-switching — that's complecting. Find the layer where unification is mechanical (a shared function, a common interface, a single config source) rather than conditional.
+Complementary lenses: Hickey asks "are independent concerns interleaved?";
+Lowy asks "do boundaries encapsulate axes of change?" Run both on
+architectural decisions. When they disagree (Lowy: merge the shared
+volatility; Hickey: a mode flag would complect), **unify the volatile axis
+without complecting the strategies** — a shared module encapsulating the
+volatile part while strategies stay private. If unification needs a mode flag
+or type-switch, that's complecting; find the layer where it's mechanical.
